@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from executor_service.application.services import ExecutionService
 from executor_service.config import Settings
+from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.repositories import SQLAlchemyUnitOfWork
 from executor_service.infrastructure.db.session import create_engine, create_session_factory
 from executor_service.infrastructure.execution_queries import SQLAlchemyExecutionQueryService
@@ -14,7 +15,7 @@ from executor_service.infrastructure.jupyter_registry import JupyterServerRegist
 from executor_service.infrastructure.outbox import OutboxPublisher
 from executor_service.infrastructure.worker import ExecutionWorker
 
-EXPECTED_SCHEMA_REVISION = "0005"
+EXPECTED_SCHEMA_REVISION = "0006"
 
 
 class ApplicationContainer:
@@ -28,6 +29,7 @@ class ApplicationContainer:
         )
         self.execution_queries = SQLAlchemyExecutionQueryService(self.session_factory)
         self.jupyter_registry = JupyterServerRegistry(self.session_factory, settings)
+        self.artifact_manager = ExecutionArtifactManager(self.session_factory, settings)
         self.outbox_publisher = OutboxPublisher(
             session_factory=self.session_factory,
             redis=self.redis,
@@ -40,6 +42,7 @@ class ApplicationContainer:
             redis=self.redis,
             settings=settings,
             registry=self.jupyter_registry,
+            artifact_manager=self.artifact_manager,
         )
 
     async def start(self) -> None:

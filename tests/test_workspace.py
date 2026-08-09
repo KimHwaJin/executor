@@ -46,6 +46,30 @@ def test_workspace_uses_expected_pv_hierarchy_and_writes_notebook(tmp_path: Path
         "session-1",
     )
     assert cells == ["print(1)", "2 + 2"]
+    assert {
+        path.relative_to(workspace.artifacts_dir).as_posix()
+        for path in (
+            workspace.datasets_dir,
+            workspace.plots_dir,
+            workspace.models_dir,
+            workspace.metrics_dir,
+            workspace.reports_dir,
+            workspace.logs_dir,
+            workspace.other_dir,
+        )
+    } == {"datasets", "plots", "models", "metrics", "reports", "logs", "other"}
+    assert all(
+        path.is_dir()
+        for path in (
+            workspace.datasets_dir,
+            workspace.plots_dir,
+            workspace.models_dir,
+            workspace.metrics_dir,
+            workspace.reports_dir,
+            workspace.logs_dir,
+            workspace.other_dir,
+        )
+    )
 
     manager.write_notebook(
         workspace,

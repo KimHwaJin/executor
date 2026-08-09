@@ -17,6 +17,7 @@ from sqlalchemy.orm import selectinload
 
 from executor_service.config import Settings
 from executor_service.domain.enums import (
+    ArtifactStatus,
     AttemptStatus,
     ExecutionMode,
     ExecutionStatus,
@@ -24,6 +25,7 @@ from executor_service.domain.enums import (
     StepStatus,
 )
 from executor_service.domain.models import OutboxEvent, utc_now
+from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
     ExecutionORM,
@@ -49,11 +51,13 @@ class ExecutionWorker:
         redis: Redis,
         settings: Settings,
         registry: JupyterServerRegistry,
+        artifact_manager: ExecutionArtifactManager,
     ) -> None:
         self._session_factory = session_factory
         self._redis = redis
         self._settings = settings
         self._registry = registry
+        self._artifacts = artifact_manager
         self._workspace = WorkspaceManager(settings.workspace_host_root)
         self._consumer_name = settings.execution_consumer_name or (
             f"{socket.gethostname()}-{os.getpid()}"
@@ -268,6 +272,7 @@ class ExecutionWorker:
                 execution_counts: list[int | None] = [None] * len(all_outputs)
                 for sequence in range(start_sequence, len(cells)):
                     code = cells[sequence]
+                    artifact_snapshot = self._artifacts.snapshot(workspace)
                     await self._step_started(execution.id, attempt_id, sequence)
                     try:
                         result = await gateway.execute_cell(kernel_id, code)
@@ -285,6 +290,26 @@ class ExecutionWorker:
                         self._workspace.write_notebook(
                             workspace, cells[: sequence + 1], all_outputs, execution_counts
                         )
+                        try:
+                            await self._artifacts.discover_and_register(
+                                workspace=workspace,
+                                before=artifact_snapshot,
+                                execution_id=execution.id,
+                                attempt_id=attempt_id,
+                                sequence=sequence,
+                                status=ArtifactStatus.INCOMPLETE,
+                            )
+                        except Exception as artifact_exc:
+                            await self._record_artifact_failure(
+                                execution.id,
+                                attempt_id,
+                                sequence,
+                                artifact_exc,
+                            )
+                            logger.warning(
+                                "Incomplete Artifact registration failed",
+                                extra={"execution_id": str(execution.id)},
+                            )
                         raise
                     all_outputs.append(result.outputs)
                     execution_counts.append(result.execution_count)
@@ -294,6 +319,29 @@ class ExecutionWorker:
                     self._workspace.write_notebook(
                         workspace, cells[: sequence + 1], all_outputs, execution_counts
                     )
+                    try:
+                        await self._artifacts.discover_and_register(
+                            workspace=workspace,
+                            before=artifact_snapshot,
+                            execution_id=execution.id,
+                            attempt_id=attempt_id,
+                            sequence=sequence,
+                            status=ArtifactStatus.AVAILABLE,
+                        )
+                    except Exception as artifact_exc:
+                        await self._record_artifact_failure(
+                            execution.id,
+                            attempt_id,
+                            sequence,
+                            artifact_exc,
+                        )
+                        raise
+                await self._artifacts.register_notebook(
+                    workspace=workspace,
+                    execution_id=execution.id,
+                    attempt_id=attempt_id,
+                    sequence=len(cells) - 1,
+                )
                 await gateway.delete_kernel(kernel_id)
                 await self._finalize(execution.id, attempt_id, ExecutionStatus.SUCCEEDED)
             except asyncio.CancelledError:
@@ -630,6 +678,34 @@ class ExecutionWorker:
                     )
                     .values(heartbeat_at=now, lease_expires_at=lease)
                 )
+
+    async def _record_artifact_failure(
+        self,
+        execution_id: UUID,
+        attempt_id: UUID,
+        sequence: int,
+        error: Exception,
+    ) -> None:
+        try:
+            async with self._session_factory() as session, session.begin():
+                event = OutboxEvent(
+                    aggregate_type="Execution",
+                    aggregate_id=execution_id,
+                    event_type="execution.artifact_failed",
+                    payload={
+                        "execution_id": str(execution_id),
+                        "execution_attempt_id": str(attempt_id),
+                        "sequence": sequence,
+                        "error_type": type(error).__name__,
+                    },
+                )
+                session.add(OutboxEventORM.from_domain(event))
+        except Exception:
+            # Never replace the original execution or Artifact error with telemetry failure.
+            logger.exception(
+                "Artifact failure event persistence failed",
+                extra={"execution_id": str(execution_id)},
+            )
 
     async def _finalize(
         self,

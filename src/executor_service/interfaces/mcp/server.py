@@ -20,6 +20,7 @@ from executor_service.application.services import ExecutionService
 from executor_service.domain.enums import JupyterPool, JupyterServerStatus
 from executor_service.domain.errors import DomainError
 from executor_service.interfaces.mcp.schemas import (
+    ExecutionArtifactResponse,
     ExecutionAttemptResponse,
     ExecutionCancelRequest,
     ExecutionEventResponse,
@@ -69,6 +70,8 @@ def build_mcp_server(
                 "execution_attempt_list",
                 "execution_event_list",
                 "execution_trace_get",
+                "execution_artifact_list",
+                "execution_artifact_get",
             )
         return ExecutorCapabilities(
             tools=ExecutorCapabilities().tools + management_tools + query_tools
@@ -206,6 +209,45 @@ def build_mcp_server(
                 tool="execution_trace_get", outcome="success"
             ).inc()
             return ExecutionTraceResponse.from_view(view)
+
+        @server.tool(
+            description=(
+                "List Artifacts produced by an execution with Attempt, Step, storage, checksum, "
+                "and lineage references."
+            )
+        )
+        async def execution_artifact_list(
+            execution_id: UUID, limit: int = 500
+        ) -> list[ExecutionArtifactResponse]:
+            try:
+                views = await execution_queries.artifacts(
+                    execution_id, limit=max(1, min(limit, 1000))
+                )
+            except DomainError as exc:
+                MCP_TOOL_CALLS.labels(
+                    tool="execution_artifact_list", outcome="error"
+                ).inc()
+                raise ToolError(str(exc)) from exc
+            MCP_TOOL_CALLS.labels(
+                tool="execution_artifact_list", outcome="success"
+            ).inc()
+            return [ExecutionArtifactResponse.from_view(view) for view in views]
+
+        @server.tool(
+            description="Get one Execution Artifact and its direct lineage references."
+        )
+        async def execution_artifact_get(artifact_id: UUID) -> ExecutionArtifactResponse:
+            try:
+                view = await execution_queries.artifact(artifact_id)
+            except DomainError as exc:
+                MCP_TOOL_CALLS.labels(
+                    tool="execution_artifact_get", outcome="error"
+                ).inc()
+                raise ToolError(str(exc)) from exc
+            MCP_TOOL_CALLS.labels(
+                tool="execution_artifact_get", outcome="success"
+            ).inc()
+            return ExecutionArtifactResponse.from_view(view)
 
     if jupyter_manager is not None:
 

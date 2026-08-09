@@ -29,7 +29,7 @@ async def main() -> None:
                             "print(sum(numbers))\n"
                             "# %%\n"
                             "from pathlib import Path\n"
-                            "Path('artifacts/result.txt').write_text("
+                            "Path('artifacts/other/result.txt').write_text("
                             "'completed', encoding='utf-8')\n"
                             "len(numbers)\n"
                         ),
@@ -62,7 +62,7 @@ async def main() -> None:
 
         settings = get_settings()
         notebook = settings.workspace_host_root / Path(terminal["notebook_path"])
-        artifact = notebook.parents[1] / "artifacts" / "result.txt"
+        artifact = notebook.parents[1] / "artifacts" / "other" / "result.txt"
         if not notebook.is_file() or artifact.read_text(encoding="utf-8") != "completed":
             raise RuntimeError("Expected notebook or artifact was not created.")
         print("execution_id:", execution_id)
