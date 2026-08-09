@@ -14,13 +14,15 @@ from executor_service.infrastructure.jupyter import JupyterGateway
 from executor_service.infrastructure.jupyter_registry import JupyterServerRegistry
 from executor_service.infrastructure.outbox import OutboxPublisher
 from executor_service.infrastructure.worker import ExecutionWorker
+from executor_service.tracing import TracingManager
 
-EXPECTED_SCHEMA_REVISION = "0009"
+EXPECTED_SCHEMA_REVISION = "0010"
 
 
 class ApplicationContainer:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
+        self.tracing = TracingManager(settings)
         self.engine: AsyncEngine = create_engine(settings.database_dsn)
         self.session_factory = create_session_factory(self.engine)
         self.redis: Redis = Redis.from_url(settings.redis_dsn, decode_responses=True)
@@ -36,6 +38,7 @@ class ApplicationContainer:
             stream_name=settings.redis_stream,
             poll_interval_seconds=settings.outbox_poll_interval_seconds,
             batch_size=settings.outbox_batch_size,
+            tracing=self.tracing,
         )
         self.execution_worker = ExecutionWorker(
             session_factory=self.session_factory,
@@ -43,6 +46,7 @@ class ApplicationContainer:
             settings=settings,
             registry=self.jupyter_registry,
             artifact_manager=self.artifact_manager,
+            tracing=self.tracing,
         )
 
     async def start(self) -> None:
@@ -67,6 +71,7 @@ class ApplicationContainer:
         await self.execution_worker.stop()
         await self.jupyter_registry.stop()
         await self.outbox_publisher.stop()
+        await self.tracing.shutdown()
         await self.redis.aclose()
         await self.engine.dispose()
 

@@ -98,17 +98,20 @@ reusable across all projects owned by the same user or only within its source pr
 - No user/project visibility rule in Executor.
 - Agent/API Asset CRUD remains outside this repository.
 
-## Planned observability integration: Arize Phoenix
+## Resolved observability integration: Arize Phoenix
 
-- Status: DECIDED (implementation not started)
+- Status: IMPLEMENTED on `feature/phoenix-tracing`
 - Runtime image for local integration tests: `arizephoenix/phoenix:nightly`
-- Image availability: already pulled locally as of 2026-08-09
+- Validated UI and OTLP/HTTP endpoint: port `6006`, collector path `/v1/traces`
+- Optional OTLP/gRPC port exposed for compatibility: `4317`
 
-The future observability feature will connect Executor spans to the Agent trace through W3C trace
-context and OTLP. The local integration test must use the image above. Do not pin ports, OTLP
-transport, environment variables, or Compose wiring until the tracing feature branch validates the
-nightly image contract. Prometheus `/metrics` remains the currently implemented observability
-surface.
+Executor now connects its spans to the Agent trace through W3C trace context and exports with the
+vendor-neutral OpenTelemetry OTLP/HTTP protocol. The context survives the asynchronous boundary by
+being persisted on Execution and Outbox Event rows and carried in Redis Stream fields. PostgreSQL
+reconciliation falls back to the Execution context. Phoenix remains optional and is not included in
+`/readyz`; Prometheus `/metrics` remains available independently.
 
-The tracing implementation must not record Jupyter tokens, generated code bodies, dataset content,
-database credentials, or other secrets in span attributes.
+The implementation records explicit bounded attributes only. Jupyter tokens, generated code
+bodies, cell outputs, dataset content, database/Redis credentials, query statements, OTLP header
+values, and exception messages are excluded. A local smoke test sends a complete synthetic
+Agent-to-Jupyter trace and verifies the trace and span names through Phoenix's REST API.

@@ -88,6 +88,8 @@ class Execution:
     dynamic_finish_requested: bool = False
     dynamic_wait_expires_at: datetime | None = None
     execution_expires_at: datetime | None = None
+    traceparent: str | None = None
+    tracestate: str | None = None
     version: int = 0
     created_at: datetime = field(default_factory=utc_now)
     updated_at: datetime = field(default_factory=utc_now)
@@ -207,6 +209,8 @@ class OutboxEvent:
     aggregate_id: UUID
     event_type: str
     payload: dict[str, Any]
+    traceparent: str | None = None
+    tracestate: str | None = None
     id: UUID = field(default_factory=uuid4)
     status: OutboxStatus = OutboxStatus.PENDING
     attempt_count: int = 0

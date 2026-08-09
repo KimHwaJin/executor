@@ -4,11 +4,12 @@ import asyncio
 import logging
 import os
 import socket
-from collections.abc import Coroutine
+from collections.abc import Awaitable, Coroutine
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
+from opentelemetry.trace import SpanKind
 from redis.asyncio import Redis
 from redis.exceptions import ResponseError
 from sqlalchemy import func, select, update
@@ -44,6 +45,11 @@ from executor_service.infrastructure.jupyter import (
 )
 from executor_service.infrastructure.jupyter_registry import JupyterServerRegistry
 from executor_service.infrastructure.workspace import ExecutionWorkspace, WorkspaceManager
+from executor_service.tracing import (
+    TracingManager,
+    capture_trace_carrier,
+    extract_trace_context,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -56,12 +62,14 @@ class ExecutionWorker:
         settings: Settings,
         registry: JupyterServerRegistry,
         artifact_manager: ExecutionArtifactManager,
+        tracing: TracingManager | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._redis = redis
         self._settings = settings
         self._registry = registry
         self._artifacts = artifact_manager
+        self._tracing = tracing or TracingManager(settings)
         self._workspace = WorkspaceManager(settings.workspace_host_root)
         self._consumer_name = settings.execution_consumer_name or (
             f"{socket.gethostname()}-{os.getpid()}"
@@ -144,16 +152,30 @@ class ExecutionWorker:
         except (KeyError, ValueError):
             logger.warning("Ignoring malformed execution event")
             return
-        if event_type in {
-            "execution.submitted",
-            "execution.continue_requested",
-            "execution.finish_requested",
-        }:
-            self._dispatch(execution_id, self._run_execution(execution_id))
-        elif event_type == "execution.retry_requested":
-            self._dispatch(execution_id, self._run_execution(execution_id))
-        elif event_type == "execution.cancel_requested":
-            self._dispatch(execution_id, self._cancel_execution(execution_id), replace=True)
+        context = extract_trace_context(fields)
+        with self._tracing.span(
+            "executor.redis.consume",
+            context=context,
+            kind=SpanKind.CONSUMER,
+            attributes={
+                "executor.event.type": event_type,
+                "executor.execution.id": str(execution_id),
+            },
+        ):
+            if event_type in {
+                "execution.submitted",
+                "execution.continue_requested",
+                "execution.finish_requested",
+            }:
+                self._dispatch(execution_id, self._run_execution(execution_id))
+            elif event_type == "execution.retry_requested":
+                self._dispatch(execution_id, self._run_execution(execution_id))
+            elif event_type == "execution.cancel_requested":
+                self._dispatch(
+                    execution_id,
+                    self._cancel_execution(execution_id),
+                    replace=True,
+                )
 
     async def _reconcile_loop(self) -> None:
         while not self._stop_event.is_set():
@@ -161,7 +183,12 @@ class ExecutionWorker:
                 async with self._session_factory() as session:
                     rows = list(
                         await session.execute(
-                            select(ExecutionORM.id, ExecutionORM.status)
+                            select(
+                                ExecutionORM.id,
+                                ExecutionORM.status,
+                                ExecutionORM.traceparent,
+                                ExecutionORM.tracestate,
+                            )
                             .where(
                                 ExecutionORM.status.in_(
                                     [ExecutionStatus.QUEUED, ExecutionStatus.CANCEL_REQUESTED]
@@ -171,15 +198,26 @@ class ExecutionWorker:
                             .limit(100)
                         )
                     )
-                for execution_id, status in rows:
-                    if status == ExecutionStatus.CANCEL_REQUESTED:
-                        self._dispatch(
-                            execution_id,
-                            self._cancel_execution(execution_id),
-                            replace=True,
-                        )
-                    else:
-                        self._dispatch(execution_id, self._run_execution(execution_id))
+                for execution_id, status, traceparent, tracestate in rows:
+                    context = extract_trace_context(
+                        {
+                            "traceparent": traceparent or "",
+                            "tracestate": tracestate or "",
+                        }
+                    )
+                    with self._tracing.span(
+                        "executor.reconcile",
+                        context=context,
+                        attributes={"executor.execution.id": str(execution_id)},
+                    ):
+                        if status == ExecutionStatus.CANCEL_REQUESTED:
+                            self._dispatch(
+                                execution_id,
+                                self._cancel_execution(execution_id),
+                                replace=True,
+                            )
+                        else:
+                            self._dispatch(execution_id, self._run_execution(execution_id))
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -242,6 +280,32 @@ class ExecutionWorker:
             self._jobs.pop(execution_id, None)
 
     async def _run_execution(self, execution_id: UUID) -> None:
+        with self._tracing.span(
+            "executor.worker.execution",
+            kind=SpanKind.CONSUMER,
+            attributes={"executor.execution.id": str(execution_id)},
+        ):
+            await self._run_execution_impl(execution_id)
+
+    async def _trace_jupyter[T](
+        self,
+        name: str,
+        operation: Awaitable[T],
+        *,
+        execution_id: UUID,
+        server_id: UUID,
+        sequence: int | None = None,
+    ) -> T:
+        attributes: dict[str, object] = {
+            "executor.execution.id": str(execution_id),
+            "executor.jupyter.server.id": str(server_id),
+        }
+        if sequence is not None:
+            attributes["executor.step.sequence"] = sequence
+        with self._tracing.span(name, attributes=attributes):
+            return await operation
+
+    async def _run_execution_impl(self, execution_id: UUID) -> None:
         async with self._semaphore:
             claimed = await self._claim(execution_id)
             if claimed is None:
@@ -274,8 +338,13 @@ class ExecutionWorker:
                 if resume:
                     kernel_id = execution.kernel_id
                 else:
-                    kernel_id = await gateway.start_kernel(
-                        execution.kernel_name, workspace.jupyter_relative_path
+                    kernel_id = await self._trace_jupyter(
+                        "executor.jupyter.kernel.start",
+                        gateway.start_kernel(
+                            execution.kernel_name, workspace.jupyter_relative_path
+                        ),
+                        execution_id=execution.id,
+                        server_id=server.id,
                     )
                 await self._record_kernel(
                     execution.id,
@@ -299,7 +368,13 @@ class ExecutionWorker:
                     artifact_snapshot = self._artifacts.snapshot(workspace)
                     await self._step_started(execution.id, attempt_id, sequence)
                     try:
-                        result = await gateway.execute_cell(kernel_id, code)
+                        result = await self._trace_jupyter(
+                            "executor.jupyter.cell.execute",
+                            gateway.execute_cell(kernel_id, code),
+                            execution_id=execution.id,
+                            server_id=server.id,
+                            sequence=sequence,
+                        )
                     except JupyterExecutionError as exc:
                         failed_sequence = sequence
                         await self._step_failed(
@@ -366,7 +441,12 @@ class ExecutionWorker:
                     attempt_id=attempt_id,
                     sequence=len(cells) - 1,
                 )
-                await gateway.delete_kernel(kernel_id)
+                await self._trace_jupyter(
+                    "executor.jupyter.kernel.delete",
+                    gateway.delete_kernel(kernel_id),
+                    execution_id=execution.id,
+                    server_id=server.id,
+                )
                 await self._finalize(
                     execution.id,
                     attempt_id,
@@ -611,8 +691,13 @@ class ExecutionWorker:
         try:
             workspace = self._workspace.prepare(execution)
             if kernel_id is None:
-                kernel_id = await gateway.start_kernel(
-                    execution.kernel_name, workspace.jupyter_relative_path
+                kernel_id = await self._trace_jupyter(
+                    "executor.jupyter.kernel.start",
+                    gateway.start_kernel(
+                        execution.kernel_name, workspace.jupyter_relative_path
+                    ),
+                    execution_id=execution.id,
+                    server_id=server.id,
                 )
             await self._record_kernel(
                 execution.id,
@@ -633,7 +718,12 @@ class ExecutionWorker:
                     attempt_id=attempt_id,
                     sequence=last_sequence,
                 )
-                await gateway.delete_kernel(kernel_id)
+                await self._trace_jupyter(
+                    "executor.jupyter.kernel.delete",
+                    gateway.delete_kernel(kernel_id),
+                    execution_id=execution.id,
+                    server_id=server.id,
+                )
                 await self._finalize(
                     execution.id,
                     attempt_id,
@@ -650,7 +740,13 @@ class ExecutionWorker:
             artifact_snapshot = self._artifacts.snapshot(workspace)
             await self._step_started(execution.id, attempt_id, pending.sequence)
             try:
-                result = await gateway.execute_cell(kernel_id, pending.code)
+                result = await self._trace_jupyter(
+                    "executor.jupyter.cell.execute",
+                    gateway.execute_cell(kernel_id, pending.code),
+                    execution_id=execution.id,
+                    server_id=server.id,
+                    sequence=pending.sequence,
+                )
             except JupyterExecutionError as exc:
                 await self._step_failed(
                     execution.id,
@@ -1002,6 +1098,7 @@ class ExecutionWorker:
     ) -> None:
         try:
             async with self._session_factory() as session, session.begin():
+                carrier = capture_trace_carrier()
                 event = OutboxEvent(
                     aggregate_type="Execution",
                     aggregate_id=execution_id,
@@ -1012,6 +1109,8 @@ class ExecutionWorker:
                         "sequence": sequence,
                         "error_type": type(error).__name__,
                     },
+                    traceparent=carrier.traceparent,
+                    tracestate=carrier.tracestate,
                 )
                 session.add(OutboxEventORM.from_domain(event))
         except Exception:
@@ -1739,11 +1838,14 @@ def _add_outbox(
     }
     if details:
         payload.update(details)
+    carrier = capture_trace_carrier()
     event = OutboxEvent(
         aggregate_type="Execution",
         aggregate_id=execution_id,
         event_type=event_type,
         payload=payload,
+        traceparent=carrier.traceparent,
+        tracestate=carrier.tracestate,
     )
     session.add(OutboxEventORM.from_domain(event))
 

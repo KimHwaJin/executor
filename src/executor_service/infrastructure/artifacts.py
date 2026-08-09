@@ -29,6 +29,7 @@ from executor_service.infrastructure.db.models import (
     OutboxEventORM,
 )
 from executor_service.infrastructure.workspace import ExecutionWorkspace
+from executor_service.tracing import capture_trace_carrier
 
 MANIFEST_RELATIVE_PATH = Path("artifacts", "manifest.jsonl")
 ARTIFACT_DIRECTORY_TYPES = {
@@ -379,6 +380,7 @@ class ExecutionArtifactManager:
                 session.add(row)
                 await session.flush()
                 artifact_ids.append(row.id)
+                carrier = capture_trace_carrier()
                 event = OutboxEvent(
                     aggregate_type="Execution",
                     aggregate_id=execution_id,
@@ -393,6 +395,8 @@ class ExecutionArtifactManager:
                         "status": descriptor.status.value,
                         "uri": descriptor.uri,
                     },
+                    traceparent=carrier.traceparent,
+                    tracestate=carrier.tracestate,
                 )
                 session.add(OutboxEventORM.from_domain(event))
             return artifact_ids

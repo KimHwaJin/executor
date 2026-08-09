@@ -135,6 +135,8 @@ class SQLAlchemyExecutionRepository:
                 dynamic_finish_requested=execution.dynamic_finish_requested,
                 dynamic_wait_expires_at=execution.dynamic_wait_expires_at,
                 execution_expires_at=execution.execution_expires_at,
+                traceparent=execution.traceparent,
+                tracestate=execution.tracestate,
             )
         )
         if getattr(result, "rowcount", None) != 1:
