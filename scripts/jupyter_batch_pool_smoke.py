@@ -5,6 +5,7 @@ import os
 from typing import Any
 from uuid import uuid4
 
+from execution_spec_payload import inline_source
 from mcp import Client
 
 
@@ -116,27 +117,26 @@ async def _submit(
                 "idempotency_key": f"batch-pool-execution-{unique}-{name}",
                 "mode": "STATIC",
                 "trigger_type": "BATCH" if pool == "BATCH" else "INTERACTIVE",
-                "jupyter_pool": pool,
                 "kernel_name": "python3",
-                "source": {
-                    "type": "INLINE",
-                    "code": (
-                        f"import time\ntime.sleep({sleep_seconds})\nprint('{name}')\n"
-                    ),
-                },
+                "source": inline_source(
+                    f"batch-pool-plan-{unique}-{name}",
+                    [
+                        {
+                            "skill_name": "report",
+                            "tool_name": f"batch_pool_{name}",
+                            "code": (
+                                f"import time\ntime.sleep({sleep_seconds})\n"
+                                f"print('{name}')"
+                            ),
+                        }
+                    ],
+                ),
                 "context": {
                     "requested_by_user_id": "batch-pool-user",
                     "project_id": "batch-pool-project",
                     "session_id": f"batch-pool-session-{unique}-{name}",
-                    "execution_plan_id": f"batch-pool-plan-{unique}-{name}",
+                    "task_id": f"batch-pool-task-{unique}-{name}",
                 },
-                "steps": [
-                    {
-                        "sequence": 0,
-                        "skill_name": "report",
-                        "tool_name": f"batch_pool_{name}",
-                    }
-                ],
             }
         },
     )

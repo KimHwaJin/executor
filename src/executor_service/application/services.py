@@ -14,7 +14,6 @@ from executor_service.application.commands import (
     SubmitExecutionCommand,
 )
 from executor_service.domain.enums import (
-    CodeSourceType,
     ExecutionMode,
     ExecutionStatus,
     JupyterPool,
@@ -53,24 +52,26 @@ class ExecutionService:
                     request_fingerprint=fingerprint,
                     mode=command.mode,
                     trigger_type=command.trigger_type,
-                    jupyter_pool=command.jupyter_pool,
+                    jupyter_pool=JupyterPool(command.trigger_type.value),
                     kernel_name=command.kernel_name,
                     code_source_type=command.code_source_type,
-                    code=command.code,
+                    source_content=command.source_content,
                     code_path=command.code_path,
+                    source_sha256=command.source_sha256,
                     requested_by_user_id=command.requested_by_user_id,
                     project_id=command.project_id,
                     session_id=command.session_id,
+                    task_id=command.task_id,
                     execution_plan_id=command.execution_plan_id,
                     workflow_id=command.workflow_id,
-                    correlation_id=command.correlation_id,
                     metadata=command.metadata,
                     steps=[
                         ExecutionStep(
                             sequence=step.sequence,
                             code=step.code,
                             code_hash=_code_hash(step.code),
-                            plan_revision_id=step.plan_revision_id,
+                            execution_plan_id=step.execution_plan_id,
+                            plan_step_id=step.plan_step_id,
                             skill_name=step.skill_name,
                             tool_name=step.tool_name,
                             input_parameters=step.input_parameters,
@@ -88,6 +89,8 @@ class ExecutionService:
                         event_type="execution.submitted",
                         payload={
                             "execution_id": str(execution.id),
+                            "task_id": execution.task_id,
+                            "execution_plan_id": execution.execution_plan_id,
                             "status": execution.status.value,
                         },
                         traceparent=execution.traceparent,
@@ -133,7 +136,8 @@ class ExecutionService:
                     sequence=command.step.sequence,
                     code=command.step.code,
                     code_hash=_code_hash(command.step.code),
-                    plan_revision_id=command.step.plan_revision_id,
+                    execution_plan_id=command.step.execution_plan_id,
+                    plan_step_id=command.step.plan_step_id,
                     skill_name=command.step.skill_name,
                     tool_name=command.step.tool_name,
                     input_parameters=command.step.input_parameters,
@@ -154,6 +158,9 @@ class ExecutionService:
                         event_type="execution.continue_requested",
                         payload={
                             "execution_id": str(execution.id),
+                            "task_id": execution.task_id,
+                            "execution_plan_id": step.execution_plan_id,
+                            "plan_step_id": step.plan_step_id,
                             "status": execution.status.value,
                             "sequence": step.sequence,
                             "version": execution.version,
@@ -203,6 +210,8 @@ class ExecutionService:
                         event_type="execution.finish_requested",
                         payload={
                             "execution_id": str(execution.id),
+                            "task_id": execution.task_id,
+                            "execution_plan_id": execution.execution_plan_id,
                             "status": execution.status.value,
                             "version": execution.version,
                         },
@@ -272,6 +281,8 @@ class ExecutionService:
                         event_type="execution.cancel_requested",
                         payload={
                             "execution_id": str(execution.id),
+                            "task_id": execution.task_id,
+                            "execution_plan_id": execution.execution_plan_id,
                             "status": execution.status.value,
                         },
                         traceparent=execution.traceparent,
@@ -322,6 +333,8 @@ class ExecutionService:
                         event_type="execution.retry_requested",
                         payload={
                             "execution_id": str(execution.id),
+                            "task_id": execution.task_id,
+                            "execution_plan_id": execution.execution_plan_id,
                             "status": execution.status.value,
                             "from_sequence": execution.retry_from_sequence,
                             "retry_strategy": execution.retry_strategy.value,
@@ -365,25 +378,31 @@ def _ensure_same_fingerprint(execution: Execution, fingerprint: str) -> None:
 
 
 def _validate_submit(command: SubmitExecutionCommand) -> None:
+    if not command.steps:
+        raise InvalidStateTransitionError("ExecutionSpec must contain at least one step.")
+    sequences = [step.sequence for step in command.steps]
+    if sequences != list(range(len(command.steps))):
+        raise InvalidStateTransitionError(
+            "ExecutionSpec step sequences must be contiguous and start at 0."
+        )
+    plan_step_ids = [step.plan_step_id for step in command.steps]
+    if len(plan_step_ids) != len(set(plan_step_ids)):
+        raise InvalidStateTransitionError("ExecutionSpec plan_step_id values must be unique.")
+    if any(not step.code.strip() for step in command.steps):
+        raise InvalidStateTransitionError("ExecutionSpec step code must not be blank.")
+    if any(step.execution_plan_id != command.execution_plan_id for step in command.steps):
+        raise InvalidStateTransitionError(
+            "Submit steps must belong to the submitted execution_plan_id."
+        )
     if command.mode != ExecutionMode.DYNAMIC:
         return
     if command.trigger_type != TriggerType.INTERACTIVE:
         raise InvalidStateTransitionError(
             "DYNAMIC execution requires INTERACTIVE trigger_type."
         )
-    if command.jupyter_pool != JupyterPool.INTERACTIVE:
-        raise InvalidStateTransitionError(
-            "DYNAMIC execution requires INTERACTIVE jupyter_pool."
-        )
-    if command.code_source_type != CodeSourceType.INLINE:
-        raise InvalidStateTransitionError("DYNAMIC execution requires INLINE code.")
     if len(command.steps) != 1 or command.steps[0].sequence != 0:
         raise InvalidStateTransitionError(
             "DYNAMIC submit requires exactly the first step (sequence 0)."
-        )
-    if command.steps[0].code != command.code:
-        raise InvalidStateTransitionError(
-            "DYNAMIC source code must match the first step code."
         )
 
 

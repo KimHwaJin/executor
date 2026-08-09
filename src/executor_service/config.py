@@ -48,6 +48,8 @@ class Settings(BaseSettings):
     jupyter_health_poll_interval_seconds: float = Field(default=15, gt=0)
     workspace_host_root: Path = Path("/Users/kimhwajin/vscode/AX_PROJECT/executor/notebook_dir")
     workspace_jupyter_root: str = "/workspace/pv"
+    execution_inline_spec_max_bytes: int = Field(default=262144, ge=1)
+    execution_file_spec_max_bytes: int = Field(default=52428800, ge=1)
     execution_consumer_group: str = "executor-workers"
     execution_consumer_name: str = ""
     execution_pending_claim_interval_seconds: float = Field(default=5, gt=0)

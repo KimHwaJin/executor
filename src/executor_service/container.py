@@ -14,9 +14,10 @@ from executor_service.infrastructure.jupyter import JupyterGateway
 from executor_service.infrastructure.jupyter_registry import JupyterServerRegistry
 from executor_service.infrastructure.outbox import OutboxPublisher
 from executor_service.infrastructure.worker import ExecutionWorker
+from executor_service.interfaces.mcp.execution_specs import ExecutionSpecResolver
 from executor_service.tracing import TracingManager
 
-EXPECTED_SCHEMA_REVISION = "0010"
+EXPECTED_SCHEMA_REVISION = "0011"
 
 
 class ApplicationContainer:
@@ -30,6 +31,11 @@ class ApplicationContainer:
             lambda: SQLAlchemyUnitOfWork(self.session_factory)
         )
         self.execution_queries = SQLAlchemyExecutionQueryService(self.session_factory)
+        self.execution_spec_resolver = ExecutionSpecResolver(
+            settings.workspace_host_root,
+            inline_max_bytes=settings.execution_inline_spec_max_bytes,
+            file_max_bytes=settings.execution_file_spec_max_bytes,
+        )
         self.jupyter_registry = JupyterServerRegistry(self.session_factory, settings)
         self.artifact_manager = ExecutionArtifactManager(self.session_factory, settings)
         self.outbox_publisher = OutboxPublisher(

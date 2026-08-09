@@ -8,6 +8,7 @@ from typing import Any
 from uuid import uuid4
 
 import httpx
+from execution_spec_payload import inline_source
 from mcp import Client
 from redis.asyncio import Redis
 
@@ -151,21 +152,17 @@ async def main() -> None:
                         "idempotency_key": f"multi-executor-submit-{unique}",
                         "mode": "STATIC",
                         "trigger_type": "INTERACTIVE",
-                        "jupyter_pool": "INTERACTIVE",
                         "kernel_name": "python3",
-                        "source": {"type": "INLINE", "code": code},
+                        "source": inline_source(
+                            f"multi-executor-plan-{unique}",
+                            [{"tool_name": "multi_executor_failover", "code": code}],
+                        ),
                         "context": {
                             "requested_by_user_id": "multi-executor-user",
                             "project_id": "multi-executor-project",
                             "session_id": f"multi-executor-session-{unique}",
-                            "execution_plan_id": f"multi-executor-plan-{unique}",
+                            "task_id": f"multi-executor-task-{unique}",
                         },
-                        "steps": [
-                            {
-                                "sequence": 0,
-                                "tool_name": "multi_executor_failover",
-                            }
-                        ],
                     }
                 },
             )

@@ -1,41 +1,62 @@
+import hashlib
+import json
+from copy import deepcopy
+from pathlib import Path
+from typing import Any
+from uuid import UUID
+
 from mcp import Client
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from executor_service.application.services import ExecutionService
+from executor_service.infrastructure.db.models import ExecutionORM
 from executor_service.infrastructure.db.session import create_session_factory
 from executor_service.infrastructure.execution_queries import SQLAlchemyExecutionQueryService
+from executor_service.interfaces.mcp.execution_specs import ExecutionSpecResolver
 from executor_service.interfaces.mcp.server import build_mcp_server
 
-SUBMIT_ARGUMENTS = {
+SUBMIT_ARGUMENTS: dict[str, Any] = {
     "request": {
         "idempotency_key": "mcp-submit-1",
         "mode": "STATIC",
         "trigger_type": "INTERACTIVE",
-        "jupyter_pool": "INTERACTIVE",
         "kernel_name": "python-analysis-a",
-        "source": {"type": "INLINE", "code": "print('hello')"},
+        "source": {
+            "type": "INLINE",
+            "spec": {
+                "schema_version": "1.0",
+                "execution_plan_id": "plan-1",
+                "steps": [
+                    {
+                        "sequence": 0,
+                        "plan_step_id": "plan-step-1",
+                        "skill_name": "data_load",
+                        "tool_name": "load_data",
+                        "input_parameters": {},
+                        "code": "print('hello')",
+                    }
+                ],
+            },
+        },
         "context": {
             "requested_by_user_id": "user-1",
             "project_id": "project-1",
             "session_id": "session-1",
-            "execution_plan_id": "plan-1",
+            "task_id": "task-1",
         },
-        "steps": [
-            {
-                "sequence": 0,
-                "skill_name": "data_load",
-                "tool_name": "load_data",
-                "input_parameters": {},
-            }
-        ],
     }
 }
 
 
 async def test_mcp_client_can_list_and_call_execution_tools(
     execution_service: ExecutionService,
+    tmp_path: Path,
 ) -> None:
-    server = build_mcp_server(execution_service)
+    server = build_mcp_server(
+        execution_service,
+        execution_spec_resolver=ExecutionSpecResolver(tmp_path),
+    )
 
     async with Client(server) as client:
         listed = await client.list_tools()
@@ -68,6 +89,11 @@ async def test_mcp_client_can_list_and_call_execution_tools(
         assert not submitted.is_error
         execution_id = submitted.structured_content["execution_id"]
         assert submitted.structured_content["status"] == "QUEUED"
+        assert submitted.structured_content["jupyter_pool"] == "INTERACTIVE"
+        assert submitted.structured_content["source"]["type"] == "INLINE"
+        assert len(submitted.structured_content["source"]["sha256"]) == 64
+        assert submitted.structured_content["context"]["task_id"] == "task-1"
+        assert submitted.structured_content["steps"][0]["plan_step_id"] == "plan-step-1"
 
         fetched = await client.call_tool("execution_get", {"execution_id": execution_id})
         assert not fetched.is_error
@@ -90,9 +116,14 @@ async def test_mcp_client_can_list_and_call_execution_tools(
 async def test_mcp_client_can_query_execution_trace(
     execution_service: ExecutionService,
     engine: AsyncEngine,
+    tmp_path: Path,
 ) -> None:
     queries = SQLAlchemyExecutionQueryService(create_session_factory(engine))
-    server = build_mcp_server(execution_service, execution_queries=queries)
+    server = build_mcp_server(
+        execution_service,
+        execution_queries=queries,
+        execution_spec_resolver=ExecutionSpecResolver(tmp_path),
+    )
 
     async with Client(server) as client:
         listed = await client.list_tools()
@@ -115,3 +146,88 @@ async def test_mcp_client_can_query_execution_trace(
         assert trace.structured_content["execution"]["execution_id"] == execution_id
         assert trace.structured_content["attempts"] == []
         assert trace.structured_content["events"][0]["event_type"] == "execution.submitted"
+
+
+async def test_execution_submit_reads_path_spec_and_derives_batch_pool(
+    execution_service: ExecutionService,
+    tmp_path: Path,
+) -> None:
+    spec = deepcopy(SUBMIT_ARGUMENTS["request"]["source"]["spec"])
+    spec["execution_plan_id"] = "batch-plan-1"
+    content = json.dumps(spec, separators=(",", ":")).encode()
+    source_file = tmp_path / "plans" / "batch.execution.json"
+    source_file.parent.mkdir(parents=True)
+    source_file.write_bytes(content)
+    arguments = deepcopy(SUBMIT_ARGUMENTS)
+    arguments["request"]["idempotency_key"] = "mcp-path-submit-1"
+    arguments["request"]["trigger_type"] = "BATCH"
+    arguments["request"]["source"] = {
+        "type": "PATH",
+        "path": "plans/batch.execution.json",
+        "sha256": hashlib.sha256(content).hexdigest(),
+    }
+    server = build_mcp_server(
+        execution_service,
+        execution_spec_resolver=ExecutionSpecResolver(tmp_path),
+    )
+
+    async with Client(server) as client:
+        submitted = await client.call_tool("execution_submit", arguments)
+
+    assert not submitted.is_error
+    assert submitted.structured_content["jupyter_pool"] == "BATCH"
+    assert submitted.structured_content["source"]["path"] == "plans/batch.execution.json"
+    assert submitted.structured_content["context"]["execution_plan_id"] == "batch-plan-1"
+
+
+async def test_dynamic_continue_accepts_next_inline_execution_spec(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+    tmp_path: Path,
+) -> None:
+    arguments = deepcopy(SUBMIT_ARGUMENTS)
+    arguments["request"]["idempotency_key"] = "mcp-dynamic-submit-1"
+    arguments["request"]["mode"] = "DYNAMIC"
+    server = build_mcp_server(
+        execution_service,
+        execution_spec_resolver=ExecutionSpecResolver(tmp_path),
+    )
+
+    async with Client(server) as client:
+        submitted = await client.call_tool("execution_submit", arguments)
+        execution_id = submitted.structured_content["execution_id"]
+        session_factory = create_session_factory(engine)
+        async with session_factory() as session, session.begin():
+            await session.execute(
+                update(ExecutionORM)
+                .where(ExecutionORM.id == UUID(execution_id))
+                .values(status="WAITING_FOR_NEXT_STEP", version=2)
+            )
+        continued = await client.call_tool(
+            "execution_continue",
+            {
+                "request": {
+                    "execution_id": execution_id,
+                    "idempotency_key": "mcp-dynamic-continue-1",
+                    "expected_version": 2,
+                    "source": {
+                        "type": "INLINE",
+                        "spec": {
+                            "schema_version": "1.0",
+                            "execution_plan_id": "plan-2",
+                            "steps": [
+                                {
+                                    "sequence": 1,
+                                    "plan_step_id": "plan-2-step-1",
+                                    "code": "print('next')",
+                                }
+                            ],
+                        },
+                    },
+                }
+            },
+        )
+
+    assert not continued.is_error
+    assert continued.structured_content["steps"][1]["execution_plan_id"] == "plan-2"
+    assert continued.structured_content["steps"][1]["plan_step_id"] == "plan-2-step-1"

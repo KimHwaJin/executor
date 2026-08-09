@@ -89,16 +89,25 @@ def _command(name: str) -> SubmitExecutionCommand:
         idempotency_key=f"postgres-race-{name}-{uuid4().hex}",
         mode=ExecutionMode.STATIC,
         trigger_type=TriggerType.INTERACTIVE,
-        jupyter_pool=JupyterPool.INTERACTIVE,
         kernel_name="python3",
         code_source_type=CodeSourceType.INLINE,
-        code=f"print('{name}')",
+        source_content=f"print('{name}')",
         code_path=None,
+        source_sha256="0" * 64,
         requested_by_user_id="postgres-race-user",
         project_id="postgres-race-project",
         session_id=f"postgres-race-session-{name}",
+        task_id="test-task",
         execution_plan_id=f"postgres-race-plan-{name}",
-        steps=(StepSpec(sequence=0, tool_name=name),),
+        steps=(
+            StepSpec(
+                sequence=0,
+                code=f"print('{name}')",
+                execution_plan_id=f"postgres-race-plan-{name}",
+                plan_step_id=f"postgres-race-plan-{name}-step-0",
+                tool_name=name,
+            ),
+        ),
     )
 
 

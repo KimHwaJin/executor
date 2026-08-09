@@ -20,7 +20,6 @@ from executor_service.domain.enums import (
     ExecutionMode,
     ExecutionStatus,
     FailureType,
-    JupyterPool,
     KernelCleanupStatus,
     RetryStrategy,
     StepStatus,
@@ -42,16 +41,26 @@ def submit_command(idempotency_key: str = "submit-1") -> SubmitExecutionCommand:
         idempotency_key=idempotency_key,
         mode=ExecutionMode.STATIC,
         trigger_type=TriggerType.INTERACTIVE,
-        jupyter_pool=JupyterPool.INTERACTIVE,
         kernel_name="python-analysis-a",
         code_source_type=CodeSourceType.INLINE,
-        code="print('hello')",
+        source_content="print('hello')",
         code_path=None,
+        source_sha256="0" * 64,
         requested_by_user_id="user-1",
         project_id="project-1",
         session_id="session-1",
+        task_id="test-task",
         execution_plan_id="plan-1",
-        steps=(StepSpec(sequence=0, skill_name="data_load", tool_name="load_data"),),
+        steps=(
+            StepSpec(
+                sequence=0,
+                code="print('hello')",
+                execution_plan_id="plan-1",
+                plan_step_id="plan-1-step-0",
+                skill_name="data_load",
+                tool_name="load_data",
+            ),
+        ),
     )
 
 
@@ -60,12 +69,14 @@ def dynamic_submit_command(idempotency_key: str = "dynamic-submit-1") -> SubmitE
     return replace(
         submit_command(idempotency_key),
         mode=ExecutionMode.DYNAMIC,
-        code=code,
+        execution_plan_id="plan-revision-1",
+        source_content=code,
         steps=(
             StepSpec(
                 sequence=0,
                 code=code,
-                plan_revision_id="plan-revision-1",
+                execution_plan_id="plan-revision-1",
+                plan_step_id="plan-revision-1-step-0",
                 skill_name="data_load",
                 tool_name="load_data",
             ),
@@ -109,7 +120,7 @@ async def test_submit_key_rejects_different_request(
     execution_service: ExecutionService,
 ) -> None:
     await execution_service.submit(submit_command())
-    changed = replace(submit_command(), code="print('changed')")
+    changed = replace(submit_command(), source_content="print('changed')")
 
     with pytest.raises(IdempotencyConflictError):
         await execution_service.submit(changed)
@@ -140,7 +151,8 @@ async def test_dynamic_continue_and_finish_are_versioned_and_idempotent(
         step=StepSpec(
             sequence=1,
             code="answer = value + 2",
-            plan_revision_id="plan-revision-2",
+            execution_plan_id="plan-revision-2",
+            plan_step_id="plan-revision-2-step-1",
             skill_name="eda",
             tool_name="calculate_answer",
         ),
@@ -193,7 +205,12 @@ async def test_dynamic_continue_rejects_stale_version(
                 execution_id=execution.id,
                 idempotency_key="dynamic-stale-continue",
                 expected_version=1,
-                step=StepSpec(sequence=1, code="print('stale')"),
+                step=StepSpec(
+                    sequence=1,
+                    code="print('stale')",
+                    execution_plan_id="plan-revision-stale",
+                    plan_step_id="plan-revision-stale-step-1",
+                ),
             )
         )
 
@@ -206,9 +223,9 @@ async def test_retry_resets_failed_and_later_steps_idempotently(
         replace(
             submit_command("retry-submit"),
             steps=(
-                StepSpec(sequence=0, tool_name="prepare"),
-                StepSpec(sequence=1, tool_name="fail_once"),
-                StepSpec(sequence=2, tool_name="finish"),
+                StepSpec(0, "prepare()", "plan-1", "plan-1-step-0", tool_name="prepare"),
+                StepSpec(1, "fail_once()", "plan-1", "plan-1-step-1", tool_name="fail_once"),
+                StepSpec(2, "finish()", "plan-1", "plan-1-step-2", tool_name="finish"),
             ),
         )
     )
@@ -276,8 +293,14 @@ async def test_infrastructure_retry_starts_from_zero_with_a_new_kernel(
         replace(
             submit_command("infrastructure-retry-submit"),
             steps=(
-                StepSpec(sequence=0, tool_name="prepare"),
-                StepSpec(sequence=1, tool_name="long_running_tool"),
+                StepSpec(0, "prepare()", "plan-1", "plan-1-step-0", tool_name="prepare"),
+                StepSpec(
+                    1,
+                    "long_running_tool()",
+                    "plan-1",
+                    "plan-1-step-1",
+                    tool_name="long_running_tool",
+                ),
             ),
         )
     )

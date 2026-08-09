@@ -14,7 +14,6 @@ from executor_service.domain.enums import (
     ExecutionMode,
     ExecutionStatus,
     FailureType,
-    JupyterPool,
     KernelCleanupStatus,
     TriggerType,
 )
@@ -53,16 +52,25 @@ async def main() -> None:
                 idempotency_key=f"dynamic-lifecycle-{unique}",
                 mode=ExecutionMode.DYNAMIC,
                 trigger_type=TriggerType.INTERACTIVE,
-                jupyter_pool=JupyterPool.INTERACTIVE,
                 kernel_name="python3",
                 code_source_type=CodeSourceType.INLINE,
-                code=code,
+                source_content=code,
                 code_path=None,
+                source_sha256="0" * 64,
                 requested_by_user_id="dynamic-lifecycle-user",
                 project_id="dynamic-lifecycle-project",
                 session_id="dynamic-lifecycle-session",
+                task_id="test-task",
                 execution_plan_id=f"dynamic-lifecycle-plan-{unique}",
-                steps=(StepSpec(sequence=0, code=code, tool_name="initialize"),),
+                steps=(
+                    StepSpec(
+                        sequence=0,
+                        code=code,
+                        execution_plan_id=f"dynamic-lifecycle-plan-{unique}",
+                        plan_step_id=f"dynamic-lifecycle-plan-{unique}-step-0",
+                        tool_name="initialize",
+                    ),
+                ),
             )
         )
         waiting = await _wait_for(

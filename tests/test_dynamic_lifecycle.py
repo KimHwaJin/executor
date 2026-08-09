@@ -70,16 +70,25 @@ def _dynamic_command(key: str) -> SubmitExecutionCommand:
         idempotency_key=key,
         mode=ExecutionMode.DYNAMIC,
         trigger_type=TriggerType.INTERACTIVE,
-        jupyter_pool=JupyterPool.INTERACTIVE,
         kernel_name="python3",
         code_source_type=CodeSourceType.INLINE,
-        code=code,
+        source_content=code,
         code_path=None,
+        source_sha256="0" * 64,
         requested_by_user_id="lifecycle-user",
         project_id="lifecycle-project",
         session_id="lifecycle-session",
+        task_id="test-task",
         execution_plan_id="lifecycle-plan",
-        steps=(StepSpec(sequence=0, code=code, tool_name="initialize"),),
+        steps=(
+            StepSpec(
+                sequence=0,
+                code=code,
+                execution_plan_id="lifecycle-plan",
+                plan_step_id="lifecycle-plan-step-0",
+                tool_name="initialize",
+            ),
+        ),
     )
 
 
@@ -243,7 +252,12 @@ async def test_expired_dynamic_wait_fails_and_cleans_kernel_once(
                 execution_id=execution.id,
                 idempotency_key="continue-after-timeout",
                 expected_version=row.version,
-                step=StepSpec(sequence=1, code="print('too late')"),
+                step=StepSpec(
+                    sequence=1,
+                    code="print('too late')",
+                    execution_plan_id="lifecycle-plan-2",
+                    plan_step_id="lifecycle-plan-2-step-1",
+                ),
             )
         )
 

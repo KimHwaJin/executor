@@ -17,7 +17,6 @@ from executor_service.domain.enums import (
     ExecutionMode,
     ExecutionStatus,
     FailureType,
-    JupyterPool,
     KernelCleanupStatus,
     RetryStrategy,
     TriggerType,
@@ -63,16 +62,25 @@ async def main() -> None:
                 idempotency_key=f"worker-recovery-submit-{unique}",
                 mode=ExecutionMode.STATIC,
                 trigger_type=TriggerType.INTERACTIVE,
-                jupyter_pool=JupyterPool.INTERACTIVE,
                 kernel_name="python3",
                 code_source_type=CodeSourceType.INLINE,
-                code=code,
+                source_content=code,
                 code_path=None,
+                source_sha256="0" * 64,
                 requested_by_user_id="worker-recovery-user",
                 project_id="worker-recovery-project",
                 session_id="worker-recovery-session",
+                task_id="test-task",
                 execution_plan_id=f"worker-recovery-plan-{unique}",
-                steps=(StepSpec(sequence=0, tool_name="long_running_tool"),),
+                steps=(
+                    StepSpec(
+                        sequence=0,
+                        code=code,
+                        execution_plan_id=f"worker-recovery-plan-{unique}",
+                        plan_step_id=f"worker-recovery-plan-{unique}-step-0",
+                        tool_name="long_running_tool",
+                    ),
+                ),
             )
         )
         running = await _wait(

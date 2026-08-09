@@ -9,11 +9,13 @@ from executor_service.domain.enums import (
     JupyterPool,
     TriggerType,
 )
-from executor_service.domain.models import Execution
+from executor_service.domain.models import Execution, ExecutionStep
 from executor_service.infrastructure.workspace import WorkspaceManager, WorkspacePathError
 
 
-def execution(*, user_id: str = "user-1", code: str = "print(1)") -> Execution:
+def execution(
+    *, user_id: str = "user-1", codes: tuple[str, ...] = ("print(1)",)
+) -> Execution:
     return Execution(
         idempotency_key="workspace-test",
         request_fingerprint="fingerprint",
@@ -22,18 +24,29 @@ def execution(*, user_id: str = "user-1", code: str = "print(1)") -> Execution:
         jupyter_pool=JupyterPool.INTERACTIVE,
         kernel_name="python3",
         code_source_type=CodeSourceType.INLINE,
-        code=code,
+        source_content='{"schema_version":"1.0"}',
         code_path=None,
+        source_sha256="0" * 64,
         requested_by_user_id=user_id,
         project_id="project-1",
         session_id="session-1",
+        task_id="test-task",
         execution_plan_id="plan-1",
+        steps=[
+            ExecutionStep(
+                sequence=sequence,
+                code=code,
+                execution_plan_id="plan-1",
+                plan_step_id=f"plan-step-{sequence}",
+            )
+            for sequence, code in enumerate(codes)
+        ],
     )
 
 
 def test_workspace_uses_expected_pv_hierarchy_and_writes_notebook(tmp_path: Path) -> None:
     manager = WorkspaceManager(tmp_path)
-    item = execution(code="# %%\nprint(1)\n# %%\n2 + 2")
+    item = execution(codes=("print(1)", "2 + 2"))
     workspace = manager.prepare(item)
     cells = manager.load_cells(item, workspace)
 

@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from execution_spec_payload import inline_source
 from mcp import Client
 
 from executor_service.config import get_settings
@@ -26,12 +27,12 @@ async def main() -> None:
     processed_relative = (
         f"users/{user_id}/datasets/processed/{unique}/processed.csv"
     )
-    source = (
-        "# %%\n"
+    write_files_code = (
         "from pathlib import Path\n"
         "Path('artifacts/plots/plot.png').write_bytes(b'fake-png')\n"
         "Path('artifacts/reports/summary.md').write_text('# Summary', encoding='utf-8')\n"
-        "# %%\n"
+    )
+    publish_manifest_code = (
         "import json\n"
         f"processed = Path('/workspace/pv/{processed_relative}')\n"
         "processed.parent.mkdir(parents=True, exist_ok=True)\n"
@@ -68,23 +69,28 @@ async def main() -> None:
                     "idempotency_key": f"artifact-smoke-{unique}",
                     "mode": "STATIC",
                     "trigger_type": "INTERACTIVE",
-                    "jupyter_pool": "INTERACTIVE",
                     "kernel_name": "python3",
-                    "source": {"type": "INLINE", "code": source},
+                    "source": inline_source(
+                        f"artifact-smoke-plan-{unique}",
+                        [
+                            {
+                                "skill_name": "report",
+                                "tool_name": "write_files",
+                                "code": write_files_code,
+                            },
+                            {
+                                "skill_name": "data_preprocess",
+                                "tool_name": "publish_manifest",
+                                "code": publish_manifest_code,
+                            },
+                        ],
+                    ),
                     "context": {
                         "requested_by_user_id": user_id,
                         "project_id": "artifact-smoke-project",
                         "session_id": "artifact-smoke-session",
-                        "execution_plan_id": f"artifact-smoke-plan-{unique}",
+                        "task_id": f"artifact-smoke-task-{unique}",
                     },
-                    "steps": [
-                        {"sequence": 0, "skill_name": "report", "tool_name": "write_files"},
-                        {
-                            "sequence": 1,
-                            "skill_name": "data_preprocess",
-                            "tool_name": "publish_manifest",
-                        },
-                    ],
                 }
             },
         )

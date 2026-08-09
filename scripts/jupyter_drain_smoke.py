@@ -5,6 +5,7 @@ import os
 from typing import Any
 from uuid import uuid4
 
+from execution_spec_payload import inline_source
 from mcp import Client
 
 
@@ -52,17 +53,21 @@ async def _submit(client: Client, unique: str, index: int, sleep: int) -> str:
                 "idempotency_key": f"drain-execution-{unique}-{index}",
                 "mode": "STATIC",
                 "trigger_type": "INTERACTIVE",
-                "jupyter_pool": "INTERACTIVE",
                 "kernel_name": "python3",
-                "source": {
-                    "type": "INLINE",
-                    "code": f"import time\ntime.sleep({sleep})\nprint('done {index}')",
-                },
+                "source": inline_source(
+                    f"drain-plan-{unique}-{index}",
+                    [
+                        {
+                            "tool_name": "drain_test",
+                            "code": f"import time\ntime.sleep({sleep})\nprint('done {index}')",
+                        }
+                    ],
+                ),
                 "context": {
                     "requested_by_user_id": "drain-user",
                     "project_id": "drain-project",
                     "session_id": f"drain-session-{index}",
-                    "execution_plan_id": f"drain-plan-{unique}-{index}",
+                    "task_id": f"drain-task-{unique}-{index}",
                 },
             }
         },
