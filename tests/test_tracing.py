@@ -17,7 +17,6 @@ from executor_service.config import Settings
 from executor_service.domain.enums import (
     CodeSourceType,
     ExecutionMode,
-    JupyterPool,
     TriggerType,
 )
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
@@ -57,16 +56,25 @@ def _command() -> SubmitExecutionCommand:
         idempotency_key="tracing-submit",
         mode=ExecutionMode.STATIC,
         trigger_type=TriggerType.INTERACTIVE,
-        jupyter_pool=JupyterPool.INTERACTIVE,
         kernel_name="python3",
         code_source_type=CodeSourceType.INLINE,
-        code="print('sensitive generated code')",
+        source_content="print('sensitive generated code')",
         code_path=None,
+        source_sha256="0" * 64,
         requested_by_user_id="trace-user",
         project_id="trace-project",
         session_id="trace-session",
+        task_id="test-task",
         execution_plan_id="trace-plan",
-        steps=(StepSpec(sequence=0, tool_name="trace_tool"),),
+        steps=(
+            StepSpec(
+                sequence=0,
+                code="print('sensitive generated code')",
+                execution_plan_id="trace-plan",
+                plan_step_id="trace-plan-step-0",
+                tool_name="trace_tool",
+            ),
+        ),
     )
 
 

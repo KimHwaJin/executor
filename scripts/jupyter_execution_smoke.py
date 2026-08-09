@@ -4,6 +4,7 @@ import asyncio
 from pathlib import Path
 from uuid import uuid4
 
+from execution_spec_payload import inline_source
 from mcp import Client
 
 from executor_service.config import get_settings
@@ -19,31 +20,33 @@ async def main() -> None:
                     "idempotency_key": f"jupyter-smoke-{unique}",
                     "mode": "STATIC",
                     "trigger_type": "INTERACTIVE",
-                    "jupyter_pool": "INTERACTIVE",
                     "kernel_name": "python3",
-                    "source": {
-                        "type": "INLINE",
-                        "code": (
-                            "# %%\n"
-                            "numbers = [1, 2, 3]\n"
-                            "print(sum(numbers))\n"
-                            "# %%\n"
-                            "from pathlib import Path\n"
-                            "Path('artifacts/other/result.txt').write_text("
-                            "'completed', encoding='utf-8')\n"
-                            "len(numbers)\n"
-                        ),
-                    },
+                    "source": inline_source(
+                        f"smoke-plan-{unique}",
+                        [
+                            {
+                                "skill_name": "eda",
+                                "tool_name": "sum_values",
+                                "code": "numbers = [1, 2, 3]\nprint(sum(numbers))",
+                            },
+                            {
+                                "skill_name": "report",
+                                "tool_name": "save_result",
+                                "code": (
+                                    "from pathlib import Path\n"
+                                    "Path('artifacts/other/result.txt').write_text("
+                                    "'completed', encoding='utf-8')\n"
+                                    "len(numbers)"
+                                ),
+                            },
+                        ],
+                    ),
                     "context": {
                         "requested_by_user_id": "smoke-user",
                         "project_id": "smoke-project",
                         "session_id": "smoke-session",
-                        "execution_plan_id": f"smoke-plan-{unique}",
+                        "task_id": f"smoke-task-{unique}",
                     },
-                    "steps": [
-                        {"sequence": 0, "skill_name": "eda", "tool_name": "sum_values"},
-                        {"sequence": 1, "skill_name": "report", "tool_name": "save_result"},
-                    ],
                 }
             },
         )

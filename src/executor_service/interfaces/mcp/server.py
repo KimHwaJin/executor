@@ -23,6 +23,7 @@ from executor_service.application.jupyter_servers import (
 from executor_service.application.services import ExecutionService
 from executor_service.domain.enums import JupyterPool, JupyterServerStatus
 from executor_service.domain.errors import DomainError
+from executor_service.interfaces.mcp.execution_specs import ExecutionSpecResolver
 from executor_service.interfaces.mcp.schemas import (
     ExecutionArtifactResponse,
     ExecutionAttemptResponse,
@@ -60,6 +61,7 @@ def build_mcp_server(
     jupyter_manager: JupyterServerManager | None = None,
     execution_queries: ExecutionQueryService | None = None,
     tracing: TracingManager | None = None,
+    execution_spec_resolver: ExecutionSpecResolver | None = None,
 ) -> MCPServer:
     server = MCPServer(
         name="executor-service",
@@ -103,10 +105,23 @@ def build_mcp_server(
     )
     async def execution_submit(request: ExecutionSubmitRequest) -> ExecutionResponse:
         try:
+            if execution_spec_resolver is None:
+                raise ToolError("ExecutionSpec resolver is not configured.")
+            resolved = await execution_spec_resolver.resolve(request.source)
+            if resolved.spec.steps[0].sequence != 0:
+                raise ToolError(
+                    "Execution submit requires an ExecutionSpec starting at sequence 0."
+                )
             execution = await _trace_call(
                 tracing,
                 "executor.mcp.execution_submit",
-                execution_service.submit(request.to_command()),
+                execution_service.submit(
+                    request.to_command(
+                        resolved.spec,
+                        source_content=resolved.canonical_content,
+                        source_sha256=resolved.sha256,
+                    )
+                ),
             )
         except DomainError as exc:
             raise ToolError(str(exc)) from exc
@@ -180,6 +195,12 @@ def build_mcp_server(
     )
     async def execution_continue(request: ExecutionContinueRequest) -> ExecutionResponse:
         try:
+            if execution_spec_resolver is None:
+                raise ToolError("ExecutionSpec resolver is not configured.")
+            resolved = await execution_spec_resolver.resolve(request.source)
+            if len(resolved.spec.steps) != 1:
+                raise ToolError("DYNAMIC continue requires exactly one ExecutionSpec step.")
+            source_step = resolved.spec.steps[0]
             execution = await _trace_call(
                 tracing,
                 "executor.mcp.execution_continue",
@@ -189,18 +210,19 @@ def build_mcp_server(
                         idempotency_key=request.idempotency_key,
                         expected_version=request.expected_version,
                         step=StepSpec(
-                            sequence=request.step.sequence,
-                            code=request.step.code,
-                            plan_revision_id=request.step.plan_revision_id,
-                            skill_name=request.step.skill_name,
-                            tool_name=request.step.tool_name,
-                            input_parameters=request.step.input_parameters,
+                            sequence=source_step.sequence,
+                            code=source_step.code,
+                            execution_plan_id=resolved.spec.execution_plan_id,
+                            plan_step_id=source_step.plan_step_id,
+                            skill_name=source_step.skill_name,
+                            tool_name=source_step.tool_name,
+                            input_parameters=source_step.input_parameters,
                         ),
                     )
                 ),
                 {
                     "executor.execution.id": str(request.execution_id),
-                    "executor.step.sequence": request.step.sequence,
+                    "executor.step.sequence": source_step.sequence,
                 },
             )
         except DomainError as exc:

@@ -4,6 +4,7 @@ import asyncio
 from typing import Any
 from uuid import uuid4
 
+from execution_spec_payload import inline_source
 from mcp import Client
 
 
@@ -27,37 +28,35 @@ async def main() -> None:
                     "idempotency_key": f"retry-submit-{unique}",
                     "mode": "STATIC",
                     "trigger_type": "INTERACTIVE",
-                    "jupyter_pool": "INTERACTIVE",
                     "kernel_name": "python3",
-                    "source": {
-                        "type": "INLINE",
-                        "code": (
-                            "# %%\n"
-                            "from pathlib import Path\n"
-                            "attempt_counter = 0\n"
-                            "# %%\n"
-                            "attempt_counter += 1\n"
-                            "Path('artifacts/other/retry-state.txt').write_text(\n"
-                            "    str(attempt_counter), encoding='utf-8'\n"
-                            ")\n"
-                            "if attempt_counter == 1:\n"
-                            "    raise RuntimeError('expected first-attempt failure')\n"
-                            "print(attempt_counter)\n"
-                            "# %%\n"
-                            "print('retry completed')\n"
-                        ),
-                    },
+                    "source": inline_source(
+                        f"retry-plan-{unique}",
+                        [
+                            {
+                                "tool_name": "initialize",
+                                "code": "from pathlib import Path\nattempt_counter = 0",
+                            },
+                            {
+                                "tool_name": "fail_once",
+                                "code": (
+                                    "attempt_counter += 1\n"
+                                    "Path('artifacts/other/retry-state.txt').write_text(\n"
+                                    "    str(attempt_counter), encoding='utf-8'\n"
+                                    ")\n"
+                                    "if attempt_counter == 1:\n"
+                                    "    raise RuntimeError('expected first-attempt failure')\n"
+                                    "print(attempt_counter)"
+                                ),
+                            },
+                            {"tool_name": "finish", "code": "print('retry completed')"},
+                        ],
+                    ),
                     "context": {
                         "requested_by_user_id": "retry-user",
                         "project_id": "retry-project",
                         "session_id": "retry-session",
-                        "execution_plan_id": f"retry-plan-{unique}",
+                        "task_id": f"retry-task-{unique}",
                     },
-                    "steps": [
-                        {"sequence": 0, "tool_name": "initialize"},
-                        {"sequence": 1, "tool_name": "fail_once"},
-                        {"sequence": 2, "tool_name": "finish"},
-                    ],
                 }
             },
         )

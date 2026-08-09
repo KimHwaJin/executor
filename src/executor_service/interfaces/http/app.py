@@ -18,6 +18,7 @@ def create_app(container: ApplicationContainer) -> FastAPI:
         container.jupyter_registry,
         container.execution_queries,
         container.tracing,
+        container.execution_spec_resolver,
     )
     transport_security = TransportSecuritySettings(
         enable_dns_rebinding_protection=True,

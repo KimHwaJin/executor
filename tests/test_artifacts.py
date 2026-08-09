@@ -42,16 +42,26 @@ def _command() -> SubmitExecutionCommand:
         idempotency_key="artifact-submit",
         mode=ExecutionMode.STATIC,
         trigger_type=TriggerType.INTERACTIVE,
-        jupyter_pool=JupyterPool.INTERACTIVE,
         kernel_name="python3",
         code_source_type=CodeSourceType.INLINE,
-        code="print('artifact')",
+        source_content="print('artifact')",
         code_path=None,
+        source_sha256="0" * 64,
         requested_by_user_id="artifact-user",
         project_id="artifact-project",
         session_id="artifact-session",
+        task_id="test-task",
         execution_plan_id="artifact-plan",
-        steps=(StepSpec(sequence=0, skill_name="report", tool_name="write_outputs"),),
+        steps=(
+            StepSpec(
+                sequence=0,
+                code="print('artifact')",
+                execution_plan_id="artifact-plan",
+                plan_step_id="artifact-plan-step-0",
+                skill_name="report",
+                tool_name="write_outputs",
+            ),
+        ),
     )
 
 

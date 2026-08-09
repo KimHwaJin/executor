@@ -60,8 +60,8 @@ class ExecutionORM(Base):
         CheckConstraint("jupyter_pool IN ('INTERACTIVE', 'BATCH')", name="valid_jupyter_pool"),
         CheckConstraint("code_source_type IN ('INLINE', 'PATH')", name="valid_code_source_type"),
         CheckConstraint(
-            "(code_source_type = 'INLINE' AND code IS NOT NULL AND code_path IS NULL) OR "
-            "(code_source_type = 'PATH' AND code IS NULL AND code_path IS NOT NULL)",
+            "(code_source_type = 'INLINE' AND code_path IS NULL) OR "
+            "(code_source_type = 'PATH' AND code_path IS NOT NULL)",
             name="valid_code_source",
         ),
         CheckConstraint("retry_count >= 0", name="non_negative_retry_count"),
@@ -112,15 +112,16 @@ class ExecutionORM(Base):
     code_source_type: Mapped[CodeSourceType] = mapped_column(
         enum_type(CodeSourceType, "code_source_type"), nullable=False
     )
-    code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_content: Mapped[str] = mapped_column("code", Text, nullable=False)
     code_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
 
     requested_by_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
     project_id: Mapped[str] = mapped_column(String(255), nullable=False)
     session_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    task_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     execution_plan_id: Mapped[str] = mapped_column(String(255), nullable=False)
     workflow_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    correlation_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     execution_metadata: Mapped[dict[str, Any]] = mapped_column(
         "metadata", JSON, nullable=False, default=dict
     )
@@ -195,14 +196,15 @@ class ExecutionORM(Base):
             jupyter_pool=execution.jupyter_pool,
             kernel_name=execution.kernel_name,
             code_source_type=execution.code_source_type,
-            code=execution.code,
+            source_content=execution.source_content,
             code_path=execution.code_path,
+            source_sha256=execution.source_sha256,
             requested_by_user_id=execution.requested_by_user_id,
             project_id=execution.project_id,
             session_id=execution.session_id,
+            task_id=execution.task_id,
             execution_plan_id=execution.execution_plan_id,
             workflow_id=execution.workflow_id,
-            correlation_id=execution.correlation_id,
             execution_metadata=execution.metadata,
             cancellation_reason=execution.cancellation_reason,
             jupyter_server_id=execution.jupyter_server_id,
@@ -246,14 +248,15 @@ class ExecutionORM(Base):
             jupyter_pool=self.jupyter_pool,
             kernel_name=self.kernel_name,
             code_source_type=self.code_source_type,
-            code=self.code,
+            source_content=self.source_content,
             code_path=self.code_path,
+            source_sha256=self.source_sha256,
             requested_by_user_id=self.requested_by_user_id,
             project_id=self.project_id,
             session_id=self.session_id,
+            task_id=self.task_id,
             execution_plan_id=self.execution_plan_id,
             workflow_id=self.workflow_id,
-            correlation_id=self.correlation_id,
             metadata=self.execution_metadata,
             cancellation_reason=self.cancellation_reason,
             jupyter_server_id=self.jupyter_server_id,
@@ -305,9 +308,10 @@ class ExecutionStepORM(Base):
         index=True,
     )
     sequence: Mapped[int] = mapped_column(Integer, nullable=False)
-    code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    code: Mapped[str] = mapped_column(Text, nullable=False)
     code_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    plan_revision_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    execution_plan_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    plan_step_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     skill_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     tool_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     status: Mapped[StepStatus] = mapped_column(
@@ -334,7 +338,8 @@ class ExecutionStepORM(Base):
             sequence=step.sequence,
             code=step.code,
             code_hash=step.code_hash,
-            plan_revision_id=step.plan_revision_id,
+            execution_plan_id=step.execution_plan_id,
+            plan_step_id=step.plan_step_id,
             skill_name=step.skill_name,
             tool_name=step.tool_name,
             status=step.status,
@@ -353,7 +358,8 @@ class ExecutionStepORM(Base):
             sequence=self.sequence,
             code=self.code,
             code_hash=self.code_hash,
-            plan_revision_id=self.plan_revision_id,
+            execution_plan_id=self.execution_plan_id,
+            plan_step_id=self.plan_step_id,
             skill_name=self.skill_name,
             tool_name=self.tool_name,
             status=self.status,

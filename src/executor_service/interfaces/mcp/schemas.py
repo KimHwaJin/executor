@@ -1,7 +1,7 @@
 """Public MCP request and response contracts; never reuse ORM models here."""
 
 from datetime import datetime
-from typing import Any, Self
+from typing import Annotated, Any, Literal, Self
 from uuid import UUID
 
 from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, SecretStr, model_validator
@@ -39,85 +39,103 @@ class MCPModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class CodeSource(MCPModel):
-    type: CodeSourceType
-    code: str | None = None
-    path: str | None = None
-
-    @model_validator(mode="after")
-    def validate_source(self) -> Self:
-        if self.type == CodeSourceType.INLINE and (self.code is None or self.path is not None):
-            raise ValueError("INLINE source requires code and forbids path.")
-        if self.type == CodeSourceType.PATH and (self.path is None or self.code is not None):
-            raise ValueError("PATH source requires path and forbids code.")
-        return self
-
-
-class ExecutionContext(MCPModel):
-    requested_by_user_id: str = Field(min_length=1, max_length=255)
-    project_id: str = Field(min_length=1, max_length=255)
-    session_id: str = Field(min_length=1, max_length=255)
-    execution_plan_id: str = Field(min_length=1, max_length=255)
-    workflow_id: str | None = Field(default=None, max_length=255)
-    correlation_id: str | None = Field(default=None, max_length=255)
-
-
 class ExecutionStepInput(MCPModel):
     sequence: int = Field(ge=0)
-    code: str | None = None
-    plan_revision_id: str | None = Field(default=None, max_length=255)
+    plan_step_id: str = Field(min_length=1, max_length=255)
     skill_name: str | None = Field(default=None, max_length=255)
     tool_name: str | None = Field(default=None, max_length=255)
     input_parameters: dict[str, Any] = Field(default_factory=dict)
+    code: str = Field(min_length=1)
+
+
+class ExecutionSpec(MCPModel):
+    schema_version: Literal["1.0"]
+    execution_plan_id: str = Field(min_length=1, max_length=255)
+    steps: list[ExecutionStepInput] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_steps(self) -> Self:
+        sequences = [step.sequence for step in self.steps]
+        expected = list(range(sequences[0], sequences[0] + len(sequences)))
+        if sequences != expected:
+            raise ValueError("Step sequence values must be contiguous and ordered.")
+        plan_step_ids = [step.plan_step_id for step in self.steps]
+        if len(plan_step_ids) != len(set(plan_step_ids)):
+            raise ValueError("plan_step_id values must be unique within an ExecutionSpec.")
+        if any(not step.code.strip() for step in self.steps):
+            raise ValueError("Step code must not be blank.")
+        return self
+
+
+class InlineCodeSource(MCPModel):
+    type: Literal[CodeSourceType.INLINE]
+    spec: ExecutionSpec
+
+
+class PathCodeSource(MCPModel):
+    type: Literal[CodeSourceType.PATH]
+    path: str = Field(min_length=1, max_length=4096)
+    sha256: str = Field(pattern=r"^[0-9a-fA-F]{64}$")
+
+
+CodeSource = Annotated[InlineCodeSource | PathCodeSource, Field(discriminator="type")]
+
+
+class ExecutionSubmitContext(MCPModel):
+    requested_by_user_id: str = Field(min_length=1, max_length=255)
+    project_id: str = Field(min_length=1, max_length=255)
+    session_id: str = Field(min_length=1, max_length=255)
+    task_id: str = Field(min_length=1, max_length=255)
+    workflow_id: str | None = Field(default=None, max_length=255)
+
+
+class ExecutionContext(ExecutionSubmitContext):
+    execution_plan_id: str = Field(min_length=1, max_length=255)
 
 
 class ExecutionSubmitRequest(MCPModel):
     idempotency_key: str = Field(min_length=1, max_length=255)
     mode: ExecutionMode
     trigger_type: TriggerType = TriggerType.INTERACTIVE
-    jupyter_pool: JupyterPool = JupyterPool.INTERACTIVE
     kernel_name: str = Field(min_length=1, max_length=128)
     source: CodeSource
-    context: ExecutionContext
+    context: ExecutionSubmitContext
     metadata: dict[str, Any] = Field(default_factory=dict)
-    steps: list[ExecutionStepInput] = Field(default_factory=list)
 
-    @model_validator(mode="after")
-    def validate_steps(self) -> Self:
-        sequences = [step.sequence for step in self.steps]
-        if len(sequences) != len(set(sequences)):
-            raise ValueError("Step sequence values must be unique.")
-        if sequences != sorted(sequences):
-            raise ValueError("Steps must be ordered by sequence.")
-        return self
-
-    def to_command(self) -> SubmitExecutionCommand:
+    def to_command(
+        self,
+        spec: ExecutionSpec,
+        *,
+        source_content: str,
+        source_sha256: str,
+    ) -> SubmitExecutionCommand:
         return SubmitExecutionCommand(
             idempotency_key=self.idempotency_key,
             mode=self.mode,
             trigger_type=self.trigger_type,
-            jupyter_pool=self.jupyter_pool,
             kernel_name=self.kernel_name,
             code_source_type=self.source.type,
-            code=self.source.code,
-            code_path=self.source.path,
+            source_content=source_content,
+            code_path=self.source.path if isinstance(self.source, PathCodeSource) else None,
+            source_sha256=source_sha256,
             requested_by_user_id=self.context.requested_by_user_id,
             project_id=self.context.project_id,
             session_id=self.context.session_id,
-            execution_plan_id=self.context.execution_plan_id,
+            task_id=self.context.task_id,
+            execution_plan_id=spec.execution_plan_id,
             workflow_id=self.context.workflow_id,
-            correlation_id=self.context.correlation_id,
             metadata=self.metadata,
             steps=tuple(
                 ApplicationStepSpec(
                     sequence=step.sequence,
                     code=step.code,
-                    plan_revision_id=step.plan_revision_id,
+                    execution_plan_id=spec.execution_plan_id,
+                    plan_step_id=step.plan_step_id,
                     skill_name=step.skill_name,
                     tool_name=step.tool_name,
                     input_parameters=step.input_parameters,
                 )
-                for step in self.steps
+                for step in spec.steps
             ),
         )
 
@@ -137,7 +155,7 @@ class ExecutionContinueRequest(MCPModel):
     execution_id: UUID
     idempotency_key: str = Field(min_length=1, max_length=255)
     expected_version: int = Field(ge=0)
-    step: ExecutionStepInput
+    source: CodeSource
 
 
 class ExecutionFinishRequest(MCPModel):
@@ -210,7 +228,8 @@ class ExecutionStepResponse(MCPModel):
     id: UUID
     sequence: int
     code_hash: str | None
-    plan_revision_id: str | None
+    execution_plan_id: str
+    plan_step_id: str
     skill_name: str | None
     tool_name: str | None
     status: StepStatus
@@ -220,6 +239,12 @@ class ExecutionStepResponse(MCPModel):
     finished_at: datetime | None
 
 
+class ExecutionSourceResponse(MCPModel):
+    type: CodeSourceType
+    path: str | None
+    sha256: str
+
+
 class ExecutionResponse(MCPModel):
     execution_id: UUID
     status: ExecutionStatus
@@ -227,6 +252,7 @@ class ExecutionResponse(MCPModel):
     trigger_type: TriggerType
     jupyter_pool: JupyterPool
     kernel_name: str
+    source: ExecutionSourceResponse
     context: ExecutionContext
     steps: list[ExecutionStepResponse]
     cancellation_reason: str | None
@@ -260,20 +286,26 @@ class ExecutionResponse(MCPModel):
             trigger_type=execution.trigger_type,
             jupyter_pool=execution.jupyter_pool,
             kernel_name=execution.kernel_name,
+            source=ExecutionSourceResponse(
+                type=execution.code_source_type,
+                path=execution.code_path,
+                sha256=execution.source_sha256,
+            ),
             context=ExecutionContext(
                 requested_by_user_id=execution.requested_by_user_id,
                 project_id=execution.project_id,
                 session_id=execution.session_id,
+                task_id=execution.task_id,
                 execution_plan_id=execution.execution_plan_id,
                 workflow_id=execution.workflow_id,
-                correlation_id=execution.correlation_id,
             ),
             steps=[
                 ExecutionStepResponse(
                     id=step.id,
                     sequence=step.sequence,
                     code_hash=step.code_hash,
-                    plan_revision_id=step.plan_revision_id,
+                    execution_plan_id=step.execution_plan_id,
+                    plan_step_id=step.plan_step_id,
                     skill_name=step.skill_name,
                     tool_name=step.tool_name,
                     status=step.status,

@@ -6,11 +6,9 @@ from pathlib import Path
 
 import nbformat
 
-from executor_service.domain.enums import CodeSourceType
 from executor_service.domain.models import Execution
 
 SAFE_SEGMENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$")
-CELL_MARKER = re.compile(r"^\s*#\s*%%.*$", re.MULTILINE)
 
 
 class WorkspacePathError(ValueError):
@@ -71,7 +69,7 @@ class WorkspaceManager:
         }
         for path in artifact_paths.values():
             path.mkdir(parents=True, exist_ok=True)
-        return ExecutionWorkspace(
+        workspace = ExecutionWorkspace(
             host_root=root,
             jupyter_relative_path=relative.as_posix(),
             code_dir=paths["code"],
@@ -87,31 +85,15 @@ class WorkspaceManager:
             checkpoints_dir=paths["checkpoints"],
             notebook_file=paths["notebooks"] / "execution.ipynb",
         )
+        (workspace.code_dir / "execution-spec.json").write_text(
+            execution.source_content, encoding="utf-8"
+        )
+        return workspace
 
     def load_cells(self, execution: Execution, workspace: ExecutionWorkspace) -> list[str]:
-        if execution.code_source_type == CodeSourceType.INLINE:
-            if execution.code is None:
-                raise WorkspacePathError("INLINE execution has no code.")
-            source = execution.code
-            (workspace.code_dir / "execution.py").write_text(source, encoding="utf-8")
-            return _split_python_cells(source)
-
-        if execution.code_path is None:
-            raise WorkspacePathError("PATH execution has no code path.")
-        source_path = Path(execution.code_path)
-        if not source_path.is_absolute():
-            source_path = self._host_root / source_path
-        source_path = source_path.resolve()
-        _ensure_within(source_path, self._host_root)
-        if not source_path.is_file():
-            raise WorkspacePathError(f"Code source does not exist: {execution.code_path}")
-        if source_path.suffix == ".ipynb":
-            notebook = nbformat.read(source_path, as_version=4)
-            cells = [cell.source for cell in notebook.cells if cell.cell_type == "code"]
-        else:
-            cells = _split_python_cells(source_path.read_text(encoding="utf-8"))
-        if not cells:
-            raise WorkspacePathError("Code source contains no executable cells.")
+        cells = [step.code for step in sorted(execution.steps, key=lambda step: step.sequence)]
+        if not cells or any(not code.strip() for code in cells):
+            raise WorkspacePathError("ExecutionSpec contains no executable steps.")
         return cells
 
     def write_notebook(
@@ -151,10 +133,3 @@ def _ensure_within(path: Path, root: Path) -> None:
         path.relative_to(root)
     except ValueError as exc:
         raise WorkspacePathError("Resolved path escapes the configured PV root.") from exc
-
-
-def _split_python_cells(source: str) -> list[str]:
-    cells = [part.strip() for part in CELL_MARKER.split(source) if part.strip()]
-    if not cells and source.strip():
-        return [source.strip()]
-    return cells

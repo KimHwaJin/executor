@@ -8,6 +8,7 @@ from collections.abc import Mapping
 from typing import Any
 
 import httpx
+from execution_spec_payload import inline_source
 from mcp import Client
 from redis.asyncio import Redis
 
@@ -159,22 +160,17 @@ async def submit_static(
                 "idempotency_key": f"resilience-{unique}-{name}",
                 "mode": "STATIC",
                 "trigger_type": "BATCH" if pool == "BATCH" else "INTERACTIVE",
-                "jupyter_pool": pool,
                 "kernel_name": "python3",
-                "source": {"type": "INLINE", "code": code},
+                "source": inline_source(
+                    f"resilience-plan-{unique}-{name}",
+                    [{"skill_name": "data_io", "tool_name": name, "code": code}],
+                ),
                 "context": {
                     "requested_by_user_id": "resilience-user",
                     "project_id": "resilience-project",
                     "session_id": f"resilience-session-{unique}-{name}",
-                    "execution_plan_id": f"resilience-plan-{unique}-{name}",
+                    "task_id": f"resilience-task-{unique}-{name}",
                 },
-                "steps": [
-                    {
-                        "sequence": 0,
-                        "skill_name": "data_io",
-                        "tool_name": name,
-                    }
-                ],
             }
         },
     )

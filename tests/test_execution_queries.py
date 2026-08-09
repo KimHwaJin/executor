@@ -33,16 +33,26 @@ def _submit_command() -> SubmitExecutionCommand:
         idempotency_key="trace-submit",
         mode=ExecutionMode.STATIC,
         trigger_type=TriggerType.INTERACTIVE,
-        jupyter_pool=JupyterPool.INTERACTIVE,
         kernel_name="python3",
         code_source_type=CodeSourceType.INLINE,
-        code="print('trace')",
+        source_content="print('trace')",
         code_path=None,
+        source_sha256="0" * 64,
         requested_by_user_id="trace-user",
         project_id="trace-project",
         session_id="trace-session",
+        task_id="test-task",
         execution_plan_id="trace-plan",
-        steps=(StepSpec(sequence=0, skill_name="data_load", tool_name="load_data"),),
+        steps=(
+            StepSpec(
+                sequence=0,
+                code="print('trace')",
+                execution_plan_id="trace-plan",
+                plan_step_id="trace-plan-step-0",
+                skill_name="data_load",
+                tool_name="load_data",
+            ),
+        ),
     )
 
 

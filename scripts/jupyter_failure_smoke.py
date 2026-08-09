@@ -4,6 +4,7 @@ import asyncio
 from pathlib import Path
 from uuid import uuid4
 
+from execution_spec_payload import inline_source
 from mcp import Client
 
 from executor_service.config import get_settings
@@ -18,14 +19,21 @@ async def main() -> None:
                 "request": {
                     "idempotency_key": f"failure-smoke-{unique}",
                     "mode": "STATIC",
-                    "jupyter_pool": "INTERACTIVE",
                     "kernel_name": "python3",
-                    "source": {"type": "INLINE", "code": "raise ValueError('expected')"},
+                    "source": inline_source(
+                        f"failure-plan-{unique}",
+                        [
+                            {
+                                "tool_name": "expected_failure",
+                                "code": "raise ValueError('expected')",
+                            }
+                        ],
+                    ),
                     "context": {
                         "requested_by_user_id": "smoke-user",
                         "project_id": "smoke-project",
                         "session_id": "smoke-session",
-                        "execution_plan_id": f"failure-plan-{unique}",
+                        "task_id": f"failure-task-{unique}",
                     },
                 }
             },

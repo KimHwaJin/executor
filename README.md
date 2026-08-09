@@ -166,18 +166,24 @@ uv run alembic upgrade head
 - `idempotency_key`: required for safe retries; reuse with different content is rejected
 - `mode`: `STATIC` or `DYNAMIC`
 - `trigger_type`: `INTERACTIVE` or `BATCH`
-- `jupyter_pool`: `INTERACTIVE` or `BATCH`
 - `kernel_name`: one of the deployment's configured kernels
-- `source`: either `{ "type": "INLINE", "code": "..." }` or
-  `{ "type": "PATH", "path": "/shared/..." }`
-- `context`: Agent-owned user/project/session/plan IDs; Executor creates `execution_id`
-- `steps`: ordered execution units with optional skill and tool names
+- `source`: either an INLINE ExecutionSpec or a shared-PV PATH plus SHA-256
+- `context`: Agent-owned user/project/session/Task IDs; Executor creates `execution_id`
 
-For `DYNAMIC`, submit exactly one INLINE cell as both `source.code` and `steps[0].code`, with
-sequence `0`. After the execution reaches `WAITING_FOR_NEXT_STEP`, call `execution_continue` with
-the current `version`, a new idempotency key, and the next consecutive Step. A stale version or
-non-consecutive sequence is rejected. The optional `plan_revision_id` links each chosen cell back
-to the Agent-owned plan revision. A cell error is recorded as a failed Step and returns to the
+`jupyter_pool` is not accepted from callers. Executor derives `INTERACTIVE` or `BATCH` from
+`trigger_type`, then selects a healthy compatible server with available capacity inside that pool.
+
+INLINE and PATH resolve to the same versioned ExecutionSpec. INLINE embeds `source.spec`; PATH
+references a UTF-8 JSON file under the shared PV root using a relative path and required SHA-256.
+The spec owns `execution_plan_id` and ordered Steps containing `plan_step_id`, code, and optional
+Skill/Tool metadata. Executor persists the normalized source and creates one ExecutionStep and one
+Notebook code cell per spec Step. See [ExecutionSpec v1](docs/execution-spec.md).
+
+For `DYNAMIC`, submit exactly one ExecutionSpec Step with sequence `0`. After the execution reaches
+`WAITING_FOR_NEXT_STEP`, call `execution_continue` with the current `version`, a new idempotency
+key, and an INLINE or PATH ExecutionSpec containing exactly the next consecutive Step. A stale
+version or non-consecutive sequence is rejected. Each Step records its Agent-owned
+`execution_plan_id` and `plan_step_id`. A cell error is recorded as a failed Step and returns to the
 waiting state so the Agent can append a corrected follow-up cell; already executed cells are never
 rewritten. Call `execution_finish` with the current version when no more cells are needed. If the
 retained kernel is lost or an infrastructure failure makes its state untrustworthy, the DYNAMIC
@@ -236,9 +242,9 @@ storage URI, media type, size, checksum, status, metadata, and a direct parent A
 Agent Asset ID. `execution_trace_get` includes the same Artifact collection. Registration emits
 `execution.artifact_registered` through the Transactional Outbox.
 
-Python files may use `# %%` markers to define notebook cells. Existing `.ipynb` PATH inputs use
-their code cells. When explicit planned steps are supplied, their count must match the executable
-cell count. If steps are omitted, the worker creates one ExecutionStep per cell.
+Agent code files and `.ipynb` files are not public execution inputs. Executor owns Notebook
+materialization and writes `code/execution-spec.json` plus `notebooks/execution.ipynb` inside the
+Execution workspace.
 
 ## Jupyter fleet management
 

@@ -41,16 +41,25 @@ def _command() -> SubmitExecutionCommand:
         idempotency_key="lease-recovery-submit",
         mode=ExecutionMode.STATIC,
         trigger_type=TriggerType.INTERACTIVE,
-        jupyter_pool=JupyterPool.INTERACTIVE,
         kernel_name="python3",
         code_source_type=CodeSourceType.INLINE,
-        code="print('long-running')",
+        source_content="print('long-running')",
         code_path=None,
+        source_sha256="0" * 64,
         requested_by_user_id="recovery-user",
         project_id="recovery-project",
         session_id="recovery-session",
+        task_id="test-task",
         execution_plan_id="recovery-plan",
-        steps=(StepSpec(sequence=0, tool_name="long_running_tool"),),
+        steps=(
+            StepSpec(
+                sequence=0,
+                code="print('long-running')",
+                execution_plan_id="recovery-plan",
+                plan_step_id="recovery-plan-step-0",
+                tool_name="long_running_tool",
+            ),
+        ),
     )
 
 

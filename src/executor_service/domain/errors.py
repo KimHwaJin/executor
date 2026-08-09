@@ -21,6 +21,10 @@ class IdempotencyConflictError(DomainError):
     pass
 
 
+class InvalidExecutionSpecError(DomainError):
+    pass
+
+
 class PersistenceConflictError(DomainError):
     """A uniqueness or optimistic concurrency constraint was violated."""
 

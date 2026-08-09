@@ -17,7 +17,6 @@ from executor_service.domain.enums import (
     CodeSourceType,
     ExecutionMode,
     ExecutionStatus,
-    JupyterPool,
     StepStatus,
     TriggerType,
 )
@@ -51,20 +50,22 @@ async def main() -> None:
                 idempotency_key=f"dynamic-submit-{unique}",
                 mode=ExecutionMode.DYNAMIC,
                 trigger_type=TriggerType.INTERACTIVE,
-                jupyter_pool=JupyterPool.INTERACTIVE,
                 kernel_name="python3",
                 code_source_type=CodeSourceType.INLINE,
-                code=first_code,
+                source_content=first_code,
                 code_path=None,
+                source_sha256="0" * 64,
                 requested_by_user_id="dynamic-user",
                 project_id="dynamic-project",
                 session_id="dynamic-session",
+                task_id="test-task",
                 execution_plan_id=f"dynamic-plan-{unique}",
                 steps=(
                     StepSpec(
                         sequence=0,
                         code=first_code,
-                        plan_revision_id="revision-1",
+                        execution_plan_id=f"dynamic-plan-{unique}",
+                        plan_step_id=f"dynamic-plan-{unique}-step-0",
                         tool_name="initialize_value",
                     ),
                 ),
@@ -85,7 +86,8 @@ async def main() -> None:
                 step=StepSpec(
                     sequence=1,
                     code="answer = value + 2\nprint(answer)",
-                    plan_revision_id="revision-2",
+                    execution_plan_id="revision-2",
+                    plan_step_id="revision-2-step-1",
                     tool_name="calculate_answer",
                 ),
             )
@@ -104,7 +106,8 @@ async def main() -> None:
                 step=StepSpec(
                     sequence=2,
                     code="raise ValueError('planned dynamic failure')",
-                    plan_revision_id="revision-3",
+                    execution_plan_id="revision-3",
+                    plan_step_id="revision-3-step-2",
                     tool_name="failing_tool",
                 ),
             )
@@ -123,7 +126,8 @@ async def main() -> None:
                 step=StepSpec(
                     sequence=3,
                     code="corrected = answer * 2\nprint(corrected)",
-                    plan_revision_id="revision-4",
+                    execution_plan_id="revision-4",
+                    plan_step_id="revision-4-step-3",
                     tool_name="corrected_tool",
                 ),
             )

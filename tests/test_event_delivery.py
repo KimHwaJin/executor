@@ -102,16 +102,25 @@ def _command() -> SubmitExecutionCommand:
         idempotency_key=f"event-delivery-{uuid4().hex}",
         mode=ExecutionMode.STATIC,
         trigger_type=TriggerType.INTERACTIVE,
-        jupyter_pool=JupyterPool.INTERACTIVE,
         kernel_name="python3",
         code_source_type=CodeSourceType.INLINE,
-        code="print('claim once')",
+        source_content="print('claim once')",
         code_path=None,
+        source_sha256="0" * 64,
         requested_by_user_id="event-user",
         project_id="event-project",
         session_id="event-session",
+        task_id="test-task",
         execution_plan_id="event-plan",
-        steps=(StepSpec(sequence=0, tool_name="claim_once"),),
+        steps=(
+            StepSpec(
+                sequence=0,
+                code="print('claim once')",
+                execution_plan_id="event-plan",
+                plan_step_id="event-plan-step-0",
+                tool_name="claim_once",
+            ),
+        ),
     )
 
 

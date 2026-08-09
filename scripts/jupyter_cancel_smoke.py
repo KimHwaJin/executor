@@ -3,6 +3,7 @@
 import asyncio
 from uuid import uuid4
 
+from execution_spec_payload import inline_source
 from mcp import Client
 
 
@@ -16,17 +17,24 @@ async def main() -> None:
                     "idempotency_key": f"cancel-smoke-submit-{unique}",
                     "mode": "STATIC",
                     "trigger_type": "INTERACTIVE",
-                    "jupyter_pool": "INTERACTIVE",
                     "kernel_name": "python3",
-                    "source": {
-                        "type": "INLINE",
-                        "code": "import time\nprint('started')\ntime.sleep(30)\nprint('finished')",
-                    },
+                    "source": inline_source(
+                        f"cancel-plan-{unique}",
+                        [
+                            {
+                                "tool_name": "long_running",
+                                "code": (
+                                    "import time\nprint('started')\ntime.sleep(30)\n"
+                                    "print('finished')"
+                                ),
+                            }
+                        ],
+                    ),
                     "context": {
                         "requested_by_user_id": "smoke-user",
                         "project_id": "smoke-project",
                         "session_id": "smoke-session",
-                        "execution_plan_id": f"cancel-plan-{unique}",
+                        "task_id": f"cancel-task-{unique}",
                     },
                 }
             },

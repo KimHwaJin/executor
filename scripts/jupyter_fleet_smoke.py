@@ -4,6 +4,7 @@ import asyncio
 import os
 from uuid import uuid4
 
+from execution_spec_payload import inline_source
 from mcp import Client
 
 
@@ -61,21 +62,24 @@ async def main() -> None:
                         "idempotency_key": f"fleet-execution-{unique}-{index}",
                         "mode": "STATIC",
                         "trigger_type": "INTERACTIVE",
-                        "jupyter_pool": "INTERACTIVE",
                         "kernel_name": "python3",
-                        "source": {
-                            "type": "INLINE",
-                            "code": (
-                                "import time\n"
-                                "time.sleep(3)\n"
-                                f"print('fleet execution {index}')\n"
-                            ),
-                        },
+                        "source": inline_source(
+                            f"fleet-plan-{unique}-{index}",
+                            [
+                                {
+                                    "tool_name": "fleet_test",
+                                    "code": (
+                                        "import time\ntime.sleep(3)\n"
+                                        f"print('fleet execution {index}')"
+                                    ),
+                                }
+                            ],
+                        ),
                         "context": {
                             "requested_by_user_id": "fleet-user",
                             "project_id": "fleet-project",
                             "session_id": f"fleet-session-{index}",
-                            "execution_plan_id": f"fleet-plan-{unique}-{index}",
+                            "task_id": f"fleet-task-{unique}-{index}",
                         },
                     }
                 },

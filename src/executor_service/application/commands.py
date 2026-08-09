@@ -7,7 +7,6 @@ from uuid import UUID
 from executor_service.domain.enums import (
     CodeSourceType,
     ExecutionMode,
-    JupyterPool,
     TriggerType,
 )
 
@@ -15,8 +14,9 @@ from executor_service.domain.enums import (
 @dataclass(frozen=True, slots=True)
 class StepSpec:
     sequence: int
-    code: str | None = None
-    plan_revision_id: str | None = None
+    code: str
+    execution_plan_id: str
+    plan_step_id: str
     skill_name: str | None = None
     tool_name: str | None = None
     input_parameters: dict[str, Any] = field(default_factory=dict)
@@ -27,17 +27,17 @@ class SubmitExecutionCommand:
     idempotency_key: str
     mode: ExecutionMode
     trigger_type: TriggerType
-    jupyter_pool: JupyterPool
     kernel_name: str
     code_source_type: CodeSourceType
-    code: str | None
+    source_content: str
     code_path: str | None
+    source_sha256: str
     requested_by_user_id: str
     project_id: str
     session_id: str
+    task_id: str
     execution_plan_id: str
     workflow_id: str | None = None
-    correlation_id: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
     steps: tuple[StepSpec, ...] = ()
 

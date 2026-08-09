@@ -36,16 +36,25 @@ def _command(pool: JupyterPool, name: str) -> SubmitExecutionCommand:
         trigger_type=(
             TriggerType.BATCH if pool == JupyterPool.BATCH else TriggerType.INTERACTIVE
         ),
-        jupyter_pool=pool,
         kernel_name="python3",
         code_source_type=CodeSourceType.INLINE,
-        code=f"print('{name}')",
+        source_content=f"print('{name}')",
         code_path=None,
+        source_sha256="0" * 64,
         requested_by_user_id="pool-user",
         project_id="pool-project",
         session_id=f"pool-session-{name}",
+        task_id="test-task",
         execution_plan_id=f"pool-plan-{name}",
-        steps=(StepSpec(sequence=0, tool_name=name),),
+        steps=(
+            StepSpec(
+                sequence=0,
+                code=f"print('{name}')",
+                execution_plan_id=f"pool-plan-{name}",
+                plan_step_id=f"pool-plan-{name}-step-0",
+                tool_name=name,
+            ),
+        ),
     )
 
 

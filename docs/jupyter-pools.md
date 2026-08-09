@@ -84,5 +84,6 @@ uv run python scripts/jupyter_batch_pool_smoke.py
 ```
 
 The future Workflow batch service should submit successful promoted plans with
-`trigger_type=BATCH`, `jupyter_pool=BATCH`, and static execution mode. Workflow scheduling and
-report generation remain outside this Executor repository.
+`trigger_type=BATCH` and static execution mode. Executor derives `jupyter_pool=BATCH`; callers do
+not choose a pool directly. Workflow scheduling and report generation remain outside this
+Executor repository.
