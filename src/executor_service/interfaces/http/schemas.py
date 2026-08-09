@@ -14,7 +14,9 @@ from executor_service.application.execution_queries import (
     ExecutionStepAttemptView,
     ExecutionTraceView,
 )
+from executor_service.application.pagination import Page
 from executor_service.domain.enums import (
+    ActorType,
     ArtifactStatus,
     ArtifactStorageType,
     ArtifactType,
@@ -38,6 +40,11 @@ class HTTPModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class ActorInput(HTTPModel):
+    type: ActorType
+    id: str = Field(min_length=1, max_length=255)
+
+
 class ExecutionSubmitContext(HTTPModel):
     requested_by_user_id: str = Field(min_length=1, max_length=255)
     project_id: str = Field(min_length=1, max_length=255)
@@ -57,6 +64,7 @@ class ExecutionSubmitRequest(HTTPModel):
     kernel_name: str = Field(min_length=1, max_length=128)
     source: CodeSource
     context: ExecutionSubmitContext
+    actor: ActorInput
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     def to_command(
@@ -80,6 +88,8 @@ class ExecutionSubmitRequest(HTTPModel):
             session_id=self.context.session_id,
             task_id=self.context.task_id,
             execution_plan_id=spec.execution_plan_id,
+            actor_type=self.actor.type,
+            actor_id=self.actor.id,
             workflow_id=self.context.workflow_id,
             metadata=self.metadata,
             steps=tuple(
@@ -100,21 +110,25 @@ class ExecutionSubmitRequest(HTTPModel):
 class ExecutionCancelRequest(HTTPModel):
     idempotency_key: str = Field(min_length=1, max_length=255)
     reason: str | None = Field(default=None, max_length=2000)
+    actor: ActorInput
 
 
 class ExecutionRetryRequest(HTTPModel):
     idempotency_key: str = Field(min_length=1, max_length=255)
+    actor: ActorInput
 
 
 class ExecutionContinueRequest(HTTPModel):
     idempotency_key: str = Field(min_length=1, max_length=255)
     expected_version: int = Field(ge=0)
     source: CodeSource
+    actor: ActorInput
 
 
 class ExecutionFinishRequest(HTTPModel):
     idempotency_key: str = Field(min_length=1, max_length=255)
     expected_version: int = Field(ge=0)
+    actor: ActorInput
 
 
 class ExecutionStepResponse(HTTPModel):
@@ -128,6 +142,12 @@ class ExecutionStepResponse(HTTPModel):
     status: StepStatus
     outputs: list[dict[str, Any]]
     error_message: str | None
+    created_by_type: ActorType | None
+    created_by: str | None
+    updated_by_type: ActorType | None
+    updated_by: str | None
+    created_at: datetime
+    updated_at: datetime
     started_at: datetime | None
     finished_at: datetime | None
 
@@ -144,6 +164,12 @@ class ExecutionStepResponse(HTTPModel):
             status=step.status,
             outputs=step.outputs,
             error_message=step.error_message,
+            created_by_type=step.created_by_type,
+            created_by=step.created_by,
+            updated_by_type=step.updated_by_type,
+            updated_by=step.updated_by,
+            created_at=step.created_at,
+            updated_at=step.updated_at,
             started_at=step.started_at,
             finished_at=step.finished_at,
         )
@@ -176,6 +202,10 @@ class ExecutionResponse(HTTPModel):
     recovery_count: int
     kernel_cleanup_status: KernelCleanupStatus
     version: int
+    created_by_type: ActorType | None
+    created_by: str | None
+    updated_by_type: ActorType | None
+    updated_by: str | None
     created_at: datetime
     updated_at: datetime
     started_at: datetime | None
@@ -221,6 +251,10 @@ class ExecutionResponse(HTTPModel):
             recovery_count=execution.recovery_count,
             kernel_cleanup_status=execution.kernel_cleanup_status,
             version=execution.version,
+            created_by_type=execution.created_by_type,
+            created_by=execution.created_by,
+            updated_by_type=execution.updated_by_type,
+            updated_by=execution.updated_by,
             created_at=execution.created_at,
             updated_at=execution.updated_at,
             started_at=execution.started_at,
@@ -234,6 +268,79 @@ class ExecutionResponse(HTTPModel):
         )
 
 
+class ExecutionSummaryResponse(HTTPModel):
+    execution_id: UUID
+    status: ExecutionStatus
+    mode: ExecutionMode
+    trigger_type: TriggerType
+    jupyter_pool: JupyterPool
+    kernel_name: str
+    context: ExecutionContext
+    step_count: int
+    error_message: str | None
+    failure_type: FailureType | None
+    retryable: bool
+    retry_strategy: RetryStrategy
+    retry_count: int
+    version: int
+    created_by_type: ActorType | None
+    created_by: str | None
+    updated_by_type: ActorType | None
+    updated_by: str | None
+    created_at: datetime
+    updated_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+
+    @classmethod
+    def from_domain(cls, execution: Execution) -> "ExecutionSummaryResponse":
+        return cls(
+            execution_id=execution.id,
+            status=execution.status,
+            mode=execution.mode,
+            trigger_type=execution.trigger_type,
+            jupyter_pool=execution.jupyter_pool,
+            kernel_name=execution.kernel_name,
+            context=ExecutionContext(
+                requested_by_user_id=execution.requested_by_user_id,
+                project_id=execution.project_id,
+                session_id=execution.session_id,
+                task_id=execution.task_id,
+                execution_plan_id=execution.execution_plan_id,
+                workflow_id=execution.workflow_id,
+            ),
+            step_count=len(execution.steps),
+            error_message=execution.error_message,
+            failure_type=execution.failure_type,
+            retryable=execution.retryable,
+            retry_strategy=execution.retry_strategy,
+            retry_count=execution.retry_count,
+            version=execution.version,
+            created_by_type=execution.created_by_type,
+            created_by=execution.created_by,
+            updated_by_type=execution.updated_by_type,
+            updated_by=execution.updated_by,
+            created_at=execution.created_at,
+            updated_at=execution.updated_at,
+            started_at=execution.started_at,
+            finished_at=execution.finished_at,
+        )
+
+
+class ExecutionPageResponse(HTTPModel):
+    items: list[ExecutionSummaryResponse]
+    next_cursor: str | None
+    has_more: bool
+
+    @classmethod
+    def from_page(cls, page: Page[Execution]) -> "ExecutionPageResponse":
+        return cls(
+            items=[ExecutionSummaryResponse.from_domain(item) for item in page.items],
+            next_cursor=page.next_cursor,
+            has_more=page.next_cursor is not None,
+        )
+
+
 class ExecutionStepAttemptResponse(HTTPModel):
     step_attempt_id: UUID
     execution_step_id: UUID
@@ -244,6 +351,12 @@ class ExecutionStepAttemptResponse(HTTPModel):
     status: StepStatus
     outputs: list[dict[str, Any]]
     error_message: str | None
+    created_by_type: ActorType | None
+    created_by: str | None
+    updated_by_type: ActorType | None
+    updated_by: str | None
+    created_at: datetime
+    updated_at: datetime
     started_at: datetime
     finished_at: datetime | None
 
@@ -259,6 +372,12 @@ class ExecutionStepAttemptResponse(HTTPModel):
             status=view.status,
             outputs=view.outputs,
             error_message=view.error_message,
+            created_by_type=view.created_by_type,
+            created_by=view.created_by,
+            updated_by_type=view.updated_by_type,
+            updated_by=view.updated_by,
+            created_at=view.created_at,
+            updated_at=view.updated_at,
             started_at=view.started_at,
             finished_at=view.finished_at,
         )
@@ -278,6 +397,12 @@ class ExecutionAttemptResponse(HTTPModel):
     failure_type: FailureType | None
     retry_strategy: RetryStrategy
     kernel_cleanup_status: KernelCleanupStatus
+    created_by_type: ActorType | None
+    created_by: str | None
+    updated_by_type: ActorType | None
+    updated_by: str | None
+    created_at: datetime
+    updated_at: datetime
     started_at: datetime
     finished_at: datetime | None
     steps: list[ExecutionStepAttemptResponse]
@@ -298,9 +423,43 @@ class ExecutionAttemptResponse(HTTPModel):
             failure_type=view.failure_type,
             retry_strategy=view.retry_strategy,
             kernel_cleanup_status=view.kernel_cleanup_status,
+            created_by_type=view.created_by_type,
+            created_by=view.created_by,
+            updated_by_type=view.updated_by_type,
+            updated_by=view.updated_by,
+            created_at=view.created_at,
+            updated_at=view.updated_at,
             started_at=view.started_at,
             finished_at=view.finished_at,
             steps=[ExecutionStepAttemptResponse.from_view(step) for step in view.steps],
+        )
+
+
+class ExecutionStepPageResponse(HTTPModel):
+    items: list[ExecutionStepResponse]
+    next_cursor: str | None
+    has_more: bool
+
+    @classmethod
+    def from_page(cls, page: Page[ExecutionStep]) -> "ExecutionStepPageResponse":
+        return cls(
+            items=[ExecutionStepResponse.from_domain(item) for item in page.items],
+            next_cursor=page.next_cursor,
+            has_more=page.next_cursor is not None,
+        )
+
+
+class ExecutionAttemptPageResponse(HTTPModel):
+    items: list[ExecutionAttemptResponse]
+    next_cursor: str | None
+    has_more: bool
+
+    @classmethod
+    def from_page(cls, page: Page[ExecutionAttemptView]) -> "ExecutionAttemptPageResponse":
+        return cls(
+            items=[ExecutionAttemptResponse.from_view(item) for item in page.items],
+            next_cursor=page.next_cursor,
+            has_more=page.next_cursor is not None,
         )
 
 
@@ -310,8 +469,13 @@ class ExecutionEventResponse(HTTPModel):
     payload: dict[str, Any]
     delivery_status: OutboxStatus
     publish_attempt_count: int
+    created_by_type: ActorType | None
+    created_by: str | None
+    updated_by_type: ActorType | None
+    updated_by: str | None
     available_at: datetime
     created_at: datetime
+    updated_at: datetime
     published_at: datetime | None
     last_error: str | None
 
@@ -323,10 +487,29 @@ class ExecutionEventResponse(HTTPModel):
             payload=view.payload,
             delivery_status=view.delivery_status,
             publish_attempt_count=view.publish_attempt_count,
+            created_by_type=view.created_by_type,
+            created_by=view.created_by,
+            updated_by_type=view.updated_by_type,
+            updated_by=view.updated_by,
             available_at=view.available_at,
             created_at=view.created_at,
+            updated_at=view.updated_at,
             published_at=view.published_at,
             last_error=view.last_error,
+        )
+
+
+class ExecutionEventPageResponse(HTTPModel):
+    items: list[ExecutionEventResponse]
+    next_cursor: str | None
+    has_more: bool
+
+    @classmethod
+    def from_page(cls, page: Page[ExecutionEventView]) -> "ExecutionEventPageResponse":
+        return cls(
+            items=[ExecutionEventResponse.from_view(item) for item in page.items],
+            next_cursor=page.next_cursor,
+            has_more=page.next_cursor is not None,
         )
 
 
@@ -349,6 +532,10 @@ class ExecutionArtifactResponse(HTTPModel):
     size_bytes: int | None
     checksum_sha256: str | None
     metadata: dict[str, Any]
+    created_by_type: ActorType | None
+    created_by: str | None
+    updated_by_type: ActorType | None
+    updated_by: str | None
     created_at: datetime
     updated_at: datetime
 
@@ -373,24 +560,42 @@ class ExecutionArtifactResponse(HTTPModel):
             size_bytes=view.size_bytes,
             checksum_sha256=view.checksum_sha256,
             metadata=view.metadata,
+            created_by_type=view.created_by_type,
+            created_by=view.created_by,
+            updated_by_type=view.updated_by_type,
+            updated_by=view.updated_by,
             created_at=view.created_at,
             updated_at=view.updated_at,
         )
 
 
+class ExecutionArtifactPageResponse(HTTPModel):
+    items: list[ExecutionArtifactResponse]
+    next_cursor: str | None
+    has_more: bool
+
+    @classmethod
+    def from_page(cls, page: Page[ExecutionArtifactView]) -> "ExecutionArtifactPageResponse":
+        return cls(
+            items=[ExecutionArtifactResponse.from_view(item) for item in page.items],
+            next_cursor=page.next_cursor,
+            has_more=page.next_cursor is not None,
+        )
+
+
 class ExecutionTraceResponse(HTTPModel):
     execution: ExecutionResponse
-    attempts: list[ExecutionAttemptResponse]
-    events: list[ExecutionEventResponse]
-    artifacts: list[ExecutionArtifactResponse]
+    attempts: ExecutionAttemptPageResponse
+    events: ExecutionEventPageResponse
+    artifacts: ExecutionArtifactPageResponse
 
     @classmethod
     def from_view(cls, view: ExecutionTraceView) -> "ExecutionTraceResponse":
         return cls(
             execution=ExecutionResponse.from_domain(view.execution),
-            attempts=[ExecutionAttemptResponse.from_view(item) for item in view.attempts],
-            events=[ExecutionEventResponse.from_view(item) for item in view.events],
-            artifacts=[ExecutionArtifactResponse.from_view(item) for item in view.artifacts],
+            attempts=ExecutionAttemptPageResponse.from_page(view.attempts),
+            events=ExecutionEventPageResponse.from_page(view.events),
+            artifacts=ExecutionArtifactPageResponse.from_page(view.artifacts),
         )
 
 

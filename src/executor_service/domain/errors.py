@@ -25,6 +25,10 @@ class InvalidExecutionSpecError(DomainError):
     pass
 
 
+class InvalidCursorError(DomainError):
+    pass
+
+
 class PersistenceConflictError(DomainError):
     """A uniqueness or optimistic concurrency constraint was violated."""
 

@@ -8,7 +8,7 @@ from typing import Any
 from uuid import UUID
 
 from cryptography.fernet import Fernet, InvalidToken
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from executor_service.application.jupyter_servers import (
@@ -17,8 +17,10 @@ from executor_service.application.jupyter_servers import (
     SetJupyterServerStateCommand,
     UpsertJupyterServerCommand,
 )
+from executor_service.application.pagination import Page, decode_time_cursor, encode_time_cursor
 from executor_service.config import Settings
 from executor_service.domain.enums import (
+    ActorType,
     AttemptStatus,
     ExecutionStatus,
     JupyterPool,
@@ -48,9 +50,7 @@ class JupyterServerRegistry:
         self._session_factory = session_factory
         self._settings = settings
         try:
-            self._fernet = Fernet(
-                settings.jupyter_credential_encryption_key.encode("ascii")
-            )
+            self._fernet = Fernet(settings.jupyter_credential_encryption_key.encode("ascii"))
         except (ValueError, UnicodeEncodeError) as exc:
             raise JupyterServerConfigurationError(
                 "JUPYTER_CREDENTIAL_KEY must be a valid Fernet key."
@@ -122,6 +122,8 @@ class JupyterServerRegistry:
                 "token_sha256": _secret_hash(command.token),
                 "pool": command.pool.value,
                 "max_concurrent_executions": command.max_concurrent_executions,
+                "actor_type": command.actor_type.value if command.actor_type else None,
+                "actor_id": command.actor_id,
             }
         )
         async with self._session_factory() as session, session.begin():
@@ -155,6 +157,10 @@ class JupyterServerRegistry:
                         or self._settings.jupyter_max_concurrent_executions
                     ),
                     supported_kernels=[],
+                    created_by_type=command.actor_type,
+                    created_by=command.actor_id,
+                    updated_by_type=command.actor_type,
+                    updated_by=command.actor_id,
                 )
                 session.add(server)
                 await session.flush()
@@ -168,6 +174,9 @@ class JupyterServerRegistry:
                     server.credential_ref = "encrypted:database"
                     server.credential_ciphertext = self._encrypt(command.token)
                 server.updated_at = utc_now()
+                if command.actor_type is not None:
+                    server.updated_by_type = command.actor_type
+                    server.updated_by = command.actor_id
             self._add_receipt(
                 session,
                 command.idempotency_key,
@@ -176,23 +185,55 @@ class JupyterServerRegistry:
                 server.id,
             )
             server_id = server.id
-        return await self.probe(server_id)
+        return await self.probe(server_id, actor_type=command.actor_type, actor_id=command.actor_id)
 
-    async def list(self, pool: JupyterPool | None = None) -> list[JupyterServerView]:
+    async def list(
+        self,
+        pool: JupyterPool | None = None,
+        *,
+        cursor: str | None = None,
+        limit: int = 100,
+    ) -> Page[JupyterServerView]:
         async with self._session_factory() as session:
-            statement = select(JupyterServerORM).order_by(JupyterServerORM.name)
+            statement = select(JupyterServerORM)
             if pool is not None:
                 statement = statement.where(JupyterServerORM.pool == pool)
+            if cursor is not None:
+                created_at, item_id = decode_time_cursor(cursor, "jupyter_servers")
+                statement = statement.where(
+                    or_(
+                        JupyterServerORM.created_at > created_at,
+                        and_(
+                            JupyterServerORM.created_at == created_at,
+                            JupyterServerORM.id > item_id,
+                        ),
+                    )
+                )
+            statement = statement.order_by(JupyterServerORM.created_at, JupyterServerORM.id).limit(
+                limit + 1
+            )
             servers = list(await session.scalars(statement))
-            views = [await self._to_view(session, server) for server in servers]
-        return views
+            page_servers = servers[:limit]
+            views = [await self._to_view(session, server) for server in page_servers]
+        next_cursor = (
+            encode_time_cursor("jupyter_servers", page_servers[-1].created_at, page_servers[-1].id)
+            if len(servers) > limit and page_servers
+            else None
+        )
+        return Page(items=views, next_cursor=next_cursor)
 
     async def get(self, server_id: UUID) -> JupyterServerView:
         async with self._session_factory() as session:
             server = await self._required_server(session, server_id)
             return await self._to_view(session, server)
 
-    async def probe(self, server_id: UUID) -> JupyterServerView:
+    async def probe(
+        self,
+        server_id: UUID,
+        *,
+        actor_type: ActorType | None = None,
+        actor_id: str | None = None,
+    ) -> JupyterServerView:
         async with self._session_factory() as session:
             server = await self._required_server(session, server_id)
             endpoint = server.endpoint
@@ -202,9 +243,7 @@ class JupyterServerRegistry:
         if not enabled:
             return await self.get(server_id)
 
-        gateway = JupyterGateway(
-            endpoint, token, self._settings.jupyter_request_timeout_seconds
-        )
+        gateway = JupyterGateway(endpoint, token, self._settings.jupyter_request_timeout_seconds)
         kernels: list[str] = []
         active_kernel_count: int | None = None
         error: str | None = None
@@ -232,10 +271,19 @@ class JupyterServerRegistry:
                 server.last_health_error = error
                 server.active_kernel_count = active_kernel_count
                 server.updated_at = utc_now()
+                if actor_type is not None:
+                    server.updated_by_type = actor_type
+                    server.updated_by = actor_id
             return await self._to_view(session, server)
 
     async def remove(self, command: RemoveJupyterServerCommand) -> JupyterServerView:
-        fingerprint = _fingerprint({"server_id": str(command.server_id)})
+        fingerprint = _fingerprint(
+            {
+                "server_id": str(command.server_id),
+                "actor_type": command.actor_type.value if command.actor_type else None,
+                "actor_id": command.actor_id,
+            }
+        )
         async with self._session_factory() as session, session.begin():
             repeated_id = await self._repeated_result(
                 session, command.idempotency_key, "jupyter_server.remove", fingerprint
@@ -247,6 +295,9 @@ class JupyterServerRegistry:
             server.enabled = False
             server.status = JupyterServerStatus.OFFLINE
             server.updated_at = utc_now()
+            if command.actor_type is not None:
+                server.updated_by_type = command.actor_type
+                server.updated_by = command.actor_id
             self._add_receipt(
                 session,
                 command.idempotency_key,
@@ -256,9 +307,7 @@ class JupyterServerRegistry:
             )
             return await self._to_view(session, server)
 
-    async def set_state(
-        self, command: SetJupyterServerStateCommand
-    ) -> JupyterServerView:
+    async def set_state(self, command: SetJupyterServerStateCommand) -> JupyterServerView:
         if command.desired_state not in {
             JupyterServerStatus.ACTIVE,
             JupyterServerStatus.DRAINING,
@@ -270,6 +319,8 @@ class JupyterServerRegistry:
             {
                 "server_id": str(command.server_id),
                 "desired_state": command.desired_state.value,
+                "actor_type": command.actor_type.value if command.actor_type else None,
+                "actor_id": command.actor_id,
             }
         )
         async with self._session_factory() as session, session.begin():
@@ -292,6 +343,9 @@ class JupyterServerRegistry:
                 else JupyterServerStatus.DRAINING
             )
             server.updated_at = utc_now()
+            if command.actor_type is not None:
+                server.updated_by_type = command.actor_type
+                server.updated_by = command.actor_id
             self._add_receipt(
                 session,
                 command.idempotency_key,
@@ -301,7 +355,11 @@ class JupyterServerRegistry:
             )
             server_id = server.id
         if command.desired_state == JupyterServerStatus.ACTIVE:
-            return await self.probe(server_id)
+            return await self.probe(
+                server_id,
+                actor_type=command.actor_type,
+                actor_id=command.actor_id,
+            )
         return await self.get(server_id)
 
     async def any_active(self) -> bool:
@@ -335,9 +393,7 @@ class JupyterServerRegistry:
                 async with self._session_factory() as session:
                     server_ids = list(
                         await session.scalars(
-                            select(JupyterServerORM.id).where(
-                                JupyterServerORM.enabled.is_(True)
-                            )
+                            select(JupyterServerORM.id).where(JupyterServerORM.enabled.is_(True))
                         )
                     )
                 for server_id in server_ids:
@@ -365,9 +421,7 @@ class JupyterServerRegistry:
             raise JupyterServerNotFoundError(f"Jupyter server {server_id} was not found.")
         return server
 
-    async def _to_view(
-        self, session: AsyncSession, server: JupyterServerORM
-    ) -> JupyterServerView:
+    async def _to_view(self, session: AsyncSession, server: JupyterServerORM) -> JupyterServerView:
         active = await session.scalar(
             select(func.count(ExecutionAttemptORM.id)).where(
                 ExecutionAttemptORM.jupyter_server_id == server.id,
@@ -395,6 +449,10 @@ class JupyterServerRegistry:
             active_kernel_count=server.active_kernel_count,
             last_health_check_at=server.last_health_check_at,
             last_health_error=server.last_health_error,
+            created_by_type=server.created_by_type,
+            created_by=server.created_by,
+            updated_by_type=server.updated_by_type,
+            updated_by=server.updated_by,
             created_at=server.created_at,
             updated_at=server.updated_at,
         )
@@ -407,9 +465,7 @@ class JupyterServerRegistry:
         fingerprint: str,
     ) -> UUID | None:
         receipt = await session.scalar(
-            select(CommandReceiptORM).where(
-                CommandReceiptORM.idempotency_key == idempotency_key
-            )
+            select(CommandReceiptORM).where(CommandReceiptORM.idempotency_key == idempotency_key)
         )
         if receipt is None:
             return None

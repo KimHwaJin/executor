@@ -52,6 +52,7 @@ async def _register_servers(client: Client, unique: str) -> tuple[str, set[str]]
                 "endpoint": "http://127.0.0.1:8888",
                 "pool": "INTERACTIVE",
                 "max_concurrent_executions": 1,
+                "actor": {"type": "USER", "id": "batch-smoke-operator"},
             }
         },
     )
@@ -86,6 +87,7 @@ async def _register_servers(client: Client, unique: str) -> tuple[str, set[str]]
                         "token": token,
                         "pool": "BATCH",
                         "max_concurrent_executions": 1,
+                        "actor": {"type": "USER", "id": "batch-smoke-operator"},
                     }
                 },
             )
@@ -117,6 +119,10 @@ async def _submit(
                 "idempotency_key": f"batch-pool-execution-{unique}-{name}",
                 "mode": "STATIC",
                 "trigger_type": "BATCH" if pool == "BATCH" else "INTERACTIVE",
+                "actor": {
+                    "type": "BATCH" if pool == "BATCH" else "USER",
+                    "id": "batch-smoke-job" if pool == "BATCH" else "batch-pool-user",
+                },
                 "kernel_name": "python3",
                 "source": inline_source(
                     f"batch-pool-plan-{unique}-{name}",

@@ -17,6 +17,7 @@ async def main() -> None:
                     "idempotency_key": f"cancel-smoke-submit-{unique}",
                     "mode": "STATIC",
                     "trigger_type": "INTERACTIVE",
+                    "actor": {"type": "USER", "id": "smoke-user"},
                     "kernel_name": "python3",
                     "source": inline_source(
                         f"cancel-plan-{unique}",
@@ -55,6 +56,7 @@ async def main() -> None:
                     "execution_id": execution_id,
                     "idempotency_key": f"cancel-smoke-cancel-{unique}",
                     "reason": "cancel smoke test",
+                    "actor": {"type": "USER", "id": "smoke-user"},
                 }
             },
         )

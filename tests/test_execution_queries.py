@@ -142,4 +142,4 @@ async def test_query_service_returns_attempt_step_and_redacted_event_trace(
         "nested": {"password": "[REDACTED]"},
     }
     assert trace.execution.id == execution.id
-    assert trace.attempts == tuple(attempts)
+    assert trace.attempts.items == attempts.items

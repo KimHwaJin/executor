@@ -16,6 +16,7 @@ from executor_service.domain.errors import (
     ExecutionNotFoundError,
     ExecutionVersionConflictError,
     IdempotencyConflictError,
+    InvalidCursorError,
     InvalidExecutionSpecError,
     InvalidStateTransitionError,
     PersistenceConflictError,
@@ -98,7 +99,7 @@ def create_app(container: ApplicationContainer) -> FastAPI:
     async def domain_error_handler(_request: Request, exc: DomainError) -> JSONResponse:
         if isinstance(exc, (ExecutionNotFoundError, ExecutionArtifactNotFoundError)):
             http_status = status.HTTP_404_NOT_FOUND
-        elif isinstance(exc, InvalidExecutionSpecError):
+        elif isinstance(exc, (InvalidCursorError, InvalidExecutionSpecError)):
             http_status = status.HTTP_422_UNPROCESSABLE_CONTENT
         elif isinstance(
             exc,

@@ -18,14 +18,17 @@ from executor_service.domain.enums import ExecutionStatus
 from executor_service.domain.errors import ExecutionNotFoundError, InvalidExecutionSpecError
 from executor_service.interfaces.http.schemas import (
     ErrorResponse,
+    ExecutionArtifactPageResponse,
     ExecutionArtifactResponse,
-    ExecutionAttemptResponse,
+    ExecutionAttemptPageResponse,
     ExecutionCancelRequest,
     ExecutionContinueRequest,
-    ExecutionEventResponse,
+    ExecutionEventPageResponse,
     ExecutionFinishRequest,
+    ExecutionPageResponse,
     ExecutionResponse,
     ExecutionRetryRequest,
+    ExecutionStepPageResponse,
     ExecutionStepResponse,
     ExecutionSubmitRequest,
     ExecutionTraceResponse,
@@ -37,6 +40,7 @@ ExecutionLimit = Annotated[int, Query(ge=1, le=200)]
 AttemptLimit = Annotated[int, Query(ge=1, le=200)]
 EventLimit = Annotated[int, Query(ge=1, le=500)]
 ArtifactLimit = Annotated[int, Query(ge=1, le=1000)]
+Cursor = Annotated[str | None, Query(max_length=2048)]
 
 DOMAIN_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
     404: {"model": ErrorResponse, "description": "Execution or Artifact not found"},
@@ -101,7 +105,7 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
 
     @router.get(
         "/executions",
-        response_model=list[ExecutionResponse],
+        response_model=ExecutionPageResponse,
         summary="List execution history",
     )
     async def list_executions(
@@ -110,17 +114,19 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
         session_id: str | None = None,
         task_id: str | None = None,
         execution_status: Annotated[ExecutionStatus | None, Query(alias="status")] = None,
+        cursor: Cursor = None,
         limit: ExecutionLimit = 100,
-    ) -> list[ExecutionResponse]:
-        executions = await execution_queries.executions(
+    ) -> ExecutionPageResponse:
+        page = await execution_queries.executions(
             requested_by_user_id=requested_by_user_id,
             project_id=project_id,
             session_id=session_id,
             task_id=task_id,
             status=execution_status,
+            cursor=cursor,
             limit=limit,
         )
-        return [ExecutionResponse.from_domain(execution) for execution in executions]
+        return ExecutionPageResponse.from_page(page)
 
     @router.get(
         "/executions/{execution_id}",
@@ -155,6 +161,8 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
                     execution_id=execution_id,
                     idempotency_key=request.idempotency_key,
                     reason=request.reason,
+                    actor_type=request.actor.type,
+                    actor_id=request.actor.id,
                 )
             ),
             {"executor.execution.id": str(execution_id)},
@@ -178,6 +186,8 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
                 RetryExecutionCommand(
                     execution_id=execution_id,
                     idempotency_key=request.idempotency_key,
+                    actor_type=request.actor.type,
+                    actor_id=request.actor.id,
                 )
             ),
             {"executor.execution.id": str(execution_id)},
@@ -217,6 +227,8 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
                         tool_name=source_step.tool_name,
                         input_parameters=source_step.input_parameters,
                     ),
+                    actor_type=request.actor.type,
+                    actor_id=request.actor.id,
                 )
             ),
             {
@@ -244,6 +256,8 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
                     execution_id=execution_id,
                     idempotency_key=request.idempotency_key,
                     expected_version=request.expected_version,
+                    actor_type=request.actor.type,
+                    actor_id=request.actor.id,
                 )
             ),
             {"executor.execution.id": str(execution_id)},
@@ -252,13 +266,17 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
 
     @router.get(
         "/executions/{execution_id}/steps",
-        response_model=list[ExecutionStepResponse],
+        response_model=ExecutionStepPageResponse,
         responses=DOMAIN_ERROR_RESPONSES,
         summary="List current execution Steps",
     )
-    async def list_execution_steps(execution_id: UUID) -> list[ExecutionStepResponse]:
-        execution = await execution_service.get(execution_id)
-        return [ExecutionStepResponse.from_domain(step) for step in execution.steps]
+    async def list_execution_steps(
+        execution_id: UUID,
+        cursor: Cursor = None,
+        limit: ExecutionLimit = 100,
+    ) -> ExecutionStepPageResponse:
+        page = await execution_queries.steps(execution_id, cursor=cursor, limit=limit)
+        return ExecutionStepPageResponse.from_page(page)
 
     @router.get(
         "/executions/{execution_id}/steps/{step_id}",
@@ -277,39 +295,45 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
 
     @router.get(
         "/executions/{execution_id}/attempts",
-        response_model=list[ExecutionAttemptResponse],
+        response_model=ExecutionAttemptPageResponse,
         responses=DOMAIN_ERROR_RESPONSES,
         summary="List immutable execution Attempts and Step Attempts",
     )
     async def list_execution_attempts(
-        execution_id: UUID, limit: AttemptLimit = 100
-    ) -> list[ExecutionAttemptResponse]:
-        views = await execution_queries.attempts(execution_id, limit=limit)
-        return [ExecutionAttemptResponse.from_view(view) for view in views]
+        execution_id: UUID,
+        cursor: Cursor = None,
+        limit: AttemptLimit = 100,
+    ) -> ExecutionAttemptPageResponse:
+        page = await execution_queries.attempts(execution_id, cursor=cursor, limit=limit)
+        return ExecutionAttemptPageResponse.from_page(page)
 
     @router.get(
         "/executions/{execution_id}/events",
-        response_model=list[ExecutionEventResponse],
+        response_model=ExecutionEventPageResponse,
         responses=DOMAIN_ERROR_RESPONSES,
         summary="List the transactional Outbox event timeline",
     )
     async def list_execution_events(
-        execution_id: UUID, limit: EventLimit = 200
-    ) -> list[ExecutionEventResponse]:
-        views = await execution_queries.events(execution_id, limit=limit)
-        return [ExecutionEventResponse.from_view(view) for view in views]
+        execution_id: UUID,
+        cursor: Cursor = None,
+        limit: EventLimit = 200,
+    ) -> ExecutionEventPageResponse:
+        page = await execution_queries.events(execution_id, cursor=cursor, limit=limit)
+        return ExecutionEventPageResponse.from_page(page)
 
     @router.get(
         "/executions/{execution_id}/artifacts",
-        response_model=list[ExecutionArtifactResponse],
+        response_model=ExecutionArtifactPageResponse,
         responses=DOMAIN_ERROR_RESPONSES,
         summary="List execution Artifacts",
     )
     async def list_execution_artifacts(
-        execution_id: UUID, limit: ArtifactLimit = 500
-    ) -> list[ExecutionArtifactResponse]:
-        views = await execution_queries.artifacts(execution_id, limit=limit)
-        return [ExecutionArtifactResponse.from_view(view) for view in views]
+        execution_id: UUID,
+        cursor: Cursor = None,
+        limit: ArtifactLimit = 500,
+    ) -> ExecutionArtifactPageResponse:
+        page = await execution_queries.artifacts(execution_id, cursor=cursor, limit=limit)
+        return ExecutionArtifactPageResponse.from_page(page)
 
     @router.get(
         "/executions/{execution_id}/trace",

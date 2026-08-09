@@ -98,6 +98,35 @@ reusable across all projects owned by the same user or only within its source pr
 - No user/project visibility rule in Executor.
 - Agent/API Asset CRUD remains outside this repository.
 
+## DD-003: Additional audit actor types
+
+- Status: DEFERRED
+- Area: public mutation contracts, background operations, audit attribution
+- Deferred on: 2026-08-10
+- Resume when: an external caller or operational requirement needs attribution beyond end users
+  and scheduled batch executions
+
+### Current decision
+
+- Public mutation requests accept only `USER` and `BATCH` actor types.
+- `actor.id` is the stable identifier supplied by the upstream Agent/API or Batch service.
+- Interactive submissions require `USER`; batch submissions require `BATCH`.
+- Executor-created child records inherit the actor of the user or batch command that caused them.
+- Executor background maintenance that has no new external command may leave actor fields nullable
+  while retaining its operational identity in logs and traces.
+
+### Questions still open
+
+- Whether `SYSTEM`, `SERVICE`, or `WORKER` should become first-class actor types.
+- Which stable service-instance identity should be persisted for automatic health probes, recovery,
+  reconciliation, and Outbox publication updates.
+- Whether internal actor identities should be visible through public APIs or only audit exports.
+
+### Explicitly excluded until resumed
+
+- No additional actor enum values beyond `USER` and `BATCH`.
+- No fabricated system user IDs for autonomous Executor maintenance.
+
 ## Resolved observability integration: Arize Phoenix
 
 - Status: DONE

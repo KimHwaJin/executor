@@ -78,9 +78,7 @@ class SQLAlchemyExecutionRepository:
         self, idempotency_key: str
     ) -> tuple[str, str, dict[str, object]] | None:
         receipt = await self._session.scalar(
-            select(CommandReceiptORM).where(
-                CommandReceiptORM.idempotency_key == idempotency_key
-            )
+            select(CommandReceiptORM).where(CommandReceiptORM.idempotency_key == idempotency_key)
         )
         if receipt is None:
             return None
@@ -137,6 +135,8 @@ class SQLAlchemyExecutionRepository:
                 execution_expires_at=execution.execution_expires_at,
                 traceparent=execution.traceparent,
                 tracestate=execution.tracestate,
+                updated_by_type=execution.updated_by_type,
+                updated_by=execution.updated_by,
             )
         )
         if getattr(result, "rowcount", None) != 1:
@@ -151,6 +151,8 @@ class SQLAlchemyExecutionRepository:
                     code_hash=step.code_hash,
                     execution_plan_id=step.execution_plan_id,
                     plan_step_id=step.plan_step_id,
+                    updated_by_type=step.updated_by_type,
+                    updated_by=step.updated_by,
                     outputs=step.outputs,
                     error_message=step.error_message,
                     updated_at=step.updated_at,

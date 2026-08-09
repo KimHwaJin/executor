@@ -37,9 +37,7 @@ async def rest_client(
         await connection.run_sync(Base.metadata.create_all)
     app = create_app(container)
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(
-        transport=transport, base_url="http://testserver"
-    ) as client:
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         yield client, container
     await container.redis.aclose()
     await container.engine.dispose()
@@ -79,6 +77,7 @@ def _submit_payload(
             "session_id": "rest-session",
             "task_id": "rest-task",
         },
+        "actor": {"type": "USER", "id": "rest-user"},
         "metadata": {"caller": "integration-test"},
     }
 
@@ -150,21 +149,68 @@ async def test_static_execution_rest_lifecycle_and_queries(
     trace = await client.get(f"/api/v1/executions/{execution_id}/trace")
 
     assert fetched.status_code == 200
-    assert [item["execution_id"] for item in history.json()] == [execution_id]
-    assert steps.json()[0]["step_id"] == step_id
+    assert [item["execution_id"] for item in history.json()["items"]] == [execution_id]
+    assert history.json()["has_more"] is False
+    assert steps.json()["items"][0]["step_id"] == step_id
     assert step.json()["plan_step_id"] == "plan-rest-1-step-0"
-    assert attempts.json() == []
-    assert events.json()[0]["event_type"] == "execution.submitted"
-    assert artifacts.json() == []
+    assert attempts.json()["items"] == []
+    assert events.json()["items"][0]["event_type"] == "execution.submitted"
+    assert artifacts.json()["items"] == []
     assert trace.json()["execution"]["execution_id"] == execution_id
-    assert trace.json()["events"][0]["delivery_status"] == "PENDING"
+    assert trace.json()["events"]["items"][0]["delivery_status"] == "PENDING"
+    assert body["created_by_type"] == "USER"
+    assert body["created_by"] == "rest-user"
 
     cancelled = await client.post(
         f"/api/v1/executions/{execution_id}/cancel",
-        json={"idempotency_key": "rest-cancel-1", "reason": "REST test"},
+        json={
+            "idempotency_key": "rest-cancel-1",
+            "reason": "REST test",
+            "actor": {"type": "USER", "id": "rest-user"},
+        },
     )
     assert cancelled.status_code == 202
     assert cancelled.json()["status"] == "CANCEL_REQUESTED"
+
+
+async def test_execution_history_cursor_pagination_and_invalid_cursor(
+    rest_client: tuple[httpx.AsyncClient, ApplicationContainer],
+) -> None:
+    client, _ = rest_client
+    submitted_ids: set[str] = set()
+    for index in range(3):
+        response = await client.post(
+            "/api/v1/executions",
+            json=_submit_payload(
+                key=f"rest-page-{index}",
+                plan_id=f"rest-page-plan-{index}",
+            ),
+        )
+        assert response.status_code == 202
+        submitted_ids.add(response.json()["execution_id"])
+
+    first = await client.get("/api/v1/executions", params={"limit": 2})
+    assert first.status_code == 200
+    first_body = first.json()
+    assert len(first_body["items"]) == 2
+    assert first_body["has_more"] is True
+    assert first_body["next_cursor"]
+
+    second = await client.get(
+        "/api/v1/executions",
+        params={"limit": 2, "cursor": first_body["next_cursor"]},
+    )
+    assert second.status_code == 200
+    second_body = second.json()
+    returned_ids = {
+        item["execution_id"] for item in first_body["items"] + second_body["items"]
+    }
+    assert returned_ids == submitted_ids
+    assert second_body["has_more"] is False
+
+    invalid = await client.get("/api/v1/executions", params={"cursor": "not-a-cursor"})
+    assert invalid.status_code == 422
+    assert invalid.json()["error"]["code"] == "InvalidCursorError"
 
 
 async def test_dynamic_continue_and_finish_rest_api(
@@ -208,6 +254,7 @@ async def test_dynamic_continue_and_finish_rest_api(
                     ],
                 },
             },
+            "actor": {"type": "USER", "id": "rest-user"},
         },
     )
     assert continued.status_code == 202
@@ -223,7 +270,11 @@ async def test_dynamic_continue_and_finish_rest_api(
 
     finished = await client.post(
         f"/api/v1/executions/{execution_id}/finish",
-        json={"idempotency_key": "rest-finish-1", "expected_version": 3},
+        json={
+            "idempotency_key": "rest-finish-1",
+            "expected_version": 3,
+            "actor": {"type": "USER", "id": "rest-user"},
+        },
     )
     assert finished.status_code == 202
     assert finished.json()["status"] == "QUEUED"
@@ -296,7 +347,10 @@ async def test_retry_and_domain_error_mapping(
 
     retried = await client.post(
         f"/api/v1/executions/{execution_id}/retry",
-        json={"idempotency_key": "rest-retry-1"},
+        json={
+            "idempotency_key": "rest-retry-1",
+            "actor": {"type": "USER", "id": "rest-user"},
+        },
     )
     assert retried.status_code == 202
     assert retried.json()["status"] == "QUEUED"

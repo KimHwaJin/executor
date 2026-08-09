@@ -113,7 +113,7 @@ async def attempts(client: Client, execution_id: str) -> list[dict[str, Any]]:
     )
     if result.is_error:
         raise RuntimeError(str(result.content))
-    return result.structured_content["result"]
+    return result.structured_content["items"]
 
 
 async def events(client: Client, execution_id: str) -> list[dict[str, Any]]:
@@ -123,7 +123,7 @@ async def events(client: Client, execution_id: str) -> list[dict[str, Any]]:
     )
     if result.is_error:
         raise RuntimeError(str(result.content))
-    return result.structured_content["result"]
+    return result.structured_content["items"]
 
 
 async def wait_for_status(
@@ -160,6 +160,10 @@ async def submit_static(
                 "idempotency_key": f"resilience-{unique}-{name}",
                 "mode": "STATIC",
                 "trigger_type": "BATCH" if pool == "BATCH" else "INTERACTIVE",
+                "actor": {
+                    "type": "BATCH" if pool == "BATCH" else "USER",
+                    "id": "resilience-batch" if pool == "BATCH" else "resilience-user",
+                },
                 "kernel_name": "python3",
                 "source": inline_source(
                     f"resilience-plan-{unique}-{name}",
@@ -195,6 +199,7 @@ async def upsert_jupyter_server(
         "endpoint": endpoint,
         "pool": pool,
         "max_concurrent_executions": capacity,
+        "actor": {"type": "USER", "id": "resilience-operator"},
     }
     if token is not None:
         request["token"] = token
@@ -205,7 +210,15 @@ async def upsert_jupyter_server(
 
 
 async def probe_jupyter_server(client: Client, server_id: str) -> dict[str, Any]:
-    result = await client.call_tool("jupyter_server_probe", {"server_id": server_id})
+    result = await client.call_tool(
+        "jupyter_server_probe",
+        {
+            "request": {
+                "server_id": server_id,
+                "actor": {"type": "USER", "id": "resilience-operator"},
+            }
+        },
+    )
     if result.is_error:
         raise RuntimeError(str(result.content))
     return result.structured_content

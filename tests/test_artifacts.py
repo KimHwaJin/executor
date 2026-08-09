@@ -136,18 +136,10 @@ async def test_artifact_discovery_manifest_lineage_and_idempotency(
     before = manager.snapshot(workspace)
 
     (workspace.datasets_dir / "result.csv").write_text("value\n1\n", encoding="utf-8")
-    (workspace.plots_dir / "directory-wins.csv").write_text(
-        "not,a,dataset\n", encoding="utf-8"
-    )
+    (workspace.plots_dir / "directory-wins.csv").write_text("not,a,dataset\n", encoding="utf-8")
     (workspace.reports_dir / "summary.md").write_text("# Result\n", encoding="utf-8")
     processed = (
-        tmp_path
-        / "users"
-        / "artifact-user"
-        / "datasets"
-        / "processed"
-        / "asset-1"
-        / "data.parquet"
+        tmp_path / "users" / "artifact-user" / "datasets" / "processed" / "asset-1" / "data.parquet"
     )
     processed.parent.mkdir(parents=True)
     processed.write_bytes(b"processed-data")
@@ -170,9 +162,7 @@ async def test_artifact_discovery_manifest_lineage_and_idempotency(
             "checksum_sha256": "a" * 64,
         },
     ]
-    manifest.write_text(
-        "".join(json.dumps(entry) + "\n" for entry in entries), encoding="utf-8"
-    )
+    manifest.write_text("".join(json.dumps(entry) + "\n" for entry in entries), encoding="utf-8")
 
     artifact_ids = await manager.discover_and_register(
         workspace=workspace,
@@ -218,7 +208,7 @@ async def test_artifact_discovery_manifest_lineage_and_idempotency(
     }
     assert processed_artifact.checksum_sha256 is not None
     trace = await queries.trace(execution.id)
-    assert trace.artifacts == tuple(artifacts)
+    assert trace.artifacts.items == artifacts.items
 
     async with create_session_factory(engine)() as session:
         artifact_rows = await session.scalar(select(func.count(ExecutionArtifactORM.id)))

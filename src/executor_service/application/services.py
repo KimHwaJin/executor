@@ -14,6 +14,7 @@ from executor_service.application.commands import (
     SubmitExecutionCommand,
 )
 from executor_service.domain.enums import (
+    ActorType,
     ExecutionMode,
     ExecutionStatus,
     JupyterPool,
@@ -64,6 +65,10 @@ class ExecutionService:
                     task_id=command.task_id,
                     execution_plan_id=command.execution_plan_id,
                     workflow_id=command.workflow_id,
+                    created_by_type=command.actor_type,
+                    created_by=command.actor_id,
+                    updated_by_type=command.actor_type,
+                    updated_by=command.actor_id,
                     metadata=command.metadata,
                     steps=[
                         ExecutionStep(
@@ -75,6 +80,10 @@ class ExecutionService:
                             skill_name=step.skill_name,
                             tool_name=step.tool_name,
                             input_parameters=step.input_parameters,
+                            created_by_type=command.actor_type,
+                            created_by=command.actor_id,
+                            updated_by_type=command.actor_type,
+                            updated_by=command.actor_id,
                         )
                         for step in command.steps
                     ],
@@ -93,6 +102,10 @@ class ExecutionService:
                             "execution_plan_id": execution.execution_plan_id,
                             "status": execution.status.value,
                         },
+                        created_by_type=command.actor_type,
+                        created_by=command.actor_id,
+                        updated_by_type=command.actor_type,
+                        updated_by=command.actor_id,
                         traceparent=execution.traceparent,
                         tracestate=execution.tracestate,
                     )
@@ -120,9 +133,7 @@ class ExecutionService:
 
                 execution = await uow.executions.get(command.execution_id, for_update=True)
                 if execution is None:
-                    raise ExecutionNotFoundError(
-                        f"Execution {command.execution_id} was not found."
-                    )
+                    raise ExecutionNotFoundError(f"Execution {command.execution_id} was not found.")
                 expected_sequence = len(execution.steps)
                 if command.step.sequence != expected_sequence:
                     raise InvalidStateTransitionError(
@@ -131,6 +142,7 @@ class ExecutionService:
                 if not command.step.code or not command.step.code.strip():
                     raise InvalidStateTransitionError("Dynamic step code must not be empty.")
                 execution.request_dynamic_continue(command.expected_version)
+                _apply_actor(execution, command.actor_type, command.actor_id)
                 _apply_current_trace(execution)
                 step = ExecutionStep(
                     sequence=command.step.sequence,
@@ -141,6 +153,10 @@ class ExecutionService:
                     skill_name=command.step.skill_name,
                     tool_name=command.step.tool_name,
                     input_parameters=command.step.input_parameters,
+                    created_by_type=command.actor_type,
+                    created_by=command.actor_id,
+                    updated_by_type=command.actor_type,
+                    updated_by=command.actor_id,
                 )
                 execution.steps.append(step)
                 await uow.executions.save(execution)
@@ -165,6 +181,10 @@ class ExecutionService:
                             "sequence": step.sequence,
                             "version": execution.version,
                         },
+                        created_by_type=command.actor_type,
+                        created_by=command.actor_id,
+                        updated_by_type=command.actor_type,
+                        updated_by=command.actor_id,
                         traceparent=execution.traceparent,
                         tracestate=execution.tracestate,
                     )
@@ -191,10 +211,9 @@ class ExecutionService:
                     return await _required_execution(uow, command.execution_id)
                 execution = await uow.executions.get(command.execution_id, for_update=True)
                 if execution is None:
-                    raise ExecutionNotFoundError(
-                        f"Execution {command.execution_id} was not found."
-                    )
+                    raise ExecutionNotFoundError(f"Execution {command.execution_id} was not found.")
                 execution.request_dynamic_finish(command.expected_version)
+                _apply_actor(execution, command.actor_type, command.actor_id)
                 _apply_current_trace(execution)
                 await uow.executions.save(execution)
                 await uow.executions.add_command_receipt(
@@ -215,6 +234,10 @@ class ExecutionService:
                             "status": execution.status.value,
                             "version": execution.version,
                         },
+                        created_by_type=command.actor_type,
+                        created_by=command.actor_id,
+                        updated_by_type=command.actor_type,
+                        updated_by=command.actor_id,
                         traceparent=execution.traceparent,
                         tracestate=execution.tracestate,
                     )
@@ -272,6 +295,7 @@ class ExecutionService:
                     return execution
 
                 execution.request_cancel(command.idempotency_key, command.reason)
+                _apply_actor(execution, command.actor_type, command.actor_id)
                 _apply_current_trace(execution)
                 await uow.executions.save(execution)
                 await uow.outbox.add(
@@ -285,6 +309,10 @@ class ExecutionService:
                             "execution_plan_id": execution.execution_plan_id,
                             "status": execution.status.value,
                         },
+                        created_by_type=command.actor_type,
+                        created_by=command.actor_id,
+                        updated_by_type=command.actor_type,
+                        updated_by=command.actor_id,
                         traceparent=execution.traceparent,
                         tracestate=execution.tracestate,
                     )
@@ -313,10 +341,15 @@ class ExecutionService:
 
                 execution = await uow.executions.get(command.execution_id, for_update=True)
                 if execution is None:
-                    raise ExecutionNotFoundError(
-                        f"Execution {command.execution_id} was not found."
-                    )
+                    raise ExecutionNotFoundError(f"Execution {command.execution_id} was not found.")
                 execution.request_retry()
+                _apply_actor(execution, command.actor_type, command.actor_id)
+                for step in execution.steps:
+                    if (
+                        execution.retry_from_sequence is not None
+                        and step.sequence >= execution.retry_from_sequence
+                    ):
+                        _apply_step_actor(step, command.actor_type, command.actor_id)
                 _apply_current_trace(execution)
                 if execution.retry_from_sequence is None:
                     raise RuntimeError("Retry sequence unexpectedly missing.")
@@ -345,6 +378,10 @@ class ExecutionService:
                             ),
                             "retry_count": execution.retry_count,
                         },
+                        created_by_type=command.actor_type,
+                        created_by=command.actor_id,
+                        updated_by_type=command.actor_type,
+                        updated_by=command.actor_id,
                         traceparent=execution.traceparent,
                         tracestate=execution.tracestate,
                     )
@@ -378,6 +415,14 @@ def _ensure_same_fingerprint(execution: Execution, fingerprint: str) -> None:
 
 
 def _validate_submit(command: SubmitExecutionCommand) -> None:
+    _validate_actor(command.actor_type, command.actor_id)
+    expected_actor_type = (
+        ActorType.BATCH if command.trigger_type == TriggerType.BATCH else ActorType.USER
+    )
+    if command.actor_type is not None and command.actor_type != expected_actor_type:
+        raise InvalidStateTransitionError(
+            f"{command.trigger_type.value} submit requires {expected_actor_type.value} actor."
+        )
     if not command.steps:
         raise InvalidStateTransitionError("ExecutionSpec must contain at least one step.")
     sequences = [step.sequence for step in command.steps]
@@ -397,9 +442,7 @@ def _validate_submit(command: SubmitExecutionCommand) -> None:
     if command.mode != ExecutionMode.DYNAMIC:
         return
     if command.trigger_type != TriggerType.INTERACTIVE:
-        raise InvalidStateTransitionError(
-            "DYNAMIC execution requires INTERACTIVE trigger_type."
-        )
+        raise InvalidStateTransitionError("DYNAMIC execution requires INTERACTIVE trigger_type.")
     if len(command.steps) != 1 or command.steps[0].sequence != 0:
         raise InvalidStateTransitionError(
             "DYNAMIC submit requires exactly the first step (sequence 0)."
@@ -415,9 +458,32 @@ def _ensure_same_receipt(
 ) -> None:
     receipt_type, receipt_fingerprint, _ = receipt
     if receipt_type != command_type or receipt_fingerprint != fingerprint:
-        raise IdempotencyConflictError(
-            "idempotency_key was already used with a different command."
-        )
+        raise IdempotencyConflictError("idempotency_key was already used with a different command.")
+
+
+def _validate_actor(actor_type: ActorType | None, actor_id: str | None) -> None:
+    if (actor_type is None) != (actor_id is None):
+        raise InvalidStateTransitionError("actor_type and actor_id must be provided together.")
+    if actor_id is not None and not actor_id.strip():
+        raise InvalidStateTransitionError("actor_id must not be blank.")
+
+
+def _apply_actor(execution: Execution, actor_type: ActorType | None, actor_id: str | None) -> None:
+    _validate_actor(actor_type, actor_id)
+    if actor_type is None:
+        return
+    execution.updated_by_type = actor_type
+    execution.updated_by = actor_id
+
+
+def _apply_step_actor(
+    step: ExecutionStep, actor_type: ActorType | None, actor_id: str | None
+) -> None:
+    _validate_actor(actor_type, actor_id)
+    if actor_type is None:
+        return
+    step.updated_by_type = actor_type
+    step.updated_by = actor_id
 
 
 async def _required_execution(uow: UnitOfWork, execution_id: UUID) -> Execution:

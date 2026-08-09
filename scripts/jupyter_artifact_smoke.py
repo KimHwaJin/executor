@@ -69,6 +69,7 @@ async def main() -> None:
                     "idempotency_key": f"artifact-smoke-{unique}",
                     "mode": "STATIC",
                     "trigger_type": "INTERACTIVE",
+                    "actor": {"type": "USER", "id": user_id},
                     "kernel_name": "python3",
                     "source": inline_source(
                         f"artifact-smoke-plan-{unique}",
@@ -102,7 +103,7 @@ async def main() -> None:
         listed = await client.call_tool(
             "execution_artifact_list", {"execution_id": execution_id}
         )
-        artifacts = listed.structured_content["result"]
+        artifacts = listed.structured_content["items"]
         if len(artifacts) != 5:
             raise RuntimeError(f"Expected five Artifacts: {artifacts}")
         artifact_types = {item["artifact_type"] for item in artifacts}
@@ -126,7 +127,7 @@ async def main() -> None:
         trace = await client.call_tool(
             "execution_trace_get", {"execution_id": execution_id}
         )
-        if len(trace.structured_content["artifacts"]) != 5:
+        if len(trace.structured_content["artifacts"]["items"]) != 5:
             raise RuntimeError("Execution Trace did not include every Artifact.")
 
     host_file = get_settings().workspace_host_root / Path(processed_relative)
@@ -136,7 +137,7 @@ async def main() -> None:
     print("artifact_count:", len(artifacts))
     print("artifact_types:", sorted(artifact_types))
     print("lineage_parent:", processed_artifact["external_parent_asset_id"])
-    print("trace_artifacts:", len(trace.structured_content["artifacts"]))
+    print("trace_artifacts:", len(trace.structured_content["artifacts"]["items"]))
 
 
 if __name__ == "__main__":

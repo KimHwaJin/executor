@@ -28,9 +28,16 @@ Interactive documentation is available at `/docs`, ReDoc at `/redoc`, and the Op
 | GET | `/api/v1/executions/{execution_id}/trace` | Get combined state, Attempts, events, Artifacts | 200 |
 | GET | `/api/v1/artifacts/{artifact_id}` | Get one Artifact and lineage references | 200 |
 
-List endpoints accept `limit`. Execution history additionally accepts `requested_by_user_id`,
-`project_id`, `session_id`, `task_id`, and `status`. Results are newest-first and currently use a
-bounded limit rather than cursor pagination.
+List endpoints accept `limit` and an opaque `cursor`. They return `items`, `next_cursor`, and
+`has_more`; pass `next_cursor` unchanged to retrieve the next keyset page. Execution history
+additionally accepts `requested_by_user_id`, `project_id`, `session_id`, `task_id`, and `status`.
+Keep the same filters for every page. Execution history is newest-first; Steps, Attempts, events,
+and Artifacts preserve their natural chronological/sequence order.
+
+All mutation bodies require `actor: {type, id}`. Supported actor types are `USER` and `BATCH`.
+Interactive submissions require `USER`, while batch submissions require `BATCH`. Responses expose
+`created_at`, `updated_at`, `created_by_type`, `created_by`, `updated_by_type`, and `updated_by` on
+audited resources.
 
 ## Submit and poll
 
@@ -41,6 +48,7 @@ curl -i -X POST http://127.0.0.1:8000/api/v1/executions \
     "idempotency_key": "rest-submit-001",
     "mode": "STATIC",
     "trigger_type": "INTERACTIVE",
+    "actor": {"type": "USER", "id": "user-001"},
     "kernel_name": "python3",
     "source": {
       "type": "INLINE",
@@ -73,6 +81,7 @@ resource. Tool completion is not execution completion.
 ```bash
 curl http://127.0.0.1:8000/api/v1/executions/EXECUTION_ID
 curl 'http://127.0.0.1:8000/api/v1/executions?task_id=task-001&limit=20'
+curl 'http://127.0.0.1:8000/api/v1/executions?task_id=task-001&limit=20&cursor=NEXT_CURSOR'
 curl http://127.0.0.1:8000/api/v1/executions/EXECUTION_ID/trace
 ```
 
@@ -94,11 +103,18 @@ used as INLINE `source.spec` and must be atomically published and immutable afte
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/executions/EXECUTION_ID/cancel \
   -H 'Content-Type: application/json' \
-  -d '{"idempotency_key":"rest-cancel-001","reason":"user requested"}'
+  -d '{
+    "idempotency_key":"rest-cancel-001",
+    "reason":"user requested",
+    "actor":{"type":"USER","id":"user-001"}
+  }'
 
 curl -X POST http://127.0.0.1:8000/api/v1/executions/EXECUTION_ID/retry \
   -H 'Content-Type: application/json' \
-  -d '{"idempotency_key":"rest-retry-001"}'
+  -d '{
+    "idempotency_key":"rest-retry-001",
+    "actor":{"type":"USER","id":"user-001"}
+  }'
 ```
 
 Cancel returns after `CANCEL_REQUESTED` is committed. Retry is accepted only when the FAILED
@@ -115,6 +131,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/executions/EXECUTION_ID/continue \
   -d '{
     "idempotency_key": "rest-continue-001",
     "expected_version": 1,
+    "actor": {"type": "USER", "id": "user-001"},
     "source": {
       "type": "INLINE",
       "spec": {
@@ -135,7 +152,11 @@ When no more cells are needed:
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/executions/EXECUTION_ID/finish \
   -H 'Content-Type: application/json' \
-  -d '{"idempotency_key":"rest-finish-001","expected_version":3}'
+  -d '{
+    "idempotency_key":"rest-finish-001",
+    "expected_version":3,
+    "actor":{"type":"USER","id":"user-001"}
+  }'
 ```
 
 Always read the latest Execution before continue or finish. A stale version returns `409`.
@@ -155,7 +176,7 @@ Expected domain failures use a stable envelope:
 
 - `404`: Execution, Step, or Artifact does not exist
 - `409`: invalid state transition, stale version, idempotency conflict, persistence conflict
-- `422`: request validation or invalid ExecutionSpec/PATH source
+- `422`: request validation, invalid cursor, or invalid ExecutionSpec/PATH source
 
 There is no authentication layer in Executor in the current project scope. Deploy the REST API
 behind the same internal gateway/network policy as `/mcp`; do not expose it directly to an

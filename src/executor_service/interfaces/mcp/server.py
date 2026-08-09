@@ -21,21 +21,30 @@ from executor_service.application.jupyter_servers import (
     UpsertJupyterServerCommand,
 )
 from executor_service.application.services import ExecutionService
-from executor_service.domain.enums import JupyterPool, JupyterServerStatus
+from executor_service.domain.enums import (
+    ExecutionStatus,
+    JupyterPool,
+    JupyterServerStatus,
+)
 from executor_service.domain.errors import DomainError
 from executor_service.interfaces.mcp.execution_specs import ExecutionSpecResolver
 from executor_service.interfaces.mcp.schemas import (
+    ExecutionArtifactPageResponse,
     ExecutionArtifactResponse,
-    ExecutionAttemptResponse,
+    ExecutionAttemptPageResponse,
     ExecutionCancelRequest,
     ExecutionContinueRequest,
-    ExecutionEventResponse,
+    ExecutionEventPageResponse,
     ExecutionFinishRequest,
+    ExecutionPageResponse,
     ExecutionResponse,
     ExecutionRetryRequest,
+    ExecutionStepPageResponse,
     ExecutionSubmitRequest,
     ExecutionTraceResponse,
     ExecutorCapabilities,
+    JupyterServerPageResponse,
+    JupyterServerProbeRequest,
     JupyterServerRemoveRequest,
     JupyterServerResponse,
     JupyterServerSetStateRequest,
@@ -87,6 +96,8 @@ def build_mcp_server(
         query_tools: tuple[str, ...] = ()
         if execution_queries is not None:
             query_tools = (
+                "execution_list",
+                "execution_step_list",
                 "execution_attempt_list",
                 "execution_event_list",
                 "execution_trace_get",
@@ -156,6 +167,8 @@ def build_mcp_server(
                         execution_id=request.execution_id,
                         idempotency_key=request.idempotency_key,
                         reason=request.reason,
+                        actor_type=request.actor.type,
+                        actor_id=request.actor.id,
                     )
                 ),
                 {"executor.execution.id": str(request.execution_id)},
@@ -179,6 +192,8 @@ def build_mcp_server(
                     RetryExecutionCommand(
                         execution_id=request.execution_id,
                         idempotency_key=request.idempotency_key,
+                        actor_type=request.actor.type,
+                        actor_id=request.actor.id,
                     )
                 ),
                 {"executor.execution.id": str(request.execution_id)},
@@ -218,6 +233,8 @@ def build_mcp_server(
                             tool_name=source_step.tool_name,
                             input_parameters=source_step.input_parameters,
                         ),
+                        actor_type=request.actor.type,
+                        actor_id=request.actor.id,
                     )
                 ),
                 {
@@ -244,6 +261,8 @@ def build_mcp_server(
                         execution_id=request.execution_id,
                         idempotency_key=request.idempotency_key,
                         expected_version=request.expected_version,
+                        actor_type=request.actor.type,
+                        actor_id=request.actor.id,
                     )
                 ),
                 {"executor.execution.id": str(request.execution_id)},
@@ -256,20 +275,74 @@ def build_mcp_server(
 
         @server.tool(
             description=(
-                "List immutable execution Attempts with the Step results recorded in each "
-                "attempt."
+                "List executions using an opaque MCP-style cursor. Pass the returned "
+                "nextCursor unchanged as cursor to continue. Optional filters remain fixed "
+                "across pages."
             )
         )
-        async def execution_attempt_list(
-            execution_id: UUID, limit: int = 100
-        ) -> list[ExecutionAttemptResponse]:
+        async def execution_list(
+            requested_by_user_id: str | None = None,
+            project_id: str | None = None,
+            session_id: str | None = None,
+            task_id: str | None = None,
+            status: ExecutionStatus | None = None,
+            cursor: str | None = None,
+            limit: int = 100,
+        ) -> ExecutionPageResponse:
             try:
-                views = await execution_queries.attempts(
-                    execution_id, limit=max(1, min(limit, 200))
+                page = await execution_queries.executions(
+                    requested_by_user_id=requested_by_user_id,
+                    project_id=project_id,
+                    session_id=session_id,
+                    task_id=task_id,
+                    status=status,
+                    cursor=cursor,
+                    limit=max(1, min(limit, 200)),
                 )
             except DomainError as exc:
                 raise ToolError(str(exc)) from exc
-            return [ExecutionAttemptResponse.from_view(view) for view in views]
+            return ExecutionPageResponse.from_page(page)
+
+        @server.tool(
+            description=(
+                "List current execution Steps using an opaque MCP-style cursor. Pass an exact "
+                "returned nextCursor as cursor to continue; never parse or modify it."
+            )
+        )
+        async def execution_step_list(
+            execution_id: UUID,
+            cursor: str | None = None,
+            limit: int = 100,
+        ) -> ExecutionStepPageResponse:
+            try:
+                page = await execution_queries.steps(
+                    execution_id,
+                    cursor=cursor,
+                    limit=max(1, min(limit, 200)),
+                )
+            except DomainError as exc:
+                raise ToolError(str(exc)) from exc
+            return ExecutionStepPageResponse.from_page(page)
+
+        @server.tool(
+            description=(
+                "List immutable execution Attempts with the Step results recorded in each attempt."
+            )
+        )
+        async def execution_attempt_list(
+            execution_id: UUID,
+            cursor: str | None = None,
+            limit: int = 100,
+        ) -> ExecutionAttemptPageResponse:
+            try:
+                page = await execution_queries.attempts(
+                    execution_id,
+                    cursor=cursor,
+                    limit=max(1, min(limit, 200)),
+                )
+            except DomainError as exc:
+                raise ToolError(str(exc)) from exc
+            return ExecutionAttemptPageResponse.from_page(page)
 
         @server.tool(
             description=(
@@ -278,15 +351,19 @@ def build_mcp_server(
             )
         )
         async def execution_event_list(
-            execution_id: UUID, limit: int = 200
-        ) -> list[ExecutionEventResponse]:
+            execution_id: UUID,
+            cursor: str | None = None,
+            limit: int = 200,
+        ) -> ExecutionEventPageResponse:
             try:
-                views = await execution_queries.events(
-                    execution_id, limit=max(1, min(limit, 500))
+                page = await execution_queries.events(
+                    execution_id,
+                    cursor=cursor,
+                    limit=max(1, min(limit, 500)),
                 )
             except DomainError as exc:
                 raise ToolError(str(exc)) from exc
-            return [ExecutionEventResponse.from_view(view) for view in views]
+            return ExecutionEventPageResponse.from_page(page)
 
         @server.tool(
             description=(
@@ -308,19 +385,21 @@ def build_mcp_server(
             )
         )
         async def execution_artifact_list(
-            execution_id: UUID, limit: int = 500
-        ) -> list[ExecutionArtifactResponse]:
+            execution_id: UUID,
+            cursor: str | None = None,
+            limit: int = 500,
+        ) -> ExecutionArtifactPageResponse:
             try:
-                views = await execution_queries.artifacts(
-                    execution_id, limit=max(1, min(limit, 1000))
+                page = await execution_queries.artifacts(
+                    execution_id,
+                    cursor=cursor,
+                    limit=max(1, min(limit, 1000)),
                 )
             except DomainError as exc:
                 raise ToolError(str(exc)) from exc
-            return [ExecutionArtifactResponse.from_view(view) for view in views]
+            return ExecutionArtifactPageResponse.from_page(page)
 
-        @server.tool(
-            description="Get one Execution Artifact and its direct lineage references."
-        )
+        @server.tool(description="Get one Execution Artifact and its direct lineage references.")
         async def execution_artifact_get(artifact_id: UUID) -> ExecutionArtifactResponse:
             try:
                 view = await execution_queries.artifact(artifact_id)
@@ -348,6 +427,8 @@ def build_mcp_server(
                         endpoint=str(request.endpoint).rstrip("/"),
                         token=(request.token.get_secret_value() if request.token else None),
                         pool=request.pool,
+                        actor_type=request.actor.type,
+                        actor_id=request.actor.id,
                         max_concurrent_executions=request.max_concurrent_executions,
                     )
                 )
@@ -358,9 +439,11 @@ def build_mcp_server(
         @server.tool(description="List registered Jupyter servers and current capacity state.")
         async def jupyter_server_list(
             pool: JupyterPool | None = None,
-        ) -> list[JupyterServerResponse]:
-            views = await jupyter_manager.list(pool)
-            return [JupyterServerResponse.from_view(view) for view in views]
+            cursor: str | None = None,
+            limit: int = 100,
+        ) -> JupyterServerPageResponse:
+            page = await jupyter_manager.list(pool, cursor=cursor, limit=max(1, min(limit, 200)))
+            return JupyterServerPageResponse.from_page(page)
 
         @server.tool(description="Get one registered Jupyter server without exposing its token.")
         async def jupyter_server_get(server_id: UUID) -> JupyterServerResponse:
@@ -371,9 +454,15 @@ def build_mcp_server(
             return JupyterServerResponse.from_view(view)
 
         @server.tool(description="Probe a Jupyter server now and persist its health and kernels.")
-        async def jupyter_server_probe(server_id: UUID) -> JupyterServerResponse:
+        async def jupyter_server_probe(
+            request: JupyterServerProbeRequest,
+        ) -> JupyterServerResponse:
             try:
-                view = await jupyter_manager.probe(server_id)
+                view = await jupyter_manager.probe(
+                    request.server_id,
+                    actor_type=request.actor.type,
+                    actor_id=request.actor.id,
+                )
             except DomainError as exc:
                 raise ToolError(str(exc)) from exc
             return JupyterServerResponse.from_view(view)
@@ -392,6 +481,8 @@ def build_mcp_server(
                     RemoveJupyterServerCommand(
                         idempotency_key=request.idempotency_key,
                         server_id=request.server_id,
+                        actor_type=request.actor.type,
+                        actor_id=request.actor.id,
                     )
                 )
             except DomainError as exc:
@@ -413,6 +504,8 @@ def build_mcp_server(
                         idempotency_key=request.idempotency_key,
                         server_id=request.server_id,
                         desired_state=JupyterServerStatus(request.desired_state),
+                        actor_type=request.actor.type,
+                        actor_id=request.actor.id,
                     )
                 )
             except DomainError as exc:

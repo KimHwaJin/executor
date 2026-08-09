@@ -28,11 +28,19 @@ async def _servers(client: Client) -> list[dict[str, Any]]:
     result = await client.call_tool("jupyter_server_list", {})
     if result.is_error:
         raise RuntimeError(str(result.content))
-    return result.structured_content["result"]
+    return result.structured_content["items"]
 
 
 async def _probe(client: Client, server_id: str) -> dict[str, Any]:
-    result = await client.call_tool("jupyter_server_probe", {"server_id": server_id})
+    result = await client.call_tool(
+        "jupyter_server_probe",
+        {
+            "request": {
+                "server_id": server_id,
+                "actor": {"type": "USER", "id": "load-smoke-operator"},
+            }
+        },
+    )
     if result.is_error:
         raise RuntimeError(str(result.content))
     return result.structured_content

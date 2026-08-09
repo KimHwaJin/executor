@@ -21,6 +21,7 @@ async def main() -> None:
                     "idempotency_key": submit_key,
                     "mode": "STATIC",
                     "trigger_type": "INTERACTIVE",
+                    "actor": {"type": "USER", "id": "smoke-user"},
                     "kernel_name": "python-analysis-a",
                     "source": inline_source(
                         "smoke-plan",
@@ -48,6 +49,7 @@ async def main() -> None:
                     "execution_id": execution_id,
                     "idempotency_key": cancel_key,
                     "reason": "smoke test",
+                    "actor": {"type": "USER", "id": "smoke-user"},
                 }
             },
         )

@@ -102,7 +102,7 @@ async def _attempts(client: Client, execution_id: str) -> list[dict[str, Any]]:
     )
     if result.is_error:
         raise RuntimeError(str(result.content))
-    return result.structured_content["result"]
+    return result.structured_content["items"]
 
 
 async def _wait_for_recovered_failure(
@@ -152,6 +152,7 @@ async def main() -> None:
                         "idempotency_key": f"multi-executor-submit-{unique}",
                         "mode": "STATIC",
                         "trigger_type": "INTERACTIVE",
+                        "actor": {"type": "USER", "id": "multi-executor-user"},
                         "kernel_name": "python3",
                         "source": inline_source(
                             f"multi-executor-plan-{unique}",
@@ -210,6 +211,7 @@ async def main() -> None:
                     "request": {
                         "execution_id": execution_id,
                         "idempotency_key": f"multi-executor-retry-{unique}",
+                        "actor": {"type": "USER", "id": "multi-executor-user"},
                     }
                 },
             )
