@@ -65,6 +65,15 @@ def create_app(container: ApplicationContainer) -> FastAPI:
             response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
         return {"status": "ready" if ready else "not_ready", "checks": checks}
 
+    @app.get("/workerz", include_in_schema=False)
+    async def workerz() -> dict[str, object]:
+        worker = container.execution_worker
+        return {
+            "state": worker.lifecycle_state,
+            "accepting_new_executions": worker.accepting_work,
+            "active_execution_count": worker.active_job_count,
+        }
+
     # Register this catch-all mount last so operational routes remain reachable.
     app.mount("/", mcp_app)
     return app

@@ -21,10 +21,20 @@ Worker.
 
 ## Graceful shutdown and process crash
 
-On graceful shutdown, the owning Worker cancels its local handlers, classifies unfinished STATIC
-work as `WORKER_SHUTDOWN`, deletes its kernel, and exposes a `FROM_START` retry when safe. A forced
-process or Pod failure cannot perform that cleanup. Another Pod detects the expired lease,
-transitions the Execution to `FAILED` with `LEASE_EXPIRED`, and then deletes the abandoned kernel.
+On graceful shutdown, the owning Worker first enters `DRAINING`: it rejects new claims, cancels its
+Redis intake and queue reconciliation loops, and makes `/readyz` fail through the
+`worker_accepting` check. Already-dispatched jobs keep their heartbeats and may finish for up to
+`EXECUTION_DRAIN_TIMEOUT_SECONDS`. Other Pods continue claiming queued work from the shared
+PostgreSQL state.
+
+When the drain deadline expires, remaining local handlers are cancelled. Unfinished STATIC work is
+classified as `WORKER_SHUTDOWN`, its kernel is deleted, and a `FROM_START` retry is exposed when
+safe. A DYNAMIC cell interrupted during shutdown is not replayed automatically. `/workerz` exposes
+the local lifecycle state and active execution count for diagnosis.
+
+A forced process or Pod failure cannot perform the shutdown cleanup. Another Pod detects the
+expired lease, transitions the Execution to `FAILED` with `LEASE_EXPIRED`, and then deletes the
+abandoned kernel.
 
 Kernel cleanup is intentionally observable as a short two-stage transition:
 
@@ -44,9 +54,11 @@ lease duration plus one heartbeat polling interval after the last successful hea
 - All Pods must use the same PostgreSQL database, Redis Stream/group, credential encryption key,
   workspace PV, and Jupyter registry.
 - Do not reuse an explicit consumer name across concurrently running Pods.
-- A rolling restart can fail an in-flight job with `WORKER_SHUTDOWN`; it does not transparently
-  migrate a live Jupyter WebSocket between Pods. Drain traffic and plan explicit retries for
-  long-running work before deployment.
+- Set `terminationGracePeriodSeconds` greater than
+  `EXECUTION_DRAIN_TIMEOUT_SECONDS + EXECUTION_SHUTDOWN_CLEANUP_SECONDS` plus a shutdown buffer.
+- A rolling restart allows in-flight work to finish within the drain window, but it does not
+  transparently migrate a live Jupyter WebSocket between Pods. Work exceeding the drain window can
+  still fail with `WORKER_SHUTDOWN` and requires an explicit retry where supported.
 - Execution Attempt history exposes the `lease_owner` responsible for each attempt.
 
 ## Verification

@@ -90,6 +90,7 @@ class ApplicationContainer:
             pass
         checks = {"postgresql": database_ready, "redis": redis_ready}
         if self.settings.jupyter_enabled:
+            checks["worker_accepting"] = self.execution_worker.accepting_work
             try:
                 checks["jupyter_fleet"] = await self.jupyter_registry.any_active()
             except Exception:

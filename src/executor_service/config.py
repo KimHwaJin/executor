@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     execution_pending_claim_batch_size: int = Field(default=100, ge=1, le=1000)
     execution_lease_seconds: int = Field(default=60, ge=30)
     execution_heartbeat_seconds: int = Field(default=15, ge=5)
+    execution_drain_timeout_seconds: float = Field(default=30, ge=0)
     execution_shutdown_cleanup_seconds: float = Field(default=20, gt=0)
     failed_kernel_retention_seconds: int = Field(default=3600, ge=60)
     execution_max_runtime_seconds: int = Field(default=432000, ge=60)

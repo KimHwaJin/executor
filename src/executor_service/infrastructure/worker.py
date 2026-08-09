@@ -88,22 +88,60 @@ class ExecutionWorker:
             f"{socket.gethostname()}-{os.getpid()}"
         )
         self._stop_event = asyncio.Event()
-        self._loops: list[asyncio.Task[None]] = []
+        self._admission_loops: list[asyncio.Task[None]] = []
+        self._maintenance_loops: list[asyncio.Task[None]] = []
         self._jobs: dict[UUID, asyncio.Task[None]] = {}
+        self._jobs_idle = asyncio.Event()
+        self._jobs_idle.set()
+        self._accepting_work = False
+        self._draining = False
+        self._stopped = True
         self._pending_claim_cursor = "0-0"
 
+    @property
+    def accepting_work(self) -> bool:
+        return self._accepting_work
+
+    @property
+    def draining(self) -> bool:
+        return self._draining
+
+    @property
+    def active_job_count(self) -> int:
+        return len(self._jobs)
+
+    @property
+    def lifecycle_state(self) -> str:
+        if self._stopped:
+            return "STOPPED"
+        if self._draining:
+            return "DRAINING"
+        if self._accepting_work:
+            return "ACCEPTING"
+        return "STARTING"
+
     async def start(self) -> None:
-        if not self._settings.jupyter_enabled or self._loops:
+        if (
+            not self._settings.jupyter_enabled
+            or self._admission_loops
+            or self._maintenance_loops
+        ):
             return
         self._settings.workspace_host_root.mkdir(parents=True, exist_ok=True)
         await self._ensure_consumer_group()
-        self._loops = [
+        self._stop_event.clear()
+        self._stopped = False
+        self._draining = False
+        self._accepting_work = True
+        self._admission_loops = [
             asyncio.create_task(self._stream_loop(), name="execution-stream-consumer"),
             asyncio.create_task(
                 self._pending_recovery_loop(),
                 name="execution-pending-recovery",
             ),
             asyncio.create_task(self._reconcile_loop(), name="execution-reconciler"),
+        ]
+        self._maintenance_loops = [
             asyncio.create_task(self._lease_recovery_loop(), name="execution-lease-recovery"),
             asyncio.create_task(
                 self._retained_kernel_cleanup_loop(),
@@ -115,16 +153,49 @@ class ExecutionWorker:
             ),
         ]
 
+    async def begin_drain(self) -> None:
+        if self._stopped or self._draining:
+            return
+        self._accepting_work = False
+        self._draining = True
+        logger.info(
+            "Executor Worker drain started",
+            extra={"active_job_count": self.active_job_count},
+        )
+        await self._cancel_tasks(self._admission_loops)
+
     async def stop(self) -> None:
+        if self._stopped and not self._jobs:
+            return
+        await self.begin_drain()
+        if self._jobs:
+            try:
+                async with asyncio.timeout(
+                    self._settings.execution_drain_timeout_seconds
+                ):
+                    await self._jobs_idle.wait()
+            except TimeoutError:
+                logger.warning(
+                    "Executor Worker drain deadline exceeded; cancelling remaining jobs",
+                    extra={"active_job_count": self.active_job_count},
+                )
         self._stop_event.set()
-        for task in self._loops:
-            task.cancel()
-        await asyncio.gather(*self._loops, return_exceptions=True)
-        self._loops.clear()
+        await self._cancel_tasks(self._maintenance_loops)
         if self._jobs:
             for task in self._jobs.values():
                 task.cancel()
             await asyncio.gather(*self._jobs.values(), return_exceptions=True)
+        self._accepting_work = False
+        self._draining = False
+        self._stopped = True
+        logger.info("Executor Worker stopped")
+
+    @staticmethod
+    async def _cancel_tasks(tasks: list[asyncio.Task[None]]) -> None:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        tasks.clear()
 
     async def _ensure_consumer_group(self) -> None:
         try:
@@ -360,22 +431,29 @@ class ExecutionWorker:
         replace: bool = False,
     ) -> None:
         current = self._jobs.get(execution_id)
+        if not self._accepting_work and not replace:
+            coroutine.close()
+            return
         if current is not None and not current.done():
             if replace:
                 current.cancel()
                 task = asyncio.create_task(coroutine, name=f"cancel-{execution_id}")
                 self._jobs[execution_id] = task
+                self._jobs_idle.clear()
                 task.add_done_callback(lambda done: self._remove_job_if_current(execution_id, done))
             else:
                 coroutine.close()
             return
         task = asyncio.create_task(coroutine, name=f"execution-{execution_id}")
         self._jobs[execution_id] = task
+        self._jobs_idle.clear()
         task.add_done_callback(lambda done: self._remove_job_if_current(execution_id, done))
 
     def _remove_job_if_current(self, execution_id: UUID, task: asyncio.Task[None]) -> None:
         if self._jobs.get(execution_id) is task:
             self._jobs.pop(execution_id, None)
+            if not self._jobs:
+                self._jobs_idle.set()
 
     async def _run_execution(self, execution_id: UUID) -> None:
         pool = await self._execution_pool(execution_id)
