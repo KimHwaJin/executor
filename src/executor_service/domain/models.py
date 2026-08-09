@@ -17,7 +17,10 @@ from executor_service.domain.enums import (
     StepStatus,
     TriggerType,
 )
-from executor_service.domain.errors import InvalidStateTransitionError
+from executor_service.domain.errors import (
+    ExecutionVersionConflictError,
+    InvalidStateTransitionError,
+)
 
 
 def utc_now() -> datetime:
@@ -27,6 +30,9 @@ def utc_now() -> datetime:
 @dataclass(slots=True)
 class ExecutionStep:
     sequence: int
+    code: str | None = None
+    code_hash: str | None = None
+    plan_revision_id: str | None = None
     skill_name: str | None = None
     tool_name: str | None = None
     input_parameters: dict[str, Any] = field(default_factory=dict)
@@ -79,6 +85,7 @@ class Execution:
     retry_count: int = 0
     recovery_count: int = 0
     kernel_cleanup_status: KernelCleanupStatus = KernelCleanupStatus.NOT_REQUIRED
+    dynamic_finish_requested: bool = False
     version: int = 0
     created_at: datetime = field(default_factory=utc_now)
     updated_at: datetime = field(default_factory=utc_now)
@@ -150,6 +157,38 @@ class Execution:
             step.started_at = None
             step.finished_at = None
             step.updated_at = now
+
+    def request_dynamic_continue(self, expected_version: int) -> None:
+        if self.mode != ExecutionMode.DYNAMIC:
+            raise InvalidStateTransitionError("Only DYNAMIC executions can be continued.")
+        if self.status != ExecutionStatus.WAITING_FOR_NEXT_STEP:
+            raise InvalidStateTransitionError(
+                f"Execution {self.id} must be WAITING_FOR_NEXT_STEP before continue."
+            )
+        if self.version != expected_version:
+            raise ExecutionVersionConflictError(
+                f"Execution version is {self.version}, expected {expected_version}."
+            )
+        self.status = ExecutionStatus.QUEUED
+        self.dynamic_finish_requested = False
+        self.updated_at = utc_now()
+        self.version += 1
+
+    def request_dynamic_finish(self, expected_version: int) -> None:
+        if self.mode != ExecutionMode.DYNAMIC:
+            raise InvalidStateTransitionError("Only DYNAMIC executions can be finished.")
+        if self.status != ExecutionStatus.WAITING_FOR_NEXT_STEP:
+            raise InvalidStateTransitionError(
+                f"Execution {self.id} must be WAITING_FOR_NEXT_STEP before finish."
+            )
+        if self.version != expected_version:
+            raise ExecutionVersionConflictError(
+                f"Execution version is {self.version}, expected {expected_version}."
+            )
+        self.status = ExecutionStatus.QUEUED
+        self.dynamic_finish_requested = True
+        self.updated_at = utc_now()
+        self.version += 1
 
 
 def _with_utc(value: datetime) -> datetime:

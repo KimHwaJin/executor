@@ -51,8 +51,8 @@ class ExecutionORM(Base):
     __tablename__ = "executions"
     __table_args__ = (
         CheckConstraint(
-            "status IN ('QUEUED', 'DISPATCHED', 'RUNNING', 'CANCEL_REQUESTED', "
-            "'CANCELLED', 'SUCCEEDED', 'FAILED')",
+            "status IN ('QUEUED', 'DISPATCHED', 'RUNNING', 'WAITING_FOR_NEXT_STEP', "
+            "'CANCEL_REQUESTED', 'CANCELLED', 'SUCCEEDED', 'FAILED')",
             name="valid_execution_status",
         ),
         CheckConstraint("mode IN ('STATIC', 'DYNAMIC')", name="valid_execution_mode"),
@@ -152,6 +152,9 @@ class ExecutionORM(Base):
         nullable=False,
         default=KernelCleanupStatus.NOT_REQUIRED,
     )
+    dynamic_finish_requested: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     created_at: Mapped[datetime] = mapped_column(
@@ -209,6 +212,7 @@ class ExecutionORM(Base):
             retry_count=execution.retry_count,
             recovery_count=execution.recovery_count,
             kernel_cleanup_status=execution.kernel_cleanup_status,
+            dynamic_finish_requested=execution.dynamic_finish_requested,
             version=execution.version,
             created_at=execution.created_at,
             updated_at=execution.updated_at,
@@ -255,6 +259,7 @@ class ExecutionORM(Base):
             retry_count=self.retry_count,
             recovery_count=self.recovery_count,
             kernel_cleanup_status=self.kernel_cleanup_status,
+            dynamic_finish_requested=self.dynamic_finish_requested,
             version=self.version,
             created_at=self.created_at,
             updated_at=self.updated_at,
@@ -283,6 +288,9 @@ class ExecutionStepORM(Base):
         index=True,
     )
     sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    code_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    plan_revision_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     skill_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     tool_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     status: Mapped[StepStatus] = mapped_column(
@@ -307,6 +315,9 @@ class ExecutionStepORM(Base):
         return cls(
             id=step.id,
             sequence=step.sequence,
+            code=step.code,
+            code_hash=step.code_hash,
+            plan_revision_id=step.plan_revision_id,
             skill_name=step.skill_name,
             tool_name=step.tool_name,
             status=step.status,
@@ -323,6 +334,9 @@ class ExecutionStepORM(Base):
         return ExecutionStep(
             id=self.id,
             sequence=self.sequence,
+            code=self.code,
+            code_hash=self.code_hash,
+            plan_revision_id=self.plan_revision_id,
             skill_name=self.skill_name,
             tool_name=self.tool_name,
             status=self.status,
@@ -410,7 +424,7 @@ class ExecutionAttemptORM(Base):
         ),
         CheckConstraint("attempt_number > 0", name="positive_attempt_number"),
         CheckConstraint(
-            "status IN ('RUNNING', 'SUCCEEDED', 'FAILED', 'CANCELLED')",
+            "status IN ('RUNNING', 'WAITING', 'SUCCEEDED', 'FAILED', 'CANCELLED')",
             name="valid_attempt_status",
         ),
         CheckConstraint(
@@ -443,8 +457,10 @@ class ExecutionAttemptORM(Base):
     status: Mapped[AttemptStatus] = mapped_column(
         enum_type(AttemptStatus, "attempt_status"), nullable=False
     )
-    lease_owner: Mapped[str] = mapped_column(String(255), nullable=False)
-    lease_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    lease_owner: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     heartbeat_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     error_message: Mapped[str | None] = mapped_column(Text)
     failure_type: Mapped[FailureType | None] = mapped_column(

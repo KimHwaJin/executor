@@ -64,6 +64,8 @@ class ExecutionContext(MCPModel):
 
 class ExecutionStepInput(MCPModel):
     sequence: int = Field(ge=0)
+    code: str | None = None
+    plan_revision_id: str | None = Field(default=None, max_length=255)
     skill_name: str | None = Field(default=None, max_length=255)
     tool_name: str | None = Field(default=None, max_length=255)
     input_parameters: dict[str, Any] = Field(default_factory=dict)
@@ -109,6 +111,8 @@ class ExecutionSubmitRequest(MCPModel):
             steps=tuple(
                 ApplicationStepSpec(
                     sequence=step.sequence,
+                    code=step.code,
+                    plan_revision_id=step.plan_revision_id,
                     skill_name=step.skill_name,
                     tool_name=step.tool_name,
                     input_parameters=step.input_parameters,
@@ -127,6 +131,19 @@ class ExecutionCancelRequest(MCPModel):
 class ExecutionRetryRequest(MCPModel):
     execution_id: UUID
     idempotency_key: str = Field(min_length=1, max_length=255)
+
+
+class ExecutionContinueRequest(MCPModel):
+    execution_id: UUID
+    idempotency_key: str = Field(min_length=1, max_length=255)
+    expected_version: int = Field(ge=0)
+    step: ExecutionStepInput
+
+
+class ExecutionFinishRequest(MCPModel):
+    execution_id: UUID
+    idempotency_key: str = Field(min_length=1, max_length=255)
+    expected_version: int = Field(ge=0)
 
 
 class JupyterServerUpsertRequest(MCPModel):
@@ -192,6 +209,8 @@ class JupyterServerResponse(MCPModel):
 class ExecutionStepResponse(MCPModel):
     id: UUID
     sequence: int
+    code_hash: str | None
+    plan_revision_id: str | None
     skill_name: str | None
     tool_name: str | None
     status: StepStatus
@@ -251,6 +270,8 @@ class ExecutionResponse(MCPModel):
                 ExecutionStepResponse(
                     id=step.id,
                     sequence=step.sequence,
+                    code_hash=step.code_hash,
+                    plan_revision_id=step.plan_revision_id,
                     skill_name=step.skill_name,
                     tool_name=step.tool_name,
                     status=step.status,
@@ -322,8 +343,8 @@ class ExecutionAttemptResponse(MCPModel):
     jupyter_server_id: UUID
     kernel_id: str | None
     status: AttemptStatus
-    lease_owner: str
-    lease_expires_at: datetime
+    lease_owner: str | None
+    lease_expires_at: datetime | None
     heartbeat_at: datetime
     error_message: str | None
     failure_type: FailureType | None
@@ -463,7 +484,10 @@ class ExecutorCapabilities(MCPModel):
     )
     event_delivery: str = "redis-streams-via-transactional-outbox"
     jupyter_execution_implemented: bool = True
-    implemented_execution_modes: tuple[ExecutionMode, ...] = (ExecutionMode.STATIC,)
+    implemented_execution_modes: tuple[ExecutionMode, ...] = (
+        ExecutionMode.STATIC,
+        ExecutionMode.DYNAMIC,
+    )
     failure_types: tuple[FailureType, ...] = tuple(FailureType)
     retry_strategies: tuple[RetryStrategy, ...] = tuple(RetryStrategy)
     tools: tuple[str, ...] = (
@@ -472,4 +496,6 @@ class ExecutorCapabilities(MCPModel):
         "execution_get",
         "execution_cancel",
         "execution_retry",
+        "execution_continue",
+        "execution_finish",
     )

@@ -10,8 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
 
 from executor_service.domain.errors import PersistenceConflictError
-from executor_service.domain.models import Execution, OutboxEvent
+from executor_service.domain.models import Execution, ExecutionStep, OutboxEvent
 from executor_service.infrastructure.db.models import (
+    CommandReceiptORM,
     ExecutionORM,
     ExecutionRetryORM,
     ExecutionStepORM,
@@ -73,6 +74,39 @@ class SQLAlchemyExecutionRepository:
             )
         )
 
+    async def get_command_receipt(
+        self, idempotency_key: str
+    ) -> tuple[str, str, dict[str, object]] | None:
+        receipt = await self._session.scalar(
+            select(CommandReceiptORM).where(
+                CommandReceiptORM.idempotency_key == idempotency_key
+            )
+        )
+        if receipt is None:
+            return None
+        return receipt.command_type, receipt.request_fingerprint, receipt.result
+
+    async def add_command_receipt(
+        self,
+        idempotency_key: str,
+        command_type: str,
+        request_fingerprint: str,
+        result: dict[str, object],
+    ) -> None:
+        self._session.add(
+            CommandReceiptORM(
+                idempotency_key=idempotency_key,
+                command_type=command_type,
+                request_fingerprint=request_fingerprint,
+                result=result,
+            )
+        )
+
+    async def add_step(self, execution_id: UUID, step: ExecutionStep) -> None:
+        row = ExecutionStepORM.from_domain(step)
+        row.execution_id = execution_id
+        self._session.add(row)
+
     async def save(self, execution: Execution) -> None:
         previous_version = execution.version - 1
         result = await self._session.execute(
@@ -98,6 +132,7 @@ class SQLAlchemyExecutionRepository:
                 retry_count=execution.retry_count,
                 recovery_count=execution.recovery_count,
                 kernel_cleanup_status=execution.kernel_cleanup_status,
+                dynamic_finish_requested=execution.dynamic_finish_requested,
             )
         )
         if getattr(result, "rowcount", None) != 1:
@@ -108,6 +143,9 @@ class SQLAlchemyExecutionRepository:
                 .where(ExecutionStepORM.id == step.id)
                 .values(
                     status=step.status,
+                    code=step.code,
+                    code_hash=step.code_hash,
+                    plan_revision_id=step.plan_revision_id,
                     outputs=step.outputs,
                     error_message=step.error_message,
                     updated_at=step.updated_at,

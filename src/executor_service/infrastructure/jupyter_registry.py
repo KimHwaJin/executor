@@ -370,7 +370,7 @@ class JupyterServerRegistry:
         active = await session.scalar(
             select(func.count(ExecutionAttemptORM.id)).where(
                 ExecutionAttemptORM.jupyter_server_id == server.id,
-                ExecutionAttemptORM.status == AttemptStatus.RUNNING,
+                ExecutionAttemptORM.status.in_([AttemptStatus.RUNNING, AttemptStatus.WAITING]),
             )
         )
         retained = await session.scalar(

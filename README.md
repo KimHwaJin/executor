@@ -2,14 +2,15 @@
 
 Asynchronous Jupyter execution control plane exposed as an MCP 2026-07-28 Streamable HTTP server.
 PostgreSQL is the source of truth. Tool calls persist work and return immediately while a Redis
-consumer worker executes STATIC plans in Jupyter.
+consumer worker executes STATIC plans or one-cell-at-a-time DYNAMIC plans in Jupyter.
 
 ## Implemented scope
 
 - Official MCP Python SDK 2.x `MCPServer`, exposed at `POST /mcp`
 - Execution tools: `executor_get_capabilities`, `execution_submit`, `execution_get`,
-  `execution_cancel`, `execution_retry`, `execution_attempt_list`, `execution_event_list`,
-  `execution_trace_get`, `execution_artifact_list`, `execution_artifact_get`
+  `execution_cancel`, `execution_retry`, `execution_continue`, `execution_finish`,
+  `execution_attempt_list`, `execution_event_list`, `execution_trace_get`,
+  `execution_artifact_list`, `execution_artifact_get`
 - Jupyter fleet tools: `jupyter_server_upsert`, `jupyter_server_list`,
   `jupyter_server_get`, `jupyter_server_probe`, `jupyter_server_remove`,
   `jupyter_server_set_state`
@@ -21,6 +22,7 @@ consumer worker executes STATIC plans in Jupyter.
   execution attempts, leases, and heartbeats
 - Safe server draining and retained-kernel retry from a failed Step
 - Classified Tool/infrastructure failures, graceful Worker shutdown, and FROM_START recovery
+- Append-only DYNAMIC cells with optimistic version checks and same-kernel continuation
 - Immutable per-Attempt Step history and an end-to-end execution event trace
 - Automatic and Manifest-based Artifact registration with checksum and lineage
 - Durable `.ipynb` output and execution-scoped artifact directories on the shared PV
@@ -29,8 +31,10 @@ consumer worker executes STATIC plans in Jupyter.
 
 MCP Tasks are deliberately not used. `execution_submit` returns an `execution_id` while the
 execution starts as `QUEUED`. Poll with `execution_get` or request cancellation with
-`execution_cancel`. Actual Jupyter execution currently supports STATIC mode; DYNAMIC is retained
-in the contract for the later Agent re-planning loop and is reported separately in capabilities.
+`execution_cancel`. DYNAMIC execution accepts one initial cell, returns
+`WAITING_FOR_NEXT_STEP` after success or code error, and then accepts exactly one append-only cell
+through `execution_continue`. `execution_finish` persists the final notebook and deletes the
+retained kernel. MCP Tasks are not required for this lifecycle.
 
 ## Deferred decisions
 
@@ -75,6 +79,7 @@ Run the official SDK client smoke test in a second terminal:
 uv run python scripts/mcp_smoke.py
 uv run python scripts/jupyter_gateway_smoke.py
 uv run python scripts/jupyter_execution_smoke.py
+uv run python scripts/jupyter_dynamic_smoke.py
 uv run python scripts/jupyter_cancel_smoke.py
 uv run python scripts/jupyter_failure_smoke.py
 uv run python scripts/jupyter_fleet_smoke.py
@@ -113,6 +118,17 @@ uv run alembic upgrade head
   `{ "type": "PATH", "path": "/shared/..." }`
 - `context`: Agent-owned user/project/session/plan IDs; Executor creates `execution_id`
 - `steps`: ordered execution units with optional skill and tool names
+
+For `DYNAMIC`, submit exactly one INLINE cell as both `source.code` and `steps[0].code`, with
+sequence `0`. After the execution reaches `WAITING_FOR_NEXT_STEP`, call `execution_continue` with
+the current `version`, a new idempotency key, and the next consecutive Step. A stale version or
+non-consecutive sequence is rejected. The optional `plan_revision_id` links each chosen cell back
+to the Agent-owned plan revision. A cell error is recorded as a failed Step and returns to the
+waiting state so the Agent can append a corrected follow-up cell; already executed cells are never
+rewritten. Call `execution_finish` with the current version when no more cells are needed. If the
+retained kernel is lost or an infrastructure failure makes its state untrustworthy, the DYNAMIC
+execution fails as non-retryable; the Agent must submit a new Execution because automatic replay
+of already executed dynamic cells is intentionally not supported.
 
 `execution_cancel` also requires an idempotency key. It first records `CANCEL_REQUESTED`; the
 worker then interrupts and deletes the kernel before recording `CANCELLED`.
@@ -208,7 +224,9 @@ duplicate, so consumers must deduplicate on `event_id`.
 
 The consumer group treats Redis as a wake-up channel and reconciles `QUEUED` and
 `CANCEL_REQUESTED` rows from PostgreSQL, so an acknowledged or lost notification does not lose the
-execution. Active attempts renew a PostgreSQL lease. An expired lease is failed safely and can be
+execution. Active attempts renew a PostgreSQL lease. A dynamic Attempt in
+`WAITING_FOR_NEXT_STEP` releases its worker lease but keeps its kernel reservation, so it counts
+against that Jupyter server's capacity. An expired active lease is failed safely and can be
 retried by a later retry workflow; automatic re-execution is intentionally not enabled yet.
 
 No database migration runs automatically during service startup. Deployments must run Alembic as

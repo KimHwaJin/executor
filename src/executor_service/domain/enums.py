@@ -7,6 +7,7 @@ class ExecutionStatus(StrEnum):
     QUEUED = "QUEUED"
     DISPATCHED = "DISPATCHED"
     RUNNING = "RUNNING"
+    WAITING_FOR_NEXT_STEP = "WAITING_FOR_NEXT_STEP"
     CANCEL_REQUESTED = "CANCEL_REQUESTED"
     CANCELLED = "CANCELLED"
     SUCCEEDED = "SUCCEEDED"
@@ -59,6 +60,7 @@ class JupyterServerStatus(StrEnum):
 
 class AttemptStatus(StrEnum):
     RUNNING = "RUNNING"
+    WAITING = "WAITING"
     SUCCEEDED = "SUCCEEDED"
     FAILED = "FAILED"
     CANCELLED = "CANCELLED"

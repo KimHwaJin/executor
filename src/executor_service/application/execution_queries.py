@@ -43,8 +43,8 @@ class ExecutionAttemptView:
     jupyter_server_id: UUID
     kernel_id: str | None
     status: AttemptStatus
-    lease_owner: str
-    lease_expires_at: datetime
+    lease_owner: str | None
+    lease_expires_at: datetime | None
     heartbeat_at: datetime
     error_message: str | None
     failure_type: FailureType | None

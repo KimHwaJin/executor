@@ -4,7 +4,7 @@ from types import TracebackType
 from typing import Protocol, Self
 from uuid import UUID
 
-from executor_service.domain.models import Execution, OutboxEvent
+from executor_service.domain.models import Execution, ExecutionStep, OutboxEvent
 
 
 class ExecutionRepository(Protocol):
@@ -21,6 +21,20 @@ class ExecutionRepository(Protocol):
     async def add_retry_receipt(
         self, execution_id: UUID, idempotency_key: str, from_sequence: int
     ) -> None: ...
+
+    async def get_command_receipt(
+        self, idempotency_key: str
+    ) -> tuple[str, str, dict[str, object]] | None: ...
+
+    async def add_command_receipt(
+        self,
+        idempotency_key: str,
+        command_type: str,
+        request_fingerprint: str,
+        result: dict[str, object],
+    ) -> None: ...
+
+    async def add_step(self, execution_id: UUID, step: ExecutionStep) -> None: ...
 
     async def save(self, execution: Execution) -> None: ...
 

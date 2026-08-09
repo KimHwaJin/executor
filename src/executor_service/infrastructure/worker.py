@@ -27,7 +27,7 @@ from executor_service.domain.enums import (
     RetryStrategy,
     StepStatus,
 )
-from executor_service.domain.models import OutboxEvent, utc_now
+from executor_service.domain.models import Execution, OutboxEvent, utc_now
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
@@ -43,7 +43,7 @@ from executor_service.infrastructure.jupyter import (
     JupyterGatewayError,
 )
 from executor_service.infrastructure.jupyter_registry import JupyterServerRegistry
-from executor_service.infrastructure.workspace import WorkspaceManager
+from executor_service.infrastructure.workspace import ExecutionWorkspace, WorkspaceManager
 
 logger = logging.getLogger(__name__)
 
@@ -140,7 +140,11 @@ class ExecutionWorker:
         except (KeyError, ValueError):
             logger.warning("Ignoring malformed execution event")
             return
-        if event_type == "execution.submitted":
+        if event_type in {
+            "execution.submitted",
+            "execution.continue_requested",
+            "execution.finish_requested",
+        }:
             self._dispatch(execution_id, self._run_execution(execution_id))
         elif event_type == "execution.retry_requested":
             self._dispatch(execution_id, self._run_execution(execution_id))
@@ -229,6 +233,9 @@ class ExecutionWorker:
             if claimed is None:
                 return
             execution, server, attempt_id = claimed
+            if execution.mode == ExecutionMode.DYNAMIC:
+                await self._run_dynamic_execution(execution, server, attempt_id)
+                return
             gateway = JupyterGateway(
                 server.endpoint,
                 self._registry.resolve_token(
@@ -240,8 +247,6 @@ class ExecutionWorker:
             heartbeat: asyncio.Task[None] | None = None
             failed_sequence: int | None = None
             try:
-                if execution.mode != ExecutionMode.STATIC:
-                    raise ValueError("DYNAMIC execution is not implemented in this worker version.")
                 workspace = self._workspace.prepare(execution)
                 cells = self._workspace.load_cells(execution, workspace)
                 await self._ensure_steps(execution.id, len(cells))
@@ -419,6 +424,48 @@ class ExecutionWorker:
             )
             if execution_row is None or execution_row.status != ExecutionStatus.QUEUED:
                 return None
+            if (
+                execution_row.mode == ExecutionMode.DYNAMIC
+                and execution_row.kernel_id is not None
+                and execution_row.jupyter_server_id is not None
+            ):
+                waiting_attempt = await session.scalar(
+                    select(ExecutionAttemptORM)
+                    .where(
+                        ExecutionAttemptORM.execution_id == execution_id,
+                        ExecutionAttemptORM.status == AttemptStatus.WAITING,
+                    )
+                    .with_for_update()
+                )
+                server = await session.scalar(
+                    select(JupyterServerORM)
+                    .where(JupyterServerORM.id == execution_row.jupyter_server_id)
+                    .with_for_update()
+                )
+                if (
+                    waiting_attempt is None
+                    or server is None
+                    or not server.enabled
+                    or server.status == JupyterServerStatus.OFFLINE
+                ):
+                    return None
+                waiting_attempt.status = AttemptStatus.RUNNING
+                waiting_attempt.lease_owner = self._consumer_name
+                waiting_attempt.lease_expires_at = lease_expires
+                waiting_attempt.heartbeat_at = now
+                execution_row.status = ExecutionStatus.RUNNING
+                execution_row.lease_owner = self._consumer_name
+                execution_row.lease_expires_at = lease_expires
+                execution_row.heartbeat_at = now
+                execution_row.updated_at = now
+                execution_row.version += 1
+                _add_outbox(
+                    session,
+                    execution_id,
+                    "execution.resumed",
+                    ExecutionStatus.RUNNING,
+                )
+                return execution_row.to_domain(), server, waiting_attempt.id
             is_resume = (
                 execution_row.retry_count > 0
                 and execution_row.retry_strategy == RetryStrategy.FROM_FAILED_STEP
@@ -509,7 +556,9 @@ class ExecutionWorker:
             running = await session.scalar(
                 select(func.count(ExecutionAttemptORM.id)).where(
                     ExecutionAttemptORM.jupyter_server_id == server.id,
-                    ExecutionAttemptORM.status == AttemptStatus.RUNNING,
+                    ExecutionAttemptORM.status.in_(
+                        [AttemptStatus.RUNNING, AttemptStatus.WAITING]
+                    ),
                 )
             )
             retained = await session.scalar(
@@ -523,6 +572,202 @@ class ExecutionWorker:
             if (running or 0) + (retained or 0) < server.max_concurrent_executions:
                 return server
         return None
+
+    async def _run_dynamic_execution(
+        self, execution: Execution, server: JupyterServerORM, attempt_id: UUID
+    ) -> None:
+        gateway = JupyterGateway(
+            server.endpoint,
+            self._registry.resolve_token(server.credential_ref, server.credential_ciphertext),
+            self._settings.jupyter_request_timeout_seconds,
+        )
+        heartbeat: asyncio.Task[None] | None = None
+        kernel_id = execution.kernel_id
+        try:
+            workspace = self._workspace.prepare(execution)
+            if kernel_id is None:
+                kernel_id = await gateway.start_kernel(
+                    execution.kernel_name, workspace.jupyter_relative_path
+                )
+            await self._record_kernel(
+                execution.id,
+                attempt_id,
+                kernel_id,
+                workspace.jupyter_relative_path,
+                f"{workspace.jupyter_relative_path}/notebooks/execution.ipynb",
+            )
+            heartbeat = asyncio.create_task(
+                self._heartbeat(execution.id, attempt_id),
+                name=f"heartbeat-{execution.id}",
+            )
+            if execution.dynamic_finish_requested:
+                last_sequence = max((step.sequence for step in execution.steps), default=0)
+                await self._artifacts.register_notebook(
+                    workspace=workspace,
+                    execution_id=execution.id,
+                    attempt_id=attempt_id,
+                    sequence=last_sequence,
+                )
+                await gateway.delete_kernel(kernel_id)
+                await self._finalize(
+                    execution.id,
+                    attempt_id,
+                    ExecutionStatus.SUCCEEDED,
+                    kernel_cleanup_status=KernelCleanupStatus.SUCCEEDED,
+                )
+                return
+
+            pending = next(
+                (step for step in execution.steps if step.status == StepStatus.PENDING), None
+            )
+            if pending is None or not pending.code:
+                raise ValueError("Queued DYNAMIC execution has no pending cell code.")
+            artifact_snapshot = self._artifacts.snapshot(workspace)
+            await self._step_started(execution.id, attempt_id, pending.sequence)
+            try:
+                result = await gateway.execute_cell(kernel_id, pending.code)
+            except JupyterExecutionError as exc:
+                await self._step_failed(
+                    execution.id,
+                    attempt_id,
+                    pending.sequence,
+                    exc.outputs,
+                    str(exc),
+                )
+                await self._write_dynamic_notebook(execution.id, workspace)
+                try:
+                    await self._artifacts.discover_and_register(
+                        workspace=workspace,
+                        before=artifact_snapshot,
+                        execution_id=execution.id,
+                        attempt_id=attempt_id,
+                        sequence=pending.sequence,
+                        status=ArtifactStatus.INCOMPLETE,
+                    )
+                except Exception as artifact_exc:
+                    await self._record_artifact_failure(
+                        execution.id, attempt_id, pending.sequence, artifact_exc
+                    )
+                await self._pause_dynamic(
+                    execution.id, attempt_id, pending.sequence, StepStatus.FAILED
+                )
+                return
+            await self._step_succeeded(
+                execution.id, attempt_id, pending.sequence, result.outputs
+            )
+            await self._write_dynamic_notebook(execution.id, workspace)
+            try:
+                await self._artifacts.discover_and_register(
+                    workspace=workspace,
+                    before=artifact_snapshot,
+                    execution_id=execution.id,
+                    attempt_id=attempt_id,
+                    sequence=pending.sequence,
+                    status=ArtifactStatus.AVAILABLE,
+                )
+            except Exception as artifact_exc:
+                await self._record_artifact_failure(
+                    execution.id, attempt_id, pending.sequence, artifact_exc
+                )
+                raise
+            await self._pause_dynamic(
+                execution.id, attempt_id, pending.sequence, StepStatus.SUCCEEDED
+            )
+        except asyncio.CancelledError:
+            cleanup_status = KernelCleanupStatus.NOT_REQUIRED
+            if kernel_id is not None:
+                cleanup_status = await _best_effort_kernel_stop(gateway, kernel_id)
+            await self._finalize(
+                execution.id,
+                attempt_id,
+                ExecutionStatus.FAILED,
+                "Executor worker stopped while the dynamic cell was running.",
+                failure_type=FailureType.WORKER_SHUTDOWN,
+                retry_strategy=RetryStrategy.NOT_RETRYABLE,
+                kernel_cleanup_status=cleanup_status,
+            )
+            raise
+        except Exception as exc:
+            cleanup_status = KernelCleanupStatus.NOT_REQUIRED
+            if kernel_id is not None:
+                cleanup_status = await _best_effort_kernel_stop(gateway, kernel_id)
+            await self._finalize(
+                execution.id,
+                attempt_id,
+                ExecutionStatus.FAILED,
+                _safe_error(exc),
+                failure_type=_failure_policy(exc, False)[0],
+                retry_strategy=RetryStrategy.NOT_RETRYABLE,
+                kernel_cleanup_status=cleanup_status,
+            )
+        finally:
+            if heartbeat is not None:
+                heartbeat.cancel()
+                await asyncio.gather(heartbeat, return_exceptions=True)
+            await gateway.close()
+
+    async def _write_dynamic_notebook(
+        self, execution_id: UUID, workspace: ExecutionWorkspace
+    ) -> None:
+        async with self._session_factory() as session:
+            steps = list(
+                await session.scalars(
+                    select(ExecutionStepORM)
+                    .where(ExecutionStepORM.execution_id == execution_id)
+                    .order_by(ExecutionStepORM.sequence)
+                )
+            )
+        cells = [step.code or "" for step in steps if step.status != StepStatus.PENDING]
+        outputs = [step.outputs for step in steps if step.status != StepStatus.PENDING]
+        self._workspace.write_notebook(workspace, cells, outputs, [None] * len(cells))
+
+    async def _pause_dynamic(
+        self,
+        execution_id: UUID,
+        attempt_id: UUID,
+        sequence: int,
+        step_status: StepStatus,
+    ) -> None:
+        now = utc_now()
+        async with self._session_factory() as session, session.begin():
+            execution = await session.scalar(
+                select(ExecutionORM)
+                .where(ExecutionORM.id == execution_id)
+                .with_for_update()
+            )
+            if execution is None or execution.status != ExecutionStatus.RUNNING:
+                return
+            execution.status = ExecutionStatus.WAITING_FOR_NEXT_STEP
+            execution.lease_owner = None
+            execution.lease_expires_at = None
+            execution.updated_at = now
+            execution.dynamic_finish_requested = False
+            execution.version += 1
+            await session.execute(
+                update(ExecutionAttemptORM)
+                .where(ExecutionAttemptORM.id == attempt_id)
+                .values(
+                    status=AttemptStatus.WAITING,
+                    lease_owner=None,
+                    lease_expires_at=None,
+                )
+            )
+            _add_outbox(
+                session,
+                execution_id,
+                (
+                    "execution.step_completed"
+                    if step_status == StepStatus.SUCCEEDED
+                    else "execution.step_failed"
+                ),
+                ExecutionStatus.WAITING_FOR_NEXT_STEP,
+                {
+                    "execution_attempt_id": str(attempt_id),
+                    "sequence": sequence,
+                    "step_status": step_status.value,
+                    "version": execution.version,
+                },
+            )
 
     async def _ensure_steps(self, execution_id: UUID, cell_count: int) -> None:
         async with self._session_factory() as session, session.begin():
@@ -911,7 +1156,9 @@ class ExecutionWorker:
                 update(ExecutionAttemptORM)
                 .where(
                     ExecutionAttemptORM.execution_id == execution_id,
-                    ExecutionAttemptORM.status == AttemptStatus.RUNNING,
+                    ExecutionAttemptORM.status.in_(
+                        [AttemptStatus.RUNNING, AttemptStatus.WAITING]
+                    ),
                 )
                 .values(
                     status=AttemptStatus.CANCELLED,

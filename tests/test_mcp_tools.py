@@ -46,6 +46,8 @@ async def test_mcp_client_can_list_and_call_execution_tools(
             "execution_get",
             "execution_cancel",
             "execution_retry",
+            "execution_continue",
+            "execution_finish",
         }
 
         capabilities = await client.call_tool("executor_get_capabilities")
@@ -56,6 +58,10 @@ async def test_mcp_client_can_list_and_call_execution_tools(
             "NOT_RETRYABLE",
             "FROM_FAILED_STEP",
             "FROM_START",
+        ]
+        assert capabilities.structured_content["implemented_execution_modes"] == [
+            "STATIC",
+            "DYNAMIC",
         ]
 
         submitted = await client.call_tool("execution_submit", SUBMIT_ARGUMENTS)
