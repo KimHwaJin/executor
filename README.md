@@ -130,11 +130,12 @@ transactional Outbox timeline and current Redis publication state. `execution_tr
 the current Execution, Attempt/Step histories, and events for an end-to-end frontend detail view.
 Secret-shaped keys in historical inputs, outputs, and event payloads are defensively redacted.
 
-Execution-scoped files created or modified under `artifacts/` and `reports/` are detected after
-each Step. Successful files are `AVAILABLE`; files left by a failed cell are `INCOMPLETE`, so a
-later retry produces a separate Attempt-linked Artifact rather than overwriting the failure
-evidence. The final `.ipynb` is registered after successful execution. PV size and SHA-256 are
-computed by Executor.
+Execution-scoped files created or modified under type directories in `artifacts/` are detected
+after each Step. The standard directories are `datasets`, `plots`, `models`, `metrics`, `reports`,
+`logs`, and `other`; their directory type takes precedence over the filename extension. Successful
+files are `AVAILABLE`; files left by a failed cell are `INCOMPLETE`, so a later retry produces a
+separate Attempt-linked Artifact rather than overwriting the failure evidence. The final `.ipynb`
+is registered after successful execution. PV size and SHA-256 are computed by Executor.
 
 Tools can append JSON Lines to `artifacts/manifest.jsonl` to register user-level processed data or
 S3 objects outside the execution workspace. Manifest use is optional and does not require every
@@ -176,18 +177,23 @@ The local bind mount is `./notebook_dir:/workspace/pv`. Kubernetes should mount 
 the same in-container root. Execution files use the following stable hierarchy:
 
 ```text
-/workspace/pv/users/{user_id}/
-├── datasets/processed/{asset_id}/
-└── projects/{project_id}/sessions/{session_id}/executions/{execution_id}/
+/workspace/pv/users/{user_id}/projects/{project_id}/sessions/{session_id}/executions/{execution_id}/
     ├── code/
     ├── notebooks/execution.ipynb
     ├── artifacts/
-    ├── reports/
+    │   ├── datasets/
+    │   ├── plots/
+    │   ├── models/
+    │   ├── metrics/
+    │   ├── reports/
+    │   ├── logs/
+    │   └── other/
     └── checkpoints/
 ```
 
 Raw data remains in S3. PATH submissions are resolved under the configured PV root and path
-traversal is rejected.
+traversal is rejected. The reusable processed-data hierarchy is intentionally not fixed until
+[Deferred Decisions](docs/deferred-decisions.md) DD-002 is resolved.
 
 ## Consistency and delivery
 

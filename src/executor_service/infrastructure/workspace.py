@@ -24,7 +24,13 @@ class ExecutionWorkspace:
     code_dir: Path
     notebooks_dir: Path
     artifacts_dir: Path
+    datasets_dir: Path
+    plots_dir: Path
+    models_dir: Path
+    metrics_dir: Path
     reports_dir: Path
+    logs_dir: Path
+    other_dir: Path
     checkpoints_dir: Path
     notebook_file: Path
 
@@ -47,10 +53,23 @@ class WorkspaceManager:
         root = (self._host_root / relative).resolve()
         _ensure_within(root, self._host_root)
         paths = {
-            name: root / name
-            for name in ("code", "notebooks", "artifacts", "reports", "checkpoints")
+            name: root / name for name in ("code", "notebooks", "artifacts", "checkpoints")
         }
         for path in paths.values():
+            path.mkdir(parents=True, exist_ok=True)
+        artifact_paths = {
+            name: paths["artifacts"] / name
+            for name in (
+                "datasets",
+                "plots",
+                "models",
+                "metrics",
+                "reports",
+                "logs",
+                "other",
+            )
+        }
+        for path in artifact_paths.values():
             path.mkdir(parents=True, exist_ok=True)
         return ExecutionWorkspace(
             host_root=root,
@@ -58,7 +77,13 @@ class WorkspaceManager:
             code_dir=paths["code"],
             notebooks_dir=paths["notebooks"],
             artifacts_dir=paths["artifacts"],
-            reports_dir=paths["reports"],
+            datasets_dir=artifact_paths["datasets"],
+            plots_dir=artifact_paths["plots"],
+            models_dir=artifact_paths["models"],
+            metrics_dir=artifact_paths["metrics"],
+            reports_dir=artifact_paths["reports"],
+            logs_dir=artifact_paths["logs"],
+            other_dir=artifact_paths["other"],
             checkpoints_dir=paths["checkpoints"],
             notebook_file=paths["notebooks"] / "execution.ipynb",
         )

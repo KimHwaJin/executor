@@ -31,6 +31,15 @@ from executor_service.infrastructure.db.models import (
 from executor_service.infrastructure.workspace import ExecutionWorkspace
 
 MANIFEST_RELATIVE_PATH = Path("artifacts", "manifest.jsonl")
+ARTIFACT_DIRECTORY_TYPES = {
+    "datasets": ArtifactType.DATASET,
+    "plots": ArtifactType.PLOT,
+    "models": ArtifactType.MODEL,
+    "metrics": ArtifactType.METRIC,
+    "reports": ArtifactType.REPORT,
+    "logs": ArtifactType.LOG,
+    "other": ArtifactType.OTHER,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,11 +113,10 @@ class ExecutionArtifactManager:
 
     def snapshot(self, workspace: ExecutionWorkspace) -> ArtifactSnapshot:
         files: dict[Path, FileState] = {}
-        for root in (workspace.artifacts_dir, workspace.reports_dir):
-            for path in root.rglob("*"):
-                if path.is_file() and path != workspace.host_root / MANIFEST_RELATIVE_PATH:
-                    stat = path.stat()
-                    files[path.resolve()] = FileState(stat.st_size, stat.st_mtime_ns)
+        for path in workspace.artifacts_dir.rglob("*"):
+            if path.is_file() and path != workspace.host_root / MANIFEST_RELATIVE_PATH:
+                stat = path.stat()
+                files[path.resolve()] = FileState(stat.st_size, stat.st_mtime_ns)
         manifest = workspace.host_root / MANIFEST_RELATIVE_PATH
         return ArtifactSnapshot(
             files=files,
@@ -391,8 +399,14 @@ class ExecutionArtifactManager:
 
 
 def _infer_artifact_type(path: Path, workspace: ExecutionWorkspace) -> ArtifactType:
-    if path.is_relative_to(workspace.reports_dir):
-        return ArtifactType.REPORT
+    try:
+        relative = path.resolve().relative_to(workspace.artifacts_dir.resolve())
+    except ValueError:
+        relative = None
+    if relative is not None and len(relative.parts) > 1:
+        directory_type = ARTIFACT_DIRECTORY_TYPES.get(relative.parts[0])
+        if directory_type is not None:
+            return directory_type
     suffix = path.suffix.lower()
     if suffix in {".png", ".jpg", ".jpeg", ".svg", ".webp", ".pdf"}:
         return ArtifactType.PLOT

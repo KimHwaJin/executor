@@ -37,7 +37,7 @@ async def main() -> None:
                             "attempt_counter = 0\n"
                             "# %%\n"
                             "attempt_counter += 1\n"
-                            "Path('artifacts/retry-state.txt').write_text(\n"
+                            "Path('artifacts/other/retry-state.txt').write_text(\n"
                             "    str(attempt_counter), encoding='utf-8'\n"
                             ")\n"
                             "if attempt_counter == 1:\n"

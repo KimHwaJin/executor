@@ -125,7 +125,10 @@ async def test_artifact_discovery_manifest_lineage_and_idempotency(
     manager = ExecutionArtifactManager(create_session_factory(engine), settings)
     before = manager.snapshot(workspace)
 
-    (workspace.artifacts_dir / "result.csv").write_text("value\n1\n", encoding="utf-8")
+    (workspace.datasets_dir / "result.csv").write_text("value\n1\n", encoding="utf-8")
+    (workspace.plots_dir / "directory-wins.csv").write_text(
+        "not,a,dataset\n", encoding="utf-8"
+    )
     (workspace.reports_dir / "summary.md").write_text("# Result\n", encoding="utf-8")
     processed = (
         tmp_path
@@ -178,16 +181,21 @@ async def test_artifact_discovery_manifest_lineage_and_idempotency(
         status=ArtifactStatus.AVAILABLE,
     )
 
-    assert len(artifact_ids) == 4
+    assert len(artifact_ids) == 5
     assert repeated_ids == artifact_ids
     queries = SQLAlchemyExecutionQueryService(create_session_factory(engine))
     artifacts = await queries.artifacts(execution.id)
-    assert len(artifacts) == 4
+    assert len(artifacts) == 5
     assert {artifact.artifact_type for artifact in artifacts} == {
         ArtifactType.DATASET,
+        ArtifactType.PLOT,
         ArtifactType.REPORT,
         ArtifactType.MODEL,
     }
+    directory_classified = next(
+        artifact for artifact in artifacts if artifact.name == "directory-wins.csv"
+    )
+    assert directory_classified.artifact_type == ArtifactType.PLOT
     processed_artifact = next(
         artifact for artifact in artifacts if artifact.name == "processed-daily-data"
     )
@@ -209,8 +217,8 @@ async def test_artifact_discovery_manifest_lineage_and_idempotency(
                 OutboxEventORM.event_type == "execution.artifact_registered"
             )
         )
-    assert artifact_rows == 4
-    assert artifact_events == 4
+    assert artifact_rows == 5
+    assert artifact_events == 5
 
 
 async def test_manifest_rejects_path_outside_pv(

@@ -29,8 +29,8 @@ async def main() -> None:
     source = (
         "# %%\n"
         "from pathlib import Path\n"
-        "Path('artifacts/plot.png').write_bytes(b'fake-png')\n"
-        "Path('reports/summary.md').write_text('# Summary', encoding='utf-8')\n"
+        "Path('artifacts/plots/plot.png').write_bytes(b'fake-png')\n"
+        "Path('artifacts/reports/summary.md').write_text('# Summary', encoding='utf-8')\n"
         "# %%\n"
         "import json\n"
         f"processed = Path('/workspace/pv/{processed_relative}')\n"

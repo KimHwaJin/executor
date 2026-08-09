@@ -1,8 +1,28 @@
 # Artifact Manifest contract
 
-Executor automatically discovers files written under an execution's `artifacts/` and `reports/`
-directories. A Tool only needs the Manifest when it creates a result elsewhere on the shared PV
-or records an S3 object.
+Executor automatically discovers files written under an execution's `artifacts/` directory. The
+standard execution-scoped layout is:
+
+```text
+artifacts/
+├── datasets/
+├── plots/
+├── models/
+├── metrics/
+├── reports/
+├── logs/
+└── other/
+```
+
+Every directory is created before execution and may contain deeper subdirectories. The first
+directory below `artifacts/` determines the automatic Artifact type, taking precedence over the
+filename extension. Files directly below `artifacts/` or in an unknown directory are still
+detected for compatibility and use extension-based inference, but producers should write unknown
+types under `artifacts/other/` instead. The final notebook remains under `notebooks/` and is
+registered separately.
+
+A Tool only needs the Manifest when it creates a result elsewhere on the shared PV or records an
+S3 object.
 
 The Manifest is an append-only JSON Lines file at:
 
@@ -83,5 +103,5 @@ an Executor Artifact and `external_parent_asset_id` for the Agent's global Asset
 
 `ExecutionArtifact` is immutable execution evidence owned by Executor. The Agent/API service owns
 the user-facing `Asset` catalog, reuse scope, naming changes, tags, downloads, and deletion policy.
-It consumes `execution.artifact_registered` events and may promote selected Artifact records into
-Assets without sharing Executor database tables.
+The promotion and sharing contract is intentionally deferred; see
+[Deferred Decisions](deferred-decisions.md). Executor and Agent/API do not share database tables.
