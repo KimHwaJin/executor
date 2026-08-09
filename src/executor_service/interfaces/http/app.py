@@ -6,7 +6,6 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Response, status
 from mcp.server.transport_security import TransportSecuritySettings
-from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from executor_service.container import ApplicationContainer
 from executor_service.interfaces.mcp.server import build_mcp_server
@@ -65,10 +64,6 @@ def create_app(container: ApplicationContainer) -> FastAPI:
         if not ready:
             response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
         return {"status": "ready" if ready else "not_ready", "checks": checks}
-
-    @app.get("/metrics", include_in_schema=False)
-    async def metrics() -> Response:
-        return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
     # Register this catch-all mount last so operational routes remain reachable.
     app.mount("/", mcp_app)

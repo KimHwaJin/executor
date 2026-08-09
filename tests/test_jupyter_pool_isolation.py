@@ -1,7 +1,6 @@
 from pathlib import Path
 from uuid import uuid4
 
-from prometheus_client import generate_latest
 from redis.asyncio import Redis
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -228,45 +227,3 @@ async def test_queued_batch_claims_a_server_added_during_scale_up(
     assert claim is not None
     assert claim[1].name == "scale-batch-new"
     assert claim[1].pool == JupyterPool.BATCH
-
-
-async def test_pool_metrics_report_schedulable_capacity_usage_and_queue(
-    execution_service: ExecutionService,
-    engine: AsyncEngine,
-    tmp_path: Path,
-) -> None:
-    session_factory = create_session_factory(engine)
-    async with session_factory() as session, session.begin():
-        session.add_all(
-            [
-                _server("metric-interactive", JupyterPool.INTERACTIVE, capacity=3),
-                _server("metric-batch-a", JupyterPool.BATCH),
-                _server("metric-batch-b", JupyterPool.BATCH),
-                _server(
-                    "metric-batch-draining",
-                    JupyterPool.BATCH,
-                    status=JupyterServerStatus.DRAINING,
-                    capacity=10,
-                ),
-            ]
-        )
-    first = await execution_service.submit(_command(JupyterPool.BATCH, "metric-one"))
-    second = await execution_service.submit(_command(JupyterPool.BATCH, "metric-two"))
-    await execution_service.submit(_command(JupyterPool.BATCH, "metric-queued"))
-    worker, redis = _worker(engine, tmp_path, "metric-worker")
-    settings = Settings(jupyter_enabled=False, workspace_host_root=tmp_path)
-    registry = JupyterServerRegistry(session_factory, settings)
-    try:
-        assert await worker._claim(first.id) is not None
-        assert await worker._claim(second.id) is not None
-        await registry.refresh_pool_metrics()
-    finally:
-        await redis.aclose()
-
-    metrics = generate_latest().decode()
-    assert 'executor_jupyter_pool_servers{pool="BATCH",status="ACTIVE"} 2.0' in metrics
-    assert 'executor_jupyter_pool_servers{pool="BATCH",status="DRAINING"} 1.0' in metrics
-    assert 'executor_jupyter_pool_capacity{pool="BATCH"} 2.0' in metrics
-    assert 'executor_jupyter_pool_capacity_used{pool="BATCH"} 2.0' in metrics
-    assert 'executor_jupyter_pool_queued_executions{pool="BATCH"} 1.0' in metrics
-    assert 'executor_jupyter_pool_capacity{pool="INTERACTIVE"} 3.0' in metrics

@@ -47,8 +47,7 @@ lease duration plus one heartbeat polling interval after the last successful hea
 - A rolling restart can fail an in-flight job with `WORKER_SHUTDOWN`; it does not transparently
   migrate a live Jupyter WebSocket between Pods. Drain traffic and plan explicit retries for
   long-running work before deployment.
-- Prometheus Worker gauges are process-local and should be aggregated by Pod. Execution Attempt
-  history exposes the `lease_owner` responsible for each attempt.
+- Execution Attempt history exposes the `lease_owner` responsible for each attempt.
 
 ## Verification
 

@@ -5,7 +5,7 @@ from executor_service.container import ApplicationContainer
 from executor_service.interfaces.http.app import create_app
 
 
-async def test_health_and_metrics_endpoints() -> None:
+async def test_health_endpoint() -> None:
     settings = Settings(
         database_url="sqlite+aiosqlite:///:memory:",
         redis_url="redis://localhost:6399/15",
@@ -16,17 +16,10 @@ async def test_health_and_metrics_endpoints() -> None:
 
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         health = await client.get("/healthz")
-        metrics = await client.get("/metrics")
+        removed_metrics = await client.get("/metrics")
 
     assert health.status_code == 200
     assert health.json() == {"status": "ok"}
-    assert metrics.status_code == 200
-    assert "executor_mcp_tool_calls_total" in metrics.text
-    assert "executor_outbox_pending_events" in metrics.text
-    assert "executor_stream_pending_messages" in metrics.text
-    assert "executor_worker_active_jobs" in metrics.text
-    assert "executor_worker_pool_active_jobs" in metrics.text
-    assert "executor_jupyter_pool_capacity" in metrics.text
-    assert "executor_jupyter_pool_queued_executions" in metrics.text
+    assert removed_metrics.status_code == 404
     await container.redis.aclose()
     await container.engine.dispose()

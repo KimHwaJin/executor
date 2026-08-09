@@ -47,15 +47,6 @@ from executor_service.infrastructure.jupyter import (
 )
 from executor_service.infrastructure.jupyter_registry import JupyterServerRegistry
 from executor_service.infrastructure.workspace import ExecutionWorkspace, WorkspaceManager
-from executor_service.observability import (
-    STREAM_DEAD_LETTERED,
-    STREAM_LAG,
-    STREAM_MESSAGES,
-    STREAM_PENDING,
-    STREAM_RECLAIMED,
-    WORKER_ACTIVE_JOBS,
-    WORKER_POOL_ACTIVE_JOBS,
-)
 from executor_service.tracing import (
     TracingManager,
     capture_trace_carrier,
@@ -99,8 +90,6 @@ class ExecutionWorker:
         self._stop_event = asyncio.Event()
         self._loops: list[asyncio.Task[None]] = []
         self._jobs: dict[UUID, asyncio.Task[None]] = {}
-        for pool in JupyterPool:
-            WORKER_POOL_ACTIVE_JOBS.labels(pool=pool.value).set(0)
         self._pending_claim_cursor = "0-0"
 
     async def start(self) -> None:
@@ -199,17 +188,13 @@ class ExecutionWorker:
         reclaimed = 0
         for message_id, fields in messages:
             reclaimed += 1
-            STREAM_RECLAIMED.inc()
-            await self._process_stream_message(message_id, fields, reclaimed=True)
-        await self._update_stream_metrics()
+            await self._process_stream_message(message_id, fields)
         return reclaimed
 
     async def _process_stream_message(
         self,
         message_id: str,
         fields: dict[str, str],
-        *,
-        reclaimed: bool = False,
     ) -> None:
         invalid_reason = _invalid_event_reason(fields)
         if invalid_reason is not None:
@@ -217,31 +202,21 @@ class ExecutionWorker:
                 await self._dead_letter(message_id, fields, invalid_reason)
                 await self._ack_message(message_id)
             except Exception:
-                STREAM_MESSAGES.labels(outcome="retry").inc()
                 logger.exception(
                     "Execution event DLQ delivery failed",
                     extra={"message_id": message_id, "reason": invalid_reason},
                 )
                 return
-            STREAM_DEAD_LETTERED.labels(reason=invalid_reason).inc()
-            STREAM_MESSAGES.labels(outcome="dead_lettered").inc()
             return
         try:
-            dispatched = await self._handle_event(fields)
+            await self._handle_event(fields)
         except Exception:
-            STREAM_MESSAGES.labels(outcome="retry").inc()
             logger.exception(
                 "Execution event handling failed",
                 extra={"message_id": message_id},
             )
             return
         await self._ack_message(message_id)
-        if reclaimed:
-            STREAM_MESSAGES.labels(outcome="reclaimed").inc()
-        elif dispatched:
-            STREAM_MESSAGES.labels(outcome="dispatched").inc()
-        else:
-            STREAM_MESSAGES.labels(outcome="ignored").inc()
 
     async def _ack_message(self, message_id: str) -> None:
         await self._redis.xack(
@@ -274,26 +249,6 @@ class ExecutionWorker:
                     "dead_lettered_at": utc_now().isoformat(),
                 },
             )
-
-    async def _update_stream_metrics(self) -> None:
-        try:
-            groups = await self._redis.xinfo_groups(self._settings.redis_stream)
-            group = next(
-                (
-                    item
-                    for item in groups
-                    if item.get("name") == self._settings.execution_consumer_group
-                ),
-                None,
-            )
-            if group is None:
-                return
-            STREAM_PENDING.set(int(group.get("pending", 0) or 0))
-            lag = group.get("lag")
-            if lag is not None:
-                STREAM_LAG.set(int(lag))
-        except Exception:
-            logger.debug("Redis Stream metrics update failed", exc_info=True)
 
     async def _handle_event(self, fields: dict[str, str]) -> bool:
         event_type = fields.get("event_type")
@@ -410,20 +365,17 @@ class ExecutionWorker:
                 current.cancel()
                 task = asyncio.create_task(coroutine, name=f"cancel-{execution_id}")
                 self._jobs[execution_id] = task
-                WORKER_ACTIVE_JOBS.set(len(self._jobs))
                 task.add_done_callback(lambda done: self._remove_job_if_current(execution_id, done))
             else:
                 coroutine.close()
             return
         task = asyncio.create_task(coroutine, name=f"execution-{execution_id}")
         self._jobs[execution_id] = task
-        WORKER_ACTIVE_JOBS.set(len(self._jobs))
         task.add_done_callback(lambda done: self._remove_job_if_current(execution_id, done))
 
     def _remove_job_if_current(self, execution_id: UUID, task: asyncio.Task[None]) -> None:
         if self._jobs.get(execution_id) is task:
             self._jobs.pop(execution_id, None)
-            WORKER_ACTIVE_JOBS.set(len(self._jobs))
 
     async def _run_execution(self, execution_id: UUID) -> None:
         pool = await self._execution_pool(execution_id)
@@ -447,12 +399,8 @@ class ExecutionWorker:
 
     @asynccontextmanager
     async def _pool_activity(self, pool: JupyterPool) -> AsyncIterator[None]:
-        active = WORKER_POOL_ACTIVE_JOBS.labels(pool=pool.value)
-        active.inc()
-        try:
-            yield
-        finally:
-            active.dec()
+        del pool
+        yield
 
     async def _trace_jupyter[T](
         self,
