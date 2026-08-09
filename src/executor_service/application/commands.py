@@ -15,6 +15,8 @@ from executor_service.domain.enums import (
 @dataclass(frozen=True, slots=True)
 class StepSpec:
     sequence: int
+    code: str | None = None
+    plan_revision_id: str | None = None
     skill_name: str | None = None
     tool_name: str | None = None
     input_parameters: dict[str, Any] = field(default_factory=dict)
@@ -51,3 +53,18 @@ class CancelExecutionCommand:
 class RetryExecutionCommand:
     execution_id: UUID
     idempotency_key: str
+
+
+@dataclass(frozen=True, slots=True)
+class ContinueExecutionCommand:
+    execution_id: UUID
+    idempotency_key: str
+    expected_version: int
+    step: StepSpec
+
+
+@dataclass(frozen=True, slots=True)
+class FinishExecutionCommand:
+    execution_id: UUID
+    idempotency_key: str
+    expected_version: int

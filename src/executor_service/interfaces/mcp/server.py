@@ -7,7 +7,10 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from executor_service.application.commands import (
     CancelExecutionCommand,
+    ContinueExecutionCommand,
+    FinishExecutionCommand,
     RetryExecutionCommand,
+    StepSpec,
 )
 from executor_service.application.execution_queries import ExecutionQueryService
 from executor_service.application.jupyter_servers import (
@@ -23,7 +26,9 @@ from executor_service.interfaces.mcp.schemas import (
     ExecutionArtifactResponse,
     ExecutionAttemptResponse,
     ExecutionCancelRequest,
+    ExecutionContinueRequest,
     ExecutionEventResponse,
+    ExecutionFinishRequest,
     ExecutionResponse,
     ExecutionRetryRequest,
     ExecutionSubmitRequest,
@@ -141,6 +146,55 @@ def build_mcp_server(
             MCP_TOOL_CALLS.labels(tool="execution_retry", outcome="error").inc()
             raise ToolError(str(exc)) from exc
         MCP_TOOL_CALLS.labels(tool="execution_retry", outcome="success").inc()
+        return ExecutionResponse.from_domain(execution)
+
+    @server.tool(
+        description=(
+            "Append and queue exactly one next cell for a waiting DYNAMIC execution. "
+            "expected_version prevents stale Agent decisions from being accepted."
+        )
+    )
+    async def execution_continue(request: ExecutionContinueRequest) -> ExecutionResponse:
+        try:
+            execution = await execution_service.continue_execution(
+                ContinueExecutionCommand(
+                    execution_id=request.execution_id,
+                    idempotency_key=request.idempotency_key,
+                    expected_version=request.expected_version,
+                    step=StepSpec(
+                        sequence=request.step.sequence,
+                        code=request.step.code,
+                        plan_revision_id=request.step.plan_revision_id,
+                        skill_name=request.step.skill_name,
+                        tool_name=request.step.tool_name,
+                        input_parameters=request.step.input_parameters,
+                    ),
+                )
+            )
+        except DomainError as exc:
+            MCP_TOOL_CALLS.labels(tool="execution_continue", outcome="error").inc()
+            raise ToolError(str(exc)) from exc
+        MCP_TOOL_CALLS.labels(tool="execution_continue", outcome="success").inc()
+        return ExecutionResponse.from_domain(execution)
+
+    @server.tool(
+        description=(
+            "Finalize a waiting DYNAMIC execution, persist its notebook, and stop its kernel."
+        )
+    )
+    async def execution_finish(request: ExecutionFinishRequest) -> ExecutionResponse:
+        try:
+            execution = await execution_service.finish_execution(
+                FinishExecutionCommand(
+                    execution_id=request.execution_id,
+                    idempotency_key=request.idempotency_key,
+                    expected_version=request.expected_version,
+                )
+            )
+        except DomainError as exc:
+            MCP_TOOL_CALLS.labels(tool="execution_finish", outcome="error").inc()
+            raise ToolError(str(exc)) from exc
+        MCP_TOOL_CALLS.labels(tool="execution_finish", outcome="success").inc()
         return ExecutionResponse.from_domain(execution)
 
     if execution_queries is not None:

@@ -13,6 +13,10 @@ class InvalidStateTransitionError(DomainError):
     pass
 
 
+class ExecutionVersionConflictError(DomainError):
+    pass
+
+
 class IdempotencyConflictError(DomainError):
     pass
 

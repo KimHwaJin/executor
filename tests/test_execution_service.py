@@ -8,6 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from executor_service.application.commands import (
     CancelExecutionCommand,
+    ContinueExecutionCommand,
+    FinishExecutionCommand,
     RetryExecutionCommand,
     StepSpec,
     SubmitExecutionCommand,
@@ -24,7 +26,11 @@ from executor_service.domain.enums import (
     StepStatus,
     TriggerType,
 )
-from executor_service.domain.errors import ExecutionNotFoundError, IdempotencyConflictError
+from executor_service.domain.errors import (
+    ExecutionNotFoundError,
+    ExecutionVersionConflictError,
+    IdempotencyConflictError,
+)
 from executor_service.domain.models import utc_now
 from executor_service.infrastructure.db.models import ExecutionORM, ExecutionStepORM
 from executor_service.infrastructure.db.session import create_session_factory
@@ -45,6 +51,24 @@ def submit_command(idempotency_key: str = "submit-1") -> SubmitExecutionCommand:
         session_id="session-1",
         execution_plan_id="plan-1",
         steps=(StepSpec(sequence=0, skill_name="data_load", tool_name="load_data"),),
+    )
+
+
+def dynamic_submit_command(idempotency_key: str = "dynamic-submit-1") -> SubmitExecutionCommand:
+    code = "value = 40"
+    return replace(
+        submit_command(idempotency_key),
+        mode=ExecutionMode.DYNAMIC,
+        code=code,
+        steps=(
+            StepSpec(
+                sequence=0,
+                code=code,
+                plan_revision_id="plan-revision-1",
+                skill_name="data_load",
+                tool_name="load_data",
+            ),
+        ),
     )
 
 
@@ -93,6 +117,84 @@ async def test_submit_key_rejects_different_request(
 async def test_unknown_execution_is_not_found(execution_service: ExecutionService) -> None:
     with pytest.raises(ExecutionNotFoundError, match="was not found"):
         await execution_service.get(uuid4())
+
+
+async def test_dynamic_continue_and_finish_are_versioned_and_idempotent(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+) -> None:
+    execution = await execution_service.submit(dynamic_submit_command())
+    session_factory = create_session_factory(engine)
+    async with session_factory() as session, session.begin():
+        await session.execute(
+            update(ExecutionORM)
+            .where(ExecutionORM.id == execution.id)
+            .values(status=ExecutionStatus.WAITING_FOR_NEXT_STEP, version=2)
+        )
+
+    command = ContinueExecutionCommand(
+        execution_id=execution.id,
+        idempotency_key="dynamic-continue-1",
+        expected_version=2,
+        step=StepSpec(
+            sequence=1,
+            code="answer = value + 2",
+            plan_revision_id="plan-revision-2",
+            skill_name="eda",
+            tool_name="calculate_answer",
+        ),
+    )
+    continued = await execution_service.continue_execution(command)
+    repeated = await execution_service.continue_execution(command)
+
+    assert continued.status == ExecutionStatus.QUEUED
+    assert continued.version == 3
+    assert len(continued.steps) == 2
+    assert continued.steps[1].code_hash is not None
+    assert repeated.version == 3
+    assert len(repeated.steps) == 2
+
+    async with session_factory() as session, session.begin():
+        await session.execute(
+            update(ExecutionORM)
+            .where(ExecutionORM.id == execution.id)
+            .values(status=ExecutionStatus.WAITING_FOR_NEXT_STEP, version=4)
+        )
+
+    finish = FinishExecutionCommand(
+        execution_id=execution.id,
+        idempotency_key="dynamic-finish-1",
+        expected_version=4,
+    )
+    finishing = await execution_service.finish_execution(finish)
+    repeated_finish = await execution_service.finish_execution(finish)
+    assert finishing.status == ExecutionStatus.QUEUED
+    assert finishing.dynamic_finish_requested
+    assert repeated_finish.version == 5
+
+
+async def test_dynamic_continue_rejects_stale_version(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+) -> None:
+    execution = await execution_service.submit(dynamic_submit_command("dynamic-stale"))
+    session_factory = create_session_factory(engine)
+    async with session_factory() as session, session.begin():
+        await session.execute(
+            update(ExecutionORM)
+            .where(ExecutionORM.id == execution.id)
+            .values(status=ExecutionStatus.WAITING_FOR_NEXT_STEP, version=2)
+        )
+
+    with pytest.raises(ExecutionVersionConflictError):
+        await execution_service.continue_execution(
+            ContinueExecutionCommand(
+                execution_id=execution.id,
+                idempotency_key="dynamic-stale-continue",
+                expected_version=1,
+                step=StepSpec(sequence=1, code="print('stale')"),
+            )
+        )
 
 
 async def test_retry_resets_failed_and_later_steps_idempotently(
