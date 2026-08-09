@@ -69,13 +69,17 @@ def _worker(
         execution_pending_claim_batch_size=10,
     )
     session_factory = create_session_factory(engine)
-    return ExecutionWorker(
+    worker = ExecutionWorker(
         session_factory=session_factory,
         redis=redis,
         settings=settings,
         registry=JupyterServerRegistry(session_factory, settings),
         artifact_manager=ExecutionArtifactManager(session_factory, settings),
     )
+    # These tests exercise active-Worker internals without starting background loops.
+    worker._accepting_work = True
+    worker._stopped = False
+    return worker
 
 
 def _event_fields(execution_id: UUID) -> dict[str, str]:

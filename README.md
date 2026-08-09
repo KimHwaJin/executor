@@ -79,7 +79,8 @@ Operational endpoints:
 
 - MCP: `http://127.0.0.1:8000/mcp`
 - liveness: `http://127.0.0.1:8000/healthz`
-- readiness (PostgreSQL, Redis, Jupyter): `http://127.0.0.1:8000/readyz`
+- readiness (PostgreSQL, Redis, Jupyter, Worker admission): `http://127.0.0.1:8000/readyz`
+- Worker lifecycle and active execution count: `http://127.0.0.1:8000/workerz`
 
 ### Phoenix tracing
 
@@ -195,6 +196,13 @@ notebook cell error preserves that kernel for `FAILED_KERNEL_RETENTION_SECONDS` 
 preserves the failure type, retry strategy, and kernel cleanup result. A retained kernel counts
 against server capacity and is deleted automatically when its retry window expires. See
 [Execution Recovery](docs/execution-recovery.md) for the state and event contract.
+
+On graceful process shutdown, Worker admission stops before active jobs are touched. `/readyz`
+reports `worker_accepting=false`, Redis consumption and PostgreSQL queue reconciliation stop, and
+active jobs may finish for up to `EXECUTION_DRAIN_TIMEOUT_SECONDS`. Only jobs still running after
+that deadline enter the existing `WORKER_SHUTDOWN` cleanup and recovery path. `/healthz` remains a
+process liveness check, while `/workerz` reports `ACCEPTING`, `DRAINING`, or `STOPPED` and the local
+active execution count.
 
 `execution_attempt_list` returns every worker Attempt in order, including the selected Jupyter
 server, kernel, lease/heartbeat times, outcome, and only the Steps actually run by that Attempt.
@@ -335,6 +343,11 @@ Every Executor process must share `EXECUTION_CONSUMER_GROUP` and use a unique
 `EXECUTION_CONSUMER_NAME`; inject the Kubernetes Pod name in production. See
 [Multi-Executor Operations](docs/multi-executor-operations.md) for locking invariants, lease
 recovery, deployment behavior, and the real crash E2E.
+
+Set Kubernetes `terminationGracePeriodSeconds` greater than
+`EXECUTION_DRAIN_TIMEOUT_SECONDS + EXECUTION_SHUTDOWN_CLEANUP_SECONDS` plus a shutdown buffer.
+Executions longer than the configured drain window cannot move their live Jupyter WebSocket to
+another Pod; they use the documented failure and explicit retry path when the deadline expires.
 
 The bootstrap Jupyter token is supplied through `JUPYTER_TOKEN`. It is loaded by the mounted
 Jupyter config and sent by the Executor only in the `Authorization` header. Dynamically registered

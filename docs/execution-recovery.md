@@ -36,11 +36,15 @@ downgrades that retry safely to `FROM_START` rather than attaching to an unknown
 
 ## Worker shutdown and lease expiry
 
-During application shutdown the Worker stops its Redis and reconciliation loops before cancelling
-in-flight jobs. Each cancelled in-flight job attempts to interrupt and delete its kernel, records a
-`WORKER_SHUTDOWN` failure, and commits the Attempt and Outbox event before database disposal.
-Kernel cleanup is bounded by `EXECUTION_SHUTDOWN_CLEANUP_SECONDS` (20 seconds by default), so an
-unresponsive Jupyter server does not prevent the database failure state from being committed.
+During application shutdown the Worker first stops Redis intake and queue reconciliation, rejects
+new claims, and waits up to `EXECUTION_DRAIN_TIMEOUT_SECONDS` for its active jobs to finish. Their
+heartbeats continue during this drain window. If the jobs finish, no shutdown failure is recorded.
+
+After the drain deadline, each remaining in-flight job is cancelled, attempts to interrupt and
+delete its kernel, records a `WORKER_SHUTDOWN` failure, and commits the Attempt and Outbox event
+before database disposal. Kernel cleanup is bounded by `EXECUTION_SHUTDOWN_CLEANUP_SECONDS` (20
+seconds by default), so an unresponsive Jupyter server does not prevent the database failure state
+from being committed.
 
 An ungraceful process loss cannot run that shutdown path. The surviving Worker that locks an expired
 lease records `LEASE_EXPIRED`, increments `recovery_count`, marks the retry strategy `FROM_START`,
