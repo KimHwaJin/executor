@@ -20,7 +20,7 @@ consumer worker executes STATIC plans or one-cell-at-a-time DYNAMIC plans in Jup
 - Jupyter REST/WebSocket kernel execution, interrupt, and deletion
 - Multi-server Jupyter registry, encrypted credentials, health probes, capacity scheduling,
   execution attempts, leases, and heartbeats
-- Strict INTERACTIVE/BATCH Jupyter pool isolation with two-server local BATCH topology
+- Strict INTERACTIVE/BATCH Jupyter scheduling isolation with a two-server local BATCH topology
 - Safe server draining and retained-kernel retry from a failed Step
 - Classified Tool/infrastructure failures, graceful Worker shutdown, and FROM_START recovery
 - Append-only DYNAMIC cells with optimistic version checks and same-kernel continuation
@@ -246,10 +246,11 @@ sets `drain_complete=true` after its active/reserved count reaches zero. `ACTIVE
 before allowing new work again; `remove` is the separate operation for durable disablement.
 
 Pool-level metrics expose enabled servers by status, schedulable ACTIVE capacity, current usage,
-and queued requests. Capacity usage includes running/waiting Attempts and retained retry kernels,
-including work draining from a server; it can temporarily exceed currently schedulable capacity
-during maintenance. See [Jupyter Pool Operations](docs/jupyter-pools.md) for registration, scale-up,
-drain, and local E2E procedures.
+queued requests, and currently processing Worker handlers. Capacity usage includes
+running/waiting Attempts and retained retry kernels, including work draining from a server; it can
+temporarily exceed currently schedulable capacity during maintenance. See
+[Jupyter Pool Operations](docs/jupyter-pools.md) for registration, scale-up, drain, and local E2E
+procedures.
 
 ## Shared PV contract
 

@@ -29,6 +29,12 @@ then update Executor through `jupyter_server_upsert`, `jupyter_server_set_state`
 
 ## Scheduling contract
 
+PostgreSQL reservation and Jupyter server capacity are the only execution admission controls.
+Executor does not hold a process-local semaphore for the lifetime of an Execution. This lets newly
+registered servers contribute capacity without restarting Executor and keeps multi-Pod behavior
+consistent. If no server slot is available, the Execution remains durably `QUEUED`; reconciliation
+tries it again after capacity changes. Cancellation remains available while work is queued.
+
 An eligible server must:
 
 - have the exact requested `JupyterPool`;
@@ -68,6 +74,8 @@ active Executions.
 
 ## Metrics
 
+- `executor_worker_pool_active_jobs{pool}`: Worker handlers currently processing requests for the
+  pool; this is diagnostic activity, not an admission limit
 - `executor_jupyter_pool_servers{pool,status}`: enabled registry records
 - `executor_jupyter_pool_capacity{pool}`: total configured capacity on enabled ACTIVE servers
 - `executor_jupyter_pool_capacity_used{pool}`: running/waiting Attempts plus retained kernels
@@ -79,12 +87,12 @@ is preserved while the server is excluded from new scheduling.
 
 ## Local E2E
 
-The smoke test registers the two BATCH endpoints, submits one INTERACTIVE and three BATCH
-Executions, observes two running plus one queued BATCH job, and verifies that all jobs succeed on
-the correct pool:
+The smoke test saturates both BATCH Jupyter slots, verifies a subsequently submitted INTERACTIVE
+Execution still completes, then observes two running plus one durably queued BATCH job. It also
+verifies that all jobs succeed on the correct pool:
 
 ```bash
-EXECUTION_WORKER_CONCURRENCY=4 uv run executor-service
+uv run executor-service
 uv run python scripts/jupyter_batch_pool_smoke.py
 ```
 

@@ -53,7 +53,6 @@ class Settings(BaseSettings):
     execution_pending_claim_interval_seconds: float = Field(default=5, gt=0)
     execution_pending_claim_idle_milliseconds: int = Field(default=30000, ge=1)
     execution_pending_claim_batch_size: int = Field(default=100, ge=1, le=1000)
-    execution_worker_concurrency: int = Field(default=2, ge=1)
     execution_lease_seconds: int = Field(default=60, ge=30)
     execution_heartbeat_seconds: int = Field(default=15, ge=5)
     execution_shutdown_cleanup_seconds: float = Field(default=20, gt=0)

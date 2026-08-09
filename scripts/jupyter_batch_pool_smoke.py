@@ -1,4 +1,4 @@
-"""Verify INTERACTIVE isolation, two BATCH servers, and queued capacity recovery."""
+"""Verify Worker and Jupyter capacity isolation across INTERACTIVE/BATCH pools."""
 
 import asyncio
 import os
@@ -22,6 +22,23 @@ async def _wait_for_terminal(client: Client, execution_id: str) -> dict[str, Any
             return state
         await asyncio.sleep(0.2)
     raise RuntimeError(f"Execution {execution_id} did not finish in time.")
+
+
+async def _wait_for_status(
+    client: Client,
+    execution_ids: list[str],
+    expected_statuses: list[str],
+) -> list[dict[str, Any]]:
+    for _ in range(300):
+        states = await asyncio.gather(
+            *(_execution(client, execution_id) for execution_id in execution_ids)
+        )
+        if [state["status"] for state in states] == expected_statuses:
+            return list(states)
+        await asyncio.sleep(0.1)
+    raise RuntimeError(
+        f"Executions {execution_ids} did not reach statuses {expected_statuses}."
+    )
 
 
 async def _register_servers(client: Client, unique: str) -> tuple[str, set[str]]:
@@ -90,6 +107,7 @@ async def _submit(
     unique: str,
     name: str,
     pool: str,
+    sleep_seconds: int,
 ) -> str:
     result = await client.call_tool(
         "execution_submit",
@@ -102,7 +120,9 @@ async def _submit(
                 "kernel_name": "python3",
                 "source": {
                     "type": "INLINE",
-                    "code": f"import time\ntime.sleep(4)\nprint('{name}')\n",
+                    "code": (
+                        f"import time\ntime.sleep({sleep_seconds})\nprint('{name}')\n"
+                    ),
                 },
                 "context": {
                     "requested_by_user_id": "batch-pool-user",
@@ -129,21 +149,46 @@ async def main() -> None:
     unique = uuid4().hex
     async with Client("http://127.0.0.1:8000/mcp") as client:
         interactive_server_id, batch_server_ids = await _register_servers(client, unique)
-        interactive_id = await _submit(
-            client,
-            unique=unique,
-            name="interactive",
-            pool="INTERACTIVE",
-        )
         batch_ids = [
             await _submit(
                 client,
                 unique=unique,
                 name=f"batch-{index}",
                 pool="BATCH",
+                sleep_seconds=6,
             )
-            for index in range(3)
+            for index in range(2)
         ]
+        await _wait_for_status(client, batch_ids, ["RUNNING", "RUNNING"])
+
+        interactive_id = await _submit(
+            client,
+            unique=unique,
+            name="interactive",
+            pool="INTERACTIVE",
+            sleep_seconds=0,
+        )
+        interactive_state = await _wait_for_terminal(client, interactive_id)
+        running_batch_states = await asyncio.gather(
+            *(_execution(client, execution_id) for execution_id in batch_ids)
+        )
+        if interactive_state["status"] != "SUCCEEDED" or any(
+            state["status"] != "RUNNING" for state in running_batch_states
+        ):
+            raise RuntimeError(
+                "INTERACTIVE work did not finish independently while BATCH Worker slots "
+                f"were saturated: interactive={interactive_state}, "
+                f"batch={running_batch_states}"
+            )
+
+        queued_batch_id = await _submit(
+            client,
+            unique=unique,
+            name="batch-queued",
+            pool="BATCH",
+            sleep_seconds=1,
+        )
+        batch_ids.append(queued_batch_id)
 
         observed_batch_queue = False
         for _ in range(80):
@@ -158,15 +203,12 @@ async def main() -> None:
         if not observed_batch_queue:
             raise RuntimeError("Did not observe two running and one queued BATCH execution.")
 
-        interactive_state, *batch_states = await asyncio.gather(
-            _wait_for_terminal(client, interactive_id),
+        batch_states = await asyncio.gather(
             *(_wait_for_terminal(client, execution_id) for execution_id in batch_ids),
         )
-        if interactive_state["status"] != "SUCCEEDED" or any(
-            state["status"] != "SUCCEEDED" for state in batch_states
-        ):
+        if any(state["status"] != "SUCCEEDED" for state in batch_states):
             raise RuntimeError(
-                f"Pool execution failed: interactive={interactive_state}, batch={batch_states}"
+                f"BATCH pool execution failed: {batch_states}"
             )
         actual_batch_servers = {
             str(state["jupyter_server_id"]) for state in batch_states
@@ -181,6 +223,7 @@ async def main() -> None:
             raise RuntimeError("INTERACTIVE and BATCH pools shared a server unexpectedly.")
 
         print("interactive_status:", interactive_state["status"])
+        print("interactive_completed_while_batch_saturated:", True)
         print("batch_statuses:", [state["status"] for state in batch_states])
         print("batch_queue_observed:", observed_batch_queue)
         print("distinct_batch_servers:", len(actual_batch_servers))

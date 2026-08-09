@@ -53,6 +53,11 @@ WORKER_ACTIVE_JOBS = Gauge(
     "executor_worker_active_jobs",
     "Execution jobs currently dispatched in this Executor process.",
 )
+WORKER_POOL_ACTIVE_JOBS = Gauge(
+    "executor_worker_pool_active_jobs",
+    "Execution handlers currently processing by requested Jupyter pool.",
+    labelnames=("pool",),
+)
 JUPYTER_POOL_SERVERS = Gauge(
     "executor_jupyter_pool_servers",
     "Enabled Jupyter servers by scheduling pool and operational status.",
