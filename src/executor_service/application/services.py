@@ -28,6 +28,7 @@ from executor_service.domain.errors import (
 )
 from executor_service.domain.models import Execution, ExecutionStep, OutboxEvent
 from executor_service.domain.ports import UnitOfWork
+from executor_service.tracing import capture_trace_carrier
 
 UnitOfWorkFactory = Callable[[], UnitOfWork]
 
@@ -39,6 +40,7 @@ class ExecutionService:
     async def submit(self, command: SubmitExecutionCommand) -> Execution:
         _validate_submit(command)
         fingerprint = _fingerprint(command)
+        trace_carrier = capture_trace_carrier()
         try:
             async with self._uow_factory() as uow:
                 existing = await uow.executions.get_by_submit_key(command.idempotency_key)
@@ -75,6 +77,8 @@ class ExecutionService:
                         )
                         for step in command.steps
                     ],
+                    traceparent=trace_carrier.traceparent,
+                    tracestate=trace_carrier.tracestate,
                 )
                 await uow.executions.add(execution)
                 await uow.outbox.add(
@@ -86,6 +90,8 @@ class ExecutionService:
                             "execution_id": str(execution.id),
                             "status": execution.status.value,
                         },
+                        traceparent=execution.traceparent,
+                        tracestate=execution.tracestate,
                     )
                 )
                 await uow.commit()
@@ -122,6 +128,7 @@ class ExecutionService:
                 if not command.step.code or not command.step.code.strip():
                     raise InvalidStateTransitionError("Dynamic step code must not be empty.")
                 execution.request_dynamic_continue(command.expected_version)
+                _apply_current_trace(execution)
                 step = ExecutionStep(
                     sequence=command.step.sequence,
                     code=command.step.code,
@@ -151,6 +158,8 @@ class ExecutionService:
                             "sequence": step.sequence,
                             "version": execution.version,
                         },
+                        traceparent=execution.traceparent,
+                        tracestate=execution.tracestate,
                     )
                 )
                 await uow.commit()
@@ -179,6 +188,7 @@ class ExecutionService:
                         f"Execution {command.execution_id} was not found."
                     )
                 execution.request_dynamic_finish(command.expected_version)
+                _apply_current_trace(execution)
                 await uow.executions.save(execution)
                 await uow.executions.add_command_receipt(
                     command.idempotency_key,
@@ -196,6 +206,8 @@ class ExecutionService:
                             "status": execution.status.value,
                             "version": execution.version,
                         },
+                        traceparent=execution.traceparent,
+                        tracestate=execution.tracestate,
                     )
                 )
                 await uow.commit()
@@ -251,6 +263,7 @@ class ExecutionService:
                     return execution
 
                 execution.request_cancel(command.idempotency_key, command.reason)
+                _apply_current_trace(execution)
                 await uow.executions.save(execution)
                 await uow.outbox.add(
                     OutboxEvent(
@@ -261,6 +274,8 @@ class ExecutionService:
                             "execution_id": str(execution.id),
                             "status": execution.status.value,
                         },
+                        traceparent=execution.traceparent,
+                        tracestate=execution.tracestate,
                     )
                 )
                 await uow.commit()
@@ -291,6 +306,7 @@ class ExecutionService:
                         f"Execution {command.execution_id} was not found."
                     )
                 execution.request_retry()
+                _apply_current_trace(execution)
                 if execution.retry_from_sequence is None:
                     raise RuntimeError("Retry sequence unexpectedly missing.")
                 await uow.executions.save(execution)
@@ -316,6 +332,8 @@ class ExecutionService:
                             ),
                             "retry_count": execution.retry_count,
                         },
+                        traceparent=execution.traceparent,
+                        tracestate=execution.tracestate,
                     )
                 )
                 await uow.commit()
@@ -388,3 +406,10 @@ async def _required_execution(uow: UnitOfWork, execution_id: UUID) -> Execution:
     if execution is None:
         raise ExecutionNotFoundError(f"Execution {execution_id} was not found.")
     return execution
+
+
+def _apply_current_trace(execution: Execution) -> None:
+    carrier = capture_trace_carrier()
+    if carrier.traceparent is not None:
+        execution.traceparent = carrier.traceparent
+        execution.tracestate = carrier.tracestate

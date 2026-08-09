@@ -1,5 +1,6 @@
 """Official MCP Python SDK v2 server and tool registration."""
 
+from collections.abc import Awaitable
 from uuid import UUID
 
 from mcp.server import MCPServer
@@ -40,12 +41,26 @@ from executor_service.interfaces.mcp.schemas import (
     JupyterServerUpsertRequest,
 )
 from executor_service.observability import MCP_TOOL_CALLS
+from executor_service.tracing import TracingManager
+
+
+async def _trace_call[T](
+    tracing: TracingManager | None,
+    name: str,
+    operation: Awaitable[T],
+    attributes: dict[str, object] | None = None,
+) -> T:
+    if tracing is None:
+        return await operation
+    with tracing.span(name, attributes=attributes):
+        return await operation
 
 
 def build_mcp_server(
     execution_service: ExecutionService,
     jupyter_manager: JupyterServerManager | None = None,
     execution_queries: ExecutionQueryService | None = None,
+    tracing: TracingManager | None = None,
 ) -> MCPServer:
     server = MCPServer(
         name="executor-service",
@@ -90,7 +105,11 @@ def build_mcp_server(
     )
     async def execution_submit(request: ExecutionSubmitRequest) -> ExecutionResponse:
         try:
-            execution = await execution_service.submit(request.to_command())
+            execution = await _trace_call(
+                tracing,
+                "executor.mcp.execution_submit",
+                execution_service.submit(request.to_command()),
+            )
         except DomainError as exc:
             MCP_TOOL_CALLS.labels(tool="execution_submit", outcome="error").inc()
             raise ToolError(str(exc)) from exc
@@ -100,7 +119,12 @@ def build_mcp_server(
     @server.tool(description="Get the PostgreSQL-backed current execution state.")
     async def execution_get(execution_id: UUID) -> ExecutionResponse:
         try:
-            execution = await execution_service.get(execution_id)
+            execution = await _trace_call(
+                tracing,
+                "executor.mcp.execution_get",
+                execution_service.get(execution_id),
+                {"executor.execution.id": str(execution_id)},
+            )
         except DomainError as exc:
             MCP_TOOL_CALLS.labels(tool="execution_get", outcome="error").inc()
             raise ToolError(str(exc)) from exc
@@ -115,12 +139,17 @@ def build_mcp_server(
     )
     async def execution_cancel(request: ExecutionCancelRequest) -> ExecutionResponse:
         try:
-            execution = await execution_service.cancel(
-                CancelExecutionCommand(
-                    execution_id=request.execution_id,
-                    idempotency_key=request.idempotency_key,
-                    reason=request.reason,
-                )
+            execution = await _trace_call(
+                tracing,
+                "executor.mcp.execution_cancel",
+                execution_service.cancel(
+                    CancelExecutionCommand(
+                        execution_id=request.execution_id,
+                        idempotency_key=request.idempotency_key,
+                        reason=request.reason,
+                    )
+                ),
+                {"executor.execution.id": str(request.execution_id)},
             )
         except DomainError as exc:
             MCP_TOOL_CALLS.labels(tool="execution_cancel", outcome="error").inc()
@@ -136,11 +165,16 @@ def build_mcp_server(
     )
     async def execution_retry(request: ExecutionRetryRequest) -> ExecutionResponse:
         try:
-            execution = await execution_service.retry(
-                RetryExecutionCommand(
-                    execution_id=request.execution_id,
-                    idempotency_key=request.idempotency_key,
-                )
+            execution = await _trace_call(
+                tracing,
+                "executor.mcp.execution_retry",
+                execution_service.retry(
+                    RetryExecutionCommand(
+                        execution_id=request.execution_id,
+                        idempotency_key=request.idempotency_key,
+                    )
+                ),
+                {"executor.execution.id": str(request.execution_id)},
             )
         except DomainError as exc:
             MCP_TOOL_CALLS.labels(tool="execution_retry", outcome="error").inc()
@@ -156,20 +190,28 @@ def build_mcp_server(
     )
     async def execution_continue(request: ExecutionContinueRequest) -> ExecutionResponse:
         try:
-            execution = await execution_service.continue_execution(
-                ContinueExecutionCommand(
-                    execution_id=request.execution_id,
-                    idempotency_key=request.idempotency_key,
-                    expected_version=request.expected_version,
-                    step=StepSpec(
-                        sequence=request.step.sequence,
-                        code=request.step.code,
-                        plan_revision_id=request.step.plan_revision_id,
-                        skill_name=request.step.skill_name,
-                        tool_name=request.step.tool_name,
-                        input_parameters=request.step.input_parameters,
-                    ),
-                )
+            execution = await _trace_call(
+                tracing,
+                "executor.mcp.execution_continue",
+                execution_service.continue_execution(
+                    ContinueExecutionCommand(
+                        execution_id=request.execution_id,
+                        idempotency_key=request.idempotency_key,
+                        expected_version=request.expected_version,
+                        step=StepSpec(
+                            sequence=request.step.sequence,
+                            code=request.step.code,
+                            plan_revision_id=request.step.plan_revision_id,
+                            skill_name=request.step.skill_name,
+                            tool_name=request.step.tool_name,
+                            input_parameters=request.step.input_parameters,
+                        ),
+                    )
+                ),
+                {
+                    "executor.execution.id": str(request.execution_id),
+                    "executor.step.sequence": request.step.sequence,
+                },
             )
         except DomainError as exc:
             MCP_TOOL_CALLS.labels(tool="execution_continue", outcome="error").inc()
@@ -184,12 +226,17 @@ def build_mcp_server(
     )
     async def execution_finish(request: ExecutionFinishRequest) -> ExecutionResponse:
         try:
-            execution = await execution_service.finish_execution(
-                FinishExecutionCommand(
-                    execution_id=request.execution_id,
-                    idempotency_key=request.idempotency_key,
-                    expected_version=request.expected_version,
-                )
+            execution = await _trace_call(
+                tracing,
+                "executor.mcp.execution_finish",
+                execution_service.finish_execution(
+                    FinishExecutionCommand(
+                        execution_id=request.execution_id,
+                        idempotency_key=request.idempotency_key,
+                        expected_version=request.expected_version,
+                    )
+                ),
+                {"executor.execution.id": str(request.execution_id)},
             )
         except DomainError as exc:
             MCP_TOOL_CALLS.labels(tool="execution_finish", outcome="error").inc()

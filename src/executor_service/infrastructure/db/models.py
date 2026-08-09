@@ -162,6 +162,8 @@ class ExecutionORM(Base):
     execution_expires_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, index=True
     )
+    traceparent: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    tracestate: Mapped[str | None] = mapped_column(Text, nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     created_at: Mapped[datetime] = mapped_column(
@@ -222,6 +224,8 @@ class ExecutionORM(Base):
             dynamic_finish_requested=execution.dynamic_finish_requested,
             dynamic_wait_expires_at=execution.dynamic_wait_expires_at,
             execution_expires_at=execution.execution_expires_at,
+            traceparent=execution.traceparent,
+            tracestate=execution.tracestate,
             version=execution.version,
             created_at=execution.created_at,
             updated_at=execution.updated_at,
@@ -271,6 +275,8 @@ class ExecutionORM(Base):
             dynamic_finish_requested=self.dynamic_finish_requested,
             dynamic_wait_expires_at=self.dynamic_wait_expires_at,
             execution_expires_at=self.execution_expires_at,
+            traceparent=self.traceparent,
+            tracestate=self.tracestate,
             version=self.version,
             created_at=self.created_at,
             updated_at=self.updated_at,
@@ -626,6 +632,8 @@ class OutboxEventORM(Base):
     aggregate_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False, index=True)
     event_type: Mapped[str] = mapped_column(String(255), nullable=False)
     payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    traceparent: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    tracestate: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[OutboxStatus] = mapped_column(
         enum_type(OutboxStatus, "outbox_status"), nullable=False
     )
@@ -643,6 +651,8 @@ class OutboxEventORM(Base):
             aggregate_id=event.aggregate_id,
             event_type=event.event_type,
             payload=event.payload,
+            traceparent=event.traceparent,
+            tracestate=event.tracestate,
             status=event.status,
             attempt_count=event.attempt_count,
             available_at=event.available_at,

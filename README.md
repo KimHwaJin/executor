@@ -27,8 +27,10 @@ consumer worker executes STATIC plans or one-cell-at-a-time DYNAMIC plans in Jup
 - Immutable per-Attempt Step history and an end-to-end execution event trace
 - Automatic and Manifest-based Artifact registration with checksum and lineage
 - Durable `.ipynb` output and execution-scoped artifact directories on the shared PV
+- W3C trace-context propagation across HTTP/MCP, PostgreSQL Outbox, Redis Streams, Worker,
+  and Jupyter operations with optional OTLP export to Arize Phoenix
 - `/healthz`, `/readyz`, and Prometheus `/metrics`
-- PostgreSQL, Redis, and `jupyter/datascience-notebook` through Docker Compose
+- PostgreSQL, Redis, `jupyter/datascience-notebook`, and opt-in Phoenix through Docker Compose
 
 MCP Tasks are deliberately not used. `execution_submit` returns an `execution_id` while the
 execution starts as `QUEUED`. Poll with `execution_get` or request cancellation with
@@ -43,10 +45,6 @@ Return-value materialization, reusable Asset promotion, and user-versus-project 
 are intentionally not implemented yet. Their agreed constraints, open questions, and resume
 criteria are tracked in [Deferred Decisions](docs/deferred-decisions.md). Update that decision log
 before implementing or changing any deferred behavior.
-
-Arize Phoenix tracing is also planned but not implemented. Local integration tests for that future
-feature will use the already available `arizephoenix/phoenix:nightly` image; the validated Compose
-and OTLP configuration will be added with the tracing feature rather than guessed in advance.
 
 ## Local setup
 
@@ -74,6 +72,34 @@ Operational endpoints:
 - readiness (PostgreSQL, Redis, Jupyter): `http://127.0.0.1:8000/readyz`
 - Prometheus: `http://127.0.0.1:8000/metrics`
 
+### Phoenix tracing
+
+Tracing is disabled by default and is not a readiness dependency. To run the validated local
+Phoenix image and enable OTLP/HTTP export:
+
+```bash
+docker compose --profile observability up -d --wait phoenix
+TRACING_ENABLED=true uv run executor-service
+```
+
+Phoenix UI is available at `http://127.0.0.1:6006`. The default collector endpoint is
+`http://127.0.0.1:6006/v1/traces`; configure `OTEL_EXPORTER_OTLP_ENDPOINT`,
+`OTEL_PROJECT_NAME`, `OTEL_SAMPLE_RATIO`, and optional `OTEL_EXPORTER_OTLP_HEADERS` for another
+deployment. Header values are secret settings and are never logged.
+
+The Agent should send W3C `traceparent` and optional `tracestate` headers on `/mcp`. Executor
+persists that context on the Execution and Outbox Event, creates a producer span when publishing,
+adds the current context to Redis Stream fields, and resumes it in the consumer Worker. PostgreSQL
+reconciliation uses the Execution's last command context when the Redis event is unavailable.
+Generated code, cell output, dataset content, query text, credentials, and tokens are deliberately
+excluded from span attributes. OTLP export failure does not change Execution state.
+
+Run the local collector verification after Phoenix is healthy:
+
+```bash
+uv run python scripts/phoenix_trace_smoke.py
+```
+
 Run the official SDK client smoke test in a second terminal:
 
 ```bash
@@ -89,6 +115,7 @@ uv run python scripts/jupyter_retry_smoke.py
 uv run python scripts/jupyter_worker_recovery_smoke.py
 uv run python scripts/jupyter_drain_smoke.py
 uv run python scripts/jupyter_artifact_smoke.py
+uv run python scripts/phoenix_trace_smoke.py
 ```
 
 ## Quality checks

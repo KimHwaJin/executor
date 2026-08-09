@@ -69,6 +69,32 @@ services:
       - ./notebook_dir:/workspace/pv
       - ./docker/jupyter_server_config.py:/home/jovyan/.jupyter/jupyter_server_config.py:ro
 
+  phoenix:
+    profiles: ["observability"]
+    image: arizephoenix/phoenix:nightly
+    environment:
+      PHOENIX_WORKING_DIR: /mnt/data
+      PHOENIX_ALLOW_EXTERNAL_RESOURCES: "false"
+    ports:
+      - "6006:6006"
+      - "4317:4317"
+      - "9090:9090"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:6006/', timeout=2)",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    volumes:
+      - executor-phoenix:/mnt/data
+
 volumes:
   executor-postgres:
   executor-redis:
+  executor-phoenix:

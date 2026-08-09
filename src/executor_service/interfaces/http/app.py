@@ -10,6 +10,7 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from executor_service.container import ApplicationContainer
 from executor_service.interfaces.mcp.server import build_mcp_server
+from executor_service.tracing import TraceContextMiddleware
 
 
 def create_app(container: ApplicationContainer) -> FastAPI:
@@ -17,6 +18,7 @@ def create_app(container: ApplicationContainer) -> FastAPI:
         container.execution_service,
         container.jupyter_registry,
         container.execution_queries,
+        container.tracing,
     )
     transport_security = TransportSecuritySettings(
         enable_dns_rebinding_protection=True,
@@ -50,6 +52,7 @@ def create_app(container: ApplicationContainer) -> FastAPI:
     )
     app.state.container = container
     app.state.mcp_server = mcp_server
+    app.add_middleware(TraceContextMiddleware, tracing=container.tracing)
 
     @app.get("/healthz", include_in_schema=False)
     async def healthz() -> dict[str, str]:

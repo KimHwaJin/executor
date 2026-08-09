@@ -5,7 +5,9 @@ import json
 import logging
 from datetime import timedelta
 
+from opentelemetry.trace import SpanKind
 from redis.asyncio import Redis
+from redis.typing import EncodableT, FieldT
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -13,6 +15,11 @@ from executor_service.domain.enums import OutboxStatus
 from executor_service.domain.models import utc_now
 from executor_service.infrastructure.db.models import OutboxEventORM
 from executor_service.observability import OUTBOX_FAILURES, OUTBOX_PUBLISHED
+from executor_service.tracing import (
+    TracingManager,
+    capture_trace_carrier,
+    extract_trace_context,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -25,12 +32,14 @@ class OutboxPublisher:
         stream_name: str,
         poll_interval_seconds: float,
         batch_size: int,
+        tracing: TracingManager,
     ) -> None:
         self._session_factory = session_factory
         self._redis = redis
         self._stream_name = stream_name
         self._poll_interval_seconds = poll_interval_seconds
         self._batch_size = batch_size
+        self._tracing = tracing
         self._task: asyncio.Task[None] | None = None
         self._stop_event = asyncio.Event()
 
@@ -78,17 +87,36 @@ class OutboxPublisher:
             published = 0
             for event in events:
                 try:
-                    await self._redis.xadd(
-                        self._stream_name,
+                    context = extract_trace_context(
                         {
+                            "traceparent": event.traceparent or "",
+                            "tracestate": event.tracestate or "",
+                        }
+                    )
+                    with self._tracing.span(
+                        "executor.outbox.publish",
+                        context=context,
+                        kind=SpanKind.PRODUCER,
+                        attributes={
+                            "executor.event.id": str(event.id),
+                            "executor.event.type": event.event_type,
+                            "executor.execution.id": str(event.aggregate_id),
+                        },
+                    ):
+                        fields: dict[FieldT, EncodableT] = {
                             "event_id": str(event.id),
                             "event_type": event.event_type,
                             "aggregate_type": event.aggregate_type,
                             "aggregate_id": str(event.aggregate_id),
                             "occurred_at": event.created_at.isoformat(),
                             "payload": json.dumps(event.payload, separators=(",", ":")),
-                        },
-                    )
+                        }
+                        carrier = capture_trace_carrier()
+                        if carrier.traceparent:
+                            fields["traceparent"] = carrier.traceparent
+                        if carrier.tracestate:
+                            fields["tracestate"] = carrier.tracestate
+                        await self._redis.xadd(self._stream_name, fields)
                     event.status = OutboxStatus.PUBLISHED
                     event.published_at = utc_now()
                     event.last_error = None
