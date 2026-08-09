@@ -20,6 +20,7 @@ consumer worker executes STATIC plans or one-cell-at-a-time DYNAMIC plans in Jup
 - Jupyter REST/WebSocket kernel execution, interrupt, and deletion
 - Multi-server Jupyter registry, encrypted credentials, health probes, capacity scheduling,
   execution attempts, leases, and heartbeats
+- Strict INTERACTIVE/BATCH Jupyter pool isolation with two-server local BATCH topology
 - Safe server draining and retained-kernel retry from a failed Step
 - Classified Tool/infrastructure failures, graceful Worker shutdown, and FROM_START recovery
 - Append-only DYNAMIC cells with optimistic version checks and same-kernel continuation
@@ -30,7 +31,8 @@ consumer worker executes STATIC plans or one-cell-at-a-time DYNAMIC plans in Jup
 - W3C trace-context propagation across HTTP/MCP, PostgreSQL Outbox, Redis Streams, Worker,
   and Jupyter operations with optional OTLP export to Arize Phoenix
 - `/healthz`, `/readyz`, and Prometheus `/metrics`, including Outbox/Stream lag and Worker jobs
-- PostgreSQL, Redis, `jupyter/datascience-notebook`, and opt-in Phoenix through Docker Compose
+- PostgreSQL, Redis, INTERACTIVE/BATCH `jupyter/datascience-notebook` fleets, and opt-in Phoenix
+  through Docker Compose
 
 MCP Tasks are deliberately not used. `execution_submit` returns an `execution_id` while the
 execution starts as `QUEUED`. Poll with `execution_get` or request cancellation with
@@ -63,6 +65,13 @@ To run a second Jupyter server against the same local PV:
 
 ```bash
 docker compose --profile multi-jupyter up -d --wait
+```
+
+To run the two-server BATCH pool on ports `8890` and `8891`, or the full local four-server fleet:
+
+```bash
+docker compose --profile batch-jupyter up -d --wait
+docker compose --profile multi-jupyter --profile batch-jupyter up -d --wait
 ```
 
 Operational endpoints:
@@ -115,6 +124,7 @@ uv run python scripts/jupyter_retry_smoke.py
 uv run python scripts/jupyter_worker_recovery_smoke.py
 uv run python scripts/jupyter_drain_smoke.py
 uv run python scripts/jupyter_artifact_smoke.py
+uv run python scripts/jupyter_batch_pool_smoke.py
 uv run python scripts/phoenix_trace_smoke.py
 ```
 
@@ -223,10 +233,23 @@ kernel count, supported kernels, and latest health result. The scheduler selects
 requested `INTERACTIVE` or `BATCH` pool and skips full, disabled, unhealthy, or incompatible
 servers.
 
+`INTERACTIVE` and `BATCH` are strict scheduling partitions. A BATCH Execution is never assigned to
+an INTERACTIVE server, even if that server has free capacity, and DRAINING/OFFLINE servers are not
+fallback targets. When all eligible BATCH servers are full, the Execution remains `QUEUED` and
+PostgreSQL reconciliation retries assignment after capacity becomes available. The local
+`batch-jupyter` profile provides two one-capacity servers for this behavior; production capacity is
+configured per manually registered server.
+
 Use `jupyter_server_set_state` with `DRAINING` before server maintenance. Existing executions and
 retained retry kernels remain attached, while new work is excluded from that server. The response
 sets `drain_complete=true` after its active/reserved count reaches zero. `ACTIVE` probes the server
 before allowing new work again; `remove` is the separate operation for durable disablement.
+
+Pool-level metrics expose enabled servers by status, schedulable ACTIVE capacity, current usage,
+and queued requests. Capacity usage includes running/waiting Attempts and retained retry kernels,
+including work draining from a server; it can temporarily exceed currently schedulable capacity
+during maintenance. See [Jupyter Pool Operations](docs/jupyter-pools.md) for registration, scale-up,
+drain, and local E2E procedures.
 
 ## Shared PV contract
 

@@ -69,6 +69,48 @@ services:
       - ./notebook_dir:/workspace/pv
       - ./docker/jupyter_server_config.py:/home/jovyan/.jupyter/jupyter_server_config.py:ro
 
+  jupyter-batch-primary:
+    profiles: ["batch-jupyter"]
+    image: jupyter/datascience-notebook:latest
+    environment:
+      JUPYTER_TOKEN: ${JUPYTER_BATCH_PRIMARY_TOKEN:-change-me-batch-primary-local-only}
+    ports:
+      - "8890:8888"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'curl --fail --silent --header "Authorization: token $${JUPYTER_TOKEN}" "http://127.0.0.1:8888/api/status" >/dev/null',
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    volumes:
+      - ./notebook_dir:/workspace/pv
+      - ./docker/jupyter_server_config.py:/home/jovyan/.jupyter/jupyter_server_config.py:ro
+
+  jupyter-batch-secondary:
+    profiles: ["batch-jupyter"]
+    image: jupyter/datascience-notebook:latest
+    environment:
+      JUPYTER_TOKEN: ${JUPYTER_BATCH_SECONDARY_TOKEN:-change-me-batch-secondary-local-only}
+    ports:
+      - "8891:8888"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'curl --fail --silent --header "Authorization: token $${JUPYTER_TOKEN}" "http://127.0.0.1:8888/api/status" >/dev/null',
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    volumes:
+      - ./notebook_dir:/workspace/pv
+      - ./docker/jupyter_server_config.py:/home/jovyan/.jupyter/jupyter_server_config.py:ro
+
   phoenix:
     profiles: ["observability"]
     image: arizephoenix/phoenix:nightly
