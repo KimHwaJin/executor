@@ -22,5 +22,8 @@ async def test_health_and_metrics_endpoints() -> None:
     assert health.json() == {"status": "ok"}
     assert metrics.status_code == 200
     assert "executor_mcp_tool_calls_total" in metrics.text
+    assert "executor_outbox_pending_events" in metrics.text
+    assert "executor_stream_pending_messages" in metrics.text
+    assert "executor_worker_active_jobs" in metrics.text
     await container.redis.aclose()
     await container.engine.dispose()

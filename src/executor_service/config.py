@@ -2,8 +2,9 @@
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Self
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -26,7 +27,8 @@ class Settings(BaseSettings):
         "postgresql+psycopg://executor:executor@localhost:5432/executor"
     )
     redis_url: SecretStr = SecretStr("redis://localhost:6379/0")
-    redis_stream: str = "executor.events"
+    redis_stream: str = Field(default="executor.events", min_length=1)
+    redis_dead_letter_stream: str = Field(default="executor.events.dlq", min_length=1)
     outbox_poll_interval_seconds: float = Field(default=0.5, gt=0)
     outbox_batch_size: int = Field(default=100, ge=1, le=1000)
 
@@ -48,6 +50,9 @@ class Settings(BaseSettings):
     workspace_jupyter_root: str = "/workspace/pv"
     execution_consumer_group: str = "executor-workers"
     execution_consumer_name: str = ""
+    execution_pending_claim_interval_seconds: float = Field(default=5, gt=0)
+    execution_pending_claim_idle_milliseconds: int = Field(default=30000, ge=1)
+    execution_pending_claim_batch_size: int = Field(default=100, ge=1, le=1000)
     execution_worker_concurrency: int = Field(default=2, ge=1)
     execution_lease_seconds: int = Field(default=60, ge=30)
     execution_heartbeat_seconds: int = Field(default=15, ge=5)
@@ -70,6 +75,12 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return tuple(item.strip() for item in value.split(",") if item.strip())
         return value
+
+    @model_validator(mode="after")
+    def validate_redis_streams(self) -> Self:
+        if self.redis_dead_letter_stream == self.redis_stream:
+            raise ValueError("REDIS_DEAD_LETTER_STREAM must differ from REDIS_STREAM.")
+        return self
 
     @property
     def database_dsn(self) -> str:
