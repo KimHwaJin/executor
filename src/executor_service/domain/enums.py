@@ -28,6 +28,11 @@ class TriggerType(StrEnum):
     BATCH = "BATCH"
 
 
+class ActorType(StrEnum):
+    USER = "USER"
+    BATCH = "BATCH"
+
+
 class JupyterPool(StrEnum):
     INTERACTIVE = "INTERACTIVE"
     BATCH = "BATCH"

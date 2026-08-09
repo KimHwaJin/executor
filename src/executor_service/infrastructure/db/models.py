@@ -23,6 +23,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from executor_service.domain.enums import (
+    ActorType,
     ArtifactStatus,
     ArtifactStorageType,
     ArtifactType,
@@ -47,9 +48,31 @@ def enum_type(enum_class: type[PythonEnum], name: str) -> Enum:
     return Enum(enum_class, name=name, native_enum=False, create_constraint=False, length=32)
 
 
+def audit_actor_constraints() -> tuple[CheckConstraint, ...]:
+    return (
+        CheckConstraint(
+            "created_by_type IS NULL OR created_by_type IN ('USER', 'BATCH')",
+            name="valid_created_by_type",
+        ),
+        CheckConstraint(
+            "updated_by_type IS NULL OR updated_by_type IN ('USER', 'BATCH')",
+            name="valid_updated_by_type",
+        ),
+        CheckConstraint(
+            "(created_by_type IS NULL) = (created_by IS NULL)",
+            name="complete_created_by",
+        ),
+        CheckConstraint(
+            "(updated_by_type IS NULL) = (updated_by IS NULL)",
+            name="complete_updated_by",
+        ),
+    )
+
+
 class ExecutionORM(Base):
     __tablename__ = "executions"
     __table_args__ = (
+        *audit_actor_constraints(),
         CheckConstraint(
             "status IN ('QUEUED', 'DISPATCHED', 'RUNNING', 'WAITING_FOR_NEXT_STEP', "
             "'CANCEL_REQUESTED', 'CANCELLED', 'SUCCEEDED', 'FAILED')",
@@ -85,7 +108,16 @@ class ExecutionORM(Base):
             "retry_from_sequence IS NULL OR retry_from_sequence >= 0",
             name="non_negative_retry_from_sequence",
         ),
-        Index("ix_executions_status_created_at", "status", "created_at"),
+        Index("ix_executions_status_created_at", "status", "created_at", "id"),
+        Index(
+            "ix_executions_user_created_cursor",
+            "requested_by_user_id",
+            "created_at",
+            "id",
+        ),
+        Index("ix_executions_project_created_cursor", "project_id", "created_at", "id"),
+        Index("ix_executions_session_created_cursor", "session_id", "created_at", "id"),
+        Index("ix_executions_task_created_cursor", "task_id", "created_at", "id"),
         Index("ix_executions_lease", "status", "lease_expires_at"),
     )
 
@@ -154,9 +186,7 @@ class ExecutionORM(Base):
         nullable=False,
         default=KernelCleanupStatus.NOT_REQUIRED,
     )
-    dynamic_finish_requested: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False
-    )
+    dynamic_finish_requested: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     dynamic_wait_expires_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, index=True
     )
@@ -167,11 +197,20 @@ class ExecutionORM(Base):
     tracestate: Mapped[str | None] = mapped_column(Text, nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
+    created_by_type: Mapped[ActorType | None] = mapped_column(
+        enum_type(ActorType, "actor_type"), nullable=True
+    )
+    created_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    updated_by_type: Mapped[ActorType | None] = mapped_column(
+        enum_type(ActorType, "actor_type"), nullable=True
+    )
+    updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utc_now
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utc_now
+        DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now
     )
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -205,6 +244,10 @@ class ExecutionORM(Base):
             task_id=execution.task_id,
             execution_plan_id=execution.execution_plan_id,
             workflow_id=execution.workflow_id,
+            created_by_type=execution.created_by_type,
+            created_by=execution.created_by,
+            updated_by_type=execution.updated_by_type,
+            updated_by=execution.updated_by,
             execution_metadata=execution.metadata,
             cancellation_reason=execution.cancellation_reason,
             jupyter_server_id=execution.jupyter_server_id,
@@ -257,6 +300,10 @@ class ExecutionORM(Base):
             task_id=self.task_id,
             execution_plan_id=self.execution_plan_id,
             workflow_id=self.workflow_id,
+            created_by_type=self.created_by_type,
+            created_by=self.created_by,
+            updated_by_type=self.updated_by_type,
+            updated_by=self.updated_by,
             metadata=self.execution_metadata,
             cancellation_reason=self.cancellation_reason,
             jupyter_server_id=self.jupyter_server_id,
@@ -292,6 +339,7 @@ class ExecutionORM(Base):
 class ExecutionStepORM(Base):
     __tablename__ = "execution_steps"
     __table_args__ = (
+        *audit_actor_constraints(),
         UniqueConstraint("execution_id", "sequence", name="uq_execution_steps_execution_sequence"),
         CheckConstraint("sequence >= 0", name="non_negative_sequence"),
         CheckConstraint(
@@ -320,11 +368,19 @@ class ExecutionStepORM(Base):
     input_parameters: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
     outputs: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by_type: Mapped[ActorType | None] = mapped_column(
+        enum_type(ActorType, "actor_type"), nullable=True
+    )
+    created_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    updated_by_type: Mapped[ActorType | None] = mapped_column(
+        enum_type(ActorType, "actor_type"), nullable=True
+    )
+    updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utc_now
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utc_now
+        DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now
     )
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -346,6 +402,10 @@ class ExecutionStepORM(Base):
             input_parameters=step.input_parameters,
             outputs=step.outputs,
             error_message=step.error_message,
+            created_by_type=step.created_by_type,
+            created_by=step.created_by,
+            updated_by_type=step.updated_by_type,
+            updated_by=step.updated_by,
             created_at=step.created_at,
             updated_at=step.updated_at,
             started_at=step.started_at,
@@ -366,6 +426,10 @@ class ExecutionStepORM(Base):
             input_parameters=self.input_parameters,
             outputs=self.outputs,
             error_message=self.error_message,
+            created_by_type=self.created_by_type,
+            created_by=self.created_by,
+            updated_by_type=self.updated_by_type,
+            updated_by=self.updated_by,
             created_at=self.created_at,
             updated_at=self.updated_at,
             started_at=self.started_at,
@@ -376,11 +440,13 @@ class ExecutionStepORM(Base):
 class JupyterServerORM(Base):
     __tablename__ = "jupyter_servers"
     __table_args__ = (
+        *audit_actor_constraints(),
         CheckConstraint(
             "status IN ('ACTIVE', 'DRAINING', 'OFFLINE')", name="valid_jupyter_server_status"
         ),
         CheckConstraint("max_concurrent_executions > 0", name="positive_max_concurrency"),
         Index("ix_jupyter_servers_pool_status", "pool", "enabled", "status"),
+        Index("ix_jupyter_servers_created_cursor", "created_at", "id"),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
@@ -400,8 +466,18 @@ class JupyterServerORM(Base):
     last_health_check_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_health_error: Mapped[str | None] = mapped_column(String(500))
     active_kernel_count: Mapped[int | None] = mapped_column(Integer)
+    created_by_type: Mapped[ActorType | None] = mapped_column(
+        enum_type(ActorType, "actor_type"), nullable=True
+    )
+    created_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    updated_by_type: Mapped[ActorType | None] = mapped_column(
+        enum_type(ActorType, "actor_type"), nullable=True
+    )
+    updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
 
 
 class CommandReceiptORM(Base):
@@ -421,9 +497,7 @@ class CommandReceiptORM(Base):
 
 class ExecutionRetryORM(Base):
     __tablename__ = "execution_retries"
-    __table_args__ = (
-        CheckConstraint("from_sequence >= 0", name="non_negative_from_sequence"),
-    )
+    __table_args__ = (CheckConstraint("from_sequence >= 0", name="non_negative_from_sequence"),)
 
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
     execution_id: Mapped[UUID] = mapped_column(
@@ -442,6 +516,7 @@ class ExecutionRetryORM(Base):
 class ExecutionAttemptORM(Base):
     __tablename__ = "execution_attempts"
     __table_args__ = (
+        *audit_actor_constraints(),
         UniqueConstraint(
             "execution_id", "attempt_number", name="uq_execution_attempts_execution_attempt"
         ),
@@ -500,6 +575,20 @@ class ExecutionAttemptORM(Base):
         nullable=False,
         default=KernelCleanupStatus.NOT_REQUIRED,
     )
+    created_by_type: Mapped[ActorType | None] = mapped_column(
+        enum_type(ActorType, "actor_type"), nullable=True
+    )
+    created_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    updated_by_type: Mapped[ActorType | None] = mapped_column(
+        enum_type(ActorType, "actor_type"), nullable=True
+    )
+    updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now
+    )
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
@@ -509,6 +598,7 @@ class ExecutionStepAttemptORM(Base):
 
     __tablename__ = "execution_step_attempts"
     __table_args__ = (
+        *audit_actor_constraints(),
         UniqueConstraint(
             "execution_attempt_id",
             "sequence",
@@ -516,8 +606,7 @@ class ExecutionStepAttemptORM(Base):
         ),
         CheckConstraint("sequence >= 0", name="non_negative_sequence"),
         CheckConstraint(
-            "status IN ('PENDING', 'RUNNING', 'SUCCEEDED', 'FAILED', "
-            "'SKIPPED', 'CANCELLED')",
+            "status IN ('PENDING', 'RUNNING', 'SUCCEEDED', 'FAILED', 'SKIPPED', 'CANCELLED')",
             name="valid_step_attempt_status",
         ),
         Index("ix_step_attempts_execution_sequence", "execution_id", "sequence"),
@@ -549,6 +638,20 @@ class ExecutionStepAttemptORM(Base):
     )
     outputs: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)
     error_message: Mapped[str | None] = mapped_column(Text)
+    created_by_type: Mapped[ActorType | None] = mapped_column(
+        enum_type(ActorType, "actor_type"), nullable=True
+    )
+    created_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    updated_by_type: Mapped[ActorType | None] = mapped_column(
+        enum_type(ActorType, "actor_type"), nullable=True
+    )
+    updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now
+    )
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
@@ -558,20 +661,24 @@ class ExecutionArtifactORM(Base):
 
     __tablename__ = "execution_artifacts"
     __table_args__ = (
+        *audit_actor_constraints(),
         CheckConstraint(
             "artifact_type IN ('DATASET', 'NOTEBOOK', 'REPORT', 'PLOT', 'MODEL', "
             "'METRIC', 'LOG', 'OTHER')",
             name="valid_artifact_type",
         ),
-        CheckConstraint(
-            "storage_type IN ('PV', 'S3')", name="valid_artifact_storage_type"
-        ),
+        CheckConstraint("storage_type IN ('PV', 'S3')", name="valid_artifact_storage_type"),
         CheckConstraint(
             "status IN ('AVAILABLE', 'INCOMPLETE', 'DELETED')",
             name="valid_artifact_status",
         ),
         CheckConstraint("size_bytes IS NULL OR size_bytes >= 0", name="non_negative_size"),
-        Index("ix_execution_artifacts_execution_created", "execution_id", "created_at"),
+        Index(
+            "ix_execution_artifacts_execution_created",
+            "execution_id",
+            "created_at",
+            "id",
+        ),
         Index("ix_execution_artifacts_step", "execution_step_id", "created_at"),
     )
 
@@ -618,19 +725,35 @@ class ExecutionArtifactORM(Base):
         "metadata", JSON, nullable=False, default=dict
     )
     identity_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    created_by_type: Mapped[ActorType | None] = mapped_column(
+        enum_type(ActorType, "actor_type"), nullable=True
+    )
+    created_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    updated_by_type: Mapped[ActorType | None] = mapped_column(
+        enum_type(ActorType, "actor_type"), nullable=True
+    )
+    updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utc_now
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utc_now
+        DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now
     )
 
 
 class OutboxEventORM(Base):
     __tablename__ = "outbox_events"
     __table_args__ = (
+        *audit_actor_constraints(),
         CheckConstraint("status IN ('PENDING', 'PUBLISHED')", name="valid_outbox_status"),
         Index("ix_outbox_pending", "status", "available_at", "created_at"),
+        Index(
+            "ix_outbox_execution_cursor",
+            "aggregate_type",
+            "aggregate_id",
+            "created_at",
+            "id",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
@@ -638,6 +761,14 @@ class OutboxEventORM(Base):
     aggregate_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False, index=True)
     event_type: Mapped[str] = mapped_column(String(255), nullable=False)
     payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    created_by_type: Mapped[ActorType | None] = mapped_column(
+        enum_type(ActorType, "actor_type"), nullable=True
+    )
+    created_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    updated_by_type: Mapped[ActorType | None] = mapped_column(
+        enum_type(ActorType, "actor_type"), nullable=True
+    )
+    updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
     traceparent: Mapped[str | None] = mapped_column(String(512), nullable=True)
     tracestate: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[OutboxStatus] = mapped_column(
@@ -646,6 +777,9 @@ class OutboxEventORM(Base):
     attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, onupdate=utc_now
+    )
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_error: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
@@ -657,12 +791,17 @@ class OutboxEventORM(Base):
             aggregate_id=event.aggregate_id,
             event_type=event.event_type,
             payload=event.payload,
+            created_by_type=event.created_by_type,
+            created_by=event.created_by,
+            updated_by_type=event.updated_by_type,
+            updated_by=event.updated_by,
             traceparent=event.traceparent,
             tracestate=event.tracestate,
             status=event.status,
             attempt_count=event.attempt_count,
             available_at=event.available_at,
             created_at=event.created_at,
+            updated_at=event.updated_at,
             published_at=event.published_at,
             last_error=event.last_error,
         )

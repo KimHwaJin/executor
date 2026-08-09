@@ -1,15 +1,19 @@
 # Executor Service
 
-Asynchronous Jupyter execution control plane exposed as an MCP 2026-07-28 Streamable HTTP server.
-PostgreSQL is the source of truth. Tool calls persist work and return immediately while a Redis
-consumer worker executes STATIC plans or one-cell-at-a-time DYNAMIC plans in Jupyter.
+Asynchronous Jupyter execution control plane exposed through MCP 2026-07-28 Streamable HTTP and a
+versioned REST API. PostgreSQL is the source of truth. MCP Tool and REST calls persist work and
+return immediately while a Redis consumer worker executes STATIC plans or one-cell-at-a-time
+DYNAMIC plans in Jupyter.
 
 ## Implemented scope
 
 - Official MCP Python SDK 2.x `MCPServer`, exposed at `POST /mcp`
+- REST execution facade, OpenAPI, Swagger UI, and ReDoc under `/api/v1`, `/openapi.json`, `/docs`,
+  and `/redoc`
 - Execution tools: `executor_get_capabilities`, `execution_submit`, `execution_get`,
   `execution_cancel`, `execution_retry`, `execution_continue`, `execution_finish`,
-  `execution_attempt_list`, `execution_event_list`, `execution_trace_get`,
+  `execution_list`, `execution_step_list`, `execution_attempt_list`,
+  `execution_event_list`, `execution_trace_get`,
   `execution_artifact_list`, `execution_artifact_get`
 - Jupyter fleet tools: `jupyter_server_upsert`, `jupyter_server_list`,
   `jupyter_server_get`, `jupyter_server_probe`, `jupyter_server_remove`,
@@ -78,6 +82,9 @@ docker compose --profile multi-jupyter --profile batch-jupyter up -d --wait
 Operational endpoints:
 
 - MCP: `http://127.0.0.1:8000/mcp`
+- REST API: `http://127.0.0.1:8000/api/v1`
+- Swagger UI: `http://127.0.0.1:8000/docs`
+- OpenAPI: `http://127.0.0.1:8000/openapi.json`
 - liveness: `http://127.0.0.1:8000/healthz`
 - readiness (PostgreSQL, Redis, Jupyter, Worker admission): `http://127.0.0.1:8000/readyz`
 - Worker lifecycle and active execution count: `http://127.0.0.1:8000/workerz`
@@ -161,6 +168,11 @@ uv run alembic upgrade head
 
 ## Tool contracts
 
+The same execution lifecycle is available as REST without internally calling MCP. REST requests
+and responses have transport-specific DTOs but map to the same application commands, PostgreSQL
+transactions, Outbox, and Worker. See [Executor REST API v1](docs/rest-api.md) for every endpoint
+and runnable curl examples.
+
 `execution_submit` accepts one `request` object. Important fields are:
 
 - `idempotency_key`: required for safe retries; reuse with different content is rejected
@@ -169,6 +181,12 @@ uv run alembic upgrade head
 - `kernel_name`: one of the deployment's configured kernels
 - `source`: either an INLINE ExecutionSpec or a shared-PV PATH plus SHA-256
 - `context`: Agent-owned user/project/session/Task IDs; Executor creates `execution_id`
+- `actor`: required audit principal with type `USER` or `BATCH` and a stable upstream ID
+
+Every public mutation records `created_by`/`updated_by` attribution on the affected Execution,
+Step, Attempt, Artifact, Outbox Event, or Jupyter server where applicable. Interactive submits
+require a `USER` actor and batch submits require a `BATCH` actor. Additional autonomous actor types
+remain deferred in [Deferred Decisions](docs/deferred-decisions.md#dd-003-additional-audit-actor-types).
 
 `jupyter_pool` is not accepted from callers. Executor derives `INTERACTIVE` or `BATCH` from
 `trigger_type`, then selects a healthy compatible server with available capacity inside that pool.
@@ -217,7 +235,15 @@ that deadline enter the existing `WORKER_SHUTDOWN` cleanup and recovery path. `/
 process liveness check, while `/workerz` reports `ACCEPTING`, `DRAINING`, or `STOPPED` and the local
 active execution count.
 
-`execution_attempt_list` returns every worker Attempt in order, including the selected Jupyter
+All MCP list Tools return `{items, nextCursor}`. `nextCursor` is an opaque continuation token:
+clients and agents must pass it back unchanged as the next call's `cursor` while keeping the same
+filters. REST list endpoints use the equivalent `{items, next_cursor, has_more}` envelope. Keyset
+pagination avoids skipped or duplicated pages caused by offset shifts during long-running work.
+These are normal MCP Tool calls with declared input/output schemas; no private transport method is
+introduced. The custom Tool result mirrors MCP's opaque cursor naming convention while remaining
+valid structured Tool content.
+
+`execution_attempt_list` returns worker Attempts in order, including the selected Jupyter
 server, kernel, lease/heartbeat times, outcome, and only the Steps actually run by that Attempt.
 Each Step history row snapshots its skill, tool, inputs, outputs, error, and timestamps, so a retry
 does not overwrite evidence from the earlier failure. `execution_event_list` returns the

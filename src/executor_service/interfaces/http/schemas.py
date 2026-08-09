@@ -1,13 +1,12 @@
-"""Public MCP request and response contracts; never reuse ORM models here."""
+"""REST request and response contracts, independent from MCP transport types."""
 
 from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, SecretStr
+from pydantic import BaseModel, ConfigDict, Field
 
-from executor_service.application.commands import StepSpec as ApplicationStepSpec
-from executor_service.application.commands import SubmitExecutionCommand
+from executor_service.application.commands import StepSpec, SubmitExecutionCommand
 from executor_service.application.execution_queries import (
     ExecutionArtifactView,
     ExecutionAttemptView,
@@ -15,7 +14,6 @@ from executor_service.application.execution_queries import (
     ExecutionStepAttemptView,
     ExecutionTraceView,
 )
-from executor_service.application.jupyter_servers import JupyterServerView
 from executor_service.application.pagination import Page
 from executor_service.domain.enums import (
     ActorType,
@@ -35,33 +33,19 @@ from executor_service.domain.enums import (
     TriggerType,
 )
 from executor_service.domain.models import Execution, ExecutionStep
-from executor_service.execution_specs import (
-    CodeSource,
-    ExecutionSpec,
-    ExecutionStepInput,
-    InlineCodeSource,
-    PathCodeSource,
-)
-
-__all__ = [
-    "CodeSource",
-    "ExecutionSpec",
-    "ExecutionStepInput",
-    "InlineCodeSource",
-    "PathCodeSource",
-]
+from executor_service.execution_specs import CodeSource, ExecutionSpec, PathCodeSource
 
 
-class MCPModel(BaseModel):
+class HTTPModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class ActorInput(MCPModel):
+class ActorInput(HTTPModel):
     type: ActorType
     id: str = Field(min_length=1, max_length=255)
 
 
-class ExecutionSubmitContext(MCPModel):
+class ExecutionSubmitContext(HTTPModel):
     requested_by_user_id: str = Field(min_length=1, max_length=255)
     project_id: str = Field(min_length=1, max_length=255)
     session_id: str = Field(min_length=1, max_length=255)
@@ -73,7 +57,7 @@ class ExecutionContext(ExecutionSubmitContext):
     execution_plan_id: str = Field(min_length=1, max_length=255)
 
 
-class ExecutionSubmitRequest(MCPModel):
+class ExecutionSubmitRequest(HTTPModel):
     idempotency_key: str = Field(min_length=1, max_length=255)
     mode: ExecutionMode
     trigger_type: TriggerType = TriggerType.INTERACTIVE
@@ -109,7 +93,7 @@ class ExecutionSubmitRequest(MCPModel):
             workflow_id=self.context.workflow_id,
             metadata=self.metadata,
             steps=tuple(
-                ApplicationStepSpec(
+                StepSpec(
                     sequence=step.sequence,
                     code=step.code,
                     execution_plan_id=spec.execution_plan_id,
@@ -123,124 +107,32 @@ class ExecutionSubmitRequest(MCPModel):
         )
 
 
-class ExecutionCancelRequest(MCPModel):
-    execution_id: UUID
+class ExecutionCancelRequest(HTTPModel):
     idempotency_key: str = Field(min_length=1, max_length=255)
     reason: str | None = Field(default=None, max_length=2000)
     actor: ActorInput
 
 
-class ExecutionRetryRequest(MCPModel):
-    execution_id: UUID
+class ExecutionRetryRequest(HTTPModel):
     idempotency_key: str = Field(min_length=1, max_length=255)
     actor: ActorInput
 
 
-class ExecutionContinueRequest(MCPModel):
-    execution_id: UUID
+class ExecutionContinueRequest(HTTPModel):
     idempotency_key: str = Field(min_length=1, max_length=255)
     expected_version: int = Field(ge=0)
     source: CodeSource
     actor: ActorInput
 
 
-class ExecutionFinishRequest(MCPModel):
-    execution_id: UUID
+class ExecutionFinishRequest(HTTPModel):
     idempotency_key: str = Field(min_length=1, max_length=255)
     expected_version: int = Field(ge=0)
     actor: ActorInput
 
 
-class JupyterServerUpsertRequest(MCPModel):
-    idempotency_key: str = Field(min_length=1, max_length=255)
-    name: str = Field(min_length=1, max_length=255, pattern=r"^[a-zA-Z0-9._-]+$")
-    endpoint: AnyHttpUrl
-    token: SecretStr | None = None
-    pool: JupyterPool = JupyterPool.INTERACTIVE
-    max_concurrent_executions: int | None = Field(default=None, ge=1, le=1000)
-    actor: ActorInput
-
-
-class JupyterServerProbeRequest(MCPModel):
-    server_id: UUID
-    actor: ActorInput
-
-
-class JupyterServerRemoveRequest(MCPModel):
-    idempotency_key: str = Field(min_length=1, max_length=255)
-    server_id: UUID
-    actor: ActorInput
-
-
-class JupyterServerSetStateRequest(MCPModel):
-    idempotency_key: str = Field(min_length=1, max_length=255)
-    server_id: UUID
-    desired_state: str = Field(pattern=r"^(ACTIVE|DRAINING)$")
-    actor: ActorInput
-
-
-class JupyterServerResponse(MCPModel):
-    server_id: UUID
-    name: str
-    endpoint: str
-    pool: JupyterPool
-    status: str
-    enabled: bool
-    max_concurrent_executions: int
-    supported_kernels: tuple[str, ...]
-    active_execution_count: int
-    active_kernel_count: int | None
-    last_health_check_at: datetime | None
-    last_health_error: str | None
-    created_by_type: ActorType | None
-    created_by: str | None
-    updated_by_type: ActorType | None
-    updated_by: str | None
-    created_at: datetime
-    updated_at: datetime
-    accepting_new_executions: bool
-    drain_complete: bool
-
-    @classmethod
-    def from_view(cls, view: JupyterServerView) -> "JupyterServerResponse":
-        return cls(
-            server_id=view.id,
-            name=view.name,
-            endpoint=view.endpoint,
-            pool=view.pool,
-            status=view.status.value,
-            enabled=view.enabled,
-            max_concurrent_executions=view.max_concurrent_executions,
-            supported_kernels=view.supported_kernels,
-            active_execution_count=view.active_execution_count,
-            active_kernel_count=view.active_kernel_count,
-            last_health_check_at=view.last_health_check_at,
-            last_health_error=view.last_health_error,
-            created_by_type=view.created_by_type,
-            created_by=view.created_by,
-            updated_by_type=view.updated_by_type,
-            updated_by=view.updated_by,
-            created_at=view.created_at,
-            updated_at=view.updated_at,
-            accepting_new_executions=view.accepting_new_executions,
-            drain_complete=view.drain_complete,
-        )
-
-
-class JupyterServerPageResponse(MCPModel):
-    items: list[JupyterServerResponse]
-    nextCursor: str | None = None
-
-    @classmethod
-    def from_page(cls, page: Page[JupyterServerView]) -> "JupyterServerPageResponse":
-        return cls(
-            items=[JupyterServerResponse.from_view(item) for item in page.items],
-            nextCursor=page.next_cursor,
-        )
-
-
-class ExecutionStepResponse(MCPModel):
-    id: UUID
+class ExecutionStepResponse(HTTPModel):
+    step_id: UUID
     sequence: int
     code_hash: str | None
     execution_plan_id: str
@@ -259,14 +151,37 @@ class ExecutionStepResponse(MCPModel):
     started_at: datetime | None
     finished_at: datetime | None
 
+    @classmethod
+    def from_domain(cls, step: ExecutionStep) -> "ExecutionStepResponse":
+        return cls(
+            step_id=step.id,
+            sequence=step.sequence,
+            code_hash=step.code_hash,
+            execution_plan_id=step.execution_plan_id,
+            plan_step_id=step.plan_step_id,
+            skill_name=step.skill_name,
+            tool_name=step.tool_name,
+            status=step.status,
+            outputs=step.outputs,
+            error_message=step.error_message,
+            created_by_type=step.created_by_type,
+            created_by=step.created_by,
+            updated_by_type=step.updated_by_type,
+            updated_by=step.updated_by,
+            created_at=step.created_at,
+            updated_at=step.updated_at,
+            started_at=step.started_at,
+            finished_at=step.finished_at,
+        )
 
-class ExecutionSourceResponse(MCPModel):
+
+class ExecutionSourceResponse(HTTPModel):
     type: CodeSourceType
     path: str | None
     sha256: str
 
 
-class ExecutionResponse(MCPModel):
+class ExecutionResponse(HTTPModel):
     execution_id: UUID
     status: ExecutionStatus
     mode: ExecutionMode
@@ -324,29 +239,7 @@ class ExecutionResponse(MCPModel):
                 execution_plan_id=execution.execution_plan_id,
                 workflow_id=execution.workflow_id,
             ),
-            steps=[
-                ExecutionStepResponse(
-                    id=step.id,
-                    sequence=step.sequence,
-                    code_hash=step.code_hash,
-                    execution_plan_id=step.execution_plan_id,
-                    plan_step_id=step.plan_step_id,
-                    skill_name=step.skill_name,
-                    tool_name=step.tool_name,
-                    status=step.status,
-                    outputs=step.outputs,
-                    error_message=step.error_message,
-                    created_by_type=step.created_by_type,
-                    created_by=step.created_by,
-                    updated_by_type=step.updated_by_type,
-                    updated_by=step.updated_by,
-                    created_at=step.created_at,
-                    updated_at=step.updated_at,
-                    started_at=step.started_at,
-                    finished_at=step.finished_at,
-                )
-                for step in execution.steps
-            ],
+            steps=[ExecutionStepResponse.from_domain(step) for step in execution.steps],
             cancellation_reason=execution.cancellation_reason,
             jupyter_server_id=execution.jupyter_server_id,
             kernel_id=execution.kernel_id,
@@ -375,7 +268,7 @@ class ExecutionResponse(MCPModel):
         )
 
 
-class ExecutionSummaryResponse(MCPModel):
+class ExecutionSummaryResponse(HTTPModel):
     execution_id: UUID
     status: ExecutionStatus
     mode: ExecutionMode
@@ -434,19 +327,21 @@ class ExecutionSummaryResponse(MCPModel):
         )
 
 
-class ExecutionPageResponse(MCPModel):
+class ExecutionPageResponse(HTTPModel):
     items: list[ExecutionSummaryResponse]
-    nextCursor: str | None = None
+    next_cursor: str | None
+    has_more: bool
 
     @classmethod
     def from_page(cls, page: Page[Execution]) -> "ExecutionPageResponse":
         return cls(
             items=[ExecutionSummaryResponse.from_domain(item) for item in page.items],
-            nextCursor=page.next_cursor,
+            next_cursor=page.next_cursor,
+            has_more=page.next_cursor is not None,
         )
 
 
-class ExecutionStepAttemptResponse(MCPModel):
+class ExecutionStepAttemptResponse(HTTPModel):
     step_attempt_id: UUID
     execution_step_id: UUID
     sequence: int
@@ -488,7 +383,7 @@ class ExecutionStepAttemptResponse(MCPModel):
         )
 
 
-class ExecutionAttemptResponse(MCPModel):
+class ExecutionAttemptResponse(HTTPModel):
     attempt_id: UUID
     execution_id: UUID
     attempt_number: int
@@ -540,53 +435,35 @@ class ExecutionAttemptResponse(MCPModel):
         )
 
 
-class ExecutionStepPageResponse(MCPModel):
+class ExecutionStepPageResponse(HTTPModel):
     items: list[ExecutionStepResponse]
-    nextCursor: str | None = None
+    next_cursor: str | None
+    has_more: bool
 
     @classmethod
     def from_page(cls, page: Page[ExecutionStep]) -> "ExecutionStepPageResponse":
         return cls(
-            items=[
-                ExecutionStepResponse(
-                    id=step.id,
-                    sequence=step.sequence,
-                    code_hash=step.code_hash,
-                    execution_plan_id=step.execution_plan_id,
-                    plan_step_id=step.plan_step_id,
-                    skill_name=step.skill_name,
-                    tool_name=step.tool_name,
-                    status=step.status,
-                    outputs=step.outputs,
-                    error_message=step.error_message,
-                    created_by_type=step.created_by_type,
-                    created_by=step.created_by,
-                    updated_by_type=step.updated_by_type,
-                    updated_by=step.updated_by,
-                    created_at=step.created_at,
-                    updated_at=step.updated_at,
-                    started_at=step.started_at,
-                    finished_at=step.finished_at,
-                )
-                for step in page.items
-            ],
-            nextCursor=page.next_cursor,
+            items=[ExecutionStepResponse.from_domain(item) for item in page.items],
+            next_cursor=page.next_cursor,
+            has_more=page.next_cursor is not None,
         )
 
 
-class ExecutionAttemptPageResponse(MCPModel):
+class ExecutionAttemptPageResponse(HTTPModel):
     items: list[ExecutionAttemptResponse]
-    nextCursor: str | None = None
+    next_cursor: str | None
+    has_more: bool
 
     @classmethod
     def from_page(cls, page: Page[ExecutionAttemptView]) -> "ExecutionAttemptPageResponse":
         return cls(
             items=[ExecutionAttemptResponse.from_view(item) for item in page.items],
-            nextCursor=page.next_cursor,
+            next_cursor=page.next_cursor,
+            has_more=page.next_cursor is not None,
         )
 
 
-class ExecutionEventResponse(MCPModel):
+class ExecutionEventResponse(HTTPModel):
     event_id: UUID
     event_type: str
     payload: dict[str, Any]
@@ -622,19 +499,21 @@ class ExecutionEventResponse(MCPModel):
         )
 
 
-class ExecutionEventPageResponse(MCPModel):
+class ExecutionEventPageResponse(HTTPModel):
     items: list[ExecutionEventResponse]
-    nextCursor: str | None = None
+    next_cursor: str | None
+    has_more: bool
 
     @classmethod
     def from_page(cls, page: Page[ExecutionEventView]) -> "ExecutionEventPageResponse":
         return cls(
             items=[ExecutionEventResponse.from_view(item) for item in page.items],
-            nextCursor=page.next_cursor,
+            next_cursor=page.next_cursor,
+            has_more=page.next_cursor is not None,
         )
 
 
-class ExecutionArtifactResponse(MCPModel):
+class ExecutionArtifactResponse(HTTPModel):
     artifact_id: UUID
     execution_id: UUID
     execution_attempt_id: UUID
@@ -690,19 +569,21 @@ class ExecutionArtifactResponse(MCPModel):
         )
 
 
-class ExecutionArtifactPageResponse(MCPModel):
+class ExecutionArtifactPageResponse(HTTPModel):
     items: list[ExecutionArtifactResponse]
-    nextCursor: str | None = None
+    next_cursor: str | None
+    has_more: bool
 
     @classmethod
     def from_page(cls, page: Page[ExecutionArtifactView]) -> "ExecutionArtifactPageResponse":
         return cls(
             items=[ExecutionArtifactResponse.from_view(item) for item in page.items],
-            nextCursor=page.next_cursor,
+            next_cursor=page.next_cursor,
+            has_more=page.next_cursor is not None,
         )
 
 
-class ExecutionTraceResponse(MCPModel):
+class ExecutionTraceResponse(HTTPModel):
     execution: ExecutionResponse
     attempts: ExecutionAttemptPageResponse
     events: ExecutionEventPageResponse
@@ -718,9 +599,11 @@ class ExecutionTraceResponse(MCPModel):
         )
 
 
-class ExecutorCapabilities(MCPModel):
+class ExecutorCapabilitiesResponse(HTTPModel):
     service: str = "executor-service"
-    protocol_revision: str = "2026-07-28"
+    api_version: str = "v1"
+    mcp_endpoint: str = "/mcp"
+    mcp_protocol_revision: str = "2026-07-28"
     mcp_tasks_supported: bool = False
     execution_modes: tuple[ExecutionMode, ...] = (
         ExecutionMode.STATIC,
@@ -735,19 +618,21 @@ class ExecutorCapabilities(MCPModel):
         JupyterPool.BATCH,
     )
     event_delivery: str = "redis-streams-via-transactional-outbox"
-    jupyter_execution_implemented: bool = True
-    implemented_execution_modes: tuple[ExecutionMode, ...] = (
-        ExecutionMode.STATIC,
-        ExecutionMode.DYNAMIC,
-    )
     failure_types: tuple[FailureType, ...] = tuple(FailureType)
     retry_strategies: tuple[RetryStrategy, ...] = tuple(RetryStrategy)
-    tools: tuple[str, ...] = (
-        "executor_get_capabilities",
-        "execution_submit",
-        "execution_get",
-        "execution_cancel",
-        "execution_retry",
-        "execution_continue",
-        "execution_finish",
-    )
+
+
+class ValidationIssue(HTTPModel):
+    location: list[str | int]
+    message: str
+    type: str
+
+
+class ErrorDetail(HTTPModel):
+    code: str
+    message: str
+    details: list[ValidationIssue] | None = None
+
+
+class ErrorResponse(HTTPModel):
+    error: ErrorDetail

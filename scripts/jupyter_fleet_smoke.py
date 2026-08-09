@@ -33,6 +33,7 @@ async def main() -> None:
                     "endpoint": "http://127.0.0.1:8888",
                     "pool": "INTERACTIVE",
                     "max_concurrent_executions": 1,
+                    "actor": {"type": "USER", "id": "fleet-operator"},
                 }
             },
         )
@@ -46,6 +47,7 @@ async def main() -> None:
                     "token": secondary_token,
                     "pool": "INTERACTIVE",
                     "max_concurrent_executions": 1,
+                    "actor": {"type": "USER", "id": "fleet-operator"},
                 }
             },
         )
@@ -62,6 +64,7 @@ async def main() -> None:
                         "idempotency_key": f"fleet-execution-{unique}-{index}",
                         "mode": "STATIC",
                         "trigger_type": "INTERACTIVE",
+                        "actor": {"type": "USER", "id": "fleet-user"},
                         "kernel_name": "python3",
                         "source": inline_source(
                             f"fleet-plan-{unique}-{index}",

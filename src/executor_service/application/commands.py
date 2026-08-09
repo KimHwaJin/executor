@@ -5,6 +5,7 @@ from typing import Any
 from uuid import UUID
 
 from executor_service.domain.enums import (
+    ActorType,
     CodeSourceType,
     ExecutionMode,
     TriggerType,
@@ -37,6 +38,8 @@ class SubmitExecutionCommand:
     session_id: str
     task_id: str
     execution_plan_id: str
+    actor_type: ActorType | None = None
+    actor_id: str | None = None
     workflow_id: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
     steps: tuple[StepSpec, ...] = ()
@@ -47,12 +50,16 @@ class CancelExecutionCommand:
     execution_id: UUID
     idempotency_key: str
     reason: str | None = None
+    actor_type: ActorType | None = None
+    actor_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class RetryExecutionCommand:
     execution_id: UUID
     idempotency_key: str
+    actor_type: ActorType | None = None
+    actor_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +68,8 @@ class ContinueExecutionCommand:
     idempotency_key: str
     expected_version: int
     step: StepSpec
+    actor_type: ActorType | None = None
+    actor_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,3 +77,5 @@ class FinishExecutionCommand:
     execution_id: UUID
     idempotency_key: str
     expected_version: int
+    actor_type: ActorType | None = None
+    actor_id: str | None = None

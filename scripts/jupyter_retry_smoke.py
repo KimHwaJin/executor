@@ -28,6 +28,7 @@ async def main() -> None:
                     "idempotency_key": f"retry-submit-{unique}",
                     "mode": "STATIC",
                     "trigger_type": "INTERACTIVE",
+                    "actor": {"type": "USER", "id": "retry-user"},
                     "kernel_name": "python3",
                     "source": inline_source(
                         f"retry-plan-{unique}",
@@ -78,6 +79,7 @@ async def main() -> None:
                 "request": {
                     "execution_id": execution_id,
                     "idempotency_key": f"retry-command-{unique}",
+                    "actor": {"type": "USER", "id": "retry-user"},
                 }
             },
         )
@@ -101,7 +103,7 @@ async def main() -> None:
         if trace_result.is_error:
             raise RuntimeError(str(trace_result.content))
         trace = trace_result.structured_content
-        attempts = trace["attempts"]
+        attempts = trace["attempts"]["items"]
         if (
             len(attempts) != 2
             or attempts[0]["failure_type"] != "TOOL_ERROR"
@@ -113,7 +115,7 @@ async def main() -> None:
             != ["SUCCEEDED", "SUCCEEDED"]
         ):
             raise RuntimeError(f"Attempt Step history is incomplete: {attempts}")
-        event_types = {event["event_type"] for event in trace["events"]}
+        event_types = {event["event_type"] for event in trace["events"]["items"]}
         required_events = {
             "execution.submitted",
             "execution.started",
@@ -125,7 +127,7 @@ async def main() -> None:
             raise RuntimeError(f"Execution event history is incomplete: {event_types}")
         retry_artifacts = [
             artifact
-            for artifact in trace["artifacts"]
+            for artifact in trace["artifacts"]["items"]
             if artifact["name"] == "retry-state.txt"
         ]
         if (
@@ -144,7 +146,7 @@ async def main() -> None:
         print("retry_from_sequence:", failed["retry_from_sequence"])
         print("same_kernel:", succeeded["kernel_id"] == original_kernel)
         print("attempts_in_trace:", len(attempts))
-        print("events_in_trace:", len(trace["events"]))
+        print("events_in_trace:", len(trace["events"]["items"]))
         print("retry_artifact_statuses:", [item["status"] for item in retry_artifacts])
 
 

@@ -37,6 +37,7 @@ async def _set_state(
                 ),
                 "server_id": server_id,
                 "desired_state": state,
+                "actor": {"type": "USER", "id": "drain-operator"},
             }
         },
     )
@@ -53,6 +54,7 @@ async def _submit(client: Client, unique: str, index: int, sleep: int) -> str:
                 "idempotency_key": f"drain-execution-{unique}-{index}",
                 "mode": "STATIC",
                 "trigger_type": "INTERACTIVE",
+                "actor": {"type": "USER", "id": "drain-user"},
                 "kernel_name": "python3",
                 "source": inline_source(
                     f"drain-plan-{unique}-{index}",
@@ -83,7 +85,7 @@ async def main() -> None:
     async with Client("http://127.0.0.1:8000/mcp") as client:
         listed = await client.call_tool("jupyter_server_list", {})
         listed_payload = listed.structured_content
-        listed_items = listed_payload.get("result", [])
+        listed_items = listed_payload.get("items", [])
         servers = {item["name"]: item for item in listed_items}
         primary = servers["local-jupyter"]
         secondary = servers.get("local-jupyter-secondary")
@@ -98,6 +100,7 @@ async def main() -> None:
                         "token": secondary_token,
                         "pool": "INTERACTIVE",
                         "max_concurrent_executions": 1,
+                        "actor": {"type": "USER", "id": "drain-operator"},
                     }
                 },
             )

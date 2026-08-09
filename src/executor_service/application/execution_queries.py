@@ -5,18 +5,21 @@ from datetime import datetime
 from typing import Any, Protocol
 from uuid import UUID
 
+from executor_service.application.pagination import Page
 from executor_service.domain.enums import (
+    ActorType,
     ArtifactStatus,
     ArtifactStorageType,
     ArtifactType,
     AttemptStatus,
+    ExecutionStatus,
     FailureType,
     KernelCleanupStatus,
     OutboxStatus,
     RetryStrategy,
     StepStatus,
 )
-from executor_service.domain.models import Execution
+from executor_service.domain.models import Execution, ExecutionStep
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,6 +34,12 @@ class ExecutionStepAttemptView:
     status: StepStatus
     outputs: list[dict[str, Any]]
     error_message: str | None
+    created_by_type: ActorType | None
+    created_by: str | None
+    updated_by_type: ActorType | None
+    updated_by: str | None
+    created_at: datetime
+    updated_at: datetime
     started_at: datetime
     finished_at: datetime | None
 
@@ -50,6 +59,12 @@ class ExecutionAttemptView:
     failure_type: FailureType | None
     retry_strategy: RetryStrategy
     kernel_cleanup_status: KernelCleanupStatus
+    created_by_type: ActorType | None
+    created_by: str | None
+    updated_by_type: ActorType | None
+    updated_by: str | None
+    created_at: datetime
+    updated_at: datetime
     started_at: datetime
     finished_at: datetime | None
     steps: tuple[ExecutionStepAttemptView, ...]
@@ -62,8 +77,13 @@ class ExecutionEventView:
     payload: dict[str, Any]
     delivery_status: OutboxStatus
     publish_attempt_count: int
+    created_by_type: ActorType | None
+    created_by: str | None
+    updated_by_type: ActorType | None
+    updated_by: str | None
     available_at: datetime
     created_at: datetime
+    updated_at: datetime
     published_at: datetime | None
     last_error: str | None
 
@@ -88,6 +108,10 @@ class ExecutionArtifactView:
     size_bytes: int | None
     checksum_sha256: str | None
     metadata: dict[str, Any]
+    created_by_type: ActorType | None
+    created_by: str | None
+    updated_by_type: ActorType | None
+    updated_by: str | None
     created_at: datetime
     updated_at: datetime
 
@@ -95,23 +119,39 @@ class ExecutionArtifactView:
 @dataclass(frozen=True, slots=True)
 class ExecutionTraceView:
     execution: Execution
-    attempts: tuple[ExecutionAttemptView, ...]
-    events: tuple[ExecutionEventView, ...]
-    artifacts: tuple[ExecutionArtifactView, ...]
+    attempts: Page[ExecutionAttemptView]
+    events: Page[ExecutionEventView]
+    artifacts: Page[ExecutionArtifactView]
 
 
 class ExecutionQueryService(Protocol):
+    async def executions(
+        self,
+        *,
+        requested_by_user_id: str | None = None,
+        project_id: str | None = None,
+        session_id: str | None = None,
+        task_id: str | None = None,
+        status: ExecutionStatus | None = None,
+        cursor: str | None = None,
+        limit: int = 100,
+    ) -> Page[Execution]: ...
+
+    async def steps(
+        self, execution_id: UUID, *, cursor: str | None = None, limit: int = 100
+    ) -> Page[ExecutionStep]: ...
+
     async def attempts(
-        self, execution_id: UUID, *, limit: int = 100
-    ) -> list[ExecutionAttemptView]: ...
+        self, execution_id: UUID, *, cursor: str | None = None, limit: int = 100
+    ) -> Page[ExecutionAttemptView]: ...
 
     async def events(
-        self, execution_id: UUID, *, limit: int = 200
-    ) -> list[ExecutionEventView]: ...
+        self, execution_id: UUID, *, cursor: str | None = None, limit: int = 200
+    ) -> Page[ExecutionEventView]: ...
 
     async def artifacts(
-        self, execution_id: UUID, *, limit: int = 500
-    ) -> list[ExecutionArtifactView]: ...
+        self, execution_id: UUID, *, cursor: str | None = None, limit: int = 500
+    ) -> Page[ExecutionArtifactView]: ...
 
     async def artifact(self, artifact_id: UUID) -> ExecutionArtifactView: ...
 

@@ -6,6 +6,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from executor_service.domain.enums import (
+    ActorType,
     CodeSourceType,
     ExecutionMode,
     ExecutionStatus,
@@ -41,6 +42,10 @@ class ExecutionStep:
     status: StepStatus = StepStatus.PENDING
     outputs: list[dict[str, Any]] = field(default_factory=list)
     error_message: str | None = None
+    created_by_type: ActorType | None = None
+    created_by: str | None = None
+    updated_by_type: ActorType | None = None
+    updated_by: str | None = None
     created_at: datetime = field(default_factory=utc_now)
     updated_at: datetime = field(default_factory=utc_now)
     started_at: datetime | None = None
@@ -65,6 +70,10 @@ class Execution:
     task_id: str
     execution_plan_id: str
     workflow_id: str | None = None
+    created_by_type: ActorType | None = None
+    created_by: str | None = None
+    updated_by_type: ActorType | None = None
+    updated_by: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
     steps: list[ExecutionStep] = field(default_factory=list)
     id: UUID = field(default_factory=uuid4)
@@ -115,9 +124,7 @@ class Execution:
     def request_retry(self) -> None:
         now = utc_now()
         if self.status != ExecutionStatus.FAILED:
-            raise InvalidStateTransitionError(
-                f"Execution {self.id} must be FAILED before retry."
-            )
+            raise InvalidStateTransitionError(f"Execution {self.id} must be FAILED before retry.")
         if not self.retryable or self.retry_strategy == RetryStrategy.NOT_RETRYABLE:
             raise InvalidStateTransitionError(
                 f"Execution {self.id} has no supported retry strategy."
@@ -143,9 +150,7 @@ class Execution:
             self.retained_kernel_until = None
             self.kernel_cleanup_status = KernelCleanupStatus.NOT_REQUIRED
         if self.retry_from_sequence is None:
-            raise InvalidStateTransitionError(
-                f"Execution {self.id} has no retry start sequence."
-            )
+            raise InvalidStateTransitionError(f"Execution {self.id} has no retry start sequence.")
         self.status = ExecutionStatus.QUEUED
         self.error_message = None
         self.finished_at = None
@@ -211,6 +216,10 @@ class OutboxEvent:
     aggregate_id: UUID
     event_type: str
     payload: dict[str, Any]
+    created_by_type: ActorType | None = None
+    created_by: str | None = None
+    updated_by_type: ActorType | None = None
+    updated_by: str | None = None
     traceparent: str | None = None
     tracestate: str | None = None
     id: UUID = field(default_factory=uuid4)
@@ -218,5 +227,6 @@ class OutboxEvent:
     attempt_count: int = 0
     available_at: datetime = field(default_factory=utc_now)
     created_at: datetime = field(default_factory=utc_now)
+    updated_at: datetime = field(default_factory=utc_now)
     published_at: datetime | None = None
     last_error: str | None = None

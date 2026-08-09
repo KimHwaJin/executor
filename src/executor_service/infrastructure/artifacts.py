@@ -134,9 +134,7 @@ class ExecutionArtifactManager:
         sequence: int,
         status: ArtifactStatus,
     ) -> list[UUID]:
-        descriptors = await asyncio.to_thread(
-            self._discover, workspace, before, status
-        )
+        descriptors = await asyncio.to_thread(self._discover, workspace, before, status)
         return await self._persist(
             descriptors,
             execution_id=execution_id,
@@ -259,9 +257,7 @@ class ExecutionArtifactManager:
             relative_path=None,
             media_type=entry.media_type,
             size_bytes=entry.size_bytes,
-            checksum_sha256=(
-                entry.checksum_sha256.lower() if entry.checksum_sha256 else None
-            ),
+            checksum_sha256=(entry.checksum_sha256.lower() if entry.checksum_sha256 else None),
             parent_artifact_id=entry.parent_artifact_id,
             external_parent_asset_id=entry.external_parent_asset_id,
             metadata=_redact({**entry.metadata, "verification": "manifest-declared"}),
@@ -376,6 +372,10 @@ class ExecutionArtifactManager:
                     checksum_sha256=descriptor.checksum_sha256,
                     artifact_metadata=descriptor.metadata,
                     identity_hash=identity_hash,
+                    created_by_type=step.updated_by_type or step.created_by_type,
+                    created_by=step.updated_by or step.created_by,
+                    updated_by_type=step.updated_by_type or step.created_by_type,
+                    updated_by=step.updated_by or step.created_by,
                 )
                 session.add(row)
                 await session.flush()
@@ -395,6 +395,10 @@ class ExecutionArtifactManager:
                         "status": descriptor.status.value,
                         "uri": descriptor.uri,
                     },
+                    created_by_type=row.created_by_type,
+                    created_by=row.created_by,
+                    updated_by_type=row.updated_by_type,
+                    updated_by=row.updated_by,
                     traceparent=carrier.traceparent,
                     tracestate=carrier.tracestate,
                 )

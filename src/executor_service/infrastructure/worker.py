@@ -121,11 +121,7 @@ class ExecutionWorker:
         return "STARTING"
 
     async def start(self) -> None:
-        if (
-            not self._settings.jupyter_enabled
-            or self._admission_loops
-            or self._maintenance_loops
-        ):
+        if not self._settings.jupyter_enabled or self._admission_loops or self._maintenance_loops:
             return
         self._settings.workspace_host_root.mkdir(parents=True, exist_ok=True)
         await self._ensure_consumer_group()
@@ -170,9 +166,7 @@ class ExecutionWorker:
         await self.begin_drain()
         if self._jobs:
             try:
-                async with asyncio.timeout(
-                    self._settings.execution_drain_timeout_seconds
-                ):
+                async with asyncio.timeout(self._settings.execution_drain_timeout_seconds):
                     await self._jobs_idle.wait()
             except TimeoutError:
                 logger.warning(
@@ -498,9 +492,7 @@ class ExecutionWorker:
         with self._tracing.span(name, attributes=attributes):
             return await operation
 
-    async def _run_execution_impl(
-        self, execution_id: UUID, pool: JupyterPool
-    ) -> None:
+    async def _run_execution_impl(self, execution_id: UUID, pool: JupyterPool) -> None:
         async with self._pool_activity(pool):
             claimed = await self._claim(execution_id)
             if claimed is None:
@@ -511,9 +503,7 @@ class ExecutionWorker:
                 return
             gateway = JupyterGateway(
                 server.endpoint,
-                self._registry.resolve_token(
-                    server.credential_ref, server.credential_ciphertext
-                ),
+                self._registry.resolve_token(server.credential_ref, server.credential_ciphertext),
                 self._settings.jupyter_request_timeout_seconds,
             )
             kernel_id: str | None = None
@@ -553,9 +543,7 @@ class ExecutionWorker:
                     name=f"heartbeat-{execution.id}",
                 )
                 all_outputs: list[list[dict[str, object]]] = [
-                    step.outputs
-                    for step in execution.steps
-                    if step.sequence < start_sequence
+                    step.outputs for step in execution.steps if step.sequence < start_sequence
                 ]
                 execution_counts: list[int | None] = [None] * len(all_outputs)
                 for sequence in range(start_sequence, len(cells)):
@@ -607,9 +595,7 @@ class ExecutionWorker:
                         raise
                     all_outputs.append(result.outputs)
                     execution_counts.append(result.execution_count)
-                    await self._step_succeeded(
-                        execution.id, attempt_id, sequence, result.outputs
-                    )
+                    await self._step_succeeded(execution.id, attempt_id, sequence, result.outputs)
                     self._workspace.write_notebook(
                         workspace, cells[: sequence + 1], all_outputs, execution_counts
                     )
@@ -655,9 +641,7 @@ class ExecutionWorker:
                         async with asyncio.timeout(
                             self._settings.execution_shutdown_cleanup_seconds
                         ):
-                            cleanup_status = await _best_effort_kernel_stop(
-                                gateway, kernel_id
-                            )
+                            cleanup_status = await _best_effort_kernel_stop(gateway, kernel_id)
                     except TimeoutError:
                         cleanup_status = KernelCleanupStatus.FAILED
                         logger.warning(
@@ -746,14 +730,12 @@ class ExecutionWorker:
                 execution_row.lease_owner = self._consumer_name
                 execution_row.lease_expires_at = lease_expires
                 execution_row.heartbeat_at = now
-                execution_row.execution_expires_at = (
-                    execution_row.execution_expires_at
-                    or (execution_row.started_at or now)
-                    + timedelta(seconds=self._settings.execution_max_runtime_seconds)
-                )
+                execution_row.execution_expires_at = execution_row.execution_expires_at or (
+                    execution_row.started_at or now
+                ) + timedelta(seconds=self._settings.execution_max_runtime_seconds)
                 execution_row.updated_at = now
                 execution_row.version += 1
-                _add_outbox(
+                await _add_outbox(
                     session,
                     execution_id,
                     "execution.resumed",
@@ -810,6 +792,14 @@ class ExecutionWorker:
                     lease_owner=self._consumer_name,
                     lease_expires_at=lease_expires,
                     heartbeat_at=now,
+                    created_by_type=(
+                        execution_row.updated_by_type or execution_row.created_by_type
+                    ),
+                    created_by=execution_row.updated_by or execution_row.created_by,
+                    updated_by_type=(
+                        execution_row.updated_by_type or execution_row.created_by_type
+                    ),
+                    updated_by=execution_row.updated_by or execution_row.created_by,
                     started_at=now,
                 )
             )
@@ -822,8 +812,7 @@ class ExecutionWorker:
             execution_row.started_at = started_at
             execution_row.execution_expires_at = (
                 execution_row.execution_expires_at
-                or started_at
-                + timedelta(seconds=self._settings.execution_max_runtime_seconds)
+                or started_at + timedelta(seconds=self._settings.execution_max_runtime_seconds)
             )
             execution_row.error_message = None
             execution_row.failure_type = None
@@ -832,7 +821,7 @@ class ExecutionWorker:
             execution_row.kernel_cleanup_status = KernelCleanupStatus.NOT_REQUIRED
             execution_row.updated_at = now
             execution_row.version += 1
-            _add_outbox(session, execution_id, "execution.started", ExecutionStatus.RUNNING)
+            await _add_outbox(session, execution_id, "execution.started", ExecutionStatus.RUNNING)
             return execution_row.to_domain(), server, attempt_id
 
     async def _select_server(
@@ -856,9 +845,7 @@ class ExecutionWorker:
             running = await session.scalar(
                 select(func.count(ExecutionAttemptORM.id)).where(
                     ExecutionAttemptORM.jupyter_server_id == server.id,
-                    ExecutionAttemptORM.status.in_(
-                        [AttemptStatus.RUNNING, AttemptStatus.WAITING]
-                    ),
+                    ExecutionAttemptORM.status.in_([AttemptStatus.RUNNING, AttemptStatus.WAITING]),
                 )
             )
             retained = await session.scalar(
@@ -888,9 +875,7 @@ class ExecutionWorker:
             if kernel_id is None:
                 kernel_id = await self._trace_jupyter(
                     "executor.jupyter.kernel.start",
-                    gateway.start_kernel(
-                        execution.kernel_name, workspace.jupyter_relative_path
-                    ),
+                    gateway.start_kernel(execution.kernel_name, workspace.jupyter_relative_path),
                     execution_id=execution.id,
                     server_id=server.id,
                 )
@@ -968,9 +953,7 @@ class ExecutionWorker:
                     execution.id, attempt_id, pending.sequence, StepStatus.FAILED
                 )
                 return
-            await self._step_succeeded(
-                execution.id, attempt_id, pending.sequence, result.outputs
-            )
+            await self._step_succeeded(execution.id, attempt_id, pending.sequence, result.outputs)
             await self._write_dynamic_notebook(execution.id, workspace)
             try:
                 await self._artifacts.discover_and_register(
@@ -1047,9 +1030,7 @@ class ExecutionWorker:
         now = utc_now()
         async with self._session_factory() as session, session.begin():
             execution = await session.scalar(
-                select(ExecutionORM)
-                .where(ExecutionORM.id == execution_id)
-                .with_for_update()
+                select(ExecutionORM).where(ExecutionORM.id == execution_id).with_for_update()
             )
             if execution is None or execution.status != ExecutionStatus.RUNNING:
                 return
@@ -1075,7 +1056,7 @@ class ExecutionWorker:
                     lease_expires_at=None,
                 )
             )
-            _add_outbox(
+            await _add_outbox(
                 session,
                 execution_id,
                 (
@@ -1144,9 +1125,7 @@ class ExecutionWorker:
                 .values(kernel_id=kernel_id)
             )
 
-    async def _step_started(
-        self, execution_id: UUID, attempt_id: UUID, sequence: int
-    ) -> None:
+    async def _step_started(self, execution_id: UUID, attempt_id: UUID, sequence: int) -> None:
         now = utc_now()
         async with self._session_factory() as session, session.begin():
             step = await session.scalar(
@@ -1178,6 +1157,10 @@ class ExecutionWorker:
                         input_parameters=step.input_parameters,
                         status=StepStatus.RUNNING,
                         outputs=[],
+                        created_by_type=step.updated_by_type or step.created_by_type,
+                        created_by=step.updated_by or step.created_by,
+                        updated_by_type=step.updated_by_type or step.created_by_type,
+                        updated_by=step.updated_by or step.created_by,
                         started_at=now,
                     )
                 )
@@ -1293,21 +1276,17 @@ class ExecutionWorker:
     ) -> None:
         try:
             async with self._session_factory() as session, session.begin():
-                carrier = capture_trace_carrier()
-                event = OutboxEvent(
-                    aggregate_type="Execution",
-                    aggregate_id=execution_id,
-                    event_type="execution.artifact_failed",
-                    payload={
-                        "execution_id": str(execution_id),
+                await _add_outbox(
+                    session,
+                    execution_id,
+                    "execution.artifact_failed",
+                    ExecutionStatus.RUNNING,
+                    {
                         "execution_attempt_id": str(attempt_id),
                         "sequence": sequence,
                         "error_type": type(error).__name__,
                     },
-                    traceparent=carrier.traceparent,
-                    tracestate=carrier.tracestate,
                 )
-                session.add(OutboxEventORM.from_domain(event))
         except Exception:
             # Never replace the original execution or Artifact error with telemetry failure.
             logger.exception(
@@ -1343,9 +1322,7 @@ class ExecutionWorker:
             attempt_status = AttemptStatus(status.value)
             is_failed = status == ExecutionStatus.FAILED
             effective_failure_type = failure_type if is_failed else None
-            effective_retry_strategy = (
-                retry_strategy if is_failed else RetryStrategy.NOT_RETRYABLE
-            )
+            effective_retry_strategy = retry_strategy if is_failed else RetryStrategy.NOT_RETRYABLE
             execution.status = status
             execution.error_message = error_message if is_failed else None
             execution.failure_type = effective_failure_type
@@ -1362,16 +1339,12 @@ class ExecutionWorker:
             elif effective_retry_strategy == RetryStrategy.FROM_START:
                 execution.retry_from_sequence = 0
             execution.retained_kernel_until = (
-                now
-                + timedelta(seconds=self._settings.failed_kernel_retention_seconds)
+                now + timedelta(seconds=self._settings.failed_kernel_retention_seconds)
                 if is_failed and retain_kernel
                 else None
             )
             execution.kernel_cleanup_status = kernel_cleanup_status
-            if (
-                not retain_kernel
-                and kernel_cleanup_status == KernelCleanupStatus.SUCCEEDED
-            ):
+            if not retain_kernel and kernel_cleanup_status == KernelCleanupStatus.SUCCEEDED:
                 execution.kernel_id = None
             execution.version += 1
             await session.execute(
@@ -1420,7 +1393,7 @@ class ExecutionWorker:
                         finished_at=now,
                     )
                 )
-            _add_outbox(
+            await _add_outbox(
                 session,
                 execution_id,
                 f"execution.{status.value.lower()}",
@@ -1449,9 +1422,7 @@ class ExecutionWorker:
         if server is not None and kernel_id is not None:
             gateway = JupyterGateway(
                 server.endpoint,
-                self._registry.resolve_token(
-                    server.credential_ref, server.credential_ciphertext
-                ),
+                self._registry.resolve_token(server.credential_ref, server.credential_ciphertext),
                 self._settings.jupyter_request_timeout_seconds,
             )
             try:
@@ -1486,9 +1457,7 @@ class ExecutionWorker:
                 update(ExecutionAttemptORM)
                 .where(
                     ExecutionAttemptORM.execution_id == execution_id,
-                    ExecutionAttemptORM.status.in_(
-                        [AttemptStatus.RUNNING, AttemptStatus.WAITING]
-                    ),
+                    ExecutionAttemptORM.status.in_([AttemptStatus.RUNNING, AttemptStatus.WAITING]),
                 )
                 .values(
                     status=AttemptStatus.CANCELLED,
@@ -1514,7 +1483,7 @@ class ExecutionWorker:
                 )
                 .values(status=StepStatus.CANCELLED, finished_at=now)
             )
-            _add_outbox(
+            await _add_outbox(
                 session,
                 execution_id,
                 "execution.cancelled",
@@ -1582,9 +1551,7 @@ class ExecutionWorker:
                 continue
             gateway = JupyterGateway(
                 server.endpoint,
-                self._registry.resolve_token(
-                    server.credential_ref, server.credential_ciphertext
-                ),
+                self._registry.resolve_token(server.credential_ref, server.credential_ciphertext),
                 self._settings.jupyter_request_timeout_seconds,
             )
             try:
@@ -1610,9 +1577,7 @@ class ExecutionWorker:
                 await session.scalars(
                     select(ExecutionORM)
                     .where(
-                        ExecutionORM.status.in_(
-                            [ExecutionStatus.QUEUED, ExecutionStatus.RUNNING]
-                        ),
+                        ExecutionORM.status.in_([ExecutionStatus.QUEUED, ExecutionStatus.RUNNING]),
                         ExecutionORM.execution_expires_at.is_not(None),
                         ExecutionORM.execution_expires_at <= now,
                     )
@@ -1626,7 +1591,7 @@ class ExecutionWorker:
                 execution.updated_at = now
                 execution.version += 1
                 expired_ids.append(execution.id)
-                _add_outbox(
+                await _add_outbox(
                     session,
                     execution.id,
                     "execution.timeout_requested",
@@ -1651,9 +1616,7 @@ class ExecutionWorker:
         cleanup_target: tuple[UUID, UUID | None, UUID, str] | None = None
         async with self._session_factory() as session, session.begin():
             execution = await session.scalar(
-                select(ExecutionORM)
-                .where(ExecutionORM.id == execution_id)
-                .with_for_update()
+                select(ExecutionORM).where(ExecutionORM.id == execution_id).with_for_update()
             )
             if (
                 execution is None
@@ -1714,7 +1677,7 @@ class ExecutionWorker:
                     execution.jupyter_server_id,
                     expected_kernel_id,
                 )
-            _add_outbox(
+            await _add_outbox(
                 session,
                 execution.id,
                 "execution.failed",
@@ -1838,7 +1801,7 @@ class ExecutionWorker:
                     )
                     .values(status=StepStatus.SKIPPED, finished_at=now, updated_at=now)
                 )
-                _add_outbox(
+                await _add_outbox(
                     session,
                     execution.id,
                     "execution.failed",
@@ -1852,9 +1815,7 @@ class ExecutionWorker:
                     },
                 )
         for execution_id, attempt_id, server_id, kernel_id in cleanup_targets:
-            await self._cleanup_abandoned_kernel(
-                execution_id, attempt_id, server_id, kernel_id
-            )
+            await self._cleanup_abandoned_kernel(execution_id, attempt_id, server_id, kernel_id)
 
     async def _cleanup_abandoned_kernel(
         self,
@@ -1872,9 +1833,7 @@ class ExecutionWorker:
             return
         gateway = JupyterGateway(
             server.endpoint,
-            self._registry.resolve_token(
-                server.credential_ref, server.credential_ciphertext
-            ),
+            self._registry.resolve_token(server.credential_ref, server.credential_ciphertext),
             self._settings.jupyter_request_timeout_seconds,
         )
         try:
@@ -1889,9 +1848,7 @@ class ExecutionWorker:
             cleanup_status = KernelCleanupStatus.SUCCEEDED
         finally:
             await gateway.close()
-        await self._record_cleanup_result(
-            execution_id, attempt_id, kernel_id, cleanup_status
-        )
+        await self._record_cleanup_result(execution_id, attempt_id, kernel_id, cleanup_status)
 
     async def _record_cleanup_result(
         self,
@@ -1910,9 +1867,7 @@ class ExecutionWorker:
                 )
                 .values(
                     kernel_id=(
-                        None
-                        if cleanup_status == KernelCleanupStatus.SUCCEEDED
-                        else kernel_id
+                        None if cleanup_status == KernelCleanupStatus.SUCCEEDED else kernel_id
                     ),
                     kernel_cleanup_status=cleanup_status,
                     updated_at=utc_now(),
@@ -1926,7 +1881,7 @@ class ExecutionWorker:
                     .values(kernel_cleanup_status=cleanup_status)
                 )
             if getattr(execution_update, "rowcount", None) == 1:
-                _add_outbox(
+                await _add_outbox(
                     session,
                     execution_id,
                     (
@@ -1959,9 +1914,7 @@ class ExecutionWorker:
         for execution, server in rows:
             gateway = JupyterGateway(
                 server.endpoint,
-                self._registry.resolve_token(
-                    server.credential_ref, server.credential_ciphertext
-                ),
+                self._registry.resolve_token(server.credential_ref, server.credential_ciphertext),
                 self._settings.jupyter_request_timeout_seconds,
             )
             cleanup_status = KernelCleanupStatus.SUCCEEDED
@@ -1978,9 +1931,7 @@ class ExecutionWorker:
                 await gateway.close()
             async with self._session_factory() as update_session, update_session.begin():
                 current = await update_session.scalar(
-                    select(ExecutionORM)
-                    .where(ExecutionORM.id == execution.id)
-                    .with_for_update()
+                    select(ExecutionORM).where(ExecutionORM.id == execution.id).with_for_update()
                 )
                 if (
                     current is None
@@ -2011,7 +1962,7 @@ class ExecutionWorker:
                         .where(ExecutionAttemptORM.id == latest_attempt_id)
                         .values(kernel_cleanup_status=cleanup_status)
                     )
-                _add_outbox(
+                await _add_outbox(
                     update_session,
                     current.id,
                     "execution.retry_window_expired",
@@ -2020,13 +1971,28 @@ class ExecutionWorker:
                 )
 
 
-def _add_outbox(
+async def _add_outbox(
     session: AsyncSession,
     execution_id: UUID,
     event_type: str,
     status: ExecutionStatus,
     details: dict[str, object] | None = None,
 ) -> None:
+    actor_row = (
+        await session.execute(
+            select(
+                ExecutionORM.updated_by_type,
+                ExecutionORM.updated_by,
+                ExecutionORM.created_by_type,
+                ExecutionORM.created_by,
+            ).where(ExecutionORM.id == execution_id)
+        )
+    ).one_or_none()
+    actor_type = None
+    actor_id = None
+    if actor_row is not None:
+        actor_type = actor_row.updated_by_type or actor_row.created_by_type
+        actor_id = actor_row.updated_by or actor_row.created_by
     payload: dict[str, object] = {
         "execution_id": str(execution_id),
         "status": status.value,
@@ -2039,6 +2005,10 @@ def _add_outbox(
         aggregate_id=execution_id,
         event_type=event_type,
         payload=payload,
+        created_by_type=actor_type,
+        created_by=actor_id,
+        updated_by_type=actor_type,
+        updated_by=actor_id,
         traceparent=carrier.traceparent,
         tracestate=carrier.tracestate,
     )
@@ -2079,9 +2049,7 @@ def _valid_uuid_or_empty(value: str | None) -> str:
         return ""
 
 
-def _failure_policy(
-    exc: Exception, retain_kernel: bool
-) -> tuple[FailureType, RetryStrategy]:
+def _failure_policy(exc: Exception, retain_kernel: bool) -> tuple[FailureType, RetryStrategy]:
     if isinstance(exc, JupyterExecutionError) and retain_kernel:
         return FailureType.TOOL_ERROR, RetryStrategy.FROM_FAILED_STEP
     if isinstance(exc, JupyterGatewayError):
@@ -2095,9 +2063,7 @@ def _safe_error(exc: Exception) -> str:
     return f"{type(exc).__name__}: execution failed"[:2000]
 
 
-async def _best_effort_kernel_stop(
-    gateway: JupyterGateway, kernel_id: str
-) -> KernelCleanupStatus:
+async def _best_effort_kernel_stop(gateway: JupyterGateway, kernel_id: str) -> KernelCleanupStatus:
     try:
         await gateway.interrupt_kernel(kernel_id)
         await gateway.delete_kernel(kernel_id)

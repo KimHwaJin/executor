@@ -21,6 +21,7 @@ SUBMIT_ARGUMENTS: dict[str, Any] = {
         "idempotency_key": "mcp-submit-1",
         "mode": "STATIC",
         "trigger_type": "INTERACTIVE",
+        "actor": {"type": "USER", "id": "user-1"},
         "kernel_name": "python-analysis-a",
         "source": {
             "type": "INLINE",
@@ -106,6 +107,7 @@ async def test_mcp_client_can_list_and_call_execution_tools(
                     "execution_id": execution_id,
                     "idempotency_key": "mcp-cancel-1",
                     "reason": "integration test",
+                    "actor": {"type": "USER", "id": "user-1"},
                 }
             },
         )
@@ -130,6 +132,7 @@ async def test_mcp_client_can_query_execution_trace(
         tool_names = {tool.name for tool in listed.tools}
         assert {
             "execution_attempt_list",
+            "execution_step_list",
             "execution_artifact_get",
             "execution_artifact_list",
             "execution_event_list",
@@ -138,14 +141,53 @@ async def test_mcp_client_can_query_execution_trace(
 
         submitted = await client.call_tool("execution_submit", SUBMIT_ARGUMENTS)
         execution_id = submitted.structured_content["execution_id"]
-        trace = await client.call_tool(
-            "execution_trace_get", {"execution_id": execution_id}
-        )
+        trace = await client.call_tool("execution_trace_get", {"execution_id": execution_id})
 
         assert not trace.is_error
         assert trace.structured_content["execution"]["execution_id"] == execution_id
-        assert trace.structured_content["attempts"] == []
-        assert trace.structured_content["events"][0]["event_type"] == "execution.submitted"
+        assert trace.structured_content["attempts"]["items"] == []
+        assert trace.structured_content["events"]["items"][0]["event_type"] == "execution.submitted"
+
+
+async def test_mcp_execution_list_uses_opaque_next_cursor(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+    tmp_path: Path,
+) -> None:
+    queries = SQLAlchemyExecutionQueryService(create_session_factory(engine))
+    server = build_mcp_server(
+        execution_service,
+        execution_queries=queries,
+        execution_spec_resolver=ExecutionSpecResolver(tmp_path),
+    )
+    arguments = deepcopy(SUBMIT_ARGUMENTS)
+
+    async with Client(server) as client:
+        submitted_ids: set[str] = set()
+        for index in range(2):
+            arguments["request"]["idempotency_key"] = f"mcp-page-{index}"
+            arguments["request"]["source"]["spec"]["execution_plan_id"] = (
+                f"mcp-page-plan-{index}"
+            )
+            submitted = await client.call_tool("execution_submit", arguments)
+            submitted_ids.add(submitted.structured_content["execution_id"])
+
+        first = await client.call_tool("execution_list", {"limit": 1})
+        assert not first.is_error
+        assert len(first.structured_content["items"]) == 1
+        cursor = first.structured_content["nextCursor"]
+        assert cursor
+
+        second = await client.call_tool(
+            "execution_list", {"limit": 1, "cursor": cursor}
+        )
+        assert not second.is_error
+        returned_ids = {
+            first.structured_content["items"][0]["execution_id"],
+            second.structured_content["items"][0]["execution_id"],
+        }
+        assert returned_ids == submitted_ids
+        assert second.structured_content["nextCursor"] is None
 
 
 async def test_execution_submit_reads_path_spec_and_derives_batch_pool(
@@ -161,6 +203,7 @@ async def test_execution_submit_reads_path_spec_and_derives_batch_pool(
     arguments = deepcopy(SUBMIT_ARGUMENTS)
     arguments["request"]["idempotency_key"] = "mcp-path-submit-1"
     arguments["request"]["trigger_type"] = "BATCH"
+    arguments["request"]["actor"] = {"type": "BATCH", "id": "batch-1"}
     arguments["request"]["source"] = {
         "type": "PATH",
         "path": "plans/batch.execution.json",
@@ -210,6 +253,7 @@ async def test_dynamic_continue_accepts_next_inline_execution_spec(
                     "execution_id": execution_id,
                     "idempotency_key": "mcp-dynamic-continue-1",
                     "expected_version": 2,
+                    "actor": {"type": "USER", "id": "user-1"},
                     "source": {
                         "type": "INLINE",
                         "spec": {
