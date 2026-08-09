@@ -108,8 +108,8 @@ reusable across all projects owned by the same user or only within its source pr
 Executor now connects its spans to the Agent trace through W3C trace context and exports with the
 vendor-neutral OpenTelemetry OTLP/HTTP protocol. The context survives the asynchronous boundary by
 being persisted on Execution and Outbox Event rows and carried in Redis Stream fields. PostgreSQL
-reconciliation falls back to the Execution context. Phoenix remains optional and is not included in
-`/readyz`; Prometheus `/metrics` remains available independently.
+reconciliation falls back to the Execution context. Phoenix remains optional and is not included
+in `/readyz`.
 
 The implementation records explicit bounded attributes only. Jupyter tokens, generated code
 bodies, cell outputs, dataset content, database/Redis credentials, query statements, OTLP header

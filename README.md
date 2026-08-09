@@ -31,7 +31,7 @@ consumer worker executes STATIC plans or one-cell-at-a-time DYNAMIC plans in Jup
 - Durable `.ipynb` output and execution-scoped artifact directories on the shared PV
 - W3C trace-context propagation across HTTP/MCP, PostgreSQL Outbox, Redis Streams, Worker,
   and Jupyter operations with optional OTLP export to Arize Phoenix
-- `/healthz`, `/readyz`, and Prometheus `/metrics`, including Outbox/Stream lag and Worker jobs
+- `/healthz` and `/readyz` operational endpoints
 - PostgreSQL, Redis, INTERACTIVE/BATCH `jupyter/datascience-notebook` fleets, and opt-in Phoenix
   through Docker Compose
 
@@ -80,7 +80,6 @@ Operational endpoints:
 - MCP: `http://127.0.0.1:8000/mcp`
 - liveness: `http://127.0.0.1:8000/healthz`
 - readiness (PostgreSQL, Redis, Jupyter): `http://127.0.0.1:8000/readyz`
-- Prometheus: `http://127.0.0.1:8000/metrics`
 
 ### Phoenix tracing
 
@@ -253,10 +252,10 @@ retained retry kernels remain attached, while new work is excluded from that ser
 sets `drain_complete=true` after its active/reserved count reaches zero. `ACTIVE` probes the server
 before allowing new work again; `remove` is the separate operation for durable disablement.
 
-Pool-level metrics expose enabled servers by status, schedulable ACTIVE capacity, current usage,
-queued requests, and currently processing Worker handlers. Capacity usage includes
-running/waiting Attempts and retained retry kernels, including work draining from a server; it can
-temporarily exceed currently schedulable capacity during maintenance. See
+`jupyter_server_list` exposes server status, configured capacity, active execution count, and
+observed kernel count. Capacity usage includes running/waiting Attempts and retained retry kernels,
+including work draining from a server; it can temporarily exceed currently schedulable capacity
+during maintenance. See
 [Jupyter Pool Operations](docs/jupyter-pools.md) for registration, scale-up, drain, and local E2E
 procedures.
 
@@ -300,7 +299,7 @@ same PostgreSQL state guards. Malformed messages and unsupported aggregate/event
 acknowledged only after sanitized metadata is written to `REDIS_DEAD_LETTER_STREAM`. Valid
 non-command `execution.*` notifications are intentionally acknowledged without dispatch because
 the Agent consumer group still needs those events. See [Event Delivery](docs/event-delivery.md)
-for the ACK, reclaim, DLQ, and metric contract.
+for the ACK, reclaim, and DLQ contract.
 
 Active attempts renew a PostgreSQL lease. A dynamic Attempt in
 `WAITING_FOR_NEXT_STEP` releases its worker lease but keeps its kernel reservation, so it counts

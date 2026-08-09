@@ -57,21 +57,6 @@ There is no automatic DLQ replay. PostgreSQL reconciliation already recovers val
 For producer defects, fix the producer and create a new durable command rather than copying an
 untrusted DLQ entry back to the primary Stream.
 
-## Prometheus metrics
-
-- `executor_outbox_pending_events`
-- `executor_outbox_oldest_pending_age_seconds`
-- `executor_stream_messages_total{outcome=...}`
-- `executor_stream_reclaimed_messages_total`
-- `executor_stream_dead_lettered_messages_total{reason=...}`
-- `executor_stream_pending_messages`
-- `executor_stream_consumer_lag`
-- `executor_worker_active_jobs`
-
-Alert candidates are a steadily increasing oldest Outbox age, non-zero consumer lag that does not
-drain, repeated reclaim growth, or any DLQ increase. Exact alert thresholds belong to the deployment
-because batch volume and available Jupyter capacity vary.
-
 ## Retention boundary
 
 Executor does not trim the primary Stream. Agent-owned consumer groups may be slower or may retain

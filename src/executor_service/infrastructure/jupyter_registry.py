@@ -37,12 +37,6 @@ from executor_service.infrastructure.db.models import (
     JupyterServerORM,
 )
 from executor_service.infrastructure.jupyter import JupyterGateway
-from executor_service.observability import (
-    JUPYTER_POOL_CAPACITY,
-    JUPYTER_POOL_CAPACITY_USED,
-    JUPYTER_POOL_QUEUED,
-    JUPYTER_POOL_SERVERS,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +102,6 @@ class JupyterServerRegistry:
         if self._monitor_task is not None:
             return
         self._stop_event.clear()
-        await self.refresh_pool_metrics()
         self._monitor_task = asyncio.create_task(
             self._monitor_loop(), name="jupyter-fleet-health-monitor"
         )
@@ -192,7 +185,6 @@ class JupyterServerRegistry:
                 statement = statement.where(JupyterServerORM.pool == pool)
             servers = list(await session.scalars(statement))
             views = [await self._to_view(session, server) for server in servers]
-        await self.refresh_pool_metrics()
         return views
 
     async def get(self, server_id: UUID) -> JupyterServerView:
@@ -322,66 +314,6 @@ class JupyterServerRegistry:
             )
             return bool(count)
 
-    async def refresh_pool_metrics(self) -> None:
-        now = utc_now()
-        async with self._session_factory() as session:
-            for pool in JupyterPool:
-                for status in JupyterServerStatus:
-                    server_count = await session.scalar(
-                        select(func.count(JupyterServerORM.id)).where(
-                            JupyterServerORM.pool == pool,
-                            JupyterServerORM.status == status,
-                            JupyterServerORM.enabled.is_(True),
-                        )
-                    )
-                    JUPYTER_POOL_SERVERS.labels(
-                        pool=pool.value, status=status.value
-                    ).set(server_count or 0)
-                capacity = await session.scalar(
-                    select(func.sum(JupyterServerORM.max_concurrent_executions)).where(
-                        JupyterServerORM.pool == pool,
-                        JupyterServerORM.status == JupyterServerStatus.ACTIVE,
-                        JupyterServerORM.enabled.is_(True),
-                    )
-                )
-                active = await session.scalar(
-                    select(func.count(ExecutionAttemptORM.id))
-                    .join(
-                        JupyterServerORM,
-                        JupyterServerORM.id == ExecutionAttemptORM.jupyter_server_id,
-                    )
-                    .where(
-                        JupyterServerORM.pool == pool,
-                        ExecutionAttemptORM.status.in_(
-                            [AttemptStatus.RUNNING, AttemptStatus.WAITING]
-                        ),
-                    )
-                )
-                retained = await session.scalar(
-                    select(func.count(ExecutionORM.id))
-                    .join(
-                        JupyterServerORM,
-                        JupyterServerORM.id == ExecutionORM.jupyter_server_id,
-                    )
-                    .where(
-                        JupyterServerORM.pool == pool,
-                        ExecutionORM.status == ExecutionStatus.FAILED,
-                        ExecutionORM.retryable.is_(True),
-                        ExecutionORM.retained_kernel_until > now,
-                    )
-                )
-                queued = await session.scalar(
-                    select(func.count(ExecutionORM.id)).where(
-                        ExecutionORM.jupyter_pool == pool,
-                        ExecutionORM.status == ExecutionStatus.QUEUED,
-                    )
-                )
-                JUPYTER_POOL_CAPACITY.labels(pool=pool.value).set(capacity or 0)
-                JUPYTER_POOL_CAPACITY_USED.labels(pool=pool.value).set(
-                    (active or 0) + (retained or 0)
-                )
-                JUPYTER_POOL_QUEUED.labels(pool=pool.value).set(queued or 0)
-
     def resolve_token(self, credential_ref: str, credential_ciphertext: str | None) -> str:
         if credential_ref == "settings:JUPYTER_TOKEN":
             return self._settings.jupyter_auth_token
@@ -416,7 +348,6 @@ class JupyterServerRegistry:
                             "Jupyter server health update failed",
                             extra={"server_id": server_id},
                         )
-                await self.refresh_pool_metrics()
             except asyncio.CancelledError:
                 raise
             except Exception:

@@ -40,7 +40,6 @@ from executor_service.interfaces.mcp.schemas import (
     JupyterServerSetStateRequest,
     JupyterServerUpsertRequest,
 )
-from executor_service.observability import MCP_TOOL_CALLS
 from executor_service.tracing import TracingManager
 
 
@@ -73,7 +72,6 @@ def build_mcp_server(
 
     @server.tool(description="Return executor protocol and runtime capabilities.")
     async def executor_get_capabilities() -> ExecutorCapabilities:
-        MCP_TOOL_CALLS.labels(tool="executor_get_capabilities", outcome="success").inc()
         management_tools: tuple[str, ...] = ()
         if jupyter_manager is not None:
             management_tools = (
@@ -111,9 +109,7 @@ def build_mcp_server(
                 execution_service.submit(request.to_command()),
             )
         except DomainError as exc:
-            MCP_TOOL_CALLS.labels(tool="execution_submit", outcome="error").inc()
             raise ToolError(str(exc)) from exc
-        MCP_TOOL_CALLS.labels(tool="execution_submit", outcome="success").inc()
         return ExecutionResponse.from_domain(execution)
 
     @server.tool(description="Get the PostgreSQL-backed current execution state.")
@@ -126,9 +122,7 @@ def build_mcp_server(
                 {"executor.execution.id": str(execution_id)},
             )
         except DomainError as exc:
-            MCP_TOOL_CALLS.labels(tool="execution_get", outcome="error").inc()
             raise ToolError(str(exc)) from exc
-        MCP_TOOL_CALLS.labels(tool="execution_get", outcome="success").inc()
         return ExecutionResponse.from_domain(execution)
 
     @server.tool(
@@ -152,9 +146,7 @@ def build_mcp_server(
                 {"executor.execution.id": str(request.execution_id)},
             )
         except DomainError as exc:
-            MCP_TOOL_CALLS.labels(tool="execution_cancel", outcome="error").inc()
             raise ToolError(str(exc)) from exc
-        MCP_TOOL_CALLS.labels(tool="execution_cancel", outcome="success").inc()
         return ExecutionResponse.from_domain(execution)
 
     @server.tool(
@@ -177,9 +169,7 @@ def build_mcp_server(
                 {"executor.execution.id": str(request.execution_id)},
             )
         except DomainError as exc:
-            MCP_TOOL_CALLS.labels(tool="execution_retry", outcome="error").inc()
             raise ToolError(str(exc)) from exc
-        MCP_TOOL_CALLS.labels(tool="execution_retry", outcome="success").inc()
         return ExecutionResponse.from_domain(execution)
 
     @server.tool(
@@ -214,9 +204,7 @@ def build_mcp_server(
                 },
             )
         except DomainError as exc:
-            MCP_TOOL_CALLS.labels(tool="execution_continue", outcome="error").inc()
             raise ToolError(str(exc)) from exc
-        MCP_TOOL_CALLS.labels(tool="execution_continue", outcome="success").inc()
         return ExecutionResponse.from_domain(execution)
 
     @server.tool(
@@ -239,9 +227,7 @@ def build_mcp_server(
                 {"executor.execution.id": str(request.execution_id)},
             )
         except DomainError as exc:
-            MCP_TOOL_CALLS.labels(tool="execution_finish", outcome="error").inc()
             raise ToolError(str(exc)) from exc
-        MCP_TOOL_CALLS.labels(tool="execution_finish", outcome="success").inc()
         return ExecutionResponse.from_domain(execution)
 
     if execution_queries is not None:
@@ -260,13 +246,7 @@ def build_mcp_server(
                     execution_id, limit=max(1, min(limit, 200))
                 )
             except DomainError as exc:
-                MCP_TOOL_CALLS.labels(
-                    tool="execution_attempt_list", outcome="error"
-                ).inc()
                 raise ToolError(str(exc)) from exc
-            MCP_TOOL_CALLS.labels(
-                tool="execution_attempt_list", outcome="success"
-            ).inc()
             return [ExecutionAttemptResponse.from_view(view) for view in views]
 
         @server.tool(
@@ -283,13 +263,7 @@ def build_mcp_server(
                     execution_id, limit=max(1, min(limit, 500))
                 )
             except DomainError as exc:
-                MCP_TOOL_CALLS.labels(
-                    tool="execution_event_list", outcome="error"
-                ).inc()
                 raise ToolError(str(exc)) from exc
-            MCP_TOOL_CALLS.labels(
-                tool="execution_event_list", outcome="success"
-            ).inc()
             return [ExecutionEventResponse.from_view(view) for view in views]
 
         @server.tool(
@@ -302,13 +276,7 @@ def build_mcp_server(
             try:
                 view = await execution_queries.trace(execution_id)
             except DomainError as exc:
-                MCP_TOOL_CALLS.labels(
-                    tool="execution_trace_get", outcome="error"
-                ).inc()
                 raise ToolError(str(exc)) from exc
-            MCP_TOOL_CALLS.labels(
-                tool="execution_trace_get", outcome="success"
-            ).inc()
             return ExecutionTraceResponse.from_view(view)
 
         @server.tool(
@@ -325,13 +293,7 @@ def build_mcp_server(
                     execution_id, limit=max(1, min(limit, 1000))
                 )
             except DomainError as exc:
-                MCP_TOOL_CALLS.labels(
-                    tool="execution_artifact_list", outcome="error"
-                ).inc()
                 raise ToolError(str(exc)) from exc
-            MCP_TOOL_CALLS.labels(
-                tool="execution_artifact_list", outcome="success"
-            ).inc()
             return [ExecutionArtifactResponse.from_view(view) for view in views]
 
         @server.tool(
@@ -341,13 +303,7 @@ def build_mcp_server(
             try:
                 view = await execution_queries.artifact(artifact_id)
             except DomainError as exc:
-                MCP_TOOL_CALLS.labels(
-                    tool="execution_artifact_get", outcome="error"
-                ).inc()
                 raise ToolError(str(exc)) from exc
-            MCP_TOOL_CALLS.labels(
-                tool="execution_artifact_get", outcome="success"
-            ).inc()
             return ExecutionArtifactResponse.from_view(view)
 
     if jupyter_manager is not None:
@@ -374,9 +330,7 @@ def build_mcp_server(
                     )
                 )
             except DomainError as exc:
-                MCP_TOOL_CALLS.labels(tool="jupyter_server_upsert", outcome="error").inc()
                 raise ToolError(str(exc)) from exc
-            MCP_TOOL_CALLS.labels(tool="jupyter_server_upsert", outcome="success").inc()
             return JupyterServerResponse.from_view(view)
 
         @server.tool(description="List registered Jupyter servers and current capacity state.")
@@ -384,7 +338,6 @@ def build_mcp_server(
             pool: JupyterPool | None = None,
         ) -> list[JupyterServerResponse]:
             views = await jupyter_manager.list(pool)
-            MCP_TOOL_CALLS.labels(tool="jupyter_server_list", outcome="success").inc()
             return [JupyterServerResponse.from_view(view) for view in views]
 
         @server.tool(description="Get one registered Jupyter server without exposing its token.")
@@ -392,9 +345,7 @@ def build_mcp_server(
             try:
                 view = await jupyter_manager.get(server_id)
             except DomainError as exc:
-                MCP_TOOL_CALLS.labels(tool="jupyter_server_get", outcome="error").inc()
                 raise ToolError(str(exc)) from exc
-            MCP_TOOL_CALLS.labels(tool="jupyter_server_get", outcome="success").inc()
             return JupyterServerResponse.from_view(view)
 
         @server.tool(description="Probe a Jupyter server now and persist its health and kernels.")
@@ -402,9 +353,7 @@ def build_mcp_server(
             try:
                 view = await jupyter_manager.probe(server_id)
             except DomainError as exc:
-                MCP_TOOL_CALLS.labels(tool="jupyter_server_probe", outcome="error").inc()
                 raise ToolError(str(exc)) from exc
-            MCP_TOOL_CALLS.labels(tool="jupyter_server_probe", outcome="success").inc()
             return JupyterServerResponse.from_view(view)
 
         @server.tool(
@@ -424,9 +373,7 @@ def build_mcp_server(
                     )
                 )
             except DomainError as exc:
-                MCP_TOOL_CALLS.labels(tool="jupyter_server_remove", outcome="error").inc()
                 raise ToolError(str(exc)) from exc
-            MCP_TOOL_CALLS.labels(tool="jupyter_server_remove", outcome="success").inc()
             return JupyterServerResponse.from_view(view)
 
         @server.tool(
@@ -447,13 +394,7 @@ def build_mcp_server(
                     )
                 )
             except DomainError as exc:
-                MCP_TOOL_CALLS.labels(
-                    tool="jupyter_server_set_state", outcome="error"
-                ).inc()
                 raise ToolError(str(exc)) from exc
-            MCP_TOOL_CALLS.labels(
-                tool="jupyter_server_set_state", outcome="success"
-            ).inc()
             return JupyterServerResponse.from_view(view)
 
     return server

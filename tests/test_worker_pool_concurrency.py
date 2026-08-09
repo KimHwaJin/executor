@@ -4,7 +4,6 @@ from typing import Any
 from uuid import uuid4
 
 import pytest
-from prometheus_client import generate_latest
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -184,22 +183,10 @@ async def test_worker_does_not_apply_a_process_local_execution_limit(
             await ControlledJupyterGateway.independent_finished.wait()
             await independent_task
 
-        metrics = generate_latest().decode()
-        assert (
-            f'executor_worker_pool_active_jobs{{pool="{blocked_pool.value}"}} '
-            f"{float(blocked_count)}"
-        ) in metrics
     finally:
         ControlledJupyterGateway.release.set()
         await asyncio.gather(*blocked_tasks)
         await redis.aclose()
-
-    metrics = generate_latest().decode()
-    assert (
-        f'executor_worker_pool_active_jobs{{pool="{blocked_pool.value}"}} 0.0'
-        in metrics
-    )
-
 
 async def test_cancel_remains_available_when_batch_jupyter_capacity_is_full(
     execution_service: ExecutionService,

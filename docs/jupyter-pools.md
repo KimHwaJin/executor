@@ -48,16 +48,16 @@ loop claims it after either server releases capacity. Free INTERACTIVE capacity 
 that queued BATCH Execution.
 
 `/readyz` reports `jupyter_fleet=true` when any registered pool has an ACTIVE server. A BATCH-only
-outage therefore does not make the whole service unready or interrupt INTERACTIVE work. Monitor the
-pool metrics and alert on the pool required by each workload class.
+outage therefore does not make the whole service unready or interrupt INTERACTIVE work. Use
+`jupyter_server_list` to inspect the status and capacity of each pool.
 
 ## Scale up
 
 1. Deploy the new Jupyter server with one of the approved kernel environments and the shared PVC.
 2. Call `jupyter_server_upsert` with its stable name, endpoint, token, `pool=BATCH`, and configured
    maximum concurrency.
-3. Confirm the response is `ACTIVE`, supported kernels are populated, and the BATCH server/capacity
-   metrics increase.
+3. Confirm the response is `ACTIVE`, supported kernels are populated, and
+   `jupyter_server_list(pool=BATCH)` includes the new server and capacity.
 4. Queued BATCH work is picked up automatically by PostgreSQL reconciliation.
 
 ## Drain and scale down
@@ -71,19 +71,6 @@ pool metrics and alert on the pool required by each workload class.
 
 Do not terminate the platform deployment first unless accepting an infrastructure failure for its
 active Executions.
-
-## Metrics
-
-- `executor_worker_pool_active_jobs{pool}`: Worker handlers currently processing requests for the
-  pool; this is diagnostic activity, not an admission limit
-- `executor_jupyter_pool_servers{pool,status}`: enabled registry records
-- `executor_jupyter_pool_capacity{pool}`: total configured capacity on enabled ACTIVE servers
-- `executor_jupyter_pool_capacity_used{pool}`: running/waiting Attempts plus retained kernels
-- `executor_jupyter_pool_queued_executions{pool}`: queued requests for the pool
-
-Metrics refresh at registry startup, server-list requests, and every health-monitor interval.
-During draining or outages, usage can be greater than schedulable capacity because existing work
-is preserved while the server is excluded from new scheduling.
 
 ## Local E2E
 
