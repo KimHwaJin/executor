@@ -248,6 +248,8 @@ class ExecutionResponse(MCPModel):
     retry_from_sequence: int | None
     retained_kernel_until: datetime | None
     retry_count: int
+    dynamic_wait_expires_at: datetime | None
+    execution_expires_at: datetime | None
 
     @classmethod
     def from_domain(cls, execution: Execution) -> "ExecutionResponse":
@@ -301,6 +303,8 @@ class ExecutionResponse(MCPModel):
             retry_from_sequence=execution.retry_from_sequence,
             retained_kernel_until=execution.retained_kernel_until,
             retry_count=execution.retry_count,
+            dynamic_wait_expires_at=execution.dynamic_wait_expires_at,
+            execution_expires_at=execution.execution_expires_at,
         )
 
 

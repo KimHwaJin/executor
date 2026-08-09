@@ -15,7 +15,7 @@ from executor_service.infrastructure.jupyter_registry import JupyterServerRegist
 from executor_service.infrastructure.outbox import OutboxPublisher
 from executor_service.infrastructure.worker import ExecutionWorker
 
-EXPECTED_SCHEMA_REVISION = "0008"
+EXPECTED_SCHEMA_REVISION = "0009"
 
 
 class ApplicationContainer:

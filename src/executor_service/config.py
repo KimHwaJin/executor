@@ -53,6 +53,8 @@ class Settings(BaseSettings):
     execution_heartbeat_seconds: int = Field(default=15, ge=5)
     execution_shutdown_cleanup_seconds: float = Field(default=20, gt=0)
     failed_kernel_retention_seconds: int = Field(default=3600, ge=60)
+    execution_max_runtime_seconds: int = Field(default=432000, ge=60)
+    dynamic_step_wait_timeout_seconds: int = Field(default=3600, ge=30)
 
     @field_validator("mcp_allowed_hosts", "mcp_allowed_origins", mode="before")
     @classmethod

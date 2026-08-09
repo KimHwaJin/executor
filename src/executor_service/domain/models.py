@@ -86,6 +86,8 @@ class Execution:
     recovery_count: int = 0
     kernel_cleanup_status: KernelCleanupStatus = KernelCleanupStatus.NOT_REQUIRED
     dynamic_finish_requested: bool = False
+    dynamic_wait_expires_at: datetime | None = None
+    execution_expires_at: datetime | None = None
     version: int = 0
     created_at: datetime = field(default_factory=utc_now)
     updated_at: datetime = field(default_factory=utc_now)
@@ -102,6 +104,7 @@ class Execution:
         self.status = ExecutionStatus.CANCEL_REQUESTED
         self.cancel_idempotency_key = idempotency_key
         self.cancellation_reason = reason
+        self.dynamic_wait_expires_at = None
         self.version += 1
         self.updated_at = utc_now()
 
@@ -171,6 +174,7 @@ class Execution:
             )
         self.status = ExecutionStatus.QUEUED
         self.dynamic_finish_requested = False
+        self.dynamic_wait_expires_at = None
         self.updated_at = utc_now()
         self.version += 1
 
@@ -187,6 +191,7 @@ class Execution:
             )
         self.status = ExecutionStatus.QUEUED
         self.dynamic_finish_requested = True
+        self.dynamic_wait_expires_at = None
         self.updated_at = utc_now()
         self.version += 1
 
