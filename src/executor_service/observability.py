@@ -53,3 +53,23 @@ WORKER_ACTIVE_JOBS = Gauge(
     "executor_worker_active_jobs",
     "Execution jobs currently dispatched in this Executor process.",
 )
+JUPYTER_POOL_SERVERS = Gauge(
+    "executor_jupyter_pool_servers",
+    "Enabled Jupyter servers by scheduling pool and operational status.",
+    labelnames=("pool", "status"),
+)
+JUPYTER_POOL_CAPACITY = Gauge(
+    "executor_jupyter_pool_capacity",
+    "Total schedulable Jupyter execution capacity by pool.",
+    labelnames=("pool",),
+)
+JUPYTER_POOL_CAPACITY_USED = Gauge(
+    "executor_jupyter_pool_capacity_used",
+    "Running, waiting, and retained-kernel capacity used by Jupyter pool.",
+    labelnames=("pool",),
+)
+JUPYTER_POOL_QUEUED = Gauge(
+    "executor_jupyter_pool_queued_executions",
+    "Queued Executions requesting each Jupyter scheduling pool.",
+    labelnames=("pool",),
+)
