@@ -10,7 +10,10 @@ from executor_service.domain.enums import (
     ArtifactStorageType,
     ArtifactType,
     AttemptStatus,
+    FailureType,
+    KernelCleanupStatus,
     OutboxStatus,
+    RetryStrategy,
     StepStatus,
 )
 from executor_service.domain.models import Execution
@@ -44,6 +47,9 @@ class ExecutionAttemptView:
     lease_expires_at: datetime
     heartbeat_at: datetime
     error_message: str | None
+    failure_type: FailureType | None
+    retry_strategy: RetryStrategy
+    kernel_cleanup_status: KernelCleanupStatus
     started_at: datetime
     finished_at: datetime | None
     steps: tuple[ExecutionStepAttemptView, ...]

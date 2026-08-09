@@ -30,9 +30,12 @@ from executor_service.domain.enums import (
     CodeSourceType,
     ExecutionMode,
     ExecutionStatus,
+    FailureType,
     JupyterPool,
     JupyterServerStatus,
+    KernelCleanupStatus,
     OutboxStatus,
+    RetryStrategy,
     StepStatus,
     TriggerType,
 )
@@ -62,6 +65,21 @@ class ExecutionORM(Base):
             name="valid_code_source",
         ),
         CheckConstraint("retry_count >= 0", name="non_negative_retry_count"),
+        CheckConstraint("recovery_count >= 0", name="non_negative_recovery_count"),
+        CheckConstraint(
+            "failure_type IS NULL OR failure_type IN ('TOOL_ERROR', "
+            "'INFRASTRUCTURE_ERROR', 'WORKER_SHUTDOWN', 'JUPYTER_UNAVAILABLE', "
+            "'LEASE_EXPIRED', 'INTERNAL_ERROR')",
+            name="valid_failure_type",
+        ),
+        CheckConstraint(
+            "retry_strategy IN ('NOT_RETRYABLE', 'FROM_FAILED_STEP', 'FROM_START')",
+            name="valid_retry_strategy",
+        ),
+        CheckConstraint(
+            "kernel_cleanup_status IN ('NOT_REQUIRED', 'PENDING', 'SUCCEEDED', 'FAILED')",
+            name="valid_kernel_cleanup_status",
+        ),
         CheckConstraint(
             "retry_from_sequence IS NULL OR retry_from_sequence >= 0",
             name="non_negative_retry_from_sequence",
@@ -113,13 +131,27 @@ class ExecutionORM(Base):
     workspace_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     notebook_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    failure_type: Mapped[FailureType | None] = mapped_column(
+        enum_type(FailureType, "failure_type"), nullable=True
+    )
     lease_owner: Mapped[str | None] = mapped_column(String(255), nullable=True)
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     retryable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    retry_strategy: Mapped[RetryStrategy] = mapped_column(
+        enum_type(RetryStrategy, "retry_strategy"),
+        nullable=False,
+        default=RetryStrategy.NOT_RETRYABLE,
+    )
     retry_from_sequence: Mapped[int | None] = mapped_column(Integer)
     retained_kernel_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    recovery_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    kernel_cleanup_status: Mapped[KernelCleanupStatus] = mapped_column(
+        enum_type(KernelCleanupStatus, "kernel_cleanup_status"),
+        nullable=False,
+        default=KernelCleanupStatus.NOT_REQUIRED,
+    )
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     created_at: Mapped[datetime] = mapped_column(
@@ -166,13 +198,17 @@ class ExecutionORM(Base):
             workspace_path=execution.workspace_path,
             notebook_path=execution.notebook_path,
             error_message=execution.error_message,
+            failure_type=execution.failure_type,
             lease_owner=execution.lease_owner,
             lease_expires_at=execution.lease_expires_at,
             heartbeat_at=execution.heartbeat_at,
             retryable=execution.retryable,
+            retry_strategy=execution.retry_strategy,
             retry_from_sequence=execution.retry_from_sequence,
             retained_kernel_until=execution.retained_kernel_until,
             retry_count=execution.retry_count,
+            recovery_count=execution.recovery_count,
+            kernel_cleanup_status=execution.kernel_cleanup_status,
             version=execution.version,
             created_at=execution.created_at,
             updated_at=execution.updated_at,
@@ -208,13 +244,17 @@ class ExecutionORM(Base):
             workspace_path=self.workspace_path,
             notebook_path=self.notebook_path,
             error_message=self.error_message,
+            failure_type=self.failure_type,
             lease_owner=self.lease_owner,
             lease_expires_at=self.lease_expires_at,
             heartbeat_at=self.heartbeat_at,
             retryable=self.retryable,
+            retry_strategy=self.retry_strategy,
             retry_from_sequence=self.retry_from_sequence,
             retained_kernel_until=self.retained_kernel_until,
             retry_count=self.retry_count,
+            recovery_count=self.recovery_count,
+            kernel_cleanup_status=self.kernel_cleanup_status,
             version=self.version,
             created_at=self.created_at,
             updated_at=self.updated_at,
@@ -373,6 +413,20 @@ class ExecutionAttemptORM(Base):
             "status IN ('RUNNING', 'SUCCEEDED', 'FAILED', 'CANCELLED')",
             name="valid_attempt_status",
         ),
+        CheckConstraint(
+            "failure_type IS NULL OR failure_type IN ('TOOL_ERROR', "
+            "'INFRASTRUCTURE_ERROR', 'WORKER_SHUTDOWN', 'JUPYTER_UNAVAILABLE', "
+            "'LEASE_EXPIRED', 'INTERNAL_ERROR')",
+            name="valid_attempt_failure_type",
+        ),
+        CheckConstraint(
+            "retry_strategy IN ('NOT_RETRYABLE', 'FROM_FAILED_STEP', 'FROM_START')",
+            name="valid_attempt_retry_strategy",
+        ),
+        CheckConstraint(
+            "kernel_cleanup_status IN ('NOT_REQUIRED', 'PENDING', 'SUCCEEDED', 'FAILED')",
+            name="valid_attempt_kernel_cleanup_status",
+        ),
         Index("ix_execution_attempts_lease", "status", "lease_expires_at"),
         Index("ix_execution_attempts_server_status", "jupyter_server_id", "status"),
     )
@@ -393,6 +447,19 @@ class ExecutionAttemptORM(Base):
     lease_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     heartbeat_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     error_message: Mapped[str | None] = mapped_column(Text)
+    failure_type: Mapped[FailureType | None] = mapped_column(
+        enum_type(FailureType, "attempt_failure_type")
+    )
+    retry_strategy: Mapped[RetryStrategy] = mapped_column(
+        enum_type(RetryStrategy, "attempt_retry_strategy"),
+        nullable=False,
+        default=RetryStrategy.NOT_RETRYABLE,
+    )
+    kernel_cleanup_status: Mapped[KernelCleanupStatus] = mapped_column(
+        enum_type(KernelCleanupStatus, "attempt_kernel_cleanup_status"),
+        nullable=False,
+        default=KernelCleanupStatus.NOT_REQUIRED,
+    )
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 

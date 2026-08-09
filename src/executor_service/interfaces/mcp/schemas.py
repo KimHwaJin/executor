@@ -24,8 +24,11 @@ from executor_service.domain.enums import (
     CodeSourceType,
     ExecutionMode,
     ExecutionStatus,
+    FailureType,
     JupyterPool,
+    KernelCleanupStatus,
     OutboxStatus,
+    RetryStrategy,
     StepStatus,
     TriggerType,
 )
@@ -213,6 +216,10 @@ class ExecutionResponse(MCPModel):
     workspace_path: str | None
     notebook_path: str | None
     error_message: str | None
+    failure_type: FailureType | None
+    retry_strategy: RetryStrategy
+    recovery_count: int
+    kernel_cleanup_status: KernelCleanupStatus
     version: int
     created_at: datetime
     updated_at: datetime
@@ -260,6 +267,10 @@ class ExecutionResponse(MCPModel):
             workspace_path=execution.workspace_path,
             notebook_path=execution.notebook_path,
             error_message=execution.error_message,
+            failure_type=execution.failure_type,
+            retry_strategy=execution.retry_strategy,
+            recovery_count=execution.recovery_count,
+            kernel_cleanup_status=execution.kernel_cleanup_status,
             version=execution.version,
             created_at=execution.created_at,
             updated_at=execution.updated_at,
@@ -315,6 +326,9 @@ class ExecutionAttemptResponse(MCPModel):
     lease_expires_at: datetime
     heartbeat_at: datetime
     error_message: str | None
+    failure_type: FailureType | None
+    retry_strategy: RetryStrategy
+    kernel_cleanup_status: KernelCleanupStatus
     started_at: datetime
     finished_at: datetime | None
     steps: list[ExecutionStepAttemptResponse]
@@ -332,6 +346,9 @@ class ExecutionAttemptResponse(MCPModel):
             lease_expires_at=view.lease_expires_at,
             heartbeat_at=view.heartbeat_at,
             error_message=view.error_message,
+            failure_type=view.failure_type,
+            retry_strategy=view.retry_strategy,
+            kernel_cleanup_status=view.kernel_cleanup_status,
             started_at=view.started_at,
             finished_at=view.finished_at,
             steps=[ExecutionStepAttemptResponse.from_view(step) for step in view.steps],
@@ -447,6 +464,8 @@ class ExecutorCapabilities(MCPModel):
     event_delivery: str = "redis-streams-via-transactional-outbox"
     jupyter_execution_implemented: bool = True
     implemented_execution_modes: tuple[ExecutionMode, ...] = (ExecutionMode.STATIC,)
+    failure_types: tuple[FailureType, ...] = tuple(FailureType)
+    retry_strategies: tuple[RetryStrategy, ...] = tuple(RetryStrategy)
     tools: tuple[str, ...] = (
         "executor_get_capabilities",
         "execution_submit",

@@ -17,7 +17,10 @@ from executor_service.domain.enums import (
     CodeSourceType,
     ExecutionMode,
     ExecutionStatus,
+    FailureType,
     JupyterPool,
+    KernelCleanupStatus,
+    RetryStrategy,
     StepStatus,
     TriggerType,
 )
@@ -115,6 +118,7 @@ async def test_retry_resets_failed_and_later_steps_idempotently(
             .values(
                 status=ExecutionStatus.FAILED,
                 retryable=True,
+                retry_strategy=RetryStrategy.FROM_FAILED_STEP,
                 retry_from_sequence=1,
                 retained_kernel_until=now + timedelta(hours=1),
                 kernel_id="retained-kernel",
@@ -159,3 +163,60 @@ async def test_retry_resets_failed_and_later_steps_idempotently(
     ]
     assert repeated.id == retried.id
     assert repeated.retry_count == 1
+
+
+async def test_infrastructure_retry_starts_from_zero_with_a_new_kernel(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+) -> None:
+    execution = await execution_service.submit(
+        replace(
+            submit_command("infrastructure-retry-submit"),
+            steps=(
+                StepSpec(sequence=0, tool_name="prepare"),
+                StepSpec(sequence=1, tool_name="long_running_tool"),
+            ),
+        )
+    )
+    now = utc_now()
+    session_factory = create_session_factory(engine)
+    async with session_factory() as session, session.begin():
+        await session.execute(
+            update(ExecutionORM)
+            .where(ExecutionORM.id == execution.id)
+            .values(
+                status=ExecutionStatus.FAILED,
+                error_message="worker lease expired",
+                failure_type=FailureType.LEASE_EXPIRED,
+                retryable=True,
+                retry_strategy=RetryStrategy.FROM_START,
+                retry_from_sequence=0,
+                kernel_id="abandoned-kernel",
+                jupyter_server_id=uuid4(),
+                kernel_cleanup_status=KernelCleanupStatus.FAILED,
+                finished_at=now,
+            )
+        )
+        await session.execute(
+            update(ExecutionStepORM)
+            .where(ExecutionStepORM.execution_id == execution.id)
+            .values(status=StepStatus.FAILED, finished_at=now)
+        )
+
+    retried = await execution_service.retry(
+        RetryExecutionCommand(
+            execution_id=execution.id,
+            idempotency_key="infrastructure-retry-command",
+        )
+    )
+
+    assert retried.status == ExecutionStatus.QUEUED
+    assert retried.retry_strategy == RetryStrategy.FROM_START
+    assert retried.retry_from_sequence == 0
+    assert retried.kernel_id is None
+    assert retried.jupyter_server_id is None
+    assert retried.kernel_cleanup_status == KernelCleanupStatus.NOT_REQUIRED
+    assert [step.status for step in retried.steps] == [
+        StepStatus.PENDING,
+        StepStatus.PENDING,
+    ]

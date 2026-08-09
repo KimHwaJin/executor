@@ -20,6 +20,7 @@ consumer worker executes STATIC plans in Jupyter.
 - Multi-server Jupyter registry, encrypted credentials, health probes, capacity scheduling,
   execution attempts, leases, and heartbeats
 - Safe server draining and retained-kernel retry from a failed Step
+- Classified Tool/infrastructure failures, graceful Worker shutdown, and FROM_START recovery
 - Immutable per-Attempt Step history and an end-to-end execution event trace
 - Automatic and Manifest-based Artifact registration with checksum and lineage
 - Durable `.ipynb` output and execution-scoped artifact directories on the shared PV
@@ -78,6 +79,7 @@ uv run python scripts/jupyter_cancel_smoke.py
 uv run python scripts/jupyter_failure_smoke.py
 uv run python scripts/jupyter_fleet_smoke.py
 uv run python scripts/jupyter_retry_smoke.py
+uv run python scripts/jupyter_worker_recovery_smoke.py
 uv run python scripts/jupyter_drain_smoke.py
 uv run python scripts/jupyter_artifact_smoke.py
 ```
@@ -115,12 +117,13 @@ uv run alembic upgrade head
 `execution_cancel` also requires an idempotency key. It first records `CANCEL_REQUESTED`; the
 worker then interrupts and deletes the kernel before recording `CANCELLED`.
 
-`execution_retry` is accepted only for a `FAILED` execution marked `retryable`. A notebook cell
-error preserves that kernel for `FAILED_KERNEL_RETENTION_SECONDS` and reports
-`retry_from_sequence` and `retained_kernel_until`. Retry creates a new ExecutionAttempt and resumes
-the failed cell on the same server and kernel, preserving successful predecessor Step states and
-outputs. Infrastructure failures that cannot guarantee kernel state are not retryable. A retained
-kernel counts against server capacity and is deleted automatically when its retry window expires.
+`execution_retry` is accepted only for a `FAILED` execution with a supported `retry_strategy`. A
+notebook cell error preserves that kernel for `FAILED_KERNEL_RETENTION_SECONDS` and uses
+`FROM_FAILED_STEP`. Worker shutdown, lease expiry, and Jupyter connectivity failure use
+`FROM_START` with a new kernel because prior in-memory state cannot be trusted. Attempt history
+preserves the failure type, retry strategy, and kernel cleanup result. A retained kernel counts
+against server capacity and is deleted automatically when its retry window expires. See
+[Execution Recovery](docs/execution-recovery.md) for the state and event contract.
 
 `execution_attempt_list` returns every worker Attempt in order, including the selected Jupyter
 server, kernel, lease/heartbeat times, outcome, and only the Steps actually run by that Attempt.

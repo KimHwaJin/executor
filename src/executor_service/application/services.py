@@ -168,6 +168,12 @@ class ExecutionService:
                             "execution_id": str(execution.id),
                             "status": execution.status.value,
                             "from_sequence": execution.retry_from_sequence,
+                            "retry_strategy": execution.retry_strategy.value,
+                            "previous_failure_type": (
+                                execution.failure_type.value
+                                if execution.failure_type is not None
+                                else None
+                            ),
                             "retry_count": execution.retry_count,
                         },
                     )

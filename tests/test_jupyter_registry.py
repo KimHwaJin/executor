@@ -44,7 +44,7 @@ async def test_registry_encrypts_credentials_and_soft_removes_idempotently(
     assert repeated.id == created.id
     assert created.status == JupyterServerStatus.OFFLINE
     assert created.enabled
-    assert created.last_health_error == "Probe failed (ConnectError)"
+    assert created.last_health_error == "Probe failed (JupyterGatewayError)"
 
     async with session_factory() as session:
         row = await session.scalar(
