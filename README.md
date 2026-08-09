@@ -31,6 +31,17 @@ execution starts as `QUEUED`. Poll with `execution_get` or request cancellation 
 `execution_cancel`. Actual Jupyter execution currently supports STATIC mode; DYNAMIC is retained
 in the contract for the later Agent re-planning loop and is reported separately in capabilities.
 
+## Deferred decisions
+
+Return-value materialization, reusable Asset promotion, and user-versus-project Asset visibility
+are intentionally not implemented yet. Their agreed constraints, open questions, and resume
+criteria are tracked in [Deferred Decisions](docs/deferred-decisions.md). Update that decision log
+before implementing or changing any deferred behavior.
+
+Arize Phoenix tracing is also planned but not implemented. Local integration tests for that future
+feature will use the already available `arizephoenix/phoenix:nightly` image; the validated Compose
+and OTLP configuration will be added with the tracing feature rather than guessed in advance.
+
 ## Local setup
 
 Requirements: uv, Docker, and Docker Compose. uv installs the pinned CPython 3.12 runtime when it
