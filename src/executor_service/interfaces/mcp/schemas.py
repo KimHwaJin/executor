@@ -9,6 +9,7 @@ from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, SecretStr, model_
 from executor_service.application.commands import StepSpec as ApplicationStepSpec
 from executor_service.application.commands import SubmitExecutionCommand
 from executor_service.application.execution_queries import (
+    ExecutionArtifactView,
     ExecutionAttemptView,
     ExecutionEventView,
     ExecutionStepAttemptView,
@@ -16,6 +17,9 @@ from executor_service.application.execution_queries import (
 )
 from executor_service.application.jupyter_servers import JupyterServerView
 from executor_service.domain.enums import (
+    ArtifactStatus,
+    ArtifactStorageType,
+    ArtifactType,
     AttemptStatus,
     CodeSourceType,
     ExecutionMode,
@@ -360,10 +364,59 @@ class ExecutionEventResponse(MCPModel):
         )
 
 
+class ExecutionArtifactResponse(MCPModel):
+    artifact_id: UUID
+    execution_id: UUID
+    execution_attempt_id: UUID
+    execution_step_id: UUID | None
+    execution_step_attempt_id: UUID | None
+    parent_artifact_id: UUID | None
+    external_parent_asset_id: str | None
+    artifact_type: ArtifactType
+    storage_type: ArtifactStorageType
+    status: ArtifactStatus
+    name: str
+    description: str | None
+    uri: str
+    relative_path: str | None
+    media_type: str | None
+    size_bytes: int | None
+    checksum_sha256: str | None
+    metadata: dict[str, Any]
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_view(cls, view: ExecutionArtifactView) -> "ExecutionArtifactResponse":
+        return cls(
+            artifact_id=view.id,
+            execution_id=view.execution_id,
+            execution_attempt_id=view.execution_attempt_id,
+            execution_step_id=view.execution_step_id,
+            execution_step_attempt_id=view.execution_step_attempt_id,
+            parent_artifact_id=view.parent_artifact_id,
+            external_parent_asset_id=view.external_parent_asset_id,
+            artifact_type=view.artifact_type,
+            storage_type=view.storage_type,
+            status=view.status,
+            name=view.name,
+            description=view.description,
+            uri=view.uri,
+            relative_path=view.relative_path,
+            media_type=view.media_type,
+            size_bytes=view.size_bytes,
+            checksum_sha256=view.checksum_sha256,
+            metadata=view.metadata,
+            created_at=view.created_at,
+            updated_at=view.updated_at,
+        )
+
+
 class ExecutionTraceResponse(MCPModel):
     execution: ExecutionResponse
     attempts: list[ExecutionAttemptResponse]
     events: list[ExecutionEventResponse]
+    artifacts: list[ExecutionArtifactResponse]
 
     @classmethod
     def from_view(cls, view: ExecutionTraceView) -> "ExecutionTraceResponse":
@@ -371,6 +424,7 @@ class ExecutionTraceResponse(MCPModel):
             execution=ExecutionResponse.from_domain(view.execution),
             attempts=[ExecutionAttemptResponse.from_view(item) for item in view.attempts],
             events=[ExecutionEventResponse.from_view(item) for item in view.events],
+            artifacts=[ExecutionArtifactResponse.from_view(item) for item in view.artifacts],
         )
 
 

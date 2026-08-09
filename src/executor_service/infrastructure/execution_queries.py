@@ -8,13 +8,18 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
 
 from executor_service.application.execution_queries import (
+    ExecutionArtifactView,
     ExecutionAttemptView,
     ExecutionEventView,
     ExecutionStepAttemptView,
     ExecutionTraceView,
 )
-from executor_service.domain.errors import ExecutionNotFoundError
+from executor_service.domain.errors import (
+    ExecutionArtifactNotFoundError,
+    ExecutionNotFoundError,
+)
 from executor_service.infrastructure.db.models import (
+    ExecutionArtifactORM,
     ExecutionAttemptORM,
     ExecutionORM,
     ExecutionStepAttemptORM,
@@ -131,7 +136,32 @@ class SQLAlchemyExecutionQueryService:
             execution=execution,
             attempts=tuple(await self.attempts(execution_id)),
             events=tuple(await self.events(execution_id)),
+            artifacts=tuple(await self.artifacts(execution_id)),
         )
+
+    async def artifacts(
+        self, execution_id: UUID, *, limit: int = 500
+    ) -> list[ExecutionArtifactView]:
+        async with self._session_factory() as session:
+            await self._require_execution(session, execution_id)
+            rows = list(
+                await session.scalars(
+                    select(ExecutionArtifactORM)
+                    .where(ExecutionArtifactORM.execution_id == execution_id)
+                    .order_by(ExecutionArtifactORM.created_at, ExecutionArtifactORM.id)
+                    .limit(limit)
+                )
+            )
+        return [_artifact_view(row) for row in rows]
+
+    async def artifact(self, artifact_id: UUID) -> ExecutionArtifactView:
+        async with self._session_factory() as session:
+            row = await session.get(ExecutionArtifactORM, artifact_id)
+        if row is None:
+            raise ExecutionArtifactNotFoundError(
+                f"Execution Artifact {artifact_id} was not found."
+            )
+        return _artifact_view(row)
 
     @staticmethod
     async def _require_execution(session: AsyncSession, execution_id: UUID) -> None:
@@ -156,3 +186,28 @@ def _redact(value: Any) -> Any:
 def _is_secret_key(key: str) -> bool:
     normalized = key.lower()
     return any(marker in normalized for marker in ("token", "secret", "password", "credential"))
+
+
+def _artifact_view(row: ExecutionArtifactORM) -> ExecutionArtifactView:
+    return ExecutionArtifactView(
+        id=row.id,
+        execution_id=row.execution_id,
+        execution_attempt_id=row.execution_attempt_id,
+        execution_step_id=row.execution_step_id,
+        execution_step_attempt_id=row.execution_step_attempt_id,
+        parent_artifact_id=row.parent_artifact_id,
+        external_parent_asset_id=row.external_parent_asset_id,
+        artifact_type=row.artifact_type,
+        storage_type=row.storage_type,
+        status=row.status,
+        name=row.name,
+        description=row.description,
+        uri=row.uri,
+        relative_path=row.relative_path,
+        media_type=row.media_type,
+        size_bytes=row.size_bytes,
+        checksum_sha256=row.checksum_sha256,
+        metadata=_redact(row.artifact_metadata),
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )

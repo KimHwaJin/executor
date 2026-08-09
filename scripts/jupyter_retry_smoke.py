@@ -33,9 +33,13 @@ async def main() -> None:
                         "type": "INLINE",
                         "code": (
                             "# %%\n"
+                            "from pathlib import Path\n"
                             "attempt_counter = 0\n"
                             "# %%\n"
                             "attempt_counter += 1\n"
+                            "Path('artifacts/retry-state.txt').write_text(\n"
+                            "    str(attempt_counter), encoding='utf-8'\n"
+                            ")\n"
                             "if attempt_counter == 1:\n"
                             "    raise RuntimeError('expected first-attempt failure')\n"
                             "print(attempt_counter)\n"
@@ -113,6 +117,20 @@ async def main() -> None:
         }
         if not required_events.issubset(event_types):
             raise RuntimeError(f"Execution event history is incomplete: {event_types}")
+        retry_artifacts = [
+            artifact
+            for artifact in trace["artifacts"]
+            if artifact["name"] == "retry-state.txt"
+        ]
+        if (
+            [artifact["status"] for artifact in retry_artifacts]
+            != ["INCOMPLETE", "AVAILABLE"]
+            or retry_artifacts[0]["execution_attempt_id"]
+            == retry_artifacts[1]["execution_attempt_id"]
+        ):
+            raise RuntimeError(
+                f"Retry Artifact history was not preserved: {retry_artifacts}"
+            )
 
         print("execution_id:", execution_id)
         print("initial_status:", failed["status"])
@@ -121,6 +139,7 @@ async def main() -> None:
         print("same_kernel:", succeeded["kernel_id"] == original_kernel)
         print("attempts_in_trace:", len(attempts))
         print("events_in_trace:", len(trace["events"]))
+        print("retry_artifact_statuses:", [item["status"] for item in retry_artifacts])
 
 
 if __name__ == "__main__":

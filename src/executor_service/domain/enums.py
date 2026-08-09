@@ -62,3 +62,25 @@ class AttemptStatus(StrEnum):
     SUCCEEDED = "SUCCEEDED"
     FAILED = "FAILED"
     CANCELLED = "CANCELLED"
+
+
+class ArtifactType(StrEnum):
+    DATASET = "DATASET"
+    NOTEBOOK = "NOTEBOOK"
+    REPORT = "REPORT"
+    PLOT = "PLOT"
+    MODEL = "MODEL"
+    METRIC = "METRIC"
+    LOG = "LOG"
+    OTHER = "OTHER"
+
+
+class ArtifactStorageType(StrEnum):
+    PV = "PV"
+    S3 = "S3"
+
+
+class ArtifactStatus(StrEnum):
+    AVAILABLE = "AVAILABLE"
+    INCOMPLETE = "INCOMPLETE"
+    DELETED = "DELETED"

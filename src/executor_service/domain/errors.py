@@ -27,3 +27,11 @@ class JupyterServerNotFoundError(DomainError):
 
 class JupyterServerConfigurationError(DomainError):
     pass
+
+
+class ExecutionArtifactNotFoundError(DomainError):
+    pass
+
+
+class ArtifactRegistrationError(DomainError):
+    pass

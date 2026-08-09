@@ -9,7 +9,7 @@ consumer worker executes STATIC plans in Jupyter.
 - Official MCP Python SDK 2.x `MCPServer`, exposed at `POST /mcp`
 - Execution tools: `executor_get_capabilities`, `execution_submit`, `execution_get`,
   `execution_cancel`, `execution_retry`, `execution_attempt_list`, `execution_event_list`,
-  `execution_trace_get`
+  `execution_trace_get`, `execution_artifact_list`, `execution_artifact_get`
 - Jupyter fleet tools: `jupyter_server_upsert`, `jupyter_server_list`,
   `jupyter_server_get`, `jupyter_server_probe`, `jupyter_server_remove`,
   `jupyter_server_set_state`
@@ -21,6 +21,7 @@ consumer worker executes STATIC plans in Jupyter.
   execution attempts, leases, and heartbeats
 - Safe server draining and retained-kernel retry from a failed Step
 - Immutable per-Attempt Step history and an end-to-end execution event trace
+- Automatic and Manifest-based Artifact registration with checksum and lineage
 - Durable `.ipynb` output and execution-scoped artifact directories on the shared PV
 - `/healthz`, `/readyz`, and Prometheus `/metrics`
 - PostgreSQL, Redis, and `jupyter/datascience-notebook` through Docker Compose
@@ -67,6 +68,7 @@ uv run python scripts/jupyter_failure_smoke.py
 uv run python scripts/jupyter_fleet_smoke.py
 uv run python scripts/jupyter_retry_smoke.py
 uv run python scripts/jupyter_drain_smoke.py
+uv run python scripts/jupyter_artifact_smoke.py
 ```
 
 ## Quality checks
@@ -116,6 +118,22 @@ does not overwrite evidence from the earlier failure. `execution_event_list` ret
 transactional Outbox timeline and current Redis publication state. `execution_trace_get` combines
 the current Execution, Attempt/Step histories, and events for an end-to-end frontend detail view.
 Secret-shaped keys in historical inputs, outputs, and event payloads are defensively redacted.
+
+Execution-scoped files created or modified under `artifacts/` and `reports/` are detected after
+each Step. Successful files are `AVAILABLE`; files left by a failed cell are `INCOMPLETE`, so a
+later retry produces a separate Attempt-linked Artifact rather than overwriting the failure
+evidence. The final `.ipynb` is registered after successful execution. PV size and SHA-256 are
+computed by Executor.
+
+Tools can append JSON Lines to `artifacts/manifest.jsonl` to register user-level processed data or
+S3 objects outside the execution workspace. Manifest use is optional and does not require every
+analysis Tool to accept an Asset ID. S3 metadata and checksum are caller-declared because Executor
+does not read the object. See [Artifact Manifest](docs/artifact-manifest.md) for the contract.
+
+`execution_artifact_list` and `execution_artifact_get` expose execution/Attempt/Step references,
+storage URI, media type, size, checksum, status, metadata, and a direct parent Artifact or external
+Agent Asset ID. `execution_trace_get` includes the same Artifact collection. Registration emits
+`execution.artifact_registered` through the Transactional Outbox.
 
 Python files may use `# %%` markers to define notebook cells. Existing `.ipynb` PATH inputs use
 their code cells. When explicit planned steps are supplied, their count must match the executable

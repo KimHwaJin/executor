@@ -87,6 +87,8 @@ async def test_mcp_client_can_query_execution_trace(
         tool_names = {tool.name for tool in listed.tools}
         assert {
             "execution_attempt_list",
+            "execution_artifact_get",
+            "execution_artifact_list",
             "execution_event_list",
             "execution_trace_get",
         }.issubset(tool_names)
