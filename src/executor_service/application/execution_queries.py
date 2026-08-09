@@ -10,6 +10,7 @@ from executor_service.domain.enums import (
     ArtifactStorageType,
     ArtifactType,
     AttemptStatus,
+    ExecutionStatus,
     FailureType,
     KernelCleanupStatus,
     OutboxStatus,
@@ -101,6 +102,17 @@ class ExecutionTraceView:
 
 
 class ExecutionQueryService(Protocol):
+    async def executions(
+        self,
+        *,
+        requested_by_user_id: str | None = None,
+        project_id: str | None = None,
+        session_id: str | None = None,
+        task_id: str | None = None,
+        status: ExecutionStatus | None = None,
+        limit: int = 100,
+    ) -> list[Execution]: ...
+
     async def attempts(
         self, execution_id: UUID, *, limit: int = 100
     ) -> list[ExecutionAttemptView]: ...

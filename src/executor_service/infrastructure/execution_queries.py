@@ -14,10 +14,12 @@ from executor_service.application.execution_queries import (
     ExecutionStepAttemptView,
     ExecutionTraceView,
 )
+from executor_service.domain.enums import ExecutionStatus
 from executor_service.domain.errors import (
     ExecutionArtifactNotFoundError,
     ExecutionNotFoundError,
 )
+from executor_service.domain.models import Execution
 from executor_service.infrastructure.db.models import (
     ExecutionArtifactORM,
     ExecutionAttemptORM,
@@ -30,6 +32,36 @@ from executor_service.infrastructure.db.models import (
 class SQLAlchemyExecutionQueryService:
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._session_factory = session_factory
+
+    async def executions(
+        self,
+        *,
+        requested_by_user_id: str | None = None,
+        project_id: str | None = None,
+        session_id: str | None = None,
+        task_id: str | None = None,
+        status: ExecutionStatus | None = None,
+        limit: int = 100,
+    ) -> list[Execution]:
+        statement = select(ExecutionORM).options(selectinload(ExecutionORM.steps))
+        if requested_by_user_id is not None:
+            statement = statement.where(
+                ExecutionORM.requested_by_user_id == requested_by_user_id
+            )
+        if project_id is not None:
+            statement = statement.where(ExecutionORM.project_id == project_id)
+        if session_id is not None:
+            statement = statement.where(ExecutionORM.session_id == session_id)
+        if task_id is not None:
+            statement = statement.where(ExecutionORM.task_id == task_id)
+        if status is not None:
+            statement = statement.where(ExecutionORM.status == status)
+        statement = statement.order_by(ExecutionORM.created_at.desc(), ExecutionORM.id).limit(
+            limit
+        )
+        async with self._session_factory() as session:
+            rows = list(await session.scalars(statement))
+        return [row.to_domain() for row in rows]
 
     async def attempts(
         self, execution_id: UUID, *, limit: int = 100

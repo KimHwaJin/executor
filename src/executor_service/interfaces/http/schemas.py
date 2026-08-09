@@ -1,13 +1,12 @@
-"""Public MCP request and response contracts; never reuse ORM models here."""
+"""REST request and response contracts, independent from MCP transport types."""
 
 from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, SecretStr
+from pydantic import BaseModel, ConfigDict, Field
 
-from executor_service.application.commands import StepSpec as ApplicationStepSpec
-from executor_service.application.commands import SubmitExecutionCommand
+from executor_service.application.commands import StepSpec, SubmitExecutionCommand
 from executor_service.application.execution_queries import (
     ExecutionArtifactView,
     ExecutionAttemptView,
@@ -15,7 +14,6 @@ from executor_service.application.execution_queries import (
     ExecutionStepAttemptView,
     ExecutionTraceView,
 )
-from executor_service.application.jupyter_servers import JupyterServerView
 from executor_service.domain.enums import (
     ArtifactStatus,
     ArtifactStorageType,
@@ -32,29 +30,15 @@ from executor_service.domain.enums import (
     StepStatus,
     TriggerType,
 )
-from executor_service.domain.models import Execution
-from executor_service.execution_specs import (
-    CodeSource,
-    ExecutionSpec,
-    ExecutionStepInput,
-    InlineCodeSource,
-    PathCodeSource,
-)
-
-__all__ = [
-    "CodeSource",
-    "ExecutionSpec",
-    "ExecutionStepInput",
-    "InlineCodeSource",
-    "PathCodeSource",
-]
+from executor_service.domain.models import Execution, ExecutionStep
+from executor_service.execution_specs import CodeSource, ExecutionSpec, PathCodeSource
 
 
-class MCPModel(BaseModel):
+class HTTPModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class ExecutionSubmitContext(MCPModel):
+class ExecutionSubmitContext(HTTPModel):
     requested_by_user_id: str = Field(min_length=1, max_length=255)
     project_id: str = Field(min_length=1, max_length=255)
     session_id: str = Field(min_length=1, max_length=255)
@@ -66,7 +50,7 @@ class ExecutionContext(ExecutionSubmitContext):
     execution_plan_id: str = Field(min_length=1, max_length=255)
 
 
-class ExecutionSubmitRequest(MCPModel):
+class ExecutionSubmitRequest(HTTPModel):
     idempotency_key: str = Field(min_length=1, max_length=255)
     mode: ExecutionMode
     trigger_type: TriggerType = TriggerType.INTERACTIVE
@@ -99,7 +83,7 @@ class ExecutionSubmitRequest(MCPModel):
             workflow_id=self.context.workflow_id,
             metadata=self.metadata,
             steps=tuple(
-                ApplicationStepSpec(
+                StepSpec(
                     sequence=step.sequence,
                     code=step.code,
                     execution_plan_id=spec.execution_plan_id,
@@ -113,92 +97,28 @@ class ExecutionSubmitRequest(MCPModel):
         )
 
 
-class ExecutionCancelRequest(MCPModel):
-    execution_id: UUID
+class ExecutionCancelRequest(HTTPModel):
     idempotency_key: str = Field(min_length=1, max_length=255)
     reason: str | None = Field(default=None, max_length=2000)
 
 
-class ExecutionRetryRequest(MCPModel):
-    execution_id: UUID
+class ExecutionRetryRequest(HTTPModel):
     idempotency_key: str = Field(min_length=1, max_length=255)
 
 
-class ExecutionContinueRequest(MCPModel):
-    execution_id: UUID
+class ExecutionContinueRequest(HTTPModel):
     idempotency_key: str = Field(min_length=1, max_length=255)
     expected_version: int = Field(ge=0)
     source: CodeSource
 
 
-class ExecutionFinishRequest(MCPModel):
-    execution_id: UUID
+class ExecutionFinishRequest(HTTPModel):
     idempotency_key: str = Field(min_length=1, max_length=255)
     expected_version: int = Field(ge=0)
 
 
-class JupyterServerUpsertRequest(MCPModel):
-    idempotency_key: str = Field(min_length=1, max_length=255)
-    name: str = Field(min_length=1, max_length=255, pattern=r"^[a-zA-Z0-9._-]+$")
-    endpoint: AnyHttpUrl
-    token: SecretStr | None = None
-    pool: JupyterPool = JupyterPool.INTERACTIVE
-    max_concurrent_executions: int | None = Field(default=None, ge=1, le=1000)
-
-
-class JupyterServerRemoveRequest(MCPModel):
-    idempotency_key: str = Field(min_length=1, max_length=255)
-    server_id: UUID
-
-
-class JupyterServerSetStateRequest(MCPModel):
-    idempotency_key: str = Field(min_length=1, max_length=255)
-    server_id: UUID
-    desired_state: str = Field(pattern=r"^(ACTIVE|DRAINING)$")
-
-
-class JupyterServerResponse(MCPModel):
-    server_id: UUID
-    name: str
-    endpoint: str
-    pool: JupyterPool
-    status: str
-    enabled: bool
-    max_concurrent_executions: int
-    supported_kernels: tuple[str, ...]
-    active_execution_count: int
-    active_kernel_count: int | None
-    last_health_check_at: datetime | None
-    last_health_error: str | None
-    created_at: datetime
-    updated_at: datetime
-    accepting_new_executions: bool
-    drain_complete: bool
-
-    @classmethod
-    def from_view(cls, view: JupyterServerView) -> "JupyterServerResponse":
-        return cls(
-            server_id=view.id,
-            name=view.name,
-            endpoint=view.endpoint,
-            pool=view.pool,
-            status=view.status.value,
-            enabled=view.enabled,
-            max_concurrent_executions=view.max_concurrent_executions,
-            supported_kernels=view.supported_kernels,
-            active_execution_count=view.active_execution_count,
-            active_kernel_count=view.active_kernel_count,
-            last_health_check_at=view.last_health_check_at,
-            last_health_error=view.last_health_error,
-            created_at=view.created_at,
-            updated_at=view.updated_at,
-            accepting_new_executions=view.accepting_new_executions,
-            drain_complete=view.drain_complete,
-        )
-
-
-class ExecutionStepResponse(MCPModel):
-    id: UUID
+class ExecutionStepResponse(HTTPModel):
+    step_id: UUID
     sequence: int
     code_hash: str | None
     execution_plan_id: str
@@ -211,14 +131,31 @@ class ExecutionStepResponse(MCPModel):
     started_at: datetime | None
     finished_at: datetime | None
 
+    @classmethod
+    def from_domain(cls, step: ExecutionStep) -> "ExecutionStepResponse":
+        return cls(
+            step_id=step.id,
+            sequence=step.sequence,
+            code_hash=step.code_hash,
+            execution_plan_id=step.execution_plan_id,
+            plan_step_id=step.plan_step_id,
+            skill_name=step.skill_name,
+            tool_name=step.tool_name,
+            status=step.status,
+            outputs=step.outputs,
+            error_message=step.error_message,
+            started_at=step.started_at,
+            finished_at=step.finished_at,
+        )
 
-class ExecutionSourceResponse(MCPModel):
+
+class ExecutionSourceResponse(HTTPModel):
     type: CodeSourceType
     path: str | None
     sha256: str
 
 
-class ExecutionResponse(MCPModel):
+class ExecutionResponse(HTTPModel):
     execution_id: UUID
     status: ExecutionStatus
     mode: ExecutionMode
@@ -272,23 +209,7 @@ class ExecutionResponse(MCPModel):
                 execution_plan_id=execution.execution_plan_id,
                 workflow_id=execution.workflow_id,
             ),
-            steps=[
-                ExecutionStepResponse(
-                    id=step.id,
-                    sequence=step.sequence,
-                    code_hash=step.code_hash,
-                    execution_plan_id=step.execution_plan_id,
-                    plan_step_id=step.plan_step_id,
-                    skill_name=step.skill_name,
-                    tool_name=step.tool_name,
-                    status=step.status,
-                    outputs=step.outputs,
-                    error_message=step.error_message,
-                    started_at=step.started_at,
-                    finished_at=step.finished_at,
-                )
-                for step in execution.steps
-            ],
+            steps=[ExecutionStepResponse.from_domain(step) for step in execution.steps],
             cancellation_reason=execution.cancellation_reason,
             jupyter_server_id=execution.jupyter_server_id,
             kernel_id=execution.kernel_id,
@@ -313,7 +234,7 @@ class ExecutionResponse(MCPModel):
         )
 
 
-class ExecutionStepAttemptResponse(MCPModel):
+class ExecutionStepAttemptResponse(HTTPModel):
     step_attempt_id: UUID
     execution_step_id: UUID
     sequence: int
@@ -327,9 +248,7 @@ class ExecutionStepAttemptResponse(MCPModel):
     finished_at: datetime | None
 
     @classmethod
-    def from_view(
-        cls, view: ExecutionStepAttemptView
-    ) -> "ExecutionStepAttemptResponse":
+    def from_view(cls, view: ExecutionStepAttemptView) -> "ExecutionStepAttemptResponse":
         return cls(
             step_attempt_id=view.id,
             execution_step_id=view.execution_step_id,
@@ -345,7 +264,7 @@ class ExecutionStepAttemptResponse(MCPModel):
         )
 
 
-class ExecutionAttemptResponse(MCPModel):
+class ExecutionAttemptResponse(HTTPModel):
     attempt_id: UUID
     execution_id: UUID
     attempt_number: int
@@ -385,7 +304,7 @@ class ExecutionAttemptResponse(MCPModel):
         )
 
 
-class ExecutionEventResponse(MCPModel):
+class ExecutionEventResponse(HTTPModel):
     event_id: UUID
     event_type: str
     payload: dict[str, Any]
@@ -411,7 +330,7 @@ class ExecutionEventResponse(MCPModel):
         )
 
 
-class ExecutionArtifactResponse(MCPModel):
+class ExecutionArtifactResponse(HTTPModel):
     artifact_id: UUID
     execution_id: UUID
     execution_attempt_id: UUID
@@ -459,7 +378,7 @@ class ExecutionArtifactResponse(MCPModel):
         )
 
 
-class ExecutionTraceResponse(MCPModel):
+class ExecutionTraceResponse(HTTPModel):
     execution: ExecutionResponse
     attempts: list[ExecutionAttemptResponse]
     events: list[ExecutionEventResponse]
@@ -475,9 +394,11 @@ class ExecutionTraceResponse(MCPModel):
         )
 
 
-class ExecutorCapabilities(MCPModel):
+class ExecutorCapabilitiesResponse(HTTPModel):
     service: str = "executor-service"
-    protocol_revision: str = "2026-07-28"
+    api_version: str = "v1"
+    mcp_endpoint: str = "/mcp"
+    mcp_protocol_revision: str = "2026-07-28"
     mcp_tasks_supported: bool = False
     execution_modes: tuple[ExecutionMode, ...] = (
         ExecutionMode.STATIC,
@@ -492,19 +413,21 @@ class ExecutorCapabilities(MCPModel):
         JupyterPool.BATCH,
     )
     event_delivery: str = "redis-streams-via-transactional-outbox"
-    jupyter_execution_implemented: bool = True
-    implemented_execution_modes: tuple[ExecutionMode, ...] = (
-        ExecutionMode.STATIC,
-        ExecutionMode.DYNAMIC,
-    )
     failure_types: tuple[FailureType, ...] = tuple(FailureType)
     retry_strategies: tuple[RetryStrategy, ...] = tuple(RetryStrategy)
-    tools: tuple[str, ...] = (
-        "executor_get_capabilities",
-        "execution_submit",
-        "execution_get",
-        "execution_cancel",
-        "execution_retry",
-        "execution_continue",
-        "execution_finish",
-    )
+
+
+class ValidationIssue(HTTPModel):
+    location: list[str | int]
+    message: str
+    type: str
+
+
+class ErrorDetail(HTTPModel):
+    code: str
+    message: str
+    details: list[ValidationIssue] | None = None
+
+
+class ErrorResponse(HTTPModel):
+    error: ErrorDetail

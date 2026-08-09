@@ -1,12 +1,15 @@
 # Executor Service
 
-Asynchronous Jupyter execution control plane exposed as an MCP 2026-07-28 Streamable HTTP server.
-PostgreSQL is the source of truth. Tool calls persist work and return immediately while a Redis
-consumer worker executes STATIC plans or one-cell-at-a-time DYNAMIC plans in Jupyter.
+Asynchronous Jupyter execution control plane exposed through MCP 2026-07-28 Streamable HTTP and a
+versioned REST API. PostgreSQL is the source of truth. MCP Tool and REST calls persist work and
+return immediately while a Redis consumer worker executes STATIC plans or one-cell-at-a-time
+DYNAMIC plans in Jupyter.
 
 ## Implemented scope
 
 - Official MCP Python SDK 2.x `MCPServer`, exposed at `POST /mcp`
+- REST execution facade, OpenAPI, Swagger UI, and ReDoc under `/api/v1`, `/openapi.json`, `/docs`,
+  and `/redoc`
 - Execution tools: `executor_get_capabilities`, `execution_submit`, `execution_get`,
   `execution_cancel`, `execution_retry`, `execution_continue`, `execution_finish`,
   `execution_attempt_list`, `execution_event_list`, `execution_trace_get`,
@@ -78,6 +81,9 @@ docker compose --profile multi-jupyter --profile batch-jupyter up -d --wait
 Operational endpoints:
 
 - MCP: `http://127.0.0.1:8000/mcp`
+- REST API: `http://127.0.0.1:8000/api/v1`
+- Swagger UI: `http://127.0.0.1:8000/docs`
+- OpenAPI: `http://127.0.0.1:8000/openapi.json`
 - liveness: `http://127.0.0.1:8000/healthz`
 - readiness (PostgreSQL, Redis, Jupyter, Worker admission): `http://127.0.0.1:8000/readyz`
 - Worker lifecycle and active execution count: `http://127.0.0.1:8000/workerz`
@@ -160,6 +166,11 @@ uv run alembic upgrade head
 ```
 
 ## Tool contracts
+
+The same execution lifecycle is available as REST without internally calling MCP. REST requests
+and responses have transport-specific DTOs but map to the same application commands, PostgreSQL
+transactions, Outbox, and Worker. See [Executor REST API v1](docs/rest-api.md) for every endpoint
+and runnable curl examples.
 
 `execution_submit` accepts one `request` object. Important fields are:
 

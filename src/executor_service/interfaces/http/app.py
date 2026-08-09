@@ -4,10 +4,23 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Response, status
+from fastapi import FastAPI, Request, Response, status
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from mcp.server.transport_security import TransportSecuritySettings
 
 from executor_service.container import ApplicationContainer
+from executor_service.domain.errors import (
+    DomainError,
+    ExecutionArtifactNotFoundError,
+    ExecutionNotFoundError,
+    ExecutionVersionConflictError,
+    IdempotencyConflictError,
+    InvalidExecutionSpecError,
+    InvalidStateTransitionError,
+    PersistenceConflictError,
+)
+from executor_service.interfaces.http.executions import build_execution_router
 from executor_service.interfaces.mcp.server import build_mcp_server
 from executor_service.tracing import TraceContextMiddleware
 
@@ -45,14 +58,69 @@ def create_app(container: ApplicationContainer) -> FastAPI:
     app = FastAPI(
         title="Executor Service",
         version="0.1.0",
-        docs_url=None,
-        redoc_url=None,
-        openapi_url=None,
+        description=(
+            "Asynchronous Jupyter execution REST facade. MCP Streamable HTTP remains available "
+            "at /mcp."
+        ),
+        docs_url="/docs",
+        redoc_url="/redoc",
+        openapi_url="/openapi.json",
         lifespan=lifespan,
     )
     app.state.container = container
     app.state.mcp_server = mcp_server
     app.add_middleware(TraceContextMiddleware, tracing=container.tracing)
+
+    @app.exception_handler(RequestValidationError)
+    async def request_validation_error_handler(
+        _request: Request, exc: RequestValidationError
+    ) -> JSONResponse:
+        details = [
+            {
+                "location": list(error["loc"]),
+                "message": error["msg"],
+                "type": error["type"],
+            }
+            for error in exc.errors()
+        ]
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            content={
+                "error": {
+                    "code": "RequestValidationError",
+                    "message": "Request validation failed.",
+                    "details": details,
+                }
+            },
+        )
+
+    @app.exception_handler(DomainError)
+    async def domain_error_handler(_request: Request, exc: DomainError) -> JSONResponse:
+        if isinstance(exc, (ExecutionNotFoundError, ExecutionArtifactNotFoundError)):
+            http_status = status.HTTP_404_NOT_FOUND
+        elif isinstance(exc, InvalidExecutionSpecError):
+            http_status = status.HTTP_422_UNPROCESSABLE_CONTENT
+        elif isinstance(
+            exc,
+            (
+                ExecutionVersionConflictError,
+                IdempotencyConflictError,
+                InvalidStateTransitionError,
+                PersistenceConflictError,
+            ),
+        ):
+            http_status = status.HTTP_409_CONFLICT
+        else:
+            http_status = status.HTTP_400_BAD_REQUEST
+        return JSONResponse(
+            status_code=http_status,
+            content={
+                "error": {
+                    "code": type(exc).__name__,
+                    "message": str(exc),
+                }
+            },
+        )
 
     @app.get("/healthz", include_in_schema=False)
     async def healthz() -> dict[str, str]:
@@ -74,6 +142,8 @@ def create_app(container: ApplicationContainer) -> FastAPI:
             "accepting_new_executions": worker.accepting_work,
             "active_execution_count": worker.active_job_count,
         }
+
+    app.include_router(build_execution_router(container))
 
     # Register this catch-all mount last so operational routes remain reachable.
     app.mount("/", mcp_app)
