@@ -1,0 +1,64 @@
+"""Executor domain enumerations."""
+
+from enum import StrEnum
+
+
+class ExecutionStatus(StrEnum):
+    QUEUED = "QUEUED"
+    DISPATCHED = "DISPATCHED"
+    RUNNING = "RUNNING"
+    CANCEL_REQUESTED = "CANCEL_REQUESTED"
+    CANCELLED = "CANCELLED"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+
+    @property
+    def is_terminal(self) -> bool:
+        return self in {self.CANCELLED, self.SUCCEEDED, self.FAILED}
+
+
+class ExecutionMode(StrEnum):
+    STATIC = "STATIC"
+    DYNAMIC = "DYNAMIC"
+
+
+class TriggerType(StrEnum):
+    INTERACTIVE = "INTERACTIVE"
+    BATCH = "BATCH"
+
+
+class JupyterPool(StrEnum):
+    INTERACTIVE = "INTERACTIVE"
+    BATCH = "BATCH"
+
+
+class CodeSourceType(StrEnum):
+    INLINE = "INLINE"
+    PATH = "PATH"
+
+
+class StepStatus(StrEnum):
+    PENDING = "PENDING"
+    RUNNING = "RUNNING"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+    SKIPPED = "SKIPPED"
+    CANCELLED = "CANCELLED"
+
+
+class OutboxStatus(StrEnum):
+    PENDING = "PENDING"
+    PUBLISHED = "PUBLISHED"
+
+
+class JupyterServerStatus(StrEnum):
+    ACTIVE = "ACTIVE"
+    DRAINING = "DRAINING"
+    OFFLINE = "OFFLINE"
+
+
+class AttemptStatus(StrEnum):
+    RUNNING = "RUNNING"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"

@@ -1,0 +1,62 @@
+[project]
+name = "executor-service"
+version = "0.1.0"
+description = "MCP-based asynchronous Jupyter execution service"
+readme = "README.md"
+authors = [
+    { name = "Executor Team" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "alembic>=1.16,<2",
+    "cryptography>=45,<47",
+    "fastapi>=0.116,<1",
+    "httpx>=0.28,<1",
+    "mcp>=2.0,<3",
+    "nbformat>=5.10,<6",
+    "prometheus-client>=0.22,<1",
+    "psycopg[binary]>=3.2,<4",
+    "pydantic-settings>=2.10,<3",
+    "redis>=6.4,<7",
+    "sqlalchemy[asyncio]>=2.0.43,<3",
+    "uvicorn[standard]>=0.35,<1",
+    "websockets>=17,<18",
+]
+
+[project.scripts]
+executor-service = "executor_service.main:run"
+
+[build-system]
+requires = ["uv_build>=0.11.32,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "aiosqlite>=0.21,<1",
+    "httpx>=0.28,<1",
+    "pytest>=8.4,<9",
+    "pytest-asyncio>=1.1,<2",
+    "ruff>=0.12,<1",
+    "ty>=0.0.1a17,<1",
+]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+"migrations/versions/*.py" = ["E501"]
+
+[tool.ty.environment]
+python-version = "3.12"
+
+[tool.ty.src]
+exclude = ["docker/jupyter_server_config.py"]

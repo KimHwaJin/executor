@@ -1,0 +1,11 @@
+#!/bin/sh
+
+branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)
+
+# Allow the repository's first baseline commit. Afterwards, main only accepts merge commits.
+if [ "$branch" = "main" ] && git rev-parse --verify HEAD >/dev/null 2>&1; then
+    if ! git rev-parse --verify MERGE_HEAD >/dev/null 2>&1; then
+        echo "Direct commits to main are blocked. Commit on a feature/fix/chore branch." >&2
+        exit 1
+    fi
+fi

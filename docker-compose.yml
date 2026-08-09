@@ -1,0 +1,74 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: executor
+      POSTGRES_USER: executor
+      POSTGRES_PASSWORD: executor
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U executor -d executor"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - executor-postgres:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7.4-alpine
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - executor-redis:/data
+
+  jupyter:
+    image: jupyter/datascience-notebook:latest
+    environment:
+      JUPYTER_TOKEN: ${JUPYTER_TOKEN:-change-me-local-only}
+    ports:
+      - "8888:8888"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'curl --fail --silent --header "Authorization: token $${JUPYTER_TOKEN}" "http://127.0.0.1:8888/api/status" >/dev/null',
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    volumes:
+      - ./notebook_dir:/workspace/pv
+      - ./docker/jupyter_server_config.py:/home/jovyan/.jupyter/jupyter_server_config.py:ro
+
+  jupyter-secondary:
+    profiles: ["multi-jupyter"]
+    image: jupyter/datascience-notebook:latest
+    environment:
+      JUPYTER_TOKEN: ${JUPYTER_SECONDARY_TOKEN:-change-me-secondary-local-only}
+    ports:
+      - "8889:8888"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'curl --fail --silent --header "Authorization: token $${JUPYTER_TOKEN}" "http://127.0.0.1:8888/api/status" >/dev/null',
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    volumes:
+      - ./notebook_dir:/workspace/pv
+      - ./docker/jupyter_server_config.py:/home/jovyan/.jupyter/jupyter_server_config.py:ro
+
+volumes:
+  executor-postgres:
+  executor-redis:
