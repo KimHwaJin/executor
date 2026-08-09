@@ -127,8 +127,15 @@ uv run python scripts/jupyter_drain_smoke.py
 uv run python scripts/jupyter_artifact_smoke.py
 uv run python scripts/jupyter_batch_pool_smoke.py
 uv run python scripts/multi_executor_failover_smoke.py
+uv run python scripts/multi_executor_drain_smoke.py
+uv run python scripts/multi_executor_load_smoke.py
+uv run python scripts/executor_redis_outage_smoke.py
+ALLOW_DOCKER_JUPYTER_OUTAGE_TEST=1 uv run python scripts/jupyter_server_outage_smoke.py
 uv run python scripts/phoenix_trace_smoke.py
 ```
+
+The resilience scenarios and their safety boundaries are documented in
+[Executor Resilience Testing](docs/executor-resilience-testing.md).
 
 ## Quality checks
 

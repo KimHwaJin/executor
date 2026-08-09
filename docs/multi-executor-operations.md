@@ -81,3 +81,14 @@ uv run python scripts/multi_executor_failover_smoke.py
 ```
 
 Override `MULTI_EXECUTOR_PRIMARY_PORT` and `MULTI_EXECUTOR_SECONDARY_PORT` if those ports are in use.
+
+Run the graceful SIGTERM handoff and 30-execution distributed-capacity scenarios with:
+
+```bash
+uv run python scripts/multi_executor_drain_smoke.py
+uv run python scripts/multi_executor_load_smoke.py
+```
+
+Redis pause and Jupyter OFFLINE recovery scenarios, safety opt-ins, diagnostic queries, and the
+validated baseline are documented in
+[Executor Resilience Testing](executor-resilience-testing.md).
