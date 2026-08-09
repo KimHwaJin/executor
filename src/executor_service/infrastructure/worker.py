@@ -45,6 +45,14 @@ from executor_service.infrastructure.jupyter import (
 )
 from executor_service.infrastructure.jupyter_registry import JupyterServerRegistry
 from executor_service.infrastructure.workspace import ExecutionWorkspace, WorkspaceManager
+from executor_service.observability import (
+    STREAM_DEAD_LETTERED,
+    STREAM_LAG,
+    STREAM_MESSAGES,
+    STREAM_PENDING,
+    STREAM_RECLAIMED,
+    WORKER_ACTIVE_JOBS,
+)
 from executor_service.tracing import (
     TracingManager,
     capture_trace_carrier,
@@ -52,6 +60,17 @@ from executor_service.tracing import (
 )
 
 logger = logging.getLogger(__name__)
+
+DISPATCH_EVENT_TYPES = frozenset(
+    {
+        "execution.submitted",
+        "execution.continue_requested",
+        "execution.finish_requested",
+        "execution.retry_requested",
+        "execution.cancel_requested",
+    }
+)
+RUN_EVENT_TYPES = DISPATCH_EVENT_TYPES - {"execution.cancel_requested"}
 
 
 class ExecutionWorker:
@@ -78,6 +97,7 @@ class ExecutionWorker:
         self._loops: list[asyncio.Task[None]] = []
         self._jobs: dict[UUID, asyncio.Task[None]] = {}
         self._semaphore = asyncio.Semaphore(settings.execution_worker_concurrency)
+        self._pending_claim_cursor = "0-0"
 
     async def start(self) -> None:
         if not self._settings.jupyter_enabled or self._loops:
@@ -86,6 +106,10 @@ class ExecutionWorker:
         await self._ensure_consumer_group()
         self._loops = [
             asyncio.create_task(self._stream_loop(), name="execution-stream-consumer"),
+            asyncio.create_task(
+                self._pending_recovery_loop(),
+                name="execution-pending-recovery",
+            ),
             asyncio.create_task(self._reconcile_loop(), name="execution-reconciler"),
             asyncio.create_task(self._lease_recovery_loop(), name="execution-lease-recovery"),
             asyncio.create_task(
@@ -133,25 +157,143 @@ class ExecutionWorker:
                 )
                 for _stream, messages in batches:
                     for message_id, fields in messages:
-                        await self._handle_event(fields)
-                        await self._redis.xack(
-                            self._settings.redis_stream,
-                            self._settings.execution_consumer_group,
-                            message_id,
-                        )
+                        await self._process_stream_message(message_id, fields)
             except asyncio.CancelledError:
                 raise
             except Exception:
                 logger.exception("Execution stream consumer failed")
                 await asyncio.sleep(1)
 
-    async def _handle_event(self, fields: dict[str, str]) -> None:
-        event_type = fields.get("event_type")
-        try:
-            execution_id = UUID(fields["aggregate_id"])
-        except (KeyError, ValueError):
-            logger.warning("Ignoring malformed execution event")
+    async def _pending_recovery_loop(self) -> None:
+        while not self._stop_event.is_set():
+            try:
+                await self._recover_pending_messages()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("Execution pending-message recovery failed")
+            try:
+                await asyncio.wait_for(
+                    self._stop_event.wait(),
+                    timeout=self._settings.execution_pending_claim_interval_seconds,
+                )
+            except TimeoutError:
+                pass
+
+    async def _recover_pending_messages(self) -> int:
+        result = await self._redis.xautoclaim(
+            self._settings.redis_stream,
+            self._settings.execution_consumer_group,
+            self._consumer_name,
+            min_idle_time=self._settings.execution_pending_claim_idle_milliseconds,
+            start_id=self._pending_claim_cursor,
+            count=self._settings.execution_pending_claim_batch_size,
+        )
+        next_cursor = result[0]
+        messages = result[1]
+        self._pending_claim_cursor = str(next_cursor)
+        reclaimed = 0
+        for message_id, fields in messages:
+            reclaimed += 1
+            STREAM_RECLAIMED.inc()
+            await self._process_stream_message(message_id, fields, reclaimed=True)
+        await self._update_stream_metrics()
+        return reclaimed
+
+    async def _process_stream_message(
+        self,
+        message_id: str,
+        fields: dict[str, str],
+        *,
+        reclaimed: bool = False,
+    ) -> None:
+        invalid_reason = _invalid_event_reason(fields)
+        if invalid_reason is not None:
+            try:
+                await self._dead_letter(message_id, fields, invalid_reason)
+                await self._ack_message(message_id)
+            except Exception:
+                STREAM_MESSAGES.labels(outcome="retry").inc()
+                logger.exception(
+                    "Execution event DLQ delivery failed",
+                    extra={"message_id": message_id, "reason": invalid_reason},
+                )
+                return
+            STREAM_DEAD_LETTERED.labels(reason=invalid_reason).inc()
+            STREAM_MESSAGES.labels(outcome="dead_lettered").inc()
             return
+        try:
+            dispatched = await self._handle_event(fields)
+        except Exception:
+            STREAM_MESSAGES.labels(outcome="retry").inc()
+            logger.exception(
+                "Execution event handling failed",
+                extra={"message_id": message_id},
+            )
+            return
+        await self._ack_message(message_id)
+        if reclaimed:
+            STREAM_MESSAGES.labels(outcome="reclaimed").inc()
+        elif dispatched:
+            STREAM_MESSAGES.labels(outcome="dispatched").inc()
+        else:
+            STREAM_MESSAGES.labels(outcome="ignored").inc()
+
+    async def _ack_message(self, message_id: str) -> None:
+        await self._redis.xack(
+            self._settings.redis_stream,
+            self._settings.execution_consumer_group,
+            message_id,
+        )
+
+    async def _dead_letter(
+        self,
+        message_id: str,
+        fields: dict[str, str],
+        reason: str,
+    ) -> None:
+        context = extract_trace_context(fields)
+        with self._tracing.span(
+            "executor.redis.dead_letter",
+            context=context,
+            kind=SpanKind.PRODUCER,
+            attributes={"executor.event.failure.reason": reason},
+        ):
+            await self._redis.xadd(
+                self._settings.redis_dead_letter_stream,
+                {
+                    "source_stream": self._settings.redis_stream,
+                    "source_message_id": message_id,
+                    "event_id": _valid_uuid_or_empty(fields.get("event_id")),
+                    "aggregate_id": _valid_uuid_or_empty(fields.get("aggregate_id")),
+                    "reason": reason,
+                    "dead_lettered_at": utc_now().isoformat(),
+                },
+            )
+
+    async def _update_stream_metrics(self) -> None:
+        try:
+            groups = await self._redis.xinfo_groups(self._settings.redis_stream)
+            group = next(
+                (
+                    item
+                    for item in groups
+                    if item.get("name") == self._settings.execution_consumer_group
+                ),
+                None,
+            )
+            if group is None:
+                return
+            STREAM_PENDING.set(int(group.get("pending", 0) or 0))
+            lag = group.get("lag")
+            if lag is not None:
+                STREAM_LAG.set(int(lag))
+        except Exception:
+            logger.debug("Redis Stream metrics update failed", exc_info=True)
+
+    async def _handle_event(self, fields: dict[str, str]) -> bool:
+        event_type = fields.get("event_type")
+        execution_id = UUID(fields["aggregate_id"])
         context = extract_trace_context(fields)
         with self._tracing.span(
             "executor.redis.consume",
@@ -162,13 +304,7 @@ class ExecutionWorker:
                 "executor.execution.id": str(execution_id),
             },
         ):
-            if event_type in {
-                "execution.submitted",
-                "execution.continue_requested",
-                "execution.finish_requested",
-            }:
-                self._dispatch(execution_id, self._run_execution(execution_id))
-            elif event_type == "execution.retry_requested":
+            if event_type in RUN_EVENT_TYPES:
                 self._dispatch(execution_id, self._run_execution(execution_id))
             elif event_type == "execution.cancel_requested":
                 self._dispatch(
@@ -176,6 +312,9 @@ class ExecutionWorker:
                     self._cancel_execution(execution_id),
                     replace=True,
                 )
+            else:
+                return False
+        return True
 
     async def _reconcile_loop(self) -> None:
         while not self._stop_event.is_set():
@@ -267,17 +406,20 @@ class ExecutionWorker:
                 current.cancel()
                 task = asyncio.create_task(coroutine, name=f"cancel-{execution_id}")
                 self._jobs[execution_id] = task
+                WORKER_ACTIVE_JOBS.set(len(self._jobs))
                 task.add_done_callback(lambda done: self._remove_job_if_current(execution_id, done))
             else:
                 coroutine.close()
             return
         task = asyncio.create_task(coroutine, name=f"execution-{execution_id}")
         self._jobs[execution_id] = task
+        WORKER_ACTIVE_JOBS.set(len(self._jobs))
         task.add_done_callback(lambda done: self._remove_job_if_current(execution_id, done))
 
     def _remove_job_if_current(self, execution_id: UUID, task: asyncio.Task[None]) -> None:
         if self._jobs.get(execution_id) is task:
             self._jobs.pop(execution_id, None)
+            WORKER_ACTIVE_JOBS.set(len(self._jobs))
 
     async def _run_execution(self, execution_id: UUID) -> None:
         with self._tracing.span(
@@ -1848,6 +1990,40 @@ def _add_outbox(
         tracestate=carrier.tracestate,
     )
     session.add(OutboxEventORM.from_domain(event))
+
+
+def _invalid_event_reason(fields: dict[str, str]) -> str | None:
+    event_id = fields.get("event_id")
+    if not event_id:
+        return "missing_event_id"
+    try:
+        UUID(event_id)
+    except ValueError:
+        return "invalid_event_id"
+    if fields.get("aggregate_type") != "Execution":
+        return "unsupported_aggregate_type"
+    aggregate_id = fields.get("aggregate_id")
+    if not aggregate_id:
+        return "missing_aggregate_id"
+    try:
+        UUID(aggregate_id)
+    except ValueError:
+        return "invalid_aggregate_id"
+    event_type = fields.get("event_type")
+    if not event_type:
+        return "missing_event_type"
+    if not event_type.startswith("execution."):
+        return "unsupported_event_type"
+    return None
+
+
+def _valid_uuid_or_empty(value: str | None) -> str:
+    if not value:
+        return ""
+    try:
+        return str(UUID(value))
+    except ValueError:
+        return ""
 
 
 def _failure_policy(

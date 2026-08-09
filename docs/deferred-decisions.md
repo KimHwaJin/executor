@@ -100,7 +100,7 @@ reusable across all projects owned by the same user or only within its source pr
 
 ## Resolved observability integration: Arize Phoenix
 
-- Status: IMPLEMENTED on `feature/phoenix-tracing`
+- Status: DONE
 - Runtime image for local integration tests: `arizephoenix/phoenix:nightly`
 - Validated UI and OTLP/HTTP endpoint: port `6006`, collector path `/v1/traces`
 - Optional OTLP/gRPC port exposed for compatibility: `4317`

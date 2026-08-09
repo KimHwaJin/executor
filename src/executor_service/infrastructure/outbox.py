@@ -3,18 +3,23 @@
 import asyncio
 import json
 import logging
-from datetime import timedelta
+from datetime import UTC, timedelta
 
 from opentelemetry.trace import SpanKind
 from redis.asyncio import Redis
 from redis.typing import EncodableT, FieldT
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from executor_service.domain.enums import OutboxStatus
 from executor_service.domain.models import utc_now
 from executor_service.infrastructure.db.models import OutboxEventORM
-from executor_service.observability import OUTBOX_FAILURES, OUTBOX_PUBLISHED
+from executor_service.observability import (
+    OUTBOX_FAILURES,
+    OUTBOX_OLDEST_PENDING_AGE,
+    OUTBOX_PENDING,
+    OUTBOX_PUBLISHED,
+)
 from executor_service.tracing import (
     TracingManager,
     capture_trace_carrier,
@@ -129,4 +134,22 @@ class OutboxPublisher:
                     event.last_error = f"{type(exc).__name__}: Redis publish failed"
                     OUTBOX_FAILURES.inc()
                     logger.warning("Outbox publish failed", extra={"event_id": str(event.id)})
+            await session.flush()
+            pending_count, oldest_created_at = (
+                await session.execute(
+                    select(
+                        func.count(OutboxEventORM.id),
+                        func.min(OutboxEventORM.created_at),
+                    ).where(OutboxEventORM.status == OutboxStatus.PENDING)
+                )
+            ).one()
+            OUTBOX_PENDING.set(pending_count or 0)
+            if oldest_created_at is None:
+                OUTBOX_OLDEST_PENDING_AGE.set(0)
+            else:
+                if oldest_created_at.tzinfo is None:
+                    oldest_created_at = oldest_created_at.replace(tzinfo=UTC)
+                OUTBOX_OLDEST_PENDING_AGE.set(
+                    max(0, (utc_now() - oldest_created_at).total_seconds())
+                )
             return published

@@ -16,7 +16,7 @@ consumer worker executes STATIC plans or one-cell-at-a-time DYNAMIC plans in Jup
   `jupyter_server_set_state`
 - Execution, ExecutionStep, and OutboxEvent persistence with SQLAlchemy 2 and Alembic
 - Transactional Outbox publisher with at-least-once Redis Stream delivery
-- Redis consumer group worker with PostgreSQL reconciliation
+- Redis consumer group worker with PostgreSQL reconciliation, stale Pending recovery, and DLQ
 - Jupyter REST/WebSocket kernel execution, interrupt, and deletion
 - Multi-server Jupyter registry, encrypted credentials, health probes, capacity scheduling,
   execution attempts, leases, and heartbeats
@@ -29,7 +29,7 @@ consumer worker executes STATIC plans or one-cell-at-a-time DYNAMIC plans in Jup
 - Durable `.ipynb` output and execution-scoped artifact directories on the shared PV
 - W3C trace-context propagation across HTTP/MCP, PostgreSQL Outbox, Redis Streams, Worker,
   and Jupyter operations with optional OTLP export to Arize Phoenix
-- `/healthz`, `/readyz`, and Prometheus `/metrics`
+- `/healthz`, `/readyz`, and Prometheus `/metrics`, including Outbox/Stream lag and Worker jobs
 - PostgreSQL, Redis, `jupyter/datascience-notebook`, and opt-in Phoenix through Docker Compose
 
 MCP Tasks are deliberately not used. `execution_submit` returns an `execution_id` while the
@@ -262,11 +262,24 @@ duplicate, so consumers must deduplicate on `event_id`.
 
 The consumer group treats Redis as a wake-up channel and reconciles `QUEUED` and
 `CANCEL_REQUESTED` rows from PostgreSQL, so an acknowledged or lost notification does not lose the
-execution. Active attempts renew a PostgreSQL lease. A dynamic Attempt in
+execution. A message left Pending by a dead consumer is reclaimed with `XAUTOCLAIM` after
+`EXECUTION_PENDING_CLAIM_IDLE_MILLISECONDS`; the new Worker handles and acknowledges it using the
+same PostgreSQL state guards. Malformed messages and unsupported aggregate/event families are
+acknowledged only after sanitized metadata is written to `REDIS_DEAD_LETTER_STREAM`. Valid
+non-command `execution.*` notifications are intentionally acknowledged without dispatch because
+the Agent consumer group still needs those events. See [Event Delivery](docs/event-delivery.md)
+for the ACK, reclaim, DLQ, and metric contract.
+
+Active attempts renew a PostgreSQL lease. A dynamic Attempt in
 `WAITING_FOR_NEXT_STEP` releases its worker lease but keeps its kernel reservation, so it counts
 against that Jupyter server's capacity. A background audit verifies retained kernels and enforces
 both stored deadlines after Executor restarts. An expired active lease is failed safely and can be
 retried by a later retry workflow; automatic re-execution is intentionally not enabled yet.
+
+Redis Stream trimming is deliberately disabled. The Stream is shared with Agent-owned consumer
+groups, so a retention policy must account for every group's delivered and Pending positions before
+entries can be removed safely. PostgreSQL Outbox rows are also retained because they back the
+frontend execution event timeline.
 
 No database migration runs automatically during service startup. Deployments must run Alembic as
 a release or init job before readiness can pass.
@@ -280,6 +293,12 @@ local-only credentials. Inject production values through the Kubernetes secret m
 `MCP_ALLOWED_HOSTS` and `MCP_ALLOWED_ORIGINS` are fail-closed allowlists for the SDK's DNS-rebinding
 protection. Add the Kubernetes gateway hostname and origin before deployment; do not disable the
 protection to make a proxy work.
+
+`REDIS_DEAD_LETTER_STREAM` must differ from `REDIS_STREAM`. Pending recovery cadence, minimum idle
+time, and batch size are configured with `EXECUTION_PENDING_CLAIM_INTERVAL_SECONDS`,
+`EXECUTION_PENDING_CLAIM_IDLE_MILLISECONDS`, and `EXECUTION_PENDING_CLAIM_BATCH_SIZE`. The minimum
+idle time should exceed normal message dispatch latency; it does not need to match the much longer
+Execution lease because Redis only wakes the PostgreSQL-backed Worker.
 
 The bootstrap Jupyter token is supplied through `JUPYTER_TOKEN`. It is loaded by the mounted
 Jupyter config and sent by the Executor only in the `Authorization` header. Dynamically registered
