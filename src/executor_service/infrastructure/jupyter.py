@@ -68,6 +68,12 @@ class JupyterGateway:
             "DELETE", f"/api/kernels/{kernel_id}", allowed_statuses={204, 404}
         )
 
+    async def kernel_exists(self, kernel_id: str) -> bool:
+        response = await self._request(
+            "GET", f"/api/kernels/{kernel_id}", allowed_statuses={200, 404}
+        )
+        return response.status_code == 200
+
     async def execute_cell(self, kernel_id: str, code: str) -> CellExecutionResult:
         session_id = str(uuid4())
         message_id = str(uuid4())

@@ -69,7 +69,8 @@ class ExecutionORM(Base):
         CheckConstraint(
             "failure_type IS NULL OR failure_type IN ('TOOL_ERROR', "
             "'INFRASTRUCTURE_ERROR', 'WORKER_SHUTDOWN', 'JUPYTER_UNAVAILABLE', "
-            "'LEASE_EXPIRED', 'INTERNAL_ERROR')",
+            "'LEASE_EXPIRED', 'INTERNAL_ERROR', 'DYNAMIC_WAIT_TIMEOUT', "
+            "'EXECUTION_TIMEOUT', 'KERNEL_LOST')",
             name="valid_failure_type",
         ),
         CheckConstraint(
@@ -155,6 +156,12 @@ class ExecutionORM(Base):
     dynamic_finish_requested: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False
     )
+    dynamic_wait_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    execution_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     created_at: Mapped[datetime] = mapped_column(
@@ -213,6 +220,8 @@ class ExecutionORM(Base):
             recovery_count=execution.recovery_count,
             kernel_cleanup_status=execution.kernel_cleanup_status,
             dynamic_finish_requested=execution.dynamic_finish_requested,
+            dynamic_wait_expires_at=execution.dynamic_wait_expires_at,
+            execution_expires_at=execution.execution_expires_at,
             version=execution.version,
             created_at=execution.created_at,
             updated_at=execution.updated_at,
@@ -260,6 +269,8 @@ class ExecutionORM(Base):
             recovery_count=self.recovery_count,
             kernel_cleanup_status=self.kernel_cleanup_status,
             dynamic_finish_requested=self.dynamic_finish_requested,
+            dynamic_wait_expires_at=self.dynamic_wait_expires_at,
+            execution_expires_at=self.execution_expires_at,
             version=self.version,
             created_at=self.created_at,
             updated_at=self.updated_at,
@@ -430,7 +441,8 @@ class ExecutionAttemptORM(Base):
         CheckConstraint(
             "failure_type IS NULL OR failure_type IN ('TOOL_ERROR', "
             "'INFRASTRUCTURE_ERROR', 'WORKER_SHUTDOWN', 'JUPYTER_UNAVAILABLE', "
-            "'LEASE_EXPIRED', 'INTERNAL_ERROR')",
+            "'LEASE_EXPIRED', 'INTERNAL_ERROR', 'DYNAMIC_WAIT_TIMEOUT', "
+            "'EXECUTION_TIMEOUT', 'KERNEL_LOST')",
             name="valid_attempt_failure_type",
         ),
         CheckConstraint(

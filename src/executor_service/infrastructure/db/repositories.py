@@ -133,6 +133,8 @@ class SQLAlchemyExecutionRepository:
                 recovery_count=execution.recovery_count,
                 kernel_cleanup_status=execution.kernel_cleanup_status,
                 dynamic_finish_requested=execution.dynamic_finish_requested,
+                dynamic_wait_expires_at=execution.dynamic_wait_expires_at,
+                execution_expires_at=execution.execution_expires_at,
             )
         )
         if getattr(result, "rowcount", None) != 1:

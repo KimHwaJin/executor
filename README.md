@@ -23,6 +23,7 @@ consumer worker executes STATIC plans or one-cell-at-a-time DYNAMIC plans in Jup
 - Safe server draining and retained-kernel retry from a failed Step
 - Classified Tool/infrastructure failures, graceful Worker shutdown, and FROM_START recovery
 - Append-only DYNAMIC cells with optimistic version checks and same-kernel continuation
+- Dynamic wait/total runtime deadlines, retained-kernel audits, and orphan cleanup
 - Immutable per-Attempt Step history and an end-to-end execution event trace
 - Automatic and Manifest-based Artifact registration with checksum and lineage
 - Durable `.ipynb` output and execution-scoped artifact directories on the shared PV
@@ -80,6 +81,7 @@ uv run python scripts/mcp_smoke.py
 uv run python scripts/jupyter_gateway_smoke.py
 uv run python scripts/jupyter_execution_smoke.py
 uv run python scripts/jupyter_dynamic_smoke.py
+uv run python scripts/jupyter_dynamic_lifecycle_smoke.py
 uv run python scripts/jupyter_cancel_smoke.py
 uv run python scripts/jupyter_failure_smoke.py
 uv run python scripts/jupyter_fleet_smoke.py
@@ -129,6 +131,15 @@ rewritten. Call `execution_finish` with the current version when no more cells a
 retained kernel is lost or an infrastructure failure makes its state untrustworthy, the DYNAMIC
 execution fails as non-retryable; the Agent must submit a new Execution because automatic replay
 of already executed dynamic cells is intentionally not supported.
+
+`EXECUTION_MAX_RUNTIME_SECONDS` defaults to five days and starts when a worker first claims the
+Execution. `DYNAMIC_STEP_WAIT_TIMEOUT_SECONDS` defaults to one hour and is reset after every
+dynamic cell. The effective wait deadline never exceeds the total execution deadline. A missed
+Agent deadline produces `DYNAMIC_WAIT_TIMEOUT`; a missing retained kernel produces `KERNEL_LOST`.
+A manually removed Jupyter server produces `JUPYTER_UNAVAILABLE`. These terminal dynamic failures
+are non-retryable and their kernels are deleted when still reachable. Temporary health-probe
+`OFFLINE` state alone does not immediately fail waiting work; the persisted deadline remains the
+guard while the server recovers.
 
 `execution_cancel` also requires an idempotency key. It first records `CANCEL_REQUESTED`; the
 worker then interrupts and deletes the kernel before recording `CANCELLED`.
@@ -226,7 +237,8 @@ The consumer group treats Redis as a wake-up channel and reconciles `QUEUED` and
 `CANCEL_REQUESTED` rows from PostgreSQL, so an acknowledged or lost notification does not lose the
 execution. Active attempts renew a PostgreSQL lease. A dynamic Attempt in
 `WAITING_FOR_NEXT_STEP` releases its worker lease but keeps its kernel reservation, so it counts
-against that Jupyter server's capacity. An expired active lease is failed safely and can be
+against that Jupyter server's capacity. A background audit verifies retained kernels and enforces
+both stored deadlines after Executor restarts. An expired active lease is failed safely and can be
 retried by a later retry workflow; automatic re-execution is intentionally not enabled yet.
 
 No database migration runs automatically during service startup. Deployments must run Alembic as

@@ -5,7 +5,7 @@ import logging
 import os
 import socket
 from collections.abc import Coroutine
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -83,6 +83,10 @@ class ExecutionWorker:
             asyncio.create_task(
                 self._retained_kernel_cleanup_loop(),
                 name="retained-kernel-cleanup",
+            ),
+            asyncio.create_task(
+                self._dynamic_lifecycle_loop(),
+                name="dynamic-lifecycle-auditor",
             ),
         ]
 
@@ -200,6 +204,16 @@ class ExecutionWorker:
                 raise
             except Exception:
                 logger.exception("Retained kernel cleanup failed")
+            await asyncio.sleep(self._settings.execution_heartbeat_seconds)
+
+    async def _dynamic_lifecycle_loop(self) -> None:
+        while not self._stop_event.is_set():
+            try:
+                await self._audit_dynamic_lifecycle()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("Dynamic execution lifecycle audit failed")
             await asyncio.sleep(self._settings.execution_heartbeat_seconds)
 
     def _dispatch(
@@ -457,6 +471,11 @@ class ExecutionWorker:
                 execution_row.lease_owner = self._consumer_name
                 execution_row.lease_expires_at = lease_expires
                 execution_row.heartbeat_at = now
+                execution_row.execution_expires_at = (
+                    execution_row.execution_expires_at
+                    or (execution_row.started_at or now)
+                    + timedelta(seconds=self._settings.execution_max_runtime_seconds)
+                )
                 execution_row.updated_at = now
                 execution_row.version += 1
                 _add_outbox(
@@ -524,7 +543,13 @@ class ExecutionWorker:
             execution_row.lease_owner = self._consumer_name
             execution_row.lease_expires_at = lease_expires
             execution_row.heartbeat_at = now
-            execution_row.started_at = execution_row.started_at or now
+            started_at = execution_row.started_at or now
+            execution_row.started_at = started_at
+            execution_row.execution_expires_at = (
+                execution_row.execution_expires_at
+                or started_at
+                + timedelta(seconds=self._settings.execution_max_runtime_seconds)
+            )
             execution_row.error_message = None
             execution_row.failure_type = None
             execution_row.retryable = False
@@ -742,6 +767,13 @@ class ExecutionWorker:
             execution.lease_expires_at = None
             execution.updated_at = now
             execution.dynamic_finish_requested = False
+            wait_deadline = now + timedelta(
+                seconds=self._settings.dynamic_step_wait_timeout_seconds
+            )
+            execution.dynamic_wait_expires_at = min(
+                wait_deadline,
+                execution.execution_expires_at or wait_deadline,
+            )
             execution.version += 1
             await session.execute(
                 update(ExecutionAttemptORM)
@@ -1027,6 +1059,7 @@ class ExecutionWorker:
             execution.updated_at = now
             execution.lease_owner = None
             execution.lease_expires_at = None
+            execution.dynamic_wait_expires_at = None
             execution.retry_strategy = effective_retry_strategy
             execution.retryable = effective_retry_strategy != RetryStrategy.NOT_RETRYABLE
             execution.retry_from_sequence = None
@@ -1145,12 +1178,15 @@ class ExecutionWorker:
             execution.updated_at = now
             execution.lease_owner = None
             execution.lease_expires_at = None
+            execution.dynamic_wait_expires_at = None
             execution.failure_type = None
             execution.retryable = False
             execution.retry_strategy = RetryStrategy.NOT_RETRYABLE
             execution.retry_from_sequence = None
             execution.retained_kernel_until = None
             execution.kernel_cleanup_status = cleanup_status
+            if cleanup_status == KernelCleanupStatus.SUCCEEDED:
+                execution.kernel_id = None
             execution.version += 1
             await session.execute(
                 update(ExecutionAttemptORM)
@@ -1192,6 +1228,213 @@ class ExecutionWorker:
                 {"kernel_cleanup_status": cleanup_status.value},
             )
 
+    async def _audit_dynamic_lifecycle(self) -> None:
+        await self._request_expired_execution_cancellations()
+        now = utc_now()
+        async with self._session_factory() as session:
+            waiting = list(
+                await session.execute(
+                    select(ExecutionORM, JupyterServerORM)
+                    .join(
+                        JupyterServerORM,
+                        JupyterServerORM.id == ExecutionORM.jupyter_server_id,
+                    )
+                    .where(
+                        ExecutionORM.mode == ExecutionMode.DYNAMIC,
+                        ExecutionORM.status == ExecutionStatus.WAITING_FOR_NEXT_STEP,
+                    )
+                    .order_by(ExecutionORM.updated_at)
+                    .limit(200)
+                )
+            )
+        for execution, server in waiting:
+            if (
+                execution.execution_expires_at is not None
+                and _as_utc(execution.execution_expires_at) <= now
+            ):
+                await self._fail_waiting_execution(
+                    execution.id,
+                    execution.kernel_id,
+                    FailureType.EXECUTION_TIMEOUT,
+                    "Execution exceeded its maximum runtime while waiting for the Agent.",
+                )
+                continue
+            if (
+                execution.dynamic_wait_expires_at is not None
+                and _as_utc(execution.dynamic_wait_expires_at) <= now
+            ):
+                await self._fail_waiting_execution(
+                    execution.id,
+                    execution.kernel_id,
+                    FailureType.DYNAMIC_WAIT_TIMEOUT,
+                    "Agent did not provide the next dynamic step before the deadline.",
+                )
+                continue
+            if not server.enabled:
+                await self._fail_waiting_execution(
+                    execution.id,
+                    execution.kernel_id,
+                    FailureType.JUPYTER_UNAVAILABLE,
+                    "The assigned Jupyter server was removed while waiting for the Agent.",
+                )
+                continue
+            if execution.kernel_id is None:
+                await self._fail_waiting_execution(
+                    execution.id,
+                    None,
+                    FailureType.KERNEL_LOST,
+                    "The retained dynamic Jupyter kernel reference was lost.",
+                )
+                continue
+            gateway = JupyterGateway(
+                server.endpoint,
+                self._registry.resolve_token(
+                    server.credential_ref, server.credential_ciphertext
+                ),
+                self._settings.jupyter_request_timeout_seconds,
+            )
+            try:
+                kernel_exists = await gateway.kernel_exists(execution.kernel_id)
+            except JupyterGatewayError:
+                # OFFLINE can be temporary. The persisted deadlines remain the terminal guard.
+                continue
+            finally:
+                await gateway.close()
+            if not kernel_exists:
+                await self._fail_waiting_execution(
+                    execution.id,
+                    execution.kernel_id,
+                    FailureType.KERNEL_LOST,
+                    "The retained dynamic Jupyter kernel no longer exists.",
+                )
+
+    async def _request_expired_execution_cancellations(self) -> None:
+        now = utc_now()
+        expired_ids: list[UUID] = []
+        async with self._session_factory() as session, session.begin():
+            expired = list(
+                await session.scalars(
+                    select(ExecutionORM)
+                    .where(
+                        ExecutionORM.status.in_(
+                            [ExecutionStatus.QUEUED, ExecutionStatus.RUNNING]
+                        ),
+                        ExecutionORM.execution_expires_at.is_not(None),
+                        ExecutionORM.execution_expires_at <= now,
+                    )
+                    .with_for_update(skip_locked=True)
+                )
+            )
+            for execution in expired:
+                execution.status = ExecutionStatus.CANCEL_REQUESTED
+                execution.cancellation_reason = "Execution exceeded its maximum runtime."
+                execution.dynamic_wait_expires_at = None
+                execution.updated_at = now
+                execution.version += 1
+                expired_ids.append(execution.id)
+                _add_outbox(
+                    session,
+                    execution.id,
+                    "execution.timeout_requested",
+                    ExecutionStatus.CANCEL_REQUESTED,
+                    {"failure_type": FailureType.EXECUTION_TIMEOUT.value},
+                )
+        for execution_id in expired_ids:
+            self._dispatch(
+                execution_id,
+                self._cancel_execution(execution_id),
+                replace=True,
+            )
+
+    async def _fail_waiting_execution(
+        self,
+        execution_id: UUID,
+        expected_kernel_id: str | None,
+        failure_type: FailureType,
+        error_message: str,
+    ) -> None:
+        now = utc_now()
+        cleanup_target: tuple[UUID, UUID | None, UUID, str] | None = None
+        async with self._session_factory() as session, session.begin():
+            execution = await session.scalar(
+                select(ExecutionORM)
+                .where(ExecutionORM.id == execution_id)
+                .with_for_update()
+            )
+            if (
+                execution is None
+                or execution.status != ExecutionStatus.WAITING_FOR_NEXT_STEP
+                or execution.kernel_id != expected_kernel_id
+            ):
+                return
+            attempt = await session.scalar(
+                select(ExecutionAttemptORM)
+                .where(
+                    ExecutionAttemptORM.execution_id == execution_id,
+                    ExecutionAttemptORM.status == AttemptStatus.WAITING,
+                )
+                .with_for_update()
+            )
+            cleanup_required = (
+                failure_type != FailureType.KERNEL_LOST
+                and execution.kernel_id is not None
+                and execution.jupyter_server_id is not None
+            )
+            cleanup_status = (
+                KernelCleanupStatus.PENDING
+                if cleanup_required
+                else KernelCleanupStatus.NOT_REQUIRED
+            )
+            execution.status = ExecutionStatus.FAILED
+            execution.error_message = error_message
+            execution.failure_type = failure_type
+            execution.finished_at = now
+            execution.updated_at = now
+            execution.lease_owner = None
+            execution.lease_expires_at = None
+            execution.dynamic_wait_expires_at = None
+            execution.retryable = False
+            execution.retry_strategy = RetryStrategy.NOT_RETRYABLE
+            execution.retry_from_sequence = None
+            execution.retained_kernel_until = None
+            execution.kernel_cleanup_status = cleanup_status
+            execution.recovery_count += 1
+            execution.version += 1
+            if failure_type == FailureType.KERNEL_LOST:
+                execution.kernel_id = None
+            if attempt is not None:
+                attempt.status = AttemptStatus.FAILED
+                attempt.lease_owner = None
+                attempt.lease_expires_at = None
+                attempt.error_message = error_message
+                attempt.failure_type = failure_type
+                attempt.retry_strategy = RetryStrategy.NOT_RETRYABLE
+                attempt.kernel_cleanup_status = cleanup_status
+                attempt.finished_at = now
+            if cleanup_required:
+                if execution.jupyter_server_id is None or expected_kernel_id is None:
+                    raise RuntimeError("Dynamic cleanup target unexpectedly missing.")
+                cleanup_target = (
+                    execution.id,
+                    attempt.id if attempt is not None else None,
+                    execution.jupyter_server_id,
+                    expected_kernel_id,
+                )
+            _add_outbox(
+                session,
+                execution.id,
+                "execution.failed",
+                ExecutionStatus.FAILED,
+                {
+                    "failure_type": failure_type.value,
+                    "retry_strategy": RetryStrategy.NOT_RETRYABLE.value,
+                    "kernel_cleanup_status": cleanup_status.value,
+                    "recovery_count": execution.recovery_count,
+                },
+            )
+        if cleanup_target is not None:
+            await self._cleanup_abandoned_kernel(*cleanup_target)
+
     async def _recover_expired_leases(self) -> None:
         now = utc_now()
         cleanup_targets: list[tuple[UUID, UUID, UUID, str]] = []
@@ -1207,6 +1450,11 @@ class ExecutionWorker:
                 )
             )
             for execution in expired:
+                retry_strategy = (
+                    RetryStrategy.NOT_RETRYABLE
+                    if execution.mode == ExecutionMode.DYNAMIC
+                    else RetryStrategy.FROM_START
+                )
                 attempt = await session.scalar(
                     select(ExecutionAttemptORM)
                     .where(
@@ -1235,9 +1483,11 @@ class ExecutionWorker:
                 execution.updated_at = now
                 execution.lease_owner = None
                 execution.lease_expires_at = None
-                execution.retryable = True
-                execution.retry_strategy = RetryStrategy.FROM_START
-                execution.retry_from_sequence = 0
+                execution.retryable = retry_strategy != RetryStrategy.NOT_RETRYABLE
+                execution.retry_strategy = retry_strategy
+                execution.retry_from_sequence = (
+                    0 if retry_strategy == RetryStrategy.FROM_START else None
+                )
                 execution.retained_kernel_until = None
                 execution.recovery_count += 1
                 execution.kernel_cleanup_status = (
@@ -1256,7 +1506,7 @@ class ExecutionWorker:
                         status=AttemptStatus.FAILED,
                         error_message=execution.error_message,
                         failure_type=FailureType.LEASE_EXPIRED,
-                        retry_strategy=RetryStrategy.FROM_START,
+                        retry_strategy=retry_strategy,
                         kernel_cleanup_status=execution.kernel_cleanup_status,
                         finished_at=now,
                     )
@@ -1301,8 +1551,8 @@ class ExecutionWorker:
                     ExecutionStatus.FAILED,
                     {
                         "failure_type": FailureType.LEASE_EXPIRED.value,
-                        "retry_strategy": RetryStrategy.FROM_START.value,
-                        "retry_from_sequence": 0,
+                        "retry_strategy": retry_strategy.value,
+                        "retry_from_sequence": execution.retry_from_sequence,
                         "kernel_cleanup_status": execution.kernel_cleanup_status.value,
                         "recovery_count": execution.recovery_count,
                     },
@@ -1315,7 +1565,7 @@ class ExecutionWorker:
     async def _cleanup_abandoned_kernel(
         self,
         execution_id: UUID,
-        attempt_id: UUID,
+        attempt_id: UUID | None,
         server_id: UUID,
         kernel_id: str,
     ) -> None:
@@ -1352,7 +1602,7 @@ class ExecutionWorker:
     async def _record_cleanup_result(
         self,
         execution_id: UUID,
-        attempt_id: UUID,
+        attempt_id: UUID | None,
         kernel_id: str,
         cleanup_status: KernelCleanupStatus,
     ) -> None:
@@ -1375,11 +1625,12 @@ class ExecutionWorker:
                     version=ExecutionORM.version + 1,
                 )
             )
-            await session.execute(
-                update(ExecutionAttemptORM)
-                .where(ExecutionAttemptORM.id == attempt_id)
-                .values(kernel_cleanup_status=cleanup_status)
-            )
+            if attempt_id is not None:
+                await session.execute(
+                    update(ExecutionAttemptORM)
+                    .where(ExecutionAttemptORM.id == attempt_id)
+                    .values(kernel_cleanup_status=cleanup_status)
+                )
             if getattr(execution_update, "rowcount", None) == 1:
                 _add_outbox(
                     session,
@@ -1523,3 +1774,8 @@ async def _best_effort_kernel_stop(
         logger.warning("Jupyter kernel cleanup failed", extra={"kernel_id": kernel_id})
         return KernelCleanupStatus.FAILED
     return KernelCleanupStatus.SUCCEEDED
+
+
+def _as_utc(value: datetime) -> datetime:
+    """SQLite tests may return timezone-naive values for aware columns."""
+    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
