@@ -4,7 +4,8 @@ import asyncio
 import logging
 import os
 import socket
-from collections.abc import Awaitable, Coroutine
+from collections.abc import AsyncIterator, Awaitable, Coroutine
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
@@ -23,6 +24,7 @@ from executor_service.domain.enums import (
     ExecutionMode,
     ExecutionStatus,
     FailureType,
+    JupyterPool,
     JupyterServerStatus,
     KernelCleanupStatus,
     RetryStrategy,
@@ -52,6 +54,7 @@ from executor_service.observability import (
     STREAM_PENDING,
     STREAM_RECLAIMED,
     WORKER_ACTIVE_JOBS,
+    WORKER_POOL_ACTIVE_JOBS,
 )
 from executor_service.tracing import (
     TracingManager,
@@ -96,7 +99,8 @@ class ExecutionWorker:
         self._stop_event = asyncio.Event()
         self._loops: list[asyncio.Task[None]] = []
         self._jobs: dict[UUID, asyncio.Task[None]] = {}
-        self._semaphore = asyncio.Semaphore(settings.execution_worker_concurrency)
+        for pool in JupyterPool:
+            WORKER_POOL_ACTIVE_JOBS.labels(pool=pool.value).set(0)
         self._pending_claim_cursor = "0-0"
 
     async def start(self) -> None:
@@ -422,12 +426,33 @@ class ExecutionWorker:
             WORKER_ACTIVE_JOBS.set(len(self._jobs))
 
     async def _run_execution(self, execution_id: UUID) -> None:
+        pool = await self._execution_pool(execution_id)
+        if pool is None:
+            return
         with self._tracing.span(
             "executor.worker.execution",
             kind=SpanKind.CONSUMER,
-            attributes={"executor.execution.id": str(execution_id)},
+            attributes={
+                "executor.execution.id": str(execution_id),
+                "executor.jupyter.pool": pool.value,
+            },
         ):
-            await self._run_execution_impl(execution_id)
+            await self._run_execution_impl(execution_id, pool)
+
+    async def _execution_pool(self, execution_id: UUID) -> JupyterPool | None:
+        async with self._session_factory() as session:
+            return await session.scalar(
+                select(ExecutionORM.jupyter_pool).where(ExecutionORM.id == execution_id)
+            )
+
+    @asynccontextmanager
+    async def _pool_activity(self, pool: JupyterPool) -> AsyncIterator[None]:
+        active = WORKER_POOL_ACTIVE_JOBS.labels(pool=pool.value)
+        active.inc()
+        try:
+            yield
+        finally:
+            active.dec()
 
     async def _trace_jupyter[T](
         self,
@@ -447,8 +472,10 @@ class ExecutionWorker:
         with self._tracing.span(name, attributes=attributes):
             return await operation
 
-    async def _run_execution_impl(self, execution_id: UUID) -> None:
-        async with self._semaphore:
+    async def _run_execution_impl(
+        self, execution_id: UUID, pool: JupyterPool
+    ) -> None:
+        async with self._pool_activity(pool):
             claimed = await self._claim(execution_id)
             if claimed is None:
                 return
