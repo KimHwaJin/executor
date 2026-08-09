@@ -21,7 +21,10 @@ from executor_service.domain.enums import (
     AttemptStatus,
     ExecutionMode,
     ExecutionStatus,
+    FailureType,
     JupyterServerStatus,
+    KernelCleanupStatus,
+    RetryStrategy,
     StepStatus,
 )
 from executor_service.domain.models import OutboxEvent, utc_now
@@ -37,6 +40,7 @@ from executor_service.infrastructure.db.models import (
 from executor_service.infrastructure.jupyter import (
     JupyterExecutionError,
     JupyterGateway,
+    JupyterGatewayError,
 )
 from executor_service.infrastructure.jupyter_registry import JupyterServerRegistry
 from executor_service.infrastructure.workspace import WorkspaceManager
@@ -243,6 +247,7 @@ class ExecutionWorker:
                 await self._ensure_steps(execution.id, len(cells))
                 resume = (
                     execution.retry_count > 0
+                    and execution.retry_strategy == RetryStrategy.FROM_FAILED_STEP
                     and execution.retry_from_sequence is not None
                     and execution.kernel_id is not None
                 )
@@ -343,10 +348,37 @@ class ExecutionWorker:
                     sequence=len(cells) - 1,
                 )
                 await gateway.delete_kernel(kernel_id)
-                await self._finalize(execution.id, attempt_id, ExecutionStatus.SUCCEEDED)
+                await self._finalize(
+                    execution.id,
+                    attempt_id,
+                    ExecutionStatus.SUCCEEDED,
+                    kernel_cleanup_status=KernelCleanupStatus.SUCCEEDED,
+                )
             except asyncio.CancelledError:
+                cleanup_status = KernelCleanupStatus.NOT_REQUIRED
                 if kernel_id is not None:
-                    await _best_effort_kernel_stop(gateway, kernel_id)
+                    try:
+                        async with asyncio.timeout(
+                            self._settings.execution_shutdown_cleanup_seconds
+                        ):
+                            cleanup_status = await _best_effort_kernel_stop(
+                                gateway, kernel_id
+                            )
+                    except TimeoutError:
+                        cleanup_status = KernelCleanupStatus.FAILED
+                        logger.warning(
+                            "Jupyter cleanup exceeded the Worker shutdown deadline",
+                            extra={"execution_id": str(execution.id)},
+                        )
+                await self._finalize(
+                    execution.id,
+                    attempt_id,
+                    ExecutionStatus.FAILED,
+                    "Executor worker stopped while the execution was running.",
+                    failure_type=FailureType.WORKER_SHUTDOWN,
+                    retry_strategy=RetryStrategy.FROM_START,
+                    kernel_cleanup_status=cleanup_status,
+                )
                 raise
             except Exception as exc:
                 retain_kernel = (
@@ -354,8 +386,10 @@ class ExecutionWorker:
                     and kernel_id is not None
                     and failed_sequence is not None
                 )
+                failure_type, retry_strategy = _failure_policy(exc, retain_kernel)
+                cleanup_status = KernelCleanupStatus.NOT_REQUIRED
                 if kernel_id is not None and not retain_kernel:
-                    await _best_effort_kernel_stop(gateway, kernel_id)
+                    cleanup_status = await _best_effort_kernel_stop(gateway, kernel_id)
                 await self._finalize(
                     execution.id,
                     attempt_id,
@@ -363,6 +397,9 @@ class ExecutionWorker:
                     _safe_error(exc),
                     retain_kernel=retain_kernel,
                     retry_from_sequence=failed_sequence,
+                    failure_type=failure_type,
+                    retry_strategy=retry_strategy,
+                    kernel_cleanup_status=cleanup_status,
                 )
             finally:
                 if heartbeat is not None:
@@ -384,6 +421,7 @@ class ExecutionWorker:
                 return None
             is_resume = (
                 execution_row.retry_count > 0
+                and execution_row.retry_strategy == RetryStrategy.FROM_FAILED_STEP
                 and execution_row.retry_from_sequence is not None
                 and execution_row.kernel_id is not None
                 and execution_row.jupyter_server_id is not None
@@ -399,20 +437,16 @@ class ExecutionWorker:
                     or not server.enabled
                     or server.status == JupyterServerStatus.OFFLINE
                 ):
-                    execution_row.status = ExecutionStatus.FAILED
-                    execution_row.error_message = (
-                        "Retained Jupyter server is unavailable; execution cannot resume."
-                    )
-                    execution_row.retryable = False
+                    is_resume = False
+                    execution_row.retry_strategy = RetryStrategy.FROM_START
+                    execution_row.retry_from_sequence = 0
                     execution_row.retained_kernel_until = None
-                    execution_row.finished_at = now
+                    execution_row.kernel_id = None
+                    execution_row.jupyter_server_id = None
+                    execution_row.kernel_cleanup_status = KernelCleanupStatus.FAILED
                     execution_row.updated_at = now
                     execution_row.version += 1
-                    _add_outbox(
-                        session, execution_id, "execution.failed", ExecutionStatus.FAILED
-                    )
-                    return None
-            else:
+            if not is_resume:
                 server = await self._select_server(session, execution_row)
             if server is None:
                 return None
@@ -444,8 +478,11 @@ class ExecutionWorker:
             execution_row.lease_expires_at = lease_expires
             execution_row.heartbeat_at = now
             execution_row.started_at = execution_row.started_at or now
+            execution_row.error_message = None
+            execution_row.failure_type = None
             execution_row.retryable = False
             execution_row.retained_kernel_until = None
+            execution_row.kernel_cleanup_status = KernelCleanupStatus.NOT_REQUIRED
             execution_row.updated_at = now
             execution_row.version += 1
             _add_outbox(session, execution_id, "execution.started", ExecutionStatus.RUNNING)
@@ -716,6 +753,9 @@ class ExecutionWorker:
         *,
         retain_kernel: bool = False,
         retry_from_sequence: int | None = None,
+        failure_type: FailureType | None = None,
+        retry_strategy: RetryStrategy = RetryStrategy.NOT_RETRYABLE,
+        kernel_cleanup_status: KernelCleanupStatus = KernelCleanupStatus.NOT_REQUIRED,
     ) -> None:
         now = utc_now()
         async with self._session_factory() as session, session.begin():
@@ -730,29 +770,47 @@ class ExecutionWorker:
                 else requested_status
             )
             attempt_status = AttemptStatus(status.value)
+            is_failed = status == ExecutionStatus.FAILED
+            effective_failure_type = failure_type if is_failed else None
+            effective_retry_strategy = (
+                retry_strategy if is_failed else RetryStrategy.NOT_RETRYABLE
+            )
             execution.status = status
-            execution.error_message = error_message
+            execution.error_message = error_message if is_failed else None
+            execution.failure_type = effective_failure_type
             execution.finished_at = now
             execution.updated_at = now
             execution.lease_owner = None
             execution.lease_expires_at = None
-            execution.retryable = status == ExecutionStatus.FAILED and retain_kernel
-            execution.retry_from_sequence = (
-                retry_from_sequence if execution.retryable else None
-            )
+            execution.retry_strategy = effective_retry_strategy
+            execution.retryable = effective_retry_strategy != RetryStrategy.NOT_RETRYABLE
+            execution.retry_from_sequence = None
+            if effective_retry_strategy == RetryStrategy.FROM_FAILED_STEP:
+                execution.retry_from_sequence = retry_from_sequence
+            elif effective_retry_strategy == RetryStrategy.FROM_START:
+                execution.retry_from_sequence = 0
             execution.retained_kernel_until = (
                 now
                 + timedelta(seconds=self._settings.failed_kernel_retention_seconds)
-                if execution.retryable
+                if is_failed and retain_kernel
                 else None
             )
+            execution.kernel_cleanup_status = kernel_cleanup_status
+            if (
+                not retain_kernel
+                and kernel_cleanup_status == KernelCleanupStatus.SUCCEEDED
+            ):
+                execution.kernel_id = None
             execution.version += 1
             await session.execute(
                 update(ExecutionAttemptORM)
                 .where(ExecutionAttemptORM.id == attempt_id)
                 .values(
                     status=attempt_status,
-                    error_message=error_message,
+                    error_message=error_message if is_failed else None,
+                    failure_type=effective_failure_type,
+                    retry_strategy=effective_retry_strategy,
+                    kernel_cleanup_status=kernel_cleanup_status,
                     finished_at=now,
                 )
             )
@@ -790,11 +848,25 @@ class ExecutionWorker:
                         finished_at=now,
                     )
                 )
-            _add_outbox(session, execution_id, f"execution.{status.value.lower()}", status)
+            _add_outbox(
+                session,
+                execution_id,
+                f"execution.{status.value.lower()}",
+                status,
+                {
+                    "failure_type": (
+                        effective_failure_type.value if effective_failure_type else None
+                    ),
+                    "retry_strategy": effective_retry_strategy.value,
+                    "retry_from_sequence": execution.retry_from_sequence,
+                    "kernel_cleanup_status": kernel_cleanup_status.value,
+                },
+            )
 
     async def _cancel_execution(self, execution_id: UUID) -> None:
         server: JupyterServerORM | None = None
         kernel_id: str | None = None
+        cleanup_status = KernelCleanupStatus.NOT_REQUIRED
         async with self._session_factory() as session:
             execution = await session.get(ExecutionORM, execution_id)
             if execution is None or execution.status != ExecutionStatus.CANCEL_REQUESTED:
@@ -811,14 +883,11 @@ class ExecutionWorker:
                 self._settings.jupyter_request_timeout_seconds,
             )
             try:
-                await gateway.interrupt_kernel(kernel_id)
-                await gateway.delete_kernel(kernel_id)
-            except Exception:
-                logger.warning(
-                    "Jupyter kernel cancellation failed", extra={"execution_id": str(execution_id)}
-                )
+                cleanup_status = await _best_effort_kernel_stop(gateway, kernel_id)
             finally:
                 await gateway.close()
+        elif kernel_id is not None:
+            cleanup_status = KernelCleanupStatus.FAILED
         now = utc_now()
         async with self._session_factory() as session, session.begin():
             execution = await session.scalar(
@@ -831,6 +900,12 @@ class ExecutionWorker:
             execution.updated_at = now
             execution.lease_owner = None
             execution.lease_expires_at = None
+            execution.failure_type = None
+            execution.retryable = False
+            execution.retry_strategy = RetryStrategy.NOT_RETRYABLE
+            execution.retry_from_sequence = None
+            execution.retained_kernel_until = None
+            execution.kernel_cleanup_status = cleanup_status
             execution.version += 1
             await session.execute(
                 update(ExecutionAttemptORM)
@@ -838,7 +913,13 @@ class ExecutionWorker:
                     ExecutionAttemptORM.execution_id == execution_id,
                     ExecutionAttemptORM.status == AttemptStatus.RUNNING,
                 )
-                .values(status=AttemptStatus.CANCELLED, finished_at=now)
+                .values(
+                    status=AttemptStatus.CANCELLED,
+                    failure_type=None,
+                    retry_strategy=RetryStrategy.NOT_RETRYABLE,
+                    kernel_cleanup_status=cleanup_status,
+                    finished_at=now,
+                )
             )
             await session.execute(
                 update(ExecutionStepORM)
@@ -856,11 +937,17 @@ class ExecutionWorker:
                 )
                 .values(status=StepStatus.CANCELLED, finished_at=now)
             )
-            _add_outbox(session, execution_id, "execution.cancelled", ExecutionStatus.CANCELLED)
+            _add_outbox(
+                session,
+                execution_id,
+                "execution.cancelled",
+                ExecutionStatus.CANCELLED,
+                {"kernel_cleanup_status": cleanup_status.value},
+            )
 
     async def _recover_expired_leases(self) -> None:
         now = utc_now()
-        cleanup_targets: list[tuple[UUID, UUID, str]] = []
+        cleanup_targets: list[tuple[UUID, UUID, UUID, str]] = []
         async with self._session_factory() as session, session.begin():
             expired = list(
                 await session.scalars(
@@ -873,19 +960,44 @@ class ExecutionWorker:
                 )
             )
             for execution in expired:
+                attempt = await session.scalar(
+                    select(ExecutionAttemptORM)
+                    .where(
+                        ExecutionAttemptORM.execution_id == execution.id,
+                        ExecutionAttemptORM.status == AttemptStatus.RUNNING,
+                    )
+                    .with_for_update()
+                )
                 if (
                     execution.jupyter_server_id is not None
                     and execution.kernel_id is not None
+                    and attempt is not None
                 ):
                     cleanup_targets.append(
-                        (execution.id, execution.jupyter_server_id, execution.kernel_id)
+                        (
+                            execution.id,
+                            attempt.id,
+                            execution.jupyter_server_id,
+                            execution.kernel_id,
+                        )
                     )
                 execution.status = ExecutionStatus.FAILED
                 execution.error_message = "Worker lease expired; execution requires retry."
+                execution.failure_type = FailureType.LEASE_EXPIRED
                 execution.finished_at = now
                 execution.updated_at = now
                 execution.lease_owner = None
                 execution.lease_expires_at = None
+                execution.retryable = True
+                execution.retry_strategy = RetryStrategy.FROM_START
+                execution.retry_from_sequence = 0
+                execution.retained_kernel_until = None
+                execution.recovery_count += 1
+                execution.kernel_cleanup_status = (
+                    KernelCleanupStatus.PENDING
+                    if cleanup_targets and cleanup_targets[-1][0] == execution.id
+                    else KernelCleanupStatus.NOT_REQUIRED
+                )
                 execution.version += 1
                 await session.execute(
                     update(ExecutionAttemptORM)
@@ -896,6 +1008,9 @@ class ExecutionWorker:
                     .values(
                         status=AttemptStatus.FAILED,
                         error_message=execution.error_message,
+                        failure_type=FailureType.LEASE_EXPIRED,
+                        retry_strategy=RetryStrategy.FROM_START,
+                        kernel_cleanup_status=execution.kernel_cleanup_status,
                         finished_at=now,
                     )
                 )
@@ -932,16 +1047,37 @@ class ExecutionWorker:
                     )
                     .values(status=StepStatus.SKIPPED, finished_at=now, updated_at=now)
                 )
-                _add_outbox(session, execution.id, "execution.failed", ExecutionStatus.FAILED)
-        for execution_id, server_id, kernel_id in cleanup_targets:
-            await self._cleanup_abandoned_kernel(execution_id, server_id, kernel_id)
+                _add_outbox(
+                    session,
+                    execution.id,
+                    "execution.failed",
+                    ExecutionStatus.FAILED,
+                    {
+                        "failure_type": FailureType.LEASE_EXPIRED.value,
+                        "retry_strategy": RetryStrategy.FROM_START.value,
+                        "retry_from_sequence": 0,
+                        "kernel_cleanup_status": execution.kernel_cleanup_status.value,
+                        "recovery_count": execution.recovery_count,
+                    },
+                )
+        for execution_id, attempt_id, server_id, kernel_id in cleanup_targets:
+            await self._cleanup_abandoned_kernel(
+                execution_id, attempt_id, server_id, kernel_id
+            )
 
     async def _cleanup_abandoned_kernel(
-        self, execution_id: UUID, server_id: UUID, kernel_id: str
+        self,
+        execution_id: UUID,
+        attempt_id: UUID,
+        server_id: UUID,
+        kernel_id: str,
     ) -> None:
         async with self._session_factory() as session:
             server = await session.get(JupyterServerORM, server_id)
         if server is None:
+            await self._record_cleanup_result(
+                execution_id, attempt_id, kernel_id, KernelCleanupStatus.FAILED
+            )
             return
         gateway = JupyterGateway(
             server.endpoint,
@@ -957,19 +1093,58 @@ class ExecutionWorker:
                 "Abandoned kernel cleanup failed",
                 extra={"execution_id": str(execution_id)},
             )
-            return
+            cleanup_status = KernelCleanupStatus.FAILED
+        else:
+            cleanup_status = KernelCleanupStatus.SUCCEEDED
         finally:
             await gateway.close()
+        await self._record_cleanup_result(
+            execution_id, attempt_id, kernel_id, cleanup_status
+        )
+
+    async def _record_cleanup_result(
+        self,
+        execution_id: UUID,
+        attempt_id: UUID,
+        kernel_id: str,
+        cleanup_status: KernelCleanupStatus,
+    ) -> None:
         async with self._session_factory() as session, session.begin():
-            await session.execute(
+            execution_update = await session.execute(
                 update(ExecutionORM)
                 .where(
                     ExecutionORM.id == execution_id,
                     ExecutionORM.status == ExecutionStatus.FAILED,
                     ExecutionORM.kernel_id == kernel_id,
                 )
-                .values(kernel_id=None, updated_at=utc_now())
+                .values(
+                    kernel_id=(
+                        None
+                        if cleanup_status == KernelCleanupStatus.SUCCEEDED
+                        else kernel_id
+                    ),
+                    kernel_cleanup_status=cleanup_status,
+                    updated_at=utc_now(),
+                    version=ExecutionORM.version + 1,
+                )
             )
+            await session.execute(
+                update(ExecutionAttemptORM)
+                .where(ExecutionAttemptORM.id == attempt_id)
+                .values(kernel_cleanup_status=cleanup_status)
+            )
+            if getattr(execution_update, "rowcount", None) == 1:
+                _add_outbox(
+                    session,
+                    execution_id,
+                    (
+                        "execution.kernel_cleanup_completed"
+                        if cleanup_status == KernelCleanupStatus.SUCCEEDED
+                        else "execution.kernel_cleanup_failed"
+                    ),
+                    ExecutionStatus.FAILED,
+                    {"kernel_cleanup_status": cleanup_status.value},
+                )
 
     async def _cleanup_expired_retained_kernels(self) -> None:
         now = utc_now()
@@ -997,10 +1172,12 @@ class ExecutionWorker:
                 ),
                 self._settings.jupyter_request_timeout_seconds,
             )
+            cleanup_status = KernelCleanupStatus.SUCCEEDED
             try:
                 if execution.kernel_id is not None:
                     await gateway.delete_kernel(execution.kernel_id)
             except Exception:
+                cleanup_status = KernelCleanupStatus.FAILED
                 logger.warning(
                     "Expired retained kernel cleanup failed",
                     extra={"execution_id": str(execution.id)},
@@ -1022,40 +1199,80 @@ class ExecutionWorker:
                 ):
                     continue
                 current.retryable = False
+                current.retry_strategy = RetryStrategy.NOT_RETRYABLE
                 current.retry_from_sequence = None
                 current.retained_kernel_until = None
-                current.kernel_id = None
+                if cleanup_status == KernelCleanupStatus.SUCCEEDED:
+                    current.kernel_id = None
+                current.kernel_cleanup_status = cleanup_status
                 current.updated_at = now
                 current.version += 1
+                latest_attempt_id = await update_session.scalar(
+                    select(ExecutionAttemptORM.id)
+                    .where(ExecutionAttemptORM.execution_id == current.id)
+                    .order_by(ExecutionAttemptORM.attempt_number.desc())
+                    .limit(1)
+                )
+                if latest_attempt_id is not None:
+                    await update_session.execute(
+                        update(ExecutionAttemptORM)
+                        .where(ExecutionAttemptORM.id == latest_attempt_id)
+                        .values(kernel_cleanup_status=cleanup_status)
+                    )
                 _add_outbox(
                     update_session,
                     current.id,
                     "execution.retry_window_expired",
                     ExecutionStatus.FAILED,
+                    {"kernel_cleanup_status": cleanup_status.value},
                 )
 
 
 def _add_outbox(
-    session: AsyncSession, execution_id: UUID, event_type: str, status: ExecutionStatus
+    session: AsyncSession,
+    execution_id: UUID,
+    event_type: str,
+    status: ExecutionStatus,
+    details: dict[str, object] | None = None,
 ) -> None:
+    payload: dict[str, object] = {
+        "execution_id": str(execution_id),
+        "status": status.value,
+    }
+    if details:
+        payload.update(details)
     event = OutboxEvent(
         aggregate_type="Execution",
         aggregate_id=execution_id,
         event_type=event_type,
-        payload={"execution_id": str(execution_id), "status": status.value},
+        payload=payload,
     )
     session.add(OutboxEventORM.from_domain(event))
 
 
+def _failure_policy(
+    exc: Exception, retain_kernel: bool
+) -> tuple[FailureType, RetryStrategy]:
+    if isinstance(exc, JupyterExecutionError) and retain_kernel:
+        return FailureType.TOOL_ERROR, RetryStrategy.FROM_FAILED_STEP
+    if isinstance(exc, JupyterGatewayError):
+        return FailureType.JUPYTER_UNAVAILABLE, RetryStrategy.FROM_START
+    return FailureType.INTERNAL_ERROR, RetryStrategy.NOT_RETRYABLE
+
+
 def _safe_error(exc: Exception) -> str:
-    if isinstance(exc, JupyterExecutionError):
+    if isinstance(exc, (JupyterExecutionError, JupyterGatewayError)):
         return str(exc)[:2000]
     return f"{type(exc).__name__}: execution failed"[:2000]
 
 
-async def _best_effort_kernel_stop(gateway: JupyterGateway, kernel_id: str) -> None:
+async def _best_effort_kernel_stop(
+    gateway: JupyterGateway, kernel_id: str
+) -> KernelCleanupStatus:
     try:
         await gateway.interrupt_kernel(kernel_id)
         await gateway.delete_kernel(kernel_id)
     except Exception:
         logger.warning("Jupyter kernel cleanup failed", extra={"kernel_id": kernel_id})
+        return KernelCleanupStatus.FAILED
+    return KernelCleanupStatus.SUCCEEDED

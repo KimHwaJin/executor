@@ -9,6 +9,7 @@ from uuid import uuid4
 
 import httpx
 import websockets
+from websockets.exceptions import WebSocketException
 from websockets.typing import Subprotocol
 
 
@@ -42,32 +43,30 @@ class JupyterGateway:
         await self._client.aclose()
 
     async def status(self) -> dict[str, Any]:
-        response = await self._client.get("/api/status")
-        response.raise_for_status()
+        response = await self._request("GET", "/api/status")
         return response.json()
 
     async def kernel_specs(self) -> list[str]:
-        response = await self._client.get("/api/kernelspecs")
-        response.raise_for_status()
+        response = await self._request("GET", "/api/kernelspecs")
         return sorted(response.json().get("kernelspecs", {}).keys())
 
     async def start_kernel(self, kernel_name: str, jupyter_relative_path: str) -> str:
-        response = await self._client.post(
+        response = await self._request(
+            "POST",
             "/api/kernels",
             json={"name": kernel_name, "path": jupyter_relative_path},
         )
-        response.raise_for_status()
         return str(response.json()["id"])
 
     async def interrupt_kernel(self, kernel_id: str) -> None:
-        response = await self._client.post(f"/api/kernels/{kernel_id}/interrupt")
-        if response.status_code not in {204, 404}:
-            response.raise_for_status()
+        await self._request(
+            "POST", f"/api/kernels/{kernel_id}/interrupt", allowed_statuses={204, 404}
+        )
 
     async def delete_kernel(self, kernel_id: str) -> None:
-        response = await self._client.delete(f"/api/kernels/{kernel_id}")
-        if response.status_code not in {204, 404}:
-            response.raise_for_status()
+        await self._request(
+            "DELETE", f"/api/kernels/{kernel_id}", allowed_statuses={204, 404}
+        )
 
     async def execute_cell(self, kernel_id: str, code: str) -> CellExecutionResult:
         session_id = str(uuid4())
@@ -99,40 +98,59 @@ class JupyterGateway:
         idle_received = False
         error_message: str | None = None
 
-        async with websockets.connect(
-            uri,
-            subprotocols=[Subprotocol("v1.kernel.websocket.jupyter.org")],
-            additional_headers={"Authorization": f"token {self._token}"},
-            max_size=None,
-            ping_interval=20,
-            ping_timeout=20,
-        ) as websocket:
-            await websocket.send(_serialize_v1("shell", request))
-            while not (reply_received and idle_received):
-                raw = await websocket.recv()
-                channel, message = _deserialize_v1(raw)
-                parent_id = message.get("parent_header", {}).get("msg_id")
-                if parent_id != message_id:
-                    continue
-                msg_type = message.get("header", {}).get("msg_type")
-                content = message.get("content", {})
-                if channel == "shell" and msg_type == "execute_reply":
-                    reply_received = True
-                    execution_count = content.get("execution_count")
-                    if content.get("status") == "error":
-                        error_message = _error_summary(content)
-                elif channel == "iopub" and msg_type == "status":
-                    idle_received = content.get("execution_state") == "idle"
-                elif channel == "iopub":
-                    output = _as_notebook_output(msg_type, content)
-                    if output is not None:
-                        outputs.append(output)
-                        if output["output_type"] == "error":
-                            error_message = _error_summary(output)
+        try:
+            async with websockets.connect(
+                uri,
+                subprotocols=[Subprotocol("v1.kernel.websocket.jupyter.org")],
+                additional_headers={"Authorization": f"token {self._token}"},
+                max_size=None,
+                ping_interval=20,
+                ping_timeout=20,
+            ) as websocket:
+                await websocket.send(_serialize_v1("shell", request))
+                while not (reply_received and idle_received):
+                    raw = await websocket.recv()
+                    channel, message = _deserialize_v1(raw)
+                    parent_id = message.get("parent_header", {}).get("msg_id")
+                    if parent_id != message_id:
+                        continue
+                    msg_type = message.get("header", {}).get("msg_type")
+                    content = message.get("content", {})
+                    if channel == "shell" and msg_type == "execute_reply":
+                        reply_received = True
+                        execution_count = content.get("execution_count")
+                        if content.get("status") == "error":
+                            error_message = _error_summary(content)
+                    elif channel == "iopub" and msg_type == "status":
+                        idle_received = content.get("execution_state") == "idle"
+                    elif channel == "iopub":
+                        output = _as_notebook_output(msg_type, content)
+                        if output is not None:
+                            outputs.append(output)
+                            if output["output_type"] == "error":
+                                error_message = _error_summary(output)
+        except (OSError, TimeoutError, WebSocketException) as exc:
+            raise JupyterGatewayError("Jupyter kernel channel became unavailable.") from exc
 
         if error_message is not None:
             raise JupyterExecutionError(error_message, outputs)
         return CellExecutionResult(outputs=outputs, execution_count=execution_count)
+
+    async def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        allowed_statuses: set[int] | None = None,
+        **kwargs: Any,
+    ) -> httpx.Response:
+        try:
+            response = await self._client.request(method, path, **kwargs)
+            if allowed_statuses is None or response.status_code not in allowed_statuses:
+                response.raise_for_status()
+            return response
+        except httpx.HTTPError as exc:
+            raise JupyterGatewayError("Jupyter REST API is unavailable.") from exc
 
     def _channels_uri(self, kernel_id: str, session_id: str) -> str:
         parsed = urlsplit(self._endpoint)

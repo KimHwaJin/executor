@@ -51,6 +51,12 @@ async def test_mcp_client_can_list_and_call_execution_tools(
         capabilities = await client.call_tool("executor_get_capabilities")
         assert not capabilities.is_error
         assert capabilities.structured_content["protocol_revision"] == "2026-07-28"
+        assert "WORKER_SHUTDOWN" in capabilities.structured_content["failure_types"]
+        assert capabilities.structured_content["retry_strategies"] == [
+            "NOT_RETRYABLE",
+            "FROM_FAILED_STEP",
+            "FROM_START",
+        ]
 
         submitted = await client.call_tool("execution_submit", SUBMIT_ARGUMENTS)
         assert not submitted.is_error

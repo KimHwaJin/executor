@@ -9,8 +9,11 @@ from executor_service.domain.enums import (
     CodeSourceType,
     ExecutionMode,
     ExecutionStatus,
+    FailureType,
     JupyterPool,
+    KernelCleanupStatus,
     OutboxStatus,
+    RetryStrategy,
     StepStatus,
     TriggerType,
 )
@@ -65,13 +68,17 @@ class Execution:
     workspace_path: str | None = None
     notebook_path: str | None = None
     error_message: str | None = None
+    failure_type: FailureType | None = None
     lease_owner: str | None = None
     lease_expires_at: datetime | None = None
     heartbeat_at: datetime | None = None
     retryable: bool = False
+    retry_strategy: RetryStrategy = RetryStrategy.NOT_RETRYABLE
     retry_from_sequence: int | None = None
     retained_kernel_until: datetime | None = None
     retry_count: int = 0
+    recovery_count: int = 0
+    kernel_cleanup_status: KernelCleanupStatus = KernelCleanupStatus.NOT_REQUIRED
     version: int = 0
     created_at: datetime = field(default_factory=utc_now)
     updated_at: datetime = field(default_factory=utc_now)
@@ -97,9 +104,12 @@ class Execution:
             raise InvalidStateTransitionError(
                 f"Execution {self.id} must be FAILED before retry."
             )
-        if (
-            not self.retryable
-            or self.retry_from_sequence is None
+        if not self.retryable or self.retry_strategy == RetryStrategy.NOT_RETRYABLE:
+            raise InvalidStateTransitionError(
+                f"Execution {self.id} has no supported retry strategy."
+            )
+        if self.retry_strategy == RetryStrategy.FROM_FAILED_STEP and (
+            self.retry_from_sequence is None
             or self.kernel_id is None
             or self.jupyter_server_id is None
             or self.retained_kernel_until is None
@@ -107,6 +117,20 @@ class Execution:
         ):
             raise InvalidStateTransitionError(
                 f"Execution {self.id} has no resumable retained kernel."
+            )
+        if self.retry_strategy == RetryStrategy.FROM_START:
+            if self.kernel_cleanup_status == KernelCleanupStatus.PENDING:
+                raise InvalidStateTransitionError(
+                    f"Execution {self.id} is still cleaning up its abandoned kernel."
+                )
+            self.retry_from_sequence = 0
+            self.kernel_id = None
+            self.jupyter_server_id = None
+            self.retained_kernel_until = None
+            self.kernel_cleanup_status = KernelCleanupStatus.NOT_REQUIRED
+        if self.retry_from_sequence is None:
+            raise InvalidStateTransitionError(
+                f"Execution {self.id} has no retry start sequence."
             )
         self.status = ExecutionStatus.QUEUED
         self.error_message = None

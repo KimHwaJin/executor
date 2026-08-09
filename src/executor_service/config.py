@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     execution_worker_concurrency: int = Field(default=2, ge=1)
     execution_lease_seconds: int = Field(default=60, ge=30)
     execution_heartbeat_seconds: int = Field(default=15, ge=5)
+    execution_shutdown_cleanup_seconds: float = Field(default=20, gt=0)
     failed_kernel_retention_seconds: int = Field(default=3600, ge=60)
 
     @field_validator("mcp_allowed_hosts", "mcp_allowed_origins", mode="before")

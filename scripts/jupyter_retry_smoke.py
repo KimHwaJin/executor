@@ -63,7 +63,12 @@ async def main() -> None:
         )
         execution_id = submitted.structured_content["execution_id"]
         failed = await _wait(client, execution_id, {"FAILED"})
-        if not failed["retryable"] or failed["retry_from_sequence"] != 1:
+        if (
+            not failed["retryable"]
+            or failed["failure_type"] != "TOOL_ERROR"
+            or failed["retry_strategy"] != "FROM_FAILED_STEP"
+            or failed["retry_from_sequence"] != 1
+        ):
             raise RuntimeError(f"Failure was not resumable: {failed}")
         original_kernel = failed["kernel_id"]
         original_server = failed["jupyter_server_id"]
@@ -100,6 +105,8 @@ async def main() -> None:
         attempts = trace["attempts"]
         if (
             len(attempts) != 2
+            or attempts[0]["failure_type"] != "TOOL_ERROR"
+            or attempts[0]["retry_strategy"] != "FROM_FAILED_STEP"
             or [step["status"] for step in attempts[0]["steps"]]
             != ["SUCCEEDED", "FAILED"]
             or [step["sequence"] for step in attempts[1]["steps"]] != [1, 2]
