@@ -30,6 +30,7 @@ from executor_service.domain.errors import (
     ExecutionNotFoundError,
     ExecutionVersionConflictError,
     IdempotencyConflictError,
+    InvalidStateTransitionError,
 )
 from executor_service.domain.models import utc_now
 from executor_service.infrastructure.db.models import ExecutionORM, ExecutionStepORM
@@ -322,3 +323,42 @@ async def test_infrastructure_retry_starts_from_zero_with_a_new_kernel(
         StepStatus.PENDING,
         StepStatus.PENDING,
     ]
+
+
+async def test_infrastructure_retry_waits_for_abandoned_kernel_cleanup(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+) -> None:
+    execution = await execution_service.submit(
+        submit_command("cleanup-pending-retry-submit")
+    )
+    now = utc_now()
+    session_factory = create_session_factory(engine)
+    async with session_factory() as session, session.begin():
+        await session.execute(
+            update(ExecutionORM)
+            .where(ExecutionORM.id == execution.id)
+            .values(
+                status=ExecutionStatus.FAILED,
+                failure_type=FailureType.LEASE_EXPIRED,
+                retryable=True,
+                retry_strategy=RetryStrategy.FROM_START,
+                retry_from_sequence=0,
+                kernel_id="cleanup-pending-kernel",
+                jupyter_server_id=uuid4(),
+                kernel_cleanup_status=KernelCleanupStatus.PENDING,
+                finished_at=now,
+            )
+        )
+
+    with pytest.raises(InvalidStateTransitionError, match="still cleaning up"):
+        await execution_service.retry(
+            RetryExecutionCommand(
+                execution_id=execution.id,
+                idempotency_key="cleanup-pending-retry-command",
+            )
+        )
+
+    unchanged = await execution_service.get(execution.id)
+    assert unchanged.status == ExecutionStatus.FAILED
+    assert unchanged.kernel_cleanup_status == KernelCleanupStatus.PENDING

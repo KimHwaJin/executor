@@ -17,6 +17,7 @@ consumer worker executes STATIC plans or one-cell-at-a-time DYNAMIC plans in Jup
 - Execution, ExecutionStep, and OutboxEvent persistence with SQLAlchemy 2 and Alembic
 - Transactional Outbox publisher with at-least-once Redis Stream delivery
 - Redis consumer group worker with PostgreSQL reconciliation, stale Pending recovery, and DLQ
+- Multi-Executor coordination through PostgreSQL row locks, unique lease owners, and crash recovery
 - Jupyter REST/WebSocket kernel execution, interrupt, and deletion
 - Multi-server Jupyter registry, encrypted credentials, health probes, capacity scheduling,
   execution attempts, leases, and heartbeats
@@ -125,6 +126,7 @@ uv run python scripts/jupyter_worker_recovery_smoke.py
 uv run python scripts/jupyter_drain_smoke.py
 uv run python scripts/jupyter_artifact_smoke.py
 uv run python scripts/jupyter_batch_pool_smoke.py
+uv run python scripts/multi_executor_failover_smoke.py
 uv run python scripts/phoenix_trace_smoke.py
 ```
 
@@ -134,6 +136,12 @@ uv run python scripts/phoenix_trace_smoke.py
 uv run ruff check .
 uv run ty check
 uv run pytest
+```
+
+Run the opt-in real PostgreSQL concurrency suite while the local Compose PostgreSQL is healthy:
+
+```bash
+EXECUTOR_RUN_POSTGRES_TESTS=1 uv run pytest tests/test_multi_worker_postgres.py
 ```
 
 Migration checks:
@@ -323,6 +331,11 @@ time, and batch size are configured with `EXECUTION_PENDING_CLAIM_INTERVAL_SECON
 `EXECUTION_PENDING_CLAIM_IDLE_MILLISECONDS`, and `EXECUTION_PENDING_CLAIM_BATCH_SIZE`. The minimum
 idle time should exceed normal message dispatch latency; it does not need to match the much longer
 Execution lease because Redis only wakes the PostgreSQL-backed Worker.
+
+Every Executor process must share `EXECUTION_CONSUMER_GROUP` and use a unique
+`EXECUTION_CONSUMER_NAME`; inject the Kubernetes Pod name in production. See
+[Multi-Executor Operations](docs/multi-executor-operations.md) for locking invariants, lease
+recovery, deployment behavior, and the real crash E2E.
 
 The bootstrap Jupyter token is supplied through `JUPYTER_TOKEN`. It is loaded by the mounted
 Jupyter config and sent by the Executor only in the `Authorization` header. Dynamically registered

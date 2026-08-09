@@ -47,6 +47,9 @@ dev = [
 addopts = "-ra"
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "postgres: requires a disposable local PostgreSQL database",
+]
 
 [tool.ruff]
 line-length = 100
