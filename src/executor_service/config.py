@@ -1,11 +1,12 @@
 """Environment-backed application settings."""
 
+import json
 from functools import lru_cache
 from pathlib import Path
-from typing import Self
+from typing import Annotated, Self
 
 from pydantic import Field, SecretStr, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -32,8 +33,15 @@ class Settings(BaseSettings):
     outbox_poll_interval_seconds: float = Field(default=0.5, gt=0)
     outbox_batch_size: int = Field(default=100, ge=1, le=1000)
 
-    mcp_allowed_hosts: tuple[str, ...] = ("localhost:*", "127.0.0.1:*", "testserver")
-    mcp_allowed_origins: tuple[str, ...] = ("http://localhost:*", "http://127.0.0.1:*")
+    mcp_allowed_hosts: Annotated[tuple[str, ...], NoDecode] = (
+        "localhost:*",
+        "127.0.0.1:*",
+        "testserver",
+    )
+    mcp_allowed_origins: Annotated[tuple[str, ...], NoDecode] = (
+        "http://localhost:*",
+        "http://127.0.0.1:*",
+    )
     jupyter_request_timeout_seconds: float = Field(default=30, gt=0)
     jupyter_enabled: bool = True
     jupyter_server_name: str = "local-jupyter"
@@ -75,6 +83,13 @@ class Settings(BaseSettings):
     @classmethod
     def parse_allowed_hosts(cls, value: object) -> object:
         if isinstance(value, str):
+            if value.lstrip().startswith("["):
+                decoded = json.loads(value)
+                if not isinstance(decoded, list) or not all(
+                    isinstance(item, str) for item in decoded
+                ):
+                    raise ValueError("MCP allowlists must contain only strings.")
+                return tuple(item.strip() for item in decoded if item.strip())
             return tuple(item.strip() for item in value.split(",") if item.strip())
         return value
 
