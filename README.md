@@ -66,6 +66,11 @@ uv run alembic upgrade head
 uv run executor-service
 ```
 
+Native Windows is supported. Alembic and the `executor-service` console entry point run psycopg
+on a `SelectorEventLoop`, because psycopg async connections are incompatible with Windows'
+default `ProactorEventLoop`. Use `uv run executor-service` instead of invoking Uvicorn directly so
+the compatible loop runner is applied.
+
 To run a second Jupyter server against the same local PV:
 
 ```bash
