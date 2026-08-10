@@ -74,6 +74,44 @@ active Executions.
 
 ## Local E2E
 
+### One native Jupyter server without Docker
+
+When Executor and Jupyter run on the same machine, both processes must see the same absolute
+Workspace directory. Configure `.env` before starting Executor:
+
+```env
+JUPYTER_ENABLED=true
+JUPYTER_SERVER_NAME=single-jupyter
+JUPYTER_ENDPOINT=http://127.0.0.1:8888
+JUPYTER_TOKEN=change-me-local-only
+JUPYTER_POOL=INTERACTIVE
+JUPYTER_MAX_CONCURRENT_EXECUTIONS=1
+WORKSPACE_HOST_ROOT=C:/absolute/path/to/executor/notebook_dir
+WORKSPACE_JUPYTER_ROOT=C:/absolute/path/to/executor/notebook_dir
+```
+
+Use the equivalent absolute POSIX path on Linux or macOS. Start Jupyter with that directory as its
+root so the relative kernel path sent by Executor resolves to the same Execution Workspace:
+
+```bash
+jupyter lab --no-browser --ip 127.0.0.1 --port 8888 \
+  --ServerApp.root_dir="C:/absolute/path/to/executor/notebook_dir" \
+  --IdentityProvider.token="change-me-local-only"
+```
+
+After PostgreSQL, Redis, Jupyter, and Executor are running, execute the self-contained smoke test:
+
+```bash
+uv run python scripts/single_jupyter_smoke.py
+```
+
+The script registers/probes the configured Jupyter server through MCP, submits a two-Step STATIC
+Execution, waits for `SUCCEEDED`, and verifies the `.ipynb` plus a generated Artifact. Override
+`EXECUTOR_MCP_URL`, `SINGLE_JUPYTER_ENDPOINT`, `SINGLE_JUPYTER_TOKEN`,
+`SINGLE_JUPYTER_KERNEL`, or `SINGLE_JUPYTER_TIMEOUT_SECONDS` when testing non-default endpoints.
+
+### Two-pool Compose scenario
+
 The smoke test saturates both BATCH Jupyter slots, verifies a subsequently submitted INTERACTIVE
 Execution still completes, then observes two running plus one durably queued BATCH job. It also
 verifies that all jobs succeed on the correct pool:

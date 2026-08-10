@@ -128,6 +128,7 @@ Run the official SDK client smoke test in a second terminal:
 uv run python scripts/mcp_smoke.py
 uv run python scripts/jupyter_gateway_smoke.py
 uv run python scripts/jupyter_execution_smoke.py
+uv run python scripts/single_jupyter_smoke.py
 uv run python scripts/jupyter_dynamic_smoke.py
 uv run python scripts/jupyter_dynamic_lifecycle_smoke.py
 uv run python scripts/jupyter_cancel_smoke.py
