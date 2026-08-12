@@ -18,7 +18,7 @@ async def main() -> None:
                     "mode": "STATIC",
                     "trigger_type": "INTERACTIVE",
                     "actor": {"type": "USER", "id": "smoke-user"},
-                    "kernel_name": "python3",
+                    "runtime_profile": "basic",
                     "source": inline_source(
                         f"cancel-plan-{unique}",
                         [
@@ -32,7 +32,7 @@ async def main() -> None:
                         ],
                     ),
                     "context": {
-                        "requested_by_user_id": "smoke-user",
+                        "user_id": "smoke-user",
                         "project_id": "smoke-project",
                         "session_id": "smoke-session",
                         "task_id": f"cancel-task-{unique}",

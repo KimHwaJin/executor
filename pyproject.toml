@@ -62,6 +62,7 @@ select = ["E", "F", "I", "UP", "B", "ASYNC", "RUF"]
 
 [tool.ty.environment]
 python-version = "3.12"
+extra-paths = ["docker/jupyter_resource_extension/src"]
 
 [tool.ty.src]
 exclude = ["docker/jupyter_server_config.py"]

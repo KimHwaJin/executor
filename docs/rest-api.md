@@ -27,17 +27,32 @@ Interactive documentation is available at `/docs`, ReDoc at `/redoc`, and the Op
 | GET | `/api/v1/executions/{execution_id}/artifacts` | List produced Artifacts | 200 |
 | GET | `/api/v1/executions/{execution_id}/trace` | Get combined state, Attempts, events, Artifacts | 200 |
 | GET | `/api/v1/artifacts/{artifact_id}` | Get one Artifact and lineage references | 200 |
+| POST | `/api/v1/runtime-targets` | Register/update and immediately probe a target | 200 |
+| GET | `/api/v1/runtime-targets` | List targets with pool/status/enabled filters | 200 |
+| GET | `/api/v1/runtime-targets/{target_id}` | Get target health and capacity | 200 |
+| GET | `/api/v1/runtime-pools` | Summarize health and capacity by pool | 200 |
+| POST | `/api/v1/runtime-targets/{target_id}/probe` | Run an immediate health probe | 200 |
+| POST | `/api/v1/runtime-targets/{target_id}/drain` | Stop new assignment, preserve running work | 200 |
+| POST | `/api/v1/runtime-targets/{target_id}/activate` | Enable and probe before scheduling | 200 |
+| DELETE | `/api/v1/runtime-targets/{target_id}` | Durable soft delete (`OFFLINE`, disabled) | 200 |
+| POST | `/api/v1/runtime-targets/{target_id}/purge` | Restricted permanent removal | 200 |
 
 List endpoints accept `limit` and an opaque `cursor`. They return `items`, `next_cursor`, and
 `has_more`; pass `next_cursor` unchanged to retrieve the next keyset page. Execution history
-additionally accepts `requested_by_user_id`, `project_id`, `session_id`, `task_id`, and `status`.
+additionally accepts `user_id`, `project_id`, `session_id`, `task_id`, and `status`.
 Keep the same filters for every page. Execution history is newest-first; Steps, Attempts, events,
 and Artifacts preserve their natural chronological/sequence order.
 
 All mutation bodies require `actor: {type, id}`. Supported actor types are `USER` and `BATCH`.
+`context.user_id` is the owner of the Execution and its results. Interactive submit requires a
+`USER` actor with `actor.id == context.user_id`. Batch submit requires a `BATCH` actor whose ID
+identifies the schedule or manual batch trigger and may differ from `context.user_id`. Batch submit
+also requires `context.workflow_id`.
 Interactive submissions require `USER`, while batch submissions require `BATCH`. Responses expose
 `created_at`, `updated_at`, `created_by_type`, `created_by`, `updated_by_type`, and `updated_by` on
-audited resources.
+audited resources. Execution detail, list, and trace responses expose the immutable `runtime_type`
+and `runtime_profile`. Attempt history snapshots both fields so it remains self-contained even if
+fleet configuration changes later.
 
 ## Submit and poll
 
@@ -49,7 +64,8 @@ curl -i -X POST http://127.0.0.1:8000/api/v1/executions \
     "mode": "STATIC",
     "trigger_type": "INTERACTIVE",
     "actor": {"type": "USER", "id": "user-001"},
-    "kernel_name": "python3",
+    "runtime_type": "JUPYTER",
+    "runtime_profile": "basic",
     "source": {
       "type": "INLINE",
       "spec": {
@@ -66,7 +82,7 @@ curl -i -X POST http://127.0.0.1:8000/api/v1/executions \
       }
     },
     "context": {
-      "requested_by_user_id": "user-001",
+      "user_id": "user-001",
       "project_id": "project-001",
       "session_id": "session-001",
       "task_id": "task-001"
@@ -161,6 +177,62 @@ curl -X POST http://127.0.0.1:8000/api/v1/executions/EXECUTION_ID/finish \
 
 Always read the latest Execution before continue or finish. A stale version returns `409`.
 
+## Runtime fleet administration
+
+Registering a target stores its credential encrypted and probes it immediately. The credential is
+required for a new target and optional when updating an existing name. Neither credential nor
+connection configuration is included in responses. `runtime_type` cannot be changed for an
+existing target name; create a new target for a different Runtime Driver.
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/runtime-targets \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "idempotency_key":"target-register-001",
+    "name":"interactive-jupyter-02",
+    "runtime_type":"JUPYTER",
+    "connection_config":{"endpoint":"http://jupyter-02:8888"},
+    "credential":"replace-with-real-token",
+    "pool":"INTERACTIVE",
+    "max_concurrent_executions":2,
+    "actor":{"type":"USER","id":"operator-001"}
+  }'
+
+curl 'http://127.0.0.1:8000/api/v1/runtime-targets?pool=INTERACTIVE&status=ACTIVE&enabled=true&limit=50'
+curl http://127.0.0.1:8000/api/v1/runtime-pools
+```
+
+`probe` only refreshes health. `drain` keeps the target enabled but excludes it from new
+assignments while current work finishes. `activate` enables and probes it, becoming `ACTIVE` only
+when healthy. `DELETE` is a soft delete: the row remains queryable as disabled and `OFFLINE` so all
+Execution and Attempt references remain intact.
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/runtime-targets/TARGET_ID/drain \
+  -H 'Content-Type: application/json' \
+  -d '{"idempotency_key":"server-drain-001","actor":{"type":"USER","id":"operator-001"}}'
+
+curl -X DELETE http://127.0.0.1:8000/api/v1/runtime-targets/TARGET_ID \
+  -H 'Content-Type: application/json' \
+  -d '{"idempotency_key":"server-remove-001","actor":{"type":"USER","id":"operator-001"}}'
+```
+
+Hard purge is intentionally narrow. The target must already be disabled and `OFFLINE`, the
+request must repeat its exact registered name as `confirmation_name`, and neither Execution nor
+Attempt history may reference it. The environment-configured default target cannot be purged.
+Successful purge removes the credential-bearing registry row but retains an immutable audit
+tombstone; it never cascades into execution history.
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/runtime-targets/TARGET_ID/purge \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "idempotency_key":"server-purge-001",
+    "confirmation_name":"interactive-jupyter-02",
+    "actor":{"type":"USER","id":"operator-001"}
+  }'
+```
+
 ## Errors
 
 Expected domain failures use a stable envelope:
@@ -174,8 +246,8 @@ Expected domain failures use a stable envelope:
 }
 ```
 
-- `404`: Execution, Step, or Artifact does not exist
-- `409`: invalid state transition, stale version, idempotency conflict, persistence conflict
+- `404`: Execution, Step, Artifact, or Runtime Target does not exist
+- `409`: invalid state transition, stale version, idempotency/persistence conflict, unsafe purge
 - `422`: request validation, invalid cursor, or invalid ExecutionSpec/PATH source
 
 There is no authentication layer in Executor in the current project scope. Deploy the REST API

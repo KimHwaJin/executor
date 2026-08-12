@@ -6,28 +6,26 @@ import pytest
 from executor_service.domain.enums import (
     CodeSourceType,
     ExecutionMode,
-    JupyterPool,
+    RuntimePool,
     TriggerType,
 )
 from executor_service.domain.models import Execution, ExecutionStep
 from executor_service.infrastructure.workspace import WorkspaceManager, WorkspacePathError
 
 
-def execution(
-    *, user_id: str = "user-1", codes: tuple[str, ...] = ("print(1)",)
-) -> Execution:
+def execution(*, user_id: str = "user-1", codes: tuple[str, ...] = ("print(1)",)) -> Execution:
     return Execution(
         idempotency_key="workspace-test",
         request_fingerprint="fingerprint",
         mode=ExecutionMode.STATIC,
         trigger_type=TriggerType.INTERACTIVE,
-        jupyter_pool=JupyterPool.INTERACTIVE,
-        kernel_name="python3",
+        runtime_pool=RuntimePool.INTERACTIVE,
+        runtime_profile="basic",
         code_source_type=CodeSourceType.INLINE,
         source_content='{"schema_version":"1.0"}',
         code_path=None,
         source_sha256="0" * 64,
-        requested_by_user_id=user_id,
+        user_id=user_id,
         project_id="project-1",
         session_id="session-1",
         task_id="test-task",
@@ -86,6 +84,7 @@ def test_workspace_uses_expected_pv_hierarchy_and_writes_notebook(tmp_path: Path
 
     manager.write_notebook(
         workspace,
+        "python-analysis-a",
         cells,
         [
             [{"output_type": "stream", "name": "stdout", "text": "1\n"}],
@@ -102,6 +101,7 @@ def test_workspace_uses_expected_pv_hierarchy_and_writes_notebook(tmp_path: Path
     )
     notebook = nbformat.read(workspace.notebook_file, as_version=4)
     assert len(notebook.cells) == 2
+    assert notebook.metadata.kernelspec.name == "python-analysis-a"
     assert notebook.cells[1].outputs[0].data["text/plain"] == "4"
 
 

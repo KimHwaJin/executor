@@ -32,11 +32,12 @@ from executor_service.domain.enums import (
     ExecutionMode,
     ExecutionStatus,
     FailureType,
-    JupyterPool,
-    JupyterServerStatus,
-    KernelCleanupStatus,
     OutboxStatus,
     RetryStrategy,
+    RuntimePool,
+    RuntimeSessionCleanupStatus,
+    RuntimeTargetStatus,
+    RuntimeType,
     StepStatus,
     TriggerType,
 )
@@ -80,7 +81,8 @@ class ExecutionORM(Base):
         ),
         CheckConstraint("mode IN ('STATIC', 'DYNAMIC')", name="valid_execution_mode"),
         CheckConstraint("trigger_type IN ('INTERACTIVE', 'BATCH')", name="valid_trigger_type"),
-        CheckConstraint("jupyter_pool IN ('INTERACTIVE', 'BATCH')", name="valid_jupyter_pool"),
+        CheckConstraint("runtime_pool IN ('INTERACTIVE', 'BATCH')", name="valid_runtime_pool"),
+        CheckConstraint("runtime_type IN ('JUPYTER')", name="valid_runtime_type"),
         CheckConstraint("code_source_type IN ('INLINE', 'PATH')", name="valid_code_source_type"),
         CheckConstraint(
             "(code_source_type = 'INLINE' AND code_path IS NULL) OR "
@@ -91,9 +93,9 @@ class ExecutionORM(Base):
         CheckConstraint("recovery_count >= 0", name="non_negative_recovery_count"),
         CheckConstraint(
             "failure_type IS NULL OR failure_type IN ('TOOL_ERROR', "
-            "'INFRASTRUCTURE_ERROR', 'WORKER_SHUTDOWN', 'JUPYTER_UNAVAILABLE', "
+            "'INFRASTRUCTURE_ERROR', 'WORKER_SHUTDOWN', 'RUNTIME_UNAVAILABLE', "
             "'LEASE_EXPIRED', 'INTERNAL_ERROR', 'DYNAMIC_WAIT_TIMEOUT', "
-            "'EXECUTION_TIMEOUT', 'KERNEL_LOST')",
+            "'EXECUTION_TIMEOUT', 'RUNTIME_SESSION_LOST')",
             name="valid_failure_type",
         ),
         CheckConstraint(
@@ -101,8 +103,8 @@ class ExecutionORM(Base):
             name="valid_retry_strategy",
         ),
         CheckConstraint(
-            "kernel_cleanup_status IN ('NOT_REQUIRED', 'PENDING', 'SUCCEEDED', 'FAILED')",
-            name="valid_kernel_cleanup_status",
+            "runtime_session_cleanup_status IN ('NOT_REQUIRED', 'PENDING', 'SUCCEEDED', 'FAILED')",
+            name="valid_runtime_session_cleanup_status",
         ),
         CheckConstraint(
             "retry_from_sequence IS NULL OR retry_from_sequence >= 0",
@@ -111,7 +113,7 @@ class ExecutionORM(Base):
         Index("ix_executions_status_created_at", "status", "created_at", "id"),
         Index(
             "ix_executions_user_created_cursor",
-            "requested_by_user_id",
+            "user_id",
             "created_at",
             "id",
         ),
@@ -137,10 +139,13 @@ class ExecutionORM(Base):
     trigger_type: Mapped[TriggerType] = mapped_column(
         enum_type(TriggerType, "trigger_type"), nullable=False
     )
-    jupyter_pool: Mapped[JupyterPool] = mapped_column(
-        enum_type(JupyterPool, "jupyter_pool"), nullable=False
+    runtime_type: Mapped[RuntimeType] = mapped_column(
+        enum_type(RuntimeType, "runtime_type"), nullable=False, default=RuntimeType.JUPYTER
     )
-    kernel_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    runtime_pool: Mapped[RuntimePool] = mapped_column(
+        enum_type(RuntimePool, "runtime_pool"), nullable=False
+    )
+    runtime_profile: Mapped[str] = mapped_column(String(128), nullable=False)
     code_source_type: Mapped[CodeSourceType] = mapped_column(
         enum_type(CodeSourceType, "code_source_type"), nullable=False
     )
@@ -148,7 +153,7 @@ class ExecutionORM(Base):
     code_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
 
-    requested_by_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False)
     project_id: Mapped[str] = mapped_column(String(255), nullable=False)
     session_id: Mapped[str] = mapped_column(String(255), nullable=False)
     task_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
@@ -158,10 +163,10 @@ class ExecutionORM(Base):
         "metadata", JSON, nullable=False, default=dict
     )
     cancellation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
-    jupyter_server_id: Mapped[UUID | None] = mapped_column(
-        Uuid(as_uuid=True), ForeignKey("jupyter_servers.id"), nullable=True, index=True
+    runtime_target_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("runtime_targets.id"), nullable=True, index=True
     )
-    kernel_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    runtime_session_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     workspace_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     notebook_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -171,20 +176,19 @@ class ExecutionORM(Base):
     lease_owner: Mapped[str | None] = mapped_column(String(255), nullable=True)
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    retryable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     retry_strategy: Mapped[RetryStrategy] = mapped_column(
         enum_type(RetryStrategy, "retry_strategy"),
         nullable=False,
         default=RetryStrategy.NOT_RETRYABLE,
     )
     retry_from_sequence: Mapped[int | None] = mapped_column(Integer)
-    retained_kernel_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    retained_runtime_session_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     recovery_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    kernel_cleanup_status: Mapped[KernelCleanupStatus] = mapped_column(
-        enum_type(KernelCleanupStatus, "kernel_cleanup_status"),
+    runtime_session_cleanup_status: Mapped[RuntimeSessionCleanupStatus] = mapped_column(
+        enum_type(RuntimeSessionCleanupStatus, "runtime_session_cleanup_status"),
         nullable=False,
-        default=KernelCleanupStatus.NOT_REQUIRED,
+        default=RuntimeSessionCleanupStatus.NOT_REQUIRED,
     )
     dynamic_finish_requested: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     dynamic_wait_expires_at: Mapped[datetime | None] = mapped_column(
@@ -232,13 +236,14 @@ class ExecutionORM(Base):
             status=execution.status,
             mode=execution.mode,
             trigger_type=execution.trigger_type,
-            jupyter_pool=execution.jupyter_pool,
-            kernel_name=execution.kernel_name,
+            runtime_type=execution.runtime_type,
+            runtime_pool=execution.runtime_pool,
+            runtime_profile=execution.runtime_profile,
             code_source_type=execution.code_source_type,
             source_content=execution.source_content,
             code_path=execution.code_path,
             source_sha256=execution.source_sha256,
-            requested_by_user_id=execution.requested_by_user_id,
+            user_id=execution.user_id,
             project_id=execution.project_id,
             session_id=execution.session_id,
             task_id=execution.task_id,
@@ -250,8 +255,8 @@ class ExecutionORM(Base):
             updated_by=execution.updated_by,
             execution_metadata=execution.metadata,
             cancellation_reason=execution.cancellation_reason,
-            jupyter_server_id=execution.jupyter_server_id,
-            kernel_id=execution.kernel_id,
+            runtime_target_id=execution.runtime_target_id,
+            runtime_session_id=execution.runtime_session_id,
             workspace_path=execution.workspace_path,
             notebook_path=execution.notebook_path,
             error_message=execution.error_message,
@@ -259,13 +264,12 @@ class ExecutionORM(Base):
             lease_owner=execution.lease_owner,
             lease_expires_at=execution.lease_expires_at,
             heartbeat_at=execution.heartbeat_at,
-            retryable=execution.retryable,
             retry_strategy=execution.retry_strategy,
             retry_from_sequence=execution.retry_from_sequence,
-            retained_kernel_until=execution.retained_kernel_until,
+            retained_runtime_session_until=execution.retained_runtime_session_until,
             retry_count=execution.retry_count,
             recovery_count=execution.recovery_count,
-            kernel_cleanup_status=execution.kernel_cleanup_status,
+            runtime_session_cleanup_status=execution.runtime_session_cleanup_status,
             dynamic_finish_requested=execution.dynamic_finish_requested,
             dynamic_wait_expires_at=execution.dynamic_wait_expires_at,
             execution_expires_at=execution.execution_expires_at,
@@ -288,13 +292,14 @@ class ExecutionORM(Base):
             status=self.status,
             mode=self.mode,
             trigger_type=self.trigger_type,
-            jupyter_pool=self.jupyter_pool,
-            kernel_name=self.kernel_name,
+            runtime_type=self.runtime_type,
+            runtime_pool=self.runtime_pool,
+            runtime_profile=self.runtime_profile,
             code_source_type=self.code_source_type,
             source_content=self.source_content,
             code_path=self.code_path,
             source_sha256=self.source_sha256,
-            requested_by_user_id=self.requested_by_user_id,
+            user_id=self.user_id,
             project_id=self.project_id,
             session_id=self.session_id,
             task_id=self.task_id,
@@ -306,8 +311,8 @@ class ExecutionORM(Base):
             updated_by=self.updated_by,
             metadata=self.execution_metadata,
             cancellation_reason=self.cancellation_reason,
-            jupyter_server_id=self.jupyter_server_id,
-            kernel_id=self.kernel_id,
+            runtime_target_id=self.runtime_target_id,
+            runtime_session_id=self.runtime_session_id,
             workspace_path=self.workspace_path,
             notebook_path=self.notebook_path,
             error_message=self.error_message,
@@ -315,13 +320,12 @@ class ExecutionORM(Base):
             lease_owner=self.lease_owner,
             lease_expires_at=self.lease_expires_at,
             heartbeat_at=self.heartbeat_at,
-            retryable=self.retryable,
             retry_strategy=self.retry_strategy,
             retry_from_sequence=self.retry_from_sequence,
-            retained_kernel_until=self.retained_kernel_until,
+            retained_runtime_session_until=self.retained_runtime_session_until,
             retry_count=self.retry_count,
             recovery_count=self.recovery_count,
-            kernel_cleanup_status=self.kernel_cleanup_status,
+            runtime_session_cleanup_status=self.runtime_session_cleanup_status,
             dynamic_finish_requested=self.dynamic_finish_requested,
             dynamic_wait_expires_at=self.dynamic_wait_expires_at,
             execution_expires_at=self.execution_expires_at,
@@ -437,35 +441,41 @@ class ExecutionStepORM(Base):
         )
 
 
-class JupyterServerORM(Base):
-    __tablename__ = "jupyter_servers"
+class RuntimeTargetORM(Base):
+    __tablename__ = "runtime_targets"
     __table_args__ = (
         *audit_actor_constraints(),
         CheckConstraint(
-            "status IN ('ACTIVE', 'DRAINING', 'OFFLINE')", name="valid_jupyter_server_status"
+            "status IN ('ACTIVE', 'DRAINING', 'OFFLINE')", name="valid_runtime_target_status"
         ),
+        CheckConstraint("runtime_type IN ('JUPYTER')", name="valid_runtime_type"),
         CheckConstraint("max_concurrent_executions > 0", name="positive_max_concurrency"),
-        Index("ix_jupyter_servers_pool_status", "pool", "enabled", "status"),
-        Index("ix_jupyter_servers_created_cursor", "created_at", "id"),
+        Index("ix_runtime_targets_pool_status", "pool", "enabled", "status"),
+        Index("ix_runtime_targets_created_cursor", "created_at", "id"),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
     name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
-    endpoint: Mapped[str] = mapped_column(Text, nullable=False)
+    runtime_type: Mapped[RuntimeType] = mapped_column(
+        enum_type(RuntimeType, "runtime_target_type"),
+        nullable=False,
+        default=RuntimeType.JUPYTER,
+    )
+    connection_config: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     credential_ref: Mapped[str] = mapped_column(String(255), nullable=False)
     credential_ciphertext: Mapped[str | None] = mapped_column(Text, nullable=True)
-    pool: Mapped[JupyterPool] = mapped_column(
-        enum_type(JupyterPool, "jupyter_server_pool"), nullable=False
+    pool: Mapped[RuntimePool] = mapped_column(
+        enum_type(RuntimePool, "runtime_target_pool"), nullable=False
     )
-    status: Mapped[JupyterServerStatus] = mapped_column(
-        enum_type(JupyterServerStatus, "jupyter_server_status"), nullable=False
+    status: Mapped[RuntimeTargetStatus] = mapped_column(
+        enum_type(RuntimeTargetStatus, "runtime_target_status"), nullable=False
     )
     max_concurrent_executions: Mapped[int] = mapped_column(Integer, nullable=False)
-    supported_kernels: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    supported_profiles: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     last_health_check_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_health_error: Mapped[str | None] = mapped_column(String(500))
-    active_kernel_count: Mapped[int | None] = mapped_column(Integer)
+    active_session_count: Mapped[int | None] = mapped_column(Integer)
     created_by_type: Mapped[ActorType | None] = mapped_column(
         enum_type(ActorType, "actor_type"), nullable=True
     )
@@ -477,6 +487,44 @@ class JupyterServerORM(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
+
+
+class RuntimeTargetPurgeORM(Base):
+    """Immutable audit tombstone for a physically removed, never-used target."""
+
+    __tablename__ = "runtime_target_purges"
+    __table_args__ = (
+        *audit_actor_constraints(),
+        CheckConstraint("pool IN ('INTERACTIVE', 'BATCH')", name="valid_pool"),
+        CheckConstraint("runtime_type IN ('JUPYTER')", name="valid_runtime_type"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    target_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False, unique=True)
+    target_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    runtime_type: Mapped[RuntimeType] = mapped_column(
+        enum_type(RuntimeType, "runtime_target_purge_type"), nullable=False
+    )
+    connection_config: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    pool: Mapped[RuntimePool] = mapped_column(
+        enum_type(RuntimePool, "runtime_target_purge_pool"), nullable=False
+    )
+    idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    request_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_by_type: Mapped[ActorType | None] = mapped_column(
+        enum_type(ActorType, "actor_type"), nullable=True
+    )
+    created_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    updated_by_type: Mapped[ActorType | None] = mapped_column(
+        enum_type(ActorType, "actor_type"), nullable=True
+    )
+    updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now
     )
 
 
@@ -525,11 +573,12 @@ class ExecutionAttemptORM(Base):
             "status IN ('RUNNING', 'WAITING', 'SUCCEEDED', 'FAILED', 'CANCELLED')",
             name="valid_attempt_status",
         ),
+        CheckConstraint("runtime_type IN ('JUPYTER')", name="valid_attempt_runtime_type"),
         CheckConstraint(
             "failure_type IS NULL OR failure_type IN ('TOOL_ERROR', "
-            "'INFRASTRUCTURE_ERROR', 'WORKER_SHUTDOWN', 'JUPYTER_UNAVAILABLE', "
+            "'INFRASTRUCTURE_ERROR', 'WORKER_SHUTDOWN', 'RUNTIME_UNAVAILABLE', "
             "'LEASE_EXPIRED', 'INTERNAL_ERROR', 'DYNAMIC_WAIT_TIMEOUT', "
-            "'EXECUTION_TIMEOUT', 'KERNEL_LOST')",
+            "'EXECUTION_TIMEOUT', 'RUNTIME_SESSION_LOST')",
             name="valid_attempt_failure_type",
         ),
         CheckConstraint(
@@ -537,11 +586,11 @@ class ExecutionAttemptORM(Base):
             name="valid_attempt_retry_strategy",
         ),
         CheckConstraint(
-            "kernel_cleanup_status IN ('NOT_REQUIRED', 'PENDING', 'SUCCEEDED', 'FAILED')",
-            name="valid_attempt_kernel_cleanup_status",
+            "runtime_session_cleanup_status IN ('NOT_REQUIRED', 'PENDING', 'SUCCEEDED', 'FAILED')",
+            name="valid_runtime_session_cleanup_status",
         ),
         Index("ix_execution_attempts_lease", "status", "lease_expires_at"),
-        Index("ix_execution_attempts_server_status", "jupyter_server_id", "status"),
+        Index("ix_execution_attempts_target_status", "runtime_target_id", "status"),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
@@ -549,10 +598,16 @@ class ExecutionAttemptORM(Base):
         Uuid(as_uuid=True), ForeignKey("executions.id", ondelete="CASCADE"), nullable=False
     )
     attempt_number: Mapped[int] = mapped_column(Integer, nullable=False)
-    jupyter_server_id: Mapped[UUID] = mapped_column(
-        Uuid(as_uuid=True), ForeignKey("jupyter_servers.id"), nullable=False
+    runtime_type: Mapped[RuntimeType] = mapped_column(
+        enum_type(RuntimeType, "attempt_runtime_type"),
+        nullable=False,
+        default=RuntimeType.JUPYTER,
     )
-    kernel_id: Mapped[str | None] = mapped_column(String(255))
+    runtime_profile: Mapped[str] = mapped_column(String(128), nullable=False, default="basic")
+    runtime_target_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("runtime_targets.id"), nullable=False
+    )
+    runtime_session_id: Mapped[str | None] = mapped_column(String(255))
     status: Mapped[AttemptStatus] = mapped_column(
         enum_type(AttemptStatus, "attempt_status"), nullable=False
     )
@@ -570,10 +625,10 @@ class ExecutionAttemptORM(Base):
         nullable=False,
         default=RetryStrategy.NOT_RETRYABLE,
     )
-    kernel_cleanup_status: Mapped[KernelCleanupStatus] = mapped_column(
-        enum_type(KernelCleanupStatus, "attempt_kernel_cleanup_status"),
+    runtime_session_cleanup_status: Mapped[RuntimeSessionCleanupStatus] = mapped_column(
+        enum_type(RuntimeSessionCleanupStatus, "attempt_runtime_session_cleanup_status"),
         nullable=False,
-        default=KernelCleanupStatus.NOT_REQUIRED,
+        default=RuntimeSessionCleanupStatus.NOT_REQUIRED,
     )
     created_by_type: Mapped[ActorType | None] = mapped_column(
         enum_type(ActorType, "actor_type"), nullable=True

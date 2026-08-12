@@ -11,10 +11,11 @@ from executor_service.domain.enums import (
     ExecutionMode,
     ExecutionStatus,
     FailureType,
-    JupyterPool,
-    KernelCleanupStatus,
     OutboxStatus,
     RetryStrategy,
+    RuntimePool,
+    RuntimeSessionCleanupStatus,
+    RuntimeType,
     StepStatus,
     TriggerType,
 )
@@ -58,17 +59,18 @@ class Execution:
     request_fingerprint: str
     mode: ExecutionMode
     trigger_type: TriggerType
-    jupyter_pool: JupyterPool
-    kernel_name: str
+    runtime_pool: RuntimePool
+    runtime_profile: str
     code_source_type: CodeSourceType
     source_content: str
     code_path: str | None
     source_sha256: str
-    requested_by_user_id: str
+    user_id: str
     project_id: str
     session_id: str
     task_id: str
     execution_plan_id: str
+    runtime_type: RuntimeType = RuntimeType.JUPYTER
     workflow_id: str | None = None
     created_by_type: ActorType | None = None
     created_by: str | None = None
@@ -80,8 +82,8 @@ class Execution:
     status: ExecutionStatus = ExecutionStatus.QUEUED
     cancel_idempotency_key: str | None = None
     cancellation_reason: str | None = None
-    jupyter_server_id: UUID | None = None
-    kernel_id: str | None = None
+    runtime_target_id: UUID | None = None
+    runtime_session_id: str | None = None
     workspace_path: str | None = None
     notebook_path: str | None = None
     error_message: str | None = None
@@ -89,13 +91,14 @@ class Execution:
     lease_owner: str | None = None
     lease_expires_at: datetime | None = None
     heartbeat_at: datetime | None = None
-    retryable: bool = False
     retry_strategy: RetryStrategy = RetryStrategy.NOT_RETRYABLE
     retry_from_sequence: int | None = None
-    retained_kernel_until: datetime | None = None
+    retained_runtime_session_until: datetime | None = None
     retry_count: int = 0
     recovery_count: int = 0
-    kernel_cleanup_status: KernelCleanupStatus = KernelCleanupStatus.NOT_REQUIRED
+    runtime_session_cleanup_status: RuntimeSessionCleanupStatus = (
+        RuntimeSessionCleanupStatus.NOT_REQUIRED
+    )
     dynamic_finish_requested: bool = False
     dynamic_wait_expires_at: datetime | None = None
     execution_expires_at: datetime | None = None
@@ -125,30 +128,30 @@ class Execution:
         now = utc_now()
         if self.status != ExecutionStatus.FAILED:
             raise InvalidStateTransitionError(f"Execution {self.id} must be FAILED before retry.")
-        if not self.retryable or self.retry_strategy == RetryStrategy.NOT_RETRYABLE:
+        if self.retry_strategy == RetryStrategy.NOT_RETRYABLE:
             raise InvalidStateTransitionError(
                 f"Execution {self.id} has no supported retry strategy."
             )
         if self.retry_strategy == RetryStrategy.FROM_FAILED_STEP and (
             self.retry_from_sequence is None
-            or self.kernel_id is None
-            or self.jupyter_server_id is None
-            or self.retained_kernel_until is None
-            or _with_utc(self.retained_kernel_until) <= now
+            or self.runtime_session_id is None
+            or self.runtime_target_id is None
+            or self.retained_runtime_session_until is None
+            or _with_utc(self.retained_runtime_session_until) <= now
         ):
             raise InvalidStateTransitionError(
-                f"Execution {self.id} has no resumable retained kernel."
+                f"Execution {self.id} has no resumable retained Runtime session."
             )
         if self.retry_strategy == RetryStrategy.FROM_START:
-            if self.kernel_cleanup_status == KernelCleanupStatus.PENDING:
+            if self.runtime_session_cleanup_status == RuntimeSessionCleanupStatus.PENDING:
                 raise InvalidStateTransitionError(
-                    f"Execution {self.id} is still cleaning up its abandoned kernel."
+                    f"Execution {self.id} is still cleaning up its abandoned Runtime session."
                 )
             self.retry_from_sequence = 0
-            self.kernel_id = None
-            self.jupyter_server_id = None
-            self.retained_kernel_until = None
-            self.kernel_cleanup_status = KernelCleanupStatus.NOT_REQUIRED
+            self.runtime_session_id = None
+            self.runtime_target_id = None
+            self.retained_runtime_session_until = None
+            self.runtime_session_cleanup_status = RuntimeSessionCleanupStatus.NOT_REQUIRED
         if self.retry_from_sequence is None:
             raise InvalidStateTransitionError(f"Execution {self.id} has no retry start sequence.")
         self.status = ExecutionStatus.QUEUED

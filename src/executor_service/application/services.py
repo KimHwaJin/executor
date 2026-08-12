@@ -17,7 +17,7 @@ from executor_service.domain.enums import (
     ActorType,
     ExecutionMode,
     ExecutionStatus,
-    JupyterPool,
+    RuntimePool,
     TriggerType,
 )
 from executor_service.domain.errors import (
@@ -53,13 +53,14 @@ class ExecutionService:
                     request_fingerprint=fingerprint,
                     mode=command.mode,
                     trigger_type=command.trigger_type,
-                    jupyter_pool=JupyterPool(command.trigger_type.value),
-                    kernel_name=command.kernel_name,
+                    runtime_type=command.runtime_type,
+                    runtime_pool=RuntimePool(command.trigger_type.value),
+                    runtime_profile=command.runtime_profile,
                     code_source_type=command.code_source_type,
                     source_content=command.source_content,
                     code_path=command.code_path,
                     source_sha256=command.source_sha256,
-                    requested_by_user_id=command.requested_by_user_id,
+                    user_id=command.user_id,
                     project_id=command.project_id,
                     session_id=command.session_id,
                     task_id=command.task_id,
@@ -423,6 +424,16 @@ def _validate_submit(command: SubmitExecutionCommand) -> None:
         raise InvalidStateTransitionError(
             f"{command.trigger_type.value} submit requires {expected_actor_type.value} actor."
         )
+    if (
+        command.trigger_type == TriggerType.INTERACTIVE
+        and command.actor_type == ActorType.USER
+        and command.actor_id != command.user_id
+    ):
+        raise InvalidStateTransitionError(
+            "INTERACTIVE submit requires actor.id to match context.user_id."
+        )
+    if command.trigger_type == TriggerType.BATCH and not command.workflow_id:
+        raise InvalidStateTransitionError("BATCH submit requires context.workflow_id.")
     if not command.steps:
         raise InvalidStateTransitionError("ExecutionSpec must contain at least one step.")
     sequences = [step.sequence for step in command.steps]

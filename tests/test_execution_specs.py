@@ -6,7 +6,7 @@ import pytest
 
 from executor_service.domain.enums import CodeSourceType
 from executor_service.domain.errors import InvalidExecutionSpecError
-from executor_service.interfaces.mcp.execution_specs import ExecutionSpecResolver
+from executor_service.execution_specs import ExecutionSpecResolver
 from executor_service.interfaces.mcp.schemas import InlineCodeSource, PathCodeSource
 
 

@@ -21,9 +21,9 @@ from executor_service.domain.enums import (
     ExecutionMode,
     ExecutionStatus,
     FailureType,
-    JupyterPool,
-    JupyterServerStatus,
-    KernelCleanupStatus,
+    RuntimePool,
+    RuntimeSessionCleanupStatus,
+    RuntimeTargetStatus,
     StepStatus,
     TriggerType,
 )
@@ -35,16 +35,16 @@ from executor_service.infrastructure.db.models import (
     ExecutionORM,
     ExecutionStepAttemptORM,
     ExecutionStepORM,
-    JupyterServerORM,
     OutboxEventORM,
+    RuntimeTargetORM,
 )
 from executor_service.infrastructure.db.session import create_session_factory
-from executor_service.infrastructure.jupyter_registry import JupyterServerRegistry
+from executor_service.infrastructure.runtime_registry import RuntimeTargetRegistry
 from executor_service.infrastructure.worker import ExecutionWorker
 
 
 class FakeJupyterGateway:
-    kernel_exists_result = True
+    session_exists_result = True
     deleted: ClassVar[list[str]] = []
     interrupted: ClassVar[list[str]] = []
 
@@ -54,14 +54,21 @@ class FakeJupyterGateway:
     async def close(self) -> None:
         pass
 
-    async def kernel_exists(self, _kernel_id: str) -> bool:
-        return self.kernel_exists_result
+    async def session_exists(self, _runtime_session_id: str) -> bool:
+        return self.session_exists_result
 
-    async def interrupt_kernel(self, kernel_id: str) -> None:
-        self.interrupted.append(kernel_id)
+    async def interrupt_session(self, runtime_session_id: str) -> None:
+        self.interrupted.append(runtime_session_id)
 
-    async def delete_kernel(self, kernel_id: str) -> None:
-        self.deleted.append(kernel_id)
+    async def delete_session(self, runtime_session_id: str) -> None:
+        self.deleted.append(runtime_session_id)
+
+
+def _patch_runtime_driver(monkeypatch: pytest.MonkeyPatch, driver_type: type[Any]) -> None:
+    monkeypatch.setattr(
+        "executor_service.infrastructure.runtime_drivers.JupyterRuntimeDriver",
+        driver_type,
+    )
 
 
 def _dynamic_command(key: str) -> SubmitExecutionCommand:
@@ -70,12 +77,12 @@ def _dynamic_command(key: str) -> SubmitExecutionCommand:
         idempotency_key=key,
         mode=ExecutionMode.DYNAMIC,
         trigger_type=TriggerType.INTERACTIVE,
-        kernel_name="python3",
+        runtime_profile="basic",
         code_source_type=CodeSourceType.INLINE,
         source_content=code,
         code_path=None,
         source_sha256="0" * 64,
-        requested_by_user_id="lifecycle-user",
+        user_id="lifecycle-user",
         project_id="lifecycle-project",
         session_id="lifecycle-session",
         task_id="test-task",
@@ -105,27 +112,23 @@ async def _make_waiting(
     now = utc_now()
     session_factory = create_session_factory(engine)
     async with session_factory() as session, session.begin():
-        server = JupyterServerORM(
-            name=f"server-{key}",
-            endpoint="http://fake-jupyter",
+        target = RuntimeTargetORM(
+            name=f"target-{key}",
+            connection_config={"endpoint": "http://fake-jupyter"},
             credential_ref="settings:JUPYTER_TOKEN",
-            pool=JupyterPool.INTERACTIVE,
-            status=(
-                JupyterServerStatus.ACTIVE
-                if server_enabled
-                else JupyterServerStatus.OFFLINE
-            ),
+            pool=RuntimePool.INTERACTIVE,
+            status=(RuntimeTargetStatus.ACTIVE if server_enabled else RuntimeTargetStatus.OFFLINE),
             max_concurrent_executions=2,
-            supported_kernels=["python3"],
+            supported_profiles=["basic"],
             enabled=server_enabled,
         )
-        session.add(server)
+        session.add(target)
         await session.flush()
         attempt = ExecutionAttemptORM(
             execution_id=execution.id,
             attempt_number=1,
-            jupyter_server_id=server.id,
-            kernel_id=f"kernel-{key}",
+            runtime_target_id=target.id,
+            runtime_session_id=f"kernel-{key}",
             status=AttemptStatus.WAITING,
             lease_owner=None,
             lease_expires_at=None,
@@ -153,18 +156,14 @@ async def _make_waiting(
             .where(ExecutionORM.id == execution.id)
             .values(
                 status=ExecutionStatus.WAITING_FOR_NEXT_STEP,
-                jupyter_server_id=server.id,
-                kernel_id=attempt.kernel_id,
+                runtime_target_id=target.id,
+                runtime_session_id=attempt.runtime_session_id,
                 started_at=now - timedelta(minutes=1),
                 dynamic_wait_expires_at=(
-                    now - timedelta(seconds=1)
-                    if wait_expired
-                    else now + timedelta(hours=1)
+                    now - timedelta(seconds=1) if wait_expired else now + timedelta(hours=1)
                 ),
                 execution_expires_at=(
-                    now - timedelta(seconds=1)
-                    if execution_expired
-                    else now + timedelta(days=1)
+                    now - timedelta(seconds=1) if execution_expired else now + timedelta(days=1)
                 ),
                 version=2,
             )
@@ -179,7 +178,7 @@ async def _make_waiting(
 
 def _worker(engine: AsyncEngine, tmp_path: Path) -> tuple[ExecutionWorker, Redis]:
     settings = Settings(
-        jupyter_enabled=False,
+        runtime_enabled=False,
         workspace_host_root=tmp_path,
         execution_lease_seconds=30,
         execution_heartbeat_seconds=5,
@@ -187,7 +186,7 @@ def _worker(engine: AsyncEngine, tmp_path: Path) -> tuple[ExecutionWorker, Redis
     )
     session_factory = create_session_factory(engine)
     redis = Redis.from_url("redis://127.0.0.1:6379/15", decode_responses=True)
-    registry = JupyterServerRegistry(session_factory, settings)
+    registry = RuntimeTargetRegistry(session_factory, settings)
     worker = ExecutionWorker(
         session_factory=session_factory,
         redis=redis,
@@ -200,7 +199,7 @@ def _worker(engine: AsyncEngine, tmp_path: Path) -> tuple[ExecutionWorker, Redis
 
 @pytest.fixture(autouse=True)
 def _reset_fake_gateway() -> None:
-    FakeJupyterGateway.kernel_exists_result = True
+    FakeJupyterGateway.session_exists_result = True
     FakeJupyterGateway.deleted = []
     FakeJupyterGateway.interrupted = []
 
@@ -211,12 +210,8 @@ async def test_expired_dynamic_wait_fails_and_cleans_kernel_once(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    execution, _ = await _make_waiting(
-        execution_service, engine, "wait-timeout", wait_expired=True
-    )
-    monkeypatch.setattr(
-        "executor_service.infrastructure.worker.JupyterGateway", FakeJupyterGateway
-    )
+    execution, _ = await _make_waiting(execution_service, engine, "wait-timeout", wait_expired=True)
+    _patch_runtime_driver(monkeypatch, FakeJupyterGateway)
     worker, redis = _worker(engine, tmp_path)
     try:
         await worker._audit_dynamic_lifecycle()
@@ -228,9 +223,7 @@ async def test_expired_dynamic_wait_fails_and_cleans_kernel_once(
     async with session_factory() as session:
         row = await session.get(ExecutionORM, execution.id)
         attempt = await session.scalar(
-            select(ExecutionAttemptORM).where(
-                ExecutionAttemptORM.execution_id == execution.id
-            )
+            select(ExecutionAttemptORM).where(ExecutionAttemptORM.execution_id == execution.id)
         )
         failed_events = await session.scalar(
             select(func.count(OutboxEventORM.id)).where(
@@ -241,8 +234,8 @@ async def test_expired_dynamic_wait_fails_and_cleans_kernel_once(
     assert row is not None and attempt is not None
     assert row.status == ExecutionStatus.FAILED
     assert row.failure_type == FailureType.DYNAMIC_WAIT_TIMEOUT
-    assert row.kernel_id is None
-    assert row.kernel_cleanup_status == KernelCleanupStatus.SUCCEEDED
+    assert row.runtime_session_id is None
+    assert row.runtime_session_cleanup_status == RuntimeSessionCleanupStatus.SUCCEEDED
     assert attempt.status == AttemptStatus.FAILED
     assert failed_events == 1
     assert FakeJupyterGateway.deleted == ["kernel-wait-timeout"]
@@ -269,10 +262,8 @@ async def test_restart_audit_detects_missing_kernel_without_cleanup(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     execution, _ = await _make_waiting(execution_service, engine, "kernel-lost")
-    FakeJupyterGateway.kernel_exists_result = False
-    monkeypatch.setattr(
-        "executor_service.infrastructure.worker.JupyterGateway", FakeJupyterGateway
-    )
+    FakeJupyterGateway.session_exists_result = False
+    _patch_runtime_driver(monkeypatch, FakeJupyterGateway)
     worker, redis = _worker(engine, tmp_path)
     try:
         await worker._audit_dynamic_lifecycle()
@@ -283,9 +274,9 @@ async def test_restart_audit_detects_missing_kernel_without_cleanup(
         row = await session.get(ExecutionORM, execution.id)
     assert row is not None
     assert row.status == ExecutionStatus.FAILED
-    assert row.failure_type == FailureType.KERNEL_LOST
-    assert row.kernel_id is None
-    assert row.kernel_cleanup_status == KernelCleanupStatus.NOT_REQUIRED
+    assert row.failure_type == FailureType.RUNTIME_SESSION_LOST
+    assert row.runtime_session_id is None
+    assert row.runtime_session_cleanup_status == RuntimeSessionCleanupStatus.NOT_REQUIRED
     assert FakeJupyterGateway.deleted == []
 
 
@@ -296,11 +287,9 @@ async def test_removed_server_fails_waiting_execution(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     execution, _ = await _make_waiting(
-        execution_service, engine, "server-removed", server_enabled=False
+        execution_service, engine, "target-removed", server_enabled=False
     )
-    monkeypatch.setattr(
-        "executor_service.infrastructure.worker.JupyterGateway", FakeJupyterGateway
-    )
+    _patch_runtime_driver(monkeypatch, FakeJupyterGateway)
     worker, redis = _worker(engine, tmp_path)
     try:
         await worker._audit_dynamic_lifecycle()
@@ -311,8 +300,8 @@ async def test_removed_server_fails_waiting_execution(
         row = await session.get(ExecutionORM, execution.id)
     assert row is not None
     assert row.status == ExecutionStatus.FAILED
-    assert row.failure_type == FailureType.JUPYTER_UNAVAILABLE
-    assert row.kernel_cleanup_status == KernelCleanupStatus.SUCCEEDED
+    assert row.failure_type == FailureType.RUNTIME_UNAVAILABLE
+    assert row.runtime_session_cleanup_status == RuntimeSessionCleanupStatus.SUCCEEDED
 
 
 async def test_execution_deadline_precedes_step_wait_deadline(
@@ -328,9 +317,7 @@ async def test_execution_deadline_precedes_step_wait_deadline(
         wait_expired=True,
         execution_expired=True,
     )
-    monkeypatch.setattr(
-        "executor_service.infrastructure.worker.JupyterGateway", FakeJupyterGateway
-    )
+    _patch_runtime_driver(monkeypatch, FakeJupyterGateway)
     worker, redis = _worker(engine, tmp_path)
     try:
         await worker._audit_dynamic_lifecycle()
@@ -373,9 +360,7 @@ async def test_running_execution_deadline_requests_cancel_and_reclaims_kernel(
                 lease_expires_at=now + timedelta(minutes=1),
             )
         )
-    monkeypatch.setattr(
-        "executor_service.infrastructure.worker.JupyterGateway", FakeJupyterGateway
-    )
+    _patch_runtime_driver(monkeypatch, FakeJupyterGateway)
     worker, redis = _worker(engine, tmp_path)
     try:
         await worker._audit_dynamic_lifecycle()
@@ -400,7 +385,7 @@ async def test_running_execution_deadline_requests_cancel_and_reclaims_kernel(
     assert row is not None
     assert row.status == ExecutionStatus.CANCELLED
     assert row.cancellation_reason == "Execution exceeded its maximum runtime."
-    assert row.kernel_id is None
+    assert row.runtime_session_id is None
     assert timeout_events == 1
     assert FakeJupyterGateway.interrupted == ["kernel-running-timeout"]
     assert FakeJupyterGateway.deleted == ["kernel-running-timeout"]

@@ -8,6 +8,7 @@ from executor_service.domain.enums import (
     ActorType,
     CodeSourceType,
     ExecutionMode,
+    RuntimeType,
     TriggerType,
 )
 
@@ -28,16 +29,17 @@ class SubmitExecutionCommand:
     idempotency_key: str
     mode: ExecutionMode
     trigger_type: TriggerType
-    kernel_name: str
+    runtime_profile: str
     code_source_type: CodeSourceType
     source_content: str
     code_path: str | None
     source_sha256: str
-    requested_by_user_id: str
+    user_id: str
     project_id: str
     session_id: str
     task_id: str
     execution_plan_id: str
+    runtime_type: RuntimeType = RuntimeType.JUPYTER
     actor_type: ActorType | None = None
     actor_id: str | None = None
     workflow_id: str | None = None

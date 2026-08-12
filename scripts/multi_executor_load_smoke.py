@@ -15,7 +15,7 @@ from resilience_common import (
     start_executor,
     stop_executor,
     submit_static,
-    upsert_jupyter_server,
+    upsert_runtime_target,
     wait_ready,
 )
 
@@ -25,7 +25,7 @@ TERMINAL_STATUSES = {"SUCCEEDED", "FAILED", "CANCELLED"}
 
 
 async def _servers(client: Client) -> list[dict[str, Any]]:
-    result = await client.call_tool("jupyter_server_list", {})
+    result = await client.call_tool("runtime_target_list", {})
     if result.is_error:
         raise RuntimeError(str(result.content))
     return result.structured_content["items"]
@@ -33,10 +33,10 @@ async def _servers(client: Client) -> list[dict[str, Any]]:
 
 async def _probe(client: Client, server_id: str) -> dict[str, Any]:
     result = await client.call_tool(
-        "jupyter_server_probe",
+        "runtime_target_probe",
         {
             "request": {
-                "server_id": server_id,
+                "target_id": server_id,
                 "actor": {"type": "USER", "id": "load-smoke-operator"},
             }
         },
@@ -113,7 +113,7 @@ async def main() -> None:
                 ),
             )
             registered = [
-                await upsert_jupyter_server(
+                await upsert_runtime_target(
                     client,
                     unique=unique,
                     name=name,
@@ -124,9 +124,9 @@ async def main() -> None:
                 )
                 for name, endpoint, pool, token in specs
             ]
-            server_ids = {str(item["server_id"]) for item in registered}
+            server_ids = {str(item["target_id"]) for item in registered}
             capacities = {
-                str(item["server_id"]): int(item["max_concurrent_executions"])
+                str(item["target_id"]): int(item["max_concurrent_executions"])
                 for item in registered
             }
             execution_ids: list[str] = []
@@ -162,7 +162,7 @@ async def main() -> None:
                     state["status"] == "QUEUED" for state in states
                 )
                 for server in await _servers(client):
-                    server_id = str(server["server_id"])
+                    server_id = str(server["target_id"])
                     if server_id not in server_ids:
                         continue
                     active = int(server["active_execution_count"])
@@ -205,8 +205,7 @@ async def main() -> None:
             leaked = [
                 server
                 for server in probes
-                if server["active_execution_count"] != 0
-                or server["active_kernel_count"] != 0
+                if server["active_execution_count"] != 0 or server["active_session_count"] != 0
             ]
             if leaked:
                 raise RuntimeError(f"Active Attempt or kernel remained after load: {leaked}")

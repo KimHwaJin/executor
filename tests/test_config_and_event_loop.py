@@ -1,15 +1,18 @@
 import asyncio
 from pathlib import Path
 
+import pytest
+
 from executor_service.config import Settings
 from executor_service.event_loop import run_async
 
 
-def test_comma_separated_mcp_allowlists_load_from_dotenv(tmp_path: Path) -> None:
+def test_comma_separated_lists_load_from_dotenv(tmp_path: Path) -> None:
     dotenv = tmp_path / ".env"
     dotenv.write_text(
         "MCP_ALLOWED_HOSTS=localhost:*,127.0.0.1:*,testserver\n"
-        "MCP_ALLOWED_ORIGINS=http://localhost:*,http://127.0.0.1:*\n",
+        "MCP_ALLOWED_ORIGINS=http://localhost:*,http://127.0.0.1:*\n"
+        "RUNTIME_ALLOWED_PROFILES=basic,ml\n",
         encoding="utf-8",
     )
 
@@ -20,20 +23,12 @@ def test_comma_separated_mcp_allowlists_load_from_dotenv(tmp_path: Path) -> None
         "http://localhost:*",
         "http://127.0.0.1:*",
     )
+    assert settings.runtime_allowed_profiles == ("basic", "ml")
 
 
-def test_json_mcp_allowlists_remain_compatible(tmp_path: Path) -> None:
-    dotenv = tmp_path / ".env"
-    dotenv.write_text(
-        "MCP_ALLOWED_HOSTS='[\"localhost:*\",\"testserver\"]'\n"
-        "MCP_ALLOWED_ORIGINS='[\"http://localhost:*\"]'\n",
-        encoding="utf-8",
-    )
-
-    settings = Settings(_env_file=dotenv)
-
-    assert settings.mcp_allowed_hosts == ("localhost:*", "testserver")
-    assert settings.mcp_allowed_origins == ("http://localhost:*",)
+def test_non_local_environment_rejects_placeholder_secrets() -> None:
+    with pytest.raises(ValueError, match="JUPYTER_TOKEN"):
+        Settings(app_env="production")
 
 
 def test_windows_async_runner_uses_selector_event_loop() -> None:

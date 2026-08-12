@@ -89,7 +89,7 @@ async def _wait_for(
     for _ in range(attempts):
         state = await _execution(client, execution_id)
         if state["status"] in statuses and (
-            not require_kernel or state["kernel_id"] is not None
+            not require_kernel or state["runtime_session_id"] is not None
         ):
             return state
         await asyncio.sleep(0.2)
@@ -97,20 +97,16 @@ async def _wait_for(
 
 
 async def _attempts(client: Client, execution_id: str) -> list[dict[str, Any]]:
-    result = await client.call_tool(
-        "execution_attempt_list", {"execution_id": execution_id}
-    )
+    result = await client.call_tool("execution_attempt_list", {"execution_id": execution_id})
     if result.is_error:
         raise RuntimeError(str(result.content))
     return result.structured_content["items"]
 
 
-async def _wait_for_recovered_failure(
-    client: Client, execution_id: str
-) -> dict[str, Any]:
+async def _wait_for_recovered_failure(client: Client, execution_id: str) -> dict[str, Any]:
     for _ in range(300):
         state = await _execution(client, execution_id)
-        if state["status"] == "FAILED" and state["kernel_cleanup_status"] != "PENDING":
+        if state["status"] == "FAILED" and state["runtime_session_cleanup_status"] != "PENDING":
             return state
         await asyncio.sleep(0.2)
     raise RuntimeError(f"Execution {execution_id} did not finish crash cleanup.")
@@ -153,13 +149,13 @@ async def main() -> None:
                         "mode": "STATIC",
                         "trigger_type": "INTERACTIVE",
                         "actor": {"type": "USER", "id": "multi-executor-user"},
-                        "kernel_name": "python3",
+                        "runtime_profile": "basic",
                         "source": inline_source(
                             f"multi-executor-plan-{unique}",
                             [{"tool_name": "multi_executor_failover", "code": code}],
                         ),
                         "context": {
-                            "requested_by_user_id": "multi-executor-user",
+                            "user_id": "multi-executor-user",
                             "project_id": "multi-executor-project",
                             "session_id": f"multi-executor-session-{unique}",
                             "task_id": f"multi-executor-task-{unique}",
@@ -176,12 +172,9 @@ async def main() -> None:
                 {"RUNNING"},
                 require_kernel=True,
             )
-            initial_kernel = str(running["kernel_id"])
+            initial_kernel = str(running["runtime_session_id"])
             first_attempts = await _attempts(client, execution_id)
-            if (
-                len(first_attempts) != 1
-                or first_attempts[0]["lease_owner"] != PRIMARY_CONSUMER
-            ):
+            if len(first_attempts) != 1 or first_attempts[0]["lease_owner"] != PRIMARY_CONSUMER:
                 raise RuntimeError(f"Primary did not own the first Attempt: {first_attempts}")
 
         secondary = await _start_executor(
@@ -199,9 +192,8 @@ async def main() -> None:
             if (
                 failed["failure_type"] != "LEASE_EXPIRED"
                 or failed["retry_strategy"] != "FROM_START"
-                or not failed["retryable"]
-                or failed["kernel_cleanup_status"] != "SUCCEEDED"
-                or failed["kernel_id"] is not None
+                or failed["runtime_session_cleanup_status"] != "SUCCEEDED"
+                or failed["runtime_session_id"] is not None
             ):
                 raise RuntimeError(f"Crash recovery was not classified safely: {failed}")
 
@@ -229,7 +221,7 @@ async def main() -> None:
                 or [item["lease_owner"] for item in attempts]
                 != [PRIMARY_CONSUMER, SECONDARY_CONSUMER]
                 or [item["status"] for item in attempts] != ["FAILED", "SUCCEEDED"]
-                or attempts[0]["kernel_id"] == attempts[1]["kernel_id"]
+                or attempts[0]["runtime_session_id"] == attempts[1]["runtime_session_id"]
             ):
                 raise RuntimeError(
                     f"Secondary did not complete exactly one retry: {succeeded}, {attempts}"
@@ -239,7 +231,7 @@ async def main() -> None:
             print("primary_exit_code:", primary.returncode)
             print("failure_type:", failed["failure_type"])
             print("retry_strategy:", failed["retry_strategy"])
-            print("kernel_cleanup_status:", failed["kernel_cleanup_status"])
+            print("runtime_session_cleanup_status:", failed["runtime_session_cleanup_status"])
             print("initial_kernel:", initial_kernel)
             print("attempt_owners:", [item["lease_owner"] for item in attempts])
             print("attempt_statuses:", [item["status"] for item in attempts])

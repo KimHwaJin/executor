@@ -1,9 +1,9 @@
 # Executor Service
 
-Asynchronous Jupyter execution control plane exposed through MCP 2026-07-28 Streamable HTTP and a
+Asynchronous Runtime execution control plane exposed through MCP 2026-07-28 Streamable HTTP and a
 versioned REST API. PostgreSQL is the source of truth. MCP Tool and REST calls persist work and
 return immediately while a Redis consumer worker executes STATIC plans or one-cell-at-a-time
-DYNAMIC plans in Jupyter.
+DYNAMIC plans through a Runtime Driver. Jupyter REST/WebSocket is the first implemented driver.
 
 ## Implemented scope
 
@@ -15,36 +15,37 @@ DYNAMIC plans in Jupyter.
   `execution_list`, `execution_step_list`, `execution_attempt_list`,
   `execution_event_list`, `execution_trace_get`,
   `execution_artifact_list`, `execution_artifact_get`
-- Jupyter fleet tools: `jupyter_server_upsert`, `jupyter_server_list`,
-  `jupyter_server_get`, `jupyter_server_probe`, `jupyter_server_remove`,
-  `jupyter_server_set_state`
+- Runtime Target tools: `runtime_target_upsert`, `runtime_target_list`,
+  `runtime_target_get`, `runtime_target_probe`, `runtime_target_remove`,
+  `runtime_target_set_state`
 - Execution, ExecutionStep, and OutboxEvent persistence with SQLAlchemy 2 and Alembic
 - Transactional Outbox publisher with at-least-once Redis Stream delivery
 - Redis consumer group worker with PostgreSQL reconciliation, stale Pending recovery, and DLQ
 - Multi-Executor coordination through PostgreSQL row locks, unique lease owners, and crash recovery
 - Jupyter REST/WebSocket kernel execution, interrupt, and deletion
-- Multi-server Jupyter registry, encrypted credentials, health probes, capacity scheduling,
+- Multi-target Runtime registry, encrypted credentials, health probes, capacity scheduling,
   execution attempts, leases, and heartbeats
-- Strict INTERACTIVE/BATCH Jupyter scheduling isolation with a two-server local BATCH topology
-- Safe server draining and retained-kernel retry from a failed Step
+- Strict INTERACTIVE/BATCH Runtime scheduling isolation with a two-target local BATCH topology
+- Safe target draining and retained-session retry from a failed Step
 - Classified Tool/infrastructure failures, graceful Worker shutdown, and FROM_START recovery
-- Append-only DYNAMIC cells with optimistic version checks and same-kernel continuation
-- Dynamic wait/total runtime deadlines, retained-kernel audits, and orphan cleanup
+- Append-only DYNAMIC cells with optimistic version checks and same-session continuation
+- Dynamic wait/total runtime deadlines, retained-session audits, and orphan cleanup
 - Immutable per-Attempt Step history and an end-to-end execution event trace
 - Automatic and Manifest-based Artifact registration with checksum and lineage
 - Durable `.ipynb` output and execution-scoped artifact directories on the shared PV
 - W3C trace-context propagation across HTTP/MCP, PostgreSQL Outbox, Redis Streams, Worker,
   and Jupyter operations with optional OTLP export to Arize Phoenix
 - `/healthz` and `/readyz` operational endpoints
-- PostgreSQL, Redis, INTERACTIVE/BATCH `jupyter/datascience-notebook` fleets, and opt-in Phoenix
+- PostgreSQL, Redis, custom Python slim INTERACTIVE/BATCH Jupyter fleets, and opt-in Phoenix
   through Docker Compose
+- Authenticated Jupyter resource endpoint with cgroup v2 CPU and memory measurement
 
 MCP Tasks are deliberately not used. `execution_submit` returns an `execution_id` while the
 execution starts as `QUEUED`. Poll with `execution_get` or request cancellation with
 `execution_cancel`. DYNAMIC execution accepts one initial cell, returns
 `WAITING_FOR_NEXT_STEP` after success or code error, and then accepts exactly one append-only cell
 through `execution_continue`. `execution_finish` persists the final notebook and deletes the
-retained kernel. MCP Tasks are not required for this lifecycle.
+retained Runtime session. MCP Tasks are not required for this lifecycle.
 
 ## Deferred decisions
 
@@ -90,6 +91,44 @@ SINGLE_JUPYTER_ENDPOINT=http://jupyter:8888 \
 
 Stop the stack with `docker compose down`. Named PostgreSQL and Redis volumes, and the bind-mounted
 `notebook_dir`, are retained unless they are explicitly removed.
+
+The local Jupyter image is built from `docker/jupyter/Dockerfile`. Its authenticated Server
+Extension exposes container resource observations without creating a monitoring kernel:
+
+The image has a two-variable runtime configuration contract. `JUPYTER_ROOT_DIR` defaults to
+`/workspace/pv`; mount the workspace volume at the same path. `JUPYTER_TOKEN` is required and has
+no image default, so inject it only when the container is deployed:
+
+```bash
+docker run --detach --publish 8888:8888 \
+  --env JUPYTER_ROOT_DIR=/workspace/pv \
+  --env JUPYTER_TOKEN="${JUPYTER_TOKEN}" \
+  --volume /host/workspace:/workspace/pv \
+  executor-jupyter:local
+```
+
+```bash
+curl --fail \
+  --header "Authorization: token ${JUPYTER_TOKEN}" \
+  http://127.0.0.1:8888/executor/resource-status
+```
+
+The Extension reads cgroup v2 `cpu.stat`, `cpu.max`, `memory.current`, `memory.max`, and
+`cgroup.procs`. `JUPYTER_RESOURCE_CPU_CORES` and `JUPYTER_RESOURCE_MEMORY_BYTES` provide capacity
+when the cgroup has no readable finite limit. If a usage file is unavailable, that resource's
+usage and utilization are null and a safe error code explains why; no secondary measurement source
+is used. The response contains only aggregate values and never returns process command lines,
+environment variables, or credentials.
+
+The image exposes only the `basic` Python 3.11 and `ml` Python 3.12 kernels. Their package lists
+are maintained in `docker/jupyter/environments/basic/requirements.txt` and
+`docker/jupyter/environments/ml/requirements.txt`; the ML environment includes the Basic package
+list. The Jupyter server's own packages are isolated in
+`docker/jupyter/environments/server/requirements.txt`. Rebuild the image after changing any list:
+
+```bash
+docker compose build jupyter
+```
 
 For MCP calls from another machine, append the Executor host or IP (including `:*` when any port
 is acceptable) to `MCP_ALLOWED_HOSTS_DOCKER` and its browser origin to
@@ -215,18 +254,23 @@ and runnable curl examples.
 - `idempotency_key`: required for safe retries; reuse with different content is rejected
 - `mode`: `STATIC` or `DYNAMIC`
 - `trigger_type`: `INTERACTIVE` or `BATCH`
-- `kernel_name`: one of the deployment's configured kernels
+- `runtime_type`: Runtime Driver kind; currently `JUPYTER`
+- `runtime_profile`: one of the target's supported profiles; for Jupyter this is a kernelspec name
 - `source`: either an INLINE ExecutionSpec or a shared-PV PATH plus SHA-256
 - `context`: Agent-owned user/project/session/Task IDs; Executor creates `execution_id`
 - `actor`: required audit principal with type `USER` or `BATCH` and a stable upstream ID
 
 Every public mutation records `created_by`/`updated_by` attribution on the affected Execution,
-Step, Attempt, Artifact, Outbox Event, or Jupyter server where applicable. Interactive submits
-require a `USER` actor and batch submits require a `BATCH` actor. Additional autonomous actor types
-remain deferred in [Deferred Decisions](docs/deferred-decisions.md#dd-003-additional-audit-actor-types).
+Step, Attempt, Artifact, Outbox Event, or Runtime Target where applicable. `context.user_id` owns
+the Execution and its results. Interactive submits require a `USER` actor whose `actor.id` exactly
+matches `context.user_id`. Batch submits require a `BATCH` actor; its ID identifies the schedule or
+manual batch trigger and may differ from the owning user. Additional autonomous actor types remain
+deferred in [Deferred Decisions](docs/deferred-decisions.md#dd-003-additional-audit-actor-types).
 
-`jupyter_pool` is not accepted from callers. Executor derives `INTERACTIVE` or `BATCH` from
-`trigger_type`, then selects a healthy compatible server with available capacity inside that pool.
+`runtime_pool` is not accepted from callers. Executor derives `INTERACTIVE` or `BATCH` from
+`trigger_type`, then selects a healthy compatible Runtime Target with available capacity inside
+that pool.
+`BATCH` submissions must include `context.workflow_id`; interactive submissions may omit it.
 
 INLINE and PATH resolve to the same versioned ExecutionSpec. INLINE embeds `source.spec`; PATH
 references a UTF-8 JSON file under the shared PV root using a relative path and required SHA-256.
@@ -241,28 +285,28 @@ version or non-consecutive sequence is rejected. Each Step records its Agent-own
 `execution_plan_id` and `plan_step_id`. A cell error is recorded as a failed Step and returns to the
 waiting state so the Agent can append a corrected follow-up cell; already executed cells are never
 rewritten. Call `execution_finish` with the current version when no more cells are needed. If the
-retained kernel is lost or an infrastructure failure makes its state untrustworthy, the DYNAMIC
+retained Runtime session is lost or an infrastructure failure makes its state untrustworthy, the DYNAMIC
 execution fails as non-retryable; the Agent must submit a new Execution because automatic replay
 of already executed dynamic cells is intentionally not supported.
 
 `EXECUTION_MAX_RUNTIME_SECONDS` defaults to five days and starts when a worker first claims the
 Execution. `DYNAMIC_STEP_WAIT_TIMEOUT_SECONDS` defaults to one hour and is reset after every
 dynamic cell. The effective wait deadline never exceeds the total execution deadline. A missed
-Agent deadline produces `DYNAMIC_WAIT_TIMEOUT`; a missing retained kernel produces `KERNEL_LOST`.
-A manually removed Jupyter server produces `JUPYTER_UNAVAILABLE`. These terminal dynamic failures
-are non-retryable and their kernels are deleted when still reachable. Temporary health-probe
+Agent deadline produces `DYNAMIC_WAIT_TIMEOUT`; a missing retained session produces
+`RUNTIME_SESSION_LOST`. A removed Runtime Target produces `RUNTIME_UNAVAILABLE`. These terminal
+dynamic failures are non-retryable and their sessions are deleted when still reachable. Temporary health-probe
 `OFFLINE` state alone does not immediately fail waiting work; the persisted deadline remains the
 guard while the server recovers.
 
 `execution_cancel` also requires an idempotency key. It first records `CANCEL_REQUESTED`; the
-worker then interrupts and deletes the kernel before recording `CANCELLED`.
+worker then interrupts and deletes the Runtime session before recording `CANCELLED`.
 
 `execution_retry` is accepted only for a `FAILED` execution with a supported `retry_strategy`. A
-notebook cell error preserves that kernel for `FAILED_KERNEL_RETENTION_SECONDS` and uses
-`FROM_FAILED_STEP`. Worker shutdown, lease expiry, and Jupyter connectivity failure use
-`FROM_START` with a new kernel because prior in-memory state cannot be trusted. Attempt history
-preserves the failure type, retry strategy, and kernel cleanup result. A retained kernel counts
-against server capacity and is deleted automatically when its retry window expires. See
+notebook cell error preserves that session for `FAILED_SESSION_RETENTION_SECONDS` and uses
+`FROM_FAILED_STEP`. Worker shutdown, lease expiry, and Runtime connectivity failure use
+`FROM_START` with a new session because prior in-memory state cannot be trusted. Attempt history
+preserves the failure type, retry strategy, and session cleanup result. A retained session counts
+against target capacity and is deleted automatically when its retry window expires. See
 [Execution Recovery](docs/execution-recovery.md) for the state and event contract.
 
 On graceful process shutdown, Worker admission stops before active jobs are touched. `/readyz`
@@ -280,8 +324,9 @@ These are normal MCP Tool calls with declared input/output schemas; no private t
 introduced. The custom Tool result mirrors MCP's opaque cursor naming convention while remaining
 valid structured Tool content.
 
-`execution_attempt_list` returns worker Attempts in order, including the selected Jupyter
-server, kernel, lease/heartbeat times, outcome, and only the Steps actually run by that Attempt.
+`execution_attempt_list` returns worker Attempts in order, including the selected Runtime Target,
+session, immutable Runtime type/profile snapshot, lease/heartbeat times, outcome, and only the
+Steps actually run by that Attempt.
 Each Step history row snapshots its skill, tool, inputs, outputs, error, and timestamps, so a retry
 does not overwrite evidence from the earlier failure. `execution_event_list` returns the
 transactional Outbox timeline and current Redis publication state. `execution_trace_get` combines
@@ -309,39 +354,51 @@ Agent code files and `.ipynb` files are not public execution inputs. Executor ow
 materialization and writes `code/execution-spec.json` plus `notebooks/execution.ipynb` inside the
 Execution workspace.
 
-## Jupyter fleet management
+## Runtime fleet management
 
-`jupyter_server_upsert` accepts a stable name, HTTP endpoint, pool, optional capacity, and token.
-A token is required when creating a server and optional when updating one. The token is encrypted
-before it is persisted and is never returned by any Tool. Registration immediately probes
-`/api/status` and `/api/kernelspecs`; only an enabled `ACTIVE` server is eligible for scheduling.
+`runtime_target_upsert` accepts a stable name, `runtime_type`, driver-owned `connection_config`,
+pool, optional capacity, and credential. For the Jupyter driver, `connection_config` contains only
+an HTTP(S) `endpoint`, while the credential is its token. A credential is required when creating a
+target and optional when updating one. It is encrypted before persistence and never returned by
+MCP or REST. Registration immediately probes the driver; only an enabled `ACTIVE` target is
+eligible for scheduling. A target's `runtime_type` is immutable after creation; register a new
+target name when introducing a different Runtime Driver.
 
 The background health monitor repeats the probe at
-`JUPYTER_HEALTH_POLL_INTERVAL_SECONDS`. A failed server becomes `OFFLINE`, while
-`jupyter_server_remove` performs a durable soft disable so historical execution foreign keys
-remain valid. `jupyter_server_list` reports the configured limit, active execution count, observed
-kernel count, supported kernels, and latest health result. The scheduler selects within the
-requested `INTERACTIVE` or `BATCH` pool and skips full, disabled, unhealthy, or incompatible
-servers.
+`RUNTIME_HEALTH_POLL_INTERVAL_SECONDS`. A failed target becomes `OFFLINE`, while
+`runtime_target_remove` performs a durable soft disable so historical execution foreign keys
+remain valid. `runtime_target_list` reports capacity, active executions, observed sessions,
+supported profiles, and the latest health result. The scheduler selects within the requested
+`INTERACTIVE` or `BATCH` pool and skips full, disabled, unhealthy, or incompatible targets.
+Only profiles listed in `RUNTIME_ALLOWED_PROFILES` are advertised and schedulable, even if a
+Runtime Driver reports additional environments.
 
 `INTERACTIVE` and `BATCH` are strict scheduling partitions. A BATCH Execution is never assigned to
-an INTERACTIVE server, even if that server has free capacity, and DRAINING/OFFLINE servers are not
-fallback targets. When all eligible BATCH servers are full, the Execution remains `QUEUED` and
+an INTERACTIVE target, even if it has free capacity, and DRAINING/OFFLINE targets are not fallback
+targets. When all eligible BATCH targets are full, the Execution remains `QUEUED` and
 PostgreSQL reconciliation retries assignment after capacity becomes available. The local
 `batch-jupyter` profile provides two one-capacity servers for this behavior; production capacity is
-configured per manually registered server.
+configured per manually registered target.
 
-Use `jupyter_server_set_state` with `DRAINING` before server maintenance. Existing executions and
-retained retry kernels remain attached, while new work is excluded from that server. The response
-sets `drain_complete=true` after its active/reserved count reaches zero. `ACTIVE` probes the server
+Use `runtime_target_set_state` with `DRAINING` before target maintenance. Existing executions and
+retained retry sessions remain attached, while new work is excluded from that target. The response
+sets `drain_complete=true` after its active/reserved count reaches zero. `ACTIVE` probes the target
 before allowing new work again; `remove` is the separate operation for durable disablement.
 
-`jupyter_server_list` exposes server status, configured capacity, active execution count, and
-observed kernel count. Capacity usage includes running/waiting Attempts and retained retry kernels,
-including work draining from a server; it can temporarily exceed currently schedulable capacity
+`runtime_target_list` exposes target status, configured capacity, active execution count, and
+observed session count. Capacity usage includes running/waiting Attempts and retained retry sessions,
+including work draining from a target; it can temporarily exceed currently schedulable capacity
 during maintenance. See
-[Jupyter Pool Operations](docs/jupyter-pools.md) for registration, scale-up, drain, and local E2E
+[Runtime Target Operations](docs/runtime-targets.md) for registration, scale-up, drain, and local E2E
 procedures.
+
+The same fleet registry is available to operators through REST at `/api/v1/runtime-targets` and
+`/api/v1/runtime-pools`. REST supports registration, filtered cursor listing, detail, immediate
+probe, drain, activate, soft delete, and a deliberately restricted hard purge. Hard purge requires
+the exact target name, an already disabled `OFFLINE` target, and no Execution or Attempt reference;
+the environment-configured default target is never purgeable. A successful purge preserves an
+immutable audit tombstone and never cascades into execution history. Credentials are accepted only
+on upsert and both credential and connection configuration are absent from every response.
 
 ## Shared PV contract
 
@@ -386,8 +443,8 @@ the Agent consumer group still needs those events. See [Event Delivery](docs/eve
 for the ACK, reclaim, and DLQ contract.
 
 Active attempts renew a PostgreSQL lease. A dynamic Attempt in
-`WAITING_FOR_NEXT_STEP` releases its worker lease but keeps its kernel reservation, so it counts
-against that Jupyter server's capacity. A background audit verifies retained kernels and enforces
+`WAITING_FOR_NEXT_STEP` releases its worker lease but keeps its session reservation, so it counts
+against that Runtime Target's capacity. A background audit verifies retained sessions and enforces
 both stored deadlines after Executor restarts. An expired active lease is failed safely and can be
 retried by a later retry workflow; automatic re-execution is intentionally not enabled yet.
 
@@ -427,7 +484,7 @@ another Pod; they use the documented failure and explicit retry path when the de
 
 The bootstrap Jupyter token is supplied through `JUPYTER_TOKEN`. It is loaded by the mounted
 Jupyter config and sent by the Executor only in the `Authorization` header. Dynamically registered
-tokens are encrypted with `JUPYTER_CREDENTIAL_KEY` before PostgreSQL storage. Neither plaintext
+tokens are encrypted with `RUNTIME_CREDENTIAL_KEY` before PostgreSQL storage. Neither plaintext
 token is placed in request URLs or responses. Rotate the encryption key only with a credential
 re-encryption procedure; replacing it directly makes existing dynamic credentials unreadable.
 
@@ -437,6 +494,6 @@ re-encryption procedure; replacing it directly makes existing dynamic credential
 src/executor_service/
 ├── domain/           # entities, state rules, ports
 ├── application/      # submit/get/cancel use cases
-├── infrastructure/   # SQLAlchemy, Redis Outbox, Jupyter gateway and fleet worker
+├── infrastructure/   # SQLAlchemy, Redis Outbox, Runtime Drivers and fleet worker
 └── interfaces/       # MCP SDK schemas/tools and HTTP host
 ```

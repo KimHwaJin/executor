@@ -1,7 +1,6 @@
-"""Jupyter Server REST and kernel WebSocket adapter."""
+"""Jupyter implementation of the generic RuntimeDriver contract."""
 
 import json
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlencode, urlsplit, urlunsplit
@@ -12,24 +11,14 @@ import websockets
 from websockets.exceptions import WebSocketException
 from websockets.typing import Subprotocol
 
-
-class JupyterGatewayError(RuntimeError):
-    pass
-
-
-class JupyterExecutionError(JupyterGatewayError):
-    def __init__(self, message: str, outputs: list[dict[str, Any]]) -> None:
-        super().__init__(message)
-        self.outputs = outputs
+from executor_service.domain.runtime import (
+    RuntimeDriverError,
+    RuntimeExecutionError,
+    RuntimeExecutionResult,
+)
 
 
-@dataclass(frozen=True, slots=True)
-class CellExecutionResult:
-    outputs: list[dict[str, Any]]
-    execution_count: int | None
-
-
-class JupyterGateway:
+class JupyterRuntimeDriver:
     def __init__(self, endpoint: str, token: str, request_timeout_seconds: float = 30) -> None:
         self._endpoint = endpoint.rstrip("/")
         self._token = token
@@ -44,45 +33,44 @@ class JupyterGateway:
 
     async def status(self) -> dict[str, Any]:
         response = await self._request("GET", "/api/status")
-        return response.json()
+        payload = response.json()
+        return {"active_session_count": payload.get("kernels")}
 
-    async def kernel_specs(self) -> list[str]:
+    async def supported_profiles(self) -> list[str]:
         response = await self._request("GET", "/api/kernelspecs")
         return sorted(response.json().get("kernelspecs", {}).keys())
 
-    async def start_kernel(self, kernel_name: str, jupyter_relative_path: str) -> str:
+    async def start_session(self, profile: str, working_directory: str) -> str:
         response = await self._request(
             "POST",
             "/api/kernels",
-            json={"name": kernel_name, "path": jupyter_relative_path},
+            json={"name": profile, "path": working_directory},
         )
         return str(response.json()["id"])
 
-    async def interrupt_kernel(self, kernel_id: str) -> None:
+    async def interrupt_session(self, session_id: str) -> None:
         await self._request(
-            "POST", f"/api/kernels/{kernel_id}/interrupt", allowed_statuses={204, 404}
+            "POST", f"/api/kernels/{session_id}/interrupt", allowed_statuses={204, 404}
         )
 
-    async def delete_kernel(self, kernel_id: str) -> None:
-        await self._request(
-            "DELETE", f"/api/kernels/{kernel_id}", allowed_statuses={204, 404}
-        )
+    async def delete_session(self, session_id: str) -> None:
+        await self._request("DELETE", f"/api/kernels/{session_id}", allowed_statuses={204, 404})
 
-    async def kernel_exists(self, kernel_id: str) -> bool:
+    async def session_exists(self, session_id: str) -> bool:
         response = await self._request(
-            "GET", f"/api/kernels/{kernel_id}", allowed_statuses={200, 404}
+            "GET", f"/api/kernels/{session_id}", allowed_statuses={200, 404}
         )
         return response.status_code == 200
 
-    async def execute_cell(self, kernel_id: str, code: str) -> CellExecutionResult:
-        session_id = str(uuid4())
+    async def execute(self, session_id: str, code: str) -> RuntimeExecutionResult:
+        websocket_session_id = str(uuid4())
         message_id = str(uuid4())
-        uri = self._channels_uri(kernel_id, session_id)
+        uri = self._channels_uri(session_id, websocket_session_id)
         request = {
             "header": {
                 "msg_id": message_id,
                 "username": "executor",
-                "session": session_id,
+                "session": websocket_session_id,
                 "date": datetime.now(UTC).isoformat(),
                 "msg_type": "execute_request",
                 "version": "5.3",
@@ -136,11 +124,11 @@ class JupyterGateway:
                             if output["output_type"] == "error":
                                 error_message = _error_summary(output)
         except (OSError, TimeoutError, WebSocketException) as exc:
-            raise JupyterGatewayError("Jupyter kernel channel became unavailable.") from exc
+            raise RuntimeDriverError("Jupyter kernel channel became unavailable.") from exc
 
         if error_message is not None:
-            raise JupyterExecutionError(error_message, outputs)
-        return CellExecutionResult(outputs=outputs, execution_count=execution_count)
+            raise RuntimeExecutionError(error_message, outputs)
+        return RuntimeExecutionResult(outputs=outputs, execution_count=execution_count)
 
     async def _request(
         self,
@@ -156,13 +144,13 @@ class JupyterGateway:
                 response.raise_for_status()
             return response
         except httpx.HTTPError as exc:
-            raise JupyterGatewayError("Jupyter REST API is unavailable.") from exc
+            raise RuntimeDriverError("Jupyter REST API is unavailable.") from exc
 
-    def _channels_uri(self, kernel_id: str, session_id: str) -> str:
+    def _channels_uri(self, runtime_session_id: str, session_id: str) -> str:
         parsed = urlsplit(self._endpoint)
         scheme = "wss" if parsed.scheme == "https" else "ws"
         base_path = parsed.path.rstrip("/")
-        path = f"{base_path}/api/kernels/{kernel_id}/channels"
+        path = f"{base_path}/api/kernels/{runtime_session_id}/channels"
         query = urlencode({"session_id": session_id})
         return urlunsplit((scheme, parsed.netloc, path, query, ""))
 

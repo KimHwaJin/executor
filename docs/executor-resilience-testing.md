@@ -102,17 +102,17 @@ Useful read-only PostgreSQL checks are:
 
 ```sql
 SELECT id, status, failure_type, retry_strategy, lease_owner,
-       jupyter_server_id, kernel_id, created_at, finished_at
+       runtime_target_id, runtime_session_id, created_at, finished_at
 FROM executions
-WHERE requested_by_user_id = 'resilience-user'
+WHERE user_id = 'resilience-user'
 ORDER BY created_at DESC;
 
 SELECT execution_id, attempt_number, status, lease_owner,
-       jupyter_server_id, kernel_id, failure_type, kernel_cleanup_status
+       runtime_target_id, runtime_session_id, failure_type, runtime_session_cleanup_status
 FROM execution_attempts
 WHERE execution_id IN (
     SELECT id FROM executions
-    WHERE requested_by_user_id = 'resilience-user'
+    WHERE user_id = 'resilience-user'
 )
 ORDER BY started_at DESC;
 
@@ -121,7 +121,7 @@ SELECT aggregate_id AS execution_id, event_type, status,
 FROM outbox_events
 WHERE aggregate_id IN (
     SELECT id FROM executions
-    WHERE requested_by_user_id = 'resilience-user'
+    WHERE user_id = 'resilience-user'
 )
 ORDER BY created_at DESC;
 ```

@@ -10,11 +10,11 @@ from resilience_common import (
     available_port,
     cleanup_streams,
     execution,
-    probe_jupyter_server,
+    probe_runtime_target,
     start_executor,
     stop_executor,
     submit_static,
-    upsert_jupyter_server,
+    upsert_runtime_target,
     wait_for_status,
     wait_ready,
 )
@@ -37,7 +37,7 @@ async def _compose(*arguments: str) -> str:
 
 async def _wait_server_active(client: Client, server_id: str) -> dict[str, object]:
     for _ in range(160):
-        server = await probe_jupyter_server(client, server_id)
+        server = await probe_runtime_target(client, server_id)
         if server["status"] == "ACTIVE":
             return server
         await asyncio.sleep(0.25)
@@ -74,7 +74,7 @@ async def main() -> None:
         )
         await wait_ready(port)
         async with Client(f"http://127.0.0.1:{port}/mcp") as client:
-            primary = await upsert_jupyter_server(
+            primary = await upsert_runtime_target(
                 client,
                 unique=unique,
                 name="local-jupyter",
@@ -82,7 +82,7 @@ async def main() -> None:
                 pool="INTERACTIVE",
                 token=None,
             )
-            secondary = await upsert_jupyter_server(
+            secondary = await upsert_runtime_target(
                 client,
                 unique=unique,
                 name="local-jupyter-secondary",
@@ -93,11 +93,11 @@ async def main() -> None:
                     "change-me-secondary-local-only",
                 ),
             )
-            primary_id = str(primary["server_id"])
-            secondary_id = str(secondary["server_id"])
+            primary_id = str(primary["target_id"])
+            secondary_id = str(secondary["target_id"])
 
             await _compose("stop", "jupyter-secondary")
-            offline = await probe_jupyter_server(client, secondary_id)
+            offline = await probe_runtime_target(client, secondary_id)
             if offline["status"] != "OFFLINE":
                 raise RuntimeError(f"Stopped Jupyter server was not OFFLINE: {offline}")
             failover_id = await submit_static(
@@ -114,7 +114,7 @@ async def main() -> None:
             )
             if (
                 failover["status"] != "SUCCEEDED"
-                or str(failover["jupyter_server_id"]) != primary_id
+                or str(failover["runtime_target_id"]) != primary_id
             ):
                 raise RuntimeError(f"Work did not avoid the OFFLINE server: {failover}")
 
@@ -147,8 +147,8 @@ async def main() -> None:
                 wait_for_status(client, second_id, {"RUNNING"}, require_kernel=True),
             )
             assigned_servers = {
-                str(first_running["jupyter_server_id"]),
-                str(second_running["jupyter_server_id"]),
+                str(first_running["runtime_target_id"]),
+                str(second_running["runtime_target_id"]),
             }
             if assigned_servers != {primary_id, secondary_id}:
                 raise RuntimeError(
@@ -167,7 +167,7 @@ async def main() -> None:
 
         print("offline_status:", offline["status"])
         print("failover_status:", failover["status"])
-        print("failover_server_id:", failover["jupyter_server_id"])
+        print("failover_server_id:", failover["runtime_target_id"])
         print("recovered_status:", recovered["status"])
         print("post_recovery_server_ids:", sorted(assigned_servers))
         print("post_recovery_statuses:", [state["status"] for state in final_states])

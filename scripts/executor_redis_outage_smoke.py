@@ -14,7 +14,7 @@ from resilience_common import (
     start_executor,
     stop_executor,
     submit_static,
-    upsert_jupyter_server,
+    upsert_runtime_target,
     wait_for_status,
     wait_ready,
 )
@@ -44,7 +44,7 @@ async def main() -> None:
         )
         await wait_ready(port)
         async with Client(f"http://127.0.0.1:{port}/mcp") as client:
-            await upsert_jupyter_server(
+            await upsert_runtime_target(
                 client,
                 unique=unique,
                 name="local-jupyter",
@@ -87,9 +87,7 @@ async def main() -> None:
             timeline = []
             for _ in range(100):
                 timeline = await events(client, execution_id)
-                if timeline and all(
-                    event["delivery_status"] == "PUBLISHED" for event in timeline
-                ):
+                if timeline and all(event["delivery_status"] == "PUBLISHED" for event in timeline):
                     break
                 await asyncio.sleep(0.1)
             else:

@@ -37,8 +37,8 @@ async def start_executor(
             "EXECUTION_CONSUMER_GROUP": group,
             "EXECUTION_LEASE_SECONDS": "30",
             "EXECUTION_HEARTBEAT_SECONDS": "5",
-            "JUPYTER_HEALTH_POLL_INTERVAL_SECONDS": "2",
-            "JUPYTER_MAX_CONCURRENT_EXECUTIONS": "1",
+            "RUNTIME_HEALTH_POLL_INTERVAL_SECONDS": "2",
+            "RUNTIME_DEFAULT_MAX_CONCURRENT_EXECUTIONS": "1",
             "REDIS_STREAM": stream,
             "REDIS_DEAD_LETTER_STREAM": f"{stream}.dlq",
             "LOG_LEVEL": "WARNING",
@@ -138,7 +138,7 @@ async def wait_for_status(
     for _ in range(attempts_count):
         state = await execution(client, execution_id)
         if state["status"] in statuses and (
-            not require_kernel or state["kernel_id"] is not None
+            not require_kernel or state["runtime_session_id"] is not None
         ):
             return state
         await asyncio.sleep(interval_seconds)
@@ -164,16 +164,19 @@ async def submit_static(
                     "type": "BATCH" if pool == "BATCH" else "USER",
                     "id": "resilience-batch" if pool == "BATCH" else "resilience-user",
                 },
-                "kernel_name": "python3",
+                "runtime_profile": "basic",
                 "source": inline_source(
                     f"resilience-plan-{unique}-{name}",
                     [{"skill_name": "data_io", "tool_name": name, "code": code}],
                 ),
                 "context": {
-                    "requested_by_user_id": "resilience-user",
+                    "user_id": "resilience-user",
                     "project_id": "resilience-project",
                     "session_id": f"resilience-session-{unique}-{name}",
                     "task_id": f"resilience-task-{unique}-{name}",
+                    "workflow_id": (
+                        f"resilience-workflow-{unique}-{name}" if pool == "BATCH" else None
+                    ),
                 },
             }
         },
@@ -183,7 +186,7 @@ async def submit_static(
     return str(result.structured_content["execution_id"])
 
 
-async def upsert_jupyter_server(
+async def upsert_runtime_target(
     client: Client,
     *,
     unique: str,
@@ -196,25 +199,26 @@ async def upsert_jupyter_server(
     request: dict[str, Any] = {
         "idempotency_key": f"resilience-server-{unique}-{name}",
         "name": name,
-        "endpoint": endpoint,
+        "runtime_type": "JUPYTER",
+        "connection_config": {"endpoint": endpoint},
         "pool": pool,
         "max_concurrent_executions": capacity,
         "actor": {"type": "USER", "id": "resilience-operator"},
     }
     if token is not None:
-        request["token"] = token
-    result = await client.call_tool("jupyter_server_upsert", {"request": request})
+        request["credential"] = token
+    result = await client.call_tool("runtime_target_upsert", {"request": request})
     if result.is_error or result.structured_content["status"] != "ACTIVE":
         raise RuntimeError(f"Jupyter registration failed for {name}: {result.content}")
     return result.structured_content
 
 
-async def probe_jupyter_server(client: Client, server_id: str) -> dict[str, Any]:
+async def probe_runtime_target(client: Client, server_id: str) -> dict[str, Any]:
     result = await client.call_tool(
-        "jupyter_server_probe",
+        "runtime_target_probe",
         {
             "request": {
-                "server_id": server_id,
+                "target_id": server_id,
                 "actor": {"type": "USER", "id": "resilience-operator"},
             }
         },

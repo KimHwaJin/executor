@@ -44,7 +44,7 @@ class SQLAlchemyExecutionQueryService:
     async def executions(
         self,
         *,
-        requested_by_user_id: str | None = None,
+        user_id: str | None = None,
         project_id: str | None = None,
         session_id: str | None = None,
         task_id: str | None = None,
@@ -53,8 +53,8 @@ class SQLAlchemyExecutionQueryService:
         limit: int = 100,
     ) -> Page[Execution]:
         statement = select(ExecutionORM).options(selectinload(ExecutionORM.steps))
-        if requested_by_user_id is not None:
-            statement = statement.where(ExecutionORM.requested_by_user_id == requested_by_user_id)
+        if user_id is not None:
+            statement = statement.where(ExecutionORM.user_id == user_id)
         if project_id is not None:
             statement = statement.where(ExecutionORM.project_id == project_id)
         if session_id is not None:
@@ -172,8 +172,10 @@ class SQLAlchemyExecutionQueryService:
                 id=row.id,
                 execution_id=row.execution_id,
                 attempt_number=row.attempt_number,
-                jupyter_server_id=row.jupyter_server_id,
-                kernel_id=row.kernel_id,
+                runtime_type=row.runtime_type,
+                runtime_profile=row.runtime_profile,
+                runtime_target_id=row.runtime_target_id,
+                runtime_session_id=row.runtime_session_id,
                 status=row.status,
                 lease_owner=row.lease_owner,
                 lease_expires_at=row.lease_expires_at,
@@ -181,7 +183,7 @@ class SQLAlchemyExecutionQueryService:
                 error_message=row.error_message,
                 failure_type=row.failure_type,
                 retry_strategy=row.retry_strategy,
-                kernel_cleanup_status=row.kernel_cleanup_status,
+                runtime_session_cleanup_status=row.runtime_session_cleanup_status,
                 created_by_type=row.created_by_type,
                 created_by=row.created_by,
                 updated_by_type=row.updated_by_type,

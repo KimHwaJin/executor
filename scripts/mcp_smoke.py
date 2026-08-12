@@ -22,13 +22,13 @@ async def main() -> None:
                     "mode": "STATIC",
                     "trigger_type": "INTERACTIVE",
                     "actor": {"type": "USER", "id": "smoke-user"},
-                    "kernel_name": "python-analysis-a",
+                    "runtime_profile": "python-analysis-a",
                     "source": inline_source(
                         "smoke-plan",
                         [{"tool_name": "smoke", "code": "print('smoke')"}],
                     ),
                     "context": {
-                        "requested_by_user_id": "smoke-user",
+                        "user_id": "smoke-user",
                         "project_id": "smoke-project",
                         "session_id": "smoke-session",
                         "task_id": "smoke-task",

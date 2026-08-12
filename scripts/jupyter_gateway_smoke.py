@@ -1,32 +1,58 @@
 """Exercise Jupyter REST and WebSocket APIs without exposing credentials."""
 
 import asyncio
+import json
 
 from executor_service.config import get_settings
-from executor_service.infrastructure.jupyter import JupyterGateway
+from executor_service.infrastructure.jupyter import JupyterRuntimeDriver
 
 
 async def main() -> None:
     settings = get_settings()
     relative_path = "users/smoke/projects/smoke/sessions/smoke/executions/gateway-smoke"
     (settings.workspace_host_root / relative_path).mkdir(parents=True, exist_ok=True)
-    gateway = JupyterGateway(
+    gateway = JupyterRuntimeDriver(
         settings.jupyter_endpoint,
         settings.jupyter_auth_token,
         settings.jupyter_request_timeout_seconds,
     )
-    kernel_id: str | None = None
+    runtime_session_ids: list[str] = []
     try:
         await gateway.status()
-        kernels = await gateway.kernel_specs()
+        kernels = await gateway.supported_profiles()
         print("kernels:", kernels)
-        kernel_id = await gateway.start_kernel("python3", relative_path)
-        result = await gateway.execute_cell(kernel_id, "value = 40 + 2\nprint(value)\nvalue")
-        print("execution_count:", result.execution_count)
-        print("outputs:", result.outputs)
+        if kernels != ["basic", "ml"]:
+            raise RuntimeError(f"Unexpected kernel profiles: {kernels}")
+
+        probes = {
+            "basic": (3, 11, ["pandas", "pyarrow"]),
+            "ml": (3, 12, ["sklearn", "xgboost", "lightgbm"]),
+        }
+        for profile, (major, minor, imports) in probes.items():
+            runtime_session_id = await gateway.start_session(profile, relative_path)
+            runtime_session_ids.append(runtime_session_id)
+            code = (
+                "import importlib, json, sys\n"
+                f"modules = {imports!r}\n"
+                "[importlib.import_module(module) for module in modules]\n"
+                "print(json.dumps({'version': list(sys.version_info[:2]), "
+                "'imports': modules}))"
+            )
+            result = await gateway.execute(runtime_session_id, code)
+            stream_outputs = [
+                output["text"]
+                for output in result.outputs
+                if output.get("output_type") == "stream"
+            ]
+            if not stream_outputs:
+                raise RuntimeError(f"{profile} did not return a stream output.")
+            payload = json.loads("".join(stream_outputs))
+            if payload["version"] != [major, minor]:
+                raise RuntimeError(f"{profile} uses unexpected Python: {payload['version']}")
+            print(profile, payload)
     finally:
-        if kernel_id is not None:
-            await gateway.delete_kernel(kernel_id)
+        for runtime_session_id in runtime_session_ids:
+            await gateway.delete_session(runtime_session_id)
         await gateway.close()
 
 

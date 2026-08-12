@@ -33,9 +33,13 @@ class ActorType(StrEnum):
     BATCH = "BATCH"
 
 
-class JupyterPool(StrEnum):
+class RuntimePool(StrEnum):
     INTERACTIVE = "INTERACTIVE"
     BATCH = "BATCH"
+
+
+class RuntimeType(StrEnum):
+    JUPYTER = "JUPYTER"
 
 
 class CodeSourceType(StrEnum):
@@ -57,7 +61,7 @@ class OutboxStatus(StrEnum):
     PUBLISHED = "PUBLISHED"
 
 
-class JupyterServerStatus(StrEnum):
+class RuntimeTargetStatus(StrEnum):
     ACTIVE = "ACTIVE"
     DRAINING = "DRAINING"
     OFFLINE = "OFFLINE"
@@ -75,12 +79,12 @@ class FailureType(StrEnum):
     TOOL_ERROR = "TOOL_ERROR"
     INFRASTRUCTURE_ERROR = "INFRASTRUCTURE_ERROR"
     WORKER_SHUTDOWN = "WORKER_SHUTDOWN"
-    JUPYTER_UNAVAILABLE = "JUPYTER_UNAVAILABLE"
+    RUNTIME_UNAVAILABLE = "RUNTIME_UNAVAILABLE"
     LEASE_EXPIRED = "LEASE_EXPIRED"
     INTERNAL_ERROR = "INTERNAL_ERROR"
     DYNAMIC_WAIT_TIMEOUT = "DYNAMIC_WAIT_TIMEOUT"
     EXECUTION_TIMEOUT = "EXECUTION_TIMEOUT"
-    KERNEL_LOST = "KERNEL_LOST"
+    RUNTIME_SESSION_LOST = "RUNTIME_SESSION_LOST"
 
 
 class RetryStrategy(StrEnum):
@@ -89,7 +93,7 @@ class RetryStrategy(StrEnum):
     FROM_START = "FROM_START"
 
 
-class KernelCleanupStatus(StrEnum):
+class RuntimeSessionCleanupStatus(StrEnum):
     NOT_REQUIRED = "NOT_REQUIRED"
     PENDING = "PENDING"
     SUCCEEDED = "SUCCEEDED"

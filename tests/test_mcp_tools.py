@@ -10,10 +10,10 @@ from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from executor_service.application.services import ExecutionService
+from executor_service.execution_specs import ExecutionSpecResolver
 from executor_service.infrastructure.db.models import ExecutionORM
 from executor_service.infrastructure.db.session import create_session_factory
 from executor_service.infrastructure.execution_queries import SQLAlchemyExecutionQueryService
-from executor_service.interfaces.mcp.execution_specs import ExecutionSpecResolver
 from executor_service.interfaces.mcp.server import build_mcp_server
 
 SUBMIT_ARGUMENTS: dict[str, Any] = {
@@ -22,7 +22,7 @@ SUBMIT_ARGUMENTS: dict[str, Any] = {
         "mode": "STATIC",
         "trigger_type": "INTERACTIVE",
         "actor": {"type": "USER", "id": "user-1"},
-        "kernel_name": "python-analysis-a",
+        "runtime_profile": "python-analysis-a",
         "source": {
             "type": "INLINE",
             "spec": {
@@ -41,7 +41,7 @@ SUBMIT_ARGUMENTS: dict[str, Any] = {
             },
         },
         "context": {
-            "requested_by_user_id": "user-1",
+            "user_id": "user-1",
             "project_id": "project-1",
             "session_id": "session-1",
             "task_id": "task-1",
@@ -54,12 +54,12 @@ async def test_mcp_client_can_list_and_call_execution_tools(
     execution_service: ExecutionService,
     tmp_path: Path,
 ) -> None:
-    server = build_mcp_server(
+    target = build_mcp_server(
         execution_service,
         execution_spec_resolver=ExecutionSpecResolver(tmp_path),
     )
 
-    async with Client(server) as client:
+    async with Client(target) as client:
         listed = await client.list_tools()
         tool_names = {tool.name for tool in listed.tools}
         assert tool_names == {
@@ -90,15 +90,18 @@ async def test_mcp_client_can_list_and_call_execution_tools(
         assert not submitted.is_error
         execution_id = submitted.structured_content["execution_id"]
         assert submitted.structured_content["status"] == "QUEUED"
-        assert submitted.structured_content["jupyter_pool"] == "INTERACTIVE"
+        assert submitted.structured_content["runtime_type"] == "JUPYTER"
+        assert submitted.structured_content["runtime_pool"] == "INTERACTIVE"
         assert submitted.structured_content["source"]["type"] == "INLINE"
         assert len(submitted.structured_content["source"]["sha256"]) == 64
+        assert submitted.structured_content["context"]["user_id"] == "user-1"
         assert submitted.structured_content["context"]["task_id"] == "task-1"
         assert submitted.structured_content["steps"][0]["plan_step_id"] == "plan-step-1"
 
         fetched = await client.call_tool("execution_get", {"execution_id": execution_id})
         assert not fetched.is_error
         assert fetched.structured_content["execution_id"] == execution_id
+        assert fetched.structured_content["runtime_type"] == "JUPYTER"
 
         cancelled = await client.call_tool(
             "execution_cancel",
@@ -121,13 +124,13 @@ async def test_mcp_client_can_query_execution_trace(
     tmp_path: Path,
 ) -> None:
     queries = SQLAlchemyExecutionQueryService(create_session_factory(engine))
-    server = build_mcp_server(
+    target = build_mcp_server(
         execution_service,
         execution_queries=queries,
         execution_spec_resolver=ExecutionSpecResolver(tmp_path),
     )
 
-    async with Client(server) as client:
+    async with Client(target) as client:
         listed = await client.list_tools()
         tool_names = {tool.name for tool in listed.tools}
         assert {
@@ -145,6 +148,7 @@ async def test_mcp_client_can_query_execution_trace(
 
         assert not trace.is_error
         assert trace.structured_content["execution"]["execution_id"] == execution_id
+        assert trace.structured_content["execution"]["runtime_type"] == "JUPYTER"
         assert trace.structured_content["attempts"]["items"] == []
         assert trace.structured_content["events"]["items"][0]["event_type"] == "execution.submitted"
 
@@ -155,32 +159,29 @@ async def test_mcp_execution_list_uses_opaque_next_cursor(
     tmp_path: Path,
 ) -> None:
     queries = SQLAlchemyExecutionQueryService(create_session_factory(engine))
-    server = build_mcp_server(
+    target = build_mcp_server(
         execution_service,
         execution_queries=queries,
         execution_spec_resolver=ExecutionSpecResolver(tmp_path),
     )
     arguments = deepcopy(SUBMIT_ARGUMENTS)
 
-    async with Client(server) as client:
+    async with Client(target) as client:
         submitted_ids: set[str] = set()
         for index in range(2):
             arguments["request"]["idempotency_key"] = f"mcp-page-{index}"
-            arguments["request"]["source"]["spec"]["execution_plan_id"] = (
-                f"mcp-page-plan-{index}"
-            )
+            arguments["request"]["source"]["spec"]["execution_plan_id"] = f"mcp-page-plan-{index}"
             submitted = await client.call_tool("execution_submit", arguments)
             submitted_ids.add(submitted.structured_content["execution_id"])
 
         first = await client.call_tool("execution_list", {"limit": 1})
         assert not first.is_error
         assert len(first.structured_content["items"]) == 1
+        assert first.structured_content["items"][0]["runtime_type"] == "JUPYTER"
         cursor = first.structured_content["nextCursor"]
         assert cursor
 
-        second = await client.call_tool(
-            "execution_list", {"limit": 1, "cursor": cursor}
-        )
+        second = await client.call_tool("execution_list", {"limit": 1, "cursor": cursor})
         assert not second.is_error
         returned_ids = {
             first.structured_content["items"][0]["execution_id"],
@@ -204,22 +205,25 @@ async def test_execution_submit_reads_path_spec_and_derives_batch_pool(
     arguments["request"]["idempotency_key"] = "mcp-path-submit-1"
     arguments["request"]["trigger_type"] = "BATCH"
     arguments["request"]["actor"] = {"type": "BATCH", "id": "batch-1"}
+    arguments["request"]["context"]["workflow_id"] = "workflow-batch-1"
     arguments["request"]["source"] = {
         "type": "PATH",
         "path": "plans/batch.execution.json",
         "sha256": hashlib.sha256(content).hexdigest(),
     }
-    server = build_mcp_server(
+    target = build_mcp_server(
         execution_service,
         execution_spec_resolver=ExecutionSpecResolver(tmp_path),
     )
 
-    async with Client(server) as client:
+    async with Client(target) as client:
         submitted = await client.call_tool("execution_submit", arguments)
 
     assert not submitted.is_error
-    assert submitted.structured_content["jupyter_pool"] == "BATCH"
+    assert submitted.structured_content["runtime_pool"] == "BATCH"
     assert submitted.structured_content["source"]["path"] == "plans/batch.execution.json"
+    assert submitted.structured_content["context"]["user_id"] == "user-1"
+    assert submitted.structured_content["created_by"] == "batch-1"
     assert submitted.structured_content["context"]["execution_plan_id"] == "batch-plan-1"
 
 
@@ -231,12 +235,12 @@ async def test_dynamic_continue_accepts_next_inline_execution_spec(
     arguments = deepcopy(SUBMIT_ARGUMENTS)
     arguments["request"]["idempotency_key"] = "mcp-dynamic-submit-1"
     arguments["request"]["mode"] = "DYNAMIC"
-    server = build_mcp_server(
+    target = build_mcp_server(
         execution_service,
         execution_spec_resolver=ExecutionSpecResolver(tmp_path),
     )
 
-    async with Client(server) as client:
+    async with Client(target) as client:
         submitted = await client.call_tool("execution_submit", arguments)
         execution_id = submitted.structured_content["execution_id"]
         session_factory = create_session_factory(engine)

@@ -18,7 +18,7 @@ class WorkspacePathError(ValueError):
 @dataclass(frozen=True, slots=True)
 class ExecutionWorkspace:
     host_root: Path
-    jupyter_relative_path: str
+    runtime_relative_path: str
     code_dir: Path
     notebooks_dir: Path
     artifacts_dir: Path
@@ -40,7 +40,7 @@ class WorkspaceManager:
     def prepare(self, execution: Execution) -> ExecutionWorkspace:
         relative = Path(
             "users",
-            _segment(execution.requested_by_user_id, "user_id"),
+            _segment(execution.user_id, "user_id"),
             "projects",
             _segment(execution.project_id, "project_id"),
             "sessions",
@@ -50,9 +50,7 @@ class WorkspaceManager:
         )
         root = (self._host_root / relative).resolve()
         _ensure_within(root, self._host_root)
-        paths = {
-            name: root / name for name in ("code", "notebooks", "artifacts", "checkpoints")
-        }
+        paths = {name: root / name for name in ("code", "notebooks", "artifacts", "checkpoints")}
         for path in paths.values():
             path.mkdir(parents=True, exist_ok=True)
         artifact_paths = {
@@ -71,7 +69,7 @@ class WorkspaceManager:
             path.mkdir(parents=True, exist_ok=True)
         workspace = ExecutionWorkspace(
             host_root=root,
-            jupyter_relative_path=relative.as_posix(),
+            runtime_relative_path=relative.as_posix(),
             code_dir=paths["code"],
             notebooks_dir=paths["notebooks"],
             artifacts_dir=paths["artifacts"],
@@ -99,14 +97,18 @@ class WorkspaceManager:
     def write_notebook(
         self,
         workspace: ExecutionWorkspace,
+        runtime_profile: str,
         cells: list[str],
         outputs: list[list[dict[str, object]]],
         execution_counts: list[int | None],
     ) -> None:
         notebook = nbformat.v4.new_notebook(
             metadata={
-                "executor": {"workspace": workspace.jupyter_relative_path},
-                "kernelspec": {"name": "python3", "display_name": "Python 3", "language": "python"},
+                "executor": {"workspace": workspace.runtime_relative_path},
+                "kernelspec": {
+                    "name": runtime_profile,
+                    "display_name": runtime_profile,
+                },
             }
         )
         notebook.cells = [

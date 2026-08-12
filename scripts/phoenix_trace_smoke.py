@@ -19,9 +19,7 @@ from executor_service.tracing import (
 )
 
 PHOENIX_URL = os.getenv("PHOENIX_URL", "http://127.0.0.1:6006").rstrip("/")
-PROJECT_NAME = os.getenv(
-    "PHOENIX_SMOKE_PROJECT", f"executor-service-smoke-{uuid4().hex[:8]}"
-)
+PROJECT_NAME = os.getenv("PHOENIX_SMOKE_PROJECT", f"executor-service-smoke-{uuid4().hex[:8]}")
 EXPECTED_SPANS = {
     "agent.graph",
     "executor.mcp.execution_submit",
