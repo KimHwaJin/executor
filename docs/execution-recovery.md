@@ -13,6 +13,7 @@ renew leases while a Jupyter cell is running, and reconcile expired leases.
 |---|---|---|
 | `TOOL_ERROR` | The Jupyter cell returned a code error | `FROM_FAILED_STEP` while its kernel is retained |
 | `JUPYTER_UNAVAILABLE` | Jupyter REST or kernel WebSocket became unavailable | `FROM_START` with a new kernel |
+| `KERNEL_LOST` | The assigned retained kernel no longer exists | `FROM_START` only after an explicit retry |
 | `WORKER_SHUTDOWN` | Executor stopped while a cell was running | `FROM_START` with a new kernel |
 | `LEASE_EXPIRED` | A running Worker stopped renewing its PostgreSQL lease | `FROM_START` with a new kernel |
 | `INTERNAL_ERROR` | Executor validation or internal processing failed | `NOT_RETRYABLE` until reviewed |
@@ -31,8 +32,15 @@ whether the strategy is different from `NOT_RETRYABLE`.
   an eligible server again, starts a new kernel, and executes from sequence zero.
 - `NOT_RETRYABLE` rejects `execution_retry`.
 
-If a retained server becomes unavailable between the retry request and Worker claim, Executor
-downgrades that retry safely to `FROM_START` rather than attaching to an unknown kernel state.
+If a retained server is temporarily `OFFLINE` between the retry request and Worker claim, Executor
+keeps the Execution `QUEUED` and pinned to that server and kernel. A recovered `ACTIVE` or
+operator-controlled `DRAINING` server can resume the failed Step. Executor confirms the retained
+kernel still exists before executing code. A missing kernel records `KERNEL_LOST` with a
+`FROM_START` strategy, but does not automatically run on another server; the caller must explicitly
+retry. A removed or disabled server similarly records `JUPYTER_UNAVAILABLE` and requires an
+explicit `FROM_START` retry. If the retention window expires while the server is unavailable, the
+queued retry returns to `FAILED`, kernel cleanup is attempted, and
+`execution.retry_window_expired` is emitted.
 
 ## Worker shutdown and lease expiry
 
@@ -81,8 +89,13 @@ reconciliation. Local real-Jupyter tests are:
 
 ```bash
 uv run python scripts/jupyter_retry_smoke.py
+uv run python scripts/jupyter_retry_offline_recovery_smoke.py
 uv run python scripts/jupyter_worker_recovery_smoke.py
 ```
+
+The OFFLINE recovery smoke temporarily replaces the registered server endpoint with an unreachable
+address, verifies the retry remains queued with the original server and kernel IDs, restores the
+endpoint, and verifies the failed Step resumes on that kernel.
 
 The Worker recovery smoke starts a long cell, stops the Worker, verifies classified cleanup, starts
 a new Worker, retries from sequence zero, and checks immutable Attempt history.

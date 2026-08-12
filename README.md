@@ -165,6 +165,7 @@ uv run python scripts/jupyter_cancel_smoke.py
 uv run python scripts/jupyter_failure_smoke.py
 uv run python scripts/jupyter_fleet_smoke.py
 uv run python scripts/jupyter_retry_smoke.py
+uv run python scripts/jupyter_retry_offline_recovery_smoke.py
 uv run python scripts/jupyter_worker_recovery_smoke.py
 uv run python scripts/jupyter_drain_smoke.py
 uv run python scripts/jupyter_artifact_smoke.py

@@ -67,6 +67,10 @@ DISPATCH_EVENT_TYPES = frozenset(
 RUN_EVENT_TYPES = DISPATCH_EVENT_TYPES - {"execution.cancel_requested"}
 
 
+class RetainedKernelLostError(JupyterGatewayError):
+    """Raised when a retained-kernel retry can reach Jupyter but its kernel is gone."""
+
+
 class ExecutionWorker:
     def __init__(
         self,
@@ -510,19 +514,38 @@ class ExecutionWorker:
             heartbeat: asyncio.Task[None] | None = None
             failed_sequence: int | None = None
             try:
-                workspace = self._workspace.prepare(execution)
-                cells = self._workspace.load_cells(execution, workspace)
-                await self._ensure_steps(execution.id, len(cells))
                 resume = (
                     execution.retry_count > 0
                     and execution.retry_strategy == RetryStrategy.FROM_FAILED_STEP
                     and execution.retry_from_sequence is not None
                     and execution.kernel_id is not None
                 )
-                start_sequence = execution.retry_from_sequence if resume else 0
                 if resume:
                     kernel_id = execution.kernel_id
-                else:
+                    try:
+                        kernel_exists = await self._trace_jupyter(
+                            "executor.jupyter.kernel.exists",
+                            gateway.kernel_exists(kernel_id),
+                            execution_id=execution.id,
+                            server_id=server.id,
+                        )
+                    except JupyterGatewayError as exc:
+                        await self._defer_retained_retry(
+                            execution.id,
+                            attempt_id,
+                            server.id,
+                            f"{type(exc).__name__}: retained kernel preflight failed",
+                        )
+                        return
+                    if not kernel_exists:
+                        raise RetainedKernelLostError(
+                            "The retained Jupyter kernel no longer exists."
+                        )
+                workspace = self._workspace.prepare(execution)
+                cells = self._workspace.load_cells(execution, workspace)
+                await self._ensure_steps(execution.id, len(cells))
+                start_sequence = execution.retry_from_sequence if resume else 0
+                if not resume:
                     kernel_id = await self._trace_jupyter(
                         "executor.jupyter.kernel.start",
                         gateway.start_kernel(
@@ -531,6 +554,8 @@ class ExecutionWorker:
                         execution_id=execution.id,
                         server_id=server.id,
                     )
+                if kernel_id is None:
+                    raise RuntimeError("Jupyter kernel ID was not established.")
                 await self._record_kernel(
                     execution.id,
                     attempt_id,
@@ -750,25 +775,29 @@ class ExecutionWorker:
                 and execution_row.jupyter_server_id is not None
             )
             if is_resume:
+                if (
+                    execution_row.retained_kernel_until is None
+                    or _as_utc(execution_row.retained_kernel_until) <= now
+                ):
+                    # The retained-kernel cleanup loop owns expiry finalization and cleanup.
+                    return None
                 server = await session.scalar(
                     select(JupyterServerORM)
                     .where(JupyterServerORM.id == execution_row.jupyter_server_id)
                     .with_for_update()
                 )
-                if (
-                    server is None
-                    or not server.enabled
-                    or server.status == JupyterServerStatus.OFFLINE
-                ):
-                    is_resume = False
-                    execution_row.retry_strategy = RetryStrategy.FROM_START
-                    execution_row.retry_from_sequence = 0
-                    execution_row.retained_kernel_until = None
-                    execution_row.kernel_id = None
-                    execution_row.jupyter_server_id = None
-                    execution_row.kernel_cleanup_status = KernelCleanupStatus.FAILED
-                    execution_row.updated_at = now
-                    execution_row.version += 1
+                if server is None or not server.enabled:
+                    await self._fail_unavailable_retained_retry(
+                        session,
+                        execution_row,
+                        now,
+                        "The retained Jupyter server was removed or disabled before retry.",
+                    )
+                    return None
+                if server.status == JupyterServerStatus.OFFLINE:
+                    # OFFLINE can be temporary. Keep the retry pinned to the original server and
+                    # kernel until health monitoring recovers it or the retention window expires.
+                    return None
             if not is_resume:
                 server = await self._select_server(session, execution_row)
             if server is None:
@@ -817,12 +846,125 @@ class ExecutionWorker:
             execution_row.error_message = None
             execution_row.failure_type = None
             execution_row.retryable = False
-            execution_row.retained_kernel_until = None
+            if not is_resume:
+                execution_row.retained_kernel_until = None
             execution_row.kernel_cleanup_status = KernelCleanupStatus.NOT_REQUIRED
             execution_row.updated_at = now
             execution_row.version += 1
             await _add_outbox(session, execution_id, "execution.started", ExecutionStatus.RUNNING)
             return execution_row.to_domain(), server, attempt_id
+
+    async def _defer_retained_retry(
+        self,
+        execution_id: UUID,
+        attempt_id: UUID,
+        server_id: UUID,
+        diagnostic: str,
+    ) -> None:
+        now = utc_now()
+        async with self._session_factory() as session, session.begin():
+            execution = await session.scalar(
+                select(ExecutionORM)
+                .where(ExecutionORM.id == execution_id)
+                .with_for_update()
+            )
+            attempt = await session.scalar(
+                select(ExecutionAttemptORM)
+                .where(ExecutionAttemptORM.id == attempt_id)
+                .with_for_update()
+            )
+            server = await session.scalar(
+                select(JupyterServerORM)
+                .where(JupyterServerORM.id == server_id)
+                .with_for_update()
+            )
+            if (
+                execution is None
+                or attempt is None
+                or execution.status != ExecutionStatus.RUNNING
+                or attempt.status != AttemptStatus.RUNNING
+                or execution.retry_strategy != RetryStrategy.FROM_FAILED_STEP
+            ):
+                return
+            execution.status = ExecutionStatus.QUEUED
+            execution.error_message = (
+                "The retained Jupyter server is temporarily unavailable; waiting for recovery."
+            )
+            execution.failure_type = FailureType.TOOL_ERROR
+            execution.lease_owner = None
+            execution.lease_expires_at = None
+            execution.heartbeat_at = None
+            execution.retryable = True
+            execution.updated_at = now
+            execution.version += 1
+            attempt.status = AttemptStatus.FAILED
+            attempt.lease_owner = None
+            attempt.lease_expires_at = None
+            attempt.error_message = execution.error_message
+            attempt.failure_type = FailureType.JUPYTER_UNAVAILABLE
+            attempt.retry_strategy = RetryStrategy.FROM_FAILED_STEP
+            attempt.kernel_cleanup_status = KernelCleanupStatus.NOT_REQUIRED
+            attempt.finished_at = now
+            if server is not None:
+                server.status = JupyterServerStatus.OFFLINE
+                server.last_health_check_at = now
+                server.last_health_error = diagnostic[:500]
+                server.updated_at = now
+            await _add_outbox(
+                session,
+                execution.id,
+                "execution.retry_deferred",
+                ExecutionStatus.QUEUED,
+                {
+                    "failure_type": FailureType.JUPYTER_UNAVAILABLE.value,
+                    "retry_strategy": RetryStrategy.FROM_FAILED_STEP.value,
+                    "reason": "retained_server_temporarily_unavailable",
+                    "jupyter_server_id": str(server_id),
+                },
+            )
+
+    async def _fail_unavailable_retained_retry(
+        self,
+        session: AsyncSession,
+        execution: ExecutionORM,
+        now: datetime,
+        error_message: str,
+    ) -> None:
+        execution.status = ExecutionStatus.FAILED
+        execution.error_message = error_message
+        execution.failure_type = FailureType.JUPYTER_UNAVAILABLE
+        execution.finished_at = now
+        execution.updated_at = now
+        execution.lease_owner = None
+        execution.lease_expires_at = None
+        execution.heartbeat_at = None
+        execution.retryable = True
+        execution.retry_strategy = RetryStrategy.FROM_START
+        execution.retry_from_sequence = 0
+        execution.retained_kernel_until = None
+        execution.kernel_cleanup_status = KernelCleanupStatus.FAILED
+        execution.version += 1
+        await session.execute(
+            update(ExecutionStepORM)
+            .where(
+                ExecutionStepORM.execution_id == execution.id,
+                ExecutionStepORM.status == StepStatus.PENDING,
+            )
+            .values(status=StepStatus.SKIPPED, finished_at=now, updated_at=now)
+        )
+        await _add_outbox(
+            session,
+            execution.id,
+            "execution.failed",
+            ExecutionStatus.FAILED,
+            {
+                "failure_type": FailureType.JUPYTER_UNAVAILABLE.value,
+                "retry_strategy": RetryStrategy.FROM_START.value,
+                "retry_from_sequence": 0,
+                "kernel_cleanup_status": KernelCleanupStatus.FAILED.value,
+                "reason": "retained_server_unavailable",
+            },
+        )
 
     async def _select_server(
         self, session: AsyncSession, execution: ExecutionORM
@@ -851,8 +993,9 @@ class ExecutionWorker:
             retained = await session.scalar(
                 select(func.count(ExecutionORM.id)).where(
                     ExecutionORM.jupyter_server_id == server.id,
-                    ExecutionORM.status == ExecutionStatus.FAILED,
+                    ExecutionORM.status.in_([ExecutionStatus.FAILED, ExecutionStatus.QUEUED]),
                     ExecutionORM.retryable.is_(True),
+                    ExecutionORM.retry_strategy == RetryStrategy.FROM_FAILED_STEP,
                     ExecutionORM.retained_kernel_until > utc_now(),
                 )
             )
@@ -1904,8 +2047,11 @@ class ExecutionWorker:
                         JupyterServerORM.id == ExecutionORM.jupyter_server_id,
                     )
                     .where(
-                        ExecutionORM.status == ExecutionStatus.FAILED,
+                        ExecutionORM.status.in_(
+                            [ExecutionStatus.FAILED, ExecutionStatus.QUEUED]
+                        ),
                         ExecutionORM.retryable.is_(True),
+                        ExecutionORM.retry_strategy == RetryStrategy.FROM_FAILED_STEP,
                         ExecutionORM.retained_kernel_until <= now,
                         ExecutionORM.kernel_id.is_not(None),
                     )
@@ -1935,12 +2081,28 @@ class ExecutionWorker:
                 )
                 if (
                     current is None
-                    or current.status != ExecutionStatus.FAILED
+                    or current.status not in {ExecutionStatus.FAILED, ExecutionStatus.QUEUED}
                     or not current.retryable
+                    or current.retry_strategy != RetryStrategy.FROM_FAILED_STEP
                     or current.retained_kernel_until is None
-                    or current.retained_kernel_until > now
+                    or _as_utc(current.retained_kernel_until) > now
                 ):
                     continue
+                retry_was_queued = current.status == ExecutionStatus.QUEUED
+                if retry_was_queued:
+                    current.status = ExecutionStatus.FAILED
+                    current.error_message = (
+                        "The retained kernel retry window expired before execution resumed."
+                    )
+                    current.finished_at = now
+                    await update_session.execute(
+                        update(ExecutionStepORM)
+                        .where(
+                            ExecutionStepORM.execution_id == current.id,
+                            ExecutionStepORM.status == StepStatus.PENDING,
+                        )
+                        .values(status=StepStatus.SKIPPED, finished_at=now, updated_at=now)
+                    )
                 current.retryable = False
                 current.retry_strategy = RetryStrategy.NOT_RETRYABLE
                 current.retry_from_sequence = None
@@ -1967,7 +2129,10 @@ class ExecutionWorker:
                     current.id,
                     "execution.retry_window_expired",
                     ExecutionStatus.FAILED,
-                    {"kernel_cleanup_status": cleanup_status.value},
+                    {
+                        "kernel_cleanup_status": cleanup_status.value,
+                        "retry_was_queued": retry_was_queued,
+                    },
                 )
 
 
@@ -2050,6 +2215,8 @@ def _valid_uuid_or_empty(value: str | None) -> str:
 
 
 def _failure_policy(exc: Exception, retain_kernel: bool) -> tuple[FailureType, RetryStrategy]:
+    if isinstance(exc, RetainedKernelLostError):
+        return FailureType.KERNEL_LOST, RetryStrategy.FROM_START
     if isinstance(exc, JupyterExecutionError) and retain_kernel:
         return FailureType.TOOL_ERROR, RetryStrategy.FROM_FAILED_STEP
     if isinstance(exc, JupyterGatewayError):
