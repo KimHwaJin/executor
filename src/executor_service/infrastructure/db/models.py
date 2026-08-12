@@ -480,6 +480,40 @@ class JupyterServerORM(Base):
     )
 
 
+class JupyterServerPurgeORM(Base):
+    """Immutable audit tombstone for a physically removed, never-used server."""
+
+    __tablename__ = "jupyter_server_purges"
+    __table_args__ = (
+        *audit_actor_constraints(),
+        CheckConstraint("pool IN ('INTERACTIVE', 'BATCH')", name="valid_pool"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    server_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False, unique=True)
+    server_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    endpoint: Mapped[str] = mapped_column(Text, nullable=False)
+    pool: Mapped[JupyterPool] = mapped_column(
+        enum_type(JupyterPool, "jupyter_server_purge_pool"), nullable=False
+    )
+    idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    request_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_by_type: Mapped[ActorType | None] = mapped_column(
+        enum_type(ActorType, "actor_type"), nullable=True
+    )
+    created_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    updated_by_type: Mapped[ActorType | None] = mapped_column(
+        enum_type(ActorType, "actor_type"), nullable=True
+    )
+    updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now
+    )
+
+
 class CommandReceiptORM(Base):
     """Idempotency receipt shared by non-execution mutating commands."""
 

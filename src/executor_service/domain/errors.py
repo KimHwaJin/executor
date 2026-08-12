@@ -41,6 +41,10 @@ class JupyterServerConfigurationError(DomainError):
     pass
 
 
+class JupyterServerPurgeConflictError(DomainError):
+    pass
+
+
 class ExecutionArtifactNotFoundError(DomainError):
     pass
 

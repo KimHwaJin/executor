@@ -19,9 +19,12 @@ from executor_service.domain.errors import (
     InvalidCursorError,
     InvalidExecutionSpecError,
     InvalidStateTransitionError,
+    JupyterServerNotFoundError,
+    JupyterServerPurgeConflictError,
     PersistenceConflictError,
 )
 from executor_service.interfaces.http.executions import build_execution_router
+from executor_service.interfaces.http.jupyter_fleet import build_jupyter_fleet_router
 from executor_service.interfaces.mcp.server import build_mcp_server
 from executor_service.tracing import TraceContextMiddleware
 
@@ -97,7 +100,14 @@ def create_app(container: ApplicationContainer) -> FastAPI:
 
     @app.exception_handler(DomainError)
     async def domain_error_handler(_request: Request, exc: DomainError) -> JSONResponse:
-        if isinstance(exc, (ExecutionNotFoundError, ExecutionArtifactNotFoundError)):
+        if isinstance(
+            exc,
+            (
+                ExecutionNotFoundError,
+                ExecutionArtifactNotFoundError,
+                JupyterServerNotFoundError,
+            ),
+        ):
             http_status = status.HTTP_404_NOT_FOUND
         elif isinstance(exc, (InvalidCursorError, InvalidExecutionSpecError)):
             http_status = status.HTTP_422_UNPROCESSABLE_CONTENT
@@ -107,6 +117,7 @@ def create_app(container: ApplicationContainer) -> FastAPI:
                 ExecutionVersionConflictError,
                 IdempotencyConflictError,
                 InvalidStateTransitionError,
+                JupyterServerPurgeConflictError,
                 PersistenceConflictError,
             ),
         ):
@@ -145,6 +156,7 @@ def create_app(container: ApplicationContainer) -> FastAPI:
         }
 
     app.include_router(build_execution_router(container))
+    app.include_router(build_jupyter_fleet_router(container))
 
     # Register this catch-all mount last so operational routes remain reachable.
     app.mount("/", mcp_app)

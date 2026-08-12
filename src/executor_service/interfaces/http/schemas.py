@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, SecretStr
 
 from executor_service.application.commands import StepSpec, SubmitExecutionCommand
 from executor_service.application.execution_queries import (
@@ -13,6 +13,15 @@ from executor_service.application.execution_queries import (
     ExecutionEventView,
     ExecutionStepAttemptView,
     ExecutionTraceView,
+)
+from executor_service.application.jupyter_servers import (
+    JupyterPoolView,
+    JupyterServerPurgeView,
+    JupyterServerView,
+    PurgeJupyterServerCommand,
+    RemoveJupyterServerCommand,
+    SetJupyterServerStateCommand,
+    UpsertJupyterServerCommand,
 )
 from executor_service.application.pagination import Page
 from executor_service.domain.enums import (
@@ -26,6 +35,7 @@ from executor_service.domain.enums import (
     ExecutionStatus,
     FailureType,
     JupyterPool,
+    JupyterServerStatus,
     KernelCleanupStatus,
     OutboxStatus,
     RetryStrategy,
@@ -43,6 +53,193 @@ class HTTPModel(BaseModel):
 class ActorInput(HTTPModel):
     type: ActorType
     id: str = Field(min_length=1, max_length=255)
+
+
+class JupyterServerUpsertRequest(HTTPModel):
+    idempotency_key: str = Field(min_length=1, max_length=255)
+    name: str = Field(min_length=1, max_length=255)
+    endpoint: AnyHttpUrl
+    token: SecretStr | None = None
+    pool: JupyterPool
+    max_concurrent_executions: int | None = Field(default=None, ge=1, le=10000)
+    actor: ActorInput
+
+    def to_command(self) -> UpsertJupyterServerCommand:
+        return UpsertJupyterServerCommand(
+            idempotency_key=self.idempotency_key,
+            name=self.name,
+            endpoint=str(self.endpoint).rstrip("/"),
+            token=self.token.get_secret_value() if self.token else None,
+            pool=self.pool,
+            max_concurrent_executions=self.max_concurrent_executions,
+            actor_type=self.actor.type,
+            actor_id=self.actor.id,
+        )
+
+
+class JupyterServerProbeRequest(HTTPModel):
+    actor: ActorInput
+
+
+class JupyterServerMutationRequest(HTTPModel):
+    idempotency_key: str = Field(min_length=1, max_length=255)
+    actor: ActorInput
+
+    def to_remove_command(self, server_id: UUID) -> RemoveJupyterServerCommand:
+        return RemoveJupyterServerCommand(
+            idempotency_key=self.idempotency_key,
+            server_id=server_id,
+            actor_type=self.actor.type,
+            actor_id=self.actor.id,
+        )
+
+    def to_state_command(
+        self, server_id: UUID, desired_state: JupyterServerStatus
+    ) -> SetJupyterServerStateCommand:
+        return SetJupyterServerStateCommand(
+            idempotency_key=self.idempotency_key,
+            server_id=server_id,
+            desired_state=desired_state,
+            actor_type=self.actor.type,
+            actor_id=self.actor.id,
+        )
+
+
+class JupyterServerPurgeRequest(JupyterServerMutationRequest):
+    confirmation_name: str = Field(min_length=1, max_length=255)
+
+    def to_command(self, server_id: UUID) -> PurgeJupyterServerCommand:
+        return PurgeJupyterServerCommand(
+            idempotency_key=self.idempotency_key,
+            server_id=server_id,
+            confirmation_name=self.confirmation_name,
+            actor_type=self.actor.type,
+            actor_id=self.actor.id,
+        )
+
+
+class JupyterServerResponse(HTTPModel):
+    server_id: UUID
+    name: str
+    endpoint: str
+    pool: JupyterPool
+    status: JupyterServerStatus
+    enabled: bool
+    accepting_new_executions: bool
+    drain_complete: bool
+    max_concurrent_executions: int
+    active_execution_count: int
+    available_capacity: int
+    active_kernel_count: int | None
+    supported_kernels: list[str]
+    last_health_check_at: datetime | None
+    last_health_error: str | None
+    created_by_type: ActorType | None
+    created_by: str | None
+    updated_by_type: ActorType | None
+    updated_by: str | None
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_view(cls, view: JupyterServerView) -> "JupyterServerResponse":
+        return cls(
+            server_id=view.id,
+            name=view.name,
+            endpoint=view.endpoint,
+            pool=view.pool,
+            status=view.status,
+            enabled=view.enabled,
+            accepting_new_executions=view.accepting_new_executions,
+            drain_complete=view.drain_complete,
+            max_concurrent_executions=view.max_concurrent_executions,
+            active_execution_count=view.active_execution_count,
+            available_capacity=view.available_capacity,
+            active_kernel_count=view.active_kernel_count,
+            supported_kernels=list(view.supported_kernels),
+            last_health_check_at=view.last_health_check_at,
+            last_health_error=view.last_health_error,
+            created_by_type=view.created_by_type,
+            created_by=view.created_by,
+            updated_by_type=view.updated_by_type,
+            updated_by=view.updated_by,
+            created_at=view.created_at,
+            updated_at=view.updated_at,
+        )
+
+
+class JupyterServerPageResponse(HTTPModel):
+    items: list[JupyterServerResponse]
+    next_cursor: str | None
+    has_more: bool
+
+    @classmethod
+    def from_page(cls, page: Page[JupyterServerView]) -> "JupyterServerPageResponse":
+        return cls(
+            items=[JupyterServerResponse.from_view(item) for item in page.items],
+            next_cursor=page.next_cursor,
+            has_more=page.next_cursor is not None,
+        )
+
+
+class JupyterPoolResponse(HTTPModel):
+    pool: JupyterPool
+    server_count: int
+    enabled_server_count: int
+    active_server_count: int
+    draining_server_count: int
+    offline_server_count: int
+    configured_capacity: int
+    schedulable_capacity: int
+    active_execution_count: int
+    available_capacity: int
+    accepting_new_executions: bool
+    saturated: bool
+    last_health_check_at: datetime | None
+
+    @classmethod
+    def from_view(cls, view: JupyterPoolView) -> "JupyterPoolResponse":
+        return cls(
+            pool=view.pool,
+            server_count=view.server_count,
+            enabled_server_count=view.enabled_server_count,
+            active_server_count=view.active_server_count,
+            draining_server_count=view.draining_server_count,
+            offline_server_count=view.offline_server_count,
+            configured_capacity=view.configured_capacity,
+            schedulable_capacity=view.schedulable_capacity,
+            active_execution_count=view.active_execution_count,
+            available_capacity=view.available_capacity,
+            accepting_new_executions=view.accepting_new_executions,
+            saturated=view.saturated,
+            last_health_check_at=view.last_health_check_at,
+        )
+
+
+class JupyterPoolPageResponse(HTTPModel):
+    items: list[JupyterPoolResponse]
+
+
+class JupyterServerPurgeResponse(HTTPModel):
+    server_id: UUID
+    name: str
+    endpoint: str
+    pool: JupyterPool
+    purged_by_type: ActorType | None
+    purged_by: str | None
+    purged_at: datetime
+
+    @classmethod
+    def from_view(cls, view: JupyterServerPurgeView) -> "JupyterServerPurgeResponse":
+        return cls(
+            server_id=view.server_id,
+            name=view.name,
+            endpoint=view.endpoint,
+            pool=view.pool,
+            purged_by_type=view.purged_by_type,
+            purged_by=view.purged_by,
+            purged_at=view.purged_at,
+        )
 
 
 class ExecutionSubmitContext(HTTPModel):

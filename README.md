@@ -343,6 +343,14 @@ during maintenance. See
 [Jupyter Pool Operations](docs/jupyter-pools.md) for registration, scale-up, drain, and local E2E
 procedures.
 
+The same fleet registry is available to operators through REST at `/api/v1/jupyter-servers` and
+`/api/v1/jupyter-pools`. REST supports registration, filtered cursor listing, detail, immediate
+probe, drain, activate, soft delete, and a deliberately restricted hard purge. Hard purge requires
+the exact server name, an already disabled `OFFLINE` server, and no Execution or Attempt reference;
+the environment-configured default server is never purgeable. A successful purge preserves an
+immutable audit tombstone and never cascades into execution history. Credentials are accepted only
+on upsert and are absent from every response.
+
 ## Shared PV contract
 
 The local bind mount is `./notebook_dir:/workspace/pv`. Kubernetes should mount the shared PVC at

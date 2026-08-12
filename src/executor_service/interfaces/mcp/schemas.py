@@ -189,6 +189,7 @@ class JupyterServerResponse(MCPModel):
     max_concurrent_executions: int
     supported_kernels: tuple[str, ...]
     active_execution_count: int
+    available_capacity: int
     active_kernel_count: int | None
     last_health_check_at: datetime | None
     last_health_error: str | None
@@ -213,6 +214,7 @@ class JupyterServerResponse(MCPModel):
             max_concurrent_executions=view.max_concurrent_executions,
             supported_kernels=view.supported_kernels,
             active_execution_count=view.active_execution_count,
+            available_capacity=view.available_capacity,
             active_kernel_count=view.active_kernel_count,
             last_health_check_at=view.last_health_check_at,
             last_health_error=view.last_health_error,

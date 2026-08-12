@@ -4,6 +4,8 @@ import asyncio
 import hashlib
 import json
 import logging
+from collections.abc import Sequence
+from datetime import UTC
 from typing import Any
 from uuid import UUID
 
@@ -12,7 +14,10 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from executor_service.application.jupyter_servers import (
+    JupyterPoolView,
+    JupyterServerPurgeView,
     JupyterServerView,
+    PurgeJupyterServerCommand,
     RemoveJupyterServerCommand,
     SetJupyterServerStateCommand,
     UpsertJupyterServerCommand,
@@ -31,6 +36,7 @@ from executor_service.domain.errors import (
     IdempotencyConflictError,
     JupyterServerConfigurationError,
     JupyterServerNotFoundError,
+    JupyterServerPurgeConflictError,
 )
 from executor_service.domain.models import utc_now
 from executor_service.infrastructure.db.models import (
@@ -38,6 +44,7 @@ from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
     ExecutionORM,
     JupyterServerORM,
+    JupyterServerPurgeORM,
 )
 from executor_service.infrastructure.jupyter import JupyterGateway
 
@@ -192,6 +199,8 @@ class JupyterServerRegistry:
         self,
         pool: JupyterPool | None = None,
         *,
+        status: JupyterServerStatus | None = None,
+        enabled: bool | None = None,
         cursor: str | None = None,
         limit: int = 100,
     ) -> Page[JupyterServerView]:
@@ -199,6 +208,10 @@ class JupyterServerRegistry:
             statement = select(JupyterServerORM)
             if pool is not None:
                 statement = statement.where(JupyterServerORM.pool == pool)
+            if status is not None:
+                statement = statement.where(JupyterServerORM.status == status)
+            if enabled is not None:
+                statement = statement.where(JupyterServerORM.enabled.is_(enabled))
             if cursor is not None:
                 created_at, item_id = decode_time_cursor(cursor, "jupyter_servers")
                 statement = statement.where(
@@ -222,6 +235,58 @@ class JupyterServerRegistry:
             else None
         )
         return Page(items=views, next_cursor=next_cursor)
+
+    async def pool_summaries(self) -> Sequence[JupyterPoolView]:
+        async with self._session_factory() as session:
+            servers = list(
+                await session.scalars(
+                    select(JupyterServerORM).order_by(JupyterServerORM.created_at)
+                )
+            )
+            views = [await self._to_view(session, server) for server in servers]
+
+        summaries: list[JupyterPoolView] = []
+        for pool in JupyterPool:
+            pool_views = [view for view in views if view.pool == pool]
+            enabled_views = [view for view in pool_views if view.enabled]
+            active_views = [
+                view
+                for view in enabled_views
+                if view.status == JupyterServerStatus.ACTIVE
+            ]
+            health_checks = [
+                view.last_health_check_at
+                for view in pool_views
+                if view.last_health_check_at is not None
+            ]
+            summaries.append(
+                JupyterPoolView(
+                    pool=pool,
+                    server_count=len(pool_views),
+                    enabled_server_count=len(enabled_views),
+                    active_server_count=len(active_views),
+                    draining_server_count=sum(
+                        view.status == JupyterServerStatus.DRAINING
+                        for view in pool_views
+                    ),
+                    offline_server_count=sum(
+                        view.status == JupyterServerStatus.OFFLINE
+                        for view in pool_views
+                    ),
+                    configured_capacity=sum(
+                        view.max_concurrent_executions for view in enabled_views
+                    ),
+                    schedulable_capacity=sum(
+                        view.max_concurrent_executions for view in active_views
+                    ),
+                    active_execution_count=sum(
+                        view.active_execution_count for view in pool_views
+                    ),
+                    available_capacity=sum(view.available_capacity for view in active_views),
+                    last_health_check_at=max(health_checks) if health_checks else None,
+                )
+            )
+        return summaries
 
     async def get(self, server_id: UUID) -> JupyterServerView:
         async with self._session_factory() as session:
@@ -363,6 +428,97 @@ class JupyterServerRegistry:
             )
         return await self.get(server_id)
 
+    async def purge(self, command: PurgeJupyterServerCommand) -> JupyterServerPurgeView:
+        fingerprint = _fingerprint(
+            {
+                "server_id": str(command.server_id),
+                "confirmation_name": command.confirmation_name,
+                "actor_type": command.actor_type.value if command.actor_type else None,
+                "actor_id": command.actor_id,
+            }
+        )
+        async with self._session_factory() as session, session.begin():
+            receipt = await session.scalar(
+                select(CommandReceiptORM).where(
+                    CommandReceiptORM.idempotency_key == command.idempotency_key
+                )
+            )
+            if receipt is not None:
+                if (
+                    receipt.command_type != "jupyter_server.purge"
+                    or receipt.request_fingerprint != fingerprint
+                ):
+                    raise IdempotencyConflictError(
+                        "idempotency_key was already used with a different command."
+                    )
+                tombstone = await session.scalar(
+                    select(JupyterServerPurgeORM).where(
+                        JupyterServerPurgeORM.server_id == command.server_id
+                    )
+                )
+                if tombstone is None:
+                    raise JupyterServerPurgeConflictError(
+                        "The purge receipt exists without its audit tombstone."
+                    )
+                return self._purge_view(tombstone)
+
+            server = await self._required_server(session, command.server_id, lock=True)
+            if command.confirmation_name != server.name:
+                raise JupyterServerPurgeConflictError(
+                    "confirmation_name does not match the registered server name."
+                )
+            if server.enabled or server.status != JupyterServerStatus.OFFLINE:
+                raise JupyterServerPurgeConflictError(
+                    "A server must be soft-deleted and OFFLINE before it can be purged."
+                )
+            if (
+                self._settings.jupyter_enabled
+                and server.name == self._settings.jupyter_server_name
+            ):
+                raise JupyterServerPurgeConflictError(
+                    "The environment-configured default Jupyter server cannot be purged."
+                )
+
+            execution_count = await session.scalar(
+                select(func.count(ExecutionORM.id)).where(
+                    ExecutionORM.jupyter_server_id == server.id
+                )
+            )
+            attempt_count = await session.scalar(
+                select(func.count(ExecutionAttemptORM.id)).where(
+                    ExecutionAttemptORM.jupyter_server_id == server.id
+                )
+            )
+            if execution_count or attempt_count:
+                raise JupyterServerPurgeConflictError(
+                    "A Jupyter server referenced by Execution or Attempt history cannot be purged."
+                )
+
+            tombstone = JupyterServerPurgeORM(
+                server_id=server.id,
+                server_name=server.name,
+                endpoint=server.endpoint,
+                pool=server.pool,
+                idempotency_key=command.idempotency_key,
+                request_fingerprint=fingerprint,
+                created_by_type=command.actor_type,
+                created_by=command.actor_id,
+                updated_by_type=command.actor_type,
+                updated_by=command.actor_id,
+            )
+            session.add(tombstone)
+            await session.flush()
+            await session.delete(server)
+            self._add_receipt(
+                session,
+                command.idempotency_key,
+                "jupyter_server.purge",
+                fingerprint,
+                command.server_id,
+            )
+            await session.flush()
+            return self._purge_view(tombstone)
+
     async def any_active(self) -> bool:
         async with self._session_factory() as session:
             count = await session.scalar(
@@ -387,6 +543,21 @@ class JupyterServerRegistry:
 
     def _encrypt(self, token: str) -> str:
         return self._fernet.encrypt(token.encode()).decode("ascii")
+
+    @staticmethod
+    def _purge_view(tombstone: JupyterServerPurgeORM) -> JupyterServerPurgeView:
+        purged_at = tombstone.created_at
+        if purged_at.tzinfo is None:
+            purged_at = purged_at.replace(tzinfo=UTC)
+        return JupyterServerPurgeView(
+            server_id=tombstone.server_id,
+            name=tombstone.server_name,
+            endpoint=tombstone.endpoint,
+            pool=tombstone.pool,
+            purged_by_type=tombstone.created_by_type,
+            purged_by=tombstone.created_by,
+            purged_at=purged_at,
+        )
 
     async def _monitor_loop(self) -> None:
         while not self._stop_event.is_set():

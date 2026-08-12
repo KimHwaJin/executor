@@ -1,5 +1,6 @@
 """Application contracts for managing the Jupyter server fleet."""
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
@@ -39,6 +40,15 @@ class SetJupyterServerStateCommand:
 
 
 @dataclass(frozen=True, slots=True)
+class PurgeJupyterServerCommand:
+    idempotency_key: str
+    server_id: UUID
+    confirmation_name: str
+    actor_type: ActorType | None = None
+    actor_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class JupyterServerView:
     id: UUID
     name: str
@@ -67,6 +77,46 @@ class JupyterServerView:
     def drain_complete(self) -> bool:
         return self.status == JupyterServerStatus.DRAINING and self.active_execution_count == 0
 
+    @property
+    def available_capacity(self) -> int:
+        if not self.accepting_new_executions:
+            return 0
+        return max(0, self.max_concurrent_executions - self.active_execution_count)
+
+
+@dataclass(frozen=True, slots=True)
+class JupyterPoolView:
+    pool: JupyterPool
+    server_count: int
+    enabled_server_count: int
+    active_server_count: int
+    draining_server_count: int
+    offline_server_count: int
+    configured_capacity: int
+    schedulable_capacity: int
+    active_execution_count: int
+    available_capacity: int
+    last_health_check_at: datetime | None
+
+    @property
+    def accepting_new_executions(self) -> bool:
+        return self.available_capacity > 0
+
+    @property
+    def saturated(self) -> bool:
+        return self.active_server_count > 0 and self.available_capacity == 0
+
+
+@dataclass(frozen=True, slots=True)
+class JupyterServerPurgeView:
+    server_id: UUID
+    name: str
+    endpoint: str
+    pool: JupyterPool
+    purged_by_type: ActorType | None
+    purged_by: str | None
+    purged_at: datetime
+
 
 class JupyterServerManager(Protocol):
     async def upsert(self, command: UpsertJupyterServerCommand) -> JupyterServerView: ...
@@ -75,9 +125,13 @@ class JupyterServerManager(Protocol):
         self,
         pool: JupyterPool | None = None,
         *,
+        status: JupyterServerStatus | None = None,
+        enabled: bool | None = None,
         cursor: str | None = None,
         limit: int = 100,
     ) -> Page[JupyterServerView]: ...
+
+    async def pool_summaries(self) -> Sequence[JupyterPoolView]: ...
 
     async def get(self, server_id: UUID) -> JupyterServerView: ...
 
@@ -92,3 +146,5 @@ class JupyterServerManager(Protocol):
     async def remove(self, command: RemoveJupyterServerCommand) -> JupyterServerView: ...
 
     async def set_state(self, command: SetJupyterServerStateCommand) -> JupyterServerView: ...
+
+    async def purge(self, command: PurgeJupyterServerCommand) -> JupyterServerPurgeView: ...
