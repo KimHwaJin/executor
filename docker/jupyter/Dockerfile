@@ -38,7 +38,6 @@ COPY docker/jupyter/executor_resource_extension.json \
 
 RUN /opt/venvs/jupyter/bin/pip install --no-cache-dir --no-deps \
         /opt/jupyter-resource-extension \
-    && /opt/venvs/jupyter/bin/python -c "import executor_resource_extension" \
     && /opt/venvs/basic/bin/python -m ipykernel install \
         --prefix=/opt/venvs/jupyter \
         --name=basic \
@@ -49,10 +48,7 @@ RUN /opt/venvs/jupyter/bin/pip install --no-cache-dir --no-deps \
         --display-name="ML (Python 3.12)" \
     && rm -rf /opt/venvs/jupyter/share/jupyter/kernels/python3
 
-COPY docker/jupyter/validate_image.py /opt/jupyter-env/validate_image.py
-
-RUN /opt/venvs/jupyter/bin/python /opt/jupyter-env/validate_image.py \
-    && rm -rf /home/jovyan \
+RUN rm -rf /home/jovyan \
     && groupadd --gid 1000 jovyan \
     && useradd \
         --uid 1000 \

@@ -105,7 +105,7 @@ Library inputs live under `docker/jupyter/environments/`. Update
 `basic/requirements.txt` for shared analysis libraries and `ml/requirements.txt` for ML-only
 additions; the ML file includes the Basic file. `server/requirements.txt` is reserved for the
 Jupyter server process. The Docker build installs each file with that environment's `pip` and
-validates both Python minor versions, every required import, and kernelspec interpreter paths.
+registers the `basic` and `ml` kernelspecs.
 
 ## Scheduling contract
 
