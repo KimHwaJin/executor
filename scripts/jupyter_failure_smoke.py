@@ -20,7 +20,7 @@ async def main() -> None:
                     "idempotency_key": f"failure-smoke-{unique}",
                     "mode": "STATIC",
                     "actor": {"type": "USER", "id": "smoke-user"},
-                    "kernel_name": "python3",
+                    "runtime_profile": "python3",
                     "source": inline_source(
                         f"failure-plan-{unique}",
                         [

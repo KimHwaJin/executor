@@ -6,23 +6,21 @@ import pytest
 from executor_service.domain.enums import (
     CodeSourceType,
     ExecutionMode,
-    JupyterPool,
+    RuntimePool,
     TriggerType,
 )
 from executor_service.domain.models import Execution, ExecutionStep
 from executor_service.infrastructure.workspace import WorkspaceManager, WorkspacePathError
 
 
-def execution(
-    *, user_id: str = "user-1", codes: tuple[str, ...] = ("print(1)",)
-) -> Execution:
+def execution(*, user_id: str = "user-1", codes: tuple[str, ...] = ("print(1)",)) -> Execution:
     return Execution(
         idempotency_key="workspace-test",
         request_fingerprint="fingerprint",
         mode=ExecutionMode.STATIC,
         trigger_type=TriggerType.INTERACTIVE,
-        jupyter_pool=JupyterPool.INTERACTIVE,
-        kernel_name="python3",
+        runtime_pool=RuntimePool.INTERACTIVE,
+        runtime_profile="python3",
         code_source_type=CodeSourceType.INLINE,
         source_content='{"schema_version":"1.0"}',
         code_path=None,

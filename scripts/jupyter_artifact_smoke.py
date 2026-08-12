@@ -24,9 +24,7 @@ async def _wait(client: Client, execution_id: str) -> dict[str, Any]:
 async def main() -> None:
     unique = str(uuid4())
     user_id = "artifact-smoke-user"
-    processed_relative = (
-        f"users/{user_id}/datasets/processed/{unique}/processed.csv"
-    )
+    processed_relative = f"users/{user_id}/datasets/processed/{unique}/processed.csv"
     write_files_code = (
         "from pathlib import Path\n"
         "Path('artifacts/plots/plot.png').write_bytes(b'fake-png')\n"
@@ -70,7 +68,7 @@ async def main() -> None:
                     "mode": "STATIC",
                     "trigger_type": "INTERACTIVE",
                     "actor": {"type": "USER", "id": user_id},
-                    "kernel_name": "python3",
+                    "runtime_profile": "python3",
                     "source": inline_source(
                         f"artifact-smoke-plan-{unique}",
                         [
@@ -100,18 +98,14 @@ async def main() -> None:
         if terminal["status"] != "SUCCEEDED":
             raise RuntimeError(f"Artifact execution failed: {terminal}")
 
-        listed = await client.call_tool(
-            "execution_artifact_list", {"execution_id": execution_id}
-        )
+        listed = await client.call_tool("execution_artifact_list", {"execution_id": execution_id})
         artifacts = listed.structured_content["items"]
         if len(artifacts) != 5:
             raise RuntimeError(f"Expected five Artifacts: {artifacts}")
         artifact_types = {item["artifact_type"] for item in artifacts}
         if artifact_types != {"PLOT", "REPORT", "DATASET", "MODEL", "NOTEBOOK"}:
             raise RuntimeError(f"Unexpected Artifact types: {artifact_types}")
-        processed_artifact = next(
-            item for item in artifacts if item["name"] == "processed-data"
-        )
+        processed_artifact = next(item for item in artifacts if item["name"] == "processed-data")
         if (
             processed_artifact["external_parent_asset_id"] != "raw-daily-data"
             or processed_artifact["metadata"]["token"] != "[REDACTED]"
@@ -124,9 +118,7 @@ async def main() -> None:
         )
         if fetched.structured_content["artifact_id"] != processed_artifact["artifact_id"]:
             raise RuntimeError("Artifact detail lookup returned the wrong row.")
-        trace = await client.call_tool(
-            "execution_trace_get", {"execution_id": execution_id}
-        )
+        trace = await client.call_tool("execution_trace_get", {"execution_id": execution_id})
         if len(trace.structured_content["artifacts"]["items"]) != 5:
             raise RuntimeError("Execution Trace did not include every Artifact.")
 

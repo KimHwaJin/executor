@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, SecretStr
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 
 from executor_service.application.commands import StepSpec as ApplicationStepSpec
 from executor_service.application.commands import SubmitExecutionCommand
@@ -15,8 +15,8 @@ from executor_service.application.execution_queries import (
     ExecutionStepAttemptView,
     ExecutionTraceView,
 )
-from executor_service.application.jupyter_servers import JupyterServerView
 from executor_service.application.pagination import Page
+from executor_service.application.runtime_targets import RuntimeTargetView
 from executor_service.domain.enums import (
     ActorType,
     ArtifactStatus,
@@ -27,10 +27,11 @@ from executor_service.domain.enums import (
     ExecutionMode,
     ExecutionStatus,
     FailureType,
-    JupyterPool,
-    KernelCleanupStatus,
     OutboxStatus,
     RetryStrategy,
+    RuntimePool,
+    RuntimeSessionCleanupStatus,
+    RuntimeType,
     StepStatus,
     TriggerType,
 )
@@ -77,7 +78,8 @@ class ExecutionSubmitRequest(MCPModel):
     idempotency_key: str = Field(min_length=1, max_length=255)
     mode: ExecutionMode
     trigger_type: TriggerType = TriggerType.INTERACTIVE
-    kernel_name: str = Field(min_length=1, max_length=128)
+    runtime_type: RuntimeType = RuntimeType.JUPYTER
+    runtime_profile: str = Field(min_length=1, max_length=128)
     source: CodeSource
     context: ExecutionSubmitContext
     actor: ActorInput
@@ -94,7 +96,8 @@ class ExecutionSubmitRequest(MCPModel):
             idempotency_key=self.idempotency_key,
             mode=self.mode,
             trigger_type=self.trigger_type,
-            kernel_name=self.kernel_name,
+            runtime_type=self.runtime_type,
+            runtime_profile=self.runtime_profile,
             code_source_type=self.source.type,
             source_content=source_content,
             code_path=self.source.path if isinstance(self.source, PathCodeSource) else None,
@@ -151,46 +154,59 @@ class ExecutionFinishRequest(MCPModel):
     actor: ActorInput
 
 
-class JupyterServerUpsertRequest(MCPModel):
+class RuntimeTargetUpsertRequest(MCPModel):
     idempotency_key: str = Field(min_length=1, max_length=255)
     name: str = Field(min_length=1, max_length=255, pattern=r"^[a-zA-Z0-9._-]+$")
-    endpoint: AnyHttpUrl
-    token: SecretStr | None = None
-    pool: JupyterPool = JupyterPool.INTERACTIVE
+    runtime_type: RuntimeType
+    connection_config: dict[str, Any]
+    credential: SecretStr | None = None
+    pool: RuntimePool = RuntimePool.INTERACTIVE
     max_concurrent_executions: int | None = Field(default=None, ge=1, le=1000)
     actor: ActorInput
 
+    @model_validator(mode="after")
+    def validate_connection_config(self) -> "RuntimeTargetUpsertRequest":
+        if self.runtime_type == RuntimeType.JUPYTER:
+            endpoint = self.connection_config.get("endpoint")
+            if set(self.connection_config) != {"endpoint"} or not isinstance(endpoint, str):
+                raise ValueError(
+                    "JUPYTER connection_config must contain only a non-empty endpoint."
+                )
+            if not endpoint.startswith(("http://", "https://")):
+                raise ValueError("JUPYTER endpoint must use http or https.")
+        return self
 
-class JupyterServerProbeRequest(MCPModel):
-    server_id: UUID
+
+class RuntimeTargetProbeRequest(MCPModel):
+    target_id: UUID
     actor: ActorInput
 
 
-class JupyterServerRemoveRequest(MCPModel):
+class RuntimeTargetRemoveRequest(MCPModel):
     idempotency_key: str = Field(min_length=1, max_length=255)
-    server_id: UUID
+    target_id: UUID
     actor: ActorInput
 
 
-class JupyterServerSetStateRequest(MCPModel):
+class RuntimeTargetSetStateRequest(MCPModel):
     idempotency_key: str = Field(min_length=1, max_length=255)
-    server_id: UUID
+    target_id: UUID
     desired_state: str = Field(pattern=r"^(ACTIVE|DRAINING)$")
     actor: ActorInput
 
 
-class JupyterServerResponse(MCPModel):
-    server_id: UUID
+class RuntimeTargetResponse(MCPModel):
+    target_id: UUID
     name: str
-    endpoint: str
-    pool: JupyterPool
+    runtime_type: RuntimeType
+    pool: RuntimePool
     status: str
     enabled: bool
     max_concurrent_executions: int
-    supported_kernels: tuple[str, ...]
+    supported_profiles: tuple[str, ...]
     active_execution_count: int
     available_capacity: int
-    active_kernel_count: int | None
+    active_session_count: int | None
     last_health_check_at: datetime | None
     last_health_error: str | None
     created_by_type: ActorType | None
@@ -203,19 +219,19 @@ class JupyterServerResponse(MCPModel):
     drain_complete: bool
 
     @classmethod
-    def from_view(cls, view: JupyterServerView) -> "JupyterServerResponse":
+    def from_view(cls, view: RuntimeTargetView) -> "RuntimeTargetResponse":
         return cls(
-            server_id=view.id,
+            target_id=view.id,
             name=view.name,
-            endpoint=view.endpoint,
+            runtime_type=view.runtime_type,
             pool=view.pool,
             status=view.status.value,
             enabled=view.enabled,
             max_concurrent_executions=view.max_concurrent_executions,
-            supported_kernels=view.supported_kernels,
+            supported_profiles=view.supported_profiles,
             active_execution_count=view.active_execution_count,
             available_capacity=view.available_capacity,
-            active_kernel_count=view.active_kernel_count,
+            active_session_count=view.active_session_count,
             last_health_check_at=view.last_health_check_at,
             last_health_error=view.last_health_error,
             created_by_type=view.created_by_type,
@@ -229,14 +245,14 @@ class JupyterServerResponse(MCPModel):
         )
 
 
-class JupyterServerPageResponse(MCPModel):
-    items: list[JupyterServerResponse]
+class RuntimeTargetPageResponse(MCPModel):
+    items: list[RuntimeTargetResponse]
     nextCursor: str | None = None
 
     @classmethod
-    def from_page(cls, page: Page[JupyterServerView]) -> "JupyterServerPageResponse":
+    def from_page(cls, page: Page[RuntimeTargetView]) -> "RuntimeTargetPageResponse":
         return cls(
-            items=[JupyterServerResponse.from_view(item) for item in page.items],
+            items=[RuntimeTargetResponse.from_view(item) for item in page.items],
             nextCursor=page.next_cursor,
         )
 
@@ -273,21 +289,21 @@ class ExecutionResponse(MCPModel):
     status: ExecutionStatus
     mode: ExecutionMode
     trigger_type: TriggerType
-    jupyter_pool: JupyterPool
-    kernel_name: str
+    runtime_pool: RuntimePool
+    runtime_profile: str
     source: ExecutionSourceResponse
     context: ExecutionContext
     steps: list[ExecutionStepResponse]
     cancellation_reason: str | None
-    jupyter_server_id: UUID | None
-    kernel_id: str | None
+    runtime_target_id: UUID | None
+    runtime_session_id: str | None
     workspace_path: str | None
     notebook_path: str | None
     error_message: str | None
     failure_type: FailureType | None
     retry_strategy: RetryStrategy
     recovery_count: int
-    kernel_cleanup_status: KernelCleanupStatus
+    runtime_session_cleanup_status: RuntimeSessionCleanupStatus
     version: int
     created_by_type: ActorType | None
     created_by: str | None
@@ -299,7 +315,7 @@ class ExecutionResponse(MCPModel):
     finished_at: datetime | None
     retryable: bool
     retry_from_sequence: int | None
-    retained_kernel_until: datetime | None
+    retained_runtime_session_until: datetime | None
     retry_count: int
     dynamic_wait_expires_at: datetime | None
     execution_expires_at: datetime | None
@@ -311,8 +327,8 @@ class ExecutionResponse(MCPModel):
             status=execution.status,
             mode=execution.mode,
             trigger_type=execution.trigger_type,
-            jupyter_pool=execution.jupyter_pool,
-            kernel_name=execution.kernel_name,
+            runtime_pool=execution.runtime_pool,
+            runtime_profile=execution.runtime_profile,
             source=ExecutionSourceResponse(
                 type=execution.code_source_type,
                 path=execution.code_path,
@@ -350,15 +366,15 @@ class ExecutionResponse(MCPModel):
                 for step in execution.steps
             ],
             cancellation_reason=execution.cancellation_reason,
-            jupyter_server_id=execution.jupyter_server_id,
-            kernel_id=execution.kernel_id,
+            runtime_target_id=execution.runtime_target_id,
+            runtime_session_id=execution.runtime_session_id,
             workspace_path=execution.workspace_path,
             notebook_path=execution.notebook_path,
             error_message=execution.error_message,
             failure_type=execution.failure_type,
             retry_strategy=execution.retry_strategy,
             recovery_count=execution.recovery_count,
-            kernel_cleanup_status=execution.kernel_cleanup_status,
+            runtime_session_cleanup_status=execution.runtime_session_cleanup_status,
             version=execution.version,
             created_by_type=execution.created_by_type,
             created_by=execution.created_by,
@@ -370,7 +386,7 @@ class ExecutionResponse(MCPModel):
             finished_at=execution.finished_at,
             retryable=execution.retryable,
             retry_from_sequence=execution.retry_from_sequence,
-            retained_kernel_until=execution.retained_kernel_until,
+            retained_runtime_session_until=execution.retained_runtime_session_until,
             retry_count=execution.retry_count,
             dynamic_wait_expires_at=execution.dynamic_wait_expires_at,
             execution_expires_at=execution.execution_expires_at,
@@ -382,8 +398,8 @@ class ExecutionSummaryResponse(MCPModel):
     status: ExecutionStatus
     mode: ExecutionMode
     trigger_type: TriggerType
-    jupyter_pool: JupyterPool
-    kernel_name: str
+    runtime_pool: RuntimePool
+    runtime_profile: str
     context: ExecutionContext
     step_count: int
     error_message: str | None
@@ -408,8 +424,8 @@ class ExecutionSummaryResponse(MCPModel):
             status=execution.status,
             mode=execution.mode,
             trigger_type=execution.trigger_type,
-            jupyter_pool=execution.jupyter_pool,
-            kernel_name=execution.kernel_name,
+            runtime_pool=execution.runtime_pool,
+            runtime_profile=execution.runtime_profile,
             context=ExecutionContext(
                 requested_by_user_id=execution.requested_by_user_id,
                 project_id=execution.project_id,
@@ -494,8 +510,8 @@ class ExecutionAttemptResponse(MCPModel):
     attempt_id: UUID
     execution_id: UUID
     attempt_number: int
-    jupyter_server_id: UUID
-    kernel_id: str | None
+    runtime_target_id: UUID
+    runtime_session_id: str | None
     status: AttemptStatus
     lease_owner: str | None
     lease_expires_at: datetime | None
@@ -503,7 +519,7 @@ class ExecutionAttemptResponse(MCPModel):
     error_message: str | None
     failure_type: FailureType | None
     retry_strategy: RetryStrategy
-    kernel_cleanup_status: KernelCleanupStatus
+    runtime_session_cleanup_status: RuntimeSessionCleanupStatus
     created_by_type: ActorType | None
     created_by: str | None
     updated_by_type: ActorType | None
@@ -520,8 +536,8 @@ class ExecutionAttemptResponse(MCPModel):
             attempt_id=view.id,
             execution_id=view.execution_id,
             attempt_number=view.attempt_number,
-            jupyter_server_id=view.jupyter_server_id,
-            kernel_id=view.kernel_id,
+            runtime_target_id=view.runtime_target_id,
+            runtime_session_id=view.runtime_session_id,
             status=view.status,
             lease_owner=view.lease_owner,
             lease_expires_at=view.lease_expires_at,
@@ -529,7 +545,7 @@ class ExecutionAttemptResponse(MCPModel):
             error_message=view.error_message,
             failure_type=view.failure_type,
             retry_strategy=view.retry_strategy,
-            kernel_cleanup_status=view.kernel_cleanup_status,
+            runtime_session_cleanup_status=view.runtime_session_cleanup_status,
             created_by_type=view.created_by_type,
             created_by=view.created_by,
             updated_by_type=view.updated_by_type,
@@ -732,12 +748,12 @@ class ExecutorCapabilities(MCPModel):
         CodeSourceType.INLINE,
         CodeSourceType.PATH,
     )
-    jupyter_pools: tuple[JupyterPool, ...] = (
-        JupyterPool.INTERACTIVE,
-        JupyterPool.BATCH,
+    runtime_types: tuple[RuntimeType, ...] = tuple(RuntimeType)
+    runtime_pools: tuple[RuntimePool, ...] = (
+        RuntimePool.INTERACTIVE,
+        RuntimePool.BATCH,
     )
     event_delivery: str = "redis-streams-via-transactional-outbox"
-    jupyter_execution_implemented: bool = True
     implemented_execution_modes: tuple[ExecutionMode, ...] = (
         ExecutionMode.STATIC,
         ExecutionMode.DYNAMIC,

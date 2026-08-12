@@ -29,7 +29,7 @@ async def main() -> None:
                     "mode": "STATIC",
                     "trigger_type": "INTERACTIVE",
                     "actor": {"type": "USER", "id": "retry-user"},
-                    "kernel_name": "python3",
+                    "runtime_profile": "python3",
                     "source": inline_source(
                         f"retry-plan-{unique}",
                         [
@@ -70,8 +70,8 @@ async def main() -> None:
             or failed["retry_from_sequence"] != 1
         ):
             raise RuntimeError(f"Failure was not resumable: {failed}")
-        original_kernel = failed["kernel_id"]
-        original_server = failed["jupyter_server_id"]
+        original_kernel = failed["runtime_session_id"]
+        original_server = failed["runtime_target_id"]
 
         retry = await client.call_tool(
             "execution_retry",
@@ -90,16 +90,14 @@ async def main() -> None:
         if (
             succeeded["status"] != "SUCCEEDED"
             or succeeded["retry_count"] != 1
-            or succeeded["kernel_id"] != original_kernel
-            or succeeded["jupyter_server_id"] != original_server
+            or succeeded["runtime_session_id"] != original_kernel
+            or succeeded["runtime_target_id"] != original_server
             or [step["status"] for step in succeeded["steps"]]
             != ["SUCCEEDED", "SUCCEEDED", "SUCCEEDED"]
         ):
             raise RuntimeError(f"Retained-kernel retry failed: {succeeded}")
 
-        trace_result = await client.call_tool(
-            "execution_trace_get", {"execution_id": execution_id}
-        )
+        trace_result = await client.call_tool("execution_trace_get", {"execution_id": execution_id})
         if trace_result.is_error:
             raise RuntimeError(str(trace_result.content))
         trace = trace_result.structured_content
@@ -108,11 +106,9 @@ async def main() -> None:
             len(attempts) != 2
             or attempts[0]["failure_type"] != "TOOL_ERROR"
             or attempts[0]["retry_strategy"] != "FROM_FAILED_STEP"
-            or [step["status"] for step in attempts[0]["steps"]]
-            != ["SUCCEEDED", "FAILED"]
+            or [step["status"] for step in attempts[0]["steps"]] != ["SUCCEEDED", "FAILED"]
             or [step["sequence"] for step in attempts[1]["steps"]] != [1, 2]
-            or [step["status"] for step in attempts[1]["steps"]]
-            != ["SUCCEEDED", "SUCCEEDED"]
+            or [step["status"] for step in attempts[1]["steps"]] != ["SUCCEEDED", "SUCCEEDED"]
         ):
             raise RuntimeError(f"Attempt Step history is incomplete: {attempts}")
         event_types = {event["event_type"] for event in trace["events"]["items"]}
@@ -130,21 +126,19 @@ async def main() -> None:
             for artifact in trace["artifacts"]["items"]
             if artifact["name"] == "retry-state.txt"
         ]
-        if (
-            [artifact["status"] for artifact in retry_artifacts]
-            != ["INCOMPLETE", "AVAILABLE"]
-            or retry_artifacts[0]["execution_attempt_id"]
-            == retry_artifacts[1]["execution_attempt_id"]
-        ):
-            raise RuntimeError(
-                f"Retry Artifact history was not preserved: {retry_artifacts}"
-            )
+        if [artifact["status"] for artifact in retry_artifacts] != [
+            "INCOMPLETE",
+            "AVAILABLE",
+        ] or retry_artifacts[0]["execution_attempt_id"] == retry_artifacts[1][
+            "execution_attempt_id"
+        ]:
+            raise RuntimeError(f"Retry Artifact history was not preserved: {retry_artifacts}")
 
         print("execution_id:", execution_id)
         print("initial_status:", failed["status"])
         print("retry_status:", succeeded["status"])
         print("retry_from_sequence:", failed["retry_from_sequence"])
-        print("same_kernel:", succeeded["kernel_id"] == original_kernel)
+        print("same_kernel:", succeeded["runtime_session_id"] == original_kernel)
         print("attempts_in_trace:", len(attempts))
         print("events_in_trace:", len(trace["events"]["items"]))
         print("retry_artifact_statuses:", [item["status"] for item in retry_artifacts])

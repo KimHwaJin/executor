@@ -7,15 +7,15 @@ renew leases while a Jupyter cell is running, and reconcile expired leases.
 ## Failure classification
 
 `execution_get`, Attempt history, and `execution_trace_get` expose `failure_type`,
-`retry_strategy`, and `kernel_cleanup_status`.
+`retry_strategy`, and `runtime_session_cleanup_status`.
 
 | Failure type | Meaning | Default retry |
 |---|---|---|
-| `TOOL_ERROR` | The Jupyter cell returned a code error | `FROM_FAILED_STEP` while its kernel is retained |
-| `JUPYTER_UNAVAILABLE` | Jupyter REST or kernel WebSocket became unavailable | `FROM_START` with a new kernel |
-| `KERNEL_LOST` | The assigned retained kernel no longer exists | `FROM_START` only after an explicit retry |
-| `WORKER_SHUTDOWN` | Executor stopped while a cell was running | `FROM_START` with a new kernel |
-| `LEASE_EXPIRED` | A running Worker stopped renewing its PostgreSQL lease | `FROM_START` with a new kernel |
+| `TOOL_ERROR` | A Runtime step returned a code error | `FROM_FAILED_STEP` while its session is retained |
+| `RUNTIME_UNAVAILABLE` | The assigned Runtime Driver/Target became unavailable | `FROM_START` with a new session |
+| `RUNTIME_SESSION_LOST` | The assigned retained Runtime session no longer exists | `FROM_START` only after an explicit retry |
+| `WORKER_SHUTDOWN` | Executor stopped while a step was running | `FROM_START` with a new session |
+| `LEASE_EXPIRED` | A running Worker stopped renewing its PostgreSQL lease | `FROM_START` with a new session |
 | `INTERNAL_ERROR` | Executor validation or internal processing failed | `NOT_RETRYABLE` until reviewed |
 | `INFRASTRUCTURE_ERROR` | Reserved for non-Jupyter infrastructure failures | Policy is assigned at the failure site |
 
@@ -25,21 +25,21 @@ whether the strategy is different from `NOT_RETRYABLE`.
 
 ## Retry strategies
 
-- `FROM_FAILED_STEP` requires the same retained kernel, Jupyter server, and an unexpired retention
+- `FROM_FAILED_STEP` requires the same retained session, Runtime Target, and an unexpired retention
   window. Successful predecessor Steps remain unchanged. The retry creates a new Attempt and starts
   at `retry_from_sequence`.
-- `FROM_START` clears the stale kernel and server assignment, resets every Step to `PENDING`, selects
-  an eligible server again, starts a new kernel, and executes from sequence zero.
+- `FROM_START` clears the stale session and target assignment, resets every Step to `PENDING`, selects
+  an eligible target again, starts a new session, and executes from sequence zero.
 - `NOT_RETRYABLE` rejects `execution_retry`.
 
-If a retained server is temporarily `OFFLINE` between the retry request and Worker claim, Executor
-keeps the Execution `QUEUED` and pinned to that server and kernel. A recovered `ACTIVE` or
-operator-controlled `DRAINING` server can resume the failed Step. Executor confirms the retained
-kernel still exists before executing code. A missing kernel records `KERNEL_LOST` with a
-`FROM_START` strategy, but does not automatically run on another server; the caller must explicitly
-retry. A removed or disabled server similarly records `JUPYTER_UNAVAILABLE` and requires an
-explicit `FROM_START` retry. If the retention window expires while the server is unavailable, the
-queued retry returns to `FAILED`, kernel cleanup is attempted, and
+If a retained target is temporarily `OFFLINE` between the retry request and Worker claim, Executor
+keeps the Execution `QUEUED` and pinned to that target and session. A recovered `ACTIVE` or
+operator-controlled `DRAINING` target can resume the failed Step. Executor confirms the retained
+session still exists before executing code. A missing session records `RUNTIME_SESSION_LOST` with a
+`FROM_START` strategy, but does not automatically run on another target; the caller must explicitly
+retry. A removed or disabled target similarly records `RUNTIME_UNAVAILABLE` and requires an
+explicit `FROM_START` retry. If the retention window expires while the target is unavailable, the
+queued retry returns to `FAILED`, session cleanup is attempted, and
 `execution.retry_window_expired` is emitted.
 
 ## Worker shutdown and lease expiry
@@ -49,27 +49,27 @@ new claims, and waits up to `EXECUTION_DRAIN_TIMEOUT_SECONDS` for its active job
 heartbeats continue during this drain window. If the jobs finish, no shutdown failure is recorded.
 
 After the drain deadline, each remaining in-flight job is cancelled, attempts to interrupt and
-delete its kernel, records a `WORKER_SHUTDOWN` failure, and commits the Attempt and Outbox event
+delete its session, records a `WORKER_SHUTDOWN` failure, and commits the Attempt and Outbox event
 before database disposal. Kernel cleanup is bounded by `EXECUTION_SHUTDOWN_CLEANUP_SECONDS` (20
 seconds by default), so an unresponsive Jupyter server does not prevent the database failure state
 from being committed.
 
 An ungraceful process loss cannot run that shutdown path. The surviving Worker that locks an expired
 lease records `LEASE_EXPIRED`, increments `recovery_count`, marks the retry strategy `FROM_START`,
-and performs best-effort abandoned-kernel deletion. Re-running reconciliation is idempotent because
+and performs best-effort abandoned-session deletion. Re-running reconciliation is idempotent because
 only `RUNNING` rows with expired leases are eligible.
 
-## Kernel cleanup
+## Runtime session cleanup
 
-`kernel_cleanup_status` is one of:
+`runtime_session_cleanup_status` is one of:
 
-- `NOT_REQUIRED`: there was no kernel to clean up, or a Tool-error kernel is intentionally retained;
+- `NOT_REQUIRED`: there was no session to clean up, or a Tool-error session is intentionally retained;
 - `PENDING`: lease recovery committed and cleanup is about to run;
-- `SUCCEEDED`: Jupyter accepted kernel deletion and the current Execution kernel ID is cleared;
-- `FAILED`: cleanup could not be confirmed; the historical Attempt retains its kernel ID.
+- `SUCCEEDED`: the driver accepted session deletion and the current Execution session ID is cleared;
+- `FAILED`: cleanup could not be confirmed; the historical Attempt retains its session ID.
 
-Lease recovery emits `execution.kernel_cleanup_completed` or
-`execution.kernel_cleanup_failed` after the cleanup result is persisted. Expired retained-kernel
+Lease recovery emits `execution.runtime_session_cleanup_completed` or
+`execution.runtime_session_cleanup_failed` after the cleanup result is persisted. Expired retained-session
 windows emit `execution.retry_window_expired`.
 
 ## Long-running cells
@@ -77,7 +77,7 @@ windows emit `execution.retry_window_expired`.
 `JUPYTER_REQUEST_TIMEOUT_SECONDS` applies only to Jupyter REST operations such as health checks and
 kernel creation. Cell execution uses the Jupyter WebSocket without an application-level receive
 deadline, so a five-day cell is not cancelled by the 30-second REST timeout. WebSocket ping/pong
-still detects a broken connection, which becomes `JUPYTER_UNAVAILABLE`.
+still detects a broken connection, which becomes `RUNTIME_UNAVAILABLE`.
 
 The Executor heartbeat runs in a separate asynchronous task and continues to renew the PostgreSQL
 lease while `execute_cell` is waiting for Jupyter output.

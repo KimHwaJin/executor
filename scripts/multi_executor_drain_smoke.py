@@ -14,7 +14,7 @@ from resilience_common import (
     start_executor,
     stop_executor,
     submit_static,
-    upsert_jupyter_server,
+    upsert_runtime_target,
     wait_for_status,
     wait_ready,
 )
@@ -53,7 +53,7 @@ async def main() -> None:
         )
         await wait_ready(primary_port)
         async with Client(f"http://127.0.0.1:{primary_port}/mcp") as client:
-            await upsert_jupyter_server(
+            await upsert_runtime_target(
                 client,
                 unique=unique,
                 name="local-jupyter",
@@ -61,7 +61,7 @@ async def main() -> None:
                 pool="INTERACTIVE",
                 token=None,
             )
-            await upsert_jupyter_server(
+            await upsert_runtime_target(
                 client,
                 unique=unique,
                 name="local-jupyter-secondary",
@@ -123,7 +123,7 @@ async def main() -> None:
             long["status"] != "FAILED"
             or long["failure_type"] != "WORKER_SHUTDOWN"
             or long["retry_strategy"] != "FROM_START"
-            or long["kernel_cleanup_status"] != "SUCCEEDED"
+            or long["runtime_session_cleanup_status"] != "SUCCEEDED"
         ):
             raise RuntimeError(f"Drain-timeout execution was not recovered safely: {long}")
         if queued["status"] != "SUCCEEDED":
@@ -139,13 +139,16 @@ async def main() -> None:
         print("short_status:", short["status"])
         print("long_status:", long["status"])
         print("long_failure_type:", long["failure_type"])
-        print("long_cleanup_status:", long["kernel_cleanup_status"])
+        print("long_cleanup_status:", long["runtime_session_cleanup_status"])
         print("queued_status:", queued["status"])
-        print("attempt_owners:", [
-            _attempt_owner(short_attempts),
-            _attempt_owner(long_attempts),
-            _attempt_owner(queued_attempts),
-        ])
+        print(
+            "attempt_owners:",
+            [
+                _attempt_owner(short_attempts),
+                _attempt_owner(long_attempts),
+                _attempt_owner(queued_attempts),
+            ],
+        )
     finally:
         await stop_executor(primary)
         await stop_executor(secondary)

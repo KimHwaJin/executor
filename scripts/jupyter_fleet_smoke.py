@@ -20,17 +20,16 @@ async def _wait_for_terminal(client: Client, execution_id: str) -> dict[str, obj
 
 async def main() -> None:
     unique = str(uuid4())
-    secondary_token = os.environ.get(
-        "JUPYTER_SECONDARY_TOKEN", "change-me-secondary-local-only"
-    )
+    secondary_token = os.environ.get("JUPYTER_SECONDARY_TOKEN", "change-me-secondary-local-only")
     async with Client("http://127.0.0.1:8000/mcp") as client:
         primary = await client.call_tool(
-            "jupyter_server_upsert",
+            "runtime_target_upsert",
             {
                 "request": {
                     "idempotency_key": f"fleet-primary-{unique}",
                     "name": "local-jupyter",
-                    "endpoint": "http://127.0.0.1:8888",
+                    "runtime_type": "JUPYTER",
+                    "connection_config": {"endpoint": "http://127.0.0.1:8888"},
                     "pool": "INTERACTIVE",
                     "max_concurrent_executions": 1,
                     "actor": {"type": "USER", "id": "fleet-operator"},
@@ -38,13 +37,14 @@ async def main() -> None:
             },
         )
         secondary = await client.call_tool(
-            "jupyter_server_upsert",
+            "runtime_target_upsert",
             {
                 "request": {
                     "idempotency_key": f"fleet-secondary-{unique}",
                     "name": "local-jupyter-secondary",
-                    "endpoint": "http://127.0.0.1:8889",
-                    "token": secondary_token,
+                    "runtime_type": "JUPYTER",
+                    "connection_config": {"endpoint": "http://127.0.0.1:8889"},
+                    "credential": secondary_token,
                     "pool": "INTERACTIVE",
                     "max_concurrent_executions": 1,
                     "actor": {"type": "USER", "id": "fleet-operator"},
@@ -65,7 +65,7 @@ async def main() -> None:
                         "mode": "STATIC",
                         "trigger_type": "INTERACTIVE",
                         "actor": {"type": "USER", "id": "fleet-user"},
-                        "kernel_name": "python3",
+                        "runtime_profile": "python3",
                         "source": inline_source(
                             f"fleet-plan-{unique}-{index}",
                             [
@@ -94,7 +94,7 @@ async def main() -> None:
         states = await asyncio.gather(
             *(_wait_for_terminal(client, execution_id) for execution_id in execution_ids)
         )
-        server_ids = {str(state["jupyter_server_id"]) for state in states}
+        server_ids = {str(state["runtime_target_id"]) for state in states}
         if any(state["status"] != "SUCCEEDED" for state in states) or len(server_ids) != 2:
             raise RuntimeError(f"Executions were not distributed successfully: {states}")
 

@@ -18,66 +18,69 @@ from executor_service.domain.enums import (
     CodeSourceType,
     ExecutionMode,
     ExecutionStatus,
-    JupyterPool,
-    JupyterServerStatus,
+    RuntimePool,
+    RuntimeTargetStatus,
     TriggerType,
 )
+from executor_service.domain.runtime import RuntimeExecutionResult
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
-from executor_service.infrastructure.db.models import JupyterServerORM
+from executor_service.infrastructure.db.models import RuntimeTargetORM
 from executor_service.infrastructure.db.session import create_session_factory
-from executor_service.infrastructure.jupyter import CellExecutionResult
-from executor_service.infrastructure.jupyter_registry import JupyterServerRegistry
+from executor_service.infrastructure.runtime_registry import RuntimeTargetRegistry
 from executor_service.infrastructure.worker import ExecutionWorker
 
 
 class ControlledJupyterGateway:
-    blocked_pool = JupyterPool.BATCH
+    blocked_pool = RuntimePool.BATCH
     release = asyncio.Event()
     independent_finished = asyncio.Event()
     blocked_started = 0
 
     def __init__(self, endpoint: str, *_args: Any, **_kwargs: Any) -> None:
-        self.pool = (
-            JupyterPool.BATCH if "batch" in endpoint else JupyterPool.INTERACTIVE
-        )
+        self.pool = RuntimePool.BATCH if "batch" in endpoint else RuntimePool.INTERACTIVE
 
     @classmethod
-    def configure(cls, blocked_pool: JupyterPool) -> None:
+    def configure(cls, blocked_pool: RuntimePool) -> None:
         cls.blocked_pool = blocked_pool
         cls.release = asyncio.Event()
         cls.independent_finished = asyncio.Event()
         cls.blocked_started = 0
 
-    async def start_kernel(self, _kernel_name: str, _path: str) -> str:
+    async def start_session(self, _runtime_profile: str, _path: str) -> str:
         return f"kernel-{uuid4().hex}"
 
-    async def execute_cell(self, _kernel_id: str, _code: str) -> CellExecutionResult:
+    async def execute(self, _runtime_session_id: str, _code: str) -> RuntimeExecutionResult:
         if self.pool == self.blocked_pool:
             type(self).blocked_started += 1
             await self.release.wait()
         else:
             self.independent_finished.set()
-        return CellExecutionResult(outputs=[], execution_count=1)
+        return RuntimeExecutionResult(outputs=[], execution_count=1)
 
-    async def interrupt_kernel(self, _kernel_id: str) -> None:
+    async def interrupt_session(self, _runtime_session_id: str) -> None:
         pass
 
-    async def delete_kernel(self, _kernel_id: str) -> None:
+    async def delete_session(self, _runtime_session_id: str) -> None:
         pass
 
     async def close(self) -> None:
         pass
 
 
-def _command(pool: JupyterPool, name: str) -> SubmitExecutionCommand:
+def _patch_runtime_driver(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "executor_service.infrastructure.runtime_drivers.JupyterRuntimeDriver",
+        ControlledJupyterGateway,
+    )
+
+
+def _command(pool: RuntimePool, name: str) -> SubmitExecutionCommand:
     code = f"value = '{name}'"
     return SubmitExecutionCommand(
         idempotency_key=f"worker-pool-{name}-{uuid4().hex}",
         mode=ExecutionMode.STATIC,
-        trigger_type=(
-            TriggerType.BATCH if pool == JupyterPool.BATCH else TriggerType.INTERACTIVE
-        ),
-        kernel_name="python3",
+        trigger_type=(TriggerType.BATCH if pool == RuntimePool.BATCH else TriggerType.INTERACTIVE),
+        runtime_profile="python3",
         code_source_type=CodeSourceType.INLINE,
         source_content=code,
         code_path=None,
@@ -99,24 +102,22 @@ def _command(pool: JupyterPool, name: str) -> SubmitExecutionCommand:
     )
 
 
-def _server(
-    name: str, pool: JupyterPool, *, capacity: int = 10
-) -> JupyterServerORM:
-    return JupyterServerORM(
+def _server(name: str, pool: RuntimePool, *, capacity: int = 10) -> RuntimeTargetORM:
+    return RuntimeTargetORM(
         name=name,
-        endpoint=f"http://{name}.invalid:8888",
+        connection_config={"endpoint": f"http://{name}.invalid:8888"},
         credential_ref="settings:JUPYTER_TOKEN",
         pool=pool,
-        status=JupyterServerStatus.ACTIVE,
+        status=RuntimeTargetStatus.ACTIVE,
         max_concurrent_executions=capacity,
-        supported_kernels=["python3"],
+        supported_profiles=["python3"],
         enabled=True,
     )
 
 
 def _worker(engine: AsyncEngine, tmp_path: Path) -> tuple[ExecutionWorker, Redis]:
     settings = Settings(
-        jupyter_enabled=False,
+        runtime_enabled=False,
         workspace_host_root=tmp_path,
     )
     session_factory = create_session_factory(engine)
@@ -126,7 +127,7 @@ def _worker(engine: AsyncEngine, tmp_path: Path) -> tuple[ExecutionWorker, Redis
             session_factory=session_factory,
             redis=redis,
             settings=settings,
-            registry=JupyterServerRegistry(session_factory, settings),
+            registry=RuntimeTargetRegistry(session_factory, settings),
             artifact_manager=ExecutionArtifactManager(session_factory, settings),
         ),
         redis,
@@ -144,8 +145,8 @@ async def _wait_until(predicate: Any) -> None:
 @pytest.mark.parametrize(
     ("blocked_pool", "independent_pool", "blocked_count"),
     [
-        (JupyterPool.BATCH, JupyterPool.INTERACTIVE, 3),
-        (JupyterPool.INTERACTIVE, JupyterPool.BATCH, 2),
+        (RuntimePool.BATCH, RuntimePool.INTERACTIVE, 3),
+        (RuntimePool.INTERACTIVE, RuntimePool.BATCH, 2),
     ],
 )
 async def test_worker_does_not_apply_a_process_local_execution_limit(
@@ -153,16 +154,16 @@ async def test_worker_does_not_apply_a_process_local_execution_limit(
     engine: AsyncEngine,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    blocked_pool: JupyterPool,
-    independent_pool: JupyterPool,
+    blocked_pool: RuntimePool,
+    independent_pool: RuntimePool,
     blocked_count: int,
 ) -> None:
     session_factory = create_session_factory(engine)
     async with session_factory() as session, session.begin():
         session.add_all(
             [
-                _server("worker-interactive", JupyterPool.INTERACTIVE),
-                _server("worker-batch", JupyterPool.BATCH),
+                _server("worker-interactive", RuntimePool.INTERACTIVE),
+                _server("worker-batch", RuntimePool.BATCH),
             ]
         )
     blocked = [
@@ -176,17 +177,12 @@ async def test_worker_does_not_apply_a_process_local_execution_limit(
     )
     worker, redis = _worker(engine, tmp_path)
     ControlledJupyterGateway.configure(blocked_pool)
-    monkeypatch.setattr(
-        "executor_service.infrastructure.worker.JupyterGateway",
-        ControlledJupyterGateway,
-    )
+    _patch_runtime_driver(monkeypatch)
     blocked_tasks = [
         asyncio.create_task(worker._run_execution(execution.id)) for execution in blocked
     ]
     try:
-        await _wait_until(
-            lambda: ControlledJupyterGateway.blocked_started == blocked_count
-        )
+        await _wait_until(lambda: ControlledJupyterGateway.blocked_started == blocked_count)
         independent_task = asyncio.create_task(worker._run_execution(independent.id))
         async with asyncio.timeout(1):
             await ControlledJupyterGateway.independent_finished.wait()
@@ -197,6 +193,7 @@ async def test_worker_does_not_apply_a_process_local_execution_limit(
         await asyncio.gather(*blocked_tasks)
         await redis.aclose()
 
+
 async def test_cancel_remains_available_when_batch_jupyter_capacity_is_full(
     execution_service: ExecutionService,
     engine: AsyncEngine,
@@ -204,12 +201,12 @@ async def test_cancel_remains_available_when_batch_jupyter_capacity_is_full(
 ) -> None:
     session_factory = create_session_factory(engine)
     async with session_factory() as session, session.begin():
-        session.add(_server("cancel-batch", JupyterPool.BATCH, capacity=2))
+        session.add(_server("cancel-batch", RuntimePool.BATCH, capacity=2))
     running = [
-        await execution_service.submit(_command(JupyterPool.BATCH, f"cancel-running-{index}"))
+        await execution_service.submit(_command(RuntimePool.BATCH, f"cancel-running-{index}"))
         for index in range(2)
     ]
-    waiting = await execution_service.submit(_command(JupyterPool.BATCH, "cancel-waiting"))
+    waiting = await execution_service.submit(_command(RuntimePool.BATCH, "cancel-waiting"))
     worker, redis = _worker(engine, tmp_path)
     try:
         assert await worker._claim(running[0].id) is not None

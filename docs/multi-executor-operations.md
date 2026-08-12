@@ -11,9 +11,9 @@ Worker.
   suitable for local execution but should not replace an explicit production identity.
 - Claiming locks the Execution row. Duplicate Redis delivery or simultaneous reconciliation can
   therefore create only one running Attempt for an Execution.
-- Server selection locks Jupyter server rows with `FOR UPDATE SKIP LOCKED`. The running/waiting
+- Target selection locks Runtime Target rows with `FOR UPDATE SKIP LOCKED`. The running/waiting
   Attempt count is checked while that lock is held, so concurrent Pods cannot exceed registered
-  server capacity.
+  target capacity.
 - Reconciliation intentionally runs in every Pod. Losing the Redis notification does not lose the
   Execution because an unsuccessful claim leaves it durably `QUEUED`.
 - A Redis message is acknowledged after dispatch, not after a multi-day execution completes.
@@ -28,18 +28,18 @@ Redis intake and queue reconciliation loops, and makes `/readyz` fail through th
 PostgreSQL state.
 
 When the drain deadline expires, remaining local handlers are cancelled. Unfinished STATIC work is
-classified as `WORKER_SHUTDOWN`, its kernel is deleted, and a `FROM_START` retry is exposed when
+classified as `WORKER_SHUTDOWN`, its Runtime session is deleted, and a `FROM_START` retry is exposed when
 safe. A DYNAMIC cell interrupted during shutdown is not replayed automatically. `/workerz` exposes
 the local lifecycle state and active execution count for diagnosis.
 
 A forced process or Pod failure cannot perform the shutdown cleanup. Another Pod detects the
 expired lease, transitions the Execution to `FAILED` with `LEASE_EXPIRED`, and then deletes the
-abandoned kernel.
+abandoned Runtime session.
 
-Kernel cleanup is intentionally observable as a short two-stage transition:
+Runtime session cleanup is intentionally observable as a short two-stage transition:
 
-1. `FAILED` with `kernel_cleanup_status=PENDING`;
-2. `FAILED` with `kernel_cleanup_status=SUCCEEDED` or `FAILED`.
+1. `FAILED` with `runtime_session_cleanup_status=PENDING`;
+2. `FAILED` with `runtime_session_cleanup_status=SUCCEEDED` or `FAILED`.
 
 `execution_retry` rejects a FROM_START retry while cleanup is `PENDING`. Automatic retry is not
 performed; Agent/API must explicitly request it after inspecting the failure and cleanup result.
@@ -52,7 +52,7 @@ lease duration plus one heartbeat polling interval after the last successful hea
 
 - Run Alembic once as a release or init job, not independently in every application Pod.
 - All Pods must use the same PostgreSQL database, Redis Stream/group, credential encryption key,
-  workspace PV, and Jupyter registry.
+  workspace PV, and Runtime Target registry.
 - Do not reuse an explicit consumer name across concurrently running Pods.
 - Set `terminationGracePeriodSeconds` greater than
   `EXECUTION_DRAIN_TIMEOUT_SECONDS + EXECUTION_SHUTDOWN_CLEANUP_SECONDS` plus a shutdown buffer.

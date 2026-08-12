@@ -29,7 +29,7 @@ async def rest_client(
     settings = Settings(
         database_url="sqlite+aiosqlite:///:memory:",
         redis_url="redis://localhost:6399/15",
-        jupyter_enabled=False,
+        runtime_enabled=False,
         workspace_host_root=tmp_path,
     )
     container = ApplicationContainer(settings)
@@ -53,7 +53,7 @@ def _submit_payload(
         "idempotency_key": key,
         "mode": mode,
         "trigger_type": "INTERACTIVE",
-        "kernel_name": "python3",
+        "runtime_profile": "python3",
         "source": {
             "type": "INLINE",
             "spec": {
@@ -202,9 +202,7 @@ async def test_execution_history_cursor_pagination_and_invalid_cursor(
     )
     assert second.status_code == 200
     second_body = second.json()
-    returned_ids = {
-        item["execution_id"] for item in first_body["items"] + second_body["items"]
-    }
+    returned_ids = {item["execution_id"] for item in first_body["items"] + second_body["items"]}
     assert returned_ids == submitted_ids
     assert second_body["has_more"] is False
 

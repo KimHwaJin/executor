@@ -14,9 +14,9 @@ from executor_service.domain.enums import (
     AttemptStatus,
     ExecutionStatus,
     FailureType,
-    KernelCleanupStatus,
     OutboxStatus,
     RetryStrategy,
+    RuntimeSessionCleanupStatus,
     StepStatus,
 )
 from executor_service.domain.models import Execution, ExecutionStep
@@ -49,8 +49,8 @@ class ExecutionAttemptView:
     id: UUID
     execution_id: UUID
     attempt_number: int
-    jupyter_server_id: UUID
-    kernel_id: str | None
+    runtime_target_id: UUID
+    runtime_session_id: str | None
     status: AttemptStatus
     lease_owner: str | None
     lease_expires_at: datetime | None
@@ -58,7 +58,7 @@ class ExecutionAttemptView:
     error_message: str | None
     failure_type: FailureType | None
     retry_strategy: RetryStrategy
-    kernel_cleanup_status: KernelCleanupStatus
+    runtime_session_cleanup_status: RuntimeSessionCleanupStatus
     created_by_type: ActorType | None
     created_by: str | None
     updated_by_type: ActorType | None

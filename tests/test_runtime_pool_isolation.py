@@ -13,8 +13,8 @@ from executor_service.domain.enums import (
     CodeSourceType,
     ExecutionMode,
     ExecutionStatus,
-    JupyterPool,
-    JupyterServerStatus,
+    RuntimePool,
+    RuntimeTargetStatus,
     TriggerType,
 )
 from executor_service.domain.models import utc_now
@@ -22,21 +22,19 @@ from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
     ExecutionORM,
-    JupyterServerORM,
+    RuntimeTargetORM,
 )
 from executor_service.infrastructure.db.session import create_session_factory
-from executor_service.infrastructure.jupyter_registry import JupyterServerRegistry
+from executor_service.infrastructure.runtime_registry import RuntimeTargetRegistry
 from executor_service.infrastructure.worker import ExecutionWorker
 
 
-def _command(pool: JupyterPool, name: str) -> SubmitExecutionCommand:
+def _command(pool: RuntimePool, name: str) -> SubmitExecutionCommand:
     return SubmitExecutionCommand(
         idempotency_key=f"pool-{name}-{uuid4().hex}",
         mode=ExecutionMode.STATIC,
-        trigger_type=(
-            TriggerType.BATCH if pool == JupyterPool.BATCH else TriggerType.INTERACTIVE
-        ),
-        kernel_name="python3",
+        trigger_type=(TriggerType.BATCH if pool == RuntimePool.BATCH else TriggerType.INTERACTIVE),
+        runtime_profile="python3",
         code_source_type=CodeSourceType.INLINE,
         source_content=f"print('{name}')",
         code_path=None,
@@ -60,26 +58,26 @@ def _command(pool: JupyterPool, name: str) -> SubmitExecutionCommand:
 
 def _server(
     name: str,
-    pool: JupyterPool,
+    pool: RuntimePool,
     *,
-    status: JupyterServerStatus = JupyterServerStatus.ACTIVE,
+    status: RuntimeTargetStatus = RuntimeTargetStatus.ACTIVE,
     capacity: int = 1,
-) -> JupyterServerORM:
-    return JupyterServerORM(
+) -> RuntimeTargetORM:
+    return RuntimeTargetORM(
         name=name,
-        endpoint=f"http://{name}.invalid:8888",
+        connection_config={"endpoint": f"http://{name}.invalid:8888"},
         credential_ref="settings:JUPYTER_TOKEN",
         pool=pool,
         status=status,
         max_concurrent_executions=capacity,
-        supported_kernels=["python3"],
+        supported_profiles=["python3"],
         enabled=True,
     )
 
 
 def _worker(engine: AsyncEngine, tmp_path: Path, consumer: str) -> tuple[ExecutionWorker, Redis]:
     settings = Settings(
-        jupyter_enabled=False,
+        runtime_enabled=False,
         workspace_host_root=tmp_path,
         execution_consumer_name=consumer,
     )
@@ -90,7 +88,7 @@ def _worker(engine: AsyncEngine, tmp_path: Path, consumer: str) -> tuple[Executi
             session_factory=session_factory,
             redis=redis,
             settings=settings,
-            registry=JupyterServerRegistry(session_factory, settings),
+            registry=RuntimeTargetRegistry(session_factory, settings),
             artifact_manager=ExecutionArtifactManager(session_factory, settings),
         ),
         redis,
@@ -106,16 +104,14 @@ async def test_interactive_and_batch_claims_are_isolated_and_batch_uses_two_serv
     async with session_factory() as session, session.begin():
         session.add_all(
             [
-                _server("interactive-a", JupyterPool.INTERACTIVE),
-                _server("batch-a", JupyterPool.BATCH),
-                _server("batch-b", JupyterPool.BATCH),
+                _server("interactive-a", RuntimePool.INTERACTIVE),
+                _server("batch-a", RuntimePool.BATCH),
+                _server("batch-b", RuntimePool.BATCH),
             ]
         )
-    interactive = await execution_service.submit(
-        _command(JupyterPool.INTERACTIVE, "interactive")
-    )
-    first_batch = await execution_service.submit(_command(JupyterPool.BATCH, "batch-one"))
-    second_batch = await execution_service.submit(_command(JupyterPool.BATCH, "batch-two"))
+    interactive = await execution_service.submit(_command(RuntimePool.INTERACTIVE, "interactive"))
+    first_batch = await execution_service.submit(_command(RuntimePool.BATCH, "batch-one"))
+    second_batch = await execution_service.submit(_command(RuntimePool.BATCH, "batch-two"))
     worker, redis = _worker(engine, tmp_path, "pool-worker")
     try:
         interactive_claim = await worker._claim(interactive.id)
@@ -127,13 +123,13 @@ async def test_interactive_and_batch_claims_are_isolated_and_batch_uses_two_serv
     assert interactive_claim is not None
     assert first_batch_claim is not None
     assert second_batch_claim is not None
-    assert interactive_claim[1].pool == JupyterPool.INTERACTIVE
+    assert interactive_claim[1].pool == RuntimePool.INTERACTIVE
     assert {first_batch_claim[1].name, second_batch_claim[1].name} == {
         "batch-a",
         "batch-b",
     }
-    assert first_batch_claim[1].pool == JupyterPool.BATCH
-    assert second_batch_claim[1].pool == JupyterPool.BATCH
+    assert first_batch_claim[1].pool == RuntimePool.BATCH
+    assert second_batch_claim[1].pool == RuntimePool.BATCH
 
 
 async def test_full_batch_pool_keeps_work_queued_until_capacity_is_released(
@@ -145,14 +141,14 @@ async def test_full_batch_pool_keeps_work_queued_until_capacity_is_released(
     async with session_factory() as session, session.begin():
         session.add_all(
             [
-                _server("interactive-spare", JupyterPool.INTERACTIVE, capacity=10),
-                _server("batch-capacity-a", JupyterPool.BATCH),
-                _server("batch-capacity-b", JupyterPool.BATCH),
+                _server("interactive-spare", RuntimePool.INTERACTIVE, capacity=10),
+                _server("batch-capacity-a", RuntimePool.BATCH),
+                _server("batch-capacity-b", RuntimePool.BATCH),
             ]
         )
-    first = await execution_service.submit(_command(JupyterPool.BATCH, "capacity-one"))
-    second = await execution_service.submit(_command(JupyterPool.BATCH, "capacity-two"))
-    waiting = await execution_service.submit(_command(JupyterPool.BATCH, "capacity-waiting"))
+    first = await execution_service.submit(_command(RuntimePool.BATCH, "capacity-one"))
+    second = await execution_service.submit(_command(RuntimePool.BATCH, "capacity-two"))
+    waiting = await execution_service.submit(_command(RuntimePool.BATCH, "capacity-waiting"))
     worker, redis = _worker(engine, tmp_path, "capacity-worker")
     try:
         first_claim = await worker._claim(first.id)
@@ -163,9 +159,7 @@ async def test_full_batch_pool_keeps_work_queued_until_capacity_is_released(
 
         async with session_factory() as session, session.begin():
             first_attempt_id = await session.scalar(
-                select(ExecutionAttemptORM.id).where(
-                    ExecutionAttemptORM.execution_id == first.id
-                )
+                select(ExecutionAttemptORM.id).where(ExecutionAttemptORM.execution_id == first.id)
             )
             assert first_attempt_id is not None
             await session.execute(
@@ -184,7 +178,7 @@ async def test_full_batch_pool_keeps_work_queued_until_capacity_is_released(
         await redis.aclose()
 
     assert waiting_claim is not None
-    assert waiting_claim[1].pool == JupyterPool.BATCH
+    assert waiting_claim[1].pool == RuntimePool.BATCH
     assert waiting_claim[1].name == first_claim[1].name
 
 
@@ -197,16 +191,16 @@ async def test_batch_never_falls_back_to_interactive_or_draining_server(
     async with session_factory() as session, session.begin():
         session.add_all(
             [
-                _server("interactive-only", JupyterPool.INTERACTIVE, capacity=10),
+                _server("interactive-only", RuntimePool.INTERACTIVE, capacity=10),
                 _server(
                     "batch-draining",
-                    JupyterPool.BATCH,
-                    status=JupyterServerStatus.DRAINING,
+                    RuntimePool.BATCH,
+                    status=RuntimeTargetStatus.DRAINING,
                     capacity=10,
                 ),
             ]
         )
-    batch = await execution_service.submit(_command(JupyterPool.BATCH, "no-fallback"))
+    batch = await execution_service.submit(_command(RuntimePool.BATCH, "no-fallback"))
     worker, redis = _worker(engine, tmp_path, "no-fallback-worker")
     try:
         assert await worker._claim(batch.id) is None
@@ -222,17 +216,17 @@ async def test_queued_batch_claims_a_server_added_during_scale_up(
 ) -> None:
     session_factory = create_session_factory(engine)
     async with session_factory() as session, session.begin():
-        session.add(_server("scale-interactive", JupyterPool.INTERACTIVE, capacity=10))
-    batch = await execution_service.submit(_command(JupyterPool.BATCH, "scale-up"))
+        session.add(_server("scale-interactive", RuntimePool.INTERACTIVE, capacity=10))
+    batch = await execution_service.submit(_command(RuntimePool.BATCH, "scale-up"))
     worker, redis = _worker(engine, tmp_path, "scale-up-worker")
     try:
         assert await worker._claim(batch.id) is None
         async with session_factory() as session, session.begin():
-            session.add(_server("scale-batch-new", JupyterPool.BATCH))
+            session.add(_server("scale-batch-new", RuntimePool.BATCH))
         claim = await worker._claim(batch.id)
     finally:
         await redis.aclose()
 
     assert claim is not None
     assert claim[1].name == "scale-batch-new"
-    assert claim[1].pool == JupyterPool.BATCH
+    assert claim[1].pool == RuntimePool.BATCH

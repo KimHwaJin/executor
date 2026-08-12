@@ -20,8 +20,8 @@ from executor_service.domain.enums import (
     ExecutionMode,
     ExecutionStatus,
     FailureType,
-    KernelCleanupStatus,
     RetryStrategy,
+    RuntimeSessionCleanupStatus,
     StepStatus,
     TriggerType,
 )
@@ -41,7 +41,7 @@ def submit_command(idempotency_key: str = "submit-1") -> SubmitExecutionCommand:
         idempotency_key=idempotency_key,
         mode=ExecutionMode.STATIC,
         trigger_type=TriggerType.INTERACTIVE,
-        kernel_name="python-analysis-a",
+        runtime_profile="python-analysis-a",
         code_source_type=CodeSourceType.INLINE,
         source_content="print('hello')",
         code_path=None,
@@ -240,9 +240,9 @@ async def test_retry_resets_failed_and_later_steps_idempotently(
                 retryable=True,
                 retry_strategy=RetryStrategy.FROM_FAILED_STEP,
                 retry_from_sequence=1,
-                retained_kernel_until=now + timedelta(hours=1),
-                kernel_id="retained-kernel",
-                jupyter_server_id=uuid4(),
+                retained_runtime_session_until=now + timedelta(hours=1),
+                runtime_session_id="retained-kernel",
+                runtime_target_id=uuid4(),
                 finished_at=now,
             )
         )
@@ -268,9 +268,7 @@ async def test_retry_resets_failed_and_later_steps_idempotently(
             .values(status=StepStatus.FAILED, error_message="expected failure")
         )
 
-    command = RetryExecutionCommand(
-        execution_id=execution.id, idempotency_key="retry-command"
-    )
+    command = RetryExecutionCommand(execution_id=execution.id, idempotency_key="retry-command")
     retried = await execution_service.retry(command)
     repeated = await execution_service.retry(command)
 
@@ -317,9 +315,9 @@ async def test_infrastructure_retry_starts_from_zero_with_a_new_kernel(
                 retryable=True,
                 retry_strategy=RetryStrategy.FROM_START,
                 retry_from_sequence=0,
-                kernel_id="abandoned-kernel",
-                jupyter_server_id=uuid4(),
-                kernel_cleanup_status=KernelCleanupStatus.FAILED,
+                runtime_session_id="abandoned-kernel",
+                runtime_target_id=uuid4(),
+                runtime_session_cleanup_status=RuntimeSessionCleanupStatus.FAILED,
                 finished_at=now,
             )
         )
@@ -339,9 +337,9 @@ async def test_infrastructure_retry_starts_from_zero_with_a_new_kernel(
     assert retried.status == ExecutionStatus.QUEUED
     assert retried.retry_strategy == RetryStrategy.FROM_START
     assert retried.retry_from_sequence == 0
-    assert retried.kernel_id is None
-    assert retried.jupyter_server_id is None
-    assert retried.kernel_cleanup_status == KernelCleanupStatus.NOT_REQUIRED
+    assert retried.runtime_session_id is None
+    assert retried.runtime_target_id is None
+    assert retried.runtime_session_cleanup_status == RuntimeSessionCleanupStatus.NOT_REQUIRED
     assert [step.status for step in retried.steps] == [
         StepStatus.PENDING,
         StepStatus.PENDING,
@@ -352,9 +350,7 @@ async def test_infrastructure_retry_waits_for_abandoned_kernel_cleanup(
     execution_service: ExecutionService,
     engine: AsyncEngine,
 ) -> None:
-    execution = await execution_service.submit(
-        submit_command("cleanup-pending-retry-submit")
-    )
+    execution = await execution_service.submit(submit_command("cleanup-pending-retry-submit"))
     now = utc_now()
     session_factory = create_session_factory(engine)
     async with session_factory() as session, session.begin():
@@ -367,9 +363,9 @@ async def test_infrastructure_retry_waits_for_abandoned_kernel_cleanup(
                 retryable=True,
                 retry_strategy=RetryStrategy.FROM_START,
                 retry_from_sequence=0,
-                kernel_id="cleanup-pending-kernel",
-                jupyter_server_id=uuid4(),
-                kernel_cleanup_status=KernelCleanupStatus.PENDING,
+                runtime_session_id="cleanup-pending-kernel",
+                runtime_target_id=uuid4(),
+                runtime_session_cleanup_status=RuntimeSessionCleanupStatus.PENDING,
                 finished_at=now,
             )
         )
@@ -384,4 +380,4 @@ async def test_infrastructure_retry_waits_for_abandoned_kernel_cleanup(
 
     unchanged = await execution_service.get(execution.id)
     assert unchanged.status == ExecutionStatus.FAILED
-    assert unchanged.kernel_cleanup_status == KernelCleanupStatus.PENDING
+    assert unchanged.runtime_session_cleanup_status == RuntimeSessionCleanupStatus.PENDING

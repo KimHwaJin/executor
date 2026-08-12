@@ -25,7 +25,7 @@ def test_comma_separated_mcp_allowlists_load_from_dotenv(tmp_path: Path) -> None
 def test_json_mcp_allowlists_remain_compatible(tmp_path: Path) -> None:
     dotenv = tmp_path / ".env"
     dotenv.write_text(
-        "MCP_ALLOWED_HOSTS='[\"localhost:*\",\"testserver\"]'\n"
+        'MCP_ALLOWED_HOSTS=\'["localhost:*","testserver"]\'\n'
         "MCP_ALLOWED_ORIGINS='[\"http://localhost:*\"]'\n",
         encoding="utf-8",
     )

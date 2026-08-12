@@ -50,7 +50,7 @@ async def main() -> None:
                 idempotency_key=f"dynamic-submit-{unique}",
                 mode=ExecutionMode.DYNAMIC,
                 trigger_type=TriggerType.INTERACTIVE,
-                kernel_name="python3",
+                runtime_profile="python3",
                 code_source_type=CodeSourceType.INLINE,
                 source_content=first_code,
                 code_path=None,
@@ -71,11 +71,9 @@ async def main() -> None:
                 ),
             )
         )
-        first = await _wait_for(
-            container, submitted.id, ExecutionStatus.WAITING_FOR_NEXT_STEP
-        )
-        kernel_id = first.kernel_id
-        if kernel_id is None:
+        first = await _wait_for(container, submitted.id, ExecutionStatus.WAITING_FOR_NEXT_STEP)
+        runtime_session_id = first.runtime_session_id
+        if runtime_session_id is None:
             raise RuntimeError("Dynamic execution did not retain a kernel.")
 
         second = await container.execution_service.continue_execution(
@@ -92,10 +90,8 @@ async def main() -> None:
                 ),
             )
         )
-        second = await _wait_for(
-            container, second.id, ExecutionStatus.WAITING_FOR_NEXT_STEP
-        )
-        if second.kernel_id != kernel_id:
+        second = await _wait_for(container, second.id, ExecutionStatus.WAITING_FOR_NEXT_STEP)
+        if second.runtime_session_id != runtime_session_id:
             raise RuntimeError("Dynamic execution changed kernels between cells.")
 
         failed = await container.execution_service.continue_execution(
@@ -112,9 +108,7 @@ async def main() -> None:
                 ),
             )
         )
-        failed = await _wait_for(
-            container, failed.id, ExecutionStatus.WAITING_FOR_NEXT_STEP
-        )
+        failed = await _wait_for(container, failed.id, ExecutionStatus.WAITING_FOR_NEXT_STEP)
         if failed.steps[-1].status != StepStatus.FAILED:
             raise RuntimeError("Cell error did not return to dynamic waiting state.")
 
@@ -132,9 +126,7 @@ async def main() -> None:
                 ),
             )
         )
-        corrected = await _wait_for(
-            container, corrected.id, ExecutionStatus.WAITING_FOR_NEXT_STEP
-        )
+        corrected = await _wait_for(container, corrected.id, ExecutionStatus.WAITING_FOR_NEXT_STEP)
         finishing = await container.execution_service.finish_execution(
             FinishExecutionCommand(
                 execution_id=submitted.id,
@@ -142,9 +134,7 @@ async def main() -> None:
                 expected_version=corrected.version,
             )
         )
-        finished = await _wait_for(
-            container, finishing.id, ExecutionStatus.SUCCEEDED
-        )
+        finished = await _wait_for(container, finishing.id, ExecutionStatus.SUCCEEDED)
         attempts = await container.execution_queries.attempts(submitted.id)
         events = await container.execution_queries.events(submitted.id)
         if finished.notebook_path is None:
@@ -155,9 +145,7 @@ async def main() -> None:
         event_types = {event.event_type for event in events}
         if len(attempts) != 1 or len(notebook_data["cells"]) != 4:
             raise RuntimeError("Dynamic Attempt or notebook history is incomplete.")
-        if not all(
-            marker in notebook_text for marker in ("42", "84", "planned dynamic failure")
-        ):
+        if not all(marker in notebook_text for marker in ("42", "84", "planned dynamic failure")):
             raise RuntimeError("Dynamic notebook does not prove same-kernel state continuity.")
         if not {
             "execution.step_completed",
@@ -165,11 +153,11 @@ async def main() -> None:
             "execution.succeeded",
         }.issubset(event_types):
             raise RuntimeError(f"Dynamic Outbox event history is incomplete: {event_types}")
-        if finished.kernel_id is not None:
+        if finished.runtime_session_id is not None:
             raise RuntimeError("Finished dynamic execution retained its kernel.")
 
         print("execution_id:", submitted.id)
-        print("retained_kernel:", kernel_id)
+        print("retained_kernel:", runtime_session_id)
         print("status:", finished.status.value)
         print("attempts:", len(attempts))
         print("step_statuses:", [step.status.value for step in finished.steps])

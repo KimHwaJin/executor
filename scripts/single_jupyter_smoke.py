@@ -33,15 +33,13 @@ async def _wait_for_terminal(
         if execution["status"] in {"SUCCEEDED", "FAILED", "CANCELLED"}:
             return execution
         await asyncio.sleep(0.5)
-    raise RuntimeError(
-        f"Execution {execution_id} did not finish within {timeout_seconds} seconds."
-    )
+    raise RuntimeError(f"Execution {execution_id} did not finish within {timeout_seconds} seconds.")
 
 
 async def main() -> None:
     settings = get_settings()
     mcp_url = os.getenv("EXECUTOR_MCP_URL", "http://127.0.0.1:8000/mcp")
-    server_name = os.getenv("SINGLE_JUPYTER_NAME", settings.jupyter_server_name)
+    server_name = os.getenv("SINGLE_JUPYTER_NAME", settings.runtime_target_name)
     endpoint = os.getenv("SINGLE_JUPYTER_ENDPOINT", settings.jupyter_endpoint)
     token = os.getenv("SINGLE_JUPYTER_TOKEN", settings.jupyter_auth_token)
     kernel_name = os.getenv("SINGLE_JUPYTER_KERNEL", "python3")
@@ -51,13 +49,14 @@ async def main() -> None:
     async with Client(mcp_url) as client:
         server = await _required_tool_result(
             client,
-            "jupyter_server_upsert",
+            "runtime_target_upsert",
             {
                 "request": {
                     "idempotency_key": f"single-jupyter-register-{unique}",
                     "name": server_name,
-                    "endpoint": endpoint,
-                    "token": token,
+                    "runtime_type": "JUPYTER",
+                    "connection_config": {"endpoint": endpoint},
+                    "credential": token,
                     "pool": "INTERACTIVE",
                     "max_concurrent_executions": 1,
                     "actor": {"type": "USER", "id": "single-jupyter-operator"},
@@ -65,12 +64,10 @@ async def main() -> None:
             },
         )
         if server["status"] != "ACTIVE":
+            raise RuntimeError(f"Jupyter server is not ACTIVE: {server.get('last_health_error')}")
+        if kernel_name not in server["supported_profiles"]:
             raise RuntimeError(
-                f"Jupyter server is not ACTIVE: {server.get('last_health_error')}"
-            )
-        if kernel_name not in server["supported_kernels"]:
-            raise RuntimeError(
-                f"Kernel {kernel_name!r} is unavailable: {server['supported_kernels']}"
+                f"Kernel {kernel_name!r} is unavailable: {server['supported_profiles']}"
             )
 
         submitted = await _required_tool_result(
@@ -82,7 +79,7 @@ async def main() -> None:
                     "mode": "STATIC",
                     "trigger_type": "INTERACTIVE",
                     "actor": {"type": "USER", "id": "single-jupyter-user"},
-                    "kernel_name": kernel_name,
+                    "runtime_profile": kernel_name,
                     "source": inline_source(
                         f"single-jupyter-plan-{unique}",
                         [
@@ -117,7 +114,7 @@ async def main() -> None:
         terminal = await _wait_for_terminal(client, execution_id, timeout_seconds)
         if terminal["status"] != "SUCCEEDED":
             raise RuntimeError(f"Execution did not succeed: {terminal}")
-        if str(terminal["jupyter_server_id"]) != str(server["server_id"]):
+        if str(terminal["runtime_target_id"]) != str(server["target_id"]):
             raise RuntimeError("Execution used a different Jupyter server.")
 
         artifacts_page = await _required_tool_result(
@@ -138,7 +135,7 @@ async def main() -> None:
     if not notebook.is_file() or result_file.read_text(encoding="utf-8") != "6":
         raise RuntimeError("Expected local Notebook or smoke Artifact was not created.")
 
-    print("jupyter_server_id:", server["server_id"])
+    print("runtime_target_id:", server["target_id"])
     print("execution_id:", execution_id)
     print("status:", terminal["status"])
     print("step_statuses:", [step["status"] for step in terminal["steps"]])

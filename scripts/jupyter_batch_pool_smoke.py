@@ -37,19 +37,18 @@ async def _wait_for_status(
         if [state["status"] for state in states] == expected_statuses:
             return list(states)
         await asyncio.sleep(0.1)
-    raise RuntimeError(
-        f"Executions {execution_ids} did not reach statuses {expected_statuses}."
-    )
+    raise RuntimeError(f"Executions {execution_ids} did not reach statuses {expected_statuses}.")
 
 
 async def _register_servers(client: Client, unique: str) -> tuple[str, set[str]]:
     interactive = await client.call_tool(
-        "jupyter_server_upsert",
+        "runtime_target_upsert",
         {
             "request": {
                 "idempotency_key": f"batch-smoke-interactive-{unique}",
                 "name": "local-jupyter",
-                "endpoint": "http://127.0.0.1:8888",
+                "runtime_type": "JUPYTER",
+                "connection_config": {"endpoint": "http://127.0.0.1:8888"},
                 "pool": "INTERACTIVE",
                 "max_concurrent_executions": 1,
                 "actor": {"type": "USER", "id": "batch-smoke-operator"},
@@ -78,13 +77,14 @@ async def _register_servers(client: Client, unique: str) -> tuple[str, set[str]]
     for name, endpoint, token in batch_specs:
         batch_results.append(
             await client.call_tool(
-                "jupyter_server_upsert",
+                "runtime_target_upsert",
                 {
                     "request": {
                         "idempotency_key": f"batch-smoke-server-{name}-{unique}",
                         "name": name,
-                        "endpoint": endpoint,
-                        "token": token,
+                        "runtime_type": "JUPYTER",
+                        "connection_config": {"endpoint": endpoint},
+                        "credential": token,
                         "pool": "BATCH",
                         "max_concurrent_executions": 1,
                         "actor": {"type": "USER", "id": "batch-smoke-operator"},
@@ -94,13 +94,12 @@ async def _register_servers(client: Client, unique: str) -> tuple[str, set[str]]
         )
     results = [interactive, *batch_results]
     if any(
-        result.is_error or result.structured_content["status"] != "ACTIVE"
-        for result in results
+        result.is_error or result.structured_content["status"] != "ACTIVE" for result in results
     ):
         raise RuntimeError(f"Jupyter registration failed: {[item.content for item in results]}")
     return (
-        str(interactive.structured_content["server_id"]),
-        {str(result.structured_content["server_id"]) for result in batch_results},
+        str(interactive.structured_content["target_id"]),
+        {str(result.structured_content["target_id"]) for result in batch_results},
     )
 
 
@@ -123,17 +122,14 @@ async def _submit(
                     "type": "BATCH" if pool == "BATCH" else "USER",
                     "id": "batch-smoke-job" if pool == "BATCH" else "batch-pool-user",
                 },
-                "kernel_name": "python3",
+                "runtime_profile": "python3",
                 "source": inline_source(
                     f"batch-pool-plan-{unique}-{name}",
                     [
                         {
                             "skill_name": "report",
                             "tool_name": f"batch_pool_{name}",
-                            "code": (
-                                f"import time\ntime.sleep({sleep_seconds})\n"
-                                f"print('{name}')"
-                            ),
+                            "code": (f"import time\ntime.sleep({sleep_seconds})\nprint('{name}')"),
                         }
                     ],
                 ),
@@ -213,17 +209,13 @@ async def main() -> None:
             *(_wait_for_terminal(client, execution_id) for execution_id in batch_ids),
         )
         if any(state["status"] != "SUCCEEDED" for state in batch_states):
-            raise RuntimeError(
-                f"BATCH pool execution failed: {batch_states}"
-            )
-        actual_batch_servers = {
-            str(state["jupyter_server_id"]) for state in batch_states
-        }
+            raise RuntimeError(f"BATCH pool execution failed: {batch_states}")
+        actual_batch_servers = {str(state["runtime_target_id"]) for state in batch_states}
         if actual_batch_servers != batch_server_ids:
             raise RuntimeError(
                 f"Expected both BATCH servers {batch_server_ids}, got {actual_batch_servers}"
             )
-        if str(interactive_state["jupyter_server_id"]) != interactive_server_id:
+        if str(interactive_state["runtime_target_id"]) != interactive_server_id:
             raise RuntimeError("INTERACTIVE execution escaped its configured pool server.")
         if interactive_server_id in actual_batch_servers:
             raise RuntimeError("INTERACTIVE and BATCH pools shared a server unexpectedly.")

@@ -17,8 +17,8 @@ from executor_service.domain.enums import (
     ExecutionMode,
     ExecutionStatus,
     FailureType,
-    KernelCleanupStatus,
     RetryStrategy,
+    RuntimeSessionCleanupStatus,
     TriggerType,
 )
 
@@ -33,7 +33,7 @@ async def _wait(
     for _ in range(300):
         execution = await container.execution_service.get(execution_id)
         if execution.status in statuses and (
-            not require_kernel or execution.kernel_id is not None
+            not require_kernel or execution.runtime_session_id is not None
         ):
             return execution
         await asyncio.sleep(0.2)
@@ -62,7 +62,7 @@ async def main() -> None:
                 idempotency_key=f"worker-recovery-submit-{unique}",
                 mode=ExecutionMode.STATIC,
                 trigger_type=TriggerType.INTERACTIVE,
-                kernel_name="python3",
+                runtime_profile="python3",
                 code_source_type=CodeSourceType.INLINE,
                 source_content=code,
                 code_path=None,
@@ -89,7 +89,7 @@ async def main() -> None:
             {ExecutionStatus.RUNNING},
             require_kernel=True,
         )
-        original_kernel = running.kernel_id
+        original_kernel = running.runtime_session_id
     finally:
         await first.stop()
 
@@ -101,8 +101,8 @@ async def main() -> None:
             failed.failure_type != FailureType.WORKER_SHUTDOWN
             or failed.retry_strategy != RetryStrategy.FROM_START
             or failed.retry_from_sequence != 0
-            or failed.kernel_cleanup_status != KernelCleanupStatus.SUCCEEDED
-            or failed.kernel_id is not None
+            or failed.runtime_session_cleanup_status != RuntimeSessionCleanupStatus.SUCCEEDED
+            or failed.runtime_session_id is not None
         ):
             raise RuntimeError(f"Worker shutdown was not classified safely: {failed}")
 
@@ -124,14 +124,14 @@ async def main() -> None:
             len(attempts) != 2
             or attempts[0].failure_type != FailureType.WORKER_SHUTDOWN
             or attempts[0].retry_strategy != RetryStrategy.FROM_START
-            or attempts[0].kernel_cleanup_status != KernelCleanupStatus.SUCCEEDED
+            or attempts[0].runtime_session_cleanup_status != RuntimeSessionCleanupStatus.SUCCEEDED
         ):
             raise RuntimeError(f"Recovery Attempt history is incomplete: {attempts}")
         print("execution_id:", submitted.id)
         print("initial_kernel:", original_kernel)
         print("failure_type:", failed.failure_type.value)
         print("retry_strategy:", failed.retry_strategy.value)
-        print("kernel_cleanup_status:", failed.kernel_cleanup_status.value)
+        print("runtime_session_cleanup_status:", failed.runtime_session_cleanup_status.value)
         print("retry_status:", succeeded.status.value)
         print("attempts:", len(attempts))
     finally:

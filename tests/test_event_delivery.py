@@ -18,14 +18,14 @@ from executor_service.domain.enums import (
     AttemptStatus,
     CodeSourceType,
     ExecutionMode,
-    JupyterPool,
-    JupyterServerStatus,
+    RuntimePool,
+    RuntimeTargetStatus,
     TriggerType,
 )
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
-from executor_service.infrastructure.db.models import ExecutionAttemptORM, JupyterServerORM
+from executor_service.infrastructure.db.models import ExecutionAttemptORM, RuntimeTargetORM
 from executor_service.infrastructure.db.session import create_session_factory
-from executor_service.infrastructure.jupyter_registry import JupyterServerRegistry
+from executor_service.infrastructure.runtime_registry import RuntimeTargetRegistry
 from executor_service.infrastructure.worker import ExecutionWorker
 
 
@@ -59,7 +59,7 @@ def _worker(
     consumer: str,
 ) -> ExecutionWorker:
     settings = Settings(
-        jupyter_enabled=False,
+        runtime_enabled=False,
         workspace_host_root=tmp_path,
         redis_stream=stream,
         redis_dead_letter_stream=dlq_stream,
@@ -73,7 +73,7 @@ def _worker(
         session_factory=session_factory,
         redis=redis,
         settings=settings,
-        registry=JupyterServerRegistry(session_factory, settings),
+        registry=RuntimeTargetRegistry(session_factory, settings),
         artifact_manager=ExecutionArtifactManager(session_factory, settings),
     )
     # These tests exercise active-Worker internals without starting background loops.
@@ -102,7 +102,7 @@ def _command() -> SubmitExecutionCommand:
         idempotency_key=f"event-delivery-{uuid4().hex}",
         mode=ExecutionMode.STATIC,
         trigger_type=TriggerType.INTERACTIVE,
-        kernel_name="python3",
+        runtime_profile="python3",
         code_source_type=CodeSourceType.INLINE,
         source_content="print('claim once')",
         code_path=None,
@@ -283,14 +283,14 @@ async def test_two_workers_create_only_one_execution_attempt(
     session_factory = create_session_factory(engine)
     async with session_factory() as session, session.begin():
         session.add(
-            JupyterServerORM(
-                name=f"claim-server-{uuid4().hex}",
-                endpoint="http://127.0.0.1:9",
+            RuntimeTargetORM(
+                name=f"claim-target-{uuid4().hex}",
+                connection_config={"endpoint": "http://127.0.0.1:9"},
                 credential_ref="settings:JUPYTER_TOKEN",
-                pool=JupyterPool.INTERACTIVE,
-                status=JupyterServerStatus.ACTIVE,
+                pool=RuntimePool.INTERACTIVE,
+                status=RuntimeTargetStatus.ACTIVE,
                 max_concurrent_executions=2,
-                supported_kernels=["python3"],
+                supported_profiles=["python3"],
                 enabled=True,
             )
         )

@@ -14,17 +14,17 @@ from executor_service.application.commands import (
     StepSpec,
 )
 from executor_service.application.execution_queries import ExecutionQueryService
-from executor_service.application.jupyter_servers import (
-    JupyterServerManager,
-    RemoveJupyterServerCommand,
-    SetJupyterServerStateCommand,
-    UpsertJupyterServerCommand,
+from executor_service.application.runtime_targets import (
+    RemoveRuntimeTargetCommand,
+    RuntimeTargetManager,
+    SetRuntimeTargetStateCommand,
+    UpsertRuntimeTargetCommand,
 )
 from executor_service.application.services import ExecutionService
 from executor_service.domain.enums import (
     ExecutionStatus,
-    JupyterPool,
-    JupyterServerStatus,
+    RuntimePool,
+    RuntimeTargetStatus,
 )
 from executor_service.domain.errors import DomainError
 from executor_service.interfaces.mcp.execution_specs import ExecutionSpecResolver
@@ -43,12 +43,12 @@ from executor_service.interfaces.mcp.schemas import (
     ExecutionSubmitRequest,
     ExecutionTraceResponse,
     ExecutorCapabilities,
-    JupyterServerPageResponse,
-    JupyterServerProbeRequest,
-    JupyterServerRemoveRequest,
-    JupyterServerResponse,
-    JupyterServerSetStateRequest,
-    JupyterServerUpsertRequest,
+    RuntimeTargetPageResponse,
+    RuntimeTargetProbeRequest,
+    RuntimeTargetRemoveRequest,
+    RuntimeTargetResponse,
+    RuntimeTargetSetStateRequest,
+    RuntimeTargetUpsertRequest,
 )
 from executor_service.tracing import TracingManager
 
@@ -67,7 +67,7 @@ async def _trace_call[T](
 
 def build_mcp_server(
     execution_service: ExecutionService,
-    jupyter_manager: JupyterServerManager | None = None,
+    runtime_manager: RuntimeTargetManager | None = None,
     execution_queries: ExecutionQueryService | None = None,
     tracing: TracingManager | None = None,
     execution_spec_resolver: ExecutionSpecResolver | None = None,
@@ -84,14 +84,14 @@ def build_mcp_server(
     @server.tool(description="Return executor protocol and runtime capabilities.")
     async def executor_get_capabilities() -> ExecutorCapabilities:
         management_tools: tuple[str, ...] = ()
-        if jupyter_manager is not None:
+        if runtime_manager is not None:
             management_tools = (
-                "jupyter_server_upsert",
-                "jupyter_server_list",
-                "jupyter_server_get",
-                "jupyter_server_probe",
-                "jupyter_server_remove",
-                "jupyter_server_set_state",
+                "runtime_target_upsert",
+                "runtime_target_list",
+                "runtime_target_get",
+                "runtime_target_probe",
+                "runtime_target_remove",
+                "runtime_target_set_state",
             )
         query_tools: tuple[str, ...] = ()
         if execution_queries is not None:
@@ -179,7 +179,7 @@ def build_mcp_server(
 
     @server.tool(
         description=(
-            "Resume a FAILED execution from its failed step using the retained kernel. "
+            "Resume a FAILED execution from its failed step using the retained Runtime session. "
             "The call queues a new attempt and returns immediately."
         )
     )
@@ -248,7 +248,8 @@ def build_mcp_server(
 
     @server.tool(
         description=(
-            "Finalize a waiting DYNAMIC execution, persist its notebook, and stop its kernel."
+            "Finalize a waiting DYNAMIC execution, persist its notebook, and stop its "
+            "Runtime session."
         )
     )
     async def execution_finish(request: ExecutionFinishRequest) -> ExecutionResponse:
@@ -407,25 +408,28 @@ def build_mcp_server(
                 raise ToolError(str(exc)) from exc
             return ExecutionArtifactResponse.from_view(view)
 
-    if jupyter_manager is not None:
+    if runtime_manager is not None:
 
         @server.tool(
             description=(
-                "Register or update a Jupyter server. The token is encrypted at rest and never "
-                "returned. The server is probed immediately and becomes schedulable only when "
+                "Register or update a Runtime Target. The credential is encrypted at rest and "
+                "never returned. The target is probed immediately and becomes schedulable only "
                 "healthy."
             )
         )
-        async def jupyter_server_upsert(
-            request: JupyterServerUpsertRequest,
-        ) -> JupyterServerResponse:
+        async def runtime_target_upsert(
+            request: RuntimeTargetUpsertRequest,
+        ) -> RuntimeTargetResponse:
             try:
-                view = await jupyter_manager.upsert(
-                    UpsertJupyterServerCommand(
+                view = await runtime_manager.upsert(
+                    UpsertRuntimeTargetCommand(
                         idempotency_key=request.idempotency_key,
                         name=request.name,
-                        endpoint=str(request.endpoint).rstrip("/"),
-                        token=(request.token.get_secret_value() if request.token else None),
+                        runtime_type=request.runtime_type,
+                        connection_config=request.connection_config,
+                        credential=(
+                            request.credential.get_secret_value() if request.credential else None
+                        ),
                         pool=request.pool,
                         actor_type=request.actor.type,
                         actor_id=request.actor.id,
@@ -434,82 +438,88 @@ def build_mcp_server(
                 )
             except DomainError as exc:
                 raise ToolError(str(exc)) from exc
-            return JupyterServerResponse.from_view(view)
+            return RuntimeTargetResponse.from_view(view)
 
-        @server.tool(description="List registered Jupyter servers and current capacity state.")
-        async def jupyter_server_list(
-            pool: JupyterPool | None = None,
+        @server.tool(description="List registered Runtime Targets and current capacity state.")
+        async def runtime_target_list(
+            pool: RuntimePool | None = None,
             cursor: str | None = None,
             limit: int = 100,
-        ) -> JupyterServerPageResponse:
-            page = await jupyter_manager.list(pool, cursor=cursor, limit=max(1, min(limit, 200)))
-            return JupyterServerPageResponse.from_page(page)
+        ) -> RuntimeTargetPageResponse:
+            page = await runtime_manager.list(pool, cursor=cursor, limit=max(1, min(limit, 200)))
+            return RuntimeTargetPageResponse.from_page(page)
 
-        @server.tool(description="Get one registered Jupyter server without exposing its token.")
-        async def jupyter_server_get(server_id: UUID) -> JupyterServerResponse:
+        @server.tool(
+            description="Get one registered Runtime Target without exposing its credential."
+        )
+        async def runtime_target_get(target_id: UUID) -> RuntimeTargetResponse:
             try:
-                view = await jupyter_manager.get(server_id)
+                view = await runtime_manager.get(target_id)
             except DomainError as exc:
                 raise ToolError(str(exc)) from exc
-            return JupyterServerResponse.from_view(view)
+            return RuntimeTargetResponse.from_view(view)
 
-        @server.tool(description="Probe a Jupyter server now and persist its health and kernels.")
-        async def jupyter_server_probe(
-            request: JupyterServerProbeRequest,
-        ) -> JupyterServerResponse:
+        @server.tool(
+            description=(
+                "Probe a Runtime Target now and persist its health and supported profiles."
+            )
+        )
+        async def runtime_target_probe(
+            request: RuntimeTargetProbeRequest,
+        ) -> RuntimeTargetResponse:
             try:
-                view = await jupyter_manager.probe(
-                    request.server_id,
+                view = await runtime_manager.probe(
+                    request.target_id,
                     actor_type=request.actor.type,
                     actor_id=request.actor.id,
                 )
             except DomainError as exc:
                 raise ToolError(str(exc)) from exc
-            return JupyterServerResponse.from_view(view)
+            return RuntimeTargetResponse.from_view(view)
 
         @server.tool(
             description=(
-                "Soft-remove a Jupyter server. It remains queryable but is disabled, marked "
+                "Soft-remove a Runtime Target. It remains queryable but is disabled, marked "
                 "OFFLINE, and excluded from new scheduling."
             )
         )
-        async def jupyter_server_remove(
-            request: JupyterServerRemoveRequest,
-        ) -> JupyterServerResponse:
+        async def runtime_target_remove(
+            request: RuntimeTargetRemoveRequest,
+        ) -> RuntimeTargetResponse:
             try:
-                view = await jupyter_manager.remove(
-                    RemoveJupyterServerCommand(
+                view = await runtime_manager.remove(
+                    RemoveRuntimeTargetCommand(
                         idempotency_key=request.idempotency_key,
-                        server_id=request.server_id,
+                        target_id=request.target_id,
                         actor_type=request.actor.type,
                         actor_id=request.actor.id,
                     )
                 )
             except DomainError as exc:
                 raise ToolError(str(exc)) from exc
-            return JupyterServerResponse.from_view(view)
+            return RuntimeTargetResponse.from_view(view)
 
         @server.tool(
             description=(
-                "Set a server to DRAINING to stop new scheduling while current work finishes, "
+                "Set a target to DRAINING to stop new scheduling while current work finishes, "
                 "or probe and return it to ACTIVE."
             )
         )
-        async def jupyter_server_set_state(
-            request: JupyterServerSetStateRequest,
-        ) -> JupyterServerResponse:
+        async def runtime_target_set_state(
+            request: RuntimeTargetSetStateRequest,
+        ) -> RuntimeTargetResponse:
             try:
-                view = await jupyter_manager.set_state(
-                    SetJupyterServerStateCommand(
+                view = await runtime_manager.set_state(
+                    SetRuntimeTargetStateCommand(
                         idempotency_key=request.idempotency_key,
-                        server_id=request.server_id,
-                        desired_state=JupyterServerStatus(request.desired_state),
+                        target_id=request.target_id,
+                        desired_state=RuntimeTargetStatus(request.desired_state),
                         actor_type=request.actor.type,
                         actor_id=request.actor.id,
                     )
                 )
             except DomainError as exc:
                 raise ToolError(str(exc)) from exc
-            return JupyterServerResponse.from_view(view)
+            return RuntimeTargetResponse.from_view(view)
 
     return server

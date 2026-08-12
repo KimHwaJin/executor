@@ -25,9 +25,9 @@ from executor_service.domain.enums import (
     CodeSourceType,
     ExecutionMode,
     ExecutionStatus,
-    JupyterPool,
-    JupyterServerStatus,
     OutboxStatus,
+    RuntimePool,
+    RuntimeTargetStatus,
     TriggerType,
 )
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
@@ -35,13 +35,13 @@ from executor_service.infrastructure.db.base import Base
 from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
     ExecutionORM,
-    JupyterServerORM,
     OutboxEventORM,
+    RuntimeTargetORM,
 )
 from executor_service.infrastructure.db.repositories import SQLAlchemyUnitOfWork
 from executor_service.infrastructure.db.session import create_engine, create_session_factory
-from executor_service.infrastructure.jupyter_registry import JupyterServerRegistry
 from executor_service.infrastructure.outbox import OutboxPublisher
+from executor_service.infrastructure.runtime_registry import RuntimeTargetRegistry
 from executor_service.infrastructure.worker import ExecutionWorker
 from executor_service.tracing import TracingManager
 
@@ -89,7 +89,7 @@ def _command(name: str) -> SubmitExecutionCommand:
         idempotency_key=f"postgres-race-{name}-{uuid4().hex}",
         mode=ExecutionMode.STATIC,
         trigger_type=TriggerType.INTERACTIVE,
-        kernel_name="python3",
+        runtime_profile="python3",
         code_source_type=CodeSourceType.INLINE,
         source_content=f"print('{name}')",
         code_path=None,
@@ -111,15 +111,15 @@ def _command(name: str) -> SubmitExecutionCommand:
     )
 
 
-def _server(*, capacity: int) -> JupyterServerORM:
-    return JupyterServerORM(
-        name=f"postgres-race-server-{uuid4().hex}",
-        endpoint="http://127.0.0.1:9",
+def _server(*, capacity: int) -> RuntimeTargetORM:
+    return RuntimeTargetORM(
+        name=f"postgres-race-target-{uuid4().hex}",
+        connection_config={"endpoint": "http://127.0.0.1:9"},
         credential_ref="settings:JUPYTER_TOKEN",
-        pool=JupyterPool.INTERACTIVE,
-        status=JupyterServerStatus.ACTIVE,
+        pool=RuntimePool.INTERACTIVE,
+        status=RuntimeTargetStatus.ACTIVE,
         max_concurrent_executions=capacity,
-        supported_kernels=["python3"],
+        supported_profiles=["python3"],
         enabled=True,
     )
 
@@ -138,7 +138,7 @@ def _workers(
     for index in range(count):
         redis = Redis.from_url("redis://127.0.0.1:6379/15", decode_responses=True)
         settings = Settings(
-            jupyter_enabled=False,
+            runtime_enabled=False,
             workspace_host_root=tmp_path / f"worker-{index}",
             execution_consumer_name=f"postgres-worker-{index}",
         )
@@ -147,7 +147,7 @@ def _workers(
                 session_factory=session_factory,
                 redis=redis,
                 settings=settings,
-                registry=JupyterServerRegistry(session_factory, settings),
+                registry=RuntimeTargetRegistry(session_factory, settings),
                 artifact_manager=ExecutionArtifactManager(session_factory, settings),
             )
         )
@@ -170,9 +170,7 @@ async def test_concurrent_workers_create_exactly_one_attempt_for_an_execution(
     execution = await service.submit(_command("single-claim"))
     workers, redis_clients = _workers(postgres_engine, tmp_path, count=8)
     try:
-        claims = await asyncio.gather(
-            *(worker._claim(execution.id) for worker in workers)
-        )
+        claims = await asyncio.gather(*(worker._claim(execution.id) for worker in workers))
     finally:
         await _close_redis(redis_clients)
 
@@ -192,9 +190,9 @@ async def test_concurrent_workers_never_oversubscribe_jupyter_capacity(
 ) -> None:
     service = _service(postgres_engine)
     session_factory = create_session_factory(postgres_engine)
-    server = _server(capacity=2)
+    target = _server(capacity=2)
     async with session_factory() as session, session.begin():
-        session.add(server)
+        session.add(target)
     for index in range(12):
         await service.submit(_command(f"capacity-{index}"))
     workers, redis_clients = _workers(postgres_engine, tmp_path, count=6)
@@ -203,9 +201,7 @@ async def test_concurrent_workers_never_oversubscribe_jupyter_capacity(
             async with session_factory() as session:
                 queued_ids = list(
                     await session.scalars(
-                        select(ExecutionORM.id).where(
-                            ExecutionORM.status == ExecutionStatus.QUEUED
-                        )
+                        select(ExecutionORM.id).where(ExecutionORM.status == ExecutionStatus.QUEUED)
                     )
                 )
             if not queued_ids:
@@ -222,14 +218,12 @@ async def test_concurrent_workers_never_oversubscribe_jupyter_capacity(
     async with session_factory() as session:
         running_count = await session.scalar(
             select(func.count(ExecutionAttemptORM.id)).where(
-                ExecutionAttemptORM.jupyter_server_id == server.id,
+                ExecutionAttemptORM.runtime_target_id == target.id,
                 ExecutionAttemptORM.status == AttemptStatus.RUNNING,
             )
         )
         queued_count = await session.scalar(
-            select(func.count(ExecutionORM.id)).where(
-                ExecutionORM.status == ExecutionStatus.QUEUED
-            )
+            select(func.count(ExecutionORM.id)).where(ExecutionORM.status == ExecutionStatus.QUEUED)
         )
     assert running_count == 2
     assert queued_count == 10
@@ -296,10 +290,9 @@ async def test_concurrent_outbox_publishers_emit_one_stream_message(
     session_factory = create_session_factory(postgres_engine)
     unique = uuid4().hex
     stream = f"test:executor:postgres-outbox:{unique}"
-    settings = Settings(jupyter_enabled=False, redis_stream=stream)
+    settings = Settings(runtime_enabled=False, redis_stream=stream)
     redis_clients = [
-        Redis.from_url("redis://127.0.0.1:6379/15", decode_responses=True)
-        for _ in range(2)
+        Redis.from_url("redis://127.0.0.1:6379/15", decode_responses=True) for _ in range(2)
     ]
     publishers = [
         OutboxPublisher(
@@ -314,9 +307,7 @@ async def test_concurrent_outbox_publishers_emit_one_stream_message(
     ]
     messages: list[tuple[str, dict[str, str]]] = []
     try:
-        published = await asyncio.gather(
-            *(publisher.publish_batch() for publisher in publishers)
-        )
+        published = await asyncio.gather(*(publisher.publish_batch() for publisher in publishers))
         messages = await redis_clients[0].xrange(stream)
     finally:
         await redis_clients[0].delete(stream)

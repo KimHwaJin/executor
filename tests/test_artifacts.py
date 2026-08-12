@@ -17,8 +17,8 @@ from executor_service.domain.enums import (
     AttemptStatus,
     CodeSourceType,
     ExecutionMode,
-    JupyterPool,
-    JupyterServerStatus,
+    RuntimePool,
+    RuntimeTargetStatus,
     StepStatus,
     TriggerType,
 )
@@ -29,8 +29,8 @@ from executor_service.infrastructure.db.models import (
     ExecutionArtifactORM,
     ExecutionAttemptORM,
     ExecutionStepAttemptORM,
-    JupyterServerORM,
     OutboxEventORM,
+    RuntimeTargetORM,
 )
 from executor_service.infrastructure.db.session import create_session_factory
 from executor_service.infrastructure.execution_queries import SQLAlchemyExecutionQueryService
@@ -42,7 +42,7 @@ def _command() -> SubmitExecutionCommand:
         idempotency_key="artifact-submit",
         mode=ExecutionMode.STATIC,
         trigger_type=TriggerType.INTERACTIVE,
-        kernel_name="python3",
+        runtime_profile="python3",
         code_source_type=CodeSourceType.INLINE,
         source_content="print('artifact')",
         code_path=None,
@@ -70,21 +70,21 @@ async def _seed_attempt(
     execution_id: UUID,
     step_id: UUID,
 ) -> tuple[UUID, UUID]:
-    server_id = uuid4()
+    target_id = uuid4()
     attempt_id = uuid4()
     now = utc_now()
     session_factory = create_session_factory(engine)
     async with session_factory() as session, session.begin():
         session.add(
-            JupyterServerORM(
-                id=server_id,
+            RuntimeTargetORM(
+                id=target_id,
                 name="artifact-jupyter",
-                endpoint="http://127.0.0.1:8888",
+                connection_config={"endpoint": "http://127.0.0.1:8888"},
                 credential_ref="settings:JUPYTER_TOKEN",
-                pool=JupyterPool.INTERACTIVE,
-                status=JupyterServerStatus.ACTIVE,
+                pool=RuntimePool.INTERACTIVE,
+                status=RuntimeTargetStatus.ACTIVE,
                 max_concurrent_executions=1,
-                supported_kernels=["python3"],
+                supported_profiles=["python3"],
                 enabled=True,
             )
         )
@@ -93,8 +93,8 @@ async def _seed_attempt(
                 id=attempt_id,
                 execution_id=execution_id,
                 attempt_number=1,
-                jupyter_server_id=server_id,
-                kernel_id="artifact-kernel",
+                runtime_target_id=target_id,
+                runtime_session_id="artifact-kernel",
                 status=AttemptStatus.RUNNING,
                 lease_owner="artifact-worker",
                 lease_expires_at=now + timedelta(minutes=1),
@@ -116,7 +116,7 @@ async def _seed_attempt(
                 started_at=now,
             )
         )
-    return server_id, attempt_id
+    return target_id, attempt_id
 
 
 async def test_artifact_discovery_manifest_lineage_and_idempotency(
@@ -127,9 +127,9 @@ async def test_artifact_discovery_manifest_lineage_and_idempotency(
     execution = await execution_service.submit(_command())
     _, attempt_id = await _seed_attempt(engine, execution.id, execution.steps[0].id)
     settings = Settings(
-        jupyter_enabled=False,
+        runtime_enabled=False,
         workspace_host_root=tmp_path,
-        workspace_jupyter_root="/workspace/pv",
+        workspace_runtime_root="/workspace/pv",
     )
     workspace = WorkspaceManager(tmp_path).prepare(execution)
     manager = ExecutionArtifactManager(create_session_factory(engine), settings)
@@ -228,7 +228,7 @@ async def test_manifest_rejects_path_outside_pv(
 ) -> None:
     execution = await execution_service.submit(_command())
     _, attempt_id = await _seed_attempt(engine, execution.id, execution.steps[0].id)
-    settings = Settings(jupyter_enabled=False, workspace_host_root=tmp_path)
+    settings = Settings(runtime_enabled=False, workspace_host_root=tmp_path)
     workspace = WorkspaceManager(tmp_path).prepare(execution)
     manager = ExecutionArtifactManager(create_session_factory(engine), settings)
     before = manager.snapshot(workspace)

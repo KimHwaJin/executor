@@ -6,18 +6,19 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from executor_service.application.services import ExecutionService
 from executor_service.config import Settings
+from executor_service.domain.enums import RuntimeType
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.repositories import SQLAlchemyUnitOfWork
 from executor_service.infrastructure.db.session import create_engine, create_session_factory
 from executor_service.infrastructure.execution_queries import SQLAlchemyExecutionQueryService
-from executor_service.infrastructure.jupyter import JupyterGateway
-from executor_service.infrastructure.jupyter_registry import JupyterServerRegistry
 from executor_service.infrastructure.outbox import OutboxPublisher
+from executor_service.infrastructure.runtime_drivers import ConfiguredRuntimeDriverFactory
+from executor_service.infrastructure.runtime_registry import RuntimeTargetRegistry
 from executor_service.infrastructure.worker import ExecutionWorker
 from executor_service.interfaces.mcp.execution_specs import ExecutionSpecResolver
 from executor_service.tracing import TracingManager
 
-EXPECTED_SCHEMA_REVISION = "0013"
+EXPECTED_SCHEMA_REVISION = "0014"
 
 
 class ApplicationContainer:
@@ -36,7 +37,8 @@ class ApplicationContainer:
             inline_max_bytes=settings.execution_inline_spec_max_bytes,
             file_max_bytes=settings.execution_file_spec_max_bytes,
         )
-        self.jupyter_registry = JupyterServerRegistry(self.session_factory, settings)
+        self.runtime_driver_factory = ConfiguredRuntimeDriverFactory(settings)
+        self.runtime_registry = RuntimeTargetRegistry(self.session_factory, settings)
         self.artifact_manager = ExecutionArtifactManager(self.session_factory, settings)
         self.outbox_publisher = OutboxPublisher(
             session_factory=self.session_factory,
@@ -50,32 +52,33 @@ class ApplicationContainer:
             session_factory=self.session_factory,
             redis=self.redis,
             settings=settings,
-            registry=self.jupyter_registry,
+            registry=self.runtime_registry,
+            driver_factory=self.runtime_driver_factory,
             artifact_manager=self.artifact_manager,
             tracing=self.tracing,
         )
 
     async def start(self) -> None:
         self.outbox_publisher.start()
-        if self.settings.jupyter_enabled:
-            gateway = JupyterGateway(
-                self.settings.jupyter_endpoint,
+        if self.settings.runtime_enabled:
+            driver = self.runtime_driver_factory.create(
+                RuntimeType.JUPYTER,
+                {"endpoint": self.settings.jupyter_endpoint},
                 self.settings.jupyter_auth_token,
-                self.settings.jupyter_request_timeout_seconds,
             )
             try:
-                supported_kernels = await gateway.kernel_specs()
+                supported_profiles = await driver.supported_profiles()
             except Exception:
-                supported_kernels = ["python3"]
+                supported_profiles = ["python3"]
             finally:
-                await gateway.close()
-            await self.jupyter_registry.ensure_configured_server(supported_kernels)
-            await self.jupyter_registry.start()
+                await driver.close()
+            await self.runtime_registry.ensure_configured_target(supported_profiles)
+            await self.runtime_registry.start()
             await self.execution_worker.start()
 
     async def stop(self) -> None:
         await self.execution_worker.stop()
-        await self.jupyter_registry.stop()
+        await self.runtime_registry.stop()
         await self.outbox_publisher.stop()
         await self.tracing.shutdown()
         await self.redis.aclose()
@@ -95,10 +98,10 @@ class ApplicationContainer:
         except Exception:
             pass
         checks = {"postgresql": database_ready, "redis": redis_ready}
-        if self.settings.jupyter_enabled:
+        if self.settings.runtime_enabled:
             checks["worker_accepting"] = self.execution_worker.accepting_work
             try:
-                checks["jupyter_fleet"] = await self.jupyter_registry.any_active()
+                checks["runtime_fleet"] = await self.runtime_registry.any_active()
             except Exception:
-                checks["jupyter_fleet"] = False
+                checks["runtime_fleet"] = False
         return checks

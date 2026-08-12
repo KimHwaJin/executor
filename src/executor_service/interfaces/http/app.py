@@ -19,12 +19,12 @@ from executor_service.domain.errors import (
     InvalidCursorError,
     InvalidExecutionSpecError,
     InvalidStateTransitionError,
-    JupyterServerNotFoundError,
-    JupyterServerPurgeConflictError,
     PersistenceConflictError,
+    RuntimeTargetNotFoundError,
+    RuntimeTargetPurgeConflictError,
 )
 from executor_service.interfaces.http.executions import build_execution_router
-from executor_service.interfaces.http.jupyter_fleet import build_jupyter_fleet_router
+from executor_service.interfaces.http.runtime_targets import build_runtime_target_router
 from executor_service.interfaces.mcp.server import build_mcp_server
 from executor_service.tracing import TraceContextMiddleware
 
@@ -32,7 +32,7 @@ from executor_service.tracing import TraceContextMiddleware
 def create_app(container: ApplicationContainer) -> FastAPI:
     mcp_server = build_mcp_server(
         container.execution_service,
-        container.jupyter_registry,
+        container.runtime_registry,
         container.execution_queries,
         container.tracing,
         container.execution_spec_resolver,
@@ -63,7 +63,7 @@ def create_app(container: ApplicationContainer) -> FastAPI:
         title="Executor Service",
         version="0.1.0",
         description=(
-            "Asynchronous Jupyter execution REST facade. MCP Streamable HTTP remains available "
+            "Asynchronous Runtime execution REST facade. MCP Streamable HTTP remains available "
             "at /mcp."
         ),
         docs_url="/docs",
@@ -105,7 +105,7 @@ def create_app(container: ApplicationContainer) -> FastAPI:
             (
                 ExecutionNotFoundError,
                 ExecutionArtifactNotFoundError,
-                JupyterServerNotFoundError,
+                RuntimeTargetNotFoundError,
             ),
         ):
             http_status = status.HTTP_404_NOT_FOUND
@@ -117,7 +117,7 @@ def create_app(container: ApplicationContainer) -> FastAPI:
                 ExecutionVersionConflictError,
                 IdempotencyConflictError,
                 InvalidStateTransitionError,
-                JupyterServerPurgeConflictError,
+                RuntimeTargetPurgeConflictError,
                 PersistenceConflictError,
             ),
         ):
@@ -156,7 +156,7 @@ def create_app(container: ApplicationContainer) -> FastAPI:
         }
 
     app.include_router(build_execution_router(container))
-    app.include_router(build_jupyter_fleet_router(container))
+    app.include_router(build_runtime_target_router(container))
 
     # Register this catch-all mount last so operational routes remain reachable.
     app.mount("/", mcp_app)

@@ -18,7 +18,7 @@ class WorkspacePathError(ValueError):
 @dataclass(frozen=True, slots=True)
 class ExecutionWorkspace:
     host_root: Path
-    jupyter_relative_path: str
+    runtime_relative_path: str
     code_dir: Path
     notebooks_dir: Path
     artifacts_dir: Path
@@ -50,9 +50,7 @@ class WorkspaceManager:
         )
         root = (self._host_root / relative).resolve()
         _ensure_within(root, self._host_root)
-        paths = {
-            name: root / name for name in ("code", "notebooks", "artifacts", "checkpoints")
-        }
+        paths = {name: root / name for name in ("code", "notebooks", "artifacts", "checkpoints")}
         for path in paths.values():
             path.mkdir(parents=True, exist_ok=True)
         artifact_paths = {
@@ -71,7 +69,7 @@ class WorkspaceManager:
             path.mkdir(parents=True, exist_ok=True)
         workspace = ExecutionWorkspace(
             host_root=root,
-            jupyter_relative_path=relative.as_posix(),
+            runtime_relative_path=relative.as_posix(),
             code_dir=paths["code"],
             notebooks_dir=paths["notebooks"],
             artifacts_dir=paths["artifacts"],
@@ -105,7 +103,7 @@ class WorkspaceManager:
     ) -> None:
         notebook = nbformat.v4.new_notebook(
             metadata={
-                "executor": {"workspace": workspace.jupyter_relative_path},
+                "executor": {"workspace": workspace.runtime_relative_path},
                 "kernelspec": {"name": "python3", "display_name": "Python 3", "language": "python"},
             }
         )

@@ -22,8 +22,8 @@ from executor_service.domain.enums import (
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.models import ExecutionORM, OutboxEventORM
 from executor_service.infrastructure.db.session import create_session_factory
-from executor_service.infrastructure.jupyter_registry import JupyterServerRegistry
 from executor_service.infrastructure.outbox import OutboxPublisher
+from executor_service.infrastructure.runtime_registry import RuntimeTargetRegistry
 from executor_service.infrastructure.worker import ExecutionWorker
 from executor_service.tracing import (
     TraceContextMiddleware,
@@ -45,7 +45,7 @@ def _settings(tmp_path: Path) -> Settings:
     return Settings(
         tracing_enabled=True,
         workspace_host_root=tmp_path,
-        jupyter_enabled=False,
+        runtime_enabled=False,
         execution_lease_seconds=30,
         execution_heartbeat_seconds=5,
     )
@@ -56,7 +56,7 @@ def _command() -> SubmitExecutionCommand:
         idempotency_key="tracing-submit",
         mode=ExecutionMode.STATIC,
         trigger_type=TriggerType.INTERACTIVE,
-        kernel_name="python3",
+        runtime_profile="python3",
         code_source_type=CodeSourceType.INLINE,
         source_content="print('sensitive generated code')",
         code_path=None,
@@ -95,9 +95,7 @@ async def test_trace_context_survives_outbox_redis_and_worker_boundary(
         async with session_factory() as session:
             execution_row = await session.get(ExecutionORM, execution.id)
             outbox_row = await session.scalar(
-                select(OutboxEventORM).where(
-                    OutboxEventORM.aggregate_id == execution.id
-                )
+                select(OutboxEventORM).where(OutboxEventORM.aggregate_id == execution.id)
             )
         assert execution_row is not None and outbox_row is not None
         assert execution_row.traceparent is not None
@@ -121,7 +119,7 @@ async def test_trace_context_survives_outbox_redis_and_worker_boundary(
             session_factory=session_factory,
             redis=redis,
             settings=settings,
-            registry=JupyterServerRegistry(session_factory, settings),
+            registry=RuntimeTargetRegistry(session_factory, settings),
             artifact_manager=ExecutionArtifactManager(session_factory, settings),
             tracing=tracing,
         )
@@ -164,10 +162,7 @@ async def test_trace_context_survives_outbox_redis_and_worker_boundary(
         assert len(trace_ids) == 1
         redis_parent = relevant["executor.redis.consume"].parent
         assert redis_parent is not None
-        assert (
-            redis_parent.span_id
-            == relevant["executor.outbox.publish"].context.span_id
-        )
+        assert redis_parent.span_id == relevant["executor.outbox.publish"].context.span_id
     finally:
         await tracing.shutdown()
 
@@ -179,9 +174,7 @@ async def test_asgi_middleware_extracts_inbound_w3c_context(tmp_path: Path) -> N
     async def endpoint(scope: Scope, receive: Receive, send: Send) -> None:
         del scope, receive
         with tracing.span("executor.mcp.test"):
-            await send(
-                cast(Message, {"type": "http.response.start", "status": 204, "headers": []})
-            )
+            await send(cast(Message, {"type": "http.response.start", "status": 204, "headers": []}))
             await send(cast(Message, {"type": "http.response.body", "body": b""}))
 
     try:
@@ -195,8 +188,7 @@ async def test_asgi_middleware_extracts_inbound_w3c_context(tmp_path: Path) -> N
         assert await tracing.force_flush()
         spans = {span.name: span for span in exporter.get_finished_spans()}
         assert (
-            spans["agent.graph"].context.trace_id
-            == spans["executor.http.request"].context.trace_id
+            spans["agent.graph"].context.trace_id == spans["executor.http.request"].context.trace_id
         )
         mcp_parent = spans["executor.mcp.test"].parent
         assert mcp_parent is not None

@@ -110,7 +110,7 @@ class ExecutionArtifactManager:
     ) -> None:
         self._session_factory = session_factory
         self._host_root = settings.workspace_host_root.resolve()
-        self._jupyter_root = Path(settings.workspace_jupyter_root)
+        self._runtime_root = Path(settings.workspace_runtime_root)
 
     def snapshot(self, workspace: ExecutionWorkspace) -> ArtifactSnapshot:
         files: dict[Path, FileState] = {}
@@ -301,7 +301,7 @@ class ExecutionArtifactManager:
         candidate = Path(raw)
         if candidate.is_absolute():
             try:
-                relative = candidate.relative_to(self._jupyter_root)
+                relative = candidate.relative_to(self._runtime_root)
                 candidate = self._host_root / relative
             except ValueError:
                 pass

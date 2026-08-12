@@ -1,8 +1,9 @@
-# Jupyter Pool Operations
+# Runtime Target Operations
 
-Executor uses two strict Jupyter scheduling pools: `INTERACTIVE` for user-driven analysis and
+Executor uses two strict Runtime scheduling pools: `INTERACTIVE` for user-driven analysis and
 `BATCH` for promoted Workflow runs. Pool selection is persisted on the Execution. The scheduler
-never falls back across pools.
+never falls back across pools. Jupyter is currently the only implemented Runtime Driver; adding a
+future driver does not change Execution, scheduling, Attempt, or fleet-management contracts.
 
 ## Local topology
 
@@ -24,48 +25,48 @@ docker compose --profile multi-jupyter --profile batch-jupyter up -d --wait
 
 Compose starts the containers but does not register the BATCH endpoints automatically. This
 matches production, where operators deploy or terminate Jupyter through the internal platform and
-then update Executor through `jupyter_server_upsert`, `jupyter_server_set_state`, and
-`jupyter_server_remove`.
+then update Executor through `runtime_target_upsert`, `runtime_target_set_state`, and
+`runtime_target_remove`.
 
 ## Scheduling contract
 
-PostgreSQL reservation and Jupyter server capacity are the only execution admission controls.
+PostgreSQL reservation and Runtime Target capacity are the only execution admission controls.
 Executor does not hold a process-local semaphore for the lifetime of an Execution. This lets newly
-registered servers contribute capacity without restarting Executor and keeps multi-Pod behavior
-consistent. If no server slot is available, the Execution remains durably `QUEUED`; reconciliation
+registered targets contribute capacity without restarting Executor and keeps multi-Pod behavior
+consistent. If no target slot is available, the Execution remains durably `QUEUED`; reconciliation
 tries it again after capacity changes. Cancellation remains available while work is queued.
 
-An eligible server must:
+An eligible target must:
 
-- have the exact requested `JupyterPool`;
+- have the exact requested `RuntimePool` and `runtime_type`;
 - be enabled and `ACTIVE`;
-- advertise the requested kernel when kernel specs are known;
+- advertise the requested `runtime_profile` when profiles are known;
 - have capacity after running, waiting, and retained-retry reservations are counted.
 
-Servers are considered in stable name order. With both BATCH servers configured at capacity one,
-the first two BATCH Executions occupy different servers. A third stays `QUEUED`; the reconciliation
-loop claims it after either server releases capacity. Free INTERACTIVE capacity is never used for
+Targets are considered in stable name order. With both BATCH targets configured at capacity one,
+the first two BATCH Executions occupy different targets. A third stays `QUEUED`; the reconciliation
+loop claims it after either target releases capacity. Free INTERACTIVE capacity is never used for
 that queued BATCH Execution.
 
-`/readyz` reports `jupyter_fleet=true` when any registered pool has an ACTIVE server. A BATCH-only
+`/readyz` reports `runtime_fleet=true` when any registered pool has an ACTIVE target. A BATCH-only
 outage therefore does not make the whole service unready or interrupt INTERACTIVE work. Use
-`jupyter_server_list` to inspect the status and capacity of each pool.
+`runtime_target_list` to inspect the status and capacity of each pool.
 
 ## Scale up
 
 1. Deploy the new Jupyter server with one of the approved kernel environments and the shared PVC.
-2. Call `jupyter_server_upsert` with its stable name, endpoint, token, `pool=BATCH`, and configured
-   maximum concurrency.
-3. Confirm the response is `ACTIVE`, supported kernels are populated, and
-   `jupyter_server_list(pool=BATCH)` includes the new server and capacity.
+2. Call `runtime_target_upsert` with `runtime_type=JUPYTER`, a stable name,
+   `connection_config={"endpoint": "..."}`, credential, `pool=BATCH`, and configured capacity.
+3. Confirm the response is `ACTIVE`, supported profiles are populated, and
+   `runtime_target_list(pool=BATCH)` includes the new target and capacity.
 4. Queued BATCH work is picked up automatically by PostgreSQL reconciliation.
 
 ## Drain and scale down
 
-1. Call `jupyter_server_set_state` with `DRAINING`. New work stops immediately.
-2. Wait until `drain_complete=true`; running work and retained retry kernels continue to reserve
+1. Call `runtime_target_set_state` with `DRAINING`. New work stops immediately.
+2. Wait until `drain_complete=true`; running work and retained retry sessions continue to reserve
    capacity until completed or expired.
-3. Call `jupyter_server_remove` to soft-disable the registry record while preserving historical
+3. Call `runtime_target_remove` to soft-disable the registry record while preserving historical
    foreign keys.
 4. Terminate the Jupyter deployment through the internal platform.
 
@@ -80,14 +81,14 @@ When Executor and Jupyter run on the same machine, both processes must see the s
 Workspace directory. Configure `.env` before starting Executor:
 
 ```env
-JUPYTER_ENABLED=true
-JUPYTER_SERVER_NAME=single-jupyter
+RUNTIME_ENABLED=true
+RUNTIME_TARGET_NAME=single-jupyter
 JUPYTER_ENDPOINT=http://127.0.0.1:8888
 JUPYTER_TOKEN=change-me-local-only
-JUPYTER_POOL=INTERACTIVE
-JUPYTER_MAX_CONCURRENT_EXECUTIONS=1
+RUNTIME_POOL=INTERACTIVE
+RUNTIME_DEFAULT_MAX_CONCURRENT_EXECUTIONS=1
 WORKSPACE_HOST_ROOT=C:/absolute/path/to/executor/notebook_dir
-WORKSPACE_JUPYTER_ROOT=C:/absolute/path/to/executor/notebook_dir
+WORKSPACE_RUNTIME_ROOT=C:/absolute/path/to/executor/notebook_dir
 ```
 
 Use the equivalent absolute POSIX path on Linux or macOS. Start Jupyter with that directory as its
@@ -105,7 +106,7 @@ After PostgreSQL, Redis, Jupyter, and Executor are running, execute the self-con
 uv run python scripts/single_jupyter_smoke.py
 ```
 
-The script registers/probes the configured Jupyter server through MCP, submits a two-Step STATIC
+The script registers/probes the configured Jupyter Runtime Target through MCP, submits a two-Step STATIC
 Execution, waits for `SUCCEEDED`, and verifies the `.ipynb` plus a generated Artifact. Override
 `EXECUTOR_MCP_URL`, `SINGLE_JUPYTER_ENDPOINT`, `SINGLE_JUPYTER_TOKEN`,
 `SINGLE_JUPYTER_KERNEL`, or `SINGLE_JUPYTER_TIMEOUT_SECONDS` when testing non-default endpoints.
@@ -122,6 +123,6 @@ uv run python scripts/jupyter_batch_pool_smoke.py
 ```
 
 The future Workflow batch service should submit successful promoted plans with
-`trigger_type=BATCH` and static execution mode. Executor derives `jupyter_pool=BATCH`; callers do
+`trigger_type=BATCH` and static execution mode. Executor derives `runtime_pool=BATCH`; callers do
 not choose a pool directly. Workflow scheduling and report generation remain outside this
 Executor repository.

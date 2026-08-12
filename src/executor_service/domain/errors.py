@@ -33,15 +33,15 @@ class PersistenceConflictError(DomainError):
     """A uniqueness or optimistic concurrency constraint was violated."""
 
 
-class JupyterServerNotFoundError(DomainError):
+class RuntimeTargetNotFoundError(DomainError):
     pass
 
 
-class JupyterServerConfigurationError(DomainError):
+class RuntimeTargetConfigurationError(DomainError):
     pass
 
 
-class JupyterServerPurgeConflictError(DomainError):
+class RuntimeTargetPurgeConflictError(DomainError):
     pass
 
 

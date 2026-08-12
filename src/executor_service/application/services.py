@@ -17,7 +17,7 @@ from executor_service.domain.enums import (
     ActorType,
     ExecutionMode,
     ExecutionStatus,
-    JupyterPool,
+    RuntimePool,
     TriggerType,
 )
 from executor_service.domain.errors import (
@@ -53,8 +53,9 @@ class ExecutionService:
                     request_fingerprint=fingerprint,
                     mode=command.mode,
                     trigger_type=command.trigger_type,
-                    jupyter_pool=JupyterPool(command.trigger_type.value),
-                    kernel_name=command.kernel_name,
+                    runtime_type=command.runtime_type,
+                    runtime_pool=RuntimePool(command.trigger_type.value),
+                    runtime_profile=command.runtime_profile,
                     code_source_type=command.code_source_type,
                     source_content=command.source_content,
                     code_path=command.code_path,

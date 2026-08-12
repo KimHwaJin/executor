@@ -10,10 +10,10 @@ from executor_service.domain.enums import (
     CodeSourceType,
     ExecutionMode,
     FailureType,
-    JupyterPool,
-    JupyterServerStatus,
-    KernelCleanupStatus,
     RetryStrategy,
+    RuntimePool,
+    RuntimeSessionCleanupStatus,
+    RuntimeTargetStatus,
     StepStatus,
     TriggerType,
 )
@@ -21,8 +21,8 @@ from executor_service.domain.models import OutboxEvent, utc_now
 from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
     ExecutionStepAttemptORM,
-    JupyterServerORM,
     OutboxEventORM,
+    RuntimeTargetORM,
 )
 from executor_service.infrastructure.db.session import create_session_factory
 from executor_service.infrastructure.execution_queries import SQLAlchemyExecutionQueryService
@@ -33,7 +33,7 @@ def _submit_command() -> SubmitExecutionCommand:
         idempotency_key="trace-submit",
         mode=ExecutionMode.STATIC,
         trigger_type=TriggerType.INTERACTIVE,
-        kernel_name="python3",
+        runtime_profile="python3",
         code_source_type=CodeSourceType.INLINE,
         source_content="print('trace')",
         code_path=None,
@@ -62,20 +62,20 @@ async def test_query_service_returns_attempt_step_and_redacted_event_trace(
 ) -> None:
     execution = await execution_service.submit(_submit_command())
     now = utc_now()
-    server_id = uuid4()
+    target_id = uuid4()
     attempt_id = uuid4()
     session_factory = create_session_factory(engine)
     async with session_factory() as session, session.begin():
         session.add(
-            JupyterServerORM(
-                id=server_id,
+            RuntimeTargetORM(
+                id=target_id,
                 name="trace-jupyter",
-                endpoint="http://127.0.0.1:8888",
+                connection_config={"endpoint": "http://127.0.0.1:8888"},
                 credential_ref="settings:JUPYTER_TOKEN",
-                pool=JupyterPool.INTERACTIVE,
-                status=JupyterServerStatus.ACTIVE,
+                pool=RuntimePool.INTERACTIVE,
+                status=RuntimeTargetStatus.ACTIVE,
                 max_concurrent_executions=1,
-                supported_kernels=["python3"],
+                supported_profiles=["python3"],
                 enabled=True,
             )
         )
@@ -84,8 +84,8 @@ async def test_query_service_returns_attempt_step_and_redacted_event_trace(
                 id=attempt_id,
                 execution_id=execution.id,
                 attempt_number=1,
-                jupyter_server_id=server_id,
-                kernel_id="kernel-1",
+                runtime_target_id=target_id,
+                runtime_session_id="kernel-1",
                 status=AttemptStatus.FAILED,
                 lease_owner="worker-1",
                 lease_expires_at=now + timedelta(minutes=1),
@@ -93,7 +93,7 @@ async def test_query_service_returns_attempt_step_and_redacted_event_trace(
                 error_message="expected failure",
                 failure_type=FailureType.TOOL_ERROR,
                 retry_strategy=RetryStrategy.FROM_FAILED_STEP,
-                kernel_cleanup_status=KernelCleanupStatus.NOT_REQUIRED,
+                runtime_session_cleanup_status=RuntimeSessionCleanupStatus.NOT_REQUIRED,
                 started_at=now,
                 finished_at=now,
             )

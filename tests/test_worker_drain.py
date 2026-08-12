@@ -13,7 +13,7 @@ from executor_service.config import Settings
 from executor_service.container import ApplicationContainer
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.session import create_session_factory
-from executor_service.infrastructure.jupyter_registry import JupyterServerRegistry
+from executor_service.infrastructure.runtime_registry import RuntimeTargetRegistry
 from executor_service.infrastructure.worker import ExecutionWorker
 
 
@@ -36,7 +36,7 @@ def _worker(
     drain_timeout: float = 1,
 ) -> ExecutionWorker:
     settings = Settings(
-        jupyter_enabled=True,
+        runtime_enabled=True,
         workspace_host_root=tmp_path,
         execution_drain_timeout_seconds=drain_timeout,
         execution_pending_claim_interval_seconds=60,
@@ -46,7 +46,7 @@ def _worker(
         session_factory=session_factory,
         redis=cast(Redis, IdleRedis()),
         settings=settings,
-        registry=JupyterServerRegistry(session_factory, settings),
+        registry=RuntimeTargetRegistry(session_factory, settings),
         artifact_manager=ExecutionArtifactManager(session_factory, settings),
     )
 
@@ -122,16 +122,16 @@ async def test_readiness_fails_as_soon_as_worker_enters_drain(
     settings = Settings(
         database_url="sqlite+aiosqlite:///:memory:",
         redis_url="redis://localhost:6399/15",
-        jupyter_enabled=True,
+        runtime_enabled=True,
         workspace_host_root=tmp_path,
     )
     container = ApplicationContainer(settings)
     async with container.engine.begin() as connection:
         await connection.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(32))"))
-        await connection.execute(text("INSERT INTO alembic_version VALUES ('0013')"))
+        await connection.execute(text("INSERT INTO alembic_version VALUES ('0014')"))
     monkeypatch.setattr(container.redis, "ping", AsyncMock(return_value=True))
     monkeypatch.setattr(
-        container.jupyter_registry,
+        container.runtime_registry,
         "any_active",
         AsyncMock(return_value=True),
     )

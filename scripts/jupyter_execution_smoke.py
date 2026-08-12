@@ -21,7 +21,7 @@ async def main() -> None:
                     "mode": "STATIC",
                     "trigger_type": "INTERACTIVE",
                     "actor": {"type": "USER", "id": "smoke-user"},
-                    "kernel_name": "python3",
+                    "runtime_profile": "python3",
                     "source": inline_source(
                         f"smoke-plan-{unique}",
                         [

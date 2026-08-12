@@ -14,16 +14,16 @@ from executor_service.domain.enums import (
     ExecutionMode,
     ExecutionStatus,
     FailureType,
-    KernelCleanupStatus,
+    RuntimeSessionCleanupStatus,
     TriggerType,
 )
 from executor_service.domain.models import Execution, utc_now
 from executor_service.infrastructure.db.models import (
     ExecutionORM,
-    JupyterServerORM,
     OutboxEventORM,
+    RuntimeTargetORM,
 )
-from executor_service.infrastructure.jupyter import JupyterGateway
+from executor_service.infrastructure.jupyter import JupyterRuntimeDriver
 
 
 async def _wait_for(
@@ -52,7 +52,7 @@ async def main() -> None:
                 idempotency_key=f"dynamic-lifecycle-{unique}",
                 mode=ExecutionMode.DYNAMIC,
                 trigger_type=TriggerType.INTERACTIVE,
-                kernel_name="python3",
+                runtime_profile="python3",
                 code_source_type=CodeSourceType.INLINE,
                 source_content=code,
                 code_path=None,
@@ -73,13 +73,11 @@ async def main() -> None:
                 ),
             )
         )
-        waiting = await _wait_for(
-            container, submitted.id, ExecutionStatus.WAITING_FOR_NEXT_STEP
-        )
-        if waiting.kernel_id is None or waiting.jupyter_server_id is None:
+        waiting = await _wait_for(container, submitted.id, ExecutionStatus.WAITING_FOR_NEXT_STEP)
+        if waiting.runtime_session_id is None or waiting.runtime_target_id is None:
             raise RuntimeError("Dynamic execution did not retain its assigned kernel.")
-        retained_kernel = waiting.kernel_id
-        server_id = waiting.jupyter_server_id
+        retained_kernel = waiting.runtime_session_id
+        server_id = waiting.runtime_target_id
 
         async with container.session_factory() as session, session.begin():
             await session.execute(
@@ -92,7 +90,7 @@ async def main() -> None:
         await container.execution_worker._audit_dynamic_lifecycle()
 
         async with container.session_factory() as session:
-            server = await session.get(JupyterServerORM, server_id)
+            server = await session.get(RuntimeTargetORM, server_id)
             failed_events = await session.scalar(
                 select(func.count(OutboxEventORM.id)).where(
                     OutboxEventORM.aggregate_id == submitted.id,
@@ -101,22 +99,25 @@ async def main() -> None:
             )
         if server is None:
             raise RuntimeError("Assigned Jupyter server history was lost.")
-        gateway = JupyterGateway(
-            server.endpoint,
-            container.jupyter_registry.resolve_token(
+        endpoint = server.connection_config.get("endpoint")
+        if not isinstance(endpoint, str):
+            raise RuntimeError("Assigned Jupyter Runtime Target has no endpoint.")
+        gateway = JupyterRuntimeDriver(
+            endpoint,
+            container.runtime_registry.resolve_credential(
                 server.credential_ref, server.credential_ciphertext
             ),
             container.settings.jupyter_request_timeout_seconds,
         )
         try:
-            kernel_exists = await gateway.kernel_exists(retained_kernel)
+            session_exists = await gateway.session_exists(retained_kernel)
         finally:
             await gateway.close()
         if (
             failed.failure_type != FailureType.DYNAMIC_WAIT_TIMEOUT
-            or failed.kernel_cleanup_status != KernelCleanupStatus.SUCCEEDED
-            or failed.kernel_id is not None
-            or kernel_exists
+            or failed.runtime_session_cleanup_status != RuntimeSessionCleanupStatus.SUCCEEDED
+            or failed.runtime_session_id is not None
+            or session_exists
             or failed_events != 1
         ):
             raise RuntimeError(f"Dynamic lifecycle cleanup is incomplete: {failed}")
@@ -124,9 +125,9 @@ async def main() -> None:
         print("execution_id:", submitted.id)
         print("retained_kernel:", retained_kernel)
         print("failure_type:", failed.failure_type.value)
-        print("kernel_cleanup_status:", failed.kernel_cleanup_status.value)
+        print("runtime_session_cleanup_status:", failed.runtime_session_cleanup_status.value)
         print("failed_events:", failed_events)
-        print("kernel_exists_after_cleanup:", kernel_exists)
+        print("session_exists_after_cleanup:", session_exists)
     finally:
         await container.stop()
 

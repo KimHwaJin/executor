@@ -43,19 +43,17 @@ class Settings(BaseSettings):
         "http://127.0.0.1:*",
     )
     jupyter_request_timeout_seconds: float = Field(default=30, gt=0)
-    jupyter_enabled: bool = True
-    jupyter_server_name: str = "local-jupyter"
+    runtime_enabled: bool = True
+    runtime_target_name: str = "local-jupyter"
     jupyter_endpoint: str = "http://127.0.0.1:8888"
     jupyter_token: SecretStr = SecretStr("change-me-local-only")
     # Base64-encoded 32-byte Fernet key. Replace in every non-local environment.
-    jupyter_credential_key: SecretStr = SecretStr(
-        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
-    )
-    jupyter_pool: str = "INTERACTIVE"
-    jupyter_max_concurrent_executions: int = Field(default=2, ge=1)
-    jupyter_health_poll_interval_seconds: float = Field(default=15, gt=0)
+    runtime_credential_key: SecretStr = SecretStr("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+    runtime_pool: str = "INTERACTIVE"
+    runtime_default_max_concurrent_executions: int = Field(default=2, ge=1)
+    runtime_health_poll_interval_seconds: float = Field(default=15, gt=0)
     workspace_host_root: Path = Path("/Users/kimhwajin/vscode/AX_PROJECT/executor/notebook_dir")
-    workspace_jupyter_root: str = "/workspace/pv"
+    workspace_runtime_root: str = "/workspace/pv"
     execution_inline_spec_max_bytes: int = Field(default=262144, ge=1)
     execution_file_spec_max_bytes: int = Field(default=52428800, ge=1)
     execution_consumer_group: str = "executor-workers"
@@ -67,7 +65,7 @@ class Settings(BaseSettings):
     execution_heartbeat_seconds: int = Field(default=15, ge=5)
     execution_drain_timeout_seconds: float = Field(default=30, ge=0)
     execution_shutdown_cleanup_seconds: float = Field(default=20, gt=0)
-    failed_kernel_retention_seconds: int = Field(default=3600, ge=60)
+    failed_session_retention_seconds: int = Field(default=3600, ge=60)
     execution_max_runtime_seconds: int = Field(default=432000, ge=60)
     dynamic_step_wait_timeout_seconds: int = Field(default=3600, ge=30)
 
@@ -112,8 +110,8 @@ class Settings(BaseSettings):
         return self.jupyter_token.get_secret_value()
 
     @property
-    def jupyter_credential_encryption_key(self) -> str:
-        return self.jupyter_credential_key.get_secret_value()
+    def runtime_credential_encryption_key(self) -> str:
+        return self.runtime_credential_key.get_secret_value()
 
     @property
     def otel_export_headers(self) -> dict[str, str]:
