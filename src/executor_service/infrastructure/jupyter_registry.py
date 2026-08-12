@@ -25,6 +25,7 @@ from executor_service.domain.enums import (
     ExecutionStatus,
     JupyterPool,
     JupyterServerStatus,
+    RetryStrategy,
 )
 from executor_service.domain.errors import (
     IdempotencyConflictError,
@@ -431,8 +432,9 @@ class JupyterServerRegistry:
         retained = await session.scalar(
             select(func.count(ExecutionORM.id)).where(
                 ExecutionORM.jupyter_server_id == server.id,
-                ExecutionORM.status == ExecutionStatus.FAILED,
+                ExecutionORM.status.in_([ExecutionStatus.FAILED, ExecutionStatus.QUEUED]),
                 ExecutionORM.retryable.is_(True),
+                ExecutionORM.retry_strategy == RetryStrategy.FROM_FAILED_STEP,
                 ExecutionORM.retained_kernel_until > utc_now(),
             )
         )

@@ -71,6 +71,16 @@ The explicit opt-in is required because the script temporarily stops the local
 the stopped server as `OFFLINE`, verifies that work uses the healthy primary, restores and probes
 the secondary as `ACTIVE`, and then verifies that both servers receive concurrent work.
 
+For a retained Tool-error kernel, run:
+
+```bash
+uv run python scripts/jupyter_retry_offline_recovery_smoke.py
+```
+
+This test makes the registered endpoint temporarily unreachable without deleting the live kernel,
+requests retry, verifies the Execution remains `QUEUED` on the original server and kernel, restores
+the endpoint, and confirms execution resumes from the failed Step.
+
 ### Forced process loss
 
 ```bash
