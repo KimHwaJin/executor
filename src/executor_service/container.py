@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from executor_service.application.services import ExecutionService
 from executor_service.config import Settings
+from executor_service.domain.enums import RuntimeType
 from executor_service.execution_specs import ExecutionSpecResolver
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.repositories import SQLAlchemyUnitOfWork
@@ -17,7 +18,7 @@ from executor_service.infrastructure.runtime_registry import RuntimeTargetRegist
 from executor_service.infrastructure.worker import ExecutionWorker
 from executor_service.tracing import TracingManager
 
-EXPECTED_SCHEMA_REVISION = "0001"
+EXPECTED_SCHEMA_REVISION = "0002"
 
 
 class ApplicationContainer:
@@ -28,7 +29,8 @@ class ApplicationContainer:
         self.session_factory = create_session_factory(self.engine)
         self.redis: Redis = Redis.from_url(settings.redis_dsn, decode_responses=True)
         self.execution_service = ExecutionService(
-            lambda: SQLAlchemyUnitOfWork(self.session_factory)
+            lambda: SQLAlchemyUnitOfWork(self.session_factory),
+            {RuntimeType.JUPYTER: settings.runtime_allowed_profiles},
         )
         self.execution_queries = SQLAlchemyExecutionQueryService(self.session_factory)
         self.execution_spec_resolver = ExecutionSpecResolver(

@@ -17,7 +17,7 @@ async def _state(client: Client, execution_id: str) -> dict[str, Any]:
 async def _wait_status(client: Client, execution_id: str, statuses: set[str]) -> dict[str, Any]:
     for _ in range(200):
         state = await _state(client, execution_id)
-        if state["status"] in statuses:
+        if state["state"]["status"] in statuses:
             return state
         await asyncio.sleep(0.2)
     raise RuntimeError(f"Execution {execution_id} did not reach {statuses}.")
@@ -103,26 +103,32 @@ async def main() -> None:
         await _set_state(client, secondary["target_id"], "DRAINING", unique)
         first_id = await _submit(client, unique, 1, 3)
         running = await _wait_status(client, first_id, {"RUNNING"})
-        if running["runtime_target_id"] != primary["target_id"]:
+        if running["runtime"]["target_id"] != primary["target_id"]:
             raise RuntimeError("First execution was not scheduled on the only active server.")
 
         draining = await _set_state(client, primary["target_id"], "DRAINING", unique)
-        if draining["drain_complete"] or draining["active_execution_count"] != 1:
+        if (
+            draining["state"]["drain_complete"]
+            or draining["capacity"]["active_execution_count"] != 1
+        ):
             raise RuntimeError(f"In-flight execution was not reported during drain: {draining}")
 
         second_id = await _submit(client, unique, 2, 0)
         await asyncio.sleep(1)
-        if (await _state(client, second_id))["status"] != "QUEUED":
+        if (await _state(client, second_id))["state"]["status"] != "QUEUED":
             raise RuntimeError("New work should remain queued while every server is draining.")
 
         await _wait_status(client, first_id, {"SUCCEEDED"})
         drained = await client.call_tool("runtime_target_get", {"target_id": primary["target_id"]})
-        if not drained.structured_content["drain_complete"]:
+        if not drained.structured_content["state"]["drain_complete"]:
             raise RuntimeError("Drain did not complete after in-flight work finished.")
 
         await _set_state(client, secondary["target_id"], "ACTIVE", unique)
         second = await _wait_status(client, second_id, {"SUCCEEDED", "FAILED"})
-        if second["status"] != "SUCCEEDED" or second["runtime_target_id"] != secondary["target_id"]:
+        if (
+            second["state"]["status"] != "SUCCEEDED"
+            or second["runtime"]["target_id"] != secondary["target_id"]
+        ):
             raise RuntimeError(f"Queued work did not move to reactivated server: {second}")
         await _set_state(client, primary["target_id"], "ACTIVE", unique)
 

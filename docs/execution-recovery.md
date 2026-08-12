@@ -6,8 +6,7 @@ renew leases while a Jupyter cell is running, and reconcile expired leases.
 
 ## Failure classification
 
-`execution_get`, Attempt history, and `execution_trace_get` expose `failure_type`,
-`retry_strategy`, and `runtime_session_cleanup_status`.
+`execution_get` and Attempt history expose failure, retry, and Runtime session cleanup state.
 
 | Failure type | Meaning | Default retry |
 |---|---|---|
@@ -36,7 +35,7 @@ keeps the Execution `QUEUED` and pinned to that target and session. A recovered 
 operator-controlled `DRAINING` target can resume the failed Step. Executor confirms the retained
 session still exists before executing code. A missing session records `RUNTIME_SESSION_LOST` with a
 `FROM_START` strategy, but does not automatically run on another target; the caller must explicitly
-retry. A removed or disabled target similarly records `RUNTIME_UNAVAILABLE` and requires an
+retry. A missing or disabled target similarly records `RUNTIME_UNAVAILABLE` and requires an
 explicit `FROM_START` retry. If the retention window expires while the target is unavailable, the
 queued retry returns to `FAILED`, session cleanup is attempted, and
 `execution.retry_window_expired` is emitted.

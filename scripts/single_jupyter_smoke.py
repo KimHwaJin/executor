@@ -30,7 +30,7 @@ async def _wait_for_terminal(
         execution = await _required_tool_result(
             client, "execution_get", {"execution_id": execution_id}
         )
-        if execution["status"] in {"SUCCEEDED", "FAILED", "CANCELLED"}:
+        if execution["state"]["status"] in {"SUCCEEDED", "FAILED", "CANCELLED"}:
             return execution
         await asyncio.sleep(0.5)
     raise RuntimeError(f"Execution {execution_id} did not finish within {timeout_seconds} seconds.")
@@ -63,9 +63,9 @@ async def main() -> None:
                 }
             },
         )
-        if server["status"] != "ACTIVE":
+        if server["state"]["status"] != "ACTIVE":
             raise RuntimeError(f"Jupyter server is not ACTIVE: {server.get('last_health_error')}")
-        if kernel_name not in server["supported_profiles"]:
+        if kernel_name not in server["runtime"]["supported_profiles"]:
             raise RuntimeError(
                 f"Kernel {kernel_name!r} is unavailable: {server['supported_profiles']}"
             )
@@ -112,9 +112,9 @@ async def main() -> None:
         )
         execution_id = str(submitted["execution_id"])
         terminal = await _wait_for_terminal(client, execution_id, timeout_seconds)
-        if terminal["status"] != "SUCCEEDED":
+        if terminal["state"]["status"] != "SUCCEEDED":
             raise RuntimeError(f"Execution did not succeed: {terminal}")
-        if str(terminal["runtime_target_id"]) != str(server["target_id"]):
+        if str(terminal["runtime"]["target_id"]) != str(server["target_id"]):
             raise RuntimeError("Execution used a different Jupyter server.")
 
         artifacts_page = await _required_tool_result(
@@ -137,8 +137,8 @@ async def main() -> None:
 
     print("runtime_target_id:", server["target_id"])
     print("execution_id:", execution_id)
-    print("status:", terminal["status"])
-    print("step_statuses:", [step["status"] for step in terminal["steps"]])
+    print("status:", terminal["state"]["status"])
+    print("step_statuses:", [step["result"]["status"] for step in terminal["steps"]])
     print("notebook:", notebook)
     print("artifacts:", sorted(artifact_names))
 

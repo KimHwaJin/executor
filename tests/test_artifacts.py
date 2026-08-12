@@ -207,9 +207,6 @@ async def test_artifact_discovery_manifest_lineage_and_idempotency(
         "verification": "executor-computed",
     }
     assert processed_artifact.checksum_sha256 is not None
-    trace = await queries.trace(execution.id)
-    assert trace.artifacts.items == artifacts.items
-
     async with create_session_factory(engine)() as session:
         artifact_rows = await session.scalar(select(func.count(ExecutionArtifactORM.id)))
         artifact_events = await session.scalar(

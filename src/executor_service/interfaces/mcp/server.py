@@ -1,10 +1,13 @@
 """Official MCP Python SDK v2 server and tool registration."""
 
+import logging
 from collections.abc import Awaitable
+from typing import Annotated
 from uuid import UUID
 
 from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
+from pydantic import Field
 
 from executor_service.application.commands import (
     CancelExecutionCommand,
@@ -15,7 +18,7 @@ from executor_service.application.commands import (
 )
 from executor_service.application.execution_queries import ExecutionQueryService
 from executor_service.application.runtime_targets import (
-    RemoveRuntimeTargetCommand,
+    DisableRuntimeTargetCommand,
     RuntimeTargetManager,
     SetRuntimeTargetStateCommand,
     UpsertRuntimeTargetCommand,
@@ -27,31 +30,44 @@ from executor_service.domain.enums import (
     RuntimeTargetStatus,
     RuntimeType,
 )
-from executor_service.domain.errors import DomainError
+from executor_service.domain.errors import DomainError, ErrorCode
 from executor_service.execution_specs import ExecutionSpecResolver
-from executor_service.interfaces.mcp.schemas import (
+from executor_service.interfaces.contracts import (
     ExecutionArtifactPageResponse,
     ExecutionArtifactResponse,
     ExecutionAttemptPageResponse,
-    ExecutionCancelRequest,
-    ExecutionContinueRequest,
     ExecutionEventPageResponse,
-    ExecutionFinishRequest,
     ExecutionPageResponse,
     ExecutionResponse,
-    ExecutionRetryRequest,
     ExecutionStepPageResponse,
     ExecutionSubmitRequest,
-    ExecutionTraceResponse,
-    ExecutorCapabilities,
     RuntimeTargetPageResponse,
-    RuntimeTargetProbeRequest,
-    RuntimeTargetRemoveRequest,
     RuntimeTargetResponse,
-    RuntimeTargetSetStateRequest,
     RuntimeTargetUpsertRequest,
 )
+from executor_service.interfaces.mcp.schemas import (
+    ExecutionCancelRequest,
+    ExecutionContinueRequest,
+    ExecutionFinishRequest,
+    ExecutionRetryRequest,
+    RuntimeTargetDisableRequest,
+    RuntimeTargetProbeRequest,
+    RuntimeTargetSetStateRequest,
+)
 from executor_service.tracing import TracingManager
+
+StandardLimit = Annotated[int, Field(ge=1, le=200)]
+EventLimit = Annotated[int, Field(ge=1, le=500)]
+ArtifactLimit = Annotated[int, Field(ge=1, le=1000)]
+
+
+def _public_tool_error(exc: Exception) -> ToolError:
+    if isinstance(exc, ToolError):
+        return exc
+    if isinstance(exc, DomainError):
+        return ToolError(f"[{exc.code}] {exc}")
+    logging.getLogger(__name__).exception("Unhandled MCP Tool error", exc_info=exc)
+    return ToolError(f"[{ErrorCode.INTERNAL_ERROR}] An internal error occurred.")
 
 
 async def _trace_call[T](
@@ -82,33 +98,6 @@ def build_mcp_server(
         ),
     )
 
-    @server.tool(description="Return executor protocol and runtime capabilities.")
-    async def executor_get_capabilities() -> ExecutorCapabilities:
-        management_tools: tuple[str, ...] = ()
-        if runtime_manager is not None:
-            management_tools = (
-                "runtime_target_upsert",
-                "runtime_target_list",
-                "runtime_target_get",
-                "runtime_target_probe",
-                "runtime_target_remove",
-                "runtime_target_set_state",
-            )
-        query_tools: tuple[str, ...] = ()
-        if execution_queries is not None:
-            query_tools = (
-                "execution_list",
-                "execution_step_list",
-                "execution_attempt_list",
-                "execution_event_list",
-                "execution_trace_get",
-                "execution_artifact_list",
-                "execution_artifact_get",
-            )
-        return ExecutorCapabilities(
-            tools=ExecutorCapabilities().tools + management_tools + query_tools
-        )
-
     @server.tool(
         description=(
             "Persist an asynchronous execution request and return immediately with execution_id. "
@@ -118,11 +107,14 @@ def build_mcp_server(
     async def execution_submit(request: ExecutionSubmitRequest) -> ExecutionResponse:
         try:
             if execution_spec_resolver is None:
-                raise ToolError("ExecutionSpec resolver is not configured.")
+                raise ToolError(
+                    f"[{ErrorCode.INTERNAL_ERROR}] ExecutionSpec resolver is not configured."
+                )
             resolved = await execution_spec_resolver.resolve(request.source)
             if resolved.spec.steps[0].sequence != 0:
                 raise ToolError(
-                    "Execution submit requires an ExecutionSpec starting at sequence 0."
+                    f"[{ErrorCode.INVALID_EXECUTION_SPEC}] Execution submit requires an "
+                    "ExecutionSpec starting at sequence 0."
                 )
             execution = await _trace_call(
                 tracing,
@@ -135,8 +127,8 @@ def build_mcp_server(
                     )
                 ),
             )
-        except DomainError as exc:
-            raise ToolError(str(exc)) from exc
+        except Exception as exc:
+            raise _public_tool_error(exc) from exc
         return ExecutionResponse.from_domain(execution)
 
     @server.tool(description="Get the PostgreSQL-backed current execution state.")
@@ -148,8 +140,8 @@ def build_mcp_server(
                 execution_service.get(execution_id),
                 {"executor.execution.id": str(execution_id)},
             )
-        except DomainError as exc:
-            raise ToolError(str(exc)) from exc
+        except Exception as exc:
+            raise _public_tool_error(exc) from exc
         return ExecutionResponse.from_domain(execution)
 
     @server.tool(
@@ -174,8 +166,8 @@ def build_mcp_server(
                 ),
                 {"executor.execution.id": str(request.execution_id)},
             )
-        except DomainError as exc:
-            raise ToolError(str(exc)) from exc
+        except Exception as exc:
+            raise _public_tool_error(exc) from exc
         return ExecutionResponse.from_domain(execution)
 
     @server.tool(
@@ -199,8 +191,8 @@ def build_mcp_server(
                 ),
                 {"executor.execution.id": str(request.execution_id)},
             )
-        except DomainError as exc:
-            raise ToolError(str(exc)) from exc
+        except Exception as exc:
+            raise _public_tool_error(exc) from exc
         return ExecutionResponse.from_domain(execution)
 
     @server.tool(
@@ -212,10 +204,15 @@ def build_mcp_server(
     async def execution_continue(request: ExecutionContinueRequest) -> ExecutionResponse:
         try:
             if execution_spec_resolver is None:
-                raise ToolError("ExecutionSpec resolver is not configured.")
+                raise ToolError(
+                    f"[{ErrorCode.INTERNAL_ERROR}] ExecutionSpec resolver is not configured."
+                )
             resolved = await execution_spec_resolver.resolve(request.source)
             if len(resolved.spec.steps) != 1:
-                raise ToolError("DYNAMIC continue requires exactly one ExecutionSpec step.")
+                raise ToolError(
+                    f"[{ErrorCode.INVALID_EXECUTION_SPEC}] DYNAMIC continue requires exactly "
+                    "one ExecutionSpec step."
+                )
             source_step = resolved.spec.steps[0]
             execution = await _trace_call(
                 tracing,
@@ -243,8 +240,8 @@ def build_mcp_server(
                     "executor.step.sequence": source_step.sequence,
                 },
             )
-        except DomainError as exc:
-            raise ToolError(str(exc)) from exc
+        except Exception as exc:
+            raise _public_tool_error(exc) from exc
         return ExecutionResponse.from_domain(execution)
 
     @server.tool(
@@ -269,16 +266,16 @@ def build_mcp_server(
                 ),
                 {"executor.execution.id": str(request.execution_id)},
             )
-        except DomainError as exc:
-            raise ToolError(str(exc)) from exc
+        except Exception as exc:
+            raise _public_tool_error(exc) from exc
         return ExecutionResponse.from_domain(execution)
 
     if execution_queries is not None:
 
         @server.tool(
             description=(
-                "List executions using an opaque MCP-style cursor. Pass the returned "
-                "nextCursor unchanged as cursor to continue. Optional filters remain fixed "
+                "List executions using an opaque cursor. Pass the returned "
+                "next_cursor unchanged as cursor to continue. Optional filters remain fixed "
                 "across pages."
             )
         )
@@ -289,7 +286,7 @@ def build_mcp_server(
             task_id: str | None = None,
             status: ExecutionStatus | None = None,
             cursor: str | None = None,
-            limit: int = 100,
+            limit: StandardLimit = 100,
         ) -> ExecutionPageResponse:
             try:
                 page = await execution_queries.executions(
@@ -299,31 +296,31 @@ def build_mcp_server(
                     task_id=task_id,
                     status=status,
                     cursor=cursor,
-                    limit=max(1, min(limit, 200)),
+                    limit=limit,
                 )
-            except DomainError as exc:
-                raise ToolError(str(exc)) from exc
+            except Exception as exc:
+                raise _public_tool_error(exc) from exc
             return ExecutionPageResponse.from_page(page)
 
         @server.tool(
             description=(
                 "List current execution Steps using an opaque MCP-style cursor. Pass an exact "
-                "returned nextCursor as cursor to continue; never parse or modify it."
+                "returned next_cursor as cursor to continue; never parse or modify it."
             )
         )
         async def execution_step_list(
             execution_id: UUID,
             cursor: str | None = None,
-            limit: int = 100,
+            limit: StandardLimit = 100,
         ) -> ExecutionStepPageResponse:
             try:
                 page = await execution_queries.steps(
                     execution_id,
                     cursor=cursor,
-                    limit=max(1, min(limit, 200)),
+                    limit=limit,
                 )
-            except DomainError as exc:
-                raise ToolError(str(exc)) from exc
+            except Exception as exc:
+                raise _public_tool_error(exc) from exc
             return ExecutionStepPageResponse.from_page(page)
 
         @server.tool(
@@ -334,16 +331,16 @@ def build_mcp_server(
         async def execution_attempt_list(
             execution_id: UUID,
             cursor: str | None = None,
-            limit: int = 100,
+            limit: StandardLimit = 100,
         ) -> ExecutionAttemptPageResponse:
             try:
                 page = await execution_queries.attempts(
                     execution_id,
                     cursor=cursor,
-                    limit=max(1, min(limit, 200)),
+                    limit=limit,
                 )
-            except DomainError as exc:
-                raise ToolError(str(exc)) from exc
+            except Exception as exc:
+                raise _public_tool_error(exc) from exc
             return ExecutionAttemptPageResponse.from_page(page)
 
         @server.tool(
@@ -355,30 +352,17 @@ def build_mcp_server(
         async def execution_event_list(
             execution_id: UUID,
             cursor: str | None = None,
-            limit: int = 200,
+            limit: EventLimit = 200,
         ) -> ExecutionEventPageResponse:
             try:
                 page = await execution_queries.events(
                     execution_id,
                     cursor=cursor,
-                    limit=max(1, min(limit, 500)),
+                    limit=limit,
                 )
-            except DomainError as exc:
-                raise ToolError(str(exc)) from exc
+            except Exception as exc:
+                raise _public_tool_error(exc) from exc
             return ExecutionEventPageResponse.from_page(page)
-
-        @server.tool(
-            description=(
-                "Return the complete execution trace: current state, every Attempt and Step "
-                "result, and the Outbox event timeline."
-            )
-        )
-        async def execution_trace_get(execution_id: UUID) -> ExecutionTraceResponse:
-            try:
-                view = await execution_queries.trace(execution_id)
-            except DomainError as exc:
-                raise ToolError(str(exc)) from exc
-            return ExecutionTraceResponse.from_view(view)
 
         @server.tool(
             description=(
@@ -389,24 +373,24 @@ def build_mcp_server(
         async def execution_artifact_list(
             execution_id: UUID,
             cursor: str | None = None,
-            limit: int = 500,
+            limit: ArtifactLimit = 500,
         ) -> ExecutionArtifactPageResponse:
             try:
                 page = await execution_queries.artifacts(
                     execution_id,
                     cursor=cursor,
-                    limit=max(1, min(limit, 1000)),
+                    limit=limit,
                 )
-            except DomainError as exc:
-                raise ToolError(str(exc)) from exc
+            except Exception as exc:
+                raise _public_tool_error(exc) from exc
             return ExecutionArtifactPageResponse.from_page(page)
 
         @server.tool(description="Get one Execution Artifact and its direct lineage references.")
         async def execution_artifact_get(artifact_id: UUID) -> ExecutionArtifactResponse:
             try:
                 view = await execution_queries.artifact(artifact_id)
-            except DomainError as exc:
-                raise ToolError(str(exc)) from exc
+            except Exception as exc:
+                raise _public_tool_error(exc) from exc
             return ExecutionArtifactResponse.from_view(view)
 
     if runtime_manager is not None:
@@ -437,8 +421,8 @@ def build_mcp_server(
                         max_concurrent_executions=request.max_concurrent_executions,
                     )
                 )
-            except DomainError as exc:
-                raise ToolError(str(exc)) from exc
+            except Exception as exc:
+                raise _public_tool_error(exc) from exc
             return RuntimeTargetResponse.from_view(view)
 
         @server.tool(description="List registered Runtime Targets and current capacity state.")
@@ -448,16 +432,19 @@ def build_mcp_server(
             status: RuntimeTargetStatus | None = None,
             enabled: bool | None = None,
             cursor: str | None = None,
-            limit: int = 100,
+            limit: StandardLimit = 100,
         ) -> RuntimeTargetPageResponse:
-            page = await runtime_manager.list(
-                pool,
-                runtime_type=runtime_type,
-                status=status,
-                enabled=enabled,
-                cursor=cursor,
-                limit=max(1, min(limit, 200)),
-            )
+            try:
+                page = await runtime_manager.list(
+                    pool,
+                    runtime_type=runtime_type,
+                    status=status,
+                    enabled=enabled,
+                    cursor=cursor,
+                    limit=limit,
+                )
+            except Exception as exc:
+                raise _public_tool_error(exc) from exc
             return RuntimeTargetPageResponse.from_page(page)
 
         @server.tool(
@@ -466,8 +453,8 @@ def build_mcp_server(
         async def runtime_target_get(target_id: UUID) -> RuntimeTargetResponse:
             try:
                 view = await runtime_manager.get(target_id)
-            except DomainError as exc:
-                raise ToolError(str(exc)) from exc
+            except Exception as exc:
+                raise _public_tool_error(exc) from exc
             return RuntimeTargetResponse.from_view(view)
 
         @server.tool(
@@ -484,30 +471,30 @@ def build_mcp_server(
                     actor_type=request.actor.type,
                     actor_id=request.actor.id,
                 )
-            except DomainError as exc:
-                raise ToolError(str(exc)) from exc
+            except Exception as exc:
+                raise _public_tool_error(exc) from exc
             return RuntimeTargetResponse.from_view(view)
 
         @server.tool(
             description=(
-                "Soft-remove a Runtime Target. It remains queryable but is disabled, marked "
+                "Disable a Runtime Target. It remains queryable, is marked "
                 "OFFLINE, and excluded from new scheduling."
             )
         )
-        async def runtime_target_remove(
-            request: RuntimeTargetRemoveRequest,
+        async def runtime_target_disable(
+            request: RuntimeTargetDisableRequest,
         ) -> RuntimeTargetResponse:
             try:
-                view = await runtime_manager.remove(
-                    RemoveRuntimeTargetCommand(
+                view = await runtime_manager.disable(
+                    DisableRuntimeTargetCommand(
                         idempotency_key=request.idempotency_key,
                         target_id=request.target_id,
                         actor_type=request.actor.type,
                         actor_id=request.actor.id,
                     )
                 )
-            except DomainError as exc:
-                raise ToolError(str(exc)) from exc
+            except Exception as exc:
+                raise _public_tool_error(exc) from exc
             return RuntimeTargetResponse.from_view(view)
 
         @server.tool(
@@ -529,8 +516,8 @@ def build_mcp_server(
                         actor_id=request.actor.id,
                     )
                 )
-            except DomainError as exc:
-                raise ToolError(str(exc)) from exc
+            except Exception as exc:
+                raise _public_tool_error(exc) from exc
             return RuntimeTargetResponse.from_view(view)
 
     return server

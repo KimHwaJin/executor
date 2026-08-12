@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from executor_service.application.runtime_targets import (
-    RemoveRuntimeTargetCommand,
+    DisableRuntimeTargetCommand,
     SetRuntimeTargetStateCommand,
     UpsertRuntimeTargetCommand,
 )
@@ -44,7 +44,7 @@ async def test_environment_target_stays_offline_until_a_real_probe_succeeds(
 
 
 @pytest.mark.asyncio
-async def test_registry_encrypts_credentials_and_soft_removes_idempotently(
+async def test_registry_encrypts_credentials_and_disables_idempotently(
     engine: AsyncEngine,
 ) -> None:
     settings = Settings(
@@ -83,16 +83,16 @@ async def test_registry_encrypts_credentials_and_soft_removes_idempotently(
             registry.resolve_credential(row.credential_ref, row.credential_ciphertext) == credential
         )
 
-    removed = await registry.remove(
-        RemoveRuntimeTargetCommand(idempotency_key="remove-secondary", target_id=created.id)
+    disabled = await registry.disable(
+        DisableRuntimeTargetCommand(idempotency_key="disable-secondary", target_id=created.id)
     )
-    repeated_remove = await registry.remove(
-        RemoveRuntimeTargetCommand(idempotency_key="remove-secondary", target_id=created.id)
+    repeated_disable = await registry.disable(
+        DisableRuntimeTargetCommand(idempotency_key="disable-secondary", target_id=created.id)
     )
-    assert not removed.enabled
-    assert repeated_remove.id == removed.id
-    assert repeated_remove.status == removed.status
-    assert repeated_remove.enabled == removed.enabled
+    assert not disabled.enabled
+    assert repeated_disable.id == disabled.id
+    assert repeated_disable.status == disabled.status
+    assert repeated_disable.enabled == disabled.enabled
 
     draining = await registry.set_state(
         SetRuntimeTargetStateCommand(

@@ -26,7 +26,7 @@ SECONDARY_CONSUMER = "drain-smoke-secondary"
 def _attempt_owner(rows: list[dict[str, Any]]) -> str | None:
     if len(rows) != 1:
         return None
-    return rows[0]["lease_owner"]
+    return rows[0]["lease"]["owner"]
 
 
 async def main() -> None:
@@ -117,16 +117,16 @@ async def main() -> None:
             long_attempts = await attempts(client, long_id)
             queued_attempts = await attempts(client, queued_id)
 
-        if short["status"] != "SUCCEEDED":
+        if short["state"]["status"] != "SUCCEEDED":
             raise RuntimeError(f"Drain-window execution did not finish: {short}")
         if (
-            long["status"] != "FAILED"
-            or long["failure_type"] != "WORKER_SHUTDOWN"
-            or long["retry_strategy"] != "FROM_START"
-            or long["runtime_session_cleanup_status"] != "SUCCEEDED"
+            long["state"]["status"] != "FAILED"
+            or long["failure"]["type"] != "WORKER_SHUTDOWN"
+            or long["retry"]["strategy"] != "FROM_START"
+            or long["recovery"]["runtime_session_cleanup_status"] != "SUCCEEDED"
         ):
             raise RuntimeError(f"Drain-timeout execution was not recovered safely: {long}")
-        if queued["status"] != "SUCCEEDED":
+        if queued["state"]["status"] != "SUCCEEDED":
             raise RuntimeError(f"Queued execution was not handed off: {queued}")
         if _attempt_owner(short_attempts) != PRIMARY_CONSUMER:
             raise RuntimeError(f"Short execution owner changed unexpectedly: {short_attempts}")
@@ -136,11 +136,14 @@ async def main() -> None:
             raise RuntimeError(f"Queued execution was not claimed by secondary: {queued_attempts}")
 
         print("primary_exit_code:", primary.returncode)
-        print("short_status:", short["status"])
-        print("long_status:", long["status"])
-        print("long_failure_type:", long["failure_type"])
-        print("long_cleanup_status:", long["runtime_session_cleanup_status"])
-        print("queued_status:", queued["status"])
+        print("short_status:", short["state"]["status"])
+        print("long_status:", long["state"]["status"])
+        print("long_failure_type:", long["failure"]["type"])
+        print(
+            "long_cleanup_status:",
+            long["recovery"]["runtime_session_cleanup_status"],
+        )
+        print("queued_status:", queued["state"]["status"])
         print(
             "attempt_owners:",
             [

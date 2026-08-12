@@ -12,6 +12,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     Enum,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -476,6 +477,19 @@ class RuntimeTargetORM(Base):
     last_health_check_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_health_error: Mapped[str | None] = mapped_column(String(500))
     active_session_count: Mapped[int | None] = mapped_column(Integer)
+    resource_observed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resource_last_check_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resource_last_error: Mapped[str | None] = mapped_column(String(500))
+    resource_source: Mapped[str | None] = mapped_column(String(64))
+    resource_estimated: Mapped[bool | None] = mapped_column(Boolean)
+    resource_process_count: Mapped[int | None] = mapped_column(Integer)
+    cpu_used_cores: Mapped[float | None] = mapped_column(Float)
+    cpu_capacity_cores: Mapped[float | None] = mapped_column(Float)
+    cpu_utilization: Mapped[float | None] = mapped_column(Float)
+    memory_used_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    memory_capacity_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    memory_utilization: Mapped[float | None] = mapped_column(Float)
+    resource_errors: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     created_by_type: Mapped[ActorType | None] = mapped_column(
         enum_type(ActorType, "actor_type"), nullable=True
     )

@@ -137,8 +137,8 @@ async def wait_for_status(
 ) -> dict[str, Any]:
     for _ in range(attempts_count):
         state = await execution(client, execution_id)
-        if state["status"] in statuses and (
-            not require_kernel or state["runtime_session_id"] is not None
+        if state["state"]["status"] in statuses and (
+            not require_kernel or state["runtime"]["session_id"] is not None
         ):
             return state
         await asyncio.sleep(interval_seconds)
@@ -208,7 +208,7 @@ async def upsert_runtime_target(
     if token is not None:
         request["credential"] = token
     result = await client.call_tool("runtime_target_upsert", {"request": request})
-    if result.is_error or result.structured_content["status"] != "ACTIVE":
+    if result.is_error or result.structured_content["state"]["status"] != "ACTIVE":
         raise RuntimeError(f"Jupyter registration failed for {name}: {result.content}")
     return result.structured_content
 

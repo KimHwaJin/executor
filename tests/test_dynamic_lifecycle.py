@@ -280,14 +280,14 @@ async def test_restart_audit_detects_missing_kernel_without_cleanup(
     assert FakeJupyterGateway.deleted == []
 
 
-async def test_removed_server_fails_waiting_execution(
+async def test_disabled_target_fails_waiting_execution(
     execution_service: ExecutionService,
     engine: AsyncEngine,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     execution, _ = await _make_waiting(
-        execution_service, engine, "target-removed", server_enabled=False
+        execution_service, engine, "target-disabled", server_enabled=False
     )
     _patch_runtime_driver(monkeypatch, FakeJupyterGateway)
     worker, redis = _worker(engine, tmp_path)

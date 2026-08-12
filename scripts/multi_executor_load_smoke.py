@@ -159,20 +159,20 @@ async def main() -> None:
                     for execution_id, state in zip(execution_ids, states, strict=True)
                 }
                 queued_observed = queued_observed or any(
-                    state["status"] == "QUEUED" for state in states
+                    state["state"]["status"] == "QUEUED" for state in states
                 )
                 for server in await _servers(client):
                     server_id = str(server["target_id"])
                     if server_id not in server_ids:
                         continue
-                    active = int(server["active_execution_count"])
+                    active = int(server["capacity"]["active_execution_count"])
                     peak_active[server_id] = max(peak_active[server_id], active)
                     if active > capacities[server_id]:
                         raise RuntimeError(
                             f"Jupyter capacity exceeded for {server['name']}: "
                             f"active={active}, capacity={capacities[server_id]}"
                         )
-                if all(state["status"] in TERMINAL_STATUSES for state in states):
+                if all(state["state"]["status"] in TERMINAL_STATUSES for state in states):
                     break
                 await asyncio.sleep(0.2)
             else:
@@ -181,7 +181,7 @@ async def main() -> None:
             failed = {
                 execution_id: state
                 for execution_id, state in final_states.items()
-                if state["status"] != "SUCCEEDED"
+                if state["state"]["status"] != "SUCCEEDED"
             }
             if failed:
                 raise RuntimeError(f"Concurrent executions failed: {failed}")
@@ -191,11 +191,11 @@ async def main() -> None:
             duplicate_attempts = [
                 execution_id
                 for execution_id, rows in zip(execution_ids, all_attempts, strict=True)
-                if len(rows) != 1 or rows[0]["status"] != "SUCCEEDED"
+                if len(rows) != 1 or rows[0]["state"]["status"] != "SUCCEEDED"
             ]
             if duplicate_attempts:
                 raise RuntimeError(f"Unexpected Attempt history: {duplicate_attempts}")
-            owners = {str(rows[0]["lease_owner"]) for rows in all_attempts}
+            owners = {str(rows[0]["lease"]["owner"]) for rows in all_attempts}
             if owners != {PRIMARY_CONSUMER, SECONDARY_CONSUMER}:
                 raise RuntimeError(f"Both Executor processes were not used: {owners}")
             if not queued_observed:
@@ -205,7 +205,8 @@ async def main() -> None:
             leaked = [
                 server
                 for server in probes
-                if server["active_execution_count"] != 0 or server["active_session_count"] != 0
+                if server["capacity"]["active_execution_count"] != 0
+                or server["capacity"]["active_session_count"] != 0
             ]
             if leaked:
                 raise RuntimeError(f"Active Attempt or kernel remained after load: {leaked}")

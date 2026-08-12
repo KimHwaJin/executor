@@ -12,7 +12,6 @@ from executor_service.application.execution_queries import (
     ExecutionAttemptView,
     ExecutionEventView,
     ExecutionStepAttemptView,
-    ExecutionTraceView,
 )
 from executor_service.application.pagination import (
     Page,
@@ -256,23 +255,6 @@ class SQLAlchemyExecutionQueryService:
             else None
         )
         return Page(items=items, next_cursor=next_cursor)
-
-    async def trace(self, execution_id: UUID) -> ExecutionTraceView:
-        async with self._session_factory() as session:
-            row = await session.scalar(
-                select(ExecutionORM)
-                .where(ExecutionORM.id == execution_id)
-                .options(selectinload(ExecutionORM.steps))
-            )
-            if row is None:
-                raise ExecutionNotFoundError(f"Execution {execution_id} was not found.")
-            execution = row.to_domain()
-        return ExecutionTraceView(
-            execution=execution,
-            attempts=await self.attempts(execution_id),
-            events=await self.events(execution_id),
-            artifacts=await self.artifacts(execution_id),
-        )
 
     async def artifacts(
         self, execution_id: UUID, *, cursor: str | None = None, limit: int = 500

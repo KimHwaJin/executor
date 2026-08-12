@@ -2,7 +2,7 @@
 
 import hashlib
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import asdict
 from uuid import UUID
 
@@ -18,6 +18,7 @@ from executor_service.domain.enums import (
     ExecutionMode,
     ExecutionStatus,
     RuntimePool,
+    RuntimeType,
     TriggerType,
 )
 from executor_service.domain.errors import (
@@ -25,6 +26,7 @@ from executor_service.domain.errors import (
     IdempotencyConflictError,
     InvalidStateTransitionError,
     PersistenceConflictError,
+    UnsupportedRuntimeProfileError,
 )
 from executor_service.domain.models import Execution, ExecutionStep, OutboxEvent
 from executor_service.domain.ports import UnitOfWork
@@ -34,11 +36,31 @@ UnitOfWorkFactory = Callable[[], UnitOfWork]
 
 
 class ExecutionService:
-    def __init__(self, uow_factory: UnitOfWorkFactory) -> None:
+    def __init__(
+        self,
+        uow_factory: UnitOfWorkFactory,
+        runtime_profiles: Mapping[RuntimeType, tuple[str, ...]],
+    ) -> None:
         self._uow_factory = uow_factory
+        self._runtime_profiles = {
+            runtime_type: tuple(profiles) for runtime_type, profiles in runtime_profiles.items()
+        }
+
+    @property
+    def runtime_profiles(self) -> dict[str, tuple[str, ...]]:
+        return {
+            runtime_type.value: profiles
+            for runtime_type, profiles in self._runtime_profiles.items()
+        }
 
     async def submit(self, command: SubmitExecutionCommand) -> Execution:
         _validate_submit(command)
+        allowed_profiles = self._runtime_profiles.get(command.runtime_type, ())
+        if command.runtime_profile not in allowed_profiles:
+            raise UnsupportedRuntimeProfileError(
+                f"runtime_profile '{command.runtime_profile}' is not supported for "
+                f"runtime_type '{command.runtime_type.value}'."
+            )
         fingerprint = _fingerprint(command)
         trace_carrier = capture_trace_carrier()
         try:

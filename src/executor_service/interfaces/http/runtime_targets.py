@@ -8,17 +8,19 @@ from fastapi import APIRouter, Query
 
 from executor_service.container import ApplicationContainer
 from executor_service.domain.enums import RuntimePool, RuntimeTargetStatus, RuntimeType
-from executor_service.interfaces.http.schemas import (
-    ErrorResponse,
+from executor_service.interfaces.contracts import (
     RuntimePoolPageResponse,
     RuntimePoolResponse,
-    RuntimeTargetMutationRequest,
     RuntimeTargetPageResponse,
+    RuntimeTargetResponse,
+    RuntimeTargetUpsertRequest,
+)
+from executor_service.interfaces.http.schemas import (
+    ErrorResponse,
+    RuntimeTargetMutationRequest,
     RuntimeTargetProbeRequest,
     RuntimeTargetPurgeRequest,
     RuntimeTargetPurgeResponse,
-    RuntimeTargetResponse,
-    RuntimeTargetUpsertRequest,
 )
 from executor_service.tracing import TracingManager
 
@@ -173,19 +175,19 @@ def build_runtime_target_router(container: ApplicationContainer) -> APIRouter:
         )
         return RuntimeTargetResponse.from_view(view)
 
-    @router.delete(
-        "/runtime-targets/{target_id}",
+    @router.post(
+        "/runtime-targets/{target_id}/disable",
         response_model=RuntimeTargetResponse,
         responses=FLEET_ERROR_RESPONSES,
-        summary="Soft-delete a target while preserving execution history",
+        summary="Disable a target while preserving execution history",
     )
-    async def remove_runtime_target(
+    async def disable_runtime_target(
         target_id: UUID, request: RuntimeTargetMutationRequest
     ) -> RuntimeTargetResponse:
         view = await _trace_call(
             tracing,
-            "executor.http.runtime_target_remove",
-            registry.remove(request.to_remove_command(target_id)),
+            "executor.http.runtime_target_disable",
+            registry.disable(request.to_disable_command(target_id)),
             {"executor.runtime.target.id": str(target_id)},
         )
         return RuntimeTargetResponse.from_view(view)

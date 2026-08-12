@@ -58,21 +58,21 @@ async def main() -> None:
         for _ in range(150):
             result = await client.call_tool("execution_get", {"execution_id": execution_id})
             terminal = result.structured_content
-            if terminal["status"] in {"SUCCEEDED", "FAILED", "CANCELLED"}:
+            if terminal["state"]["status"] in {"SUCCEEDED", "FAILED", "CANCELLED"}:
                 break
             await asyncio.sleep(0.2)
-        if terminal is None or terminal["status"] != "SUCCEEDED":
+        if terminal is None or terminal["state"]["status"] != "SUCCEEDED":
             raise RuntimeError(f"Execution did not succeed: {terminal}")
 
         settings = get_settings()
-        notebook = settings.workspace_host_root / Path(terminal["notebook_path"])
+        notebook = settings.workspace_host_root / Path(terminal["workspace"]["notebook_path"])
         artifact = notebook.parents[1] / "artifacts" / "other" / "result.txt"
         if not notebook.is_file() or artifact.read_text(encoding="utf-8") != "completed":
             raise RuntimeError("Expected notebook or artifact was not created.")
         print("execution_id:", execution_id)
-        print("status:", terminal["status"])
+        print("status:", terminal["state"]["status"])
         print("notebook:", notebook)
-        print("step_statuses:", [step["status"] for step in terminal["steps"]])
+        print("step_statuses:", [step["result"]["status"] for step in terminal["steps"]])
 
 
 if __name__ == "__main__":

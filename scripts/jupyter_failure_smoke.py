@@ -43,18 +43,21 @@ async def main() -> None:
         current = submitted
         for _ in range(100):
             current = await client.call_tool("execution_get", {"execution_id": execution_id})
-            if current.structured_content["status"] == "FAILED":
+            if current.structured_content["state"]["status"] == "FAILED":
                 break
             await asyncio.sleep(0.1)
         result = current.structured_content
-        if result["status"] != "FAILED" or result["steps"][0]["status"] != "FAILED":
+        if (
+            result["state"]["status"] != "FAILED"
+            or result["steps"][0]["result"]["status"] != "FAILED"
+        ):
             raise RuntimeError(f"Expected FAILED execution and step: {result}")
-        notebook = get_settings().workspace_host_root / Path(result["notebook_path"])
+        notebook = get_settings().workspace_host_root / Path(result["workspace"]["notebook_path"])
         if not notebook.is_file():
             raise RuntimeError("Failure notebook was not created.")
         print("execution_id:", execution_id)
         print("status: FAILED")
-        print("error:", result["error_message"])
+        print("error:", result["failure"]["message"])
 
 
 if __name__ == "__main__":

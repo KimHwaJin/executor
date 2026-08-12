@@ -29,7 +29,7 @@ class UpsertRuntimeTargetCommand:
 
 
 @dataclass(frozen=True, slots=True)
-class RemoveRuntimeTargetCommand:
+class DisableRuntimeTargetCommand:
     idempotency_key: str
     target_id: UUID
     actor_type: ActorType | None = None
@@ -69,6 +69,21 @@ class RuntimeTargetView:
     active_session_count: int | None
     last_health_check_at: datetime | None
     last_health_error: str | None
+    resource_observed_at: datetime | None
+    resource_last_check_at: datetime | None
+    resource_last_error: str | None
+    resource_fresh: bool
+    resource_source: str | None
+    resource_estimated: bool | None
+    resource_process_count: int | None
+    cpu_used_cores: float | None
+    cpu_capacity_cores: float | None
+    cpu_utilization: float | None
+    memory_used_bytes: int | None
+    memory_capacity_bytes: int | None
+    memory_utilization: float | None
+    resource_pressure_score: float | None
+    resource_errors: tuple[str, ...]
     created_by_type: ActorType | None
     created_by: str | None
     updated_by_type: ActorType | None
@@ -122,9 +137,12 @@ class RuntimeTargetPurgeView:
     runtime_type: RuntimeType
     connection_config: dict[str, Any]
     pool: RuntimePool
-    purged_by_type: ActorType | None
-    purged_by: str | None
-    purged_at: datetime
+    created_by_type: ActorType | None
+    created_by: str | None
+    updated_by_type: ActorType | None
+    updated_by: str | None
+    created_at: datetime
+    updated_at: datetime
 
 
 class RuntimeTargetManager(Protocol):
@@ -153,7 +171,7 @@ class RuntimeTargetManager(Protocol):
         actor_id: str | None = None,
     ) -> RuntimeTargetView: ...
 
-    async def remove(self, command: RemoveRuntimeTargetCommand) -> RuntimeTargetView: ...
+    async def disable(self, command: DisableRuntimeTargetCommand) -> RuntimeTargetView: ...
 
     async def set_state(self, command: SetRuntimeTargetStateCommand) -> RuntimeTargetView: ...
 

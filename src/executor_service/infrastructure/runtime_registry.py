@@ -5,7 +5,7 @@ import hashlib
 import json
 import logging
 from collections.abc import Sequence
-from datetime import UTC
+from datetime import UTC, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -15,8 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from executor_service.application.pagination import Page, decode_time_cursor, encode_time_cursor
 from executor_service.application.runtime_targets import (
+    DisableRuntimeTargetCommand,
     PurgeRuntimeTargetCommand,
-    RemoveRuntimeTargetCommand,
     RuntimePoolView,
     RuntimeTargetPurgeView,
     RuntimeTargetView,
@@ -40,6 +40,7 @@ from executor_service.domain.errors import (
     RuntimeTargetPurgeConflictError,
 )
 from executor_service.domain.models import utc_now
+from executor_service.domain.runtime import RuntimeResourceObservation
 from executor_service.infrastructure.db.models import (
     CommandReceiptORM,
     ExecutionAttemptORM,
@@ -338,6 +339,8 @@ class RuntimeTargetRegistry:
         profiles: list[str] = []
         active_session_count: int | None = None
         error: str | None = None
+        resource: RuntimeResourceObservation | None = None
+        resource_error: str | None = None
         try:
             status = await driver.status()
             reported_profiles = await driver.supported_profiles()
@@ -352,8 +355,14 @@ class RuntimeTargetRegistry:
                 active_session_count = raw_session_count
         except Exception as exc:
             error = f"Probe failed ({type(exc).__name__})"
-        finally:
-            await driver.close()
+        if error is None:
+            try:
+                resource = await driver.resource_status()
+            except Exception as exc:
+                resource_error = f"Resource probe failed ({type(exc).__name__})"
+        else:
+            resource_error = "Resource probe skipped because health probe failed."
+        await driver.close()
 
         async with self._session_factory() as session, session.begin():
             target = await self._required_target(session, target_id, lock=True)
@@ -367,13 +376,29 @@ class RuntimeTargetRegistry:
                 target.last_health_check_at = utc_now()
                 target.last_health_error = error
                 target.active_session_count = active_session_count
+                target.resource_last_check_at = utc_now()
+                target.resource_last_error = resource_error
+                if resource is not None:
+                    target.resource_observed_at = resource.observed_at
+                    target.resource_source = _resource_source(resource)
+                    target.resource_estimated = bool(
+                        resource.cpu.estimated or resource.memory.estimated
+                    )
+                    target.resource_process_count = resource.process_count
+                    target.cpu_used_cores = _as_float(resource.cpu.used)
+                    target.cpu_capacity_cores = _as_float(resource.cpu.capacity)
+                    target.cpu_utilization = resource.cpu.utilization
+                    target.memory_used_bytes = _as_int(resource.memory.used)
+                    target.memory_capacity_bytes = _as_int(resource.memory.capacity)
+                    target.memory_utilization = resource.memory.utilization
+                    target.resource_errors = list(resource.cpu.errors + resource.memory.errors)
                 target.updated_at = utc_now()
                 if actor_type is not None:
                     target.updated_by_type = actor_type
                     target.updated_by = actor_id
             return await self._to_view(session, target)
 
-    async def remove(self, command: RemoveRuntimeTargetCommand) -> RuntimeTargetView:
+    async def disable(self, command: DisableRuntimeTargetCommand) -> RuntimeTargetView:
         fingerprint = _fingerprint(
             {
                 "target_id": str(command.target_id),
@@ -383,7 +408,7 @@ class RuntimeTargetRegistry:
         )
         async with self._session_factory() as session, session.begin():
             repeated_id = await self._repeated_result(
-                session, command.idempotency_key, "runtime_target.remove", fingerprint
+                session, command.idempotency_key, "runtime_target.disable", fingerprint
             )
             if repeated_id is not None:
                 target = await self._required_target(session, repeated_id)
@@ -398,7 +423,7 @@ class RuntimeTargetRegistry:
             self._add_receipt(
                 session,
                 command.idempotency_key,
-                "runtime_target.remove",
+                "runtime_target.disable",
                 fingerprint,
                 target.id,
             )
@@ -410,7 +435,7 @@ class RuntimeTargetRegistry:
             RuntimeTargetStatus.DRAINING,
         }:
             raise RuntimeTargetConfigurationError(
-                "desired_state must be ACTIVE or DRAINING. Use remove to disable a target."
+                "desired_state must be ACTIVE or DRAINING. Use disable for durable disablement."
             )
         fingerprint = _fingerprint(
             {
@@ -500,7 +525,7 @@ class RuntimeTargetRegistry:
                 )
             if target.enabled or target.status != RuntimeTargetStatus.OFFLINE:
                 raise RuntimeTargetPurgeConflictError(
-                    "A target must be soft-deleted and OFFLINE before it can be purged."
+                    "A target must be disabled and OFFLINE before it can be purged."
                 )
             if self._settings.runtime_enabled and target.name == self._settings.runtime_target_name:
                 raise RuntimeTargetPurgeConflictError(
@@ -575,18 +600,24 @@ class RuntimeTargetRegistry:
 
     @staticmethod
     def _purge_view(tombstone: RuntimeTargetPurgeORM) -> RuntimeTargetPurgeView:
-        purged_at = tombstone.created_at
-        if purged_at.tzinfo is None:
-            purged_at = purged_at.replace(tzinfo=UTC)
+        created_at = tombstone.created_at
+        updated_at = tombstone.updated_at
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=UTC)
+        if updated_at.tzinfo is None:
+            updated_at = updated_at.replace(tzinfo=UTC)
         return RuntimeTargetPurgeView(
             target_id=tombstone.target_id,
             name=tombstone.target_name,
             runtime_type=tombstone.runtime_type,
             connection_config=tombstone.connection_config,
             pool=tombstone.pool,
-            purged_by_type=tombstone.created_by_type,
-            purged_by=tombstone.created_by,
-            purged_at=purged_at,
+            created_by_type=tombstone.created_by_type,
+            created_by=tombstone.created_by,
+            updated_by_type=tombstone.updated_by_type,
+            updated_by=tombstone.updated_by,
+            created_at=created_at,
+            updated_at=updated_at,
         )
 
     async def _monitor_loop(self) -> None:
@@ -638,6 +669,24 @@ class RuntimeTargetRegistry:
                 ExecutionORM.retained_runtime_session_until > utc_now(),
             )
         )
+        active_execution_count = (active or 0) + (retained or 0)
+        resource_fresh = self._resource_is_fresh(target)
+        resource_pressure_score = None
+        if resource_fresh:
+            pressure_components = [
+                active_execution_count / target.max_concurrent_executions,
+                *(
+                    [target.cpu_utilization]
+                    if target.cpu_utilization is not None
+                    else []
+                ),
+                *(
+                    [target.memory_utilization]
+                    if target.memory_utilization is not None
+                    else []
+                ),
+            ]
+            resource_pressure_score = max(pressure_components)
         return RuntimeTargetView(
             id=target.id,
             name=target.name,
@@ -648,16 +697,43 @@ class RuntimeTargetRegistry:
             enabled=target.enabled,
             max_concurrent_executions=target.max_concurrent_executions,
             supported_profiles=tuple(target.supported_profiles),
-            active_execution_count=(active or 0) + (retained or 0),
+            active_execution_count=active_execution_count,
             active_session_count=target.active_session_count,
             last_health_check_at=target.last_health_check_at,
             last_health_error=target.last_health_error,
+            resource_observed_at=target.resource_observed_at,
+            resource_last_check_at=target.resource_last_check_at,
+            resource_last_error=target.resource_last_error,
+            resource_fresh=resource_fresh,
+            resource_source=target.resource_source,
+            resource_estimated=target.resource_estimated,
+            resource_process_count=target.resource_process_count,
+            cpu_used_cores=target.cpu_used_cores,
+            cpu_capacity_cores=target.cpu_capacity_cores,
+            cpu_utilization=target.cpu_utilization,
+            memory_used_bytes=target.memory_used_bytes,
+            memory_capacity_bytes=target.memory_capacity_bytes,
+            memory_utilization=target.memory_utilization,
+            resource_pressure_score=resource_pressure_score,
+            resource_errors=tuple(target.resource_errors),
             created_by_type=target.created_by_type,
             created_by=target.created_by,
             updated_by_type=target.updated_by_type,
             updated_by=target.updated_by,
             created_at=target.created_at,
             updated_at=target.updated_at,
+        )
+
+    def _resource_is_fresh(self, target: RuntimeTargetORM) -> bool:
+        observed_at = target.resource_observed_at
+        if observed_at is None or target.resource_last_error is not None:
+            return False
+        if target.cpu_utilization is None and target.memory_utilization is None:
+            return False
+        if observed_at.tzinfo is None:
+            observed_at = observed_at.replace(tzinfo=UTC)
+        return observed_at >= utc_now() - timedelta(
+            seconds=self._settings.runtime_resource_max_age_seconds
         )
 
     async def _repeated_result(
@@ -723,3 +799,16 @@ def _secret_hash(secret: str | None) -> str | None:
     if secret is None:
         return None
     return hashlib.sha256(secret.encode()).hexdigest()
+
+
+def _resource_source(resource: RuntimeResourceObservation) -> str | None:
+    sources = {source for source in (resource.cpu.source, resource.memory.source) if source}
+    return ",".join(sorted(sources)) or None
+
+
+def _as_float(value: float | int | None) -> float | None:
+    return float(value) if value is not None else None
+
+
+def _as_int(value: float | int | None) -> int | None:
+    return int(value) if value is not None else None
