@@ -1,4 +1,4 @@
-"""Versioned REST facade for Executor execution lifecycle and trace queries."""
+"""Versioned REST facade for Executor execution lifecycle and history queries."""
 
 from collections.abc import Awaitable
 from typing import Annotated, Any
@@ -16,23 +16,23 @@ from executor_service.application.commands import (
 from executor_service.container import ApplicationContainer
 from executor_service.domain.enums import ExecutionStatus
 from executor_service.domain.errors import ExecutionNotFoundError, InvalidExecutionSpecError
-from executor_service.interfaces.http.schemas import (
-    ErrorResponse,
+from executor_service.interfaces.contracts import (
     ExecutionArtifactPageResponse,
     ExecutionArtifactResponse,
     ExecutionAttemptPageResponse,
-    ExecutionCancelRequest,
-    ExecutionContinueRequest,
     ExecutionEventPageResponse,
-    ExecutionFinishRequest,
     ExecutionPageResponse,
     ExecutionResponse,
-    ExecutionRetryRequest,
     ExecutionStepPageResponse,
     ExecutionStepResponse,
     ExecutionSubmitRequest,
-    ExecutionTraceResponse,
-    ExecutorCapabilitiesResponse,
+)
+from executor_service.interfaces.http.schemas import (
+    ErrorResponse,
+    ExecutionCancelRequest,
+    ExecutionContinueRequest,
+    ExecutionFinishRequest,
+    ExecutionRetryRequest,
 )
 from executor_service.tracing import TracingManager
 
@@ -65,14 +65,6 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
     execution_queries = container.execution_queries
     resolver = container.execution_spec_resolver
     tracing = container.tracing
-
-    @router.get(
-        "/capabilities",
-        response_model=ExecutorCapabilitiesResponse,
-        summary="Get Executor capabilities",
-    )
-    async def capabilities() -> ExecutorCapabilitiesResponse:
-        return ExecutorCapabilitiesResponse(runtime_profiles=execution_service.runtime_profiles)
 
     @router.post(
         "/executions",
@@ -334,16 +326,6 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
     ) -> ExecutionArtifactPageResponse:
         page = await execution_queries.artifacts(execution_id, cursor=cursor, limit=limit)
         return ExecutionArtifactPageResponse.from_page(page)
-
-    @router.get(
-        "/executions/{execution_id}/trace",
-        response_model=ExecutionTraceResponse,
-        responses=DOMAIN_ERROR_RESPONSES,
-        summary="Get the complete execution trace",
-    )
-    async def get_execution_trace(execution_id: UUID) -> ExecutionTraceResponse:
-        view = await execution_queries.trace(execution_id)
-        return ExecutionTraceResponse.from_view(view)
 
     @router.get(
         "/artifacts/{artifact_id}",

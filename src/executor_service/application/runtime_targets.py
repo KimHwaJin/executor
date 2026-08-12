@@ -29,7 +29,7 @@ class UpsertRuntimeTargetCommand:
 
 
 @dataclass(frozen=True, slots=True)
-class RemoveRuntimeTargetCommand:
+class DisableRuntimeTargetCommand:
     idempotency_key: str
     target_id: UUID
     actor_type: ActorType | None = None
@@ -168,7 +168,7 @@ class RuntimeTargetManager(Protocol):
         actor_id: str | None = None,
     ) -> RuntimeTargetView: ...
 
-    async def remove(self, command: RemoveRuntimeTargetCommand) -> RuntimeTargetView: ...
+    async def disable(self, command: DisableRuntimeTargetCommand) -> RuntimeTargetView: ...
 
     async def set_state(self, command: SetRuntimeTargetStateCommand) -> RuntimeTargetView: ...
 

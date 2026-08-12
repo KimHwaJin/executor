@@ -57,7 +57,7 @@ def _submit_command() -> SubmitExecutionCommand:
     )
 
 
-async def test_query_service_returns_attempt_step_and_redacted_event_trace(
+async def test_query_service_returns_attempt_step_and_redacted_events(
     execution_service: ExecutionService,
     engine: AsyncEngine,
 ) -> None:
@@ -129,7 +129,6 @@ async def test_query_service_returns_attempt_step_and_redacted_event_trace(
     queries = SQLAlchemyExecutionQueryService(session_factory)
     attempts = await queries.attempts(execution.id)
     events = await queries.events(execution.id)
-    trace = await queries.trace(execution.id)
 
     assert len(attempts) == 1
     assert attempts[0].status == AttemptStatus.FAILED
@@ -144,5 +143,3 @@ async def test_query_service_returns_attempt_step_and_redacted_event_trace(
         "token": "[REDACTED]",
         "nested": {"password": "[REDACTED]"},
     }
-    assert trace.execution.id == execution.id
-    assert trace.attempts.items == attempts.items

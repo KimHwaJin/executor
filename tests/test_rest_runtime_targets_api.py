@@ -137,6 +137,7 @@ async def test_openapi_documents_runtime_fleet_routes_and_never_returns_token(
         "/api/v1/runtime-targets/{target_id}/probe",
         "/api/v1/runtime-targets/{target_id}/drain",
         "/api/v1/runtime-targets/{target_id}/activate",
+        "/api/v1/runtime-targets/{target_id}/disable",
         "/api/v1/runtime-targets/{target_id}/purge",
     } <= set(paths)
 
@@ -145,14 +146,14 @@ async def test_openapi_documents_runtime_fleet_routes_and_never_returns_token(
     assert created.status_code == 200
     assert payload["credential"] not in created.text
     assert "credential" not in created.json()
-    assert created.json()["status"] == "ACTIVE"
+    assert created.json()["state"]["status"] == "ACTIVE"
     assert created.json()["created_by"] == "fleet-admin"
     assert created.json()["updated_by"] == "fleet-admin"
-    assert created.json()["supported_profiles"] == ["basic", "ml"]
-    assert created.json()["available_capacity"] == 2
-    assert created.json()["resource_fresh"] is True
-    assert created.json()["resource_pressure_score"] == 0.25
-    assert created.json()["memory_utilization"] == 0.25
+    assert created.json()["runtime"]["supported_profiles"] == ["basic", "ml"]
+    assert created.json()["capacity"]["available_capacity"] == 2
+    assert created.json()["resources"]["fresh"] is True
+    assert created.json()["resources"]["pressure_score"] == 0.25
+    assert created.json()["resources"]["memory"]["utilization"] == 0.25
 
 
 async def test_resource_only_probe_failure_keeps_target_active_and_marks_data_stale(
@@ -171,10 +172,10 @@ async def test_resource_only_probe_failure_keeps_target_active_and_marks_data_st
         HealthyGateway.fail_resource_probe = False
 
     assert probed.status_code == 200
-    assert probed.json()["status"] == "ACTIVE"
-    assert probed.json()["resource_fresh"] is False
-    assert probed.json()["resource_last_error"] == "Resource probe failed (RuntimeError)"
-    assert probed.json()["memory_utilization"] == 0.25
+    assert probed.json()["state"]["status"] == "ACTIVE"
+    assert probed.json()["resources"]["fresh"] is False
+    assert probed.json()["resources"]["last_error"] == "Resource probe failed (RuntimeError)"
+    assert probed.json()["resources"]["memory"]["utilization"] == 0.25
 
 
 async def test_fleet_list_filters_cursor_capacity_and_state_controls(
@@ -207,35 +208,37 @@ async def test_fleet_list_filters_cursor_capacity_and_state_controls(
     assert [item["target_id"] for item in batch.json()["items"]] == [target_ids[2]]
 
     pools = await client.get("/api/v1/runtime-pools")
-    summaries = {(item["runtime_type"], item["pool"]): item for item in pools.json()["items"]}
-    assert summaries[("JUPYTER", "INTERACTIVE")]["target_count"] == 2
-    assert summaries[("JUPYTER", "INTERACTIVE")]["configured_capacity"] == 5
-    assert summaries[("JUPYTER", "INTERACTIVE")]["available_capacity"] == 5
-    assert summaries[("JUPYTER", "INTERACTIVE")]["accepting_new_executions"] is True
-    assert summaries[("JUPYTER", "BATCH")]["target_count"] == 1
+    summaries = {
+        (item["runtime"]["type"], item["runtime"]["pool"]): item
+        for item in pools.json()["items"]
+    }
+    assert summaries[("JUPYTER", "INTERACTIVE")]["targets"]["total"] == 2
+    assert summaries[("JUPYTER", "INTERACTIVE")]["capacity"]["configured"] == 5
+    assert summaries[("JUPYTER", "INTERACTIVE")]["capacity"]["available"] == 5
+    assert summaries[("JUPYTER", "INTERACTIVE")]["state"]["accepting_new_executions"] is True
+    assert summaries[("JUPYTER", "BATCH")]["targets"]["total"] == 1
 
     target_id = target_ids[0]
     drained = await client.post(
         f"/api/v1/runtime-targets/{target_id}/drain",
         json=_mutation_payload("fleet-drain-0"),
     )
-    assert drained.json()["status"] == "DRAINING"
-    assert drained.json()["available_capacity"] == 0
+    assert drained.json()["state"]["status"] == "DRAINING"
+    assert drained.json()["capacity"]["available_capacity"] == 0
 
     activated = await client.post(
         f"/api/v1/runtime-targets/{target_id}/activate",
         json=_mutation_payload("fleet-activate-0"),
     )
-    assert activated.json()["status"] == "ACTIVE"
-    assert activated.json()["accepting_new_executions"] is True
+    assert activated.json()["state"]["status"] == "ACTIVE"
+    assert activated.json()["state"]["accepting_new_executions"] is True
 
-    removed = await client.request(
-        "DELETE",
-        f"/api/v1/runtime-targets/{target_id}",
-        json=_mutation_payload("fleet-remove-0"),
+    removed = await client.post(
+        f"/api/v1/runtime-targets/{target_id}/disable",
+        json=_mutation_payload("fleet-disable-0"),
     )
-    assert removed.json()["status"] == "OFFLINE"
-    assert removed.json()["enabled"] is False
+    assert removed.json()["state"]["status"] == "OFFLINE"
+    assert removed.json()["state"]["enabled"] is False
     filtered = await client.get("/api/v1/runtime-targets", params={"enabled": False})
     assert [item["target_id"] for item in filtered.json()["items"]] == [target_id]
 
@@ -255,12 +258,11 @@ async def test_hard_purge_requires_soft_delete_confirmation_and_keeps_tombstone(
         f"/api/v1/runtime-targets/{target_id}/purge", json=purge_payload
     )
     assert active_purge.status_code == 409
-    assert active_purge.json()["error"]["code"] == "RuntimeTargetPurgeConflictError"
+    assert active_purge.json()["error"]["code"] == "RUNTIME_TARGET_PURGE_CONFLICT"
 
-    await client.request(
-        "DELETE",
-        f"/api/v1/runtime-targets/{target_id}",
-        json=_mutation_payload("fleet-remove-10"),
+    await client.post(
+        f"/api/v1/runtime-targets/{target_id}/disable",
+        json=_mutation_payload("fleet-disable-10"),
     )
     wrong_name = await client.post(
         f"/api/v1/runtime-targets/{target_id}/purge",
@@ -294,10 +296,9 @@ async def test_environment_configured_default_server_cannot_be_purged(
         json=_upsert_payload(20, name=container.settings.runtime_target_name),
     )
     target_id = created.json()["target_id"]
-    await client.request(
-        "DELETE",
-        f"/api/v1/runtime-targets/{target_id}",
-        json=_mutation_payload("fleet-remove-default"),
+    await client.post(
+        f"/api/v1/runtime-targets/{target_id}/disable",
+        json=_mutation_payload("fleet-disable-default"),
     )
     purged = await client.post(
         f"/api/v1/runtime-targets/{target_id}/purge",
@@ -325,10 +326,9 @@ async def test_server_referenced_by_execution_history_cannot_be_purged(
             .values(runtime_target_id=target_id)
         )
 
-    await client.request(
-        "DELETE",
-        f"/api/v1/runtime-targets/{target_id}",
-        json=_mutation_payload("fleet-remove-history"),
+    await client.post(
+        f"/api/v1/runtime-targets/{target_id}/disable",
+        json=_mutation_payload("fleet-disable-history"),
     )
     purged = await client.post(
         f"/api/v1/runtime-targets/{target_id}/purge",

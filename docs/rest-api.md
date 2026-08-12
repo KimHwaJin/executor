@@ -12,7 +12,6 @@ Interactive documentation is available at `/docs`, ReDoc at `/redoc`, and the Op
 
 | Method | Path | Purpose | Success |
 | --- | --- | --- | --- |
-| GET | `/api/v1/capabilities` | Protocol and runtime capabilities | 200 |
 | POST | `/api/v1/executions` | Submit asynchronous STATIC or DYNAMIC work | 202 |
 | GET | `/api/v1/executions` | List history with user/project/session/Task/status filters | 200 |
 | GET | `/api/v1/executions/{execution_id}` | Get the PostgreSQL current state | 200 |
@@ -25,7 +24,6 @@ Interactive documentation is available at `/docs`, ReDoc at `/redoc`, and the Op
 | GET | `/api/v1/executions/{execution_id}/attempts` | List immutable Attempts and Step Attempts | 200 |
 | GET | `/api/v1/executions/{execution_id}/events` | List Outbox/Redis publication history | 200 |
 | GET | `/api/v1/executions/{execution_id}/artifacts` | List produced Artifacts | 200 |
-| GET | `/api/v1/executions/{execution_id}/trace` | Get combined state, Attempts, events, Artifacts | 200 |
 | GET | `/api/v1/artifacts/{artifact_id}` | Get one Artifact and lineage references | 200 |
 | POST | `/api/v1/runtime-targets` | Register/update and immediately probe a target | 200 |
 | GET | `/api/v1/runtime-targets` | List targets with pool/status/enabled filters | 200 |
@@ -34,7 +32,7 @@ Interactive documentation is available at `/docs`, ReDoc at `/redoc`, and the Op
 | POST | `/api/v1/runtime-targets/{target_id}/probe` | Run an immediate health probe | 200 |
 | POST | `/api/v1/runtime-targets/{target_id}/drain` | Stop new assignment, preserve running work | 200 |
 | POST | `/api/v1/runtime-targets/{target_id}/activate` | Enable and probe before scheduling | 200 |
-| DELETE | `/api/v1/runtime-targets/{target_id}` | Durable soft delete (`OFFLINE`, disabled) | 200 |
+| POST | `/api/v1/runtime-targets/{target_id}/disable` | Durable disable (`OFFLINE`, disabled) | 200 |
 | POST | `/api/v1/runtime-targets/{target_id}/purge` | Restricted permanent removal | 200 |
 
 List endpoints accept `limit` and an opaque `cursor`. They return `items`, `next_cursor`, and
@@ -50,8 +48,8 @@ identifies the schedule or manual batch trigger and may differ from `context.use
 also requires `context.workflow_id`.
 Interactive submissions require `USER`, while batch submissions require `BATCH`. Responses expose
 `created_at`, `updated_at`, `created_by_type`, `created_by`, `updated_by_type`, and `updated_by` on
-audited resources. Execution detail, list, and trace responses expose the immutable `runtime_type`
-and `runtime_profile`. Attempt history snapshots both fields so it remains self-contained even if
+audited resources. Execution detail and list responses expose immutable Runtime type and profile
+under `runtime`. Attempt history snapshots both fields so it remains self-contained even if
 fleet configuration changes later.
 
 ## Submit and poll
@@ -98,7 +96,9 @@ resource. Tool completion is not execution completion.
 curl http://127.0.0.1:8000/api/v1/executions/EXECUTION_ID
 curl 'http://127.0.0.1:8000/api/v1/executions?task_id=task-001&limit=20'
 curl 'http://127.0.0.1:8000/api/v1/executions?task_id=task-001&limit=20&cursor=NEXT_CURSOR'
-curl http://127.0.0.1:8000/api/v1/executions/EXECUTION_ID/trace
+curl http://127.0.0.1:8000/api/v1/executions/EXECUTION_ID/attempts
+curl http://127.0.0.1:8000/api/v1/executions/EXECUTION_ID/events
+curl http://127.0.0.1:8000/api/v1/executions/EXECUTION_ID/artifacts
 ```
 
 PATH submit uses the same request except for `source`:
@@ -204,15 +204,15 @@ curl http://127.0.0.1:8000/api/v1/runtime-pools
 
 `probe` only refreshes health. `drain` keeps the target enabled but excludes it from new
 assignments while current work finishes. `activate` enables and probes it, becoming `ACTIVE` only
-when healthy. `DELETE` is a soft delete: the row remains queryable as disabled and `OFFLINE` so all
-Execution and Attempt references remain intact.
+when healthy. `disable` keeps the row queryable as disabled and `OFFLINE` so all Execution and
+Attempt references remain intact.
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/runtime-targets/TARGET_ID/drain \
   -H 'Content-Type: application/json' \
   -d '{"idempotency_key":"server-drain-001","actor":{"type":"USER","id":"operator-001"}}'
 
-curl -X DELETE http://127.0.0.1:8000/api/v1/runtime-targets/TARGET_ID \
+curl -X POST http://127.0.0.1:8000/api/v1/runtime-targets/TARGET_ID/disable \
   -H 'Content-Type: application/json' \
   -d '{"idempotency_key":"server-remove-001","actor":{"type":"USER","id":"operator-001"}}'
 ```
@@ -240,7 +240,7 @@ Expected domain failures use a stable envelope:
 ```json
 {
   "error": {
-    "code": "IdempotencyConflictError",
+    "code": "IDEMPOTENCY_CONFLICT",
     "message": "The submit idempotency_key was already used with a different request."
   }
 }

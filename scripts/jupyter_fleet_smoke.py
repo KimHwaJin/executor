@@ -12,7 +12,7 @@ async def _wait_for_terminal(client: Client, execution_id: str) -> dict[str, obj
     for _ in range(200):
         result = await client.call_tool("execution_get", {"execution_id": execution_id})
         state = result.structured_content
-        if state["status"] in {"SUCCEEDED", "FAILED", "CANCELLED"}:
+        if state["state"]["status"] in {"SUCCEEDED", "FAILED", "CANCELLED"}:
             return state
         await asyncio.sleep(0.2)
     raise RuntimeError(f"Execution {execution_id} did not finish in time.")
@@ -52,7 +52,7 @@ async def main() -> None:
             },
         )
         for result in (primary, secondary):
-            if result.is_error or result.structured_content["status"] != "ACTIVE":
+            if result.is_error or result.structured_content["state"]["status"] != "ACTIVE":
                 raise RuntimeError(f"Jupyter registration failed: {result.content}")
 
         execution_ids: list[str] = []
@@ -94,11 +94,11 @@ async def main() -> None:
         states = await asyncio.gather(
             *(_wait_for_terminal(client, execution_id) for execution_id in execution_ids)
         )
-        server_ids = {str(state["runtime_target_id"]) for state in states}
-        if any(state["status"] != "SUCCEEDED" for state in states) or len(server_ids) != 2:
+        server_ids = {str(state["runtime"]["target_id"]) for state in states}
+        if any(state["state"]["status"] != "SUCCEEDED" for state in states) or len(server_ids) != 2:
             raise RuntimeError(f"Executions were not distributed successfully: {states}")
 
-        print("statuses:", [state["status"] for state in states])
+        print("statuses:", [state["state"]["status"] for state in states])
         print("distinct_runtime_targets:", len(server_ids))
         print("execution_ids:", execution_ids)
 

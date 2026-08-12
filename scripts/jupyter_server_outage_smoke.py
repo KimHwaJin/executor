@@ -38,7 +38,7 @@ async def _compose(*arguments: str) -> str:
 async def _wait_server_active(client: Client, server_id: str) -> dict[str, object]:
     for _ in range(160):
         server = await probe_runtime_target(client, server_id)
-        if server["status"] == "ACTIVE":
+        if server["state"]["status"] == "ACTIVE":
             return server
         await asyncio.sleep(0.25)
     raise RuntimeError(f"Jupyter server {server_id} did not recover.")
@@ -98,7 +98,7 @@ async def main() -> None:
 
             await _compose("stop", "jupyter-secondary")
             offline = await probe_runtime_target(client, secondary_id)
-            if offline["status"] != "OFFLINE":
+            if offline["state"]["status"] != "OFFLINE":
                 raise RuntimeError(f"Stopped Jupyter server was not OFFLINE: {offline}")
             failover_id = await submit_static(
                 client,
@@ -113,8 +113,8 @@ async def main() -> None:
                 {"SUCCEEDED", "FAILED"},
             )
             if (
-                failover["status"] != "SUCCEEDED"
-                or str(failover["runtime_target_id"]) != primary_id
+                failover["state"]["status"] != "SUCCEEDED"
+                or str(failover["runtime"]["target_id"]) != primary_id
             ):
                 raise RuntimeError(f"Work did not avoid the OFFLINE server: {failover}")
 
@@ -147,8 +147,8 @@ async def main() -> None:
                 wait_for_status(client, second_id, {"RUNNING"}, require_kernel=True),
             )
             assigned_servers = {
-                str(first_running["runtime_target_id"]),
-                str(second_running["runtime_target_id"]),
+                str(first_running["runtime"]["target_id"]),
+                str(second_running["runtime"]["target_id"]),
             }
             if assigned_servers != {primary_id, secondary_id}:
                 raise RuntimeError(
@@ -158,19 +158,19 @@ async def main() -> None:
                 wait_for_status(client, first_id, {"SUCCEEDED", "FAILED"}),
                 wait_for_status(client, second_id, {"SUCCEEDED", "FAILED"}),
             )
-            if first["status"] != "SUCCEEDED" or second["status"] != "SUCCEEDED":
+            if first["state"]["status"] != "SUCCEEDED" or second["state"]["status"] != "SUCCEEDED":
                 raise RuntimeError(f"Post-recovery executions failed: {first}, {second}")
             final_states = await asyncio.gather(
                 execution(client, first_id),
                 execution(client, second_id),
             )
 
-        print("offline_status:", offline["status"])
-        print("failover_status:", failover["status"])
-        print("failover_server_id:", failover["runtime_target_id"])
-        print("recovered_status:", recovered["status"])
+        print("offline_status:", offline["state"]["status"])
+        print("failover_status:", failover["state"]["status"])
+        print("failover_server_id:", failover["runtime"]["target_id"])
+        print("recovered_status:", recovered["state"]["status"])
         print("post_recovery_server_ids:", sorted(assigned_servers))
-        print("post_recovery_statuses:", [state["status"] for state in final_states])
+        print("post_recovery_statuses:", [state["state"]["status"] for state in final_states])
     finally:
         if not secondary_restored:
             await _compose(

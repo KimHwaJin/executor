@@ -12,6 +12,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from executor_service.container import ApplicationContainer
 from executor_service.domain.errors import (
     DomainError,
+    ErrorCode,
     ExecutionArtifactNotFoundError,
     ExecutionNotFoundError,
     ExecutionVersionConflictError,
@@ -92,7 +93,7 @@ def create_app(container: ApplicationContainer) -> FastAPI:
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             content={
                 "error": {
-                    "code": "RequestValidationError",
+                    "code": ErrorCode.REQUEST_VALIDATION_ERROR,
                     "message": "Request validation failed.",
                     "details": details,
                 }
@@ -132,8 +133,21 @@ def create_app(container: ApplicationContainer) -> FastAPI:
             status_code=http_status,
             content={
                 "error": {
-                    "code": type(exc).__name__,
+                    "code": exc.code,
                     "message": str(exc),
+                }
+            },
+        )
+
+    @app.exception_handler(Exception)
+    async def unexpected_error_handler(_request: Request, exc: Exception) -> JSONResponse:
+        logging.getLogger(__name__).exception("Unhandled request error", exc_info=exc)
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "error": {
+                    "code": ErrorCode.INTERNAL_ERROR,
+                    "message": "An internal error occurred.",
                 }
             },
         )

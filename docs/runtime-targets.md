@@ -27,7 +27,7 @@ docker compose --profile multi-jupyter --profile batch-jupyter up -d --wait
 Compose starts the containers but does not register the BATCH endpoints automatically. This
 matches production, where operators deploy or terminate Jupyter through the internal platform and
 then update Executor through `runtime_target_upsert`, `runtime_target_set_state`, and
-`runtime_target_remove`.
+`runtime_target_disable`.
 
 ## Jupyter resource endpoint
 
@@ -148,7 +148,7 @@ outage therefore does not make the whole service unready or interrupt INTERACTIV
 1. Call `runtime_target_set_state` with `DRAINING`. New work stops immediately.
 2. Wait until `drain_complete=true`; running work and retained retry sessions continue to reserve
    capacity until completed or expired.
-3. Call `runtime_target_remove` to soft-disable the registry record while preserving historical
+3. Call `runtime_target_disable` to disable the registry record while preserving historical
    foreign keys.
 4. Terminate the Jupyter deployment through the internal platform.
 

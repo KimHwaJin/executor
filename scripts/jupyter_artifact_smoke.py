@@ -15,7 +15,7 @@ async def _wait(client: Client, execution_id: str) -> dict[str, Any]:
     for _ in range(200):
         result = await client.call_tool("execution_get", {"execution_id": execution_id})
         state = result.structured_content
-        if state["status"] in {"SUCCEEDED", "FAILED", "CANCELLED"}:
+        if state["state"]["status"] in {"SUCCEEDED", "FAILED", "CANCELLED"}:
             return state
         await asyncio.sleep(0.2)
     raise RuntimeError(f"Execution {execution_id} did not finish.")
@@ -95,19 +95,19 @@ async def main() -> None:
         )
         execution_id = submitted.structured_content["execution_id"]
         terminal = await _wait(client, execution_id)
-        if terminal["status"] != "SUCCEEDED":
+        if terminal["state"]["status"] != "SUCCEEDED":
             raise RuntimeError(f"Artifact execution failed: {terminal}")
 
         listed = await client.call_tool("execution_artifact_list", {"execution_id": execution_id})
         artifacts = listed.structured_content["items"]
         if len(artifacts) != 5:
             raise RuntimeError(f"Expected five Artifacts: {artifacts}")
-        artifact_types = {item["artifact_type"] for item in artifacts}
+        artifact_types = {item["type"] for item in artifacts}
         if artifact_types != {"PLOT", "REPORT", "DATASET", "MODEL", "NOTEBOOK"}:
             raise RuntimeError(f"Unexpected Artifact types: {artifact_types}")
         processed_artifact = next(item for item in artifacts if item["name"] == "processed-data")
         if (
-            processed_artifact["external_parent_asset_id"] != "raw-daily-data"
+            processed_artifact["lineage"]["external_parent_asset_id"] != "raw-daily-data"
             or processed_artifact["metadata"]["token"] != "[REDACTED]"
         ):
             raise RuntimeError(f"Lineage or redaction failed: {processed_artifact}")
@@ -118,18 +118,13 @@ async def main() -> None:
         )
         if fetched.structured_content["artifact_id"] != processed_artifact["artifact_id"]:
             raise RuntimeError("Artifact detail lookup returned the wrong row.")
-        trace = await client.call_tool("execution_trace_get", {"execution_id": execution_id})
-        if len(trace.structured_content["artifacts"]["items"]) != 5:
-            raise RuntimeError("Execution Trace did not include every Artifact.")
-
     host_file = get_settings().workspace_host_root / Path(processed_relative)
     if not host_file.is_file():
         raise RuntimeError("Expected processed PV data was not created.")
     print("execution_id:", execution_id)
     print("artifact_count:", len(artifacts))
     print("artifact_types:", sorted(artifact_types))
-    print("lineage_parent:", processed_artifact["external_parent_asset_id"])
-    print("trace_artifacts:", len(trace.structured_content["artifacts"]["items"]))
+    print("lineage_parent:", processed_artifact["lineage"]["external_parent_asset_id"])
 
 
 if __name__ == "__main__":

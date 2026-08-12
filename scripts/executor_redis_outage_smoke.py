@@ -75,7 +75,7 @@ async def main() -> None:
                 interval_seconds=0.1,
             )
             completed_at = monotonic()
-            if succeeded["status"] != "SUCCEEDED":
+            if succeeded["state"]["status"] != "SUCCEEDED":
                 raise RuntimeError(f"Execution failed during Redis outage: {succeeded}")
             if completed_at >= pause_deadline:
                 raise RuntimeError(
@@ -97,7 +97,7 @@ async def main() -> None:
                 raise RuntimeError("Recovered Outbox did not publish to Redis Stream.")
 
         print("execution_id:", execution_id)
-        print("execution_status:", succeeded["status"])
+        print("execution_status:", succeeded["state"]["status"])
         print("completed_while_redis_paused:", True)
         print("redis_pause_milliseconds:", pause_milliseconds)
         print("outbox_event_count:", len(timeline))

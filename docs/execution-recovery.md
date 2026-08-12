@@ -6,8 +6,7 @@ renew leases while a Jupyter cell is running, and reconcile expired leases.
 
 ## Failure classification
 
-`execution_get`, Attempt history, and `execution_trace_get` expose `failure_type`,
-`retry_strategy`, and `runtime_session_cleanup_status`.
+`execution_get` and Attempt history expose failure, retry, and Runtime session cleanup state.
 
 | Failure type | Meaning | Default retry |
 |---|---|---|

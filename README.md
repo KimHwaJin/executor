@@ -10,13 +10,13 @@ DYNAMIC plans through a Runtime Driver. Jupyter REST/WebSocket is the first impl
 - Official MCP Python SDK 2.x `MCPServer`, exposed at `POST /mcp`
 - REST execution facade, OpenAPI, Swagger UI, and ReDoc under `/api/v1`, `/openapi.json`, `/docs`,
   and `/redoc`
-- Execution tools: `executor_get_capabilities`, `execution_submit`, `execution_get`,
+- Execution tools: `execution_submit`, `execution_get`,
   `execution_cancel`, `execution_retry`, `execution_continue`, `execution_finish`,
   `execution_list`, `execution_step_list`, `execution_attempt_list`,
-  `execution_event_list`, `execution_trace_get`,
+  `execution_event_list`,
   `execution_artifact_list`, `execution_artifact_get`
 - Runtime Target tools: `runtime_target_upsert`, `runtime_target_list`,
-  `runtime_target_get`, `runtime_target_probe`, `runtime_target_remove`,
+  `runtime_target_get`, `runtime_target_probe`, `runtime_target_disable`,
   `runtime_target_set_state`
 - Execution, ExecutionStep, and OutboxEvent persistence with SQLAlchemy 2 and Alembic
 - Transactional Outbox publisher with at-least-once Redis Stream delivery
@@ -316,21 +316,22 @@ that deadline enter the existing `WORKER_SHUTDOWN` cleanup and recovery path. `/
 process liveness check, while `/workerz` reports `ACCEPTING`, `DRAINING`, or `STOPPED` and the local
 active execution count.
 
-All MCP list Tools return `{items, nextCursor}`. `nextCursor` is an opaque continuation token:
+All MCP and REST list operations return `{items, next_cursor, has_more}`. `next_cursor` is an
+opaque continuation token:
 clients and agents must pass it back unchanged as the next call's `cursor` while keeping the same
-filters. REST list endpoints use the equivalent `{items, next_cursor, has_more}` envelope. Keyset
+filters. Keyset
 pagination avoids skipped or duplicated pages caused by offset shifts during long-running work.
 These are normal MCP Tool calls with declared input/output schemas; no private transport method is
-introduced. The custom Tool result mirrors MCP's opaque cursor naming convention while remaining
-valid structured Tool content.
+introduced. MCP protocol-native list operations remain owned by the official SDK; these are
+Executor-defined Tool result contracts shared with REST.
 
 `execution_attempt_list` returns worker Attempts in order, including the selected Runtime Target,
 session, immutable Runtime type/profile snapshot, lease/heartbeat times, outcome, and only the
 Steps actually run by that Attempt.
 Each Step history row snapshots its skill, tool, inputs, outputs, error, and timestamps, so a retry
 does not overwrite evidence from the earlier failure. `execution_event_list` returns the
-transactional Outbox timeline and current Redis publication state. `execution_trace_get` combines
-the current Execution, Attempt/Step histories, and events for an end-to-end frontend detail view.
+transactional Outbox timeline and current Redis publication state. Frontends compose the current
+Execution with Attempt/Step, event, and Artifact list endpoints for an end-to-end detail view.
 Secret-shaped keys in historical inputs, outputs, and event payloads are defensively redacted.
 
 Execution-scoped files created or modified under type directories in `artifacts/` are detected
@@ -347,7 +348,7 @@ does not read the object. See [Artifact Manifest](docs/artifact-manifest.md) for
 
 `execution_artifact_list` and `execution_artifact_get` expose execution/Attempt/Step references,
 storage URI, media type, size, checksum, status, metadata, and a direct parent Artifact or external
-Agent Asset ID. `execution_trace_get` includes the same Artifact collection. Registration emits
+Agent Asset ID. Registration emits
 `execution.artifact_registered` through the Transactional Outbox.
 
 Agent code files and `.ipynb` files are not public execution inputs. Executor owns Notebook
@@ -370,7 +371,7 @@ The background health monitor repeats the probe at
 ranked by slot, CPU, and memory pressure, with the memory admission threshold configured by
 `RUNTIME_MEMORY_ADMISSION_LIMIT`. If all resource observations exceed
 `RUNTIME_RESOURCE_MAX_AGE_SECONDS`, scheduling falls back to least reserved slot ratio. Meanwhile,
-`runtime_target_remove` performs a durable soft disable so historical execution foreign keys
+`runtime_target_disable` performs a durable disable so historical execution foreign keys
 remain valid. `runtime_target_list` reports capacity, active executions, observed sessions,
 supported profiles, and the latest health result. The scheduler selects within the requested
 `INTERACTIVE` or `BATCH` pool and skips full, disabled, unhealthy, or incompatible targets.
@@ -398,11 +399,12 @@ procedures.
 
 The same fleet registry is available to operators through REST at `/api/v1/runtime-targets` and
 `/api/v1/runtime-pools`. REST supports registration, filtered cursor listing, detail, immediate
-probe, drain, activate, soft delete, and a deliberately restricted hard purge. Hard purge requires
+probe, drain, activate, disable, and a deliberately restricted hard purge. Hard purge requires
 the exact target name, an already disabled `OFFLINE` target, and no Execution or Attempt reference;
 the environment-configured default target is never purgeable. A successful purge preserves an
 immutable audit tombstone and never cascades into execution history. Credentials are accepted only
-on upsert and both credential and connection configuration are absent from every response.
+on upsert and credentials are absent from every response. The non-secret endpoint is returned as
+`runtime.connection_config.endpoint`.
 
 ## Shared PV contract
 

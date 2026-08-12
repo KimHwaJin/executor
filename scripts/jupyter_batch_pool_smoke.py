@@ -19,7 +19,7 @@ async def _execution(client: Client, execution_id: str) -> dict[str, Any]:
 async def _wait_for_terminal(client: Client, execution_id: str) -> dict[str, Any]:
     for _ in range(300):
         state = await _execution(client, execution_id)
-        if state["status"] in {"SUCCEEDED", "FAILED", "CANCELLED"}:
+        if state["state"]["status"] in {"SUCCEEDED", "FAILED", "CANCELLED"}:
             return state
         await asyncio.sleep(0.2)
     raise RuntimeError(f"Execution {execution_id} did not finish in time.")
@@ -34,7 +34,7 @@ async def _wait_for_status(
         states = await asyncio.gather(
             *(_execution(client, execution_id) for execution_id in execution_ids)
         )
-        if [state["status"] for state in states] == expected_statuses:
+        if [state["state"]["status"] for state in states] == expected_statuses:
             return list(states)
         await asyncio.sleep(0.1)
     raise RuntimeError(f"Executions {execution_ids} did not reach statuses {expected_statuses}.")
@@ -94,7 +94,8 @@ async def _register_servers(client: Client, unique: str) -> tuple[str, set[str]]
         )
     results = [interactive, *batch_results]
     if any(
-        result.is_error or result.structured_content["status"] != "ACTIVE" for result in results
+        result.is_error or result.structured_content["state"]["status"] != "ACTIVE"
+        for result in results
     ):
         raise RuntimeError(f"Jupyter registration failed: {[item.content for item in results]}")
     return (
@@ -177,8 +178,8 @@ async def main() -> None:
         running_batch_states = await asyncio.gather(
             *(_execution(client, execution_id) for execution_id in batch_ids)
         )
-        if interactive_state["status"] != "SUCCEEDED" or any(
-            state["status"] != "RUNNING" for state in running_batch_states
+        if interactive_state["state"]["status"] != "SUCCEEDED" or any(
+            state["state"]["status"] != "RUNNING" for state in running_batch_states
         ):
             raise RuntimeError(
                 "INTERACTIVE work did not finish independently while BATCH Worker slots "
@@ -200,7 +201,7 @@ async def main() -> None:
             states = await asyncio.gather(
                 *(_execution(client, execution_id) for execution_id in batch_ids)
             )
-            statuses = [state["status"] for state in states]
+            statuses = [state["state"]["status"] for state in states]
             if statuses.count("RUNNING") == 2 and statuses.count("QUEUED") == 1:
                 observed_batch_queue = True
                 break
@@ -211,21 +212,21 @@ async def main() -> None:
         batch_states = await asyncio.gather(
             *(_wait_for_terminal(client, execution_id) for execution_id in batch_ids),
         )
-        if any(state["status"] != "SUCCEEDED" for state in batch_states):
+        if any(state["state"]["status"] != "SUCCEEDED" for state in batch_states):
             raise RuntimeError(f"BATCH pool execution failed: {batch_states}")
-        actual_batch_servers = {str(state["runtime_target_id"]) for state in batch_states}
+        actual_batch_servers = {str(state["runtime"]["target_id"]) for state in batch_states}
         if actual_batch_servers != batch_server_ids:
             raise RuntimeError(
                 f"Expected both BATCH servers {batch_server_ids}, got {actual_batch_servers}"
             )
-        if str(interactive_state["runtime_target_id"]) != interactive_server_id:
+        if str(interactive_state["runtime"]["target_id"]) != interactive_server_id:
             raise RuntimeError("INTERACTIVE execution escaped its configured pool server.")
         if interactive_server_id in actual_batch_servers:
             raise RuntimeError("INTERACTIVE and BATCH pools shared a server unexpectedly.")
 
-        print("interactive_status:", interactive_state["status"])
+        print("interactive_status:", interactive_state["state"]["status"])
         print("interactive_completed_while_batch_saturated:", True)
-        print("batch_statuses:", [state["status"] for state in batch_states])
+        print("batch_statuses:", [state["state"]["status"] for state in batch_states])
         print("batch_queue_observed:", observed_batch_queue)
         print("distinct_batch_servers:", len(actual_batch_servers))
         print("interactive_server_id:", interactive_server_id)

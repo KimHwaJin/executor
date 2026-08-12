@@ -61,5 +61,5 @@ untrusted DLQ entry back to the primary Stream.
 
 Executor does not trim the primary Stream. Agent-owned consumer groups may be slower or may retain
 Pending entries, so safe trimming requires a shared retention agreement across all groups.
-Published Outbox rows are also retained because `execution_event_list` and `execution_trace_get`
-use them as the durable frontend event timeline.
+Published Outbox rows are also retained because `execution_event_list` uses them as the durable
+frontend event timeline.

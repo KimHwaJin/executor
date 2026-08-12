@@ -15,8 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from executor_service.application.pagination import Page, decode_time_cursor, encode_time_cursor
 from executor_service.application.runtime_targets import (
+    DisableRuntimeTargetCommand,
     PurgeRuntimeTargetCommand,
-    RemoveRuntimeTargetCommand,
     RuntimePoolView,
     RuntimeTargetPurgeView,
     RuntimeTargetView,
@@ -398,7 +398,7 @@ class RuntimeTargetRegistry:
                     target.updated_by = actor_id
             return await self._to_view(session, target)
 
-    async def remove(self, command: RemoveRuntimeTargetCommand) -> RuntimeTargetView:
+    async def disable(self, command: DisableRuntimeTargetCommand) -> RuntimeTargetView:
         fingerprint = _fingerprint(
             {
                 "target_id": str(command.target_id),

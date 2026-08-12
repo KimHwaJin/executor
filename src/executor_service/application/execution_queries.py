@@ -1,4 +1,4 @@
-"""Application-facing read models for complete execution tracing."""
+"""Application-facing read models for execution history queries."""
 
 from dataclasses import dataclass
 from datetime import datetime
@@ -119,14 +119,6 @@ class ExecutionArtifactView:
     updated_at: datetime
 
 
-@dataclass(frozen=True, slots=True)
-class ExecutionTraceView:
-    execution: Execution
-    attempts: Page[ExecutionAttemptView]
-    events: Page[ExecutionEventView]
-    artifacts: Page[ExecutionArtifactView]
-
-
 class ExecutionQueryService(Protocol):
     async def executions(
         self,
@@ -157,5 +149,3 @@ class ExecutionQueryService(Protocol):
     ) -> Page[ExecutionArtifactView]: ...
 
     async def artifact(self, artifact_id: UUID) -> ExecutionArtifactView: ...
-
-    async def trace(self, execution_id: UUID) -> ExecutionTraceView: ...

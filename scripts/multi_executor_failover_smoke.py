@@ -88,8 +88,8 @@ async def _wait_for(
 ) -> dict[str, Any]:
     for _ in range(attempts):
         state = await _execution(client, execution_id)
-        if state["status"] in statuses and (
-            not require_kernel or state["runtime_session_id"] is not None
+        if state["state"]["status"] in statuses and (
+            not require_kernel or state["runtime"]["session_id"] is not None
         ):
             return state
         await asyncio.sleep(0.2)
@@ -106,7 +106,10 @@ async def _attempts(client: Client, execution_id: str) -> list[dict[str, Any]]:
 async def _wait_for_recovered_failure(client: Client, execution_id: str) -> dict[str, Any]:
     for _ in range(300):
         state = await _execution(client, execution_id)
-        if state["status"] == "FAILED" and state["runtime_session_cleanup_status"] != "PENDING":
+        if (
+            state["state"]["status"] == "FAILED"
+            and state["recovery"]["runtime_session_cleanup_status"] != "PENDING"
+        ):
             return state
         await asyncio.sleep(0.2)
     raise RuntimeError(f"Execution {execution_id} did not finish crash cleanup.")
@@ -172,9 +175,12 @@ async def main() -> None:
                 {"RUNNING"},
                 require_kernel=True,
             )
-            initial_kernel = str(running["runtime_session_id"])
+            initial_kernel = str(running["runtime"]["session_id"])
             first_attempts = await _attempts(client, execution_id)
-            if len(first_attempts) != 1 or first_attempts[0]["lease_owner"] != PRIMARY_CONSUMER:
+            if (
+                len(first_attempts) != 1
+                or first_attempts[0]["lease"]["owner"] != PRIMARY_CONSUMER
+            ):
                 raise RuntimeError(f"Primary did not own the first Attempt: {first_attempts}")
 
         secondary = await _start_executor(
@@ -190,10 +196,10 @@ async def main() -> None:
         async with Client(f"http://127.0.0.1:{secondary_port}/mcp") as client:
             failed = await _wait_for_recovered_failure(client, execution_id)
             if (
-                failed["failure_type"] != "LEASE_EXPIRED"
-                or failed["retry_strategy"] != "FROM_START"
-                or failed["runtime_session_cleanup_status"] != "SUCCEEDED"
-                or failed["runtime_session_id"] is not None
+                failed["failure"]["type"] != "LEASE_EXPIRED"
+                or failed["retry"]["strategy"] != "FROM_START"
+                or failed["recovery"]["runtime_session_cleanup_status"] != "SUCCEEDED"
+                or failed["runtime"]["session_id"] is not None
             ):
                 raise RuntimeError(f"Crash recovery was not classified safely: {failed}")
 
@@ -207,7 +213,7 @@ async def main() -> None:
                     }
                 },
             )
-            if retry.is_error or retry.structured_content["status"] != "QUEUED":
+            if retry.is_error or retry.structured_content["state"]["status"] != "QUEUED":
                 raise RuntimeError(f"Failover retry was not queued: {retry.content}")
             succeeded = await _wait_for(
                 client,
@@ -216,12 +222,12 @@ async def main() -> None:
             )
             attempts = await _attempts(client, execution_id)
             if (
-                succeeded["status"] != "SUCCEEDED"
+                succeeded["state"]["status"] != "SUCCEEDED"
                 or len(attempts) != 2
-                or [item["lease_owner"] for item in attempts]
+                or [item["lease"]["owner"] for item in attempts]
                 != [PRIMARY_CONSUMER, SECONDARY_CONSUMER]
-                or [item["status"] for item in attempts] != ["FAILED", "SUCCEEDED"]
-                or attempts[0]["runtime_session_id"] == attempts[1]["runtime_session_id"]
+                or [item["state"]["status"] for item in attempts] != ["FAILED", "SUCCEEDED"]
+                or attempts[0]["runtime"]["session_id"] == attempts[1]["runtime"]["session_id"]
             ):
                 raise RuntimeError(
                     f"Secondary did not complete exactly one retry: {succeeded}, {attempts}"
@@ -229,13 +235,16 @@ async def main() -> None:
 
             print("execution_id:", execution_id)
             print("primary_exit_code:", primary.returncode)
-            print("failure_type:", failed["failure_type"])
-            print("retry_strategy:", failed["retry_strategy"])
-            print("runtime_session_cleanup_status:", failed["runtime_session_cleanup_status"])
+            print("failure_type:", failed["failure"]["type"])
+            print("retry_strategy:", failed["retry"]["strategy"])
+            print(
+                "runtime_session_cleanup_status:",
+                failed["recovery"]["runtime_session_cleanup_status"],
+            )
             print("initial_kernel:", initial_kernel)
-            print("attempt_owners:", [item["lease_owner"] for item in attempts])
-            print("attempt_statuses:", [item["status"] for item in attempts])
-            print("final_status:", succeeded["status"])
+            print("attempt_owners:", [item["lease"]["owner"] for item in attempts])
+            print("attempt_statuses:", [item["state"]["status"] for item in attempts])
+            print("final_status:", succeeded["state"]["status"])
     finally:
         await _stop_executor(primary)
         await _stop_executor(secondary)

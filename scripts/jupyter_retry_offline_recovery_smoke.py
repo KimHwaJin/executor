@@ -25,7 +25,7 @@ async def _wait_for_status(
 ) -> dict[str, Any]:
     for _ in range(int(timeout_seconds * 4)):
         execution = await _required(client, "execution_get", {"execution_id": execution_id})
-        if execution["status"] in statuses:
+        if execution["state"]["status"] in statuses:
             return execution
         await asyncio.sleep(0.25)
     raise RuntimeError(f"Execution {execution_id} did not reach {statuses}.")
@@ -76,7 +76,7 @@ async def main() -> None:
             endpoint=healthy_endpoint,
             token=token,
         )
-        if healthy_server["status"] != "ACTIVE":
+        if healthy_server["state"]["status"] != "ACTIVE":
             raise RuntimeError(f"Jupyter server was not initially ACTIVE: {healthy_server}")
 
         submitted = await _required(
@@ -119,10 +119,10 @@ async def main() -> None:
         )
         execution_id = str(submitted["execution_id"])
         failed = await _wait_for_status(client, execution_id, {"FAILED"})
-        if failed["retry_strategy"] != "FROM_FAILED_STEP":
+        if failed["retry"]["strategy"] != "FROM_FAILED_STEP":
             raise RuntimeError(f"Execution failure did not retain its kernel: {failed}")
-        original_server_id = str(failed["runtime_target_id"])
-        original_runtime_session_id = str(failed["runtime_session_id"])
+        original_server_id = str(failed["runtime"]["target_id"])
+        original_runtime_session_id = str(failed["runtime"]["session_id"])
 
         try:
             offline_server = await _upsert_server(
@@ -134,7 +134,7 @@ async def main() -> None:
                 token=token,
             )
             server_was_redirected = True
-            if offline_server["status"] != "OFFLINE":
+            if offline_server["state"]["status"] != "OFFLINE":
                 raise RuntimeError(f"Jupyter server did not become OFFLINE: {offline_server}")
 
             await _required(
@@ -151,10 +151,10 @@ async def main() -> None:
             await asyncio.sleep(3)
             waiting = await _required(client, "execution_get", {"execution_id": execution_id})
             if (
-                waiting["status"] != "QUEUED"
-                or waiting["retry_strategy"] != "FROM_FAILED_STEP"
-                or str(waiting["runtime_target_id"]) != original_server_id
-                or str(waiting["runtime_session_id"]) != original_runtime_session_id
+                waiting["state"]["status"] != "QUEUED"
+                or waiting["retry"]["strategy"] != "FROM_FAILED_STEP"
+                or str(waiting["runtime"]["target_id"]) != original_server_id
+                or str(waiting["runtime"]["session_id"]) != original_runtime_session_id
             ):
                 raise RuntimeError(
                     f"OFFLINE retry did not remain pinned to its retained kernel: {waiting}"
@@ -169,30 +169,32 @@ async def main() -> None:
                 token=token,
             )
             server_was_redirected = False
-            if recovered_server["status"] != "ACTIVE":
+            if recovered_server["state"]["status"] != "ACTIVE":
                 raise RuntimeError(f"Jupyter server did not recover: {recovered_server}")
 
             succeeded = await _wait_for_status(client, execution_id, {"SUCCEEDED", "FAILED"})
-            trace = await _required(client, "execution_trace_get", {"execution_id": execution_id})
-            attempts = trace["attempts"]["items"]
+            attempt_page = await _required(
+                client, "execution_attempt_list", {"execution_id": execution_id}
+            )
+            attempts = attempt_page["items"]
             retry_attempt = attempts[-1] if attempts else None
             if (
-                succeeded["status"] != "SUCCEEDED"
-                or str(succeeded["runtime_target_id"]) != original_server_id
+                succeeded["state"]["status"] != "SUCCEEDED"
+                or str(succeeded["runtime"]["target_id"]) != original_server_id
                 or retry_attempt is None
-                or str(retry_attempt["runtime_target_id"]) != original_server_id
-                or str(retry_attempt["runtime_session_id"]) != original_runtime_session_id
+                or str(retry_attempt["runtime"]["target_id"]) != original_server_id
+                or str(retry_attempt["runtime"]["session_id"]) != original_runtime_session_id
             ):
                 raise RuntimeError(f"Retained-kernel recovery failed: {succeeded}")
 
             print("execution_id:", execution_id)
-            print("offline_wait_status:", waiting["status"])
-            print("same_server:", str(succeeded["runtime_target_id"]) == original_server_id)
+            print("offline_wait_status:", waiting["state"]["status"])
+            print("same_server:", str(succeeded["runtime"]["target_id"]) == original_server_id)
             print(
                 "same_kernel:",
-                str(retry_attempt["runtime_session_id"]) == original_runtime_session_id,
+                str(retry_attempt["runtime"]["session_id"]) == original_runtime_session_id,
             )
-            print("final_status:", succeeded["status"])
+            print("final_status:", succeeded["state"]["status"])
         finally:
             if server_was_redirected:
                 await _upsert_server(
