@@ -60,11 +60,41 @@ is not already present.
 
 ```bash
 cp .env.example .env
-docker compose up -d
 uv sync --dev
+docker compose up -d postgres redis jupyter
 uv run alembic upgrade head
 uv run executor-service
 ```
+
+To build and run the Executor application together with PostgreSQL, Redis, and Jupyter, use the
+full Compose stack instead. The one-shot `migrate` service upgrades the schema before `executor`
+starts, and both Executor and Jupyter mount `./notebook_dir` at `/workspace/pv`.
+
+```bash
+cp .env.example .env
+docker compose up -d --build --wait
+docker compose ps -a
+curl --fail http://127.0.0.1:8000/healthz
+curl --fail http://127.0.0.1:8000/readyz
+```
+
+`migrate` should show `Exited (0)`, while `executor`, `postgres`, `redis`, and `jupyter` should be
+running and healthy. When invoking the host-side single-server smoke test against this stack,
+register the Jupyter endpoint as its Compose-internal address so the Executor container can reach
+it:
+
+```bash
+SINGLE_JUPYTER_ENDPOINT=http://jupyter:8888 \
+  uv run python scripts/single_jupyter_smoke.py
+```
+
+Stop the stack with `docker compose down`. Named PostgreSQL and Redis volumes, and the bind-mounted
+`notebook_dir`, are retained unless they are explicitly removed.
+
+For MCP calls from another machine, append the Executor host or IP (including `:*` when any port
+is acceptable) to `MCP_ALLOWED_HOSTS_DOCKER` and its browser origin to
+`MCP_ALLOWED_ORIGINS_DOCKER` before recreating `executor`. Keep these allowlists narrow; the
+Streamable HTTP transport rejects unlisted Host headers by design.
 
 Native Windows is supported. Alembic and the `executor-service` console entry point run psycopg
 on a `SelectorEventLoop`, because psycopg async connections are incompatible with Windows'
