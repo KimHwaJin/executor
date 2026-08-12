@@ -39,8 +39,8 @@ Status: `ACCEPTED`
 
 Scope:
 
-- REST Runtime Target create/update, list, detail, probe, drain, activate, and soft-delete responses.
-- MCP Runtime Target create/update, list, detail, probe, remove, and state-change responses.
+- REST Runtime Target create/update, list, detail, probe, drain, activate, and disable responses.
+- MCP Runtime Target create/update, list, detail, probe, disable, and state-change responses.
 - Database schema and internal scheduling models are outside this response-only change.
 
 Draft shape:
@@ -860,24 +860,20 @@ not create a new domain object and only replaces the target's latest observed st
 timestamps. Reserve command idempotency keys for intent mutations such as submit, cancel, retry,
 disable, activate, and purge.
 
-### 12.2 REST soft-delete route
+### 12.2 REST disable route
 
 Status: `ACCEPTED`
 
-Current REST uses `DELETE /runtime-targets/{target_id}` with a JSON body containing
-`idempotency_key` and `actor`. Although FastAPI accepts it, some clients, gateways, and generated
-SDKs handle DELETE bodies inconsistently.
-
-Recommended decision: replace it with
-`POST /runtime-targets/{target_id}/disable`. Keep hard purge as the explicit separate
-`POST /runtime-targets/{target_id}/purge` operation. MCP Tool naming can remain
-`runtime_target_remove` or be renamed to `runtime_target_disable` for transport consistency.
+Use `POST /runtime-targets/{target_id}/disable` with `idempotency_key` and `actor`. This avoids
+DELETE request bodies, which some clients, gateways, and generated SDKs handle inconsistently.
+Keep hard purge as the explicit separate `POST /runtime-targets/{target_id}/purge` operation and
+use `runtime_target_disable` for MCP.
 
 Accepted naming:
 
 - REST: `POST /api/v1/runtime-targets/{target_id}/disable`.
 - MCP: `runtime_target_disable`.
-- Remove the old REST DELETE route and MCP `runtime_target_remove`; do not retain aliases.
+- Do not retain the old REST DELETE route or MCP compatibility aliases.
 - `disable` preserves registry and execution history while preventing new assignment.
 - `drain`, `activate`, and `purge` remain distinct lifecycle operations.
 

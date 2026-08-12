@@ -820,7 +820,7 @@ class ExecutionWorker:
                         session,
                         execution_row,
                         now,
-                        "The retained Runtime Target was removed or disabled before retry.",
+                        "The retained Runtime Target is missing or disabled before retry.",
                     )
                     return None
                 if target.status == RuntimeTargetStatus.OFFLINE:
@@ -1770,7 +1770,7 @@ class ExecutionWorker:
                     execution.id,
                     execution.runtime_session_id,
                     FailureType.RUNTIME_UNAVAILABLE,
-                    "The assigned Runtime Target was removed while waiting for the Agent.",
+                    "The assigned Runtime Target was disabled while waiting for the Agent.",
                 )
                 continue
             if execution.runtime_session_id is None:

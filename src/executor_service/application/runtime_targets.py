@@ -137,9 +137,12 @@ class RuntimeTargetPurgeView:
     runtime_type: RuntimeType
     connection_config: dict[str, Any]
     pool: RuntimePool
-    purged_by_type: ActorType | None
-    purged_by: str | None
-    purged_at: datetime
+    created_by_type: ActorType | None
+    created_by: str | None
+    updated_by_type: ActorType | None
+    updated_by: str | None
+    created_at: datetime
+    updated_at: datetime
 
 
 class RuntimeTargetManager(Protocol):

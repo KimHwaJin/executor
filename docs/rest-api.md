@@ -214,7 +214,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/runtime-targets/TARGET_ID/drain \
 
 curl -X POST http://127.0.0.1:8000/api/v1/runtime-targets/TARGET_ID/disable \
   -H 'Content-Type: application/json' \
-  -d '{"idempotency_key":"server-remove-001","actor":{"type":"USER","id":"operator-001"}}'
+  -d '{"idempotency_key":"server-disable-001","actor":{"type":"USER","id":"operator-001"}}'
 ```
 
 Hard purge is intentionally narrow. The target must already be disabled and `OFFLINE`, the

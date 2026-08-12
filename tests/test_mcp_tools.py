@@ -215,7 +215,7 @@ async def test_mcp_domain_errors_expose_stable_public_code(
     assert "[EXECUTION_NOT_FOUND]" in missing.content[0].text
 
 
-async def test_mcp_runtime_target_disable_replaces_remove_and_uses_shared_contract(
+async def test_mcp_runtime_target_disable_uses_shared_contract(
     execution_service: ExecutionService,
     engine: AsyncEngine,
     tmp_path: Path,
@@ -237,7 +237,6 @@ async def test_mcp_runtime_target_disable_replaces_remove_and_uses_shared_contra
     async with Client(target) as client:
         tool_names = {tool.name for tool in (await client.list_tools()).tools}
         assert "runtime_target_disable" in tool_names
-        assert "runtime_target_remove" not in tool_names
         created = await client.call_tool(
             "runtime_target_upsert",
             {

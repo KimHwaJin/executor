@@ -408,7 +408,7 @@ class RuntimeTargetRegistry:
         )
         async with self._session_factory() as session, session.begin():
             repeated_id = await self._repeated_result(
-                session, command.idempotency_key, "runtime_target.remove", fingerprint
+                session, command.idempotency_key, "runtime_target.disable", fingerprint
             )
             if repeated_id is not None:
                 target = await self._required_target(session, repeated_id)
@@ -423,7 +423,7 @@ class RuntimeTargetRegistry:
             self._add_receipt(
                 session,
                 command.idempotency_key,
-                "runtime_target.remove",
+                "runtime_target.disable",
                 fingerprint,
                 target.id,
             )
@@ -435,7 +435,7 @@ class RuntimeTargetRegistry:
             RuntimeTargetStatus.DRAINING,
         }:
             raise RuntimeTargetConfigurationError(
-                "desired_state must be ACTIVE or DRAINING. Use remove to disable a target."
+                "desired_state must be ACTIVE or DRAINING. Use disable for durable disablement."
             )
         fingerprint = _fingerprint(
             {
@@ -525,7 +525,7 @@ class RuntimeTargetRegistry:
                 )
             if target.enabled or target.status != RuntimeTargetStatus.OFFLINE:
                 raise RuntimeTargetPurgeConflictError(
-                    "A target must be soft-deleted and OFFLINE before it can be purged."
+                    "A target must be disabled and OFFLINE before it can be purged."
                 )
             if self._settings.runtime_enabled and target.name == self._settings.runtime_target_name:
                 raise RuntimeTargetPurgeConflictError(
@@ -600,18 +600,24 @@ class RuntimeTargetRegistry:
 
     @staticmethod
     def _purge_view(tombstone: RuntimeTargetPurgeORM) -> RuntimeTargetPurgeView:
-        purged_at = tombstone.created_at
-        if purged_at.tzinfo is None:
-            purged_at = purged_at.replace(tzinfo=UTC)
+        created_at = tombstone.created_at
+        updated_at = tombstone.updated_at
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=UTC)
+        if updated_at.tzinfo is None:
+            updated_at = updated_at.replace(tzinfo=UTC)
         return RuntimeTargetPurgeView(
             target_id=tombstone.target_id,
             name=tombstone.target_name,
             runtime_type=tombstone.runtime_type,
             connection_config=tombstone.connection_config,
             pool=tombstone.pool,
-            purged_by_type=tombstone.created_by_type,
-            purged_by=tombstone.created_by,
-            purged_at=purged_at,
+            created_by_type=tombstone.created_by_type,
+            created_by=tombstone.created_by,
+            updated_by_type=tombstone.updated_by_type,
+            updated_by=tombstone.updated_by,
+            created_at=created_at,
+            updated_at=updated_at,
         )
 
     async def _monitor_loop(self) -> None:

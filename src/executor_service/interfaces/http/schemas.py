@@ -14,10 +14,11 @@ from executor_service.application.runtime_targets import (
     RuntimeTargetPurgeView,
     SetRuntimeTargetStateCommand,
 )
-from executor_service.domain.enums import ActorType, RuntimeTargetStatus
+from executor_service.domain.enums import RuntimeTargetStatus
 from executor_service.execution_specs import CodeSource
 from executor_service.interfaces.contracts import (
     ActorInput,
+    AuditFields,
     ExecutionSubmitRequest,
     RuntimeTargetUpsertRequest,
 )
@@ -83,19 +84,21 @@ class RuntimeTargetPurgeRequest(RuntimeTargetMutationRequest):
         )
 
 
-class RuntimeTargetPurgeResponse(HTTPModel):
+class RuntimeTargetPurgeResponse(AuditFields):
     target_id: UUID
     name: str
-    purged_by_type: ActorType | None
-    purged_by: str | None
 
     @classmethod
     def from_view(cls, view: RuntimeTargetPurgeView) -> "RuntimeTargetPurgeResponse":
         return cls(
             target_id=view.target_id,
             name=view.name,
-            purged_by_type=view.purged_by_type,
-            purged_by=view.purged_by,
+            created_by_type=view.created_by_type,
+            created_by=view.created_by,
+            updated_by_type=view.updated_by_type,
+            updated_by=view.updated_by,
+            created_at=view.created_at,
+            updated_at=view.updated_at,
         )
 
 

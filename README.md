@@ -293,7 +293,7 @@ of already executed dynamic cells is intentionally not supported.
 Execution. `DYNAMIC_STEP_WAIT_TIMEOUT_SECONDS` defaults to one hour and is reset after every
 dynamic cell. The effective wait deadline never exceeds the total execution deadline. A missed
 Agent deadline produces `DYNAMIC_WAIT_TIMEOUT`; a missing retained session produces
-`RUNTIME_SESSION_LOST`. A removed Runtime Target produces `RUNTIME_UNAVAILABLE`. These terminal
+`RUNTIME_SESSION_LOST`. A disabled Runtime Target produces `RUNTIME_UNAVAILABLE`. These terminal
 dynamic failures are non-retryable and their sessions are deleted when still reachable. Temporary health-probe
 `OFFLINE` state alone does not immediately fail waiting work; the persisted deadline remains the
 guard while the server recovers.
@@ -388,7 +388,7 @@ configured per manually registered target.
 Use `runtime_target_set_state` with `DRAINING` before target maintenance. Existing executions and
 retained retry sessions remain attached, while new work is excluded from that target. The response
 sets `drain_complete=true` after its active/reserved count reaches zero. `ACTIVE` probes the target
-before allowing new work again; `remove` is the separate operation for durable disablement.
+before allowing new work again; `disable` is the separate durable disablement operation.
 
 `runtime_target_list` exposes target status, configured capacity, active execution count, and
 observed session count. Capacity usage includes running/waiting Attempts and retained retry sessions,

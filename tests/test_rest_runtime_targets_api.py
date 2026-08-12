@@ -233,17 +233,17 @@ async def test_fleet_list_filters_cursor_capacity_and_state_controls(
     assert activated.json()["state"]["status"] == "ACTIVE"
     assert activated.json()["state"]["accepting_new_executions"] is True
 
-    removed = await client.post(
+    disabled = await client.post(
         f"/api/v1/runtime-targets/{target_id}/disable",
         json=_mutation_payload("fleet-disable-0"),
     )
-    assert removed.json()["state"]["status"] == "OFFLINE"
-    assert removed.json()["state"]["enabled"] is False
+    assert disabled.json()["state"]["status"] == "OFFLINE"
+    assert disabled.json()["state"]["enabled"] is False
     filtered = await client.get("/api/v1/runtime-targets", params={"enabled": False})
     assert [item["target_id"] for item in filtered.json()["items"]] == [target_id]
 
 
-async def test_hard_purge_requires_soft_delete_confirmation_and_keeps_tombstone(
+async def test_hard_purge_requires_disable_confirmation_and_keeps_tombstone(
     fleet_client: tuple[httpx.AsyncClient, ApplicationContainer],
 ) -> None:
     client, container = fleet_client
@@ -274,7 +274,12 @@ async def test_hard_purge_requires_soft_delete_confirmation_and_keeps_tombstone(
     repeated = await client.post(f"/api/v1/runtime-targets/{target_id}/purge", json=purge_payload)
     assert purged.status_code == 200
     assert repeated.json() == purged.json()
-    assert purged.json()["purged_by"] == "fleet-admin"
+    assert purged.json()["created_by_type"] == "USER"
+    assert purged.json()["created_by"] == "fleet-admin"
+    assert purged.json()["updated_by_type"] == "USER"
+    assert purged.json()["updated_by"] == "fleet-admin"
+    assert purged.json()["created_at"] is not None
+    assert purged.json()["updated_at"] is not None
     assert (await client.get(f"/api/v1/runtime-targets/{target_id}")).status_code == 404
 
     async with container.session_factory() as session:
