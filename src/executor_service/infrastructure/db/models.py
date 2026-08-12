@@ -603,7 +603,7 @@ class ExecutionAttemptORM(Base):
         nullable=False,
         default=RuntimeType.JUPYTER,
     )
-    runtime_profile: Mapped[str] = mapped_column(String(128), nullable=False, default="python3")
+    runtime_profile: Mapped[str] = mapped_column(String(128), nullable=False, default="basic")
     runtime_target_id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("runtime_targets.id"), nullable=False
     )
