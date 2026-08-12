@@ -122,10 +122,13 @@ An eligible target must:
 - advertise the requested `runtime_profile`, restricted by `RUNTIME_ALLOWED_PROFILES`;
 - have capacity after running, waiting, and retained-retry reservations are counted.
 
-Targets are considered in stable name order. With both BATCH targets configured at capacity one,
-the first two BATCH Executions occupy different targets. A third stays `QUEUED`; the reconciliation
-loop claims it after either target releases capacity. Free INTERACTIVE capacity is never used for
-that queued BATCH Execution.
+The periodic probe also reads each driver's resource observation. Fresh observations are ranked by
+the maximum of reserved-slot ratio, CPU utilization, and memory utilization; CPU is a ranking
+signal, while memory at or above `RUNTIME_MEMORY_ADMISSION_LIMIT` blocks new admission. Ties use
+memory utilization, reservation count, and stable target name. If every candidate lacks a fresh
+observation (`RUNTIME_RESOURCE_MAX_AGE_SECONDS`), scheduling safely falls back to least slot usage.
+A resource-only probe failure leaves an otherwise healthy target `ACTIVE`, marks resource data
+stale, and does not erase its last successful observation.
 
 `/readyz` reports `runtime_fleet=true` when any registered pool has an ACTIVE target. A BATCH-only
 outage therefore does not make the whole service unready or interrupt INTERACTIVE work. Use

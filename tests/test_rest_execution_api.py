@@ -125,6 +125,7 @@ async def test_static_execution_rest_lifecycle_and_queries(
     capabilities = await client.get("/api/v1/capabilities")
     assert capabilities.status_code == 200
     assert capabilities.json()["execution_modes"] == ["STATIC", "DYNAMIC"]
+    assert capabilities.json()["runtime_profiles"] == {"JUPYTER": ["basic", "ml"]}
 
     submitted = await client.post("/api/v1/executions", json=_submit_payload())
     assert submitted.status_code == 202

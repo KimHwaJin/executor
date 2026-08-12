@@ -365,7 +365,11 @@ eligible for scheduling. A target's `runtime_type` is immutable after creation; 
 target name when introducing a different Runtime Driver.
 
 The background health monitor repeats the probe at
-`RUNTIME_HEALTH_POLL_INTERVAL_SECONDS`. A failed target becomes `OFFLINE`, while
+`RUNTIME_HEALTH_POLL_INTERVAL_SECONDS`. A failed health or kernel-profile probe makes the target
+`OFFLINE`; a resource-only failure leaves it `ACTIVE` with stale resource data. Fresh targets are
+ranked by slot, CPU, and memory pressure, with the memory admission threshold configured by
+`RUNTIME_MEMORY_ADMISSION_LIMIT`. If all resource observations exceed
+`RUNTIME_RESOURCE_MAX_AGE_SECONDS`, scheduling falls back to least reserved slot ratio. Meanwhile,
 `runtime_target_remove` performs a durable soft disable so historical execution foreign keys
 remain valid. `runtime_target_list` reports capacity, active executions, observed sessions,
 supported profiles, and the latest health result. The scheduler selects within the requested

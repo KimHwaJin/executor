@@ -52,6 +52,8 @@ class Settings(BaseSettings):
     runtime_allowed_profiles: Annotated[tuple[str, ...], NoDecode] = ("basic", "ml")
     runtime_default_max_concurrent_executions: int = Field(default=2, ge=1)
     runtime_health_poll_interval_seconds: float = Field(default=15, gt=0)
+    runtime_resource_max_age_seconds: float = Field(default=45, gt=0)
+    runtime_memory_admission_limit: float = Field(default=0.9, gt=0, le=1)
     workspace_host_root: Path = Path("./notebook_dir")
     workspace_runtime_root: str = "/workspace/pv"
     execution_inline_spec_max_bytes: int = Field(default=262144, ge=1)

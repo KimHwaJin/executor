@@ -72,7 +72,7 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
         summary="Get Executor capabilities",
     )
     async def capabilities() -> ExecutorCapabilitiesResponse:
-        return ExecutorCapabilitiesResponse()
+        return ExecutorCapabilitiesResponse(runtime_profiles=execution_service.runtime_profiles)
 
     @router.post(
         "/executions",

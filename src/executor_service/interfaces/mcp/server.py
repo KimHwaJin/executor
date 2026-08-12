@@ -106,6 +106,7 @@ def build_mcp_server(
                 "execution_artifact_get",
             )
         return ExecutorCapabilities(
+            runtime_profiles=execution_service.runtime_profiles,
             tools=ExecutorCapabilities().tools + management_tools + query_tools
         )
 

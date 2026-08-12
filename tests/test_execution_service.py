@@ -31,6 +31,7 @@ from executor_service.domain.errors import (
     ExecutionVersionConflictError,
     IdempotencyConflictError,
     InvalidStateTransitionError,
+    UnsupportedRuntimeProfileError,
 )
 from executor_service.domain.models import utc_now
 from executor_service.infrastructure.db.models import ExecutionORM, ExecutionStepORM
@@ -42,7 +43,7 @@ def submit_command(idempotency_key: str = "submit-1") -> SubmitExecutionCommand:
         idempotency_key=idempotency_key,
         mode=ExecutionMode.STATIC,
         trigger_type=TriggerType.INTERACTIVE,
-        runtime_profile="python-analysis-a",
+        runtime_profile="basic",
         code_source_type=CodeSourceType.INLINE,
         source_content="print('hello')",
         code_path=None,
@@ -83,6 +84,15 @@ def dynamic_submit_command(idempotency_key: str = "dynamic-submit-1") -> SubmitE
             ),
         ),
     )
+
+
+async def test_submit_rejects_unconfigured_runtime_profile(
+    execution_service: ExecutionService,
+) -> None:
+    with pytest.raises(UnsupportedRuntimeProfileError):
+        await execution_service.submit(
+            replace(submit_command("unsupported-profile"), runtime_profile="unknown")
+        )
 
 
 async def test_submit_get_cancel_and_idempotency(execution_service: ExecutionService) -> None:

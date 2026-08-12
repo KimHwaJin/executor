@@ -69,6 +69,21 @@ class RuntimeTargetView:
     active_session_count: int | None
     last_health_check_at: datetime | None
     last_health_error: str | None
+    resource_observed_at: datetime | None
+    resource_last_check_at: datetime | None
+    resource_last_error: str | None
+    resource_fresh: bool
+    resource_source: str | None
+    resource_estimated: bool | None
+    resource_process_count: int | None
+    cpu_used_cores: float | None
+    cpu_capacity_cores: float | None
+    cpu_utilization: float | None
+    memory_used_bytes: int | None
+    memory_capacity_bytes: int | None
+    memory_utilization: float | None
+    resource_pressure_score: float | None
+    resource_errors: tuple[str, ...]
     created_by_type: ActorType | None
     created_by: str | None
     updated_by_type: ActorType | None

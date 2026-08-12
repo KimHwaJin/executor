@@ -6,6 +6,7 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from executor_service.application.services import ExecutionService
+from executor_service.domain.enums import RuntimeType
 from executor_service.infrastructure.db.base import Base
 from executor_service.infrastructure.db.repositories import SQLAlchemyUnitOfWork
 from executor_service.infrastructure.db.session import create_engine, create_session_factory
@@ -23,4 +24,7 @@ async def engine() -> AsyncIterator[AsyncEngine]:
 @pytest_asyncio.fixture
 async def execution_service(engine: AsyncEngine) -> ExecutionService:
     session_factory = create_session_factory(engine)
-    return ExecutionService(lambda: SQLAlchemyUnitOfWork(session_factory))
+    return ExecutionService(
+        lambda: SQLAlchemyUnitOfWork(session_factory),
+        {RuntimeType.JUPYTER: ("basic", "ml")},
+    )

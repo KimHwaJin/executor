@@ -1,4 +1,5 @@
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -9,12 +10,15 @@ from sqlalchemy import select, update
 
 from executor_service.config import Settings
 from executor_service.container import ApplicationContainer
+from executor_service.domain.runtime import RuntimeResourceMetric, RuntimeResourceObservation
 from executor_service.infrastructure.db.base import Base
 from executor_service.infrastructure.db.models import ExecutionORM, RuntimeTargetPurgeORM
 from executor_service.interfaces.http.app import create_app
 
 
 class HealthyGateway:
+    fail_resource_probe = False
+
     def __init__(self, _endpoint: str, _token: str, _timeout: float) -> None:
         pass
 
@@ -24,6 +28,17 @@ class HealthyGateway:
     async def supported_profiles(self) -> list[str]:
         return ["basic", "ml"]
 
+    async def resource_status(self) -> RuntimeResourceObservation:
+        if self.fail_resource_probe:
+            raise RuntimeError("resource endpoint unavailable")
+        now = datetime.now(UTC)
+        return RuntimeResourceObservation(
+            observed_at=now,
+            process_count=3,
+            cpu=RuntimeResourceMetric(0.4, 2.0, 0.2, "CGROUP_V2", False),
+            memory=RuntimeResourceMetric(256, 1024, 0.25, "CGROUP_V2", False),
+        )
+
     async def close(self) -> None:
         pass
 
@@ -32,6 +47,7 @@ class HealthyGateway:
 async def fleet_client(
     tmp_path: Path, monkeypatch: Any
 ) -> AsyncIterator[tuple[httpx.AsyncClient, ApplicationContainer]]:
+    HealthyGateway.fail_resource_probe = False
     monkeypatch.setattr(
         "executor_service.infrastructure.runtime_drivers.JupyterRuntimeDriver",
         HealthyGateway,
@@ -134,6 +150,31 @@ async def test_openapi_documents_runtime_fleet_routes_and_never_returns_token(
     assert created.json()["updated_by"] == "fleet-admin"
     assert created.json()["supported_profiles"] == ["basic", "ml"]
     assert created.json()["available_capacity"] == 2
+    assert created.json()["resource_fresh"] is True
+    assert created.json()["resource_pressure_score"] == 0.25
+    assert created.json()["memory_utilization"] == 0.25
+
+
+async def test_resource_only_probe_failure_keeps_target_active_and_marks_data_stale(
+    fleet_client: tuple[httpx.AsyncClient, ApplicationContainer],
+) -> None:
+    client, _ = fleet_client
+    created = await client.post("/api/v1/runtime-targets", json=_upsert_payload(20))
+    target_id = created.json()["target_id"]
+    HealthyGateway.fail_resource_probe = True
+    try:
+        probed = await client.post(
+            f"/api/v1/runtime-targets/{target_id}/probe",
+            json={"actor": {"type": "USER", "id": "fleet-admin"}},
+        )
+    finally:
+        HealthyGateway.fail_resource_probe = False
+
+    assert probed.status_code == 200
+    assert probed.json()["status"] == "ACTIVE"
+    assert probed.json()["resource_fresh"] is False
+    assert probed.json()["resource_last_error"] == "Resource probe failed (RuntimeError)"
+    assert probed.json()["memory_utilization"] == 0.25
 
 
 async def test_fleet_list_filters_cursor_capacity_and_state_controls(

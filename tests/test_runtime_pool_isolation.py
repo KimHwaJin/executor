@@ -63,7 +63,11 @@ def _target(
     *,
     status: RuntimeTargetStatus = RuntimeTargetStatus.ACTIVE,
     capacity: int = 1,
+    profiles: list[str] | None = None,
+    cpu_utilization: float | None = None,
+    memory_utilization: float | None = None,
 ) -> RuntimeTargetORM:
+    has_resource = cpu_utilization is not None or memory_utilization is not None
     return RuntimeTargetORM(
         name=name,
         connection_config={"endpoint": f"http://{name}.invalid:8888"},
@@ -71,8 +75,12 @@ def _target(
         pool=pool,
         status=status,
         max_concurrent_executions=capacity,
-        supported_profiles=["basic"],
+        supported_profiles=["basic"] if profiles is None else profiles,
         enabled=True,
+        resource_observed_at=utc_now() if has_resource else None,
+        resource_last_check_at=utc_now() if has_resource else None,
+        cpu_utilization=cpu_utilization,
+        memory_utilization=memory_utilization,
     )
 
 
@@ -94,6 +102,76 @@ def _worker(engine: AsyncEngine, tmp_path: Path, consumer: str) -> tuple[Executi
         ),
         redis,
     )
+
+
+async def test_scheduler_requires_explicit_profile_support(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+    tmp_path: Path,
+) -> None:
+    session_factory = create_session_factory(engine)
+    async with session_factory() as session, session.begin():
+        session.add(_target("no-profiles", RuntimePool.INTERACTIVE, profiles=[]))
+    execution = await execution_service.submit(_command(RuntimePool.INTERACTIVE, "profile"))
+    worker, redis = _worker(engine, tmp_path, "profile-worker")
+    try:
+        assert await worker._claim(execution.id) is None
+    finally:
+        await redis.aclose()
+
+
+async def test_scheduler_prefers_lower_fresh_resource_pressure(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+    tmp_path: Path,
+) -> None:
+    session_factory = create_session_factory(engine)
+    async with session_factory() as session, session.begin():
+        session.add_all(
+            [
+                _target(
+                    "a-busy",
+                    RuntimePool.INTERACTIVE,
+                    cpu_utilization=0.85,
+                    memory_utilization=0.70,
+                ),
+                _target(
+                    "z-idle",
+                    RuntimePool.INTERACTIVE,
+                    cpu_utilization=0.10,
+                    memory_utilization=0.20,
+                ),
+            ]
+        )
+    execution = await execution_service.submit(_command(RuntimePool.INTERACTIVE, "resources"))
+    worker, redis = _worker(engine, tmp_path, "resource-worker")
+    try:
+        claim = await worker._claim(execution.id)
+    finally:
+        await redis.aclose()
+    assert claim is not None
+    assert claim[1].name == "z-idle"
+
+
+async def test_scheduler_does_not_use_stale_target_when_fresh_memory_is_full(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+    tmp_path: Path,
+) -> None:
+    session_factory = create_session_factory(engine)
+    async with session_factory() as session, session.begin():
+        session.add_all(
+            [
+                _target("fresh-full", RuntimePool.INTERACTIVE, memory_utilization=0.95),
+                _target("stale-idle", RuntimePool.INTERACTIVE),
+            ]
+        )
+    execution = await execution_service.submit(_command(RuntimePool.INTERACTIVE, "memory-gate"))
+    worker, redis = _worker(engine, tmp_path, "memory-worker")
+    try:
+        assert await worker._claim(execution.id) is None
+    finally:
+        await redis.aclose()
 
 
 async def test_interactive_and_batch_claims_are_isolated_and_batch_uses_two_targets(

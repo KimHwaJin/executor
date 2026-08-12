@@ -22,6 +22,7 @@ from executor_service.domain.errors import (
     PersistenceConflictError,
     RuntimeTargetNotFoundError,
     RuntimeTargetPurgeConflictError,
+    UnsupportedRuntimeProfileError,
 )
 from executor_service.interfaces.http.executions import build_execution_router
 from executor_service.interfaces.http.runtime_targets import build_runtime_target_router
@@ -109,7 +110,10 @@ def create_app(container: ApplicationContainer) -> FastAPI:
             ),
         ):
             http_status = status.HTTP_404_NOT_FOUND
-        elif isinstance(exc, (InvalidCursorError, InvalidExecutionSpecError)):
+        elif isinstance(
+            exc,
+            (InvalidCursorError, InvalidExecutionSpecError, UnsupportedRuntimeProfileError),
+        ):
             http_status = status.HTTP_422_UNPROCESSABLE_CONTENT
         elif isinstance(
             exc,

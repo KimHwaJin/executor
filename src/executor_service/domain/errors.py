@@ -25,6 +25,10 @@ class InvalidExecutionSpecError(DomainError):
     pass
 
 
+class UnsupportedRuntimeProfileError(DomainError):
+    pass
+
+
 class InvalidCursorError(DomainError):
     pass
 

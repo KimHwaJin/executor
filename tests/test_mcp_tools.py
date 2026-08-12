@@ -22,7 +22,7 @@ SUBMIT_ARGUMENTS: dict[str, Any] = {
         "mode": "STATIC",
         "trigger_type": "INTERACTIVE",
         "actor": {"type": "USER", "id": "user-1"},
-        "runtime_profile": "python-analysis-a",
+        "runtime_profile": "basic",
         "source": {
             "type": "INLINE",
             "spec": {
@@ -85,6 +85,9 @@ async def test_mcp_client_can_list_and_call_execution_tools(
             "STATIC",
             "DYNAMIC",
         ]
+        assert capabilities.structured_content["runtime_profiles"] == {
+            "JUPYTER": ["basic", "ml"]
+        }
 
         submitted = await client.call_tool("execution_submit", SUBMIT_ARGUMENTS)
         assert not submitted.is_error

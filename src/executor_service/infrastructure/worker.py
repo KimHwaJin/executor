@@ -767,10 +767,7 @@ class ExecutionWorker:
                     or target.pool != execution_row.runtime_pool
                     or waiting_attempt.runtime_type != execution_row.runtime_type
                     or waiting_attempt.runtime_profile != execution_row.runtime_profile
-                    or (
-                        target.supported_profiles
-                        and execution_row.runtime_profile not in target.supported_profiles
-                    )
+                    or execution_row.runtime_profile not in target.supported_profiles
                 ):
                     return None
                 waiting_attempt.status = AttemptStatus.RUNNING
@@ -817,10 +814,7 @@ class ExecutionWorker:
                     or not target.enabled
                     or target.runtime_type != execution_row.runtime_type
                     or target.pool != execution_row.runtime_pool
-                    or (
-                        target.supported_profiles
-                        and execution_row.runtime_profile not in target.supported_profiles
-                    )
+                    or execution_row.runtime_profile not in target.supported_profiles
                 ):
                     await self._fail_unavailable_retained_retry(
                         session,
@@ -1012,11 +1006,10 @@ class ExecutionWorker:
                 .with_for_update(skip_locked=True)
             )
         )
+        candidates: list[tuple[RuntimeTargetORM, int]] = []
+        now = utc_now()
         for target in targets:
-            if (
-                target.supported_profiles
-                and execution.runtime_profile not in target.supported_profiles
-            ):
+            if execution.runtime_profile not in target.supported_profiles:
                 continue
             running = await session.scalar(
                 select(func.count(ExecutionAttemptORM.id)).where(
@@ -1029,12 +1022,74 @@ class ExecutionWorker:
                     ExecutionORM.runtime_target_id == target.id,
                     ExecutionORM.status.in_([ExecutionStatus.FAILED, ExecutionStatus.QUEUED]),
                     ExecutionORM.retry_strategy == RetryStrategy.FROM_FAILED_STEP,
-                    ExecutionORM.retained_runtime_session_until > utc_now(),
+                    ExecutionORM.retained_runtime_session_until > now,
                 )
             )
-            if (running or 0) + (retained or 0) < target.max_concurrent_executions:
-                return target
-        return None
+            reserved = (running or 0) + (retained or 0)
+            if reserved < target.max_concurrent_executions:
+                candidates.append((target, reserved))
+        if not candidates:
+            return None
+
+        fresh_candidates = [
+            candidate
+            for candidate in candidates
+            if self._has_fresh_resource_observation(candidate[0], now)
+        ]
+        if fresh_candidates:
+            admitted = [
+                candidate
+                for candidate in fresh_candidates
+                if candidate[0].memory_utilization is None
+                or candidate[0].memory_utilization
+                < self._settings.runtime_memory_admission_limit
+            ]
+            if not admitted:
+                return None
+            return min(admitted, key=self._resource_candidate_key)[0]
+
+        return min(
+            candidates,
+            key=lambda candidate: (
+                candidate[1] / candidate[0].max_concurrent_executions,
+                candidate[1],
+                candidate[0].name,
+            ),
+        )[0]
+
+    def _has_fresh_resource_observation(
+        self, target: RuntimeTargetORM, now: datetime
+    ) -> bool:
+        observed_at = target.resource_observed_at
+        if observed_at is None or target.resource_last_error is not None:
+            return False
+        if target.cpu_utilization is None and target.memory_utilization is None:
+            return False
+        if observed_at.tzinfo is None:
+            observed_at = observed_at.replace(tzinfo=UTC)
+        return observed_at >= now - timedelta(
+            seconds=self._settings.runtime_resource_max_age_seconds
+        )
+
+    @staticmethod
+    def _resource_candidate_key(
+        candidate: tuple[RuntimeTargetORM, int],
+    ) -> tuple[float, float, int, str]:
+        target, reserved = candidate
+        pressure = max(
+            reserved / target.max_concurrent_executions,
+            *(
+                value
+                for value in (target.cpu_utilization, target.memory_utilization)
+                if value is not None
+            ),
+        )
+        memory = (
+            target.memory_utilization
+            if target.memory_utilization is not None
+            else float("inf")
+        )
+        return pressure, memory, reserved, target.name
 
     async def _run_dynamic_execution(
         self, execution: Execution, target: RuntimeTargetORM, attempt_id: UUID

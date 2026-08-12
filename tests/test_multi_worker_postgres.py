@@ -28,6 +28,7 @@ from executor_service.domain.enums import (
     OutboxStatus,
     RuntimePool,
     RuntimeTargetStatus,
+    RuntimeType,
     TriggerType,
 )
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
@@ -126,7 +127,10 @@ def _server(*, capacity: int) -> RuntimeTargetORM:
 
 def _service(engine: AsyncEngine) -> ExecutionService:
     session_factory = create_session_factory(engine)
-    return ExecutionService(lambda: SQLAlchemyUnitOfWork(session_factory))
+    return ExecutionService(
+        lambda: SQLAlchemyUnitOfWork(session_factory),
+        {RuntimeType.JUPYTER: ("basic", "ml")},
+    )
 
 
 def _workers(

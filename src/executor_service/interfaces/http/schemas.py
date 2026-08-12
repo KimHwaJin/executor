@@ -149,6 +149,21 @@ class RuntimeTargetResponse(HTTPModel):
     supported_profiles: list[str]
     last_health_check_at: datetime | None
     last_health_error: str | None
+    resource_observed_at: datetime | None
+    resource_last_check_at: datetime | None
+    resource_last_error: str | None
+    resource_fresh: bool
+    resource_source: str | None
+    resource_estimated: bool | None
+    resource_process_count: int | None
+    cpu_used_cores: float | None
+    cpu_capacity_cores: float | None
+    cpu_utilization: float | None
+    memory_used_bytes: int | None
+    memory_capacity_bytes: int | None
+    memory_utilization: float | None
+    resource_pressure_score: float | None
+    resource_errors: list[str]
     created_by_type: ActorType | None
     created_by: str | None
     updated_by_type: ActorType | None
@@ -174,6 +189,21 @@ class RuntimeTargetResponse(HTTPModel):
             supported_profiles=list(view.supported_profiles),
             last_health_check_at=view.last_health_check_at,
             last_health_error=view.last_health_error,
+            resource_observed_at=view.resource_observed_at,
+            resource_last_check_at=view.resource_last_check_at,
+            resource_last_error=view.resource_last_error,
+            resource_fresh=view.resource_fresh,
+            resource_source=view.resource_source,
+            resource_estimated=view.resource_estimated,
+            resource_process_count=view.resource_process_count,
+            cpu_used_cores=view.cpu_used_cores,
+            cpu_capacity_cores=view.cpu_capacity_cores,
+            cpu_utilization=view.cpu_utilization,
+            memory_used_bytes=view.memory_used_bytes,
+            memory_capacity_bytes=view.memory_capacity_bytes,
+            memory_utilization=view.memory_utilization,
+            resource_pressure_score=view.resource_pressure_score,
+            resource_errors=list(view.resource_errors),
             created_by_type=view.created_by_type,
             created_by=view.created_by,
             updated_by_type=view.updated_by_type,
@@ -834,6 +864,7 @@ class ExecutorCapabilitiesResponse(HTTPModel):
         CodeSourceType.PATH,
     )
     runtime_types: tuple[RuntimeType, ...] = tuple(RuntimeType)
+    runtime_profiles: dict[str, tuple[str, ...]] = Field(default_factory=dict)
     runtime_pools: tuple[RuntimePool, ...] = (
         RuntimePool.INTERACTIVE,
         RuntimePool.BATCH,
