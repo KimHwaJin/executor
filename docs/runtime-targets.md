@@ -7,8 +7,9 @@ future driver does not change Execution, scheduling, Attempt, or fleet-managemen
 
 ## Local topology
 
-All local Jupyter containers use `jupyter/datascience-notebook:latest`, mount the same
-`./notebook_dir:/workspace/pv` shared-PV contract, and load the same Jupyter server configuration.
+All local Jupyter containers use the `executor-jupyter:local` image built from
+`jupyter/datascience-notebook:latest`, mount the same `./notebook_dir:/workspace/pv` shared-PV
+contract, and load the same Jupyter server configuration.
 
 | Service | Pool | Host endpoint | Default token variable |
 |---|---|---|---|
@@ -27,6 +28,60 @@ Compose starts the containers but does not register the BATCH endpoints automati
 matches production, where operators deploy or terminate Jupyter through the internal platform and
 then update Executor through `runtime_target_upsert`, `runtime_target_set_state`, and
 `runtime_target_remove`.
+
+## Jupyter resource endpoint
+
+The custom image installs `executor_resource_extension` in the Jupyter server environment. It is
+enabled at image build time and exposes:
+
+```http
+GET /executor/resource-status
+Authorization: token <JUPYTER_TOKEN>
+```
+
+The endpoint uses the existing Jupyter authentication and returns aggregate resource data only:
+
+```json
+{
+  "schema_version": "1.0",
+  "process_count": 2,
+  "cpu": {
+    "used_cores": 0.15,
+    "capacity_cores": 2.0,
+    "utilization": 0.075,
+    "source": "CGROUP_V2",
+    "estimated": false,
+    "errors": []
+  },
+  "memory": {
+    "used_bytes": 138850304,
+    "capacity_bytes": 4294967296,
+    "utilization": 0.032329,
+    "source": "CGROUP_V2",
+    "estimated": false,
+    "errors": []
+  },
+  "observed_at": "2026-08-12T05:35:54.730705+00:00"
+}
+```
+
+CPU is a rate calculated between consecutive requests, so `used_cores` and `utilization` are null
+on the first request. The collector prefers cgroup v2. If a usage file is missing or unreadable,
+it falls back independently for that resource to same-UID psutil process aggregation. A finite
+cgroup capacity overrides the configured fallback values:
+
+```env
+JUPYTER_RESOURCE_CPU_CORES=2
+JUPYTER_RESOURCE_MEMORY_BYTES=4294967296
+```
+
+Authentication failure returns HTTP 403. Measurement fallback does not make the Jupyter server
+unhealthy; `source`, `estimated`, and safe error codes describe the result. Local Compose
+healthchecks require both the standard Jupyter status endpoint and this Extension endpoint.
+
+The endpoint is the Runtime Driver observation contract. Persisting these observations on Runtime
+Targets and using them in load-aware target selection is a separate Executor scheduler change;
+the current scheduler still admits work by PostgreSQL reservations and configured target slots.
 
 ## Scheduling contract
 

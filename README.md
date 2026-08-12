@@ -36,8 +36,9 @@ DYNAMIC plans through a Runtime Driver. Jupyter REST/WebSocket is the first impl
 - W3C trace-context propagation across HTTP/MCP, PostgreSQL Outbox, Redis Streams, Worker,
   and Jupyter operations with optional OTLP export to Arize Phoenix
 - `/healthz` and `/readyz` operational endpoints
-- PostgreSQL, Redis, INTERACTIVE/BATCH `jupyter/datascience-notebook` fleets, and opt-in Phoenix
-  through Docker Compose
+- PostgreSQL, Redis, custom `jupyter/datascience-notebook` INTERACTIVE/BATCH fleets, and opt-in
+  Phoenix through Docker Compose
+- Authenticated Jupyter resource endpoint with cgroup v2 measurement and psutil fallback
 
 MCP Tasks are deliberately not used. `execution_submit` returns an `execution_id` while the
 execution starts as `QUEUED`. Poll with `execution_get` or request cancellation with
@@ -90,6 +91,21 @@ SINGLE_JUPYTER_ENDPOINT=http://jupyter:8888 \
 
 Stop the stack with `docker compose down`. Named PostgreSQL and Redis volumes, and the bind-mounted
 `notebook_dir`, are retained unless they are explicitly removed.
+
+The local Jupyter image is built from `docker/jupyter/Dockerfile`. Its authenticated Server
+Extension exposes container resource observations without creating a monitoring kernel:
+
+```bash
+curl --fail \
+  --header "Authorization: token ${JUPYTER_TOKEN}" \
+  http://127.0.0.1:8888/executor/resource-status
+```
+
+The Extension prefers cgroup v2 `cpu.stat`, `cpu.max`, `memory.current`, and `memory.max`. It falls
+back to same-UID process CPU time and RSS through psutil when cgroup files are unavailable or
+unreadable. `JUPYTER_RESOURCE_CPU_CORES` and `JUPYTER_RESOURCE_MEMORY_BYTES` provide capacity when
+the cgroup has no readable finite limit. The response contains only aggregate values and safe
+error codes; it never returns process command lines, environment variables, or credentials.
 
 For MCP calls from another machine, append the Executor host or IP (including `:*` when any port
 is acceptable) to `MCP_ALLOWED_HOSTS_DOCKER` and its browser origin to
