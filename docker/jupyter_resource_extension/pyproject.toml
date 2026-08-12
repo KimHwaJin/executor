@@ -9,7 +9,6 @@ description = "Authenticated Jupyter Server resource status endpoint for Executo
 requires-python = ">=3.10"
 dependencies = [
     "jupyter-server>=2,<3",
-    "psutil>=5.9,<8",
     "tornado>=6.3,<7",
 ]
 

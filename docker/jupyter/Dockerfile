@@ -12,7 +12,6 @@ RUN python -m pip install \
     && jupyter server extension enable \
         --py executor_resource_extension \
         --sys-prefix \
-    && python -c "import executor_resource_extension, psutil"
+    && python -c "import executor_resource_extension"
 
 USER ${NB_UID}
-

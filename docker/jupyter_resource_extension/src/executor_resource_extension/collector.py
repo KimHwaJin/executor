@@ -3,24 +3,13 @@ from __future__ import annotations
 import math
 import os
 import time
-from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import Lock
 from typing import Any
 
-import psutil  # ty: ignore[unresolved-import]
-
 CGROUP_V2 = "CGROUP_V2"
-PSUTIL = "PSUTIL"
-
-
-@dataclass(frozen=True, slots=True)
-class ProcessSnapshot:
-    process_count: int
-    memory_rss_bytes: int
-    cpu_seconds_by_process: dict[tuple[int, float], float]
 
 
 class ResourceCollector:
@@ -30,20 +19,15 @@ class ResourceCollector:
         cgroup_root: Path,
         configured_cpu_cores: float | None,
         configured_memory_bytes: int | None,
-        process_iter: Callable[..., Iterable[Any]] = psutil.process_iter,
-        uid: int | None = None,
         monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         self._cgroup_root = cgroup_root
         self._configured_cpu_cores = configured_cpu_cores
         self._configured_memory_bytes = configured_memory_bytes
-        self._process_iter = process_iter
-        self._uid = os.getuid() if uid is None else uid
         self._monotonic = monotonic
         self._lock = Lock()
         self._previous_observed_at: float | None = None
-        self._previous_cgroup_cpu_seconds: float | None = None
-        self._previous_process_cpu: dict[tuple[int, float], float] = {}
+        self._previous_cpu_seconds: float | None = None
 
     @classmethod
     def from_environment(cls) -> ResourceCollector:
@@ -59,43 +43,29 @@ class ResourceCollector:
         with self._lock:
             observed_monotonic = self._monotonic()
             elapsed = _positive_delta(observed_monotonic, self._previous_observed_at)
-            process_snapshot = self._collect_process_snapshot()
-            cpu = self._collect_cpu(process_snapshot, elapsed)
-            memory = self._collect_memory(process_snapshot)
+            cpu = self._collect_cpu(elapsed)
+            memory = self._collect_memory()
+            process_count = self._collect_process_count()
             self._previous_observed_at = observed_monotonic
-            self._previous_process_cpu = process_snapshot.cpu_seconds_by_process
 
         return {
             "schema_version": "1.0",
-            "process_count": process_snapshot.process_count,
+            "process_count": process_count,
             "cpu": cpu,
             "memory": memory,
             "observed_at": datetime.now(UTC).isoformat(),
         }
 
-    def _collect_cpu(
-        self, process_snapshot: ProcessSnapshot, elapsed: float | None
-    ) -> dict[str, Any]:
+    def _collect_cpu(self, elapsed: float | None) -> dict[str, Any]:
         errors: list[str] = []
-        cumulative_seconds: float | None = None
-        source = CGROUP_V2
+        used_cores: float | None = None
         try:
             cumulative_seconds = _read_cpu_usage_seconds(self._cgroup_root / "cpu.stat")
+            used_cores = _rate(cumulative_seconds, self._previous_cpu_seconds, elapsed)
+            self._previous_cpu_seconds = cumulative_seconds
         except (OSError, ValueError) as exc:
-            source = PSUTIL
+            self._previous_cpu_seconds = None
             errors.append(_safe_error_code("cgroup_cpu", exc))
-
-        used_cores: float | None
-        if source == CGROUP_V2:
-            used_cores = _rate(cumulative_seconds, self._previous_cgroup_cpu_seconds, elapsed)
-            self._previous_cgroup_cpu_seconds = cumulative_seconds
-        else:
-            used_cores = _process_cpu_rate(
-                process_snapshot.cpu_seconds_by_process,
-                self._previous_process_cpu,
-                elapsed,
-            )
-            self._previous_cgroup_cpu_seconds = None
 
         capacity_cores = self._configured_cpu_cores
         try:
@@ -109,19 +79,23 @@ class ResourceCollector:
             "used_cores": _rounded(used_cores),
             "capacity_cores": _rounded(capacity_cores),
             "utilization": _ratio(used_cores, capacity_cores),
-            "source": source,
-            "estimated": source != CGROUP_V2,
+            "source": CGROUP_V2,
+            "estimated": False,
             "errors": errors,
         }
 
-    def _collect_memory(self, process_snapshot: ProcessSnapshot) -> dict[str, Any]:
+    def _collect_process_count(self) -> int | None:
+        try:
+            return _read_process_count(self._cgroup_root / "cgroup.procs")
+        except (OSError, ValueError):
+            return None
+
+    def _collect_memory(self) -> dict[str, Any]:
         errors: list[str] = []
-        source = CGROUP_V2
+        used_bytes: int | None = None
         try:
             used_bytes = _read_positive_int(self._cgroup_root / "memory.current", allow_zero=True)
         except (OSError, ValueError) as exc:
-            source = PSUTIL
-            used_bytes = process_snapshot.memory_rss_bytes
             errors.append(_safe_error_code("cgroup_memory", exc))
 
         capacity_bytes = self._configured_memory_bytes
@@ -136,34 +110,10 @@ class ResourceCollector:
             "used_bytes": used_bytes,
             "capacity_bytes": capacity_bytes,
             "utilization": _ratio(used_bytes, capacity_bytes),
-            "source": source,
-            "estimated": source != CGROUP_V2,
+            "source": CGROUP_V2,
+            "estimated": False,
             "errors": errors,
         }
-
-    def _collect_process_snapshot(self) -> ProcessSnapshot:
-        memory_rss_bytes = 0
-        cpu_seconds_by_process: dict[tuple[int, float], float] = {}
-        process_count = 0
-        attributes = ["pid", "uids", "memory_info", "cpu_times", "create_time"]
-        for process in self._process_iter(attributes):
-            try:
-                info = process.info
-                if info["uids"].real != self._uid:
-                    continue
-                memory_rss_bytes += max(0, int(info["memory_info"].rss))
-                cpu_times = info["cpu_times"]
-                cpu_seconds = max(0.0, float(cpu_times.user + cpu_times.system))
-                identity = (int(info["pid"]), float(info["create_time"]))
-                cpu_seconds_by_process[identity] = cpu_seconds
-                process_count += 1
-            except (KeyError, TypeError, ValueError, psutil.AccessDenied, psutil.NoSuchProcess):
-                continue
-        return ProcessSnapshot(
-            process_count=process_count,
-            memory_rss_bytes=memory_rss_bytes,
-            cpu_seconds_by_process=cpu_seconds_by_process,
-        )
 
 
 def _read_cpu_usage_seconds(path: Path) -> float:
@@ -208,6 +158,10 @@ def _read_positive_int(path: Path, *, allow_zero: bool = False) -> int:
     return value
 
 
+def _read_process_count(path: Path) -> int:
+    return sum(1 for line in path.read_text(encoding="utf-8").splitlines() if line.strip())
+
+
 def _optional_positive_float(raw: str | None) -> float | None:
     if raw is None or not raw.strip():
         return None
@@ -233,26 +187,13 @@ def _positive_delta(current: float, previous: float | None) -> float | None:
     return delta if delta > 0 else None
 
 
-def _rate(current: float | None, previous: float | None, elapsed: float | None) -> float | None:
-    if current is None or previous is None or elapsed is None:
+def _rate(current: float, previous: float | None, elapsed: float | None) -> float | None:
+    if previous is None or elapsed is None:
         return None
     delta = current - previous
     if delta < 0:
         return None
     return delta / elapsed
-
-
-def _process_cpu_rate(
-    current: dict[tuple[int, float], float],
-    previous: dict[tuple[int, float], float],
-    elapsed: float | None,
-) -> float | None:
-    if elapsed is None or not previous:
-        return None
-    cpu_delta = sum(
-        max(0.0, total - previous.get(identity, total)) for identity, total in current.items()
-    )
-    return cpu_delta / elapsed
 
 
 def _ratio(numerator: float | int | None, denominator: float | int | None) -> float | None:

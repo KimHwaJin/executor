@@ -1,36 +1,10 @@
 from __future__ import annotations
 
-import os
 import tempfile
 import unittest
-from collections import namedtuple
 from pathlib import Path
 
-from executor_resource_extension.collector import CGROUP_V2, PSUTIL, ResourceCollector
-
-UserIds = namedtuple("UserIds", "real effective saved")
-MemoryInfo = namedtuple("MemoryInfo", "rss")
-CpuTimes = namedtuple("CpuTimes", "user system")
-
-
-class FakeProcess:
-    def __init__(
-        self,
-        *,
-        pid: int,
-        uid: int,
-        rss: int,
-        user: float,
-        system: float,
-        create_time: float,
-    ) -> None:
-        self.info = {
-            "pid": pid,
-            "uids": UserIds(uid, uid, uid),
-            "memory_info": MemoryInfo(rss),
-            "cpu_times": CpuTimes(user, system),
-            "create_time": create_time,
-        }
+from executor_resource_extension.collector import CGROUP_V2, ResourceCollector
 
 
 class Clock:
@@ -49,19 +23,11 @@ class ResourceCollectorTests(unittest.TestCase):
             (root / "cpu.max").write_text("200000 100000\n", encoding="utf-8")
             (root / "memory.current").write_text("256\n", encoding="utf-8")
             (root / "memory.max").write_text("1024\n", encoding="utf-8")
-            process = FakeProcess(
-                pid=1,
-                uid=os.getuid(),
-                rss=128,
-                user=1.0,
-                system=0.0,
-                create_time=1.0,
-            )
+            (root / "cgroup.procs").write_text("1\n7\n", encoding="utf-8")
             collector = ResourceCollector(
                 cgroup_root=root,
                 configured_cpu_cores=None,
                 configured_memory_bytes=None,
-                process_iter=lambda _attributes: [process],
                 monotonic=Clock(10.0, 12.0),
             )
 
@@ -69,86 +35,69 @@ class ResourceCollectorTests(unittest.TestCase):
             (root / "cpu.stat").write_text("usage_usec 2000000\n", encoding="utf-8")
             second = collector.collect()
 
+        self.assertEqual(second["schema_version"], "1.0")
+        self.assertEqual(second["process_count"], 2)
         self.assertIsNone(first["cpu"]["used_cores"])
         self.assertEqual(second["cpu"]["used_cores"], 0.5)
         self.assertEqual(second["cpu"]["capacity_cores"], 2.0)
         self.assertEqual(second["cpu"]["source"], CGROUP_V2)
+        self.assertFalse(second["cpu"]["estimated"])
         self.assertEqual(second["memory"]["used_bytes"], 256)
         self.assertEqual(second["memory"]["capacity_bytes"], 1024)
         self.assertEqual(second["memory"]["utilization"], 0.25)
         self.assertEqual(second["memory"]["source"], CGROUP_V2)
+        self.assertFalse(second["memory"]["estimated"])
 
-    def test_uses_cgroup_cpu_with_psutil_memory_fallback(self) -> None:
+    def test_returns_partial_result_when_memory_cgroup_is_unavailable(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "cpu.stat").write_text("usage_usec 1000000\n", encoding="utf-8")
             (root / "cpu.max").write_text("200000 100000\n", encoding="utf-8")
-            process = FakeProcess(
-                pid=7,
-                uid=os.getuid(),
-                rss=512,
-                user=1.0,
-                system=0.0,
-                create_time=1.0,
-            )
             collector = ResourceCollector(
                 cgroup_root=root,
                 configured_cpu_cores=4.0,
                 configured_memory_bytes=2048,
-                process_iter=lambda _attributes: [process],
                 monotonic=Clock(10.0),
             )
 
             result = collector.collect()
 
-        self.assertEqual(result["schema_version"], "1.0")
         self.assertEqual(result["cpu"]["source"], CGROUP_V2)
-        self.assertFalse(result["cpu"]["estimated"])
-        self.assertEqual(result["memory"]["source"], PSUTIL)
-        self.assertTrue(result["memory"]["estimated"])
-        self.assertEqual(result["memory"]["used_bytes"], 512)
+        self.assertEqual(result["cpu"]["capacity_cores"], 2.0)
+        self.assertEqual(result["cpu"]["errors"], [])
+        self.assertEqual(result["memory"]["source"], CGROUP_V2)
+        self.assertIsNone(result["process_count"])
+        self.assertIsNone(result["memory"]["used_bytes"])
         self.assertEqual(result["memory"]["capacity_bytes"], 2048)
+        self.assertIsNone(result["memory"]["utilization"])
+        self.assertEqual(
+            result["memory"]["errors"],
+            [
+                "cgroup_memory:FileNotFoundError",
+                "cgroup_memory_capacity:FileNotFoundError",
+            ],
+        )
 
-    def test_falls_back_to_psutil_and_configured_capacity(self) -> None:
+    def test_uses_configured_capacity_when_cgroup_limits_are_unbounded(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            process = FakeProcess(
-                pid=7,
-                uid=os.getuid(),
-                rss=512,
-                user=1.0,
-                system=0.0,
-                create_time=1.0,
-            )
-            processes = [process]
+            (root / "cpu.stat").write_text("usage_usec 1000000\n", encoding="utf-8")
+            (root / "cpu.max").write_text("max 100000\n", encoding="utf-8")
+            (root / "memory.current").write_text("512\n", encoding="utf-8")
+            (root / "memory.max").write_text("max\n", encoding="utf-8")
             collector = ResourceCollector(
                 cgroup_root=root,
                 configured_cpu_cores=4.0,
                 configured_memory_bytes=2048,
-                process_iter=lambda _attributes: processes,
-                monotonic=Clock(10.0, 12.0),
+                monotonic=Clock(10.0),
             )
 
-            first = collector.collect()
-            processes[0] = FakeProcess(
-                pid=7,
-                uid=os.getuid(),
-                rss=768,
-                user=3.0,
-                system=0.0,
-                create_time=1.0,
-            )
-            second = collector.collect()
+            result = collector.collect()
 
-        self.assertIsNone(first["cpu"]["used_cores"])
-        self.assertEqual(second["cpu"]["used_cores"], 1.0)
-        self.assertEqual(second["cpu"]["capacity_cores"], 4.0)
-        self.assertEqual(second["cpu"]["source"], PSUTIL)
-        self.assertTrue(second["cpu"]["estimated"])
-        self.assertEqual(second["memory"]["used_bytes"], 768)
-        self.assertEqual(second["memory"]["capacity_bytes"], 2048)
-        self.assertEqual(second["memory"]["source"], PSUTIL)
-        self.assertTrue(second["memory"]["estimated"])
+        self.assertEqual(result["cpu"]["capacity_cores"], 4.0)
+        self.assertEqual(result["memory"]["capacity_bytes"], 2048)
+        self.assertEqual(result["memory"]["used_bytes"], 512)
+        self.assertEqual(result["memory"]["utilization"], 0.25)
 
 
 if __name__ == "__main__":

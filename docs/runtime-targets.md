@@ -66,18 +66,20 @@ The endpoint uses the existing Jupyter authentication and returns aggregate reso
 ```
 
 CPU is a rate calculated between consecutive requests, so `used_cores` and `utilization` are null
-on the first request. The collector prefers cgroup v2. If a usage file is missing or unreadable,
-it falls back independently for that resource to same-UID psutil process aggregation. A finite
-cgroup capacity overrides the configured fallback values:
+on the first request. The collector uses cgroup v2 only. CPU and memory are collected independently;
+if a usage file is missing or unreadable, that resource returns null usage and utilization with a
+safe error code. No alternative measurement source is used. A finite cgroup capacity overrides the
+configured capacity values:
 
 ```env
 JUPYTER_RESOURCE_CPU_CORES=2
 JUPYTER_RESOURCE_MEMORY_BYTES=4294967296
 ```
 
-Authentication failure returns HTTP 403. Measurement fallback does not make the Jupyter server
-unhealthy; `source`, `estimated`, and safe error codes describe the result. Local Compose
-healthchecks require both the standard Jupyter status endpoint and this Extension endpoint.
+Authentication failure returns HTTP 403. A partial measurement does not make the Jupyter server
+unhealthy; `source`, `estimated`, and safe error codes describe the result. `source` is always
+`CGROUP_V2` and `estimated` is always false. Local Compose healthchecks require both the standard
+Jupyter status endpoint and this Extension endpoint.
 
 The endpoint is the Runtime Driver observation contract. Persisting these observations on Runtime
 Targets and using them in load-aware target selection is a separate Executor scheduler change;
