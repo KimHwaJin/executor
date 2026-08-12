@@ -149,7 +149,7 @@ async def main() -> None:
                         "mode": "STATIC",
                         "trigger_type": "INTERACTIVE",
                         "actor": {"type": "USER", "id": "multi-executor-user"},
-                        "runtime_profile": "python3",
+                        "runtime_profile": "basic",
                         "source": inline_source(
                             f"multi-executor-plan-{unique}",
                             [{"tool_name": "multi_executor_failover", "code": code}],

@@ -7,9 +7,9 @@ future driver does not change Execution, scheduling, Attempt, or fleet-managemen
 
 ## Local topology
 
-All local Jupyter containers use the `executor-jupyter:local` image built from
-`jupyter/datascience-notebook:latest`, mount the same `./notebook_dir:/workspace/pv` shared-PV
-contract, and load the same Jupyter server configuration.
+All local Jupyter containers use the self-contained `executor-jupyter:local` image built from
+`python:3.12-slim-bookworm`, mount the same `./notebook_dir:/workspace/pv` shared-PV contract,
+and expose only the `basic` and `ml` Python kernels.
 
 | Service | Pool | Host endpoint | Default token variable |
 |---|---|---|---|
@@ -85,6 +85,28 @@ The endpoint is the Runtime Driver observation contract. Persisting these observ
 Targets and using them in load-aware target selection is a separate Executor scheduler change;
 the current scheduler still admits work by PostgreSQL reservations and configured target slots.
 
+## Kernel profiles
+
+The Jupyter image is self-contained and uses standard Python virtual environments installed from
+environment-specific `requirements.txt` files. Only two kernelspecs are exposed:
+
+| Profile | Python | Purpose |
+|---|---|---|
+| `basic` | 3.11 | Data loading, tabular analysis, statistics, visualization, and EDA |
+| `ml` | 3.12 | Everything in `basic` plus classical machine-learning libraries |
+
+The `basic` environment includes NumPy, pandas, SciPy, PyArrow, Polars, DuckDB, OpenPyXL,
+Matplotlib, Seaborn, Plotly, and statsmodels. The `ml` environment adds scikit-learn,
+imbalanced-learn, CPU-only XGBoost, LightGBM, Optuna, SHAP, and Joblib. PyTorch and TensorFlow are
+intentionally excluded; a future deep-learning profile should remain separate due to image size
+and accelerator-specific dependencies.
+
+Library inputs live under `docker/jupyter/environments/`. Update
+`basic/requirements.txt` for shared analysis libraries and `ml/requirements.txt` for ML-only
+additions; the ML file includes the Basic file. `server/requirements.txt` is reserved for the
+Jupyter server process. The Docker build installs each file with that environment's `pip` and
+validates both Python minor versions, every required import, and kernelspec interpreter paths.
+
 ## Scheduling contract
 
 PostgreSQL reservation and Runtime Target capacity are the only execution admission controls.
@@ -143,7 +165,7 @@ RUNTIME_TARGET_NAME=single-jupyter
 JUPYTER_ENDPOINT=http://127.0.0.1:8888
 JUPYTER_TOKEN=change-me-local-only
 RUNTIME_POOL=INTERACTIVE
-RUNTIME_ALLOWED_PROFILES=python3
+RUNTIME_ALLOWED_PROFILES=basic,ml
 RUNTIME_DEFAULT_MAX_CONCURRENT_EXECUTIONS=1
 WORKSPACE_HOST_ROOT=C:/absolute/path/to/executor/notebook_dir
 WORKSPACE_RUNTIME_ROOT=C:/absolute/path/to/executor/notebook_dir

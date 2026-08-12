@@ -47,7 +47,7 @@ def _command(key: str) -> SubmitExecutionCommand:
         idempotency_key=key,
         mode=ExecutionMode.STATIC,
         trigger_type=TriggerType.INTERACTIVE,
-        runtime_profile="python3",
+        runtime_profile="basic",
         code_source_type=CodeSourceType.INLINE,
         source_content="prepare()\nfail_once()",
         code_path=None,
@@ -96,7 +96,7 @@ async def _prepare_retained_retry(
             pool=RuntimePool.INTERACTIVE,
             status=target_status,
             max_concurrent_executions=2,
-            supported_profiles=["python3"],
+            supported_profiles=["basic"],
             enabled=target_enabled,
         )
         session.add(target)

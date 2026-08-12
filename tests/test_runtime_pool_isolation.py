@@ -34,7 +34,7 @@ def _command(pool: RuntimePool, name: str) -> SubmitExecutionCommand:
         idempotency_key=f"pool-{name}-{uuid4().hex}",
         mode=ExecutionMode.STATIC,
         trigger_type=(TriggerType.BATCH if pool == RuntimePool.BATCH else TriggerType.INTERACTIVE),
-        runtime_profile="python3",
+        runtime_profile="basic",
         code_source_type=CodeSourceType.INLINE,
         source_content=f"print('{name}')",
         code_path=None,
@@ -71,7 +71,7 @@ def _target(
         pool=pool,
         status=status,
         max_concurrent_executions=capacity,
-        supported_profiles=["python3"],
+        supported_profiles=["basic"],
         enabled=True,
     )
 

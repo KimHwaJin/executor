@@ -64,7 +64,6 @@ services:
       start_period: 20s
     volumes:
       - ./notebook_dir:/workspace/pv
-      - ./docker/jupyter_server_config.py:/home/jovyan/.jupyter/jupyter_server_config.py:ro
 
   executor:
     image: executor-service:local
@@ -88,7 +87,7 @@ services:
       JUPYTER_TOKEN: ${JUPYTER_TOKEN:-change-me-local-only}
       RUNTIME_CREDENTIAL_KEY: ${RUNTIME_CREDENTIAL_KEY:-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}
       RUNTIME_POOL: INTERACTIVE
-      RUNTIME_ALLOWED_PROFILES: ${RUNTIME_ALLOWED_PROFILES:-python3}
+      RUNTIME_ALLOWED_PROFILES: ${RUNTIME_ALLOWED_PROFILES:-basic,ml}
       RUNTIME_DEFAULT_MAX_CONCURRENT_EXECUTIONS: ${RUNTIME_DEFAULT_MAX_CONCURRENT_EXECUTIONS:-2}
       RUNTIME_HEALTH_POLL_INTERVAL_SECONDS: ${RUNTIME_HEALTH_POLL_INTERVAL_SECONDS:-15}
       WORKSPACE_HOST_ROOT: /workspace/pv
@@ -141,7 +140,6 @@ services:
       start_period: 20s
     volumes:
       - ./notebook_dir:/workspace/pv
-      - ./docker/jupyter_server_config.py:/home/jovyan/.jupyter/jupyter_server_config.py:ro
 
   jupyter-batch-primary:
     profiles: ["batch-jupyter"]
@@ -164,7 +162,6 @@ services:
       start_period: 20s
     volumes:
       - ./notebook_dir:/workspace/pv
-      - ./docker/jupyter_server_config.py:/home/jovyan/.jupyter/jupyter_server_config.py:ro
 
   jupyter-batch-secondary:
     profiles: ["batch-jupyter"]
@@ -187,7 +184,6 @@ services:
       start_period: 20s
     volumes:
       - ./notebook_dir:/workspace/pv
-      - ./docker/jupyter_server_config.py:/home/jovyan/.jupyter/jupyter_server_config.py:ro
 
   phoenix:
     profiles: ["observability"]

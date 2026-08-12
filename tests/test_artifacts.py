@@ -42,7 +42,7 @@ def _command() -> SubmitExecutionCommand:
         idempotency_key="artifact-submit",
         mode=ExecutionMode.STATIC,
         trigger_type=TriggerType.INTERACTIVE,
-        runtime_profile="python3",
+        runtime_profile="basic",
         code_source_type=CodeSourceType.INLINE,
         source_content="print('artifact')",
         code_path=None,
@@ -84,7 +84,7 @@ async def _seed_attempt(
                 pool=RuntimePool.INTERACTIVE,
                 status=RuntimeTargetStatus.ACTIVE,
                 max_concurrent_executions=1,
-                supported_profiles=["python3"],
+                supported_profiles=["basic"],
                 enabled=True,
             )
         )

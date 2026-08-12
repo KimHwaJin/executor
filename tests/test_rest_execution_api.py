@@ -53,7 +53,7 @@ def _submit_payload(
         "idempotency_key": key,
         "mode": mode,
         "trigger_type": "INTERACTIVE",
-        "runtime_profile": "python3",
+        "runtime_profile": "basic",
         "source": {
             "type": "INLINE",
             "spec": {
@@ -134,7 +134,7 @@ async def test_static_execution_rest_lifecycle_and_queries(
     assert submitted.headers["location"] == f"/api/v1/executions/{execution_id}"
     assert body["status"] == "QUEUED"
     assert body["runtime_type"] == "JUPYTER"
-    assert body["runtime_profile"] == "python3"
+    assert body["runtime_profile"] == "basic"
     assert body["context"]["user_id"] == "rest-user"
     assert body["context"]["task_id"] == "rest-task"
 

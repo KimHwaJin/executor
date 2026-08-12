@@ -20,7 +20,7 @@ def execution(*, user_id: str = "user-1", codes: tuple[str, ...] = ("print(1)",)
         mode=ExecutionMode.STATIC,
         trigger_type=TriggerType.INTERACTIVE,
         runtime_pool=RuntimePool.INTERACTIVE,
-        runtime_profile="python3",
+        runtime_profile="basic",
         code_source_type=CodeSourceType.INLINE,
         source_content='{"schema_version":"1.0"}',
         code_path=None,

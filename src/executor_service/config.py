@@ -49,7 +49,7 @@ class Settings(BaseSettings):
     # Base64-encoded 32-byte Fernet key. Replace in every non-local environment.
     runtime_credential_key: SecretStr = SecretStr("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
     runtime_pool: str = "INTERACTIVE"
-    runtime_allowed_profiles: Annotated[tuple[str, ...], NoDecode] = ("python3",)
+    runtime_allowed_profiles: Annotated[tuple[str, ...], NoDecode] = ("basic", "ml")
     runtime_default_max_concurrent_executions: int = Field(default=2, ge=1)
     runtime_health_poll_interval_seconds: float = Field(default=15, gt=0)
     workspace_host_root: Path = Path("./notebook_dir")

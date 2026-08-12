@@ -89,7 +89,7 @@ def _command(name: str) -> SubmitExecutionCommand:
         idempotency_key=f"postgres-race-{name}-{uuid4().hex}",
         mode=ExecutionMode.STATIC,
         trigger_type=TriggerType.INTERACTIVE,
-        runtime_profile="python3",
+        runtime_profile="basic",
         code_source_type=CodeSourceType.INLINE,
         source_content=f"print('{name}')",
         code_path=None,
@@ -119,7 +119,7 @@ def _server(*, capacity: int) -> RuntimeTargetORM:
         pool=RuntimePool.INTERACTIVE,
         status=RuntimeTargetStatus.ACTIVE,
         max_concurrent_executions=capacity,
-        supported_profiles=["python3"],
+        supported_profiles=["basic"],
         enabled=True,
     )
 

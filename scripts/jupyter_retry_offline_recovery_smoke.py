@@ -88,7 +88,7 @@ async def main() -> None:
                     "mode": "STATIC",
                     "trigger_type": "INTERACTIVE",
                     "actor": {"type": "USER", "id": "retry-offline-user"},
-                    "runtime_profile": "python3",
+                    "runtime_profile": "basic",
                     "source": inline_source(
                         f"retry-offline-plan-{unique}",
                         [

@@ -77,7 +77,7 @@ def _dynamic_command(key: str) -> SubmitExecutionCommand:
         idempotency_key=key,
         mode=ExecutionMode.DYNAMIC,
         trigger_type=TriggerType.INTERACTIVE,
-        runtime_profile="python3",
+        runtime_profile="basic",
         code_source_type=CodeSourceType.INLINE,
         source_content=code,
         code_path=None,
@@ -119,7 +119,7 @@ async def _make_waiting(
             pool=RuntimePool.INTERACTIVE,
             status=(RuntimeTargetStatus.ACTIVE if server_enabled else RuntimeTargetStatus.OFFLINE),
             max_concurrent_executions=2,
-            supported_profiles=["python3"],
+            supported_profiles=["basic"],
             enabled=server_enabled,
         )
         session.add(target)

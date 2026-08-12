@@ -102,7 +102,7 @@ def _command() -> SubmitExecutionCommand:
         idempotency_key=f"event-delivery-{uuid4().hex}",
         mode=ExecutionMode.STATIC,
         trigger_type=TriggerType.INTERACTIVE,
-        runtime_profile="python3",
+        runtime_profile="basic",
         code_source_type=CodeSourceType.INLINE,
         source_content="print('claim once')",
         code_path=None,
@@ -290,7 +290,7 @@ async def test_two_workers_create_only_one_execution_attempt(
                 pool=RuntimePool.INTERACTIVE,
                 status=RuntimeTargetStatus.ACTIVE,
                 max_concurrent_executions=2,
-                supported_profiles=["python3"],
+                supported_profiles=["basic"],
                 enabled=True,
             )
         )

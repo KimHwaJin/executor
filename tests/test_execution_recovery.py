@@ -41,7 +41,7 @@ def _command() -> SubmitExecutionCommand:
         idempotency_key="lease-recovery-submit",
         mode=ExecutionMode.STATIC,
         trigger_type=TriggerType.INTERACTIVE,
-        runtime_profile="python3",
+        runtime_profile="basic",
         code_source_type=CodeSourceType.INLINE,
         source_content="print('long-running')",
         code_path=None,
@@ -79,7 +79,7 @@ async def test_expired_lease_is_failed_once_and_can_restart_from_zero(
             pool=RuntimePool.INTERACTIVE,
             status=RuntimeTargetStatus.ACTIVE,
             max_concurrent_executions=1,
-            supported_profiles=["python3"],
+            supported_profiles=["basic"],
             enabled=True,
         )
         session.add(target)

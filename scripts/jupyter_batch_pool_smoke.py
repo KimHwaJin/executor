@@ -122,7 +122,7 @@ async def _submit(
                     "type": "BATCH" if pool == "BATCH" else "USER",
                     "id": "batch-smoke-job" if pool == "BATCH" else "batch-pool-user",
                 },
-                "runtime_profile": "python3",
+                "runtime_profile": "basic",
                 "source": inline_source(
                     f"batch-pool-plan-{unique}-{name}",
                     [

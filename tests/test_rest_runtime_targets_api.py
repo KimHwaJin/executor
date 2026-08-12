@@ -22,7 +22,7 @@ class HealthyGateway:
         return {"active_session_count": 1}
 
     async def supported_profiles(self) -> list[str]:
-        return ["python3", "analytics"]
+        return ["basic", "ml"]
 
     async def close(self) -> None:
         pass
@@ -83,7 +83,7 @@ def _execution_payload() -> dict[str, Any]:
         "idempotency_key": "fleet-history-execution",
         "mode": "STATIC",
         "trigger_type": "INTERACTIVE",
-        "runtime_profile": "python3",
+        "runtime_profile": "basic",
         "source": {
             "type": "INLINE",
             "spec": {
@@ -132,7 +132,7 @@ async def test_openapi_documents_runtime_fleet_routes_and_never_returns_token(
     assert created.json()["status"] == "ACTIVE"
     assert created.json()["created_by"] == "fleet-admin"
     assert created.json()["updated_by"] == "fleet-admin"
-    assert created.json()["supported_profiles"] == ["python3"]
+    assert created.json()["supported_profiles"] == ["basic", "ml"]
     assert created.json()["available_capacity"] == 2
 
 

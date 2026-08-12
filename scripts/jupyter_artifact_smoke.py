@@ -68,7 +68,7 @@ async def main() -> None:
                     "mode": "STATIC",
                     "trigger_type": "INTERACTIVE",
                     "actor": {"type": "USER", "id": user_id},
-                    "runtime_profile": "python3",
+                    "runtime_profile": "basic",
                     "source": inline_source(
                         f"artifact-smoke-plan-{unique}",
                         [

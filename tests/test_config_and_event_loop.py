@@ -12,7 +12,7 @@ def test_comma_separated_lists_load_from_dotenv(tmp_path: Path) -> None:
     dotenv.write_text(
         "MCP_ALLOWED_HOSTS=localhost:*,127.0.0.1:*,testserver\n"
         "MCP_ALLOWED_ORIGINS=http://localhost:*,http://127.0.0.1:*\n"
-        "RUNTIME_ALLOWED_PROFILES=python3,python-analysis\n",
+        "RUNTIME_ALLOWED_PROFILES=basic,ml\n",
         encoding="utf-8",
     )
 
@@ -23,7 +23,7 @@ def test_comma_separated_lists_load_from_dotenv(tmp_path: Path) -> None:
         "http://localhost:*",
         "http://127.0.0.1:*",
     )
-    assert settings.runtime_allowed_profiles == ("python3", "python-analysis")
+    assert settings.runtime_allowed_profiles == ("basic", "ml")
 
 
 def test_non_local_environment_rejects_placeholder_secrets() -> None:

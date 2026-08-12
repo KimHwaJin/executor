@@ -36,8 +36,8 @@ DYNAMIC plans through a Runtime Driver. Jupyter REST/WebSocket is the first impl
 - W3C trace-context propagation across HTTP/MCP, PostgreSQL Outbox, Redis Streams, Worker,
   and Jupyter operations with optional OTLP export to Arize Phoenix
 - `/healthz` and `/readyz` operational endpoints
-- PostgreSQL, Redis, custom `jupyter/datascience-notebook` INTERACTIVE/BATCH fleets, and opt-in
-  Phoenix through Docker Compose
+- PostgreSQL, Redis, custom Python slim INTERACTIVE/BATCH Jupyter fleets, and opt-in Phoenix
+  through Docker Compose
 - Authenticated Jupyter resource endpoint with cgroup v2 CPU and memory measurement
 
 MCP Tasks are deliberately not used. `execution_submit` returns an `execution_id` while the
@@ -107,6 +107,16 @@ when the cgroup has no readable finite limit. If a usage file is unavailable, th
 usage and utilization are null and a safe error code explains why; no secondary measurement source
 is used. The response contains only aggregate values and never returns process command lines,
 environment variables, or credentials.
+
+The image exposes only the `basic` Python 3.11 and `ml` Python 3.12 kernels. Their package lists
+are maintained in `docker/jupyter/environments/basic/requirements.txt` and
+`docker/jupyter/environments/ml/requirements.txt`; the ML environment includes the Basic package
+list. The Jupyter server's own packages are isolated in
+`docker/jupyter/environments/server/requirements.txt`. Rebuild the image after changing any list:
+
+```bash
+docker compose build jupyter
+```
 
 For MCP calls from another machine, append the Executor host or IP (including `:*` when any port
 is acceptable) to `MCP_ALLOWED_HOSTS_DOCKER` and its browser origin to

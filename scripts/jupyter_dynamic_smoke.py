@@ -50,7 +50,7 @@ async def main() -> None:
                 idempotency_key=f"dynamic-submit-{unique}",
                 mode=ExecutionMode.DYNAMIC,
                 trigger_type=TriggerType.INTERACTIVE,
-                runtime_profile="python3",
+                runtime_profile="basic",
                 code_source_type=CodeSourceType.INLINE,
                 source_content=first_code,
                 code_path=None,

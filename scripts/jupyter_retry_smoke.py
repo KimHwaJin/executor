@@ -29,7 +29,7 @@ async def main() -> None:
                     "mode": "STATIC",
                     "trigger_type": "INTERACTIVE",
                     "actor": {"type": "USER", "id": "retry-user"},
-                    "runtime_profile": "python3",
+                    "runtime_profile": "basic",
                     "source": inline_source(
                         f"retry-plan-{unique}",
                         [

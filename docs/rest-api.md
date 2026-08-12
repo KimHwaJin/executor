@@ -65,7 +65,7 @@ curl -i -X POST http://127.0.0.1:8000/api/v1/executions \
     "trigger_type": "INTERACTIVE",
     "actor": {"type": "USER", "id": "user-001"},
     "runtime_type": "JUPYTER",
-    "runtime_profile": "python3",
+    "runtime_profile": "basic",
     "source": {
       "type": "INLINE",
       "spec": {

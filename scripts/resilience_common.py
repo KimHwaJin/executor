@@ -164,7 +164,7 @@ async def submit_static(
                     "type": "BATCH" if pool == "BATCH" else "USER",
                     "id": "resilience-batch" if pool == "BATCH" else "resilience-user",
                 },
-                "runtime_profile": "python3",
+                "runtime_profile": "basic",
                 "source": inline_source(
                     f"resilience-plan-{unique}-{name}",
                     [{"skill_name": "data_io", "tool_name": name, "code": code}],

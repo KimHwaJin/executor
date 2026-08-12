@@ -34,7 +34,7 @@ def _submit_command() -> SubmitExecutionCommand:
         idempotency_key="trace-submit",
         mode=ExecutionMode.STATIC,
         trigger_type=TriggerType.INTERACTIVE,
-        runtime_profile="python3",
+        runtime_profile="basic",
         code_source_type=CodeSourceType.INLINE,
         source_content="print('trace')",
         code_path=None,
@@ -76,7 +76,7 @@ async def test_query_service_returns_attempt_step_and_redacted_event_trace(
                 pool=RuntimePool.INTERACTIVE,
                 status=RuntimeTargetStatus.ACTIVE,
                 max_concurrent_executions=1,
-                supported_profiles=["python3"],
+                supported_profiles=["basic"],
                 enabled=True,
             )
         )
@@ -134,7 +134,7 @@ async def test_query_service_returns_attempt_step_and_redacted_event_trace(
     assert len(attempts) == 1
     assert attempts[0].status == AttemptStatus.FAILED
     assert attempts[0].runtime_type == RuntimeType.JUPYTER
-    assert attempts[0].runtime_profile == "python3"
+    assert attempts[0].runtime_profile == "basic"
     assert attempts[0].failure_type == FailureType.TOOL_ERROR
     assert attempts[0].retry_strategy == RetryStrategy.FROM_FAILED_STEP
     assert attempts[0].steps[0].tool_name == "load_data"
