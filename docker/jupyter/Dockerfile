@@ -5,7 +5,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PATH="/opt/venvs/jupyter/bin:${PATH}" \
     HOME=/home/jovyan \
     JUPYTER_CONFIG_DIR=/home/jovyan/.jupyter \
-    JUPYTER_PATH=/opt/venvs/jupyter/share/jupyter
+    JUPYTER_PATH=/opt/venvs/jupyter/share/jupyter \
+    JUPYTER_ROOT_DIR=/workspace/pv
 
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends \
@@ -61,11 +62,11 @@ RUN rm -rf /home/jovyan \
 
 COPY --chown=1000:1000 docker/jupyter_server_config.py \
     /home/jovyan/.jupyter/jupyter_server_config.py
+COPY --chmod=755 docker/jupyter/start-jupyter.sh /usr/local/bin/start-jupyter
 
 USER 1000:1000
 WORKDIR /workspace/pv
 
 EXPOSE 8888
 
-ENTRYPOINT ["/usr/bin/tini", "--"]
-CMD ["/opt/venvs/jupyter/bin/jupyter", "lab"]
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/start-jupyter"]

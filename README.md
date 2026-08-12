@@ -95,6 +95,18 @@ Stop the stack with `docker compose down`. Named PostgreSQL and Redis volumes, a
 The local Jupyter image is built from `docker/jupyter/Dockerfile`. Its authenticated Server
 Extension exposes container resource observations without creating a monitoring kernel:
 
+The image has a two-variable runtime configuration contract. `JUPYTER_ROOT_DIR` defaults to
+`/workspace/pv`; mount the workspace volume at the same path. `JUPYTER_TOKEN` is required and has
+no image default, so inject it only when the container is deployed:
+
+```bash
+docker run --detach --publish 8888:8888 \
+  --env JUPYTER_ROOT_DIR=/workspace/pv \
+  --env JUPYTER_TOKEN="${JUPYTER_TOKEN}" \
+  --volume /host/workspace:/workspace/pv \
+  executor-jupyter:local
+```
+
 ```bash
 curl --fail \
   --header "Authorization: token ${JUPYTER_TOKEN}" \
