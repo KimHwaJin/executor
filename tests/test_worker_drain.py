@@ -128,7 +128,7 @@ async def test_readiness_fails_as_soon_as_worker_enters_drain(
     container = ApplicationContainer(settings)
     async with container.engine.begin() as connection:
         await connection.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(32))"))
-        await connection.execute(text("INSERT INTO alembic_version VALUES ('0014')"))
+        await connection.execute(text("INSERT INTO alembic_version VALUES ('0015')"))
     monkeypatch.setattr(container.redis, "ping", AsyncMock(return_value=True))
     monkeypatch.setattr(
         container.runtime_registry,

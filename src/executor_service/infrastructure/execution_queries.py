@@ -172,6 +172,8 @@ class SQLAlchemyExecutionQueryService:
                 id=row.id,
                 execution_id=row.execution_id,
                 attempt_number=row.attempt_number,
+                runtime_type=row.runtime_type,
+                runtime_profile=row.runtime_profile,
                 runtime_target_id=row.runtime_target_id,
                 runtime_session_id=row.runtime_session_id,
                 status=row.status,

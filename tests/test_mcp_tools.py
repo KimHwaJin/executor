@@ -90,6 +90,7 @@ async def test_mcp_client_can_list_and_call_execution_tools(
         assert not submitted.is_error
         execution_id = submitted.structured_content["execution_id"]
         assert submitted.structured_content["status"] == "QUEUED"
+        assert submitted.structured_content["runtime_type"] == "JUPYTER"
         assert submitted.structured_content["runtime_pool"] == "INTERACTIVE"
         assert submitted.structured_content["source"]["type"] == "INLINE"
         assert len(submitted.structured_content["source"]["sha256"]) == 64
@@ -99,6 +100,7 @@ async def test_mcp_client_can_list_and_call_execution_tools(
         fetched = await client.call_tool("execution_get", {"execution_id": execution_id})
         assert not fetched.is_error
         assert fetched.structured_content["execution_id"] == execution_id
+        assert fetched.structured_content["runtime_type"] == "JUPYTER"
 
         cancelled = await client.call_tool(
             "execution_cancel",
@@ -145,6 +147,7 @@ async def test_mcp_client_can_query_execution_trace(
 
         assert not trace.is_error
         assert trace.structured_content["execution"]["execution_id"] == execution_id
+        assert trace.structured_content["execution"]["runtime_type"] == "JUPYTER"
         assert trace.structured_content["attempts"]["items"] == []
         assert trace.structured_content["events"]["items"][0]["event_type"] == "execution.submitted"
 
@@ -173,6 +176,7 @@ async def test_mcp_execution_list_uses_opaque_next_cursor(
         first = await client.call_tool("execution_list", {"limit": 1})
         assert not first.is_error
         assert len(first.structured_content["items"]) == 1
+        assert first.structured_content["items"][0]["runtime_type"] == "JUPYTER"
         cursor = first.structured_content["nextCursor"]
         assert cursor
 

@@ -133,6 +133,8 @@ async def test_static_execution_rest_lifecycle_and_queries(
     step_id = body["steps"][0]["step_id"]
     assert submitted.headers["location"] == f"/api/v1/executions/{execution_id}"
     assert body["status"] == "QUEUED"
+    assert body["runtime_type"] == "JUPYTER"
+    assert body["runtime_profile"] == "python3"
     assert body["context"]["task_id"] == "rest-task"
 
     repeated = await client.post("/api/v1/executions", json=_submit_payload())
@@ -149,7 +151,9 @@ async def test_static_execution_rest_lifecycle_and_queries(
     trace = await client.get(f"/api/v1/executions/{execution_id}/trace")
 
     assert fetched.status_code == 200
+    assert fetched.json()["runtime_type"] == "JUPYTER"
     assert [item["execution_id"] for item in history.json()["items"]] == [execution_id]
+    assert history.json()["items"][0]["runtime_type"] == "JUPYTER"
     assert history.json()["has_more"] is False
     assert steps.json()["items"][0]["step_id"] == step_id
     assert step.json()["plan_step_id"] == "plan-rest-1-step-0"
@@ -157,6 +161,7 @@ async def test_static_execution_rest_lifecycle_and_queries(
     assert events.json()["items"][0]["event_type"] == "execution.submitted"
     assert artifacts.json()["items"] == []
     assert trace.json()["execution"]["execution_id"] == execution_id
+    assert trace.json()["execution"]["runtime_type"] == "JUPYTER"
     assert trace.json()["events"]["items"][0]["delivery_status"] == "PENDING"
     assert body["created_by_type"] == "USER"
     assert body["created_by"] == "rest-user"

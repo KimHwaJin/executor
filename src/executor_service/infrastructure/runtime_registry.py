@@ -99,7 +99,11 @@ class RuntimeTargetRegistry:
                     )
                 )
                 return
-            target.runtime_type = RuntimeType.JUPYTER
+            if target.runtime_type != RuntimeType.JUPYTER:
+                raise RuntimeTargetConfigurationError(
+                    "The environment-configured Runtime Target name is already registered "
+                    "with a different runtime_type. Use a distinct RUNTIME_TARGET_NAME."
+                )
             target.connection_config = {"endpoint": self._settings.jupyter_endpoint.rstrip("/")}
             target.credential_ref = "settings:JUPYTER_TOKEN"
             target.credential_ciphertext = None
@@ -183,7 +187,11 @@ class RuntimeTargetRegistry:
                 session.add(target)
                 await session.flush()
             else:
-                target.runtime_type = command.runtime_type
+                if target.runtime_type != command.runtime_type:
+                    raise RuntimeTargetConfigurationError(
+                        "runtime_type is immutable for an existing Runtime Target. "
+                        "Register a new target name for a different Runtime Driver."
+                    )
                 target.connection_config = connection_config
                 target.pool = command.pool
                 target.enabled = True

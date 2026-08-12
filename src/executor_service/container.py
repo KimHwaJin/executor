@@ -18,7 +18,7 @@ from executor_service.infrastructure.worker import ExecutionWorker
 from executor_service.interfaces.mcp.execution_specs import ExecutionSpecResolver
 from executor_service.tracing import TracingManager
 
-EXPECTED_SCHEMA_REVISION = "0014"
+EXPECTED_SCHEMA_REVISION = "0015"
 
 
 class ApplicationContainer:

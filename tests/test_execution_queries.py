@@ -14,6 +14,7 @@ from executor_service.domain.enums import (
     RuntimePool,
     RuntimeSessionCleanupStatus,
     RuntimeTargetStatus,
+    RuntimeType,
     StepStatus,
     TriggerType,
 )
@@ -132,6 +133,8 @@ async def test_query_service_returns_attempt_step_and_redacted_event_trace(
 
     assert len(attempts) == 1
     assert attempts[0].status == AttemptStatus.FAILED
+    assert attempts[0].runtime_type == RuntimeType.JUPYTER
+    assert attempts[0].runtime_profile == "python3"
     assert attempts[0].failure_type == FailureType.TOOL_ERROR
     assert attempts[0].retry_strategy == RetryStrategy.FROM_FAILED_STEP
     assert attempts[0].steps[0].tool_name == "load_data"

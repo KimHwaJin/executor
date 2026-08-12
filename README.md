@@ -283,7 +283,8 @@ introduced. The custom Tool result mirrors MCP's opaque cursor naming convention
 valid structured Tool content.
 
 `execution_attempt_list` returns worker Attempts in order, including the selected Runtime Target,
-session, lease/heartbeat times, outcome, and only the Steps actually run by that Attempt.
+session, immutable Runtime type/profile snapshot, lease/heartbeat times, outcome, and only the
+Steps actually run by that Attempt.
 Each Step history row snapshots its skill, tool, inputs, outputs, error, and timestamps, so a retry
 does not overwrite evidence from the earlier failure. `execution_event_list` returns the
 transactional Outbox timeline and current Redis publication state. `execution_trace_get` combines
@@ -318,7 +319,8 @@ pool, optional capacity, and credential. For the Jupyter driver, `connection_con
 an HTTP(S) `endpoint`, while the credential is its token. A credential is required when creating a
 target and optional when updating one. It is encrypted before persistence and never returned by
 MCP or REST. Registration immediately probes the driver; only an enabled `ACTIVE` target is
-eligible for scheduling.
+eligible for scheduling. A target's `runtime_type` is immutable after creation; register a new
+target name when introducing a different Runtime Driver.
 
 The background health monitor repeats the probe at
 `RUNTIME_HEALTH_POLL_INTERVAL_SECONDS`. A failed target becomes `OFFLINE`, while

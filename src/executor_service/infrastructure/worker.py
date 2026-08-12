@@ -826,6 +826,8 @@ class ExecutionWorker:
                     id=attempt_id,
                     execution_id=execution_id,
                     attempt_number=attempt_number,
+                    runtime_type=execution_row.runtime_type,
+                    runtime_profile=execution_row.runtime_profile,
                     runtime_target_id=target.id,
                     status=AttemptStatus.RUNNING,
                     lease_owner=self._consumer_name,

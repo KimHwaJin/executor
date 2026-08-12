@@ -289,6 +289,7 @@ class ExecutionResponse(MCPModel):
     status: ExecutionStatus
     mode: ExecutionMode
     trigger_type: TriggerType
+    runtime_type: RuntimeType
     runtime_pool: RuntimePool
     runtime_profile: str
     source: ExecutionSourceResponse
@@ -327,6 +328,7 @@ class ExecutionResponse(MCPModel):
             status=execution.status,
             mode=execution.mode,
             trigger_type=execution.trigger_type,
+            runtime_type=execution.runtime_type,
             runtime_pool=execution.runtime_pool,
             runtime_profile=execution.runtime_profile,
             source=ExecutionSourceResponse(
@@ -398,6 +400,7 @@ class ExecutionSummaryResponse(MCPModel):
     status: ExecutionStatus
     mode: ExecutionMode
     trigger_type: TriggerType
+    runtime_type: RuntimeType
     runtime_pool: RuntimePool
     runtime_profile: str
     context: ExecutionContext
@@ -424,6 +427,7 @@ class ExecutionSummaryResponse(MCPModel):
             status=execution.status,
             mode=execution.mode,
             trigger_type=execution.trigger_type,
+            runtime_type=execution.runtime_type,
             runtime_pool=execution.runtime_pool,
             runtime_profile=execution.runtime_profile,
             context=ExecutionContext(
@@ -510,6 +514,8 @@ class ExecutionAttemptResponse(MCPModel):
     attempt_id: UUID
     execution_id: UUID
     attempt_number: int
+    runtime_type: RuntimeType
+    runtime_profile: str
     runtime_target_id: UUID
     runtime_session_id: str | None
     status: AttemptStatus
@@ -536,6 +542,8 @@ class ExecutionAttemptResponse(MCPModel):
             attempt_id=view.id,
             execution_id=view.execution_id,
             attempt_number=view.attempt_number,
+            runtime_type=view.runtime_type,
+            runtime_profile=view.runtime_profile,
             runtime_target_id=view.runtime_target_id,
             runtime_session_id=view.runtime_session_id,
             status=view.status,

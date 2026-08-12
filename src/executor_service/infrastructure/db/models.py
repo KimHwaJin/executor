@@ -576,6 +576,7 @@ class ExecutionAttemptORM(Base):
             "status IN ('RUNNING', 'WAITING', 'SUCCEEDED', 'FAILED', 'CANCELLED')",
             name="valid_attempt_status",
         ),
+        CheckConstraint("runtime_type IN ('JUPYTER')", name="valid_attempt_runtime_type"),
         CheckConstraint(
             "failure_type IS NULL OR failure_type IN ('TOOL_ERROR', "
             "'INFRASTRUCTURE_ERROR', 'WORKER_SHUTDOWN', 'RUNTIME_UNAVAILABLE', "
@@ -600,6 +601,14 @@ class ExecutionAttemptORM(Base):
         Uuid(as_uuid=True), ForeignKey("executions.id", ondelete="CASCADE"), nullable=False
     )
     attempt_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    runtime_type: Mapped[RuntimeType] = mapped_column(
+        enum_type(RuntimeType, "attempt_runtime_type"),
+        nullable=False,
+        default=RuntimeType.JUPYTER,
+    )
+    runtime_profile: Mapped[str] = mapped_column(
+        String(128), nullable=False, default="python3"
+    )
     runtime_target_id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("runtime_targets.id"), nullable=False
     )

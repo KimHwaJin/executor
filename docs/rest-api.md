@@ -46,7 +46,9 @@ and Artifacts preserve their natural chronological/sequence order.
 All mutation bodies require `actor: {type, id}`. Supported actor types are `USER` and `BATCH`.
 Interactive submissions require `USER`, while batch submissions require `BATCH`. Responses expose
 `created_at`, `updated_at`, `created_by_type`, `created_by`, `updated_by_type`, and `updated_by` on
-audited resources.
+audited resources. Execution detail, list, and trace responses expose the immutable `runtime_type`
+and `runtime_profile`. Attempt history snapshots both fields so it remains self-contained even if
+fleet configuration changes later.
 
 ## Submit and poll
 
@@ -175,7 +177,8 @@ Always read the latest Execution before continue or finish. A stale version retu
 
 Registering a target stores its credential encrypted and probes it immediately. The credential is
 required for a new target and optional when updating an existing name. Neither credential nor
-connection configuration is included in responses.
+connection configuration is included in responses. `runtime_type` cannot be changed for an
+existing target name; create a new target for a different Runtime Driver.
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/runtime-targets \

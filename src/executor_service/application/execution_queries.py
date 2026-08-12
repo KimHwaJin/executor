@@ -17,6 +17,7 @@ from executor_service.domain.enums import (
     OutboxStatus,
     RetryStrategy,
     RuntimeSessionCleanupStatus,
+    RuntimeType,
     StepStatus,
 )
 from executor_service.domain.models import Execution, ExecutionStep
@@ -49,6 +50,8 @@ class ExecutionAttemptView:
     id: UUID
     execution_id: UUID
     attempt_number: int
+    runtime_type: RuntimeType
+    runtime_profile: str
     runtime_target_id: UUID
     runtime_session_id: str | None
     status: AttemptStatus
