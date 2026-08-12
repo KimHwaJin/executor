@@ -2,9 +2,9 @@ services:
   postgres:
     image: postgres:17-alpine
     environment:
-      POSTGRES_DB: executor
-      POSTGRES_USER: executor
-      POSTGRES_PASSWORD: executor
+      POSTGRES_DB: ${POSTGRES_DB:-executor}
+      POSTGRES_USER: ${POSTGRES_USER:-executor}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-executor}
     ports:
       - "5432:5432"
     healthcheck:
@@ -28,6 +28,19 @@ services:
     volumes:
       - executor-redis:/data
 
+  migrate:
+    image: executor-service:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-executor}:${POSTGRES_PASSWORD:-executor}@postgres:5432/${POSTGRES_DB:-executor}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
   jupyter:
     image: jupyter/datascience-notebook:latest
     environment:
@@ -47,6 +60,58 @@ services:
     volumes:
       - ./notebook_dir:/workspace/pv
       - ./docker/jupyter_server_config.py:/home/jovyan/.jupyter/jupyter_server_config.py:ro
+
+  executor:
+    image: executor-service:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      APP_ENV: ${APP_ENV:-local}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      HOST: 0.0.0.0
+      PORT: 8000
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-executor}:${POSTGRES_PASSWORD:-executor}@postgres:5432/${POSTGRES_DB:-executor}
+      REDIS_URL: redis://redis:6379/0
+      REDIS_STREAM: ${REDIS_STREAM:-executor.events}
+      REDIS_DEAD_LETTER_STREAM: ${REDIS_DEAD_LETTER_STREAM:-executor.events.dlq}
+      MCP_ALLOWED_HOSTS: ${MCP_ALLOWED_HOSTS_DOCKER:-localhost:*,127.0.0.1:*,testserver,executor:*}
+      MCP_ALLOWED_ORIGINS: ${MCP_ALLOWED_ORIGINS_DOCKER:-http://localhost:*,http://127.0.0.1:*}
+      JUPYTER_ENABLED: "true"
+      JUPYTER_SERVER_NAME: ${JUPYTER_SERVER_NAME:-local-jupyter}
+      JUPYTER_ENDPOINT: http://jupyter:8888
+      JUPYTER_TOKEN: ${JUPYTER_TOKEN:-change-me-local-only}
+      JUPYTER_CREDENTIAL_KEY: ${JUPYTER_CREDENTIAL_KEY:-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}
+      JUPYTER_POOL: INTERACTIVE
+      JUPYTER_MAX_CONCURRENT_EXECUTIONS: ${JUPYTER_MAX_CONCURRENT_EXECUTIONS:-2}
+      WORKSPACE_HOST_ROOT: /workspace/pv
+      WORKSPACE_JUPYTER_ROOT: /workspace/pv
+      TRACING_ENABLED: ${TRACING_ENABLED:-false}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://phoenix:6006/v1/traces}
+    ports:
+      - "${EXECUTOR_PORT:-8000}:8000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2)",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      jupyter:
+        condition: service_healthy
+    volumes:
+      - ./notebook_dir:/workspace/pv
+    restart: unless-stopped
 
   jupyter-secondary:
     profiles: ["multi-jupyter"]
