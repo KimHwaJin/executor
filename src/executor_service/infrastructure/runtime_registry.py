@@ -68,10 +68,10 @@ class RuntimeTargetRegistry:
         self._monitor_task: asyncio.Task[None] | None = None
         self._stop_event = asyncio.Event()
 
-    async def ensure_configured_target(self, supported_profiles: list[str]) -> None:
-        """Seed the environment-configured target without overwriting a manual disable."""
+    async def ensure_configured_target(self) -> UUID:
+        """Seed the environment-configured target as unhealthy until a real probe succeeds."""
         if not self._settings.runtime_enabled:
-            return
+            raise RuntimeTargetConfigurationError("Runtime integration is disabled.")
         pool = RuntimePool(self._settings.runtime_pool)
         async with self._session_factory() as session, session.begin():
             target = await session.scalar(
@@ -80,25 +80,25 @@ class RuntimeTargetRegistry:
                 )
             )
             if target is None:
-                session.add(
-                    RuntimeTargetORM(
-                        name=self._settings.runtime_target_name,
-                        runtime_type=RuntimeType.JUPYTER,
-                        connection_config={"endpoint": self._settings.jupyter_endpoint.rstrip("/")},
-                        credential_ref="settings:JUPYTER_TOKEN",
-                        credential_ciphertext=None,
-                        pool=pool,
-                        status=RuntimeTargetStatus.ACTIVE,
-                        enabled=True,
-                        max_concurrent_executions=(
-                            self._settings.runtime_default_max_concurrent_executions
-                        ),
-                        supported_profiles=supported_profiles,
-                        last_health_check_at=utc_now(),
-                        last_health_error=None,
-                    )
+                target = RuntimeTargetORM(
+                    name=self._settings.runtime_target_name,
+                    runtime_type=RuntimeType.JUPYTER,
+                    connection_config={"endpoint": self._settings.jupyter_endpoint.rstrip("/")},
+                    credential_ref="settings:JUPYTER_TOKEN",
+                    credential_ciphertext=None,
+                    pool=pool,
+                    status=RuntimeTargetStatus.OFFLINE,
+                    enabled=True,
+                    max_concurrent_executions=(
+                        self._settings.runtime_default_max_concurrent_executions
+                    ),
+                    supported_profiles=[],
+                    last_health_check_at=None,
+                    last_health_error="Runtime Target has not been probed.",
                 )
-                return
+                session.add(target)
+                await session.flush()
+                return target.id
             if target.runtime_type != RuntimeType.JUPYTER:
                 raise RuntimeTargetConfigurationError(
                     "The environment-configured Runtime Target name is already registered "
@@ -109,12 +109,12 @@ class RuntimeTargetRegistry:
             target.credential_ciphertext = None
             target.pool = pool
             if target.enabled and target.status != RuntimeTargetStatus.DRAINING:
-                target.status = RuntimeTargetStatus.ACTIVE
+                target.status = RuntimeTargetStatus.OFFLINE
             target.max_concurrent_executions = (
                 self._settings.runtime_default_max_concurrent_executions
             )
-            target.supported_profiles = supported_profiles
             target.updated_at = utc_now()
+            return target.id
 
     async def start(self) -> None:
         if self._monitor_task is not None:
@@ -218,6 +218,7 @@ class RuntimeTargetRegistry:
         self,
         pool: RuntimePool | None = None,
         *,
+        runtime_type: RuntimeType | None = None,
         status: RuntimeTargetStatus | None = None,
         enabled: bool | None = None,
         cursor: str | None = None,
@@ -227,6 +228,8 @@ class RuntimeTargetRegistry:
             statement = select(RuntimeTargetORM)
             if pool is not None:
                 statement = statement.where(RuntimeTargetORM.pool == pool)
+            if runtime_type is not None:
+                statement = statement.where(RuntimeTargetORM.runtime_type == runtime_type)
             if status is not None:
                 statement = statement.where(RuntimeTargetORM.status == status)
             if enabled is not None:
@@ -265,41 +268,47 @@ class RuntimeTargetRegistry:
             views = [await self._to_view(session, target) for target in targets]
 
         summaries: list[RuntimePoolView] = []
-        for pool in RuntimePool:
-            pool_views = [view for view in views if view.pool == pool]
-            enabled_views = [view for view in pool_views if view.enabled]
-            active_views = [
-                view for view in enabled_views if view.status == RuntimeTargetStatus.ACTIVE
-            ]
-            health_checks = [
-                view.last_health_check_at
-                for view in pool_views
-                if view.last_health_check_at is not None
-            ]
-            summaries.append(
-                RuntimePoolView(
-                    pool=pool,
-                    target_count=len(pool_views),
-                    enabled_target_count=len(enabled_views),
-                    active_target_count=len(active_views),
-                    draining_target_count=sum(
-                        view.status == RuntimeTargetStatus.DRAINING for view in pool_views
-                    ),
-                    offline_target_count=sum(
-                        view.status == RuntimeTargetStatus.OFFLINE for view in pool_views
-                    ),
-                    configured_capacity=sum(
-                        view.max_concurrent_executions for view in enabled_views
-                    ),
-                    schedulable_capacity=sum(
-                        view.max_concurrent_executions for view in active_views
-                    ),
-                    active_execution_count=sum(view.active_execution_count for view in pool_views),
-                    available_capacity=sum(view.available_capacity for view in active_views),
-                    last_health_check_at=max(health_checks) if health_checks else None,
-                )
-            )
+        for runtime_type in RuntimeType:
+            for pool in RuntimePool:
+                pool_views = [
+                    view
+                    for view in views
+                    if view.runtime_type == runtime_type and view.pool == pool
+                ]
+                summaries.append(self._pool_summary(runtime_type, pool, pool_views))
         return summaries
+
+    @staticmethod
+    def _pool_summary(
+        runtime_type: RuntimeType,
+        pool: RuntimePool,
+        pool_views: Sequence[RuntimeTargetView],
+    ) -> RuntimePoolView:
+        enabled_views = [view for view in pool_views if view.enabled]
+        active_views = [view for view in enabled_views if view.status == RuntimeTargetStatus.ACTIVE]
+        health_checks = [
+            view.last_health_check_at
+            for view in pool_views
+            if view.last_health_check_at is not None
+        ]
+        return RuntimePoolView(
+            runtime_type=runtime_type,
+            pool=pool,
+            target_count=len(pool_views),
+            enabled_target_count=len(enabled_views),
+            active_target_count=len(active_views),
+            draining_target_count=sum(
+                view.status == RuntimeTargetStatus.DRAINING for view in pool_views
+            ),
+            offline_target_count=sum(
+                view.status == RuntimeTargetStatus.OFFLINE for view in pool_views
+            ),
+            configured_capacity=sum(view.max_concurrent_executions for view in enabled_views),
+            schedulable_capacity=sum(view.max_concurrent_executions for view in active_views),
+            active_execution_count=sum(view.active_execution_count for view in pool_views),
+            available_capacity=sum(view.available_capacity for view in active_views),
+            last_health_check_at=max(health_checks) if health_checks else None,
+        )
 
     async def get(self, target_id: UUID) -> RuntimeTargetView:
         async with self._session_factory() as session:
@@ -331,7 +340,13 @@ class RuntimeTargetRegistry:
         error: str | None = None
         try:
             status = await driver.status()
-            profiles = await driver.supported_profiles()
+            reported_profiles = await driver.supported_profiles()
+            allowed_profiles = set(self._settings.runtime_allowed_profiles)
+            profiles = [profile for profile in reported_profiles if profile in allowed_profiles]
+            if not profiles:
+                raise RuntimeTargetConfigurationError(
+                    "Runtime Target supports none of RUNTIME_ALLOWED_PROFILES."
+                )
             raw_session_count = status.get("active_session_count")
             if isinstance(raw_session_count, int):
                 active_session_count = raw_session_count
@@ -619,7 +634,6 @@ class RuntimeTargetRegistry:
             select(func.count(ExecutionORM.id)).where(
                 ExecutionORM.runtime_target_id == target.id,
                 ExecutionORM.status.in_([ExecutionStatus.FAILED, ExecutionStatus.QUEUED]),
-                ExecutionORM.retryable.is_(True),
                 ExecutionORM.retry_strategy == RetryStrategy.FROM_FAILED_STEP,
                 ExecutionORM.retained_runtime_session_until > utc_now(),
             )

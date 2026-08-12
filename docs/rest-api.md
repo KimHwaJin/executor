@@ -46,7 +46,8 @@ and Artifacts preserve their natural chronological/sequence order.
 All mutation bodies require `actor: {type, id}`. Supported actor types are `USER` and `BATCH`.
 `context.user_id` is the owner of the Execution and its results. Interactive submit requires a
 `USER` actor with `actor.id == context.user_id`. Batch submit requires a `BATCH` actor whose ID
-identifies the schedule or manual batch trigger and may differ from `context.user_id`.
+identifies the schedule or manual batch trigger and may differ from `context.user_id`. Batch submit
+also requires `context.workflow_id`.
 Interactive submissions require `USER`, while batch submissions require `BATCH`. Responses expose
 `created_at`, `updated_at`, `created_by_type`, `created_by`, `updated_by_type`, and `updated_by` on
 audited resources. Execution detail, list, and trace responses expose the immutable `runtime_type`

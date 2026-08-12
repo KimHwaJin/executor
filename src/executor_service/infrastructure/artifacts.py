@@ -182,6 +182,8 @@ class ExecutionArtifactManager:
             if previous == state:
                 continue
             artifact_type = _infer_artifact_type(path, workspace)
+            if artifact_type is None:
+                continue
             descriptor = self._pv_descriptor(
                 path,
                 artifact_type,
@@ -406,27 +408,14 @@ class ExecutionArtifactManager:
             return artifact_ids
 
 
-def _infer_artifact_type(path: Path, workspace: ExecutionWorkspace) -> ArtifactType:
+def _infer_artifact_type(path: Path, workspace: ExecutionWorkspace) -> ArtifactType | None:
     try:
         relative = path.resolve().relative_to(workspace.artifacts_dir.resolve())
     except ValueError:
         relative = None
-    if relative is not None and len(relative.parts) > 1:
-        directory_type = ARTIFACT_DIRECTORY_TYPES.get(relative.parts[0])
-        if directory_type is not None:
-            return directory_type
-    suffix = path.suffix.lower()
-    if suffix in {".png", ".jpg", ".jpeg", ".svg", ".webp", ".pdf"}:
-        return ArtifactType.PLOT
-    if suffix in {".csv", ".parquet", ".feather", ".xlsx", ".npy", ".npz"}:
-        return ArtifactType.DATASET
-    if suffix in {".pkl", ".pickle", ".joblib", ".onnx", ".pt", ".pth", ".h5"}:
-        return ArtifactType.MODEL
-    if suffix == ".log":
-        return ArtifactType.LOG
-    if "metric" in path.stem.lower() and suffix in {".json", ".jsonl"}:
-        return ArtifactType.METRIC
-    return ArtifactType.OTHER
+    if relative is None or len(relative.parts) <= 1:
+        return None
+    return ARTIFACT_DIRECTORY_TYPES.get(relative.parts[0])
 
 
 def _sha256(path: Path) -> str:

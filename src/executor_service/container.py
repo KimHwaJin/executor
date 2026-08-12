@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from executor_service.application.services import ExecutionService
 from executor_service.config import Settings
-from executor_service.domain.enums import RuntimeType
+from executor_service.execution_specs import ExecutionSpecResolver
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.repositories import SQLAlchemyUnitOfWork
 from executor_service.infrastructure.db.session import create_engine, create_session_factory
@@ -15,10 +15,9 @@ from executor_service.infrastructure.outbox import OutboxPublisher
 from executor_service.infrastructure.runtime_drivers import ConfiguredRuntimeDriverFactory
 from executor_service.infrastructure.runtime_registry import RuntimeTargetRegistry
 from executor_service.infrastructure.worker import ExecutionWorker
-from executor_service.interfaces.mcp.execution_specs import ExecutionSpecResolver
 from executor_service.tracing import TracingManager
 
-EXPECTED_SCHEMA_REVISION = "0015"
+EXPECTED_SCHEMA_REVISION = "0001"
 
 
 class ApplicationContainer:
@@ -61,18 +60,8 @@ class ApplicationContainer:
     async def start(self) -> None:
         self.outbox_publisher.start()
         if self.settings.runtime_enabled:
-            driver = self.runtime_driver_factory.create(
-                RuntimeType.JUPYTER,
-                {"endpoint": self.settings.jupyter_endpoint},
-                self.settings.jupyter_auth_token,
-            )
-            try:
-                supported_profiles = await driver.supported_profiles()
-            except Exception:
-                supported_profiles = ["python3"]
-            finally:
-                await driver.close()
-            await self.runtime_registry.ensure_configured_target(supported_profiles)
+            target_id = await self.runtime_registry.ensure_configured_target()
+            await self.runtime_registry.probe(target_id)
             await self.runtime_registry.start()
             await self.execution_worker.start()
 

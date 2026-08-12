@@ -99,7 +99,7 @@ async def main() -> None:
             raise RuntimeError(f"Executions were not distributed successfully: {states}")
 
         print("statuses:", [state["status"] for state in states])
-        print("distinct_jupyter_servers:", len(server_ids))
+        print("distinct_runtime_targets:", len(server_ids))
         print("execution_ids:", execution_ids)
 
 

@@ -21,6 +21,29 @@ from executor_service.infrastructure.runtime_registry import RuntimeTargetRegist
 
 
 @pytest.mark.asyncio
+async def test_environment_target_stays_offline_until_a_real_probe_succeeds(
+    engine: AsyncEngine,
+) -> None:
+    settings = Settings(
+        runtime_enabled=True,
+        runtime_target_name="unavailable-environment-target",
+        jupyter_endpoint="http://127.0.0.1:9",
+        jupyter_request_timeout_seconds=0.1,
+        runtime_credential_key="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    )
+    registry = RuntimeTargetRegistry(create_session_factory(engine), settings)
+
+    target_id = await registry.ensure_configured_target()
+    seeded = await registry.get(target_id)
+    probed = await registry.probe(target_id)
+
+    assert seeded.status == RuntimeTargetStatus.OFFLINE
+    assert seeded.last_health_error == "Runtime Target has not been probed."
+    assert probed.status == RuntimeTargetStatus.OFFLINE
+    assert probed.supported_profiles == ()
+
+
+@pytest.mark.asyncio
 async def test_registry_encrypts_credentials_and_soft_removes_idempotently(
     engine: AsyncEngine,
 ) -> None:

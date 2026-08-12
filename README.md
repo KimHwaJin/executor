@@ -231,6 +231,7 @@ deferred in [Deferred Decisions](docs/deferred-decisions.md#dd-003-additional-au
 `runtime_pool` is not accepted from callers. Executor derives `INTERACTIVE` or `BATCH` from
 `trigger_type`, then selects a healthy compatible Runtime Target with available capacity inside
 that pool.
+`BATCH` submissions must include `context.workflow_id`; interactive submissions may omit it.
 
 INLINE and PATH resolve to the same versioned ExecutionSpec. INLINE embeds `source.spec`; PATH
 references a UTF-8 JSON file under the shared PV root using a relative path and required SHA-256.
@@ -330,6 +331,8 @@ The background health monitor repeats the probe at
 remain valid. `runtime_target_list` reports capacity, active executions, observed sessions,
 supported profiles, and the latest health result. The scheduler selects within the requested
 `INTERACTIVE` or `BATCH` pool and skips full, disabled, unhealthy, or incompatible targets.
+Only profiles listed in `RUNTIME_ALLOWED_PROFILES` are advertised and schedulable, even if a
+Runtime Driver reports additional environments.
 
 `INTERACTIVE` and `BATCH` are strict scheduling partitions. A BATCH Execution is never assigned to
 an INTERACTIVE target, even if it has free capacity, and DRAINING/OFFLINE targets are not fallback

@@ -151,6 +151,7 @@ async def test_batch_submit_allows_actor_to_differ_from_owning_user(
         trigger_type=TriggerType.BATCH,
         actor_type=ActorType.BATCH,
         actor_id="schedule-1",
+        workflow_id="workflow-1",
     )
 
     submitted = await execution_service.submit(command)
@@ -272,7 +273,6 @@ async def test_retry_resets_failed_and_later_steps_idempotently(
             .where(ExecutionORM.id == execution.id)
             .values(
                 status=ExecutionStatus.FAILED,
-                retryable=True,
                 retry_strategy=RetryStrategy.FROM_FAILED_STEP,
                 retry_from_sequence=1,
                 retained_runtime_session_until=now + timedelta(hours=1),
@@ -347,7 +347,6 @@ async def test_infrastructure_retry_starts_from_zero_with_a_new_kernel(
                 status=ExecutionStatus.FAILED,
                 error_message="worker lease expired",
                 failure_type=FailureType.LEASE_EXPIRED,
-                retryable=True,
                 retry_strategy=RetryStrategy.FROM_START,
                 retry_from_sequence=0,
                 runtime_session_id="abandoned-kernel",
@@ -381,7 +380,7 @@ async def test_infrastructure_retry_starts_from_zero_with_a_new_kernel(
     ]
 
 
-async def test_infrastructure_retry_waits_for_abandoned_kernel_cleanup(
+async def test_infrastructure_retry_waits_for_abandoned_runtime_session_cleanup(
     execution_service: ExecutionService,
     engine: AsyncEngine,
 ) -> None:
@@ -395,7 +394,6 @@ async def test_infrastructure_retry_waits_for_abandoned_kernel_cleanup(
             .values(
                 status=ExecutionStatus.FAILED,
                 failure_type=FailureType.LEASE_EXPIRED,
-                retryable=True,
                 retry_strategy=RetryStrategy.FROM_START,
                 retry_from_sequence=0,
                 runtime_session_id="cleanup-pending-kernel",

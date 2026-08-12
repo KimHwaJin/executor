@@ -97,6 +97,7 @@ class WorkspaceManager:
     def write_notebook(
         self,
         workspace: ExecutionWorkspace,
+        runtime_profile: str,
         cells: list[str],
         outputs: list[list[dict[str, object]]],
         execution_counts: list[int | None],
@@ -104,7 +105,10 @@ class WorkspaceManager:
         notebook = nbformat.v4.new_notebook(
             metadata={
                 "executor": {"workspace": workspace.runtime_relative_path},
-                "kernelspec": {"name": "python3", "display_name": "Python 3", "language": "python"},
+                "kernelspec": {
+                    "name": runtime_profile,
+                    "display_name": runtime_profile,
+                },
             }
         )
         notebook.cells = [

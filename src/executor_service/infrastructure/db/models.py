@@ -176,7 +176,6 @@ class ExecutionORM(Base):
     lease_owner: Mapped[str | None] = mapped_column(String(255), nullable=True)
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    retryable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     retry_strategy: Mapped[RetryStrategy] = mapped_column(
         enum_type(RetryStrategy, "retry_strategy"),
         nullable=False,
@@ -265,7 +264,6 @@ class ExecutionORM(Base):
             lease_owner=execution.lease_owner,
             lease_expires_at=execution.lease_expires_at,
             heartbeat_at=execution.heartbeat_at,
-            retryable=execution.retryable,
             retry_strategy=execution.retry_strategy,
             retry_from_sequence=execution.retry_from_sequence,
             retained_runtime_session_until=execution.retained_runtime_session_until,
@@ -322,7 +320,6 @@ class ExecutionORM(Base):
             lease_owner=self.lease_owner,
             lease_expires_at=self.lease_expires_at,
             heartbeat_at=self.heartbeat_at,
-            retryable=self.retryable,
             retry_strategy=self.retry_strategy,
             retry_from_sequence=self.retry_from_sequence,
             retained_runtime_session_until=self.retained_runtime_session_until,
@@ -606,9 +603,7 @@ class ExecutionAttemptORM(Base):
         nullable=False,
         default=RuntimeType.JUPYTER,
     )
-    runtime_profile: Mapped[str] = mapped_column(
-        String(128), nullable=False, default="python3"
-    )
+    runtime_profile: Mapped[str] = mapped_column(String(128), nullable=False, default="python3")
     runtime_target_id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("runtime_targets.id"), nullable=False
     )

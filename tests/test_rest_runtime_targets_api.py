@@ -132,6 +132,7 @@ async def test_openapi_documents_runtime_fleet_routes_and_never_returns_token(
     assert created.json()["status"] == "ACTIVE"
     assert created.json()["created_by"] == "fleet-admin"
     assert created.json()["updated_by"] == "fleet-admin"
+    assert created.json()["supported_profiles"] == ["python3"]
     assert created.json()["available_capacity"] == 2
 
 
@@ -165,12 +166,12 @@ async def test_fleet_list_filters_cursor_capacity_and_state_controls(
     assert [item["target_id"] for item in batch.json()["items"]] == [target_ids[2]]
 
     pools = await client.get("/api/v1/runtime-pools")
-    summaries = {item["pool"]: item for item in pools.json()["items"]}
-    assert summaries["INTERACTIVE"]["target_count"] == 2
-    assert summaries["INTERACTIVE"]["configured_capacity"] == 5
-    assert summaries["INTERACTIVE"]["available_capacity"] == 5
-    assert summaries["INTERACTIVE"]["accepting_new_executions"] is True
-    assert summaries["BATCH"]["target_count"] == 1
+    summaries = {(item["runtime_type"], item["pool"]): item for item in pools.json()["items"]}
+    assert summaries[("JUPYTER", "INTERACTIVE")]["target_count"] == 2
+    assert summaries[("JUPYTER", "INTERACTIVE")]["configured_capacity"] == 5
+    assert summaries[("JUPYTER", "INTERACTIVE")]["available_capacity"] == 5
+    assert summaries[("JUPYTER", "INTERACTIVE")]["accepting_new_executions"] is True
+    assert summaries[("JUPYTER", "BATCH")]["target_count"] == 1
 
     target_id = target_ids[0]
     drained = await client.post(

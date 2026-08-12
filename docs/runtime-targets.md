@@ -40,7 +40,7 @@ An eligible target must:
 
 - have the exact requested `RuntimePool` and `runtime_type`;
 - be enabled and `ACTIVE`;
-- advertise the requested `runtime_profile` when profiles are known;
+- advertise the requested `runtime_profile`, restricted by `RUNTIME_ALLOWED_PROFILES`;
 - have capacity after running, waiting, and retained-retry reservations are counted.
 
 Targets are considered in stable name order. With both BATCH targets configured at capacity one,
@@ -86,6 +86,7 @@ RUNTIME_TARGET_NAME=single-jupyter
 JUPYTER_ENDPOINT=http://127.0.0.1:8888
 JUPYTER_TOKEN=change-me-local-only
 RUNTIME_POOL=INTERACTIVE
+RUNTIME_ALLOWED_PROFILES=python3
 RUNTIME_DEFAULT_MAX_CONCURRENT_EXECUTIONS=1
 WORKSPACE_HOST_ROOT=C:/absolute/path/to/executor/notebook_dir
 WORKSPACE_RUNTIME_ROOT=C:/absolute/path/to/executor/notebook_dir

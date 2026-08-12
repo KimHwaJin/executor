@@ -138,6 +138,9 @@ async def _submit(
                     "project_id": "batch-pool-project",
                     "session_id": f"batch-pool-session-{unique}-{name}",
                     "task_id": f"batch-pool-task-{unique}-{name}",
+                    "workflow_id": (
+                        f"batch-pool-workflow-{unique}-{name}" if pool == "BATCH" else None
+                    ),
                 },
             }
         },

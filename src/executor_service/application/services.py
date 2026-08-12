@@ -432,6 +432,8 @@ def _validate_submit(command: SubmitExecutionCommand) -> None:
         raise InvalidStateTransitionError(
             "INTERACTIVE submit requires actor.id to match context.user_id."
         )
+    if command.trigger_type == TriggerType.BATCH and not command.workflow_id:
+        raise InvalidStateTransitionError("BATCH submit requires context.workflow_id.")
     if not command.steps:
         raise InvalidStateTransitionError("ExecutionSpec must contain at least one step.")
     sequences = [step.sequence for step in command.steps]

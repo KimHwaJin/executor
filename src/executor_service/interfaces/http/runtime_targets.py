@@ -7,7 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, Query
 
 from executor_service.container import ApplicationContainer
-from executor_service.domain.enums import RuntimePool, RuntimeTargetStatus
+from executor_service.domain.enums import RuntimePool, RuntimeTargetStatus, RuntimeType
 from executor_service.interfaces.http.schemas import (
     ErrorResponse,
     RuntimePoolPageResponse,
@@ -76,6 +76,7 @@ def build_runtime_target_router(container: ApplicationContainer) -> APIRouter:
     )
     async def list_runtime_targets(
         pool: RuntimePool | None = None,
+        runtime_type: RuntimeType | None = None,
         target_status: Annotated[RuntimeTargetStatus | None, Query(alias="status")] = None,
         enabled: bool | None = None,
         cursor: Cursor = None,
@@ -83,6 +84,7 @@ def build_runtime_target_router(container: ApplicationContainer) -> APIRouter:
     ) -> RuntimeTargetPageResponse:
         page = await registry.list(
             pool,
+            runtime_type=runtime_type,
             status=target_status,
             enabled=enabled,
             cursor=cursor,

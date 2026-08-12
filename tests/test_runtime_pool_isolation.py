@@ -44,6 +44,7 @@ def _command(pool: RuntimePool, name: str) -> SubmitExecutionCommand:
         session_id=f"pool-session-{name}",
         task_id="test-task",
         execution_plan_id=f"pool-plan-{name}",
+        workflow_id=f"pool-workflow-{name}" if pool == RuntimePool.BATCH else None,
         steps=(
             StepSpec(
                 sequence=0,
@@ -56,7 +57,7 @@ def _command(pool: RuntimePool, name: str) -> SubmitExecutionCommand:
     )
 
 
-def _server(
+def _target(
     name: str,
     pool: RuntimePool,
     *,
@@ -95,7 +96,7 @@ def _worker(engine: AsyncEngine, tmp_path: Path, consumer: str) -> tuple[Executi
     )
 
 
-async def test_interactive_and_batch_claims_are_isolated_and_batch_uses_two_servers(
+async def test_interactive_and_batch_claims_are_isolated_and_batch_uses_two_targets(
     execution_service: ExecutionService,
     engine: AsyncEngine,
     tmp_path: Path,
@@ -104,9 +105,9 @@ async def test_interactive_and_batch_claims_are_isolated_and_batch_uses_two_serv
     async with session_factory() as session, session.begin():
         session.add_all(
             [
-                _server("interactive-a", RuntimePool.INTERACTIVE),
-                _server("batch-a", RuntimePool.BATCH),
-                _server("batch-b", RuntimePool.BATCH),
+                _target("interactive-a", RuntimePool.INTERACTIVE),
+                _target("batch-a", RuntimePool.BATCH),
+                _target("batch-b", RuntimePool.BATCH),
             ]
         )
     interactive = await execution_service.submit(_command(RuntimePool.INTERACTIVE, "interactive"))
@@ -141,9 +142,9 @@ async def test_full_batch_pool_keeps_work_queued_until_capacity_is_released(
     async with session_factory() as session, session.begin():
         session.add_all(
             [
-                _server("interactive-spare", RuntimePool.INTERACTIVE, capacity=10),
-                _server("batch-capacity-a", RuntimePool.BATCH),
-                _server("batch-capacity-b", RuntimePool.BATCH),
+                _target("interactive-spare", RuntimePool.INTERACTIVE, capacity=10),
+                _target("batch-capacity-a", RuntimePool.BATCH),
+                _target("batch-capacity-b", RuntimePool.BATCH),
             ]
         )
     first = await execution_service.submit(_command(RuntimePool.BATCH, "capacity-one"))
@@ -182,7 +183,7 @@ async def test_full_batch_pool_keeps_work_queued_until_capacity_is_released(
     assert waiting_claim[1].name == first_claim[1].name
 
 
-async def test_batch_never_falls_back_to_interactive_or_draining_server(
+async def test_batch_never_falls_back_to_interactive_or_draining_target(
     execution_service: ExecutionService,
     engine: AsyncEngine,
     tmp_path: Path,
@@ -191,8 +192,8 @@ async def test_batch_never_falls_back_to_interactive_or_draining_server(
     async with session_factory() as session, session.begin():
         session.add_all(
             [
-                _server("interactive-only", RuntimePool.INTERACTIVE, capacity=10),
-                _server(
+                _target("interactive-only", RuntimePool.INTERACTIVE, capacity=10),
+                _target(
                     "batch-draining",
                     RuntimePool.BATCH,
                     status=RuntimeTargetStatus.DRAINING,
@@ -209,20 +210,20 @@ async def test_batch_never_falls_back_to_interactive_or_draining_server(
     assert (await execution_service.get(batch.id)).status == ExecutionStatus.QUEUED
 
 
-async def test_queued_batch_claims_a_server_added_during_scale_up(
+async def test_queued_batch_claims_a_target_added_during_scale_up(
     execution_service: ExecutionService,
     engine: AsyncEngine,
     tmp_path: Path,
 ) -> None:
     session_factory = create_session_factory(engine)
     async with session_factory() as session, session.begin():
-        session.add(_server("scale-interactive", RuntimePool.INTERACTIVE, capacity=10))
+        session.add(_target("scale-interactive", RuntimePool.INTERACTIVE, capacity=10))
     batch = await execution_service.submit(_command(RuntimePool.BATCH, "scale-up"))
     worker, redis = _worker(engine, tmp_path, "scale-up-worker")
     try:
         assert await worker._claim(batch.id) is None
         async with session_factory() as session, session.begin():
-            session.add(_server("scale-batch-new", RuntimePool.BATCH))
+            session.add(_target("scale-batch-new", RuntimePool.BATCH))
         claim = await worker._claim(batch.id)
     finally:
         await redis.aclose()

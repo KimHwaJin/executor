@@ -1,6 +1,5 @@
 """Environment-backed application settings."""
 
-import json
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Self
@@ -50,9 +49,10 @@ class Settings(BaseSettings):
     # Base64-encoded 32-byte Fernet key. Replace in every non-local environment.
     runtime_credential_key: SecretStr = SecretStr("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
     runtime_pool: str = "INTERACTIVE"
+    runtime_allowed_profiles: Annotated[tuple[str, ...], NoDecode] = ("python3",)
     runtime_default_max_concurrent_executions: int = Field(default=2, ge=1)
     runtime_health_poll_interval_seconds: float = Field(default=15, gt=0)
-    workspace_host_root: Path = Path("/Users/kimhwajin/vscode/AX_PROJECT/executor/notebook_dir")
+    workspace_host_root: Path = Path("./notebook_dir")
     workspace_runtime_root: str = "/workspace/pv"
     execution_inline_spec_max_bytes: int = Field(default=262144, ge=1)
     execution_file_spec_max_bytes: int = Field(default=52428800, ge=1)
@@ -77,17 +77,15 @@ class Settings(BaseSettings):
     otel_exporter_timeout_seconds: float = Field(default=5, gt=0)
     otel_sample_ratio: float = Field(default=1.0, ge=0, le=1)
 
-    @field_validator("mcp_allowed_hosts", "mcp_allowed_origins", mode="before")
+    @field_validator(
+        "mcp_allowed_hosts",
+        "mcp_allowed_origins",
+        "runtime_allowed_profiles",
+        mode="before",
+    )
     @classmethod
     def parse_allowed_hosts(cls, value: object) -> object:
         if isinstance(value, str):
-            if value.lstrip().startswith("["):
-                decoded = json.loads(value)
-                if not isinstance(decoded, list) or not all(
-                    isinstance(item, str) for item in decoded
-                ):
-                    raise ValueError("MCP allowlists must contain only strings.")
-                return tuple(item.strip() for item in decoded if item.strip())
             return tuple(item.strip() for item in value.split(",") if item.strip())
         return value
 
@@ -95,6 +93,20 @@ class Settings(BaseSettings):
     def validate_redis_streams(self) -> Self:
         if self.redis_dead_letter_stream == self.redis_stream:
             raise ValueError("REDIS_DEAD_LETTER_STREAM must differ from REDIS_STREAM.")
+        if not self.runtime_allowed_profiles:
+            raise ValueError("RUNTIME_ALLOWED_PROFILES must contain at least one profile.")
+        if len(self.runtime_allowed_profiles) != len(set(self.runtime_allowed_profiles)):
+            raise ValueError("RUNTIME_ALLOWED_PROFILES must not contain duplicates.")
+        if self.app_env.lower() != "local":
+            if self.jupyter_auth_token == "change-me-local-only":
+                raise ValueError("JUPYTER_TOKEN must be replaced outside local environments.")
+            if (
+                self.runtime_credential_encryption_key
+                == "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+            ):
+                raise ValueError(
+                    "RUNTIME_CREDENTIAL_KEY must be replaced outside local environments."
+                )
         return self
 
     @property

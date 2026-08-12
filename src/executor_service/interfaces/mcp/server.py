@@ -25,9 +25,10 @@ from executor_service.domain.enums import (
     ExecutionStatus,
     RuntimePool,
     RuntimeTargetStatus,
+    RuntimeType,
 )
 from executor_service.domain.errors import DomainError
-from executor_service.interfaces.mcp.execution_specs import ExecutionSpecResolver
+from executor_service.execution_specs import ExecutionSpecResolver
 from executor_service.interfaces.mcp.schemas import (
     ExecutionArtifactPageResponse,
     ExecutionArtifactResponse,
@@ -443,10 +444,20 @@ def build_mcp_server(
         @server.tool(description="List registered Runtime Targets and current capacity state.")
         async def runtime_target_list(
             pool: RuntimePool | None = None,
+            runtime_type: RuntimeType | None = None,
+            status: RuntimeTargetStatus | None = None,
+            enabled: bool | None = None,
             cursor: str | None = None,
             limit: int = 100,
         ) -> RuntimeTargetPageResponse:
-            page = await runtime_manager.list(pool, cursor=cursor, limit=max(1, min(limit, 200)))
+            page = await runtime_manager.list(
+                pool,
+                runtime_type=runtime_type,
+                status=status,
+                enabled=enabled,
+                cursor=cursor,
+                limit=max(1, min(limit, 200)),
+            )
             return RuntimeTargetPageResponse.from_page(page)
 
         @server.tool(

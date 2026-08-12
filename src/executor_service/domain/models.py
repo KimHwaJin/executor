@@ -91,7 +91,6 @@ class Execution:
     lease_owner: str | None = None
     lease_expires_at: datetime | None = None
     heartbeat_at: datetime | None = None
-    retryable: bool = False
     retry_strategy: RetryStrategy = RetryStrategy.NOT_RETRYABLE
     retry_from_sequence: int | None = None
     retained_runtime_session_until: datetime | None = None
@@ -129,7 +128,7 @@ class Execution:
         now = utc_now()
         if self.status != ExecutionStatus.FAILED:
             raise InvalidStateTransitionError(f"Execution {self.id} must be FAILED before retry.")
-        if not self.retryable or self.retry_strategy == RetryStrategy.NOT_RETRYABLE:
+        if self.retry_strategy == RetryStrategy.NOT_RETRYABLE:
             raise InvalidStateTransitionError(
                 f"Execution {self.id} has no supported retry strategy."
             )

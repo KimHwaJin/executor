@@ -123,7 +123,6 @@ class SQLAlchemyExecutionRepository:
                 lease_owner=execution.lease_owner,
                 lease_expires_at=execution.lease_expires_at,
                 heartbeat_at=execution.heartbeat_at,
-                retryable=execution.retryable,
                 retry_strategy=execution.retry_strategy,
                 retry_from_sequence=execution.retry_from_sequence,
                 retained_runtime_session_until=execution.retained_runtime_session_until,

@@ -117,12 +117,6 @@ async def test_openapi_documents_all_execution_routes(
     assert invalid.json()["error"]["code"] == "RequestValidationError"
     assert "must-not-leak" not in invalid.text
 
-    legacy_payload = _submit_payload(key="legacy-user-field")
-    user_id = legacy_payload["context"].pop("user_id")
-    legacy_payload["context"]["requested_by_user_id"] = user_id
-    legacy = await client.post("/api/v1/executions", json=legacy_payload)
-    assert legacy.status_code == 422
-
 
 async def test_static_execution_rest_lifecycle_and_queries(
     rest_client: tuple[httpx.AsyncClient, ApplicationContainer],
@@ -349,7 +343,6 @@ async def test_retry_and_domain_error_mapping(
             .where(ExecutionORM.id == execution_id)
             .values(
                 status=ExecutionStatus.FAILED,
-                retryable=True,
                 retry_strategy=RetryStrategy.FROM_START,
                 retry_from_sequence=0,
             )

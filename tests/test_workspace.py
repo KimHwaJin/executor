@@ -84,6 +84,7 @@ def test_workspace_uses_expected_pv_hierarchy_and_writes_notebook(tmp_path: Path
 
     manager.write_notebook(
         workspace,
+        "python-analysis-a",
         cells,
         [
             [{"output_type": "stream", "name": "stdout", "text": "1\n"}],
@@ -100,6 +101,7 @@ def test_workspace_uses_expected_pv_hierarchy_and_writes_notebook(tmp_path: Path
     )
     notebook = nbformat.read(workspace.notebook_file, as_version=4)
     assert len(notebook.cells) == 2
+    assert notebook.metadata.kernelspec.name == "python-analysis-a"
     assert notebook.cells[1].outputs[0].data["text/plain"] == "4"
 
 

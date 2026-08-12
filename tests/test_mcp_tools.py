@@ -10,10 +10,10 @@ from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from executor_service.application.services import ExecutionService
+from executor_service.execution_specs import ExecutionSpecResolver
 from executor_service.infrastructure.db.models import ExecutionORM
 from executor_service.infrastructure.db.session import create_session_factory
 from executor_service.infrastructure.execution_queries import SQLAlchemyExecutionQueryService
-from executor_service.interfaces.mcp.execution_specs import ExecutionSpecResolver
 from executor_service.interfaces.mcp.server import build_mcp_server
 
 SUBMIT_ARGUMENTS: dict[str, Any] = {
@@ -205,6 +205,7 @@ async def test_execution_submit_reads_path_spec_and_derives_batch_pool(
     arguments["request"]["idempotency_key"] = "mcp-path-submit-1"
     arguments["request"]["trigger_type"] = "BATCH"
     arguments["request"]["actor"] = {"type": "BATCH", "id": "batch-1"}
+    arguments["request"]["context"]["workflow_id"] = "workflow-batch-1"
     arguments["request"]["source"] = {
         "type": "PATH",
         "path": "plans/batch.execution.json",

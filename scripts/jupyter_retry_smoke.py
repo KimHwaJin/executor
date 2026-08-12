@@ -64,14 +64,13 @@ async def main() -> None:
         execution_id = submitted.structured_content["execution_id"]
         failed = await _wait(client, execution_id, {"FAILED"})
         if (
-            not failed["retryable"]
-            or failed["failure_type"] != "TOOL_ERROR"
+            failed["failure_type"] != "TOOL_ERROR"
             or failed["retry_strategy"] != "FROM_FAILED_STEP"
             or failed["retry_from_sequence"] != 1
         ):
             raise RuntimeError(f"Failure was not resumable: {failed}")
-        original_kernel = failed["runtime_session_id"]
-        original_server = failed["runtime_target_id"]
+        original_runtime_session = failed["runtime_session_id"]
+        original_runtime_target = failed["runtime_target_id"]
 
         retry = await client.call_tool(
             "execution_retry",
@@ -90,8 +89,8 @@ async def main() -> None:
         if (
             succeeded["status"] != "SUCCEEDED"
             or succeeded["retry_count"] != 1
-            or succeeded["runtime_session_id"] != original_kernel
-            or succeeded["runtime_target_id"] != original_server
+            or succeeded["runtime_session_id"] != original_runtime_session
+            or succeeded["runtime_target_id"] != original_runtime_target
             or [step["status"] for step in succeeded["steps"]]
             != ["SUCCEEDED", "SUCCEEDED", "SUCCEEDED"]
         ):
@@ -138,7 +137,7 @@ async def main() -> None:
         print("initial_status:", failed["status"])
         print("retry_status:", succeeded["status"])
         print("retry_from_sequence:", failed["retry_from_sequence"])
-        print("same_kernel:", succeeded["runtime_session_id"] == original_kernel)
+        print("same_kernel:", succeeded["runtime_session_id"] == original_runtime_session)
         print("attempts_in_trace:", len(attempts))
         print("events_in_trace:", len(trace["events"]["items"]))
         print("retry_artifact_statuses:", [item["status"] for item in retry_artifacts])

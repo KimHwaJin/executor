@@ -157,7 +157,7 @@ async def main() -> None:
             raise RuntimeError("Finished dynamic execution retained its kernel.")
 
         print("execution_id:", submitted.id)
-        print("retained_kernel:", runtime_session_id)
+        print("retained_runtime_session:", runtime_session_id)
         print("status:", finished.status.value)
         print("attempts:", len(attempts))
         print("step_statuses:", [step.status.value for step in finished.steps])

@@ -192,7 +192,6 @@ async def main() -> None:
             if (
                 failed["failure_type"] != "LEASE_EXPIRED"
                 or failed["retry_strategy"] != "FROM_START"
-                or not failed["retryable"]
                 or failed["runtime_session_cleanup_status"] != "SUCCEEDED"
                 or failed["runtime_session_id"] is not None
             ):

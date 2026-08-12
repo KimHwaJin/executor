@@ -164,7 +164,7 @@ async def test_expired_lease_is_failed_once_and_can_restart_from_zero(
     assert recovered is not None
     assert recovered.status == ExecutionStatus.FAILED
     assert recovered.failure_type == FailureType.LEASE_EXPIRED
-    assert recovered.retryable
+    assert recovered.retry_strategy != RetryStrategy.NOT_RETRYABLE
     assert recovered.retry_strategy == RetryStrategy.FROM_START
     assert recovered.retry_from_sequence == 0
     assert recovered.recovery_count == 1

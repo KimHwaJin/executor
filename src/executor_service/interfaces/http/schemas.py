@@ -58,12 +58,12 @@ class ActorInput(HTTPModel):
 
 class RuntimeTargetUpsertRequest(HTTPModel):
     idempotency_key: str = Field(min_length=1, max_length=255)
-    name: str = Field(min_length=1, max_length=255)
+    name: str = Field(min_length=1, max_length=255, pattern=r"^[a-zA-Z0-9._-]+$")
     runtime_type: RuntimeType
     connection_config: dict[str, Any]
     credential: SecretStr | None = None
     pool: RuntimePool
-    max_concurrent_executions: int | None = Field(default=None, ge=1, le=10000)
+    max_concurrent_executions: int | None = Field(default=None, ge=1, le=1000)
     actor: ActorInput
 
     @model_validator(mode="after")
@@ -198,6 +198,7 @@ class RuntimeTargetPageResponse(HTTPModel):
 
 
 class RuntimePoolResponse(HTTPModel):
+    runtime_type: RuntimeType
     pool: RuntimePool
     target_count: int
     enabled_target_count: int
@@ -215,6 +216,7 @@ class RuntimePoolResponse(HTTPModel):
     @classmethod
     def from_view(cls, view: RuntimePoolView) -> "RuntimePoolResponse":
         return cls(
+            runtime_type=view.runtime_type,
             pool=view.pool,
             target_count=view.target_count,
             enabled_target_count=view.enabled_target_count,
@@ -425,7 +427,6 @@ class ExecutionResponse(HTTPModel):
     updated_at: datetime
     started_at: datetime | None
     finished_at: datetime | None
-    retryable: bool
     retry_from_sequence: int | None
     retained_runtime_session_until: datetime | None
     retry_count: int
@@ -475,7 +476,6 @@ class ExecutionResponse(HTTPModel):
             updated_at=execution.updated_at,
             started_at=execution.started_at,
             finished_at=execution.finished_at,
-            retryable=execution.retryable,
             retry_from_sequence=execution.retry_from_sequence,
             retained_runtime_session_until=execution.retained_runtime_session_until,
             retry_count=execution.retry_count,
@@ -496,7 +496,6 @@ class ExecutionSummaryResponse(HTTPModel):
     step_count: int
     error_message: str | None
     failure_type: FailureType | None
-    retryable: bool
     retry_strategy: RetryStrategy
     retry_count: int
     version: int
@@ -530,7 +529,6 @@ class ExecutionSummaryResponse(HTTPModel):
             step_count=len(execution.steps),
             error_message=execution.error_message,
             failure_type=execution.failure_type,
-            retryable=execution.retryable,
             retry_strategy=execution.retry_strategy,
             retry_count=execution.retry_count,
             version=execution.version,

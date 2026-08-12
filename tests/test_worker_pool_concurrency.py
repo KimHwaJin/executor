@@ -90,6 +90,7 @@ def _command(pool: RuntimePool, name: str) -> SubmitExecutionCommand:
         session_id=f"worker-pool-session-{name}",
         task_id="test-task",
         execution_plan_id=f"worker-pool-plan-{name}",
+        workflow_id=f"worker-pool-workflow-{name}" if pool == RuntimePool.BATCH else None,
         steps=(
             StepSpec(
                 sequence=0,
@@ -102,7 +103,7 @@ def _command(pool: RuntimePool, name: str) -> SubmitExecutionCommand:
     )
 
 
-def _server(name: str, pool: RuntimePool, *, capacity: int = 10) -> RuntimeTargetORM:
+def _target(name: str, pool: RuntimePool, *, capacity: int = 10) -> RuntimeTargetORM:
     return RuntimeTargetORM(
         name=name,
         connection_config={"endpoint": f"http://{name}.invalid:8888"},
@@ -162,8 +163,8 @@ async def test_worker_does_not_apply_a_process_local_execution_limit(
     async with session_factory() as session, session.begin():
         session.add_all(
             [
-                _server("worker-interactive", RuntimePool.INTERACTIVE),
-                _server("worker-batch", RuntimePool.BATCH),
+                _target("worker-interactive", RuntimePool.INTERACTIVE),
+                _target("worker-batch", RuntimePool.BATCH),
             ]
         )
     blocked = [
@@ -194,14 +195,14 @@ async def test_worker_does_not_apply_a_process_local_execution_limit(
         await redis.aclose()
 
 
-async def test_cancel_remains_available_when_batch_jupyter_capacity_is_full(
+async def test_cancel_remains_available_when_batch_runtime_capacity_is_full(
     execution_service: ExecutionService,
     engine: AsyncEngine,
     tmp_path: Path,
 ) -> None:
     session_factory = create_session_factory(engine)
     async with session_factory() as session, session.begin():
-        session.add(_server("cancel-batch", RuntimePool.BATCH, capacity=2))
+        session.add(_target("cancel-batch", RuntimePool.BATCH, capacity=2))
     running = [
         await execution_service.submit(_command(RuntimePool.BATCH, f"cancel-running-{index}"))
         for index in range(2)

@@ -603,7 +603,11 @@ class ExecutionWorker:
                         all_outputs.append(exc.outputs)
                         execution_counts.append(None)
                         self._workspace.write_notebook(
-                            workspace, cells[: sequence + 1], all_outputs, execution_counts
+                            workspace,
+                            execution.runtime_profile,
+                            cells[: sequence + 1],
+                            all_outputs,
+                            execution_counts,
                         )
                         try:
                             await self._artifacts.discover_and_register(
@@ -630,7 +634,11 @@ class ExecutionWorker:
                     execution_counts.append(result.execution_count)
                     await self._step_succeeded(execution.id, attempt_id, sequence, result.outputs)
                     self._workspace.write_notebook(
-                        workspace, cells[: sequence + 1], all_outputs, execution_counts
+                        workspace,
+                        execution.runtime_profile,
+                        cells[: sequence + 1],
+                        all_outputs,
+                        execution_counts,
                     )
                     try:
                         await self._artifacts.discover_and_register(
@@ -755,6 +763,14 @@ class ExecutionWorker:
                     or target is None
                     or not target.enabled
                     or target.status == RuntimeTargetStatus.OFFLINE
+                    or target.runtime_type != execution_row.runtime_type
+                    or target.pool != execution_row.runtime_pool
+                    or waiting_attempt.runtime_type != execution_row.runtime_type
+                    or waiting_attempt.runtime_profile != execution_row.runtime_profile
+                    or (
+                        target.supported_profiles
+                        and execution_row.runtime_profile not in target.supported_profiles
+                    )
                 ):
                     return None
                 waiting_attempt.status = AttemptStatus.RUNNING
@@ -796,7 +812,16 @@ class ExecutionWorker:
                     .where(RuntimeTargetORM.id == execution_row.runtime_target_id)
                     .with_for_update()
                 )
-                if target is None or not target.enabled:
+                if (
+                    target is None
+                    or not target.enabled
+                    or target.runtime_type != execution_row.runtime_type
+                    or target.pool != execution_row.runtime_pool
+                    or (
+                        target.supported_profiles
+                        and execution_row.runtime_profile not in target.supported_profiles
+                    )
+                ):
                     await self._fail_unavailable_retained_retry(
                         session,
                         execution_row,
@@ -857,7 +882,6 @@ class ExecutionWorker:
             )
             execution_row.error_message = None
             execution_row.failure_type = None
-            execution_row.retryable = False
             if not is_resume:
                 execution_row.retained_runtime_session_until = None
             execution_row.runtime_session_cleanup_status = RuntimeSessionCleanupStatus.NOT_REQUIRED
@@ -902,7 +926,6 @@ class ExecutionWorker:
             execution.lease_owner = None
             execution.lease_expires_at = None
             execution.heartbeat_at = None
-            execution.retryable = True
             execution.updated_at = now
             execution.version += 1
             attempt.status = AttemptStatus.FAILED
@@ -946,7 +969,6 @@ class ExecutionWorker:
         execution.lease_owner = None
         execution.lease_expires_at = None
         execution.heartbeat_at = None
-        execution.retryable = True
         execution.retry_strategy = RetryStrategy.FROM_START
         execution.retry_from_sequence = 0
         execution.retained_runtime_session_until = None
@@ -982,6 +1004,7 @@ class ExecutionWorker:
                 select(RuntimeTargetORM)
                 .where(
                     RuntimeTargetORM.pool == execution.runtime_pool,
+                    RuntimeTargetORM.runtime_type == execution.runtime_type,
                     RuntimeTargetORM.enabled.is_(True),
                     RuntimeTargetORM.status == RuntimeTargetStatus.ACTIVE,
                 )
@@ -1005,7 +1028,6 @@ class ExecutionWorker:
                 select(func.count(ExecutionORM.id)).where(
                     ExecutionORM.runtime_target_id == target.id,
                     ExecutionORM.status.in_([ExecutionStatus.FAILED, ExecutionStatus.QUEUED]),
-                    ExecutionORM.retryable.is_(True),
                     ExecutionORM.retry_strategy == RetryStrategy.FROM_FAILED_STEP,
                     ExecutionORM.retained_runtime_session_until > utc_now(),
                 )
@@ -1087,7 +1109,9 @@ class ExecutionWorker:
                     exc.outputs,
                     str(exc),
                 )
-                await self._write_dynamic_notebook(execution.id, workspace)
+                await self._write_dynamic_notebook(
+                    execution.id, execution.runtime_profile, workspace
+                )
                 try:
                     await self._artifacts.discover_and_register(
                         workspace=workspace,
@@ -1106,7 +1130,7 @@ class ExecutionWorker:
                 )
                 return
             await self._step_succeeded(execution.id, attempt_id, pending.sequence, result.outputs)
-            await self._write_dynamic_notebook(execution.id, workspace)
+            await self._write_dynamic_notebook(execution.id, execution.runtime_profile, workspace)
             try:
                 await self._artifacts.discover_and_register(
                     workspace=workspace,
@@ -1158,7 +1182,7 @@ class ExecutionWorker:
             await driver.close()
 
     async def _write_dynamic_notebook(
-        self, execution_id: UUID, workspace: ExecutionWorkspace
+        self, execution_id: UUID, runtime_profile: str, workspace: ExecutionWorkspace
     ) -> None:
         async with self._session_factory() as session:
             steps = list(
@@ -1170,7 +1194,9 @@ class ExecutionWorker:
             )
         cells = [step.code or "" for step in steps if step.status != StepStatus.PENDING]
         outputs = [step.outputs for step in steps if step.status != StepStatus.PENDING]
-        self._workspace.write_notebook(workspace, cells, outputs, [None] * len(cells))
+        self._workspace.write_notebook(
+            workspace, runtime_profile, cells, outputs, [None] * len(cells)
+        )
 
     async def _pause_dynamic(
         self,
@@ -1486,7 +1512,6 @@ class ExecutionWorker:
             execution.lease_expires_at = None
             execution.dynamic_wait_expires_at = None
             execution.retry_strategy = effective_retry_strategy
-            execution.retryable = effective_retry_strategy != RetryStrategy.NOT_RETRYABLE
             execution.retry_from_sequence = None
             if effective_retry_strategy == RetryStrategy.FROM_FAILED_STEP:
                 execution.retry_from_sequence = retry_from_sequence
@@ -1598,7 +1623,6 @@ class ExecutionWorker:
             execution.lease_expires_at = None
             execution.dynamic_wait_expires_at = None
             execution.failure_type = None
-            execution.retryable = False
             execution.retry_strategy = RetryStrategy.NOT_RETRYABLE
             execution.retry_from_sequence = None
             execution.retained_runtime_session_until = None
@@ -1799,7 +1823,6 @@ class ExecutionWorker:
             execution.lease_owner = None
             execution.lease_expires_at = None
             execution.dynamic_wait_expires_at = None
-            execution.retryable = False
             execution.retry_strategy = RetryStrategy.NOT_RETRYABLE
             execution.retry_from_sequence = None
             execution.retained_runtime_session_until = None
@@ -1889,7 +1912,6 @@ class ExecutionWorker:
                 execution.updated_at = now
                 execution.lease_owner = None
                 execution.lease_expires_at = None
-                execution.retryable = retry_strategy != RetryStrategy.NOT_RETRYABLE
                 execution.retry_strategy = retry_strategy
                 execution.retry_from_sequence = (
                     0 if retry_strategy == RetryStrategy.FROM_START else None
@@ -2058,7 +2080,6 @@ class ExecutionWorker:
                     )
                     .where(
                         ExecutionORM.status.in_([ExecutionStatus.FAILED, ExecutionStatus.QUEUED]),
-                        ExecutionORM.retryable.is_(True),
                         ExecutionORM.retry_strategy == RetryStrategy.FROM_FAILED_STEP,
                         ExecutionORM.retained_runtime_session_until <= now,
                         ExecutionORM.runtime_session_id.is_not(None),
@@ -2086,7 +2107,6 @@ class ExecutionWorker:
                 if (
                     current is None
                     or current.status not in {ExecutionStatus.FAILED, ExecutionStatus.QUEUED}
-                    or not current.retryable
                     or current.retry_strategy != RetryStrategy.FROM_FAILED_STEP
                     or current.retained_runtime_session_until is None
                     or _as_utc(current.retained_runtime_session_until) > now
@@ -2108,7 +2128,6 @@ class ExecutionWorker:
                         )
                         .values(status=StepStatus.SKIPPED, finished_at=now, updated_at=now)
                     )
-                current.retryable = False
                 current.retry_strategy = RetryStrategy.NOT_RETRYABLE
                 current.retry_from_sequence = None
                 current.retained_runtime_session_until = None

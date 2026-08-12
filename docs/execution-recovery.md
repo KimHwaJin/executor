@@ -20,8 +20,7 @@ renew leases while a Jupyter cell is running, and reconcile expired leases.
 | `INFRASTRUCTURE_ERROR` | Reserved for non-Jupyter infrastructure failures | Policy is assigned at the failure site |
 
 A successful or cancelled Execution has no `failure_type` and uses `NOT_RETRYABLE`.
-The legacy `retryable` boolean remains in the MCP response for compatibility and is derived from
-whether the strategy is different from `NOT_RETRYABLE`.
+`retry_strategy` is the single source of truth for whether and how an Execution can be retried.
 
 ## Retry strategies
 

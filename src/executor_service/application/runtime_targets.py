@@ -93,6 +93,7 @@ class RuntimeTargetView:
 
 @dataclass(frozen=True, slots=True)
 class RuntimePoolView:
+    runtime_type: RuntimeType
     pool: RuntimePool
     target_count: int
     enabled_target_count: int
@@ -133,6 +134,7 @@ class RuntimeTargetManager(Protocol):
         self,
         pool: RuntimePool | None = None,
         *,
+        runtime_type: RuntimeType | None = None,
         status: RuntimeTargetStatus | None = None,
         enabled: bool | None = None,
         cursor: str | None = None,

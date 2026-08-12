@@ -15,11 +15,10 @@ artifacts/
 ```
 
 Every directory is created before execution and may contain deeper subdirectories. The first
-directory below `artifacts/` determines the automatic Artifact type, taking precedence over the
-filename extension. Files directly below `artifacts/` or in an unknown directory are still
-detected for compatibility and use extension-based inference, but producers should write unknown
-types under `artifacts/other/` instead. The final notebook remains under `notebooks/` and is
-registered separately.
+directory below `artifacts/` determines the automatic Artifact type. Files directly below
+`artifacts/` or inside an unknown directory are not registered; producers must use one of the
+defined directories and put unknown types under `artifacts/other/`. The final notebook remains
+under `notebooks/` and is registered separately.
 
 A Tool only needs the Manifest when it creates a result elsewhere on the shared PV or records an
 S3 object.
