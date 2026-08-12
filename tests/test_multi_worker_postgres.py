@@ -94,7 +94,7 @@ def _command(name: str) -> SubmitExecutionCommand:
         source_content=f"print('{name}')",
         code_path=None,
         source_sha256="0" * 64,
-        requested_by_user_id="postgres-race-user",
+        user_id="postgres-race-user",
         project_id="postgres-race-project",
         session_id=f"postgres-race-session-{name}",
         task_id="test-task",

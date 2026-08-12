@@ -32,7 +32,7 @@ async def main() -> None:
                         ],
                     ),
                     "context": {
-                        "requested_by_user_id": "smoke-user",
+                        "user_id": "smoke-user",
                         "project_id": "smoke-project",
                         "session_id": "smoke-session",
                         "task_id": f"cancel-task-{unique}",

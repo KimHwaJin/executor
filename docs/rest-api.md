@@ -39,11 +39,14 @@ Interactive documentation is available at `/docs`, ReDoc at `/redoc`, and the Op
 
 List endpoints accept `limit` and an opaque `cursor`. They return `items`, `next_cursor`, and
 `has_more`; pass `next_cursor` unchanged to retrieve the next keyset page. Execution history
-additionally accepts `requested_by_user_id`, `project_id`, `session_id`, `task_id`, and `status`.
+additionally accepts `user_id`, `project_id`, `session_id`, `task_id`, and `status`.
 Keep the same filters for every page. Execution history is newest-first; Steps, Attempts, events,
 and Artifacts preserve their natural chronological/sequence order.
 
 All mutation bodies require `actor: {type, id}`. Supported actor types are `USER` and `BATCH`.
+`context.user_id` is the owner of the Execution and its results. Interactive submit requires a
+`USER` actor with `actor.id == context.user_id`. Batch submit requires a `BATCH` actor whose ID
+identifies the schedule or manual batch trigger and may differ from `context.user_id`.
 Interactive submissions require `USER`, while batch submissions require `BATCH`. Responses expose
 `created_at`, `updated_at`, `created_by_type`, `created_by`, `updated_by_type`, and `updated_by` on
 audited resources. Execution detail, list, and trace responses expose the immutable `runtime_type`
@@ -78,7 +81,7 @@ curl -i -X POST http://127.0.0.1:8000/api/v1/executions \
       }
     },
     "context": {
-      "requested_by_user_id": "user-001",
+      "user_id": "user-001",
       "project_id": "project-001",
       "session_id": "session-001",
       "task_id": "task-001"

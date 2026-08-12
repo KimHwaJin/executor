@@ -282,7 +282,7 @@ def build_mcp_server(
             )
         )
         async def execution_list(
-            requested_by_user_id: str | None = None,
+            user_id: str | None = None,
             project_id: str | None = None,
             session_id: str | None = None,
             task_id: str | None = None,
@@ -292,7 +292,7 @@ def build_mcp_server(
         ) -> ExecutionPageResponse:
             try:
                 page = await execution_queries.executions(
-                    requested_by_user_id=requested_by_user_id,
+                    user_id=user_id,
                     project_id=project_id,
                     session_id=session_id,
                     task_id=task_id,

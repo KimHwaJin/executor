@@ -53,7 +53,7 @@ async def main() -> None:
                         ],
                     ),
                     "context": {
-                        "requested_by_user_id": "retry-user",
+                        "user_id": "retry-user",
                         "project_id": "retry-project",
                         "session_id": "retry-session",
                         "task_id": f"retry-task-{unique}",

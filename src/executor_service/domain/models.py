@@ -65,7 +65,7 @@ class Execution:
     source_content: str
     code_path: str | None
     source_sha256: str
-    requested_by_user_id: str
+    user_id: str
     project_id: str
     session_id: str
     task_id: str

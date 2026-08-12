@@ -79,7 +79,7 @@ async def main() -> None:
                             ],
                         ),
                         "context": {
-                            "requested_by_user_id": "fleet-user",
+                            "user_id": "fleet-user",
                             "project_id": "fleet-project",
                             "session_id": f"fleet-session-{index}",
                             "task_id": f"fleet-task-{unique}-{index}",

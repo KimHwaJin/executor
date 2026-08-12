@@ -40,7 +40,7 @@ class WorkspaceManager:
     def prepare(self, execution: Execution) -> ExecutionWorkspace:
         relative = Path(
             "users",
-            _segment(execution.requested_by_user_id, "user_id"),
+            _segment(execution.user_id, "user_id"),
             "projects",
             _segment(execution.project_id, "project_id"),
             "sessions",

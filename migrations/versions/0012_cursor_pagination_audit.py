@@ -94,9 +94,9 @@ def upgrade() -> None:
         "created_by_type = CASE WHEN trigger_type = 'BATCH' THEN 'BATCH' ELSE 'USER' END, "
         "updated_by_type = CASE WHEN trigger_type = 'BATCH' THEN 'BATCH' ELSE 'USER' END, "
         "created_by = CASE WHEN trigger_type = 'BATCH' THEN 'legacy-batch:' || task_id "
-        "ELSE requested_by_user_id END, "
+        "ELSE user_id END, "
         "updated_by = CASE WHEN trigger_type = 'BATCH' THEN 'legacy-batch:' || task_id "
-        "ELSE requested_by_user_id END"
+        "ELSE user_id END"
     )
     for table in ("execution_steps", "execution_attempts", "execution_step_attempts"):
         op.execute(
@@ -146,7 +146,7 @@ def upgrade() -> None:
     op.create_index(
         "ix_executions_user_created_cursor",
         "executions",
-        ["requested_by_user_id", "created_at", "id"],
+        ["user_id", "created_at", "id"],
         unique=False,
     )
     op.create_index(

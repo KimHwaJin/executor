@@ -41,7 +41,7 @@ SUBMIT_ARGUMENTS: dict[str, Any] = {
             },
         },
         "context": {
-            "requested_by_user_id": "user-1",
+            "user_id": "user-1",
             "project_id": "project-1",
             "session_id": "session-1",
             "task_id": "task-1",
@@ -94,6 +94,7 @@ async def test_mcp_client_can_list_and_call_execution_tools(
         assert submitted.structured_content["runtime_pool"] == "INTERACTIVE"
         assert submitted.structured_content["source"]["type"] == "INLINE"
         assert len(submitted.structured_content["source"]["sha256"]) == 64
+        assert submitted.structured_content["context"]["user_id"] == "user-1"
         assert submitted.structured_content["context"]["task_id"] == "task-1"
         assert submitted.structured_content["steps"][0]["plan_step_id"] == "plan-step-1"
 
@@ -220,6 +221,8 @@ async def test_execution_submit_reads_path_spec_and_derives_batch_pool(
     assert not submitted.is_error
     assert submitted.structured_content["runtime_pool"] == "BATCH"
     assert submitted.structured_content["source"]["path"] == "plans/batch.execution.json"
+    assert submitted.structured_content["context"]["user_id"] == "user-1"
+    assert submitted.structured_content["created_by"] == "batch-1"
     assert submitted.structured_content["context"]["execution_plan_id"] == "batch-plan-1"
 
 

@@ -67,7 +67,7 @@ async def main() -> None:
                 source_content=code,
                 code_path=None,
                 source_sha256="0" * 64,
-                requested_by_user_id="worker-recovery-user",
+                user_id="worker-recovery-user",
                 project_id="worker-recovery-project",
                 session_id="worker-recovery-session",
                 task_id="test-task",

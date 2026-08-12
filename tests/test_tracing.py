@@ -61,7 +61,7 @@ def _command() -> SubmitExecutionCommand:
         source_content="print('sensitive generated code')",
         code_path=None,
         source_sha256="0" * 64,
-        requested_by_user_id="trace-user",
+        user_id="trace-user",
         project_id="trace-project",
         session_id="trace-session",
         task_id="test-task",

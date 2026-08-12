@@ -82,7 +82,7 @@ def _dynamic_command(key: str) -> SubmitExecutionCommand:
         source_content=code,
         code_path=None,
         source_sha256="0" * 64,
-        requested_by_user_id="lifecycle-user",
+        user_id="lifecycle-user",
         project_id="lifecycle-project",
         session_id="lifecycle-session",
         task_id="test-task",

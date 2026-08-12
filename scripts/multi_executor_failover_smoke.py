@@ -155,7 +155,7 @@ async def main() -> None:
                             [{"tool_name": "multi_executor_failover", "code": code}],
                         ),
                         "context": {
-                            "requested_by_user_id": "multi-executor-user",
+                            "user_id": "multi-executor-user",
                             "project_id": "multi-executor-project",
                             "session_id": f"multi-executor-session-{unique}",
                             "task_id": f"multi-executor-task-{unique}",

@@ -28,7 +28,7 @@ async def main() -> None:
                         [{"tool_name": "smoke", "code": "print('smoke')"}],
                     ),
                     "context": {
-                        "requested_by_user_id": "smoke-user",
+                        "user_id": "smoke-user",
                         "project_id": "smoke-project",
                         "session_id": "smoke-session",
                         "task_id": "smoke-task",

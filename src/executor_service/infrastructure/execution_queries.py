@@ -44,7 +44,7 @@ class SQLAlchemyExecutionQueryService:
     async def executions(
         self,
         *,
-        requested_by_user_id: str | None = None,
+        user_id: str | None = None,
         project_id: str | None = None,
         session_id: str | None = None,
         task_id: str | None = None,
@@ -53,8 +53,8 @@ class SQLAlchemyExecutionQueryService:
         limit: int = 100,
     ) -> Page[Execution]:
         statement = select(ExecutionORM).options(selectinload(ExecutionORM.steps))
-        if requested_by_user_id is not None:
-            statement = statement.where(ExecutionORM.requested_by_user_id == requested_by_user_id)
+        if user_id is not None:
+            statement = statement.where(ExecutionORM.user_id == user_id)
         if project_id is not None:
             statement = statement.where(ExecutionORM.project_id == project_id)
         if session_id is not None:

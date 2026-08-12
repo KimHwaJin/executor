@@ -46,7 +46,7 @@ def _command() -> SubmitExecutionCommand:
         source_content="print('long-running')",
         code_path=None,
         source_sha256="0" * 64,
-        requested_by_user_id="recovery-user",
+        user_id="recovery-user",
         project_id="recovery-project",
         session_id="recovery-session",
         task_id="test-task",

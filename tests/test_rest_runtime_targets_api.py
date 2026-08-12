@@ -99,7 +99,7 @@ def _execution_payload() -> dict[str, Any]:
             },
         },
         "context": {
-            "requested_by_user_id": "fleet-admin",
+            "user_id": "fleet-admin",
             "project_id": "fleet-project",
             "session_id": "fleet-session",
             "task_id": "fleet-task",

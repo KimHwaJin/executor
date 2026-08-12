@@ -222,9 +222,11 @@ and runnable curl examples.
 - `actor`: required audit principal with type `USER` or `BATCH` and a stable upstream ID
 
 Every public mutation records `created_by`/`updated_by` attribution on the affected Execution,
-Step, Attempt, Artifact, Outbox Event, or Runtime Target where applicable. Interactive submits
-require a `USER` actor and batch submits require a `BATCH` actor. Additional autonomous actor types
-remain deferred in [Deferred Decisions](docs/deferred-decisions.md#dd-003-additional-audit-actor-types).
+Step, Attempt, Artifact, Outbox Event, or Runtime Target where applicable. `context.user_id` owns
+the Execution and its results. Interactive submits require a `USER` actor whose `actor.id` exactly
+matches `context.user_id`. Batch submits require a `BATCH` actor; its ID identifies the schedule or
+manual batch trigger and may differ from the owning user. Additional autonomous actor types remain
+deferred in [Deferred Decisions](docs/deferred-decisions.md#dd-003-additional-audit-actor-types).
 
 `runtime_pool` is not accepted from callers. Executor derives `INTERACTIVE` or `BATCH` from
 `trigger_type`, then selects a healthy compatible Runtime Target with available capacity inside

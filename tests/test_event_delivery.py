@@ -107,7 +107,7 @@ def _command() -> SubmitExecutionCommand:
         source_content="print('claim once')",
         code_path=None,
         source_sha256="0" * 64,
-        requested_by_user_id="event-user",
+        user_id="event-user",
         project_id="event-project",
         session_id="event-session",
         task_id="test-task",

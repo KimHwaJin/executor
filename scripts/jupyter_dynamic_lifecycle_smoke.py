@@ -57,7 +57,7 @@ async def main() -> None:
                 source_content=code,
                 code_path=None,
                 source_sha256="0" * 64,
-                requested_by_user_id="dynamic-lifecycle-user",
+                user_id="dynamic-lifecycle-user",
                 project_id="dynamic-lifecycle-project",
                 session_id="dynamic-lifecycle-session",
                 task_id="test-task",

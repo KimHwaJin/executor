@@ -60,7 +60,7 @@ async def _submit(client: Client, unique: str, index: int, sleep: int) -> str:
                     ],
                 ),
                 "context": {
-                    "requested_by_user_id": "drain-user",
+                    "user_id": "drain-user",
                     "project_id": "drain-project",
                     "session_id": f"drain-session-{index}",
                     "task_id": f"drain-task-{unique}-{index}",

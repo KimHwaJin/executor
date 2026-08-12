@@ -131,7 +131,7 @@ class ExecutionQueryService(Protocol):
     async def executions(
         self,
         *,
-        requested_by_user_id: str | None = None,
+        user_id: str | None = None,
         project_id: str | None = None,
         session_id: str | None = None,
         task_id: str | None = None,

@@ -113,7 +113,7 @@ class ExecutionORM(Base):
         Index("ix_executions_status_created_at", "status", "created_at", "id"),
         Index(
             "ix_executions_user_created_cursor",
-            "requested_by_user_id",
+            "user_id",
             "created_at",
             "id",
         ),
@@ -153,7 +153,7 @@ class ExecutionORM(Base):
     code_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
 
-    requested_by_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False)
     project_id: Mapped[str] = mapped_column(String(255), nullable=False)
     session_id: Mapped[str] = mapped_column(String(255), nullable=False)
     task_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
@@ -244,7 +244,7 @@ class ExecutionORM(Base):
             source_content=execution.source_content,
             code_path=execution.code_path,
             source_sha256=execution.source_sha256,
-            requested_by_user_id=execution.requested_by_user_id,
+            user_id=execution.user_id,
             project_id=execution.project_id,
             session_id=execution.session_id,
             task_id=execution.task_id,
@@ -301,7 +301,7 @@ class ExecutionORM(Base):
             source_content=self.source_content,
             code_path=self.code_path,
             source_sha256=self.source_sha256,
-            requested_by_user_id=self.requested_by_user_id,
+            user_id=self.user_id,
             project_id=self.project_id,
             session_id=self.session_id,
             task_id=self.task_id,

@@ -63,7 +63,7 @@ class ActorInput(MCPModel):
 
 
 class ExecutionSubmitContext(MCPModel):
-    requested_by_user_id: str = Field(min_length=1, max_length=255)
+    user_id: str = Field(min_length=1, max_length=255)
     project_id: str = Field(min_length=1, max_length=255)
     session_id: str = Field(min_length=1, max_length=255)
     task_id: str = Field(min_length=1, max_length=255)
@@ -102,7 +102,7 @@ class ExecutionSubmitRequest(MCPModel):
             source_content=source_content,
             code_path=self.source.path if isinstance(self.source, PathCodeSource) else None,
             source_sha256=source_sha256,
-            requested_by_user_id=self.context.requested_by_user_id,
+            user_id=self.context.user_id,
             project_id=self.context.project_id,
             session_id=self.context.session_id,
             task_id=self.context.task_id,
@@ -337,7 +337,7 @@ class ExecutionResponse(MCPModel):
                 sha256=execution.source_sha256,
             ),
             context=ExecutionContext(
-                requested_by_user_id=execution.requested_by_user_id,
+                user_id=execution.user_id,
                 project_id=execution.project_id,
                 session_id=execution.session_id,
                 task_id=execution.task_id,
@@ -431,7 +431,7 @@ class ExecutionSummaryResponse(MCPModel):
             runtime_pool=execution.runtime_pool,
             runtime_profile=execution.runtime_profile,
             context=ExecutionContext(
-                requested_by_user_id=execution.requested_by_user_id,
+                user_id=execution.user_id,
                 project_id=execution.project_id,
                 session_id=execution.session_id,
                 task_id=execution.task_id,

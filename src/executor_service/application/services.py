@@ -60,7 +60,7 @@ class ExecutionService:
                     source_content=command.source_content,
                     code_path=command.code_path,
                     source_sha256=command.source_sha256,
-                    requested_by_user_id=command.requested_by_user_id,
+                    user_id=command.user_id,
                     project_id=command.project_id,
                     session_id=command.session_id,
                     task_id=command.task_id,
@@ -423,6 +423,14 @@ def _validate_submit(command: SubmitExecutionCommand) -> None:
     if command.actor_type is not None and command.actor_type != expected_actor_type:
         raise InvalidStateTransitionError(
             f"{command.trigger_type.value} submit requires {expected_actor_type.value} actor."
+        )
+    if (
+        command.trigger_type == TriggerType.INTERACTIVE
+        and command.actor_type == ActorType.USER
+        and command.actor_id != command.user_id
+    ):
+        raise InvalidStateTransitionError(
+            "INTERACTIVE submit requires actor.id to match context.user_id."
         )
     if not command.steps:
         raise InvalidStateTransitionError("ExecutionSpec must contain at least one step.")

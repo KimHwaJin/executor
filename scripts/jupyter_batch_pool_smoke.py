@@ -134,7 +134,7 @@ async def _submit(
                     ],
                 ),
                 "context": {
-                    "requested_by_user_id": "batch-pool-user",
+                    "user_id": "batch-pool-user",
                     "project_id": "batch-pool-project",
                     "session_id": f"batch-pool-session-{unique}-{name}",
                     "task_id": f"batch-pool-task-{unique}-{name}",

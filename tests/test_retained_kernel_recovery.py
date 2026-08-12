@@ -52,7 +52,7 @@ def _command(key: str) -> SubmitExecutionCommand:
         source_content="prepare()\nfail_once()",
         code_path=None,
         source_sha256="0" * 64,
-        requested_by_user_id="retained-retry-user",
+        user_id="retained-retry-user",
         project_id="retained-retry-project",
         session_id=f"retained-retry-session-{key}",
         task_id=f"retained-retry-task-{key}",

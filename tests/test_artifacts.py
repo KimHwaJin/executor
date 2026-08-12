@@ -47,7 +47,7 @@ def _command() -> SubmitExecutionCommand:
         source_content="print('artifact')",
         code_path=None,
         source_sha256="0" * 64,
-        requested_by_user_id="artifact-user",
+        user_id="artifact-user",
         project_id="artifact-project",
         session_id="artifact-session",
         task_id="test-task",

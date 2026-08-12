@@ -85,7 +85,7 @@ def _command(pool: RuntimePool, name: str) -> SubmitExecutionCommand:
         source_content=code,
         code_path=None,
         source_sha256="0" * 64,
-        requested_by_user_id="worker-pool-user",
+        user_id="worker-pool-user",
         project_id="worker-pool-project",
         session_id=f"worker-pool-session-{name}",
         task_id="test-task",

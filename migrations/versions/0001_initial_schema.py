@@ -91,7 +91,7 @@ def upgrade() -> None:
         ),
         sa.Column("code", sa.Text(), nullable=True),
         sa.Column("code_path", sa.Text(), nullable=True),
-        sa.Column("requested_by_user_id", sa.String(length=255), nullable=False),
+        sa.Column("user_id", sa.String(length=255), nullable=False),
         sa.Column("project_id", sa.String(length=255), nullable=False),
         sa.Column("session_id", sa.String(length=255), nullable=False),
         sa.Column("execution_plan_id", sa.String(length=255), nullable=False),

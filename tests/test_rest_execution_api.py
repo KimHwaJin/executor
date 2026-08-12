@@ -72,7 +72,7 @@ def _submit_payload(
             },
         },
         "context": {
-            "requested_by_user_id": "rest-user",
+            "user_id": "rest-user",
             "project_id": "rest-project",
             "session_id": "rest-session",
             "task_id": "rest-task",
@@ -117,6 +117,12 @@ async def test_openapi_documents_all_execution_routes(
     assert invalid.json()["error"]["code"] == "RequestValidationError"
     assert "must-not-leak" not in invalid.text
 
+    legacy_payload = _submit_payload(key="legacy-user-field")
+    user_id = legacy_payload["context"].pop("user_id")
+    legacy_payload["context"]["requested_by_user_id"] = user_id
+    legacy = await client.post("/api/v1/executions", json=legacy_payload)
+    assert legacy.status_code == 422
+
 
 async def test_static_execution_rest_lifecycle_and_queries(
     rest_client: tuple[httpx.AsyncClient, ApplicationContainer],
@@ -135,6 +141,7 @@ async def test_static_execution_rest_lifecycle_and_queries(
     assert body["status"] == "QUEUED"
     assert body["runtime_type"] == "JUPYTER"
     assert body["runtime_profile"] == "python3"
+    assert body["context"]["user_id"] == "rest-user"
     assert body["context"]["task_id"] == "rest-task"
 
     repeated = await client.post("/api/v1/executions", json=_submit_payload())
@@ -142,7 +149,7 @@ async def test_static_execution_rest_lifecycle_and_queries(
     assert repeated.json()["execution_id"] == execution_id
 
     fetched = await client.get(f"/api/v1/executions/{execution_id}")
-    history = await client.get("/api/v1/executions", params={"task_id": "rest-task"})
+    history = await client.get("/api/v1/executions", params={"user_id": "rest-user"})
     steps = await client.get(f"/api/v1/executions/{execution_id}/steps")
     step = await client.get(f"/api/v1/executions/{execution_id}/steps/{step_id}")
     attempts = await client.get(f"/api/v1/executions/{execution_id}/attempts")

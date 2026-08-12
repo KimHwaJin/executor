@@ -170,7 +170,7 @@ async def submit_static(
                     [{"skill_name": "data_io", "tool_name": name, "code": code}],
                 ),
                 "context": {
-                    "requested_by_user_id": "resilience-user",
+                    "user_id": "resilience-user",
                     "project_id": "resilience-project",
                     "session_id": f"resilience-session-{unique}-{name}",
                     "task_id": f"resilience-task-{unique}-{name}",

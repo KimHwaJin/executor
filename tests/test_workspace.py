@@ -25,7 +25,7 @@ def execution(*, user_id: str = "user-1", codes: tuple[str, ...] = ("print(1)",)
         source_content='{"schema_version":"1.0"}',
         code_path=None,
         source_sha256="0" * 64,
-        requested_by_user_id=user_id,
+        user_id=user_id,
         project_id="project-1",
         session_id="session-1",
         task_id="test-task",
