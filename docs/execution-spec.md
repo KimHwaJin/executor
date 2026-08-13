@@ -68,6 +68,8 @@ normalized source to `code/execution-spec.json` and the executed cells and outpu
 `notebooks/execution.ipynb`. The Agent owns Task, ExecutionPlan, and PlanStep; Executor stores their
 IDs as external references without cross-service foreign keys.
 
-STATIC submit contains every Step. DYNAMIC submit and every `execution_continue` source contain
-exactly one Step. A dynamic continuation may refer to a newer ExecutionPlan, but its sequence must
-be the next consecutive ExecutionStep sequence.
+STATIC submit contains every Step in its Operation. DYNAMIC submit and every `execution_continue`
+source may contain one or more consecutive Steps. A dynamic continuation may refer to a newer
+ExecutionPlan, but its first sequence must be the next ExecutionStep sequence and the remaining
+sequences must be contiguous. Every accepted submit/continue source is persisted as one
+ExecutionOperation with its ExecutionPlan ID, source type/path/hash, and Step range.

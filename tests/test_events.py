@@ -29,9 +29,7 @@ class RecordingRedis:
     def __init__(self) -> None:
         self.fields: dict[str, Any] | None = None
 
-    async def xadd(
-        self, _stream: str, fields: dict[FieldT, EncodableT]
-    ) -> str:
+    async def xadd(self, _stream: str, fields: dict[FieldT, EncodableT]) -> str:
         self.fields = {str(key): value for key, value in fields.items()}
         return "1-0"
 
@@ -72,8 +70,8 @@ def test_every_supported_event_has_a_versioned_strict_payload_model() -> None:
         "execution.started",
         "execution.resumed",
         "execution.retry_deferred",
-        "execution.step_completed",
-        "execution.step_failed",
+        "execution.operation_succeeded",
+        "execution.operation_failed",
         "execution.artifact_registered",
         "execution.artifact_failed",
         "execution.succeeded",
@@ -160,9 +158,7 @@ async def test_publisher_upgrades_a_valid_pre_v1_pending_payload(
             select(OutboxEventORM).where(OutboxEventORM.aggregate_id == execution.id)
         )
         assert row is not None
-        row.payload = {
-            key: value for key, value in row.payload.items() if key != "schema_version"
-        }
+        row.payload = {key: value for key, value in row.payload.items() if key != "schema_version"}
 
     recording_redis = RecordingRedis()
     publisher = OutboxPublisher(

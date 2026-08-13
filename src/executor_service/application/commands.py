@@ -69,7 +69,10 @@ class ContinueExecutionCommand:
     execution_id: UUID
     idempotency_key: str
     expected_version: int
-    step: StepSpec
+    steps: tuple[StepSpec, ...]
+    code_source_type: CodeSourceType = CodeSourceType.INLINE
+    code_path: str | None = None
+    source_sha256: str = ""
     actor_type: ActorType | None = None
     actor_id: str | None = None
 

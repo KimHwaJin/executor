@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
 from typing import Any, ClassVar
@@ -21,6 +22,7 @@ from executor_service.domain.enums import (
     ExecutionMode,
     ExecutionStatus,
     FailureType,
+    OperationStatus,
     RuntimePool,
     RuntimeSessionCleanupStatus,
     RuntimeTargetStatus,
@@ -29,9 +31,11 @@ from executor_service.domain.enums import (
 )
 from executor_service.domain.errors import InvalidStateTransitionError
 from executor_service.domain.models import Execution, utc_now
+from executor_service.domain.runtime import RuntimeExecutionError, RuntimeExecutionResult
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
+    ExecutionOperationORM,
     ExecutionORM,
     ExecutionStepAttemptORM,
     ExecutionStepORM,
@@ -62,6 +66,32 @@ class FakeJupyterGateway:
 
     async def delete_session(self, runtime_session_id: str) -> None:
         self.deleted.append(runtime_session_id)
+
+
+class RecordingDynamicDriver:
+    executed: ClassVar[list[str]] = []
+    fail_code: ClassVar[str | None] = None
+
+    def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+        pass
+
+    async def close(self) -> None:
+        pass
+
+    async def start_session(self, _profile: str, _working_directory: str) -> str:
+        return "operation-kernel"
+
+    async def delete_session(self, _session_id: str) -> None:
+        pass
+
+    async def execute(self, _session_id: str, code: str) -> RuntimeExecutionResult:
+        self.executed.append(code)
+        if code == self.fail_code:
+            raise RuntimeExecutionError("expected operation failure", [])
+        return RuntimeExecutionResult(
+            outputs=[],
+            execution_count=len(self.executed),
+        )
 
 
 def _patch_runtime_driver(monkeypatch: pytest.MonkeyPatch, driver_type: type[Any]) -> None:
@@ -155,7 +185,7 @@ async def _make_waiting(
             update(ExecutionORM)
             .where(ExecutionORM.id == execution.id)
             .values(
-                status=ExecutionStatus.WAITING_FOR_NEXT_STEP,
+                status=ExecutionStatus.WAITING_FOR_CONTINUE,
                 runtime_target_id=target.id,
                 runtime_session_id=attempt.runtime_session_id,
                 started_at=now - timedelta(minutes=1),
@@ -202,6 +232,97 @@ def _reset_fake_gateway() -> None:
     FakeJupyterGateway.session_exists_result = True
     FakeJupyterGateway.deleted = []
     FakeJupyterGateway.interrupted = []
+    RecordingDynamicDriver.executed = []
+    RecordingDynamicDriver.fail_code = None
+
+
+@pytest.mark.parametrize(
+    ("fail_code", "expected_status", "expected_steps", "expected_event"),
+    [
+        (
+            None,
+            OperationStatus.SUCCEEDED,
+            [StepStatus.SUCCEEDED, StepStatus.SUCCEEDED, StepStatus.SUCCEEDED],
+            "execution.operation_succeeded",
+        ),
+        (
+            "raise expected",
+            OperationStatus.FAILED,
+            [StepStatus.SUCCEEDED, StepStatus.FAILED, StepStatus.SKIPPED],
+            "execution.operation_failed",
+        ),
+    ],
+)
+async def test_dynamic_operation_executes_submitted_steps_until_boundary(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fail_code: str | None,
+    expected_status: OperationStatus,
+    expected_steps: list[StepStatus],
+    expected_event: str,
+) -> None:
+    command = _dynamic_command(f"operation-{expected_status.value.lower()}")
+    command = replace(
+        command,
+        source_content="first\nraise expected\nthird",
+        steps=(
+            StepSpec(0, "first", "lifecycle-plan", "operation-step-0"),
+            StepSpec(1, "raise expected", "lifecycle-plan", "operation-step-1"),
+            StepSpec(2, "third", "lifecycle-plan", "operation-step-2"),
+        ),
+    )
+    execution = await execution_service.submit(command)
+    session_factory = create_session_factory(engine)
+    async with session_factory() as session, session.begin():
+        session.add(
+            RuntimeTargetORM(
+                name=f"operation-target-{expected_status.value.lower()}",
+                connection_config={"endpoint": "http://operation.invalid"},
+                credential_ref="settings:JUPYTER_TOKEN",
+                pool=RuntimePool.INTERACTIVE,
+                status=RuntimeTargetStatus.ACTIVE,
+                max_concurrent_executions=1,
+                supported_profiles=["basic"],
+                enabled=True,
+            )
+        )
+    RecordingDynamicDriver.fail_code = fail_code
+    _patch_runtime_driver(monkeypatch, RecordingDynamicDriver)
+    worker, redis = _worker(engine, tmp_path)
+    try:
+        await worker._run_execution(execution.id)
+    finally:
+        await redis.aclose()
+
+    async with session_factory() as session:
+        row = await session.get(ExecutionORM, execution.id)
+        operation = await session.get(ExecutionOperationORM, execution.active_operation_id)
+        steps = list(
+            await session.scalars(
+                select(ExecutionStepORM)
+                .where(ExecutionStepORM.execution_id == execution.id)
+                .order_by(ExecutionStepORM.sequence)
+            )
+        )
+        events = list(
+            await session.scalars(
+                select(OutboxEventORM).where(
+                    OutboxEventORM.aggregate_id == execution.id,
+                    OutboxEventORM.event_type == expected_event,
+                )
+            )
+        )
+    assert row is not None and operation is not None
+    assert row.status == ExecutionStatus.WAITING_FOR_CONTINUE, row.error_message
+    assert operation.status == expected_status
+    assert [step.status for step in steps] == expected_steps
+    assert RecordingDynamicDriver.executed == (
+        ["first", "raise expected", "third"] if fail_code is None else ["first", "raise expected"]
+    )
+    assert len(events) == 1
+    assert events[0].payload["operation_id"] == str(operation.id)
 
 
 async def test_expired_dynamic_wait_fails_and_cleans_kernel_once(
@@ -245,11 +366,13 @@ async def test_expired_dynamic_wait_fails_and_cleans_kernel_once(
                 execution_id=execution.id,
                 idempotency_key="continue-after-timeout",
                 expected_version=row.version,
-                step=StepSpec(
-                    sequence=1,
-                    code="print('too late')",
-                    execution_plan_id="lifecycle-plan-2",
-                    plan_step_id="lifecycle-plan-2-step-1",
+                steps=(
+                    StepSpec(
+                        sequence=1,
+                        code="print('too late')",
+                        execution_plan_id="lifecycle-plan-2",
+                        plan_step_id="lifecycle-plan-2-step-1",
+                    ),
                 ),
             )
         )

@@ -16,6 +16,7 @@ from executor_service.domain.errors import (
     ExecutionArtifactNotFoundError,
     ExecutionAttemptNotFoundError,
     ExecutionNotFoundError,
+    ExecutionOperationNotFoundError,
     ExecutionVersionConflictError,
     IdempotencyConflictError,
     InvalidCursorError,
@@ -108,6 +109,7 @@ def create_app(container: ApplicationContainer) -> FastAPI:
             (
                 ExecutionNotFoundError,
                 ExecutionAttemptNotFoundError,
+                ExecutionOperationNotFoundError,
                 ExecutionArtifactNotFoundError,
                 RuntimeTargetNotFoundError,
             ),

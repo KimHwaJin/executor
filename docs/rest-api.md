@@ -17,10 +17,13 @@ Interactive documentation is available at `/docs`, ReDoc at `/redoc`, and the Op
 | GET | `/api/v1/executions/{execution_id}` | Get the PostgreSQL current state | 200 |
 | POST | `/api/v1/executions/{execution_id}/cancel` | Request cancellation | 202 |
 | POST | `/api/v1/executions/{execution_id}/retry` | Retry an eligible FAILED execution | 202 |
-| POST | `/api/v1/executions/{execution_id}/continue` | Append one next DYNAMIC Step | 202 |
+| POST | `/api/v1/executions/{execution_id}/continue` | Append the next DYNAMIC Operation (one or more Steps) | 202 |
 | POST | `/api/v1/executions/{execution_id}/finish` | Finalize a waiting DYNAMIC execution | 202 |
 | GET | `/api/v1/executions/{execution_id}/steps` | List current Steps | 200 |
 | GET | `/api/v1/executions/{execution_id}/steps/{step_id}` | Get one current Step | 200 |
+| GET | `/api/v1/executions/{execution_id}/operations` | List accepted Operations | 200 |
+| GET | `/api/v1/executions/{execution_id}/operations/{operation_id}` | Get one Operation result | 200 |
+| GET | `/api/v1/executions/{execution_id}/operations/{operation_id}/steps` | List Steps in one Operation | 200 |
 | GET | `/api/v1/executions/{execution_id}/attempts` | List immutable Attempt summaries | 200 |
 | GET | `/api/v1/executions/{execution_id}/attempts/{attempt_id}` | Get one Attempt in detail | 200 |
 | GET | `/api/v1/executions/{execution_id}/attempts/{attempt_id}/steps` | List Step results for one Attempt | 200 |
@@ -91,7 +94,7 @@ curl -i -X POST http://127.0.0.1:8000/api/v1/executions \
   }'
 ```
 
-The response is `202 Accepted`, includes `execution_id`, current `state`, and the complete audit
+The response is `202 Accepted`, includes `execution_id`, accepted `operation_id`, current `state`, and the complete audit
 field set, and sets `Location` to its GET resource. It intentionally omits submitted source,
 Runtime, context, and Steps; use the Location resource and child list endpoints for those details.
 Tool completion is not execution completion. Cancel, retry, continue, and finish use the same
@@ -102,6 +105,9 @@ curl http://127.0.0.1:8000/api/v1/executions/EXECUTION_ID
 curl 'http://127.0.0.1:8000/api/v1/executions?task_id=task-001&limit=20'
 curl 'http://127.0.0.1:8000/api/v1/executions?task_id=task-001&limit=20&cursor=NEXT_CURSOR'
 curl http://127.0.0.1:8000/api/v1/executions/EXECUTION_ID/attempts
+curl http://127.0.0.1:8000/api/v1/executions/EXECUTION_ID/operations
+curl http://127.0.0.1:8000/api/v1/executions/EXECUTION_ID/operations/OPERATION_ID
+curl http://127.0.0.1:8000/api/v1/executions/EXECUTION_ID/operations/OPERATION_ID/steps
 curl http://127.0.0.1:8000/api/v1/executions/EXECUTION_ID/attempts/ATTEMPT_ID
 curl http://127.0.0.1:8000/api/v1/executions/EXECUTION_ID/attempts/ATTEMPT_ID/steps
 curl http://127.0.0.1:8000/api/v1/executions/EXECUTION_ID/events
@@ -149,8 +155,8 @@ Execution advertises a supported retry strategy.
 
 ## Dynamic continue and finish
 
-After a DYNAMIC Step reaches `WAITING_FOR_NEXT_STEP`, use the returned current `version` and append
-exactly one consecutive Step:
+After a DYNAMIC Operation reaches `WAITING_FOR_CONTINUE`, use the returned current `version` and
+append one or more consecutive Steps as the next Operation:
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/executions/EXECUTION_ID/continue \
@@ -168,6 +174,10 @@ curl -X POST http://127.0.0.1:8000/api/v1/executions/EXECUTION_ID/continue \
           "sequence": 1,
           "plan_step_id": "plan-step-002",
           "code": "print(\"next cell\")"
+        }, {
+          "sequence": 2,
+          "plan_step_id": "plan-step-003",
+          "code": "print(\"one more cell\")"
         }]
       }
     }

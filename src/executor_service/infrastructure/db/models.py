@@ -33,6 +33,7 @@ from executor_service.domain.enums import (
     ExecutionMode,
     ExecutionStatus,
     FailureType,
+    OperationStatus,
     OutboxStatus,
     RetryStrategy,
     RuntimePool,
@@ -42,7 +43,13 @@ from executor_service.domain.enums import (
     StepStatus,
     TriggerType,
 )
-from executor_service.domain.models import Execution, ExecutionStep, OutboxEvent, utc_now
+from executor_service.domain.models import (
+    Execution,
+    ExecutionOperation,
+    ExecutionStep,
+    OutboxEvent,
+    utc_now,
+)
 from executor_service.infrastructure.db.base import Base
 
 
@@ -76,7 +83,7 @@ class ExecutionORM(Base):
     __table_args__ = (
         *audit_actor_constraints(),
         CheckConstraint(
-            "status IN ('QUEUED', 'DISPATCHED', 'RUNNING', 'WAITING_FOR_NEXT_STEP', "
+            "status IN ('QUEUED', 'DISPATCHED', 'RUNNING', 'WAITING_FOR_CONTINUE', "
             "'CANCEL_REQUESTED', 'CANCELLED', 'SUCCEEDED', 'FAILED')",
             name="valid_execution_status",
         ),
@@ -199,6 +206,9 @@ class ExecutionORM(Base):
         default=RuntimeSessionCleanupStatus.NOT_REQUIRED,
     )
     dynamic_finish_requested: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    active_operation_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), nullable=True, index=True
+    )
     dynamic_wait_expires_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, index=True
     )
@@ -279,6 +289,7 @@ class ExecutionORM(Base):
             recovery_count=execution.recovery_count,
             runtime_session_cleanup_status=execution.runtime_session_cleanup_status,
             dynamic_finish_requested=execution.dynamic_finish_requested,
+            active_operation_id=execution.active_operation_id,
             dynamic_wait_expires_at=execution.dynamic_wait_expires_at,
             execution_expires_at=execution.execution_expires_at,
             traceparent=execution.traceparent,
@@ -335,6 +346,7 @@ class ExecutionORM(Base):
             recovery_count=self.recovery_count,
             runtime_session_cleanup_status=self.runtime_session_cleanup_status,
             dynamic_finish_requested=self.dynamic_finish_requested,
+            active_operation_id=self.active_operation_id,
             dynamic_wait_expires_at=self.dynamic_wait_expires_at,
             execution_expires_at=self.execution_expires_at,
             traceparent=self.traceparent,
@@ -364,6 +376,12 @@ class ExecutionStepORM(Base):
     execution_id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey("executions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    operation_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("execution_operations.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
@@ -403,6 +421,7 @@ class ExecutionStepORM(Base):
     def from_domain(cls, step: ExecutionStep) -> "ExecutionStepORM":
         return cls(
             id=step.id,
+            operation_id=step.operation_id,
             sequence=step.sequence,
             code=step.code,
             code_hash=step.code_hash,
@@ -427,6 +446,7 @@ class ExecutionStepORM(Base):
     def to_domain(self) -> ExecutionStep:
         return ExecutionStep(
             id=self.id,
+            operation_id=self.operation_id,
             sequence=self.sequence,
             code=self.code,
             code_hash=self.code_hash,
@@ -446,6 +466,90 @@ class ExecutionStepORM(Base):
             updated_at=self.updated_at,
             started_at=self.started_at,
             finished_at=self.finished_at,
+        )
+
+
+class ExecutionOperationORM(Base):
+    """One immutable Agent-submitted batch of consecutive Execution Steps."""
+
+    __tablename__ = "execution_operations"
+    __table_args__ = (
+        *audit_actor_constraints(),
+        UniqueConstraint("execution_id", "operation_number", name="uq_operations_execution_number"),
+        CheckConstraint("operation_number > 0", name="positive_operation_number"),
+        CheckConstraint("first_sequence >= 0", name="non_negative_first_sequence"),
+        CheckConstraint("last_sequence >= first_sequence", name="valid_operation_sequence_range"),
+        CheckConstraint(
+            "status IN ('QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED', 'CANCELLED')",
+            name="valid_operation_status",
+        ),
+        Index("ix_execution_operations_execution_number", "execution_id", "operation_number"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    execution_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("executions.id", ondelete="CASCADE"), nullable=False
+    )
+    operation_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    first_sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    last_sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    execution_plan_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    code_source_type: Mapped[CodeSourceType] = mapped_column(
+        enum_type(CodeSourceType, "operation_code_source_type"), nullable=False
+    )
+    code_path: Mapped[str | None] = mapped_column(Text)
+    source_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    request_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[OperationStatus] = mapped_column(
+        enum_type(OperationStatus, "operation_status"), nullable=False
+    )
+    execution_attempt_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("execution_attempts.id", use_alter=True), nullable=True
+    )
+    error_message: Mapped[str | None] = mapped_column(Text)
+    created_by_type: Mapped[ActorType | None] = mapped_column(
+        enum_type(ActorType, "actor_type"), nullable=True
+    )
+    created_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    updated_by_type: Mapped[ActorType | None] = mapped_column(
+        enum_type(ActorType, "actor_type"), nullable=True
+    )
+    updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    @classmethod
+    def from_domain(cls, operation: ExecutionOperation) -> "ExecutionOperationORM":
+        return cls(
+            id=operation.id,
+            execution_id=operation.execution_id,
+            operation_number=operation.operation_number,
+            first_sequence=operation.first_sequence,
+            last_sequence=operation.last_sequence,
+            execution_plan_id=operation.execution_plan_id,
+            code_source_type=operation.code_source_type,
+            code_path=operation.code_path,
+            source_sha256=operation.source_sha256,
+            idempotency_key=operation.idempotency_key,
+            request_fingerprint=operation.request_fingerprint,
+            status=operation.status,
+            execution_attempt_id=operation.execution_attempt_id,
+            error_message=operation.error_message,
+            created_by_type=operation.created_by_type,
+            created_by=operation.created_by,
+            updated_by_type=operation.updated_by_type,
+            updated_by=operation.updated_by,
+            created_at=operation.created_at,
+            updated_at=operation.updated_at,
+            started_at=operation.started_at,
+            finished_at=operation.finished_at,
         )
 
 

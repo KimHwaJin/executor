@@ -18,7 +18,7 @@ from executor_service.infrastructure.runtime_registry import RuntimeTargetRegist
 from executor_service.infrastructure.worker import ExecutionWorker
 from executor_service.tracing import TracingManager
 
-EXPECTED_SCHEMA_REVISION = "0003"
+EXPECTED_SCHEMA_REVISION = "0004"
 
 
 class ApplicationContainer:

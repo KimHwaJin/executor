@@ -7,7 +7,7 @@ class ExecutionStatus(StrEnum):
     QUEUED = "QUEUED"
     DISPATCHED = "DISPATCHED"
     RUNNING = "RUNNING"
-    WAITING_FOR_NEXT_STEP = "WAITING_FOR_NEXT_STEP"
+    WAITING_FOR_CONTINUE = "WAITING_FOR_CONTINUE"
     CANCEL_REQUESTED = "CANCEL_REQUESTED"
     CANCELLED = "CANCELLED"
     SUCCEEDED = "SUCCEEDED"
@@ -73,6 +73,18 @@ class AttemptStatus(StrEnum):
     SUCCEEDED = "SUCCEEDED"
     FAILED = "FAILED"
     CANCELLED = "CANCELLED"
+
+
+class OperationStatus(StrEnum):
+    QUEUED = "QUEUED"
+    RUNNING = "RUNNING"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
+
+    @property
+    def is_terminal(self) -> bool:
+        return self in {self.SUCCEEDED, self.FAILED, self.CANCELLED}
 
 
 class FailureType(StrEnum):

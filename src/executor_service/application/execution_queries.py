@@ -16,6 +16,7 @@ from executor_service.domain.enums import (
     ExecutionMode,
     ExecutionStatus,
     FailureType,
+    OperationStatus,
     OutboxStatus,
     RetryStrategy,
     RuntimePool,
@@ -146,6 +147,31 @@ class ExecutionAttemptView:
 
 
 @dataclass(frozen=True, slots=True)
+class ExecutionOperationView:
+    id: UUID
+    execution_id: UUID
+    operation_number: int
+    first_sequence: int
+    last_sequence: int
+    execution_plan_id: str
+    code_source_type: CodeSourceType
+    code_path: str | None
+    source_sha256: str
+    status: OperationStatus
+    execution_attempt_id: UUID | None
+    error_message: str | None
+    created_by_type: ActorType | None
+    created_by: str | None
+    updated_by_type: ActorType | None
+    updated_by: str | None
+    created_at: datetime
+    updated_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+    step_count: int
+
+
+@dataclass(frozen=True, slots=True)
 class ExecutionEventView:
     id: UUID
     event_type: str
@@ -214,9 +240,22 @@ class ExecutionQueryService(Protocol):
         self, execution_id: UUID, *, cursor: str | None = None, limit: int = 100
     ) -> Page[ExecutionAttemptView]: ...
 
-    async def attempt(
-        self, execution_id: UUID, attempt_id: UUID
-    ) -> ExecutionAttemptView: ...
+    async def attempt(self, execution_id: UUID, attempt_id: UUID) -> ExecutionAttemptView: ...
+
+    async def operations(
+        self, execution_id: UUID, *, cursor: str | None = None, limit: int = 100
+    ) -> Page[ExecutionOperationView]: ...
+
+    async def operation(self, execution_id: UUID, operation_id: UUID) -> ExecutionOperationView: ...
+
+    async def operation_steps(
+        self,
+        execution_id: UUID,
+        operation_id: UUID,
+        *,
+        cursor: str | None = None,
+        limit: int = 100,
+    ) -> Page[ExecutionStep]: ...
 
     async def attempt_steps(
         self,

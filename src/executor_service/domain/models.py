@@ -11,6 +11,7 @@ from executor_service.domain.enums import (
     ExecutionMode,
     ExecutionStatus,
     FailureType,
+    OperationStatus,
     OutboxStatus,
     RetryStrategy,
     RuntimePool,
@@ -39,6 +40,7 @@ class ExecutionStep:
     skill_name: str | None = None
     tool_name: str | None = None
     input_parameters: dict[str, Any] = field(default_factory=dict)
+    operation_id: UUID | None = None
     id: UUID = field(default_factory=uuid4)
     status: StepStatus = StepStatus.PENDING
     outputs: list[dict[str, Any]] = field(default_factory=list)
@@ -100,6 +102,7 @@ class Execution:
         RuntimeSessionCleanupStatus.NOT_REQUIRED
     )
     dynamic_finish_requested: bool = False
+    active_operation_id: UUID | None = None
     dynamic_wait_expires_at: datetime | None = None
     execution_expires_at: datetime | None = None
     traceparent: str | None = None
@@ -155,6 +158,9 @@ class Execution:
         if self.retry_from_sequence is None:
             raise InvalidStateTransitionError(f"Execution {self.id} has no retry start sequence.")
         self.status = ExecutionStatus.QUEUED
+        # Retry is an infrastructure Attempt over already accepted Steps, not a new Agent
+        # Operation. The failed Operation remains immutable for audit.
+        self.active_operation_id = None
         self.error_message = None
         self.finished_at = None
         self.lease_owner = None
@@ -176,9 +182,9 @@ class Execution:
     def request_dynamic_continue(self, expected_version: int) -> None:
         if self.mode != ExecutionMode.DYNAMIC:
             raise InvalidStateTransitionError("Only DYNAMIC executions can be continued.")
-        if self.status != ExecutionStatus.WAITING_FOR_NEXT_STEP:
+        if self.status != ExecutionStatus.WAITING_FOR_CONTINUE:
             raise InvalidStateTransitionError(
-                f"Execution {self.id} must be WAITING_FOR_NEXT_STEP before continue."
+                f"Execution {self.id} must be WAITING_FOR_CONTINUE before continue."
             )
         if self.version != expected_version:
             raise ExecutionVersionConflictError(
@@ -193,9 +199,9 @@ class Execution:
     def request_dynamic_finish(self, expected_version: int) -> None:
         if self.mode != ExecutionMode.DYNAMIC:
             raise InvalidStateTransitionError("Only DYNAMIC executions can be finished.")
-        if self.status != ExecutionStatus.WAITING_FOR_NEXT_STEP:
+        if self.status != ExecutionStatus.WAITING_FOR_CONTINUE:
             raise InvalidStateTransitionError(
-                f"Execution {self.id} must be WAITING_FOR_NEXT_STEP before finish."
+                f"Execution {self.id} must be WAITING_FOR_CONTINUE before finish."
             )
         if self.version != expected_version:
             raise ExecutionVersionConflictError(
@@ -211,6 +217,32 @@ class Execution:
 def _with_utc(value: datetime) -> datetime:
     """SQLite test adapters may return timezone-naive values for aware columns."""
     return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+
+
+@dataclass(slots=True)
+class ExecutionOperation:
+    execution_id: UUID
+    operation_number: int
+    first_sequence: int
+    last_sequence: int
+    execution_plan_id: str
+    code_source_type: CodeSourceType
+    code_path: str | None
+    source_sha256: str
+    idempotency_key: str
+    request_fingerprint: str
+    status: OperationStatus = OperationStatus.QUEUED
+    execution_attempt_id: UUID | None = None
+    error_message: str | None = None
+    created_by_type: ActorType | None = None
+    created_by: str | None = None
+    updated_by_type: ActorType | None = None
+    updated_by: str | None = None
+    id: UUID = field(default_factory=uuid4)
+    created_at: datetime = field(default_factory=utc_now)
+    updated_at: datetime = field(default_factory=utc_now)
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
 
 
 @dataclass(slots=True)

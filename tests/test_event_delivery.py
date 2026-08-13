@@ -97,6 +97,9 @@ def _event_fields(execution_id: UUID) -> dict[str, str]:
                 "execution_id": str(execution_id),
                 "task_id": "event-task",
                 "execution_plan_id": "event-plan",
+                "operation_id": str(uuid4()),
+                "first_sequence": 0,
+                "last_sequence": 0,
                 "status": "QUEUED",
             }
         ),

@@ -4,15 +4,16 @@ from types import TracebackType
 from typing import Self
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
 
 from executor_service.domain.errors import PersistenceConflictError
-from executor_service.domain.models import Execution, ExecutionStep, OutboxEvent
+from executor_service.domain.models import Execution, ExecutionOperation, ExecutionStep, OutboxEvent
 from executor_service.infrastructure.db.models import (
     CommandReceiptORM,
+    ExecutionOperationORM,
     ExecutionORM,
     ExecutionRetryORM,
     ExecutionStepORM,
@@ -105,6 +106,24 @@ class SQLAlchemyExecutionRepository:
         row.execution_id = execution_id
         self._session.add(row)
 
+    async def add_operation(self, operation: ExecutionOperation) -> None:
+        self._session.add(ExecutionOperationORM.from_domain(operation))
+
+    async def next_operation_number(self, execution_id: UUID) -> int:
+        current = await self._session.scalar(
+            select(func.max(ExecutionOperationORM.operation_number)).where(
+                ExecutionOperationORM.execution_id == execution_id
+            )
+        )
+        return (current or 0) + 1
+
+    async def get_operation_id_by_key(self, idempotency_key: str) -> UUID | None:
+        return await self._session.scalar(
+            select(ExecutionOperationORM.id).where(
+                ExecutionOperationORM.idempotency_key == idempotency_key
+            )
+        )
+
     async def save(self, execution: Execution) -> None:
         previous_version = execution.version - 1
         result = await self._session.execute(
@@ -130,6 +149,7 @@ class SQLAlchemyExecutionRepository:
                 recovery_count=execution.recovery_count,
                 runtime_session_cleanup_status=execution.runtime_session_cleanup_status,
                 dynamic_finish_requested=execution.dynamic_finish_requested,
+                active_operation_id=execution.active_operation_id,
                 dynamic_wait_expires_at=execution.dynamic_wait_expires_at,
                 execution_expires_at=execution.execution_expires_at,
                 traceparent=execution.traceparent,

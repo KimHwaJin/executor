@@ -141,6 +141,7 @@ async def test_static_execution_rest_lifecycle_and_queries(
     assert body["state"]["status"] == "QUEUED"
     assert set(body) == {
         "execution_id",
+        "operation_id",
         "state",
         "created_by_type",
         "created_by",
@@ -289,9 +290,7 @@ async def test_attempt_detail_and_step_attempt_routes(
         )
 
     attempts = await client.get(f"/api/v1/executions/{execution_id}/attempts")
-    detail = await client.get(
-        f"/api/v1/executions/{execution_id}/attempts/{attempt_id}"
-    )
+    detail = await client.get(f"/api/v1/executions/{execution_id}/attempts/{attempt_id}")
     attempt_steps = await client.get(
         f"/api/v1/executions/{execution_id}/attempts/{attempt_id}/steps"
     )
@@ -304,9 +303,7 @@ async def test_attempt_detail_and_step_attempt_routes(
     assert (
         await client.get(f"/api/v1/executions/{uuid4()}/attempts/{attempt_id}")
     ).status_code == 404
-    wrong_parent = await client.get(
-        f"/api/v1/executions/{execution_id}/attempts/{uuid4()}/steps"
-    )
+    wrong_parent = await client.get(f"/api/v1/executions/{execution_id}/attempts/{uuid4()}/steps")
     assert wrong_parent.status_code == 404
     assert wrong_parent.json()["error"]["code"] == "EXECUTION_ATTEMPT_NOT_FOUND"
 
@@ -325,7 +322,7 @@ async def test_dynamic_continue_and_finish_rest_api(
         await session.execute(
             update(ExecutionORM)
             .where(ExecutionORM.id == execution_id)
-            .values(status=ExecutionStatus.WAITING_FOR_NEXT_STEP, version=1)
+            .values(status=ExecutionStatus.WAITING_FOR_CONTINUE, version=1)
         )
         await session.execute(
             update(ExecutionStepORM)
@@ -348,7 +345,12 @@ async def test_dynamic_continue_and_finish_rest_api(
                             "sequence": 1,
                             "plan_step_id": "dynamic-plan-2-step-1",
                             "code": "print('next dynamic step')",
-                        }
+                        },
+                        {
+                            "sequence": 2,
+                            "plan_step_id": "dynamic-plan-2-step-2",
+                            "code": "print('another dynamic step')",
+                        },
                     ],
                 },
             },
@@ -357,14 +359,51 @@ async def test_dynamic_continue_and_finish_rest_api(
     )
     assert continued.status_code == 202
     assert continued.json()["state"]["status"] == "QUEUED"
+    continued_repeat = await client.post(
+        f"/api/v1/executions/{execution_id}/continue",
+        json={
+            "idempotency_key": "rest-continue-1",
+            "expected_version": 1,
+            "source": {
+                "type": "INLINE",
+                "spec": {
+                    "schema_version": "1.0",
+                    "execution_plan_id": "dynamic-plan-2",
+                    "steps": [
+                        {
+                            "sequence": 1,
+                            "plan_step_id": "dynamic-plan-2-step-1",
+                            "code": "print('next dynamic step')",
+                        },
+                        {
+                            "sequence": 2,
+                            "plan_step_id": "dynamic-plan-2-step-2",
+                            "code": "print('another dynamic step')",
+                        },
+                    ],
+                },
+            },
+            "actor": {"type": "USER", "id": "rest-user"},
+        },
+    )
+    assert continued_repeat.status_code == 202
+    assert continued_repeat.json()["operation_id"] == continued.json()["operation_id"]
     continued_steps = await client.get(f"/api/v1/executions/{execution_id}/steps")
-    assert [step["sequence"] for step in continued_steps.json()["items"]] == [0, 1]
+    assert [step["sequence"] for step in continued_steps.json()["items"]] == [0, 1, 2]
+    operation_id = continued.json()["operation_id"]
+    operation = await client.get(f"/api/v1/executions/{execution_id}/operations/{operation_id}")
+    assert operation.status_code == 200
+    assert operation.json()["sequence_range"] == {"first": 1, "last": 2}
+    operation_steps = await client.get(
+        f"/api/v1/executions/{execution_id}/operations/{operation_id}/steps"
+    )
+    assert [step["sequence"] for step in operation_steps.json()["items"]] == [1, 2]
 
     async with container.session_factory() as session, session.begin():
         await session.execute(
             update(ExecutionORM)
             .where(ExecutionORM.id == execution_id)
-            .values(status=ExecutionStatus.WAITING_FOR_NEXT_STEP, version=3)
+            .values(status=ExecutionStatus.WAITING_FOR_CONTINUE, version=3)
         )
 
     finished = await client.post(
