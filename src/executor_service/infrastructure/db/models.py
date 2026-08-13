@@ -470,7 +470,7 @@ class ExecutionStepORM(Base):
 
 
 class ExecutionOperationORM(Base):
-    """One immutable Agent-submitted batch of consecutive Execution Steps."""
+    """One Agent-submitted Step batch with immutable provenance and mutable processing state."""
 
     __tablename__ = "execution_operations"
     __table_args__ = (

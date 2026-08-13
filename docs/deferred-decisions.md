@@ -167,6 +167,36 @@ reusable across all projects owned by the same user or only within its source pr
 - No Executor-generated idempotency keys.
 - No change to MCP Tool input schemas or database uniqueness behavior.
 
+## DD-005: DYNAMIC Runtime-state recovery and replay
+
+- Status: DEFERRED
+- Area: DYNAMIC execution, Runtime checkpointing, Agent replanning, infrastructure recovery
+- Deferred on: 2026-08-13
+- Resume when: the Agent and Executor teams approve how a replacement Runtime reconstructs prior
+  in-memory state
+
+### Current decision
+
+- A DYNAMIC Tool error completes the current Operation as `FAILED`, returns the Execution to
+  `WAITING_FOR_CONTINUE`, and accepts a new correction Operation on the retained session.
+- Loss of the retained Runtime session or other infrastructure failure that makes its state
+  untrustworthy is terminal and `NOT_RETRYABLE`.
+- `execution_retry` is restricted to STATIC executions.
+
+### Questions still open
+
+- Whether recovery replays every previously successful Step, restores a Runtime-native checkpoint,
+  or starts a completely new Execution.
+- How to detect and prevent duplicate external side effects during replay.
+- Whether replay uses the original code and inputs or a newly approved Agent plan.
+- Which Artifacts and outputs from the abandoned Runtime remain authoritative.
+
+### Explicitly excluded until resumed
+
+- No automatic DYNAMIC replay on a replacement Runtime.
+- No inference that a new kernel can continue from prior in-memory variables.
+- No reuse of STATIC `FROM_START` semantics for DYNAMIC.
+
 ## Resolved observability integration: Arize Phoenix
 
 - Status: DONE

@@ -131,6 +131,15 @@ class Execution:
         now = utc_now()
         if self.status != ExecutionStatus.FAILED:
             raise InvalidStateTransitionError(f"Execution {self.id} must be FAILED before retry.")
+        if self.mode != ExecutionMode.STATIC:
+            raise InvalidStateTransitionError(
+                "Only STATIC executions support explicit retry; DYNAMIC Tool failures require "
+                "a correction Operation."
+            )
+        if self.active_operation_id is None:
+            raise InvalidStateTransitionError(
+                f"Execution {self.id} has no active Operation to retry."
+            )
         if self.retry_strategy == RetryStrategy.NOT_RETRYABLE:
             raise InvalidStateTransitionError(
                 f"Execution {self.id} has no supported retry strategy."
@@ -158,9 +167,6 @@ class Execution:
         if self.retry_from_sequence is None:
             raise InvalidStateTransitionError(f"Execution {self.id} has no retry start sequence.")
         self.status = ExecutionStatus.QUEUED
-        # Retry is an infrastructure Attempt over already accepted Steps, not a new Agent
-        # Operation. The failed Operation remains immutable for audit.
-        self.active_operation_id = None
         self.error_message = None
         self.finished_at = None
         self.lease_owner = None

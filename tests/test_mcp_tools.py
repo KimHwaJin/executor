@@ -12,8 +12,13 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from executor_service.application.services import ExecutionService
 from executor_service.config import Settings
+from executor_service.domain.enums import (
+    ExecutionStatus,
+    OperationStatus,
+    RetryStrategy,
+)
 from executor_service.execution_specs import ExecutionSpecResolver
-from executor_service.infrastructure.db.models import ExecutionORM
+from executor_service.infrastructure.db.models import ExecutionOperationORM, ExecutionORM
 from executor_service.infrastructure.db.session import create_session_factory
 from executor_service.infrastructure.execution_queries import SQLAlchemyExecutionQueryService
 from executor_service.infrastructure.runtime_registry import RuntimeTargetRegistry
@@ -400,3 +405,51 @@ async def test_dynamic_continue_accepts_next_inline_execution_spec(
     assert execution.steps[1].plan_step_id == "plan-2-step-1"
     assert execution.steps[2].plan_step_id == "plan-2-step-2"
     assert execution.steps[1].operation_id == execution.steps[2].operation_id
+
+
+async def test_mcp_retry_returns_the_requeued_operation_id(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+    tmp_path: Path,
+) -> None:
+    arguments = deepcopy(SUBMIT_ARGUMENTS)
+    arguments["request"]["idempotency_key"] = "mcp-retry-operation-submit"
+    target = build_mcp_server(
+        execution_service,
+        execution_spec_resolver=ExecutionSpecResolver(tmp_path),
+    )
+
+    async with Client(target) as client:
+        submitted = await client.call_tool("execution_submit", arguments)
+        execution_id = UUID(submitted.structured_content["execution_id"])
+        operation_id = UUID(submitted.structured_content["operation_id"])
+        session_factory = create_session_factory(engine)
+        async with session_factory() as session, session.begin():
+            await session.execute(
+                update(ExecutionORM)
+                .where(ExecutionORM.id == execution_id)
+                .values(
+                    status=ExecutionStatus.FAILED,
+                    retry_strategy=RetryStrategy.FROM_START,
+                    retry_from_sequence=0,
+                )
+            )
+            await session.execute(
+                update(ExecutionOperationORM)
+                .where(ExecutionOperationORM.id == operation_id)
+                .values(status=OperationStatus.FAILED)
+            )
+        retried = await client.call_tool(
+            "execution_retry",
+            {
+                "request": {
+                    "execution_id": str(execution_id),
+                    "idempotency_key": "mcp-retry-operation-command",
+                    "actor": {"type": "USER", "id": "user-1"},
+                }
+            },
+        )
+
+    assert not retried.is_error
+    assert retried.structured_content["operation_id"] == str(operation_id)
+    assert retried.structured_content["state"]["status"] == "QUEUED"

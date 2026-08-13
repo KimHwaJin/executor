@@ -58,6 +58,7 @@ class FinishRequestedPayload(TaskPlanPayload):
 
 class RetryRequestedPayload(TaskPlanPayload):
     status: Literal[ExecutionStatus.QUEUED]
+    operation_id: UUID
     from_sequence: int = Field(ge=0)
     retry_strategy: RetryStrategy
     previous_failure_type: FailureType | None
@@ -105,7 +106,7 @@ class OperationOutcomePayload(StatusPayload):
         ExecutionStatus.SUCCEEDED,
         ExecutionStatus.FAILED,
     ]
-    execution_attempt_id: UUID
+    execution_attempt_id: UUID | None
     operation_id: UUID
     first_sequence: int = Field(ge=0)
     last_sequence: int = Field(ge=0)

@@ -20,6 +20,9 @@ renew leases while a Jupyter cell is running, and reconcile expired leases.
 
 A successful or cancelled Execution has no `failure_type` and uses `NOT_RETRYABLE`.
 `retry_strategy` is the single source of truth for whether and how an Execution can be retried.
+Explicit retry is currently restricted to `STATIC`. DYNAMIC Tool failures return to
+`WAITING_FOR_CONTINUE` and accept a correction Operation. DYNAMIC Runtime-state loss remains
+non-retryable because a new kernel cannot reconstruct prior in-memory cell state safely.
 
 For an in-flight user cancellation, the interrupted execution job only preserves files written by
 the current cell as `INCOMPLETE` evidence. The replacement cancellation job exclusively interrupts
@@ -35,6 +38,12 @@ do not originate from `CANCEL_REQUESTED` remain owned by the execution job and a
 - `FROM_START` clears the stale session and target assignment, resets every Step to `PENDING`, selects
   an eligible target again, starts a new session, and executes from sequence zero.
 - `NOT_RETRYABLE` rejects `execution_retry`.
+
+Both STATIC strategies retry the same accepted Operation rather than creating another one. The
+Operation returns from `FAILED` to `QUEUED`, then records the latest terminal result and current
+Attempt ID. Immutable Attempt and Step Attempt rows preserve every previous try. Consequently a
+single Operation can have multiple terminal Outbox events; their `event_id` values identify the
+individual notifications.
 
 If a retained target is temporarily `OFFLINE` between the retry request and Worker claim, Executor
 keeps the Execution `QUEUED` and pinned to that target and session. A recovered `ACTIVE` or
