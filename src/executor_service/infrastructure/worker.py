@@ -706,6 +706,10 @@ class ExecutionWorker:
                     runtime_session_cleanup_status=RuntimeSessionCleanupStatus.SUCCEEDED,
                 )
             except asyncio.CancelledError:
+                if await self._cancellation_job_owns_terminal(execution.id):
+                    # The replacement cancellation job exclusively owns Runtime cleanup and the
+                    # CANCELLED transition. This execution job only preserves cell evidence.
+                    raise
                 cleanup_status = RuntimeSessionCleanupStatus.NOT_REQUIRED
                 if runtime_session_id is not None:
                     try:
@@ -1186,6 +1190,28 @@ class ExecutionWorker:
                     target_id=target.id,
                     sequence=pending.sequence,
                 )
+            except asyncio.CancelledError:
+                # A cancellation can arrive after a DYNAMIC cell has written files but before
+                # Jupyter returns. Preserve those files as incomplete evidence before the outer
+                # cancellation path removes the retained Runtime session.
+                try:
+                    await self._artifacts.discover_and_register(
+                        workspace=workspace,
+                        before=artifact_snapshot,
+                        execution_id=execution.id,
+                        attempt_id=attempt_id,
+                        sequence=pending.sequence,
+                        status=ArtifactStatus.INCOMPLETE,
+                    )
+                except Exception as artifact_exc:
+                    await self._record_artifact_failure(
+                        execution.id, attempt_id, pending.sequence, artifact_exc
+                    )
+                    logger.warning(
+                        "Cancelled DYNAMIC-cell Artifact registration failed",
+                        extra={"execution_id": str(execution.id)},
+                    )
+                raise
             except RuntimeExecutionError as exc:
                 await self._step_failed(
                     execution.id,
@@ -1234,6 +1260,10 @@ class ExecutionWorker:
                 execution.id, attempt_id, pending.sequence, StepStatus.SUCCEEDED
             )
         except asyncio.CancelledError:
+            if await self._cancellation_job_owns_terminal(execution.id):
+                # Avoid racing the replacement cancellation job for session deletion and the
+                # terminal event. The interrupted-cell handler above already preserved evidence.
+                raise
             cleanup_status = RuntimeSessionCleanupStatus.NOT_REQUIRED
             if runtime_session_id is not None:
                 cleanup_status = await _best_effort_session_stop(driver, runtime_session_id)
@@ -1265,6 +1295,13 @@ class ExecutionWorker:
                 heartbeat.cancel()
                 await asyncio.gather(heartbeat, return_exceptions=True)
             await driver.close()
+
+    async def _cancellation_job_owns_terminal(self, execution_id: UUID) -> bool:
+        async with self._session_factory() as session:
+            status = await session.scalar(
+                select(ExecutionORM.status).where(ExecutionORM.id == execution_id)
+            )
+        return status in {ExecutionStatus.CANCEL_REQUESTED, ExecutionStatus.CANCELLED}
 
     async def _write_dynamic_notebook(
         self, execution_id: UUID, runtime_profile: str, workspace: ExecutionWorkspace
@@ -1577,13 +1614,13 @@ class ExecutionWorker:
             execution = await session.scalar(
                 select(ExecutionORM).where(ExecutionORM.id == execution_id).with_for_update()
             )
-            if execution is None or execution.status.is_terminal:
+            if (
+                execution is None
+                or execution.status.is_terminal
+                or execution.status == ExecutionStatus.CANCEL_REQUESTED
+            ):
                 return
-            status = (
-                ExecutionStatus.CANCELLED
-                if execution.status == ExecutionStatus.CANCEL_REQUESTED
-                else requested_status
-            )
+            status = requested_status
             attempt_status = AttemptStatus(status.value)
             is_failed = status == ExecutionStatus.FAILED
             effective_failure_type = failure_type if is_failed else None

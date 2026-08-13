@@ -21,6 +21,12 @@ renew leases while a Jupyter cell is running, and reconcile expired leases.
 A successful or cancelled Execution has no `failure_type` and uses `NOT_RETRYABLE`.
 `retry_strategy` is the single source of truth for whether and how an Execution can be retried.
 
+For an in-flight user cancellation, the interrupted execution job only preserves files written by
+the current cell as `INCOMPLETE` evidence. The replacement cancellation job exclusively interrupts
+and deletes the Runtime session and commits the `CANCELLED` state and event. Worker shutdowns that
+do not originate from `CANCEL_REQUESTED` remain owned by the execution job and are classified as
+`WORKER_SHUTDOWN`.
+
 ## Retry strategies
 
 - `FROM_FAILED_STEP` requires the same retained session, Runtime Target, and an unexpired retention

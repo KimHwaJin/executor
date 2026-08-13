@@ -433,6 +433,9 @@ The real-Jupyter regression suite includes a combined STATIC failure/retry/cance
 that reconciles REST/MCP history with PostgreSQL, Outbox, Redis, PV Artifacts, and Runtime sessions.
 See [Executor Resilience Testing](docs/executor-resilience-testing.md).
 
+The same suite covers DYNAMIC same-kernel continuation, append-only failure correction, explicit
+finish, and running cancellation through `scripts/dynamic_execution_lifecycle_e2e.py`.
+
 No database migration runs automatically during service startup. Deployments must run Alembic as
 a release or init job before readiness can pass.
 

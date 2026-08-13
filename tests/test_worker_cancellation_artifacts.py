@@ -1,4 +1,4 @@
-"""Regression coverage for Artifact evidence created by an interrupted STATIC cell."""
+"""Regression coverage for Artifact evidence created by an interrupted execution cell."""
 
 import asyncio
 from pathlib import Path
@@ -20,6 +20,7 @@ from executor_service.domain.enums import (
     ArtifactStatus,
     CodeSourceType,
     ExecutionMode,
+    ExecutionStatus,
     RuntimePool,
     RuntimeTargetStatus,
     TriggerType,
@@ -63,11 +64,13 @@ class FileWritingBlockedDriver:
         pass
 
 
+@pytest.mark.parametrize("mode", [ExecutionMode.STATIC, ExecutionMode.DYNAMIC])
 async def test_cancelled_cell_registers_partial_file_as_incomplete_artifact(
     execution_service: ExecutionService,
     engine: AsyncEngine,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    mode: ExecutionMode,
 ) -> None:
     session_factory = create_session_factory(engine)
     async with session_factory() as session, session.begin():
@@ -87,7 +90,7 @@ async def test_cancelled_cell_registers_partial_file_as_incomplete_artifact(
     execution = await execution_service.submit(
         SubmitExecutionCommand(
             idempotency_key="cancel-artifact-submit",
-            mode=ExecutionMode.STATIC,
+            mode=mode,
             trigger_type=TriggerType.INTERACTIVE,
             runtime_profile="basic",
             code_source_type=CodeSourceType.INLINE,
@@ -135,7 +138,7 @@ async def test_cancelled_cell_registers_partial_file_as_incomplete_artifact(
             )
         )
         task.cancel()
-        await asyncio.gather(task, return_exceptions=True)
+        interrupted = await asyncio.gather(task, return_exceptions=True)
     finally:
         if not task.done():
             task.cancel()
@@ -153,3 +156,11 @@ async def test_cancelled_cell_registers_partial_file_as_incomplete_artifact(
     assert artifact.status == ArtifactStatus.INCOMPLETE
     assert artifact.execution_attempt_id is not None
     assert artifact.execution_step_attempt_id is not None
+    assert len(interrupted) == 1
+    assert isinstance(interrupted[0], asyncio.CancelledError)
+
+    cancel_requested = await execution_service.get(execution.id)
+    assert cancel_requested.status == ExecutionStatus.CANCEL_REQUESTED
+    await worker._cancel_execution(execution.id)
+    cancelled = await execution_service.get(execution.id)
+    assert cancelled.status == ExecutionStatus.CANCELLED
