@@ -55,6 +55,10 @@ are intentionally not implemented yet. Their agreed constraints, open questions,
 criteria are tracked in [Deferred Decisions](docs/deferred-decisions.md). Update that decision log
 before implementing or changing any deferred behavior.
 
+Cross-service architecture proposals and accepted decisions are tracked separately in
+[Architecture Decisions](docs/architecture-decisions.md). A `PROPOSED` ADR is a discussion baseline,
+not authorization to implement its undecided details.
+
 ## Local setup
 
 Requirements: uv, Docker, and Docker Compose. uv installs the pinned CPython 3.12 runtime when it
