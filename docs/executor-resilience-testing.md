@@ -17,6 +17,29 @@ The scripts select free loopback ports automatically. Set `DRAIN_SMOKE_PRIMARY_P
 
 ## Automated scenarios
 
+### STATIC execution observability
+
+```bash
+uv run python scripts/static_execution_observability_smoke.py
+```
+
+This non-disruptive scenario uses the already running Executor stack. It submits one two-Step
+STATIC execution through REST and one through MCP, then cross-checks the public history APIs,
+PostgreSQL, Redis Stream, shared PV, and Runtime Target probe. Each execution must:
+
+- expose `QUEUED -> RUNNING -> SUCCEEDED`;
+- persist two successful current Steps, one successful Attempt, and two immutable Step Attempts;
+- publish every PostgreSQL Outbox row and expose the same `event_id` values in Redis;
+- register the generated text Artifact and final `execution.ipynb`;
+- retain the historical Runtime session ID on the Attempt while clearing it from the terminal
+  Execution; and
+- leave no active execution or Runtime session after both cases finish.
+
+The default profile is `basic`. Override `OBSERVABILITY_RUNTIME_PROFILE`,
+`OBSERVABILITY_TIMEOUT_SECONDS`, or `OBSERVABILITY_STREAM_SCAN_LIMIT` when the local topology
+requires it. Run this against an otherwise idle local Runtime Target because the final session
+leak assertion expects the probed target to have no unrelated sessions.
+
 ### Graceful drain and handoff
 
 ```bash

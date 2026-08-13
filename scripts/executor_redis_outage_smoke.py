@@ -87,7 +87,9 @@ async def main() -> None:
             timeline = []
             for _ in range(100):
                 timeline = await events(client, execution_id)
-                if timeline and all(event["delivery_status"] == "PUBLISHED" for event in timeline):
+                if timeline and all(
+                    event["delivery"]["status"] == "PUBLISHED" for event in timeline
+                ):
                     break
                 await asyncio.sleep(0.1)
             else:
