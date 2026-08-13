@@ -42,6 +42,32 @@ The default profile is `basic`. Override `OBSERVABILITY_RUNTIME_PROFILE`,
 requires it. Run this against an otherwise idle local Runtime Target because the final session
 leak assertion expects the probed target to have no unrelated sessions.
 
+### STATIC failure, retained-kernel retry, and running cancellation
+
+```bash
+uv run python scripts/static_failure_retry_cancel_e2e.py
+```
+
+This non-disruptive scenario covers both abnormal STATIC lifecycle paths against the running
+Compose stack. Failure and retry use MCP; cancellation uses REST. For each Execution it
+cross-checks the public current/history responses, PostgreSQL rows, Transactional Outbox, Redis
+Stream event IDs and v1 payloads, shared-PV Artifact evidence, and the exact Jupyter session.
+
+The retry case fails after writing an Artifact, verifies `FROM_FAILED_STEP` preserves the original
+target and kernel, then resumes from the failed Step and deletes that kernel after success. The
+failed write remains `INCOMPLETE`, the successful retry write is `AVAILABLE`, Attempt/Step Attempt
+history stays immutable, and the completed notebook is registered.
+
+The cancellation case writes a marker before entering a long cell, requests cancellation while
+the kernel is running, and requires Execution, Attempt, current Steps, and the running Step Attempt
+to become `CANCELLED`. The kernel must be deleted, the marker must be preserved as `INCOMPLETE`,
+later Steps must not run, and no successful notebook Artifact may be registered.
+
+Override `STATIC_LIFECYCLE_RUNTIME_PROFILE`, `STATIC_LIFECYCLE_TIMEOUT_SECONDS`, or
+`STATIC_LIFECYCLE_STREAM_SCAN_LIMIT` when the local topology requires it. The host-side session
+probe defaults to `JUPYTER_ENDPOINT`; set `STATIC_LIFECYCLE_JUPYTER_ENDPOINT` when the registered
+Target needs a different host-accessible endpoint than its container-internal address.
+
 ### Graceful drain and handoff
 
 ```bash

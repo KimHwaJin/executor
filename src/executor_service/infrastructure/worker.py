@@ -596,6 +596,31 @@ class ExecutionWorker:
                             target_id=target.id,
                             sequence=sequence,
                         )
+                    except asyncio.CancelledError:
+                        # A user cancellation or Worker drain can interrupt a cell after it has
+                        # written files. Preserve those files as incomplete execution evidence
+                        # before the outer cancellation path tears down the Runtime session.
+                        try:
+                            await self._artifacts.discover_and_register(
+                                workspace=workspace,
+                                before=artifact_snapshot,
+                                execution_id=execution.id,
+                                attempt_id=attempt_id,
+                                sequence=sequence,
+                                status=ArtifactStatus.INCOMPLETE,
+                            )
+                        except Exception as artifact_exc:
+                            await self._record_artifact_failure(
+                                execution.id,
+                                attempt_id,
+                                sequence,
+                                artifact_exc,
+                            )
+                            logger.warning(
+                                "Cancelled-cell Artifact registration failed",
+                                extra={"execution_id": str(execution.id)},
+                            )
+                        raise
                     except RuntimeExecutionError as exc:
                         failed_sequence = sequence
                         await self._step_failed(
