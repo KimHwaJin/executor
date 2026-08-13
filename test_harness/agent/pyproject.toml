@@ -9,6 +9,9 @@ dependencies = [
     "langchain-openai>=1,<2",
     "langgraph>=1,<2",
     "langgraph-sdk>=0.3,<1",
+    "mcp>=2,<3",
+    "pydantic>=2.11,<3",
+    "redis>=6.4,<7",
 ]
 
 [build-system]

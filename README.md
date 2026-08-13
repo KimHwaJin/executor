@@ -55,7 +55,9 @@ retained Runtime session. MCP Tasks are not required for this lifecycle.
 Non-Executor systems used for local integration tests live under
 [`test_harness/`](test_harness/README.md). The Jupyter harness owns its image, kernels, server
 extension, native runner, and workspace; the Agent harness is an independent LangGraph/LangChain
-project. Their dependencies and generated data do not enter the Executor service package.
+project. Its E2E scenario checkpoints after MCP submission, resumes the same LangGraph thread from
+an Agent-owned Redis consumer group, and verifies Executor state plus Runtime-owned Jupyter output.
+Their dependencies and generated data do not enter the Executor service package.
 
 ## Deferred decisions
 
