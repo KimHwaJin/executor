@@ -112,6 +112,7 @@ class ExecutionORM(Base):
             name="non_negative_retry_from_sequence",
         ),
         Index("ix_executions_status_created_at", "status", "created_at", "id"),
+        Index("ix_executions_created_cursor", "created_at", "id"),
         Index(
             "ix_executions_user_created_cursor",
             "user_id",
@@ -122,6 +123,12 @@ class ExecutionORM(Base):
         Index("ix_executions_session_created_cursor", "session_id", "created_at", "id"),
         Index("ix_executions_task_created_cursor", "task_id", "created_at", "id"),
         Index("ix_executions_lease", "status", "lease_expires_at"),
+        Index(
+            "ix_executions_retained_session_cleanup",
+            "status",
+            "retry_strategy",
+            "retained_runtime_session_until",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
