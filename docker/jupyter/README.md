@@ -105,3 +105,76 @@ curl --fail \
 
 The kernelspec response must advertise `basic` and `ml` only. Runtime Target registration and
 scheduling remain Executor service concerns and are documented in the repository root README.
+
+## Native installation without Docker
+
+The repository also provides one Python entry point for Linux, macOS, and Windows PowerShell. It
+uses uv-managed CPython, creates three isolated environments under `.native-jupyter`, installs the
+same requirements and Executor extension as the image, and exposes only the `basic` and `ml`
+kernels. WSL is not required on Windows.
+
+Prerequisites:
+
+- `uv` available on `PATH`;
+- network access to the configured Python package index during setup;
+- 64-bit Windows when using the supplied ML binary wheels;
+- Microsoft Visual C++ Redistributable on Windows for native ML libraries;
+- `libomp` on macOS (`brew install libomp`) for XGBoost and LightGBM;
+- `libgomp` on Linux, normally provided by `libgomp1` or the equivalent distribution package.
+
+The setup command is the same in POSIX shells and PowerShell. From the repository root:
+
+```text
+uv run python scripts/native_jupyter.py setup
+```
+
+The command installs uv-managed Python 3.11 and 3.12 when they are absent. It does not alter the
+system Python installation. Re-run it after changing a requirements file or the Jupyter extension.
+
+Set a token in the current shell and start the server. POSIX:
+
+```bash
+export JUPYTER_TOKEN='replace-with-a-local-secret'
+uv run python scripts/native_jupyter.py run \
+  --root-dir ./notebook_dir \
+  --host 127.0.0.1 \
+  --port 8888
+```
+
+PowerShell:
+
+```powershell
+$env:JUPYTER_TOKEN = 'replace-with-a-local-secret'
+uv run python scripts/native_jupyter.py run `
+  --root-dir .\notebook_dir `
+  --host 127.0.0.1 `
+  --port 8888
+```
+
+The token remains an environment value and is not written into Jupyter configuration. Prefer the
+environment variable over `--token`, because command-line arguments may be visible in local process
+inspection.
+
+In a second shell, use the same token and verify standard status, exact kernelspecs, resource
+observation, workspace creation, and Artifact snapshot endpoints:
+
+```text
+uv run python scripts/native_jupyter.py verify --endpoint http://127.0.0.1:8888
+```
+
+Use `--` to pass additional JupyterLab options to `run`, for example:
+
+```text
+uv run python scripts/native_jupyter.py run --port 8888 -- --ServerApp.base_url=/jupyter
+```
+
+On Linux, the runner resolves the current process's cgroup v2 leaf from `/proc/self/cgroup`. On
+Windows and macOS, or when cgroup files are unavailable, resource usage and utilization are null
+with safe error codes. Configure capacity explicitly when desired:
+
+```text
+uv run python scripts/native_jupyter.py run --cpu-cores 4 --memory-bytes 8589934592
+```
+
+Missing usage measurements do not make the Jupyter target unhealthy. Executor falls back to its
+configured slot-based scheduling when every candidate lacks a fresh resource observation.

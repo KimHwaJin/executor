@@ -72,8 +72,12 @@ not authorization to implement its undecided details.
 
 ## Local setup
 
-Requirements: uv, Docker, and Docker Compose. uv installs the pinned CPython 3.12 runtime when it
-is not already present.
+The only universal prerequisite is `uv`, which installs the pinned CPython 3.12 runtime when it is
+not already present. Docker and Docker Compose are required only for the Compose workflow below.
+They are optional when PostgreSQL and Redis already run locally. The cross-platform native
+Jupyter bootstrap supports Linux, macOS, and Windows PowerShell without WSL; see
+[`docker/jupyter/README.md`](docker/jupyter/README.md#native-installation-without-docker). The
+Executor and test Agent remain normal host processes in that topology.
 
 ```bash
 cp .env.example .env

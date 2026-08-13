@@ -179,14 +179,24 @@ RUNTIME_DEFAULT_MAX_CONCURRENT_EXECUTIONS=1
 INPUT_HOST_ROOT=C:/absolute/path/to/executor/input_dir
 ```
 
-Use the equivalent absolute POSIX path on Linux or macOS. Jupyter must use the custom image or
-have the Executor extension installed. Its root is Jupyter-owned storage, not `INPUT_HOST_ROOT`:
+Use the equivalent absolute POSIX path on Linux or macOS. Jupyter must use the custom image or have
+the Executor extension installed. Its root is Jupyter-owned storage, not `INPUT_HOST_ROOT`. The
+cross-platform native bootstrap is documented in
+[`docker/jupyter/README.md`](../docker/jupyter/README.md). It is the required setup path for a
+cloned repository without Docker and works in Windows PowerShell without WSL.
+
+After native setup, start Jupyter through the repository runner so the exact kernels, extension,
+root, and token contract remain aligned:
 
 ```bash
-jupyter lab --no-browser --ip 127.0.0.1 --port 8888 \
-  --ServerApp.root_dir="C:/absolute/path/to/executor/notebook_dir" \
-  --IdentityProvider.token="change-me-local-only"
+export JUPYTER_TOKEN='change-me-local-only'
+uv run python scripts/native_jupyter.py run \
+  --root-dir /absolute/path/to/executor/notebook_dir \
+  --host 127.0.0.1 \
+  --port 8888
 ```
+
+PowerShell uses `$env:JUPYTER_TOKEN = 'change-me-local-only'` and a Windows `--root-dir` path.
 
 After PostgreSQL, Redis, Jupyter, and Executor are running, execute the self-contained smoke test:
 
