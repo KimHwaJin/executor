@@ -6,6 +6,7 @@ from typing import Any
 from uuid import UUID
 
 from mcp import Client
+from mcp.types import TextContent
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -212,6 +213,7 @@ async def test_mcp_domain_errors_expose_stable_public_code(
         )
 
     assert missing.is_error
+    assert isinstance(missing.content[0], TextContent)
     assert "[EXECUTION_NOT_FOUND]" in missing.content[0].text
 
 

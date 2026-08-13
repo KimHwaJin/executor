@@ -2,13 +2,14 @@
 
 import asyncio
 import os
+from typing import Any
 from uuid import uuid4
 
 from execution_spec_payload import inline_source
 from mcp import Client
 
 
-async def _wait_for_terminal(client: Client, execution_id: str) -> dict[str, object]:
+async def _wait_for_terminal(client: Client, execution_id: str) -> dict[str, Any]:
     for _ in range(200):
         result = await client.call_tool("execution_get", {"execution_id": execution_id})
         state = result.structured_content

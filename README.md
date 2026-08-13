@@ -92,44 +92,6 @@ SINGLE_JUPYTER_ENDPOINT=http://jupyter:8888 \
 Stop the stack with `docker compose down`. Named PostgreSQL and Redis volumes, and the bind-mounted
 `notebook_dir`, are retained unless they are explicitly removed.
 
-The local Jupyter image is built from `docker/jupyter/Dockerfile`. Its authenticated Server
-Extension exposes container resource observations without creating a monitoring kernel:
-
-The image has a two-variable runtime configuration contract. `JUPYTER_ROOT_DIR` defaults to
-`/workspace/pv`; mount the workspace volume at the same path. `JUPYTER_TOKEN` is required and has
-no image default, so inject it only when the container is deployed:
-
-```bash
-docker run --detach --publish 8888:8888 \
-  --env JUPYTER_ROOT_DIR=/workspace/pv \
-  --env JUPYTER_TOKEN="${JUPYTER_TOKEN}" \
-  --volume /host/workspace:/workspace/pv \
-  executor-jupyter:local
-```
-
-```bash
-curl --fail \
-  --header "Authorization: token ${JUPYTER_TOKEN}" \
-  http://127.0.0.1:8888/executor/resource-status
-```
-
-The Extension reads cgroup v2 `cpu.stat`, `cpu.max`, `memory.current`, `memory.max`, and
-`cgroup.procs`. `JUPYTER_RESOURCE_CPU_CORES` and `JUPYTER_RESOURCE_MEMORY_BYTES` provide capacity
-when the cgroup has no readable finite limit. If a usage file is unavailable, that resource's
-usage and utilization are null and a safe error code explains why; no secondary measurement source
-is used. The response contains only aggregate values and never returns process command lines,
-environment variables, or credentials.
-
-The image exposes only the `basic` Python 3.11 and `ml` Python 3.12 kernels. Their package lists
-are maintained in `docker/jupyter/environments/basic/requirements.txt` and
-`docker/jupyter/environments/ml/requirements.txt`; the ML environment includes the Basic package
-list. The Jupyter server's own packages are isolated in
-`docker/jupyter/environments/server/requirements.txt`. Rebuild the image after changing any list:
-
-```bash
-docker compose build jupyter
-```
-
 For MCP calls from another machine, append the Executor host or IP (including `:*` when any port
 is acceptable) to `MCP_ALLOWED_HOSTS_DOCKER` and its browser origin to
 `MCP_ALLOWED_ORIGINS_DOCKER` before recreating `executor`. Keep these allowlists narrow; the
@@ -198,6 +160,7 @@ uv run python scripts/mcp_smoke.py
 uv run python scripts/jupyter_gateway_smoke.py
 uv run python scripts/jupyter_execution_smoke.py
 uv run python scripts/single_jupyter_smoke.py
+uv run python scripts/static_execution_observability_smoke.py
 uv run python scripts/jupyter_dynamic_smoke.py
 uv run python scripts/jupyter_dynamic_lifecycle_smoke.py
 uv run python scripts/jupyter_cancel_smoke.py

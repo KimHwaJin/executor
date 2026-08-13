@@ -64,10 +64,13 @@ async def main() -> None:
             },
         )
         if server["state"]["status"] != "ACTIVE":
-            raise RuntimeError(f"Jupyter server is not ACTIVE: {server.get('last_health_error')}")
+            raise RuntimeError(
+                f"Jupyter server is not ACTIVE: {server['health']['last_error']}"
+            )
         if kernel_name not in server["runtime"]["supported_profiles"]:
             raise RuntimeError(
-                f"Kernel {kernel_name!r} is unavailable: {server['supported_profiles']}"
+                f"Kernel {kernel_name!r} is unavailable: "
+                f"{server['runtime']['supported_profiles']}"
             )
 
         submitted = await _required_tool_result(
@@ -127,7 +130,7 @@ async def main() -> None:
         if not required_artifacts.issubset(artifact_names):
             raise RuntimeError(f"Expected Artifacts were not registered: {artifact_names}")
 
-    notebook_path = terminal.get("notebook_path")
+    notebook_path = terminal["workspace"]["notebook_path"]
     if not notebook_path:
         raise RuntimeError("Execution did not return a notebook_path.")
     notebook = settings.workspace_host_root / Path(notebook_path)
