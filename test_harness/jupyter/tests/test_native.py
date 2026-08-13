@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from scripts.native_jupyter import detect_linux_cgroup_root, environment_python
+from test_harness.jupyter.native import detect_linux_cgroup_root, environment_python
 
 
 def test_environment_python_uses_platform_specific_virtualenv_layout() -> None:

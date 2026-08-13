@@ -19,14 +19,15 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from uuid import uuid4
 
-REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_INSTALL_ROOT = REPOSITORY_ROOT / ".native-jupyter"
-DEFAULT_CONTENTS_ROOT = REPOSITORY_ROOT / "notebook_dir"
-JUPYTER_REQUIREMENTS = REPOSITORY_ROOT / "docker/jupyter/environments/server/requirements.txt"
-BASIC_REQUIREMENTS = REPOSITORY_ROOT / "docker/jupyter/environments/basic/requirements.txt"
-ML_REQUIREMENTS = REPOSITORY_ROOT / "docker/jupyter/environments/ml/requirements.txt"
-EXTENSION_ROOT = REPOSITORY_ROOT / "docker/jupyter_resource_extension"
-SERVER_CONFIG = REPOSITORY_ROOT / "docker/jupyter_server_config.py"
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+HARNESS_ROOT = REPOSITORY_ROOT / "test_harness/jupyter"
+DEFAULT_INSTALL_ROOT = HARNESS_ROOT / ".native"
+DEFAULT_CONTENTS_ROOT = HARNESS_ROOT / "workspace"
+JUPYTER_REQUIREMENTS = HARNESS_ROOT / "environments/server/requirements.txt"
+BASIC_REQUIREMENTS = HARNESS_ROOT / "environments/basic/requirements.txt"
+ML_REQUIREMENTS = HARNESS_ROOT / "environments/ml/requirements.txt"
+EXTENSION_ROOT = HARNESS_ROOT / "extension"
+SERVER_CONFIG = HARNESS_ROOT / "jupyter_server_config.py"
 EXTENSION_CONFIG = {"ServerApp": {"jpserver_extensions": {"executor_resource_extension": True}}}
 
 

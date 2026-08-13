@@ -1,4 +1,4 @@
-# Executor Jupyter Image
+# Executor Jupyter Test Harness
 
 This directory owns the JupyterLab image used by Executor Runtime Targets. Image build,
 kernel-package maintenance, authentication, workspace mounting, and the resource observation
@@ -20,11 +20,11 @@ list includes the Basic package list; keep that relationship when updating depen
 
 ## Build
 
-Run the build from the repository root because the Dockerfile copies both this directory and the
-sibling `docker/jupyter_resource_extension` package:
+Run the build from the repository root because the Dockerfile uses the repository as its build
+context:
 
 ```bash
-docker build --tag executor-jupyter:local --file docker/jupyter/Dockerfile .
+docker build --tag executor-jupyter:local --file test_harness/jupyter/Dockerfile .
 ```
 
 For the local Compose topology:
@@ -109,7 +109,7 @@ scheduling remain Executor service concerns and are documented in the repository
 ## Native installation without Docker
 
 The repository also provides one Python entry point for Linux, macOS, and Windows PowerShell. It
-uses uv-managed CPython, creates three isolated environments under `.native-jupyter`, installs the
+uses uv-managed CPython, creates three isolated environments under `test_harness/jupyter/.native`, installs the
 same requirements and Executor extension as the image, and exposes only the `basic` and `ml`
 kernels. WSL is not required on Windows.
 
@@ -125,7 +125,7 @@ Prerequisites:
 The setup command is the same in POSIX shells and PowerShell. From the repository root:
 
 ```text
-uv run python scripts/native_jupyter.py setup
+uv run python test_harness/jupyter/native.py setup
 ```
 
 The command installs uv-managed Python 3.11 and 3.12 when they are absent. It does not alter the
@@ -135,8 +135,8 @@ Set a token in the current shell and start the server. POSIX:
 
 ```bash
 export JUPYTER_TOKEN='replace-with-a-local-secret'
-uv run python scripts/native_jupyter.py run \
-  --root-dir ./notebook_dir \
+uv run python test_harness/jupyter/native.py run \
+  --root-dir ./test_harness/jupyter/workspace \
   --host 127.0.0.1 \
   --port 8888
 ```
@@ -145,8 +145,8 @@ PowerShell:
 
 ```powershell
 $env:JUPYTER_TOKEN = 'replace-with-a-local-secret'
-uv run python scripts/native_jupyter.py run `
-  --root-dir .\notebook_dir `
+uv run python test_harness/jupyter/native.py run `
+  --root-dir .\test_harness\jupyter\workspace `
   --host 127.0.0.1 `
   --port 8888
 ```
@@ -159,13 +159,13 @@ In a second shell, use the same token and verify standard status, exact kernelsp
 observation, workspace creation, and Artifact snapshot endpoints:
 
 ```text
-uv run python scripts/native_jupyter.py verify --endpoint http://127.0.0.1:8888
+uv run python test_harness/jupyter/native.py verify --endpoint http://127.0.0.1:8888
 ```
 
 Use `--` to pass additional JupyterLab options to `run`, for example:
 
 ```text
-uv run python scripts/native_jupyter.py run --port 8888 -- --ServerApp.base_url=/jupyter
+uv run python test_harness/jupyter/native.py run --port 8888 -- --ServerApp.base_url=/jupyter
 ```
 
 On Linux, the runner resolves the current process's cgroup v2 leaf from `/proc/self/cgroup`. On
@@ -173,8 +173,23 @@ Windows and macOS, or when cgroup files are unavailable, resource usage and util
 with safe error codes. Configure capacity explicitly when desired:
 
 ```text
-uv run python scripts/native_jupyter.py run --cpu-cores 4 --memory-bytes 8589934592
+uv run python test_harness/jupyter/native.py run --cpu-cores 4 --memory-bytes 8589934592
 ```
 
 Missing usage measurements do not make the Jupyter target unhealthy. Executor falls back to its
 configured slot-based scheduling when every candidate lacks a fresh resource observation.
+
+## Harness tests
+
+From the repository root, the native runner helpers are included in the Executor test command:
+
+```text
+uv run pytest -q
+```
+
+The server extension has its own dependency boundary and test environment:
+
+```text
+uv run --project test_harness/jupyter/extension --with pytest \
+  pytest -q test_harness/jupyter/extension/tests
+```

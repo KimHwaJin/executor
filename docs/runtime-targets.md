@@ -8,7 +8,8 @@ future driver does not change Execution, scheduling, Attempt, or fleet-managemen
 ## Local topology
 
 All local Jupyter containers use the self-contained `executor-jupyter:local` image built from
-`python:3.12-slim-bookworm`, mount the same `./notebook_dir:/workspace/pv` shared-PV contract,
+`python:3.12-slim-bookworm`, mount the same
+`./test_harness/jupyter/workspace:/workspace/pv` shared-PV contract,
 and expose only the `basic` and `ml` Python kernels. Executor does not mount this Jupyter storage.
 Production operators must mount the same shared PVC on every Jupyter target in a pool.
 
@@ -107,7 +108,7 @@ imbalanced-learn, CPU-only XGBoost, LightGBM, Optuna, SHAP, and Joblib. PyTorch 
 intentionally excluded; a future deep-learning profile should remain separate due to image size
 and accelerator-specific dependencies.
 
-Library inputs live under `docker/jupyter/environments/`. Update
+Library inputs live under `test_harness/jupyter/environments/`. Update
 `basic/requirements.txt` for shared analysis libraries and `ml/requirements.txt` for ML-only
 additions; the ML file includes the Basic file. `server/requirements.txt` is reserved for the
 Jupyter server process. The Docker build installs each file with that environment's `pip` and
@@ -182,7 +183,7 @@ INPUT_HOST_ROOT=C:/absolute/path/to/executor/input_dir
 Use the equivalent absolute POSIX path on Linux or macOS. Jupyter must use the custom image or have
 the Executor extension installed. Its root is Jupyter-owned storage, not `INPUT_HOST_ROOT`. The
 cross-platform native bootstrap is documented in
-[`docker/jupyter/README.md`](../docker/jupyter/README.md). It is the required setup path for a
+[`test_harness/jupyter/README.md`](../test_harness/jupyter/README.md). It is the required setup path for a
 cloned repository without Docker and works in Windows PowerShell without WSL.
 
 After native setup, start Jupyter through the repository runner so the exact kernels, extension,
@@ -190,8 +191,8 @@ root, and token contract remain aligned:
 
 ```bash
 export JUPYTER_TOKEN='change-me-local-only'
-uv run python scripts/native_jupyter.py run \
-  --root-dir /absolute/path/to/executor/notebook_dir \
+uv run python test_harness/jupyter/native.py run \
+  --root-dir /absolute/path/to/executor/test_harness/jupyter/workspace \
   --host 127.0.0.1 \
   --port 8888
 ```

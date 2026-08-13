@@ -50,14 +50,12 @@ execution starts as `QUEUED`. Poll with `execution_get` or request cancellation 
 Operation through `execution_continue`. `execution_finish` persists the final notebook and deletes the
 retained Runtime session. MCP Tasks are not required for this lifecycle.
 
-## Test Agent
+## External test harnesses
 
-[`test_agent`](test_agent/README.md) is an independent LangGraph/LangChain project used to run a
-real local Agent Server with `langgraph dev`. It owns its own `pyproject.toml`, `uv.lock`, virtual
-environment, graph state, tests, and environment template so Agent dependencies do not enter the
-Executor service package. The initial graph can boot deterministically without an LLM or use the
-configured OpenAI-compatible vLLM gateway. Executor MCP, REST, and Redis event-driven E2E behavior
-will be added behind the test Agent's integration boundary.
+Non-Executor systems used for local integration tests live under
+[`test_harness/`](test_harness/README.md). The Jupyter harness owns its image, kernels, server
+extension, native runner, and workspace; the Agent harness is an independent LangGraph/LangChain
+project. Their dependencies and generated data do not enter the Executor service package.
 
 ## Deferred decisions
 
@@ -76,7 +74,7 @@ The only universal prerequisite is `uv`, which installs the pinned CPython 3.12 
 not already present. Docker and Docker Compose are required only for the Compose workflow below.
 They are optional when PostgreSQL and Redis already run locally. The cross-platform native
 Jupyter bootstrap supports Linux, macOS, and Windows PowerShell without WSL; see
-[`docker/jupyter/README.md`](docker/jupyter/README.md#native-installation-without-docker). The
+[`test_harness/jupyter/README.md`](test_harness/jupyter/README.md#native-installation-without-docker). The
 Executor and test Agent remain normal host processes in that topology.
 
 ```bash
@@ -90,7 +88,7 @@ uv run executor-service
 To build and run the Executor application together with PostgreSQL, Redis, and Jupyter, use the
 full Compose stack instead. The one-shot `migrate` service upgrades the schema before `executor`
 starts. Executor mounts `./input_dir` read-only for Agent-authored PATH ExecutionSpecs; only the
-Jupyter fleet mounts `./notebook_dir` at `/workspace/pv`.
+Jupyter fleet mounts `./test_harness/jupyter/workspace` at `/workspace/pv`.
 
 ```bash
 cp .env.example .env
@@ -111,7 +109,8 @@ SINGLE_JUPYTER_ENDPOINT=http://jupyter:8888 \
 ```
 
 Stop the stack with `docker compose down`. Named PostgreSQL and Redis volumes, and the bind-mounted
-`input_dir` and Jupyter-owned `notebook_dir`, are retained unless explicitly removed.
+`input_dir` and Jupyter-owned `test_harness/jupyter/workspace`, are retained unless explicitly
+removed.
 
 For MCP calls from another machine, append the Executor host or IP (including `:*` when any port
 is acceptable) to `MCP_ALLOWED_HOSTS_DOCKER` and its browser origin to
@@ -413,8 +412,9 @@ on upsert and credentials are absent from every response. The non-secret endpoin
 
 ## Jupyter shared storage contract
 
-Every Jupyter target mounts the local `./notebook_dir` or production shared PVC at its configured
-contents root. Executor does not mount it. Execution files use this stable Jupyter-relative hierarchy:
+Every Jupyter target mounts the local `./test_harness/jupyter/workspace` or production shared PVC
+at its configured contents root. Executor does not mount it. Execution files use this stable
+Jupyter-relative hierarchy:
 
 ```text
 /workspace/pv/users/{user_id}/projects/{project_id}/sessions/{session_id}/executions/{execution_id}/
