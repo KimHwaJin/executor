@@ -125,27 +125,31 @@ async def main() -> None:
                 for name, endpoint, pool, token in specs
             ]
             server_ids = {str(item["target_id"]) for item in registered}
+            server_pools = {
+                str(item["target_id"]): str(item["runtime"]["pool"]) for item in registered
+            }
             capacities = {
-                str(item["target_id"]): int(item["max_concurrent_executions"])
+                str(item["target_id"]): int(item["capacity"]["max_concurrent_executions"])
                 for item in registered
             }
             execution_ids: list[str] = []
+            expected_pools: dict[str, str] = {}
             interactive_count = execution_count // 2
             for index in range(execution_count):
                 pool = "INTERACTIVE" if index < interactive_count else "BATCH"
-                execution_ids.append(
-                    await submit_static(
-                        client,
-                        unique=unique,
-                        name=f"load-{index:02d}",
-                        pool=pool,
-                        code=(
-                            "import time\n"
-                            f"time.sleep({cell_sleep_seconds})\n"
-                            f"print('load-{index:02d}')\n"
-                        ),
-                    )
+                execution_id = await submit_static(
+                    client,
+                    unique=unique,
+                    name=f"load-{index:02d}",
+                    pool=pool,
+                    code=(
+                        "import time\n"
+                        f"time.sleep({cell_sleep_seconds})\n"
+                        f"print('load-{index:02d}')\n"
+                    ),
                 )
+                execution_ids.append(execution_id)
+                expected_pools[execution_id] = pool
 
             peak_active = {server_id: 0 for server_id in server_ids}
             queued_observed = False
@@ -185,6 +189,18 @@ async def main() -> None:
             }
             if failed:
                 raise RuntimeError(f"Concurrent executions failed: {failed}")
+            pool_mismatches = {
+                execution_id: {
+                    "expected_pool": expected_pools[execution_id],
+                    "actual_target_id": state["runtime"]["target_id"],
+                    "actual_pool": server_pools.get(str(state["runtime"]["target_id"])),
+                }
+                for execution_id, state in final_states.items()
+                if server_pools.get(str(state["runtime"]["target_id"]))
+                != expected_pools[execution_id]
+            }
+            if pool_mismatches:
+                raise RuntimeError(f"Runtime pool isolation failed: {pool_mismatches}")
             all_attempts = await asyncio.gather(
                 *(attempts(client, execution_id) for execution_id in execution_ids)
             )
@@ -215,6 +231,7 @@ async def main() -> None:
         print("successful_count:", len(final_states))
         print("queued_observed:", queued_observed)
         print("attempt_owners:", sorted(owners))
+        print("runtime_pool_isolation:", "verified")
         print("peak_active_by_server:", peak_active)
         print("capacity_by_server:", capacities)
         print("leaked_kernel_count:", 0)

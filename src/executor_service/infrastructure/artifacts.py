@@ -144,9 +144,7 @@ class ExecutionArtifactManager:
         status: ArtifactStatus,
     ) -> list[ArtifactDescriptor]:
         manifest = await driver.read_manifest(workspace.runtime_relative_path, before.manifest_size)
-        manifest_descriptors = await self._manifest_descriptors(
-            driver, workspace, manifest, status
-        )
+        manifest_descriptors = await self._manifest_descriptors(driver, workspace, manifest, status)
         manifest_uris = {descriptor.uri for descriptor in manifest_descriptors}
         current = await driver.artifact_snapshot(workspace.runtime_relative_path)
         previous = {state.path: state for state in before.files}

@@ -157,9 +157,7 @@ async def test_rest_reads_runtime_owned_notebook_and_cell_outputs(
                 "source": "print('first')\nprint('second')",
                 "execution_count": 1,
                 "metadata": {},
-                "outputs": [
-                    {"output_type": "stream", "name": "stdout", "text": "first\nsecond\n"}
-                ],
+                "outputs": [{"output_type": "stream", "name": "stdout", "text": "first\nsecond\n"}],
             }
         ],
     }

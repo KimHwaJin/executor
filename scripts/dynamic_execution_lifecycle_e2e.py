@@ -719,8 +719,7 @@ async def _run_correction_and_finish_case(
     ]
     detailed_outputs = json.dumps([item["cell"]["outputs"] for item in detailed_cells])
     if not all(
-        marker in detailed_outputs
-        for marker in ("40", "42", "planned dynamic correction", "84")
+        marker in detailed_outputs for marker in ("40", "42", "planned dynamic correction", "84")
     ):
         raise RuntimeError("DYNAMIC notebook does not preserve cell outputs.")
 

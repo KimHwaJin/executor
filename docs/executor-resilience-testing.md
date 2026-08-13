@@ -114,7 +114,8 @@ uv run python scripts/multi_executor_load_smoke.py
 The default run submits 30 STATIC executions across the INTERACTIVE and BATCH pools, with two
 Executor processes and four one-capacity Jupyter servers. It requires all executions to succeed
 with exactly one Attempt, both Executor consumers to own work, every server peak to remain within
-capacity, and zero active kernels after completion.
+capacity, INTERACTIVE/BATCH assignments to remain isolated to their requested pools, and zero
+active kernels after completion.
 
 Use `RESILIENCE_EXECUTION_COUNT` for 20-60 executions and
 `RESILIENCE_CELL_SLEEP_SECONDS` to adjust overlap duration.
@@ -164,6 +165,18 @@ This existing scenario sends SIGKILL to the primary Executor. The surviving proc
 the expired lease as `LEASE_EXPIRED`, delete the abandoned kernel, and complete exactly one
 explicit `FROM_START` retry.
 
+### Runtime-owned storage operation failures
+
+```bash
+uv run pytest -q tests/test_runtime_storage_failures.py
+```
+
+The focused regression suite injects failures into workspace preparation, notebook persistence,
+and Artifact discovery. It verifies that Execution, Attempt, Operation, and Step state remains
+consistent; the failure is classified as `RUNTIME_UNAVAILABLE/FROM_START`; Runtime sessions are
+cleaned up when one was created; and `execution.operation_failed`, `execution.failed`, and the
+applicable `execution.artifact_failed` Outbox events are durably recorded.
+
 ## Cleanup and retained evidence
 
 Each scenario uses a unique Redis Stream and deletes it on exit. Set
@@ -209,12 +222,19 @@ redis-cli XRANGE <stream-name> - +
 
 ## Validated baseline
 
-The local baseline validated on 2026-08-09 produced:
+The local baseline validated on 2026-08-13 produced:
 
+- STATIC and DYNAMIC lifecycle: normal execution, retained-kernel retry, correction/continue,
+  finish, running cancellation, notebooks, Artifacts, DB history, and Redis events succeeded;
 - graceful drain: short `SUCCEEDED`, long `WORKER_SHUTDOWN` with cleanup `SUCCEEDED`, queued work
   owned by the secondary;
 - load: 30/30 `SUCCEEDED`, two distinct Executor owners, peak one execution per one-capacity
-  Jupyter server, zero leaked kernels;
-- Redis pause: execution completed during the pause and all four Outbox events published after
+  Jupyter server, pool isolation verified, zero leaked kernels;
+- Redis pause: execution completed during the pause and all five Outbox events published after
   recovery;
-- Jupyter outage: `OFFLINE` avoidance succeeded and the restored server returned to scheduling.
+- Jupyter outage: `OFFLINE` avoidance succeeded, the restored server returned to scheduling, and
+  retained-kernel retry stayed pinned while its server was temporarily offline;
+- SIGKILL failover: the expired Execution, Attempt, and active Operation all became failed, the
+  abandoned kernel cleanup succeeded, and explicit `FROM_START` retry completed on the survivor;
+- Runtime storage failures: workspace preparation, notebook write, and Artifact discovery all
+  produced consistent terminal DB state and durable failure events.

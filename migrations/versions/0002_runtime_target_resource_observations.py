@@ -18,7 +18,9 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     op.add_column("runtime_targets", sa.Column("resource_observed_at", sa.DateTime(timezone=True)))
-    op.add_column("runtime_targets", sa.Column("resource_last_check_at", sa.DateTime(timezone=True)))
+    op.add_column(
+        "runtime_targets", sa.Column("resource_last_check_at", sa.DateTime(timezone=True))
+    )
     op.add_column("runtime_targets", sa.Column("resource_last_error", sa.String(length=500)))
     op.add_column("runtime_targets", sa.Column("resource_source", sa.String(length=64)))
     op.add_column("runtime_targets", sa.Column("resource_estimated", sa.Boolean()))

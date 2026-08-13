@@ -336,9 +336,7 @@ async def test_dynamic_operation_executes_submitted_steps_until_boundary(
     notebook_path = next(iter(RecordingDynamicDriver.notebooks))
     notebook = RecordingDynamicDriver.notebooks[notebook_path]
     assert [cell["source"] for cell in notebook["cells"]] == (
-        ["first", "raise expected", "third"]
-        if fail_code is None
-        else ["first", "raise expected"]
+        ["first", "raise expected", "third"] if fail_code is None else ["first", "raise expected"]
     )
     assert [cell["execution_count"] for cell in notebook["cells"]] == (
         [1, 2, 3] if fail_code is None else [1, 2]

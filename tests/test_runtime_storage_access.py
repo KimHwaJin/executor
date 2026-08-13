@@ -90,9 +90,7 @@ def _access(engine: AsyncEngine, factory: DriverFactory) -> FleetRuntimeStorageA
 async def test_runtime_storage_prefers_execution_target(engine: AsyncEngine) -> None:
     preferred_id = await _target(engine, name="z-preferred", endpoint="http://preferred")
     await _target(engine, name="a-other", endpoint="http://other")
-    factory = DriverFactory(
-        {"http://preferred": {"cells": []}, "http://other": {"cells": [1]}}
-    )
+    factory = DriverFactory({"http://preferred": {"cells": []}, "http://other": {"cells": [1]}})
 
     result = await _access(engine, factory).read_notebook(
         RuntimeType.JUPYTER, preferred_id, "shared/execution.ipynb"

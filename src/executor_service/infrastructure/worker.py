@@ -2289,6 +2289,42 @@ class ExecutionWorker:
                     )
                     .values(status=StepStatus.SKIPPED, finished_at=now, updated_at=now)
                 )
+                if execution.active_operation_id is not None:
+                    operation = await session.scalar(
+                        select(ExecutionOperationORM)
+                        .where(
+                            ExecutionOperationORM.id == execution.active_operation_id,
+                            ExecutionOperationORM.status.in_(
+                                [OperationStatus.QUEUED, OperationStatus.RUNNING]
+                            ),
+                        )
+                        .with_for_update()
+                    )
+                    if operation is not None:
+                        operation.status = OperationStatus.FAILED
+                        if attempt is not None:
+                            operation.execution_attempt_id = attempt.id
+                        operation.error_message = execution.error_message
+                        operation.finished_at = now
+                        operation.updated_at = now
+                        await _add_outbox(
+                            session,
+                            execution.id,
+                            "execution.operation_failed",
+                            ExecutionStatus.FAILED,
+                            {
+                                "execution_attempt_id": (
+                                    str(operation.execution_attempt_id)
+                                    if operation.execution_attempt_id is not None
+                                    else None
+                                ),
+                                "operation_id": str(operation.id),
+                                "operation_status": OperationStatus.FAILED.value,
+                                "first_sequence": operation.first_sequence,
+                                "last_sequence": operation.last_sequence,
+                                "version": execution.version,
+                            },
+                        )
                 await _add_outbox(
                     session,
                     execution.id,

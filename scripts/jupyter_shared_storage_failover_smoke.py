@@ -32,9 +32,7 @@ async def main() -> None:
     secondary_endpoint = os.getenv(
         "SHARED_STORAGE_SECONDARY_ENDPOINT", "http://jupyter-secondary:8888"
     )
-    secondary_token = os.getenv(
-        "JUPYTER_SECONDARY_TOKEN", "change-me-secondary-local-only"
-    )
+    secondary_token = os.getenv("JUPYTER_SECONDARY_TOKEN", "change-me-secondary-local-only")
     operator = {"type": "USER", "id": "shared-storage-operator"}
 
     async with Client(mcp_url) as client:

@@ -14,6 +14,7 @@ from executor_service.domain.enums import (
     ExecutionMode,
     ExecutionStatus,
     FailureType,
+    OperationStatus,
     RetryStrategy,
     RuntimePool,
     RuntimeSessionCleanupStatus,
@@ -25,6 +26,7 @@ from executor_service.domain.models import utc_now
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
+    ExecutionOperationORM,
     ExecutionORM,
     ExecutionStepAttemptORM,
     ExecutionStepORM,
@@ -127,6 +129,15 @@ async def test_expired_lease_is_failed_once_and_can_restart_from_zero(
             .where(ExecutionStepORM.id == execution.steps[0].id)
             .values(status=StepStatus.RUNNING, started_at=now - timedelta(minutes=2))
         )
+        await session.execute(
+            update(ExecutionOperationORM)
+            .where(ExecutionOperationORM.id == execution.active_operation_id)
+            .values(
+                status=OperationStatus.RUNNING,
+                execution_attempt_id=attempt.id,
+                started_at=now - timedelta(minutes=2),
+            )
+        )
 
     settings = Settings(
         runtime_enabled=False,
@@ -154,10 +165,19 @@ async def test_expired_lease_is_failed_once_and_can_restart_from_zero(
         recovered_attempt = await session.scalar(
             select(ExecutionAttemptORM).where(ExecutionAttemptORM.execution_id == execution.id)
         )
+        recovered_operation = await session.get(
+            ExecutionOperationORM, execution.active_operation_id
+        )
         failed_events = await session.scalar(
             select(func.count(OutboxEventORM.id)).where(
                 OutboxEventORM.aggregate_id == execution.id,
                 OutboxEventORM.event_type == "execution.failed",
+            )
+        )
+        operation_failed_events = await session.scalar(
+            select(func.count(OutboxEventORM.id)).where(
+                OutboxEventORM.aggregate_id == execution.id,
+                OutboxEventORM.event_type == "execution.operation_failed",
             )
         )
 
@@ -173,4 +193,8 @@ async def test_expired_lease_is_failed_once_and_can_restart_from_zero(
     assert recovered_attempt.status == AttemptStatus.FAILED
     assert recovered_attempt.failure_type == FailureType.LEASE_EXPIRED
     assert recovered_attempt.retry_strategy == RetryStrategy.FROM_START
+    assert recovered_operation is not None
+    assert recovered_operation.status == OperationStatus.FAILED
+    assert recovered_operation.execution_attempt_id == recovered_attempt.id
+    assert operation_failed_events == 1
     assert failed_events == 1

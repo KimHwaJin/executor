@@ -170,6 +170,4 @@ def test_mcp_notebook_cell_content_preserves_text_and_images() -> None:
     assert "display(value)" in texts
     assert "ready\n" in texts
     assert "[text/plain]\n<Figure size 640x480>" in texts
-    assert [(item.mime_type, item.data) for item in images] == [
-        ("image/png", "aW1hZ2UtYnl0ZXM=")
-    ]
+    assert [(item.mime_type, item.data) for item in images] == [("image/png", "aW1hZ2UtYnl0ZXM=")]
