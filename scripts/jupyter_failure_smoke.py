@@ -1,13 +1,10 @@
 """Verify Jupyter errors become FAILED with a durable error notebook."""
 
 import asyncio
-from pathlib import Path
 from uuid import uuid4
 
 from execution_spec_payload import inline_source
 from mcp import Client
-
-from executor_service.config import get_settings
 
 
 async def main() -> None:
@@ -53,14 +50,14 @@ async def main() -> None:
         if steps_result.is_error:
             raise RuntimeError(str(steps_result.content))
         steps = steps_result.structured_content["items"]
-        if (
-            result["state"]["status"] != "FAILED"
-            or steps[0]["result"]["status"] != "FAILED"
-        ):
+        if result["state"]["status"] != "FAILED" or steps[0]["result"]["status"] != "FAILED":
             raise RuntimeError(f"Expected FAILED execution and step: {result}")
-        notebook = get_settings().workspace_host_root / Path(result["workspace"]["notebook_path"])
-        if not notebook.is_file():
-            raise RuntimeError("Failure notebook was not created.")
+        notebook = await client.call_tool(
+            "execution_notebook_read",
+            {"execution_id": execution_id, "response_format": "detailed", "limit": 0},
+        )
+        if notebook.is_error or len(notebook.structured_content["cells"]) != 1:
+            raise RuntimeError("Failure Notebook was not readable from Runtime storage.")
         print("execution_id:", execution_id)
         print("status: FAILED")
         print("error:", result["failure"]["message"])

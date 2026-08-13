@@ -1,13 +1,10 @@
 """Submit a STATIC execution through MCP and wait for its Jupyter result."""
 
 import asyncio
-from pathlib import Path
 from uuid import uuid4
 
 from execution_spec_payload import inline_source
 from mcp import Client
-
-from executor_service.config import get_settings
 
 
 async def main() -> None:
@@ -70,14 +67,22 @@ async def main() -> None:
             raise RuntimeError(str(steps_result.content))
         steps = steps_result.structured_content["items"]
 
-        settings = get_settings()
-        notebook = settings.workspace_host_root / Path(terminal["workspace"]["notebook_path"])
-        artifact = notebook.parents[1] / "artifacts" / "other" / "result.txt"
-        if not notebook.is_file() or artifact.read_text(encoding="utf-8") != "completed":
-            raise RuntimeError("Expected notebook or artifact was not created.")
+        notebook = await client.call_tool(
+            "execution_notebook_read",
+            {"execution_id": execution_id, "response_format": "detailed", "limit": 0},
+        )
+        if notebook.is_error or len(notebook.structured_content["cells"]) != 2:
+            raise RuntimeError("Expected Runtime-owned Notebook was not readable.")
+        artifacts = await client.call_tool(
+            "execution_artifact_list", {"execution_id": execution_id, "limit": 100}
+        )
+        if not {"result.txt", "execution.ipynb"}.issubset(
+            {item["name"] for item in artifacts.structured_content["items"]}
+        ):
+            raise RuntimeError("Expected Runtime-owned Artifact metadata was not registered.")
         print("execution_id:", execution_id)
         print("status:", terminal["state"]["status"])
-        print("notebook:", notebook)
+        print("notebook_path:", terminal["workspace"]["notebook_path"])
         print("step_statuses:", [step["result"]["status"] for step in steps])
 
 

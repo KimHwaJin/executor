@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-from pathlib import Path
 from uuid import UUID, uuid4
 
 from executor_service.application.commands import (
@@ -145,11 +144,13 @@ async def main() -> None:
         events = await container.execution_queries.events(submitted.id)
         if finished.notebook_path is None:
             raise RuntimeError("Dynamic execution did not persist a notebook path.")
-        notebook = settings.workspace_host_root / Path(finished.notebook_path)
-        notebook_data = json.loads(notebook.read_text(encoding="utf-8"))
+        notebook_data = await container.runtime_storage.read_notebook(
+            finished.runtime_type, finished.runtime_target_id, finished.notebook_path
+        )
         notebook_text = json.dumps(notebook_data)
         event_types = {event.event_type for event in events}
-        if len(attempts) != 1 or len(notebook_data["cells"]) != 4:
+        cells = notebook_data.get("cells")
+        if len(attempts) != 1 or not isinstance(cells, list) or len(cells) != 4:
             raise RuntimeError("Dynamic Attempt or notebook history is incomplete.")
         if not all(marker in notebook_text for marker in ("42", "84", "planned dynamic failure")):
             raise RuntimeError("Dynamic notebook does not prove same-kernel state continuity.")
@@ -167,7 +168,7 @@ async def main() -> None:
         print("status:", finished.status.value)
         print("attempts:", len(attempts))
         print("step_statuses:", [step.status.value for step in finished.steps])
-        print("notebook:", notebook)
+        print("notebook_path:", finished.notebook_path)
     finally:
         await container.stop()
 

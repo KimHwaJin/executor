@@ -165,9 +165,7 @@ async def main() -> None:
             "AVAILABLE",
         ] or retry_artifacts[0]["produced_by"]["execution_attempt_id"] == retry_artifacts[1][
             "produced_by"
-        ][
-            "execution_attempt_id"
-        ]:
+        ]["execution_attempt_id"]:
             raise RuntimeError(f"Retry Artifact history was not preserved: {retry_artifacts}")
 
         print("execution_id:", execution_id)

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from jupyter_server.base.handlers import APIHandler  # ty: ignore[unresolved-import]
 from tornado import web  # ty: ignore[unresolved-import]
 
 from executor_resource_extension.collector import ResourceCollector
+from executor_resource_extension.storage import RuntimeStorage, StoragePathError
 
 
 class ResourceStatusHandler(APIHandler):
@@ -18,3 +20,84 @@ class ResourceStatusHandler(APIHandler):
     def write_error(self, status_code: int, **kwargs: Any) -> None:
         self.set_header("Content-Type", "application/json")
         self.finish({"status": status_code, "message": "Resource status collection failed."})
+
+
+class StorageHandler(APIHandler):
+    @property
+    def storage(self) -> RuntimeStorage:
+        return self.settings["executor_runtime_storage"]
+
+    def payload(self) -> dict[str, Any]:
+        payload = self.get_json_body()
+        if not isinstance(payload, dict):
+            raise web.HTTPError(400, reason="JSON object body is required.")
+        return payload
+
+    def write_storage_error(self, exc: Exception) -> None:
+        if isinstance(exc, (StoragePathError, KeyError, TypeError, UnicodeDecodeError)):
+            raise web.HTTPError(422, reason=str(exc)) from exc
+        if isinstance(exc, FileNotFoundError):
+            raise web.HTTPError(404, reason="Runtime storage path was not found.") from exc
+        raise exc
+
+
+class StorageStatusHandler(StorageHandler):
+    @web.authenticated
+    def get(self) -> None:
+        self.set_header("Cache-Control", "no-store")
+        self.finish(self.storage.status())
+
+
+class WorkspacePrepareHandler(StorageHandler):
+    @web.authenticated
+    async def post(self) -> None:
+        try:
+            result = await asyncio.to_thread(
+                self.storage.prepare_workspace, str(self.payload()["workspace_path"])
+            )
+        except Exception as exc:
+            self.write_storage_error(exc)
+            return
+        self.finish(result)
+
+
+class ArtifactSnapshotHandler(StorageHandler):
+    @web.authenticated
+    async def post(self) -> None:
+        try:
+            result = await asyncio.to_thread(
+                self.storage.snapshot, str(self.payload()["workspace_path"])
+            )
+        except Exception as exc:
+            self.write_storage_error(exc)
+            return
+        self.finish(result)
+
+
+class FileMetadataHandler(StorageHandler):
+    @web.authenticated
+    async def post(self) -> None:
+        try:
+            result = await asyncio.to_thread(
+                self.storage.file_metadata, str(self.payload()["path"])
+            )
+        except Exception as exc:
+            self.write_storage_error(exc)
+            return
+        self.finish(result)
+
+
+class ManifestReadHandler(StorageHandler):
+    @web.authenticated
+    async def post(self) -> None:
+        try:
+            payload = self.payload()
+            result = await asyncio.to_thread(
+                self.storage.read_manifest,
+                str(payload["workspace_path"]),
+                int(payload.get("start", 0)),
+            )
+        except Exception as exc:
+            self.write_storage_error(exc)
+            return
+        self.finish(result)

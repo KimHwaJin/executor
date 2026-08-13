@@ -134,9 +134,7 @@ async def main() -> None:
         "AGENT_EVENT_CONSUMER_NAME", f"agent-example-{socket.gethostname()}-{os.getpid()}"
     )
     state_path = Path(os.getenv("AGENT_EVENT_STATE_DB", ".agent-event-consumer.db"))
-    pending_idle_milliseconds = int(
-        os.getenv("AGENT_EVENT_PENDING_IDLE_MILLISECONDS", "30000")
-    )
+    pending_idle_milliseconds = int(os.getenv("AGENT_EVENT_PENDING_IDLE_MILLISECONDS", "30000"))
     stop_after_terminal = os.getenv("AGENT_EVENT_STOP_AFTER_TERMINAL", "false").lower() in {
         "1",
         "true",

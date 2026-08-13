@@ -1,7 +1,7 @@
 # ExecutionSpec v1
 
 Executor accepts one versioned execution payload through either an INLINE MCP value or a UTF-8
-JSON file on the shared PV. Both forms resolve to the same contract:
+JSON file on the Agent/Executor input storage. Both forms resolve to the same contract:
 
 ```json
 {
@@ -56,16 +56,17 @@ The serialized spec must not exceed `EXECUTION_INLINE_SPEC_MAX_BYTES` (256 KiB b
 }
 ```
 
-The path is relative to `WORKSPACE_HOST_ROOT`. Absolute paths and paths that resolve outside that
-root are rejected. Executor reads at most `EXECUTION_FILE_SPEC_MAX_BYTES` (50 MiB by default),
+The path is relative to `INPUT_HOST_ROOT`. Absolute paths and paths that resolve outside that
+input root are rejected. Executor reads at most `EXECUTION_FILE_SPEC_MAX_BYTES` (50 MiB by default),
 verifies SHA-256 before parsing, validates the same v1 schema, and persists normalized content in
 PostgreSQL. Agent writers must publish files atomically and must not modify a submitted file.
 
 ## Materialization
 
-Executor maps every Step to one ExecutionStep and one Jupyter code cell. It writes the accepted
-normalized source to `code/execution-spec.json` and the executed cells and outputs to
-`notebooks/execution.ipynb`. The Agent owns Task, ExecutionPlan, and PlanStep; Executor stores their
+Executor maps every Step to one ExecutionStep and one Jupyter code cell. The selected Runtime
+creates the execution workspace, runs cells there, and stores executed cells and outputs in
+`notebooks/execution.ipynb` on Runtime-owned storage. Executor does not materialize Runtime files
+on its local filesystem. The Agent owns Task, ExecutionPlan, and PlanStep; Executor stores their
 IDs as external references without cross-service foreign keys.
 
 STATIC submit contains every Step in its Operation. DYNAMIC submit and every `execution_continue`

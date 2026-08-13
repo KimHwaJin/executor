@@ -19,11 +19,17 @@ from executor_service.interfaces.http.app import create_app
 class HealthyGateway:
     fail_resource_probe = False
 
-    def __init__(self, _endpoint: str, _token: str, _timeout: float) -> None:
+    def __init__(
+        self,
+        _endpoint: str,
+        _token: str,
+        _timeout: float,
+        _storage_timeout: float,
+    ) -> None:
         pass
 
-    async def status(self) -> dict[str, int]:
-        return {"active_session_count": 1}
+    async def status(self) -> dict[str, object]:
+        return {"active_session_count": 1, "storage_id": "jupyter-shared"}
 
     async def supported_profiles(self) -> list[str]:
         return ["basic", "ml"]
@@ -56,7 +62,7 @@ async def fleet_client(
         database_url="sqlite+aiosqlite:///:memory:",
         redis_url="redis://localhost:6399/15",
         runtime_enabled=False,
-        workspace_host_root=tmp_path,
+        input_host_root=tmp_path,
     )
     container = ApplicationContainer(settings)
     async with container.engine.begin() as connection:
@@ -209,8 +215,7 @@ async def test_fleet_list_filters_cursor_capacity_and_state_controls(
 
     pools = await client.get("/api/v1/runtime-pools")
     summaries = {
-        (item["runtime"]["type"], item["runtime"]["pool"]): item
-        for item in pools.json()["items"]
+        (item["runtime"]["type"], item["runtime"]["pool"]): item for item in pools.json()["items"]
     }
     assert summaries[("JUPYTER", "INTERACTIVE")]["targets"]["total"] == 2
     assert summaries[("JUPYTER", "INTERACTIVE")]["capacity"]["configured"] == 5

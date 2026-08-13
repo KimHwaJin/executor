@@ -2,8 +2,9 @@
 
 import json
 from datetime import UTC, datetime
+from pathlib import PurePosixPath
 from typing import Any
-from urllib.parse import urlencode, urlsplit, urlunsplit
+from urllib.parse import quote, urlencode, urlsplit, urlunsplit
 from uuid import uuid4
 
 import httpx
@@ -15,13 +16,22 @@ from executor_service.domain.runtime import (
     RuntimeDriverError,
     RuntimeExecutionError,
     RuntimeExecutionResult,
+    RuntimeFileMetadata,
+    RuntimeFileState,
     RuntimeResourceMetric,
     RuntimeResourceObservation,
+    RuntimeStorageSnapshot,
 )
 
 
 class JupyterRuntimeDriver:
-    def __init__(self, endpoint: str, token: str, request_timeout_seconds: float = 30) -> None:
+    def __init__(
+        self,
+        endpoint: str,
+        token: str,
+        request_timeout_seconds: float = 30,
+        storage_timeout_seconds: float = 300,
+    ) -> None:
         self._endpoint = endpoint.rstrip("/")
         self._token = token
         self._client = httpx.AsyncClient(
@@ -29,14 +39,30 @@ class JupyterRuntimeDriver:
             headers={"Authorization": f"token {token}"},
             timeout=request_timeout_seconds,
         )
+        self._storage_timeout = storage_timeout_seconds
 
     async def close(self) -> None:
         await self._client.aclose()
 
     async def status(self) -> dict[str, Any]:
         response = await self._request("GET", "/api/status")
-        payload = response.json()
-        return {"active_session_count": payload.get("kernels")}
+        storage_response = await self._request("GET", "/executor/storage/status")
+        try:
+            payload = response.json()
+            storage = storage_response.json()
+            if (
+                storage.get("schema_version") != "1.0"
+                or not isinstance(storage.get("storage_id"), str)
+                or not storage.get("readable")
+                or not storage.get("writable")
+            ):
+                raise ValueError("runtime storage is unavailable")
+            return {
+                "active_session_count": payload.get("kernels"),
+                "storage_id": storage["storage_id"],
+            }
+        except (TypeError, ValueError) as exc:
+            raise RuntimeDriverError("Jupyter storage status response is invalid.") from exc
 
     async def supported_profiles(self) -> list[str]:
         response = await self._request("GET", "/api/kernelspecs")
@@ -159,6 +185,99 @@ class JupyterRuntimeDriver:
             raise RuntimeExecutionError(error_message, outputs)
         return RuntimeExecutionResult(outputs=outputs, execution_count=execution_count)
 
+    async def prepare_workspace(self, workspace_path: str) -> None:
+        await self._request(
+            "POST",
+            "/executor/storage/workspaces/prepare",
+            json={"workspace_path": workspace_path},
+            timeout=self._storage_timeout,
+        )
+
+    async def artifact_snapshot(self, workspace_path: str) -> RuntimeStorageSnapshot:
+        response = await self._request(
+            "POST",
+            "/executor/storage/artifacts/snapshot",
+            json={"workspace_path": workspace_path},
+            timeout=self._storage_timeout,
+        )
+        try:
+            payload = response.json()
+            files = tuple(
+                RuntimeFileState(
+                    path=str(item["path"]),
+                    size_bytes=int(item["size_bytes"]),
+                    modified_ns=int(item["modified_ns"]),
+                )
+                for item in payload["files"]
+            )
+            manifest_size = int(payload["manifest_size"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise RuntimeDriverError("Jupyter Artifact snapshot response is invalid.") from exc
+        return RuntimeStorageSnapshot(files=files, manifest_size=manifest_size)
+
+    async def file_metadata(self, path: str) -> RuntimeFileMetadata:
+        response = await self._request(
+            "POST",
+            "/executor/storage/files/metadata",
+            json={"path": path},
+            timeout=self._storage_timeout,
+        )
+        try:
+            payload = response.json()
+            checksum = str(payload["checksum_sha256"])
+            if len(checksum) != 64:
+                raise ValueError("invalid checksum")
+            return RuntimeFileMetadata(
+                path=str(payload["path"]),
+                name=str(payload["name"]),
+                size_bytes=int(payload["size_bytes"]),
+                modified_ns=int(payload["modified_ns"]),
+                media_type=(
+                    str(payload["media_type"]) if payload.get("media_type") is not None else None
+                ),
+                checksum_sha256=checksum,
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise RuntimeDriverError("Jupyter file metadata response is invalid.") from exc
+
+    async def read_manifest(self, workspace_path: str, start: int) -> bytes:
+        response = await self._request(
+            "POST",
+            "/executor/storage/manifests/read",
+            json={"workspace_path": workspace_path, "start": start},
+            timeout=self._storage_timeout,
+        )
+        try:
+            payload = response.json()
+            content = payload["content"]
+            if not isinstance(content, str):
+                raise TypeError("content must be text")
+            return content.encode("utf-8")
+        except (KeyError, TypeError, ValueError) as exc:
+            raise RuntimeDriverError("Jupyter manifest response is invalid.") from exc
+
+    async def write_notebook(self, path: str, notebook: dict[str, Any]) -> None:
+        await self._request(
+            "PUT",
+            f"/api/contents/{_contents_path(path)}",
+            json={"type": "notebook", "format": "json", "content": notebook},
+        )
+
+    async def read_notebook(self, path: str) -> dict[str, Any]:
+        response = await self._request(
+            "GET",
+            f"/api/contents/{_contents_path(path)}",
+            params={"content": 1},
+        )
+        try:
+            payload = response.json()
+            content = payload.get("content")
+            if payload.get("type") != "notebook" or not isinstance(content, dict):
+                raise TypeError("content is not a notebook")
+            return content
+        except (TypeError, ValueError) as exc:
+            raise RuntimeDriverError("Jupyter Notebook response is invalid.") from exc
+
     async def _request(
         self,
         method: str,
@@ -252,9 +371,14 @@ def _error_summary(content: dict[str, Any]) -> str:
     return f"{name}: {value}"[:2000]
 
 
-def _resource_metric(
-    payload: object, *, used_key: str, capacity_key: str
-) -> RuntimeResourceMetric:
+def _contents_path(path: str) -> str:
+    pure = PurePosixPath(path)
+    if pure.is_absolute() or not pure.parts or any(part in {"", ".", ".."} for part in pure.parts):
+        raise RuntimeDriverError("Runtime storage path must be a safe relative path.")
+    return "/".join(quote(part, safe="") for part in pure.parts)
+
+
+def _resource_metric(payload: object, *, used_key: str, capacity_key: str) -> RuntimeResourceMetric:
     if not isinstance(payload, dict):
         raise TypeError("resource metric must be an object")
     used = payload.get(used_key)

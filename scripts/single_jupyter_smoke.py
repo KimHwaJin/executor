@@ -2,7 +2,6 @@
 
 import asyncio
 import os
-from pathlib import Path
 from time import monotonic
 from typing import Any
 from uuid import uuid4
@@ -64,13 +63,10 @@ async def main() -> None:
             },
         )
         if server["state"]["status"] != "ACTIVE":
-            raise RuntimeError(
-                f"Jupyter server is not ACTIVE: {server['health']['last_error']}"
-            )
+            raise RuntimeError(f"Jupyter server is not ACTIVE: {server['health']['last_error']}")
         if kernel_name not in server["runtime"]["supported_profiles"]:
             raise RuntimeError(
-                f"Kernel {kernel_name!r} is unavailable: "
-                f"{server['runtime']['supported_profiles']}"
+                f"Kernel {kernel_name!r} is unavailable: {server['runtime']['supported_profiles']}"
             )
 
         submitted = await _required_tool_result(
@@ -117,8 +113,9 @@ async def main() -> None:
         terminal = await _wait_for_terminal(client, execution_id, timeout_seconds)
         if terminal["state"]["status"] != "SUCCEEDED":
             raise RuntimeError(f"Execution did not succeed: {terminal}")
-        if str(terminal["runtime"]["target_id"]) != str(server["target_id"]):
-            raise RuntimeError("Execution used a different Jupyter server.")
+        assigned_target_id = terminal["runtime"]["target_id"]
+        if not assigned_target_id:
+            raise RuntimeError("Execution has no assigned Jupyter Runtime Target.")
         steps_page = await _required_tool_result(
             client,
             "execution_step_list",
@@ -136,19 +133,20 @@ async def main() -> None:
         if not required_artifacts.issubset(artifact_names):
             raise RuntimeError(f"Expected Artifacts were not registered: {artifact_names}")
 
-    notebook_path = terminal["workspace"]["notebook_path"]
-    if not notebook_path:
-        raise RuntimeError("Execution did not return a notebook_path.")
-    notebook = settings.workspace_host_root / Path(notebook_path)
-    result_file = notebook.parents[1] / "artifacts" / "other" / "single-jupyter-smoke.txt"
-    if not notebook.is_file() or result_file.read_text(encoding="utf-8") != "6":
-        raise RuntimeError("Expected local Notebook or smoke Artifact was not created.")
+        notebook = await _required_tool_result(
+            client,
+            "execution_notebook_read",
+            {"execution_id": execution_id, "response_format": "detailed", "limit": 0},
+        )
+        if len(notebook["cells"]) != 2:
+            raise RuntimeError("Expected Runtime-owned Notebook cells were not readable.")
 
-    print("runtime_target_id:", server["target_id"])
+    print("probed_runtime_target_id:", server["target_id"])
+    print("assigned_runtime_target_id:", assigned_target_id)
     print("execution_id:", execution_id)
     print("status:", terminal["state"]["status"])
     print("step_statuses:", [step["result"]["status"] for step in steps])
-    print("notebook:", notebook)
+    print("notebook_path:", terminal["workspace"]["notebook_path"])
     print("artifacts:", sorted(artifact_names))
 
 

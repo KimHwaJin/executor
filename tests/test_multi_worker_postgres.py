@@ -148,7 +148,7 @@ def _workers(
         redis = Redis.from_url("redis://127.0.0.1:6379/15", decode_responses=True)
         settings = Settings(
             runtime_enabled=False,
-            workspace_host_root=tmp_path / f"worker-{index}",
+            input_host_root=tmp_path / f"worker-{index}",
             execution_consumer_name=f"postgres-worker-{index}",
         )
         workers.append(
@@ -157,7 +157,7 @@ def _workers(
                 redis=redis,
                 settings=settings,
                 registry=RuntimeTargetRegistry(session_factory, settings),
-                artifact_manager=ExecutionArtifactManager(session_factory, settings),
+                artifact_manager=ExecutionArtifactManager(session_factory),
             )
         )
         redis_clients.append(redis)
@@ -230,9 +230,7 @@ async def test_concurrent_workers_create_one_attempt_for_a_requeued_operation(
     async with session_factory() as session:
         attempts = list(
             await session.scalars(
-                select(ExecutionAttemptORM).where(
-                    ExecutionAttemptORM.execution_id == execution.id
-                )
+                select(ExecutionAttemptORM).where(ExecutionAttemptORM.execution_id == execution.id)
             )
         )
         operation = await session.get(ExecutionOperationORM, retry.operation_id)

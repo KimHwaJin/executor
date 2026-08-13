@@ -1,11 +1,9 @@
-"""Secure Artifact discovery, manifest parsing, hashing, and persistence."""
+"""Runtime-backed Artifact discovery, manifest parsing, and persistence."""
 
-import asyncio
 import hashlib
 import json
-import mimetypes
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import PurePosixPath
 from typing import Any, Self
 from urllib.parse import urlsplit
 from uuid import UUID
@@ -14,13 +12,14 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from executor_service.config import Settings
-from executor_service.domain.enums import (
-    ArtifactStatus,
-    ArtifactStorageType,
-    ArtifactType,
-)
+from executor_service.domain.enums import ArtifactStatus, ArtifactStorageType, ArtifactType
 from executor_service.domain.errors import ArtifactRegistrationError
+from executor_service.domain.runtime import (
+    RuntimeFileMetadata,
+    RuntimeFileState,
+    RuntimeStorage,
+    RuntimeStorageSnapshot,
+)
 from executor_service.events import build_execution_event
 from executor_service.infrastructure.db.models import (
     ExecutionArtifactORM,
@@ -31,7 +30,6 @@ from executor_service.infrastructure.db.models import (
 from executor_service.infrastructure.workspace import ExecutionWorkspace
 from executor_service.tracing import capture_trace_carrier
 
-MANIFEST_RELATIVE_PATH = Path("artifacts", "manifest.jsonl")
 ARTIFACT_DIRECTORY_TYPES = {
     "datasets": ArtifactType.DATASET,
     "plots": ArtifactType.PLOT,
@@ -41,18 +39,6 @@ ARTIFACT_DIRECTORY_TYPES = {
     "logs": ArtifactType.LOG,
     "other": ArtifactType.OTHER,
 }
-
-
-@dataclass(frozen=True, slots=True)
-class FileState:
-    size_bytes: int
-    modified_ns: int
-
-
-@dataclass(frozen=True, slots=True)
-class ArtifactSnapshot:
-    files: dict[Path, FileState]
-    manifest_size: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,38 +89,26 @@ class ArtifactManifestEntry(BaseModel):
 
 
 class ExecutionArtifactManager:
-    def __init__(
-        self,
-        session_factory: async_sessionmaker[AsyncSession],
-        settings: Settings,
-    ) -> None:
+    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._session_factory = session_factory
-        self._host_root = settings.workspace_host_root.resolve()
-        self._runtime_root = Path(settings.workspace_runtime_root)
 
-    def snapshot(self, workspace: ExecutionWorkspace) -> ArtifactSnapshot:
-        files: dict[Path, FileState] = {}
-        for path in workspace.artifacts_dir.rglob("*"):
-            if path.is_file() and path != workspace.host_root / MANIFEST_RELATIVE_PATH:
-                stat = path.stat()
-                files[path.resolve()] = FileState(stat.st_size, stat.st_mtime_ns)
-        manifest = workspace.host_root / MANIFEST_RELATIVE_PATH
-        return ArtifactSnapshot(
-            files=files,
-            manifest_size=manifest.stat().st_size if manifest.is_file() else 0,
-        )
+    async def snapshot(
+        self, driver: RuntimeStorage, workspace: ExecutionWorkspace
+    ) -> RuntimeStorageSnapshot:
+        return await driver.artifact_snapshot(workspace.runtime_relative_path)
 
     async def discover_and_register(
         self,
         *,
+        driver: RuntimeStorage,
         workspace: ExecutionWorkspace,
-        before: ArtifactSnapshot,
+        before: RuntimeStorageSnapshot,
         execution_id: UUID,
         attempt_id: UUID,
         sequence: int,
         status: ArtifactStatus,
     ) -> list[UUID]:
-        descriptors = await asyncio.to_thread(self._discover, workspace, before, status)
+        descriptors = await self._discover(driver, workspace, before, status)
         return await self._persist(
             descriptors,
             execution_id=execution_id,
@@ -145,104 +119,98 @@ class ExecutionArtifactManager:
     async def register_notebook(
         self,
         *,
+        driver: RuntimeStorage,
         workspace: ExecutionWorkspace,
         execution_id: UUID,
         attempt_id: UUID,
         sequence: int,
     ) -> list[UUID]:
-        descriptor = await asyncio.to_thread(
-            self._pv_descriptor,
-            workspace.notebook_file,
+        metadata = await driver.file_metadata(workspace.notebook_path)
+        descriptor = _runtime_file_descriptor(
+            metadata,
             ArtifactType.NOTEBOOK,
             ArtifactStatus.AVAILABLE,
-            None,
-            None,
-            None,
-            {},
+            metadata={},
         )
         return await self._persist(
-            [descriptor],
-            execution_id=execution_id,
-            attempt_id=attempt_id,
-            sequence=sequence,
+            [descriptor], execution_id=execution_id, attempt_id=attempt_id, sequence=sequence
         )
 
-    def _discover(
+    async def _discover(
         self,
+        driver: RuntimeStorage,
         workspace: ExecutionWorkspace,
-        before: ArtifactSnapshot,
+        before: RuntimeStorageSnapshot,
         status: ArtifactStatus,
     ) -> list[ArtifactDescriptor]:
-        manifest_descriptors = self._manifest_descriptors(workspace, before, status)
+        manifest = await driver.read_manifest(workspace.runtime_relative_path, before.manifest_size)
+        manifest_descriptors = await self._manifest_descriptors(
+            driver, workspace, manifest, status
+        )
         manifest_uris = {descriptor.uri for descriptor in manifest_descriptors}
-        current = self.snapshot(workspace)
+        current = await driver.artifact_snapshot(workspace.runtime_relative_path)
+        previous = {state.path: state for state in before.files}
         automatic: list[ArtifactDescriptor] = []
-        for path, state in current.files.items():
-            previous = before.files.get(path)
-            if previous == state:
+        for state in current.files:
+            if previous.get(state.path) == state:
                 continue
-            artifact_type = _infer_artifact_type(path, workspace)
+            artifact_type = _infer_artifact_type(state, workspace)
             if artifact_type is None:
                 continue
-            descriptor = self._pv_descriptor(
-                path,
+            metadata = await driver.file_metadata(state.path)
+            descriptor = _runtime_file_descriptor(
+                metadata,
                 artifact_type,
                 status,
-                None,
-                None,
-                None,
-                {"discovery": "workspace-diff"},
+                metadata={"discovery": "runtime-workspace-diff"},
             )
             if descriptor.uri not in manifest_uris:
                 automatic.append(descriptor)
         return [*manifest_descriptors, *automatic]
 
-    def _manifest_descriptors(
+    async def _manifest_descriptors(
         self,
+        driver: RuntimeStorage,
         workspace: ExecutionWorkspace,
-        before: ArtifactSnapshot,
+        content: bytes,
         status: ArtifactStatus,
     ) -> list[ArtifactDescriptor]:
-        manifest = workspace.host_root / MANIFEST_RELATIVE_PATH
-        if not manifest.is_file():
-            return []
-        start = before.manifest_size
-        if manifest.stat().st_size < start:
-            start = 0
-        with manifest.open("rb") as handle:
-            handle.seek(start)
-            raw_lines = handle.read().decode("utf-8").splitlines()
+        try:
+            lines = content.decode("utf-8").splitlines()
+        except UnicodeDecodeError as exc:
+            raise ArtifactRegistrationError("Artifact manifest must be UTF-8.") from exc
         descriptors: list[ArtifactDescriptor] = []
-        for line_number, raw in enumerate(raw_lines, start=1):
+        for line_number, raw in enumerate(lines, start=1):
             if not raw.strip():
                 continue
             try:
                 entry = ArtifactManifestEntry.model_validate_json(raw)
-                descriptors.append(self._from_manifest(entry, workspace, status))
+                descriptors.append(await self._from_manifest(driver, workspace, entry, status))
             except Exception as exc:
                 raise ArtifactRegistrationError(
                     f"Invalid Artifact manifest entry near appended line {line_number}."
                 ) from exc
         return descriptors
 
-    def _from_manifest(
+    async def _from_manifest(
         self,
-        entry: ArtifactManifestEntry,
+        driver: RuntimeStorage,
         workspace: ExecutionWorkspace,
+        entry: ArtifactManifestEntry,
         status: ArtifactStatus,
     ) -> ArtifactDescriptor:
         if entry.storage_type == ArtifactStorageType.PV:
             if entry.path is None:
                 raise ArtifactRegistrationError("PV manifest path is missing.")
-            path = self._resolve_pv_path(entry.path, workspace)
-            return self._pv_descriptor(
-                path,
+            metadata = await driver.file_metadata(_manifest_runtime_path(entry.path, workspace))
+            return _runtime_file_descriptor(
+                metadata,
                 entry.artifact_type,
                 status,
-                entry.name,
-                entry.description,
-                entry.media_type,
-                entry.metadata,
+                name=entry.name,
+                description=entry.description,
+                media_type=entry.media_type,
+                metadata=entry.metadata,
                 parent_artifact_id=entry.parent_artifact_id,
                 external_parent_asset_id=entry.external_parent_asset_id,
             )
@@ -253,7 +221,7 @@ class ExecutionArtifactManager:
             artifact_type=entry.artifact_type,
             storage_type=ArtifactStorageType.S3,
             status=status,
-            name=entry.name or Path(urlsplit(entry.uri).path).name or "s3-artifact",
+            name=entry.name or PurePosixPath(urlsplit(entry.uri).path).name or "s3-artifact",
             description=entry.description,
             uri=entry.uri,
             relative_path=None,
@@ -264,56 +232,6 @@ class ExecutionArtifactManager:
             external_parent_asset_id=entry.external_parent_asset_id,
             metadata=_redact({**entry.metadata, "verification": "manifest-declared"}),
         )
-
-    def _pv_descriptor(
-        self,
-        path: Path,
-        artifact_type: ArtifactType,
-        status: ArtifactStatus,
-        name: str | None,
-        description: str | None,
-        media_type: str | None,
-        metadata: dict[str, Any],
-        *,
-        parent_artifact_id: UUID | None = None,
-        external_parent_asset_id: str | None = None,
-    ) -> ArtifactDescriptor:
-        resolved = path.resolve(strict=True)
-        _ensure_within(resolved, self._host_root)
-        if not resolved.is_file():
-            raise ArtifactRegistrationError("PV Artifact path must be a file.")
-        relative = resolved.relative_to(self._host_root).as_posix()
-        return ArtifactDescriptor(
-            artifact_type=artifact_type,
-            storage_type=ArtifactStorageType.PV,
-            status=status,
-            name=name or resolved.name,
-            description=description,
-            uri=f"pv:///{relative}",
-            relative_path=relative,
-            media_type=media_type or mimetypes.guess_type(resolved.name)[0],
-            size_bytes=resolved.stat().st_size,
-            checksum_sha256=_sha256(resolved),
-            parent_artifact_id=parent_artifact_id,
-            external_parent_asset_id=external_parent_asset_id,
-            metadata=_redact({**metadata, "verification": "executor-computed"}),
-        )
-
-    def _resolve_pv_path(self, raw: str, workspace: ExecutionWorkspace) -> Path:
-        candidate = Path(raw)
-        if candidate.is_absolute():
-            try:
-                relative = candidate.relative_to(self._runtime_root)
-                candidate = self._host_root / relative
-            except ValueError:
-                pass
-        elif candidate.parts and candidate.parts[0] == "users":
-            candidate = self._host_root / candidate
-        else:
-            candidate = workspace.host_root / candidate
-        resolved = candidate.resolve(strict=True)
-        _ensure_within(resolved, self._host_root)
-        return resolved
 
     async def _persist(
         self,
@@ -404,22 +322,56 @@ class ExecutionArtifactManager:
             return artifact_ids
 
 
-def _infer_artifact_type(path: Path, workspace: ExecutionWorkspace) -> ArtifactType | None:
+def _runtime_file_descriptor(
+    file: RuntimeFileMetadata,
+    artifact_type: ArtifactType,
+    status: ArtifactStatus,
+    *,
+    name: str | None = None,
+    description: str | None = None,
+    media_type: str | None = None,
+    metadata: dict[str, Any],
+    parent_artifact_id: UUID | None = None,
+    external_parent_asset_id: str | None = None,
+) -> ArtifactDescriptor:
+    return ArtifactDescriptor(
+        artifact_type=artifact_type,
+        storage_type=ArtifactStorageType.PV,
+        status=status,
+        name=name or file.name,
+        description=description,
+        uri=f"jupyter-pv:///{file.path}",
+        relative_path=file.path,
+        media_type=media_type or file.media_type,
+        size_bytes=file.size_bytes,
+        checksum_sha256=file.checksum_sha256,
+        parent_artifact_id=parent_artifact_id,
+        external_parent_asset_id=external_parent_asset_id,
+        metadata=_redact({**metadata, "verification": "runtime-computed"}),
+    )
+
+
+def _infer_artifact_type(
+    state: RuntimeFileState, workspace: ExecutionWorkspace
+) -> ArtifactType | None:
+    path = PurePosixPath(state.path)
+    root = PurePosixPath(workspace.artifacts_path)
     try:
-        relative = path.resolve().relative_to(workspace.artifacts_dir.resolve())
+        relative = path.relative_to(root)
     except ValueError:
-        relative = None
-    if relative is None or len(relative.parts) <= 1:
+        return None
+    if len(relative.parts) <= 1:
         return None
     return ARTIFACT_DIRECTORY_TYPES.get(relative.parts[0])
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+def _manifest_runtime_path(raw: str, workspace: ExecutionWorkspace) -> str:
+    path = PurePosixPath(raw)
+    if path.is_absolute() or (path.parts and path.parts[0] == "users"):
+        return raw
+    if not path.parts or any(part in {"", ".", ".."} for part in path.parts):
+        raise ArtifactRegistrationError("PV manifest path contains an unsafe segment.")
+    return f"{workspace.runtime_relative_path}/{path.as_posix()}"
 
 
 def _identity_hash(
@@ -446,13 +398,6 @@ def _validate_s3_uri(uri: str) -> None:
         raise ArtifactRegistrationError("S3 Artifact uri must be s3://bucket/key.")
     if parsed.username or parsed.password or parsed.query or parsed.fragment:
         raise ArtifactRegistrationError("S3 Artifact uri must not contain credentials or query.")
-
-
-def _ensure_within(path: Path, root: Path) -> None:
-    try:
-        path.relative_to(root)
-    except ValueError as exc:
-        raise ArtifactRegistrationError("Artifact path escapes the configured PV root.") from exc
 
 
 def _redact(value: Any) -> Any:

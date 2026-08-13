@@ -61,7 +61,7 @@ def _worker(
 ) -> ExecutionWorker:
     settings = Settings(
         runtime_enabled=False,
-        workspace_host_root=tmp_path,
+        input_host_root=tmp_path,
         redis_stream=stream,
         redis_dead_letter_stream=dlq_stream,
         execution_consumer_group=group,
@@ -75,7 +75,7 @@ def _worker(
         redis=redis,
         settings=settings,
         registry=RuntimeTargetRegistry(session_factory, settings),
-        artifact_manager=ExecutionArtifactManager(session_factory, settings),
+        artifact_manager=ExecutionArtifactManager(session_factory),
     )
     # These tests exercise active-Worker internals without starting background loops.
     worker._accepting_work = True

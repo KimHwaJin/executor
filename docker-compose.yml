@@ -48,6 +48,7 @@ services:
       dockerfile: docker/jupyter/Dockerfile
     environment:
       JUPYTER_TOKEN: ${JUPYTER_TOKEN:-change-me-local-only}
+      EXECUTOR_STORAGE_ID: ${JUPYTER_STORAGE_ID:-jupyter-shared}
       EXECUTOR_RESOURCE_CPU_CORES: ${JUPYTER_RESOURCE_CPU_CORES:-2}
       EXECUTOR_RESOURCE_MEMORY_BYTES: ${JUPYTER_RESOURCE_MEMORY_BYTES:-4294967296}
     ports:
@@ -56,7 +57,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          'curl --fail --silent --header "Authorization: token $${JUPYTER_TOKEN}" "http://127.0.0.1:8888/api/status" >/dev/null && curl --fail --silent --header "Authorization: token $${JUPYTER_TOKEN}" "http://127.0.0.1:8888/executor/resource-status" >/dev/null',
+          'curl --fail --silent --header "Authorization: token $${JUPYTER_TOKEN}" "http://127.0.0.1:8888/api/status" >/dev/null && curl --fail --silent --header "Authorization: token $${JUPYTER_TOKEN}" "http://127.0.0.1:8888/executor/resource-status" >/dev/null && curl --fail --silent --header "Authorization: token $${JUPYTER_TOKEN}" "http://127.0.0.1:8888/executor/storage/status" >/dev/null',
         ]
       interval: 5s
       timeout: 5s
@@ -90,6 +91,8 @@ services:
       RUNTIME_TARGET_NAME: ${RUNTIME_TARGET_NAME:-local-jupyter}
       JUPYTER_ENDPOINT: http://jupyter:8888
       JUPYTER_TOKEN: ${JUPYTER_TOKEN:-change-me-local-only}
+      JUPYTER_STORAGE_ID: ${JUPYTER_STORAGE_ID:-jupyter-shared}
+      JUPYTER_STORAGE_TIMEOUT_SECONDS: ${JUPYTER_STORAGE_TIMEOUT_SECONDS:-300}
       RUNTIME_CREDENTIAL_KEY: ${RUNTIME_CREDENTIAL_KEY:-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}
       RUNTIME_POOL: INTERACTIVE
       RUNTIME_ALLOWED_PROFILES: ${RUNTIME_ALLOWED_PROFILES:-basic,ml}
@@ -97,8 +100,7 @@ services:
       RUNTIME_HEALTH_POLL_INTERVAL_SECONDS: ${RUNTIME_HEALTH_POLL_INTERVAL_SECONDS:-15}
       RUNTIME_RESOURCE_MAX_AGE_SECONDS: ${RUNTIME_RESOURCE_MAX_AGE_SECONDS:-45}
       RUNTIME_MEMORY_ADMISSION_LIMIT: ${RUNTIME_MEMORY_ADMISSION_LIMIT:-0.9}
-      WORKSPACE_HOST_ROOT: /workspace/pv
-      WORKSPACE_RUNTIME_ROOT: /workspace/pv
+      INPUT_HOST_ROOT: /workspace/input
       TRACING_ENABLED: ${TRACING_ENABLED:-false}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://phoenix:6006/v1/traces}
     ports:
@@ -123,7 +125,7 @@ services:
       jupyter:
         condition: service_healthy
     volumes:
-      - ./notebook_dir:/workspace/pv
+      - ./input_dir:/workspace/input:ro
     restart: unless-stopped
 
   jupyter-secondary:
@@ -131,6 +133,7 @@ services:
     image: executor-jupyter:local
     environment:
       JUPYTER_TOKEN: ${JUPYTER_SECONDARY_TOKEN:-change-me-secondary-local-only}
+      EXECUTOR_STORAGE_ID: ${JUPYTER_STORAGE_ID:-jupyter-shared}
       EXECUTOR_RESOURCE_CPU_CORES: ${JUPYTER_RESOURCE_CPU_CORES:-2}
       EXECUTOR_RESOURCE_MEMORY_BYTES: ${JUPYTER_RESOURCE_MEMORY_BYTES:-4294967296}
     ports:
@@ -139,7 +142,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          'curl --fail --silent --header "Authorization: token $${JUPYTER_TOKEN}" "http://127.0.0.1:8888/api/status" >/dev/null && curl --fail --silent --header "Authorization: token $${JUPYTER_TOKEN}" "http://127.0.0.1:8888/executor/resource-status" >/dev/null',
+          'curl --fail --silent --header "Authorization: token $${JUPYTER_TOKEN}" "http://127.0.0.1:8888/api/status" >/dev/null && curl --fail --silent --header "Authorization: token $${JUPYTER_TOKEN}" "http://127.0.0.1:8888/executor/resource-status" >/dev/null && curl --fail --silent --header "Authorization: token $${JUPYTER_TOKEN}" "http://127.0.0.1:8888/executor/storage/status" >/dev/null',
         ]
       interval: 5s
       timeout: 5s
@@ -153,6 +156,7 @@ services:
     image: executor-jupyter:local
     environment:
       JUPYTER_TOKEN: ${JUPYTER_BATCH_PRIMARY_TOKEN:-change-me-batch-primary-local-only}
+      EXECUTOR_STORAGE_ID: ${JUPYTER_STORAGE_ID:-jupyter-shared}
       EXECUTOR_RESOURCE_CPU_CORES: ${JUPYTER_RESOURCE_CPU_CORES:-2}
       EXECUTOR_RESOURCE_MEMORY_BYTES: ${JUPYTER_RESOURCE_MEMORY_BYTES:-4294967296}
     ports:
@@ -161,7 +165,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          'curl --fail --silent --header "Authorization: token $${JUPYTER_TOKEN}" "http://127.0.0.1:8888/api/status" >/dev/null && curl --fail --silent --header "Authorization: token $${JUPYTER_TOKEN}" "http://127.0.0.1:8888/executor/resource-status" >/dev/null',
+          'curl --fail --silent --header "Authorization: token $${JUPYTER_TOKEN}" "http://127.0.0.1:8888/api/status" >/dev/null && curl --fail --silent --header "Authorization: token $${JUPYTER_TOKEN}" "http://127.0.0.1:8888/executor/resource-status" >/dev/null && curl --fail --silent --header "Authorization: token $${JUPYTER_TOKEN}" "http://127.0.0.1:8888/executor/storage/status" >/dev/null',
         ]
       interval: 5s
       timeout: 5s
@@ -175,6 +179,7 @@ services:
     image: executor-jupyter:local
     environment:
       JUPYTER_TOKEN: ${JUPYTER_BATCH_SECONDARY_TOKEN:-change-me-batch-secondary-local-only}
+      EXECUTOR_STORAGE_ID: ${JUPYTER_STORAGE_ID:-jupyter-shared}
       EXECUTOR_RESOURCE_CPU_CORES: ${JUPYTER_RESOURCE_CPU_CORES:-2}
       EXECUTOR_RESOURCE_MEMORY_BYTES: ${JUPYTER_RESOURCE_MEMORY_BYTES:-4294967296}
     ports:
@@ -183,7 +188,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          'curl --fail --silent --header "Authorization: token $${JUPYTER_TOKEN}" "http://127.0.0.1:8888/api/status" >/dev/null && curl --fail --silent --header "Authorization: token $${JUPYTER_TOKEN}" "http://127.0.0.1:8888/executor/resource-status" >/dev/null',
+          'curl --fail --silent --header "Authorization: token $${JUPYTER_TOKEN}" "http://127.0.0.1:8888/api/status" >/dev/null && curl --fail --silent --header "Authorization: token $${JUPYTER_TOKEN}" "http://127.0.0.1:8888/executor/resource-status" >/dev/null && curl --fail --silent --header "Authorization: token $${JUPYTER_TOKEN}" "http://127.0.0.1:8888/executor/storage/status" >/dev/null',
         ]
       interval: 5s
       timeout: 5s

@@ -9,7 +9,8 @@ future driver does not change Execution, scheduling, Attempt, or fleet-managemen
 
 All local Jupyter containers use the self-contained `executor-jupyter:local` image built from
 `python:3.12-slim-bookworm`, mount the same `./notebook_dir:/workspace/pv` shared-PV contract,
-and expose only the `basic` and `ml` Python kernels.
+report the same `JUPYTER_STORAGE_ID`, and expose only the `basic` and `ml` Python kernels. Executor
+does not mount this Jupyter storage.
 
 | Service | Pool | Host endpoint | Default token variable |
 |---|---|---|---|
@@ -29,13 +30,18 @@ matches production, where operators deploy or terminate Jupyter through the inte
 then update Executor through `runtime_target_upsert`, `runtime_target_set_state`, and
 `runtime_target_disable`.
 
-## Jupyter resource endpoint
+## Jupyter Runtime extension
 
 The custom image installs `executor_resource_extension` in the Jupyter server environment. It is
-enabled at image build time and exposes:
+enabled at image build time and exposes authenticated resource and storage endpoints:
 
 ```http
 GET /executor/resource-status
+GET /executor/storage/status
+POST /executor/storage/workspaces/prepare
+POST /executor/storage/artifacts/snapshot
+POST /executor/storage/files/metadata
+POST /executor/storage/manifests/read
 Authorization: token <JUPYTER_TOKEN>
 ```
 
@@ -78,8 +84,9 @@ JUPYTER_RESOURCE_MEMORY_BYTES=4294967296
 
 Authentication failure returns HTTP 403. A partial measurement does not make the Jupyter server
 unhealthy; `source`, `estimated`, and safe error codes describe the result. `source` is always
-`CGROUP_V2` and `estimated` is always false. Local Compose healthchecks require both the standard
-Jupyter status endpoint and this Extension endpoint.
+`CGROUP_V2` and `estimated` is always false. Local Compose healthchecks require the standard
+Jupyter status, resource, and storage-status endpoints. Storage status includes `storage_id`,
+`readable`, and `writable`; a mismatch with `JUPYTER_STORAGE_ID` keeps the target `OFFLINE`.
 
 The endpoint is the Runtime Driver observation contract. Persisting these observations on Runtime
 Targets and using them in load-aware target selection is a separate Executor scheduler change;
@@ -159,8 +166,8 @@ active Executions.
 
 ### One native Jupyter server without Docker
 
-When Executor and Jupyter run on the same machine, both processes must see the same absolute
-Workspace directory. Configure `.env` before starting Executor:
+When Executor and Jupyter run on the same machine, they still use separate storage boundaries.
+Configure Executor's PATH input root and expected Jupyter storage identity:
 
 ```env
 RUNTIME_ENABLED=true
@@ -170,12 +177,12 @@ JUPYTER_TOKEN=change-me-local-only
 RUNTIME_POOL=INTERACTIVE
 RUNTIME_ALLOWED_PROFILES=basic,ml
 RUNTIME_DEFAULT_MAX_CONCURRENT_EXECUTIONS=1
-WORKSPACE_HOST_ROOT=C:/absolute/path/to/executor/notebook_dir
-WORKSPACE_RUNTIME_ROOT=C:/absolute/path/to/executor/notebook_dir
+INPUT_HOST_ROOT=C:/absolute/path/to/executor/input_dir
+JUPYTER_STORAGE_ID=jupyter-shared
 ```
 
-Use the equivalent absolute POSIX path on Linux or macOS. Start Jupyter with that directory as its
-root so the relative kernel path sent by Executor resolves to the same Execution Workspace:
+Use the equivalent absolute POSIX path on Linux or macOS. Jupyter must use the custom image or
+have the Executor extension installed. Its root is Jupyter-owned storage, not `INPUT_HOST_ROOT`:
 
 ```bash
 jupyter lab --no-browser --ip 127.0.0.1 --port 8888 \

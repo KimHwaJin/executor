@@ -4,7 +4,7 @@ from collections.abc import Awaitable
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Query, Response, status
+from fastapi import APIRouter, Path, Query, Response, status
 
 from executor_service.application.commands import (
     CancelExecutionCommand,
@@ -13,6 +13,7 @@ from executor_service.application.commands import (
     RetryExecutionCommand,
     StepSpec,
 )
+from executor_service.application.notebook_queries import NotebookResponseFormat
 from executor_service.container import ApplicationContainer
 from executor_service.domain.enums import ExecutionStatus
 from executor_service.domain.errors import ExecutionNotFoundError, InvalidExecutionSpecError
@@ -24,6 +25,8 @@ from executor_service.interfaces.contracts import (
     ExecutionAttemptPageResponse,
     ExecutionCommandResponse,
     ExecutionEventPageResponse,
+    ExecutionNotebookCellResponse,
+    ExecutionNotebookResponse,
     ExecutionOperationPageResponse,
     ExecutionOperationResponse,
     ExecutionPageResponse,
@@ -47,6 +50,8 @@ AttemptLimit = Annotated[int, Query(ge=1, le=200)]
 EventLimit = Annotated[int, Query(ge=1, le=500)]
 ArtifactLimit = Annotated[int, Query(ge=1, le=1000)]
 Cursor = Annotated[str | None, Query(max_length=2048)]
+NotebookLimit = Annotated[int, Query(ge=0, le=200)]
+NotebookStartIndex = Annotated[int, Query(ge=0)]
 
 DOMAIN_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
     404: {"model": ErrorResponse, "description": "Execution or Artifact not found"},
@@ -100,9 +105,7 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
         )
         execution = result.execution
         response.headers["Location"] = f"/api/v1/executions/{execution.id}"
-        return ExecutionCommandResponse.from_domain(
-            execution, operation_id=result.operation_id
-        )
+        return ExecutionCommandResponse.from_domain(execution, operation_id=result.operation_id)
 
     @router.get(
         "/executions",
@@ -143,6 +146,42 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
             {"executor.execution.id": str(execution_id)},
         )
         return ExecutionResponse.from_view(execution)
+
+    @router.get(
+        "/executions/{execution_id}/notebook",
+        response_model=ExecutionNotebookResponse,
+        responses=DOMAIN_ERROR_RESPONSES,
+        summary="Read Runtime-owned execution notebook cells",
+    )
+    async def read_execution_notebook(
+        execution_id: UUID,
+        response_format: NotebookResponseFormat = "brief",
+        start_index: NotebookStartIndex = 0,
+        limit: NotebookLimit = 20,
+    ) -> ExecutionNotebookResponse:
+        view = await container.notebook_queries.read_notebook(
+            execution_id,
+            response_format=response_format,
+            start_index=start_index,
+            limit=limit,
+        )
+        return ExecutionNotebookResponse.from_view(view)
+
+    @router.get(
+        "/executions/{execution_id}/notebook/cells/{cell_index}",
+        response_model=ExecutionNotebookCellResponse,
+        responses=DOMAIN_ERROR_RESPONSES,
+        summary="Read one Runtime-owned execution notebook cell",
+    )
+    async def read_execution_notebook_cell(
+        execution_id: UUID,
+        cell_index: Annotated[int, Path(ge=0)],
+        include_outputs: bool = True,
+    ) -> ExecutionNotebookCellResponse:
+        view = await container.notebook_queries.read_cell(
+            execution_id, cell_index, include_outputs=include_outputs
+        )
+        return ExecutionNotebookCellResponse.from_view(execution_id, view)
 
     @router.post(
         "/executions/{execution_id}/cancel",
@@ -248,9 +287,7 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
         )
         execution = result.execution
         response.headers["Location"] = f"/api/v1/executions/{execution.id}"
-        return ExecutionCommandResponse.from_domain(
-            execution, operation_id=result.operation_id
-        )
+        return ExecutionCommandResponse.from_domain(execution, operation_id=result.operation_id)
 
     @router.post(
         "/executions/{execution_id}/finish",

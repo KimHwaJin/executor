@@ -1,5 +1,6 @@
 """Official MCP Python SDK v2 server and tool registration."""
 
+import json
 import logging
 from collections.abc import Awaitable
 from typing import Annotated
@@ -7,6 +8,7 @@ from uuid import UUID
 
 from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
+from mcp.types import ImageContent, TextContent
 from pydantic import Field
 
 from executor_service.application.commands import (
@@ -17,6 +19,11 @@ from executor_service.application.commands import (
     StepSpec,
 )
 from executor_service.application.execution_queries import ExecutionQueryService
+from executor_service.application.notebook_queries import (
+    ExecutionNotebookQueryService,
+    NotebookCellView,
+    NotebookResponseFormat,
+)
 from executor_service.application.runtime_targets import (
     DisableRuntimeTargetCommand,
     RuntimeTargetManager,
@@ -39,6 +46,7 @@ from executor_service.interfaces.contracts import (
     ExecutionAttemptPageResponse,
     ExecutionCommandResponse,
     ExecutionEventPageResponse,
+    ExecutionNotebookResponse,
     ExecutionOperationPageResponse,
     ExecutionOperationResponse,
     ExecutionPageResponse,
@@ -93,6 +101,7 @@ def build_mcp_server(
     execution_queries: ExecutionQueryService | None = None,
     tracing: TracingManager | None = None,
     execution_spec_resolver: ExecutionSpecResolver | None = None,
+    notebook_queries: ExecutionNotebookQueryService | None = None,
 ) -> MCPServer:
     server = MCPServer(
         name="executor-service",
@@ -291,6 +300,52 @@ def build_mcp_server(
         except Exception as exc:
             raise _public_tool_error(exc) from exc
         return ExecutionCommandResponse.from_domain(execution)
+
+    if notebook_queries is not None:
+
+        @server.tool(
+            description=(
+                "Read the Runtime-owned Execution notebook like Datalayer read_notebook. brief "
+                "returns the first source line and detailed returns full source. start_index and "
+                "limit provide index pagination; limit 0 returns all remaining cells."
+            )
+        )
+        async def execution_notebook_read(
+            execution_id: UUID,
+            response_format: NotebookResponseFormat = "brief",
+            start_index: Annotated[int, Field(ge=0)] = 0,
+            limit: Annotated[int, Field(ge=0, le=200)] = 20,
+        ) -> ExecutionNotebookResponse:
+            try:
+                view = await notebook_queries.read_notebook(
+                    execution_id,
+                    response_format=response_format,
+                    start_index=start_index,
+                    limit=limit,
+                )
+            except Exception as exc:
+                raise _public_tool_error(exc) from exc
+            return ExecutionNotebookResponse.from_view(view)
+
+        @server.tool(
+            description=(
+                "Read one Runtime-owned Notebook cell like Datalayer read_cell, including all "
+                "current outputs when include_outputs is true."
+            ),
+            structured_output=False,
+        )
+        async def execution_notebook_cell_read(
+            execution_id: UUID,
+            cell_index: Annotated[int, Field(ge=0)],
+            include_outputs: bool = True,
+        ) -> list[TextContent | ImageContent]:
+            try:
+                view = await notebook_queries.read_cell(
+                    execution_id, cell_index, include_outputs=include_outputs
+                )
+            except Exception as exc:
+                raise _public_tool_error(exc) from exc
+            return _notebook_cell_content(view)
 
     if execution_queries is not None:
 
@@ -615,3 +670,37 @@ def build_mcp_server(
             return RuntimeTargetResponse.from_view(view)
 
     return server
+
+
+def _notebook_cell_content(view: NotebookCellView) -> list[TextContent | ImageContent]:
+    header = {
+        "index": view.index,
+        "id": view.id,
+        "type": view.type,
+        "execution_count": view.execution_count,
+        "metadata": view.metadata,
+    }
+    content: list[TextContent | ImageContent] = [
+        TextContent(type="text", text=json.dumps(header, ensure_ascii=False)),
+        TextContent(type="text", text=view.source),
+    ]
+    for output in view.outputs:
+        if output.get("output_type") == "stream":
+            content.append(TextContent(type="text", text=str(output.get("text", ""))))
+            continue
+        if output.get("output_type") == "error":
+            content.append(TextContent(type="text", text=json.dumps(output, ensure_ascii=False)))
+            continue
+        data = output.get("data")
+        if not isinstance(data, dict):
+            content.append(TextContent(type="text", text=json.dumps(output, ensure_ascii=False)))
+            continue
+        for mime_type, value in data.items():
+            if mime_type in {"image/png", "image/jpeg"} and isinstance(value, str):
+                content.append(ImageContent(type="image", data=value, mime_type=mime_type))
+            else:
+                rendered = (
+                    value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+                )
+                content.append(TextContent(type="text", text=f"[{mime_type}]\n{rendered}"))
+    return content

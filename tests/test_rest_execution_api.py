@@ -20,9 +20,11 @@ from executor_service.domain.enums import (
     RetryStrategy,
     RuntimePool,
     RuntimeTargetStatus,
+    RuntimeType,
     StepStatus,
 )
 from executor_service.domain.models import utc_now
+from executor_service.domain.runtime import RuntimeStorageAccess
 from executor_service.infrastructure.db.base import Base
 from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
@@ -43,7 +45,7 @@ async def rest_client(
         database_url="sqlite+aiosqlite:///:memory:",
         redis_url="redis://localhost:6399/15",
         runtime_enabled=False,
-        workspace_host_root=tmp_path,
+        input_host_root=tmp_path,
     )
     container = ApplicationContainer(settings)
     async with container.engine.begin() as connection:
@@ -112,6 +114,8 @@ async def test_openapi_documents_all_execution_routes(
         "/api/v1/executions/{execution_id}/retry",
         "/api/v1/executions/{execution_id}/continue",
         "/api/v1/executions/{execution_id}/finish",
+        "/api/v1/executions/{execution_id}/notebook",
+        "/api/v1/executions/{execution_id}/notebook/cells/{cell_index}",
         "/api/v1/executions/{execution_id}/steps",
         "/api/v1/executions/{execution_id}/steps/{step_id}",
         "/api/v1/executions/{execution_id}/attempts",
@@ -129,6 +133,72 @@ async def test_openapi_documents_all_execution_routes(
     assert invalid.status_code == 422
     assert invalid.json()["error"]["code"] == "REQUEST_VALIDATION_ERROR"
     assert "must-not-leak" not in invalid.text
+
+
+async def test_rest_reads_runtime_owned_notebook_and_cell_outputs(
+    rest_client: tuple[httpx.AsyncClient, ApplicationContainer],
+) -> None:
+    client, container = rest_client
+    submitted = await client.post("/api/v1/executions", json=_submit_payload())
+    execution_id = submitted.json()["execution_id"]
+
+    unavailable = await client.get(f"/api/v1/executions/{execution_id}/notebook")
+    assert unavailable.status_code == 409
+    assert unavailable.json()["error"]["code"] == "EXECUTION_NOTEBOOK_NOT_AVAILABLE"
+
+    relative = f"users/rest-user/{execution_id}/notebooks/execution.ipynb"
+    target_id = uuid4()
+    notebook = {
+        "metadata": {},
+        "cells": [
+            {
+                "id": "cell-1",
+                "cell_type": "code",
+                "source": "print('first')\nprint('second')",
+                "execution_count": 1,
+                "metadata": {},
+                "outputs": [
+                    {"output_type": "stream", "name": "stdout", "text": "first\nsecond\n"}
+                ],
+            }
+        ],
+    }
+    container.notebook_queries._runtime_storage = _NotebookStorage(notebook)
+    async with container.session_factory() as session, session.begin():
+        await session.execute(
+            update(ExecutionORM)
+            .where(ExecutionORM.id == UUID(execution_id))
+            .values(runtime_target_id=target_id, notebook_path=relative)
+        )
+
+    brief = await client.get(
+        f"/api/v1/executions/{execution_id}/notebook", params={"response_format": "brief"}
+    )
+    assert brief.status_code == 200
+    assert brief.json()["cells"][0]["source"] == "print('first')"
+    assert brief.json()["cells"][0]["outputs"] == []
+
+    cell = await client.get(f"/api/v1/executions/{execution_id}/notebook/cells/0")
+    assert cell.status_code == 200
+    assert cell.json()["cell"]["outputs"][0]["text"] == "first\nsecond\n"
+
+    missing = await client.get(f"/api/v1/executions/{execution_id}/notebook/cells/3")
+    assert missing.status_code == 404
+    assert missing.json()["error"]["code"] == "NOTEBOOK_CELL_NOT_FOUND"
+
+
+class _NotebookStorage(RuntimeStorageAccess):
+    def __init__(self, notebook: dict[str, Any]) -> None:
+        self.notebook = notebook
+
+    async def read_notebook(
+        self,
+        runtime_type: RuntimeType,
+        preferred_target_id: UUID | None,
+        path: str,
+    ) -> dict[str, Any]:
+        del runtime_type, preferred_target_id, path
+        return self.notebook
 
 
 async def test_static_execution_rest_lifecycle_and_queries(
@@ -438,7 +508,7 @@ async def test_path_execution_spec_rest_submit(
     }
     content = json.dumps(spec, separators=(",", ":")).encode()
     relative_path = Path("plans/path-plan/execution-spec.json")
-    source_path = container.settings.workspace_host_root / relative_path
+    source_path = container.settings.input_host_root / relative_path
     source_path.parent.mkdir(parents=True)
     source_path.write_bytes(content)
     payload = _submit_payload(key="rest-path-submit", plan_id="ignored-inline-plan")

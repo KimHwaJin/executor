@@ -20,7 +20,7 @@ directory below `artifacts/` determines the automatic Artifact type. Files direc
 defined directories and put unknown types under `artifacts/other/`. The final notebook remains
 under `notebooks/` and is registered separately.
 
-A Tool only needs the Manifest when it creates a result elsewhere on the shared PV or records an
+A Tool only needs the Manifest when it creates a result elsewhere on Jupyter shared storage or records an
 S3 object.
 
 The Manifest is an append-only JSON Lines file at:
@@ -49,16 +49,15 @@ that Step and links them to the current Execution, Attempt, Step, Skill, and Too
 }
 ```
 
-PV paths may be:
+PV paths are interpreted and verified by the Jupyter Runtime storage extension. They may be:
 
 - absolute Jupyter paths under `/workspace/pv`;
-- host paths under `WORKSPACE_HOST_ROOT`;
 - root-relative paths beginning with `users/`;
 - paths relative to the current execution workspace.
 
 Symlinks and normalized paths are resolved before validation. Anything outside the configured PV
-root is rejected. Executor reads the file and computes its actual byte size, MIME type, and
-SHA-256 checksum.
+root is rejected. Jupyter reads the file and computes its actual byte size, MIME type, and SHA-256
+checksum; Executor persists the returned metadata and never opens the PV file locally.
 
 ## S3 entry
 

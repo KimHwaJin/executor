@@ -45,6 +45,7 @@ from executor_service.infrastructure.db.models import (
 from executor_service.infrastructure.db.session import create_session_factory
 from executor_service.infrastructure.runtime_registry import RuntimeTargetRegistry
 from executor_service.infrastructure.worker import ExecutionWorker
+from tests.runtime_storage_fake import InMemoryRuntimeStorage
 
 
 class FakeJupyterGateway:
@@ -68,7 +69,7 @@ class FakeJupyterGateway:
         self.deleted.append(runtime_session_id)
 
 
-class RecordingDynamicDriver:
+class RecordingDynamicDriver(InMemoryRuntimeStorage):
     executed: ClassVar[list[str]] = []
     fail_code: ClassVar[str | None] = None
 
@@ -87,9 +88,19 @@ class RecordingDynamicDriver:
     async def execute(self, _session_id: str, code: str) -> RuntimeExecutionResult:
         self.executed.append(code)
         if code == self.fail_code:
-            raise RuntimeExecutionError("expected operation failure", [])
+            raise RuntimeExecutionError(
+                "expected operation failure",
+                [
+                    {
+                        "output_type": "error",
+                        "ename": "RuntimeError",
+                        "evalue": "expected",
+                        "traceback": ["RuntimeError: expected"],
+                    }
+                ],
+            )
         return RuntimeExecutionResult(
-            outputs=[],
+            outputs=[{"output_type": "stream", "name": "stdout", "text": f"{code}\n"}],
             execution_count=len(self.executed),
         )
 
@@ -209,7 +220,7 @@ async def _make_waiting(
 def _worker(engine: AsyncEngine, tmp_path: Path) -> tuple[ExecutionWorker, Redis]:
     settings = Settings(
         runtime_enabled=False,
-        workspace_host_root=tmp_path,
+        input_host_root=tmp_path,
         execution_lease_seconds=30,
         execution_heartbeat_seconds=5,
         jupyter_request_timeout_seconds=0.1,
@@ -222,13 +233,14 @@ def _worker(engine: AsyncEngine, tmp_path: Path) -> tuple[ExecutionWorker, Redis
         redis=redis,
         settings=settings,
         registry=registry,
-        artifact_manager=ExecutionArtifactManager(session_factory, settings),
+        artifact_manager=ExecutionArtifactManager(session_factory),
     )
     return worker, redis
 
 
 @pytest.fixture(autouse=True)
 def _reset_fake_gateway() -> None:
+    RecordingDynamicDriver.reset_storage()
     FakeJupyterGateway.session_exists_result = True
     FakeJupyterGateway.deleted = []
     FakeJupyterGateway.interrupted = []
@@ -321,6 +333,17 @@ async def test_dynamic_operation_executes_submitted_steps_until_boundary(
     assert RecordingDynamicDriver.executed == (
         ["first", "raise expected", "third"] if fail_code is None else ["first", "raise expected"]
     )
+    notebook_path = next(iter(RecordingDynamicDriver.notebooks))
+    notebook = RecordingDynamicDriver.notebooks[notebook_path]
+    assert [cell["source"] for cell in notebook["cells"]] == (
+        ["first", "raise expected", "third"]
+        if fail_code is None
+        else ["first", "raise expected"]
+    )
+    assert [cell["execution_count"] for cell in notebook["cells"]] == (
+        [1, 2, 3] if fail_code is None else [1, 2]
+    )
+    assert all(cell["outputs"] for cell in notebook["cells"])
     assert len(events) == 1
     assert events[0].payload["operation_id"] == str(operation.id)
 

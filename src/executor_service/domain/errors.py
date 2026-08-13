@@ -8,6 +8,9 @@ class ErrorCode(StrEnum):
     EXECUTION_NOT_FOUND = "EXECUTION_NOT_FOUND"
     EXECUTION_ATTEMPT_NOT_FOUND = "EXECUTION_ATTEMPT_NOT_FOUND"
     EXECUTION_OPERATION_NOT_FOUND = "EXECUTION_OPERATION_NOT_FOUND"
+    EXECUTION_NOTEBOOK_NOT_AVAILABLE = "EXECUTION_NOTEBOOK_NOT_AVAILABLE"
+    NOTEBOOK_CELL_NOT_FOUND = "NOTEBOOK_CELL_NOT_FOUND"
+    NOTEBOOK_READ_ERROR = "NOTEBOOK_READ_ERROR"
     ARTIFACT_NOT_FOUND = "ARTIFACT_NOT_FOUND"
     RUNTIME_TARGET_NOT_FOUND = "RUNTIME_TARGET_NOT_FOUND"
     INVALID_EXECUTION_SPEC = "INVALID_EXECUTION_SPEC"
@@ -39,6 +42,18 @@ class ExecutionAttemptNotFoundError(DomainError):
 
 class ExecutionOperationNotFoundError(DomainError):
     code = ErrorCode.EXECUTION_OPERATION_NOT_FOUND
+
+
+class ExecutionNotebookNotAvailableError(DomainError):
+    code = ErrorCode.EXECUTION_NOTEBOOK_NOT_AVAILABLE
+
+
+class NotebookCellNotFoundError(DomainError):
+    code = ErrorCode.NOTEBOOK_CELL_NOT_FOUND
+
+
+class NotebookReadError(DomainError):
+    code = ErrorCode.NOTEBOOK_READ_ERROR
 
 
 class InvalidStateTransitionError(DomainError):

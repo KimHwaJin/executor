@@ -9,7 +9,6 @@ import asyncio
 import hashlib
 import os
 from dataclasses import dataclass
-from pathlib import Path
 from time import monotonic
 from typing import Any, Literal
 from uuid import UUID, uuid4
@@ -68,6 +67,20 @@ class CaseResult:
 
 def _enum_value(value: object) -> str:
     return str(getattr(value, "value", value))
+
+
+def _host_jupyter_endpoint(target: RuntimeTargetORM, settings: Any) -> str:
+    variable = (
+        "STATIC_LIFECYCLE_JUPYTER_SECONDARY_ENDPOINT"
+        if target.name == "local-jupyter-secondary"
+        else "STATIC_LIFECYCLE_JUPYTER_ENDPOINT"
+    )
+    default = (
+        "http://127.0.0.1:8889"
+        if target.name == "local-jupyter-secondary"
+        else settings.jupyter_endpoint
+    )
+    return os.getenv(variable, default)
 
 
 async def _mcp_result(client: Client, tool: str, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -247,9 +260,7 @@ async def _database_snapshot(
             )
         )
         operation = await session.scalar(
-            select(ExecutionOperationORM).where(
-                ExecutionOperationORM.execution_id == execution_id
-            )
+            select(ExecutionOperationORM).where(ExecutionOperationORM.execution_id == execution_id)
         )
         if operation is None:
             raise RuntimeError(f"Execution {execution_id} has no Operation.")
@@ -348,10 +359,7 @@ async def _runtime_session_exists(
         raise RuntimeError(f"Runtime Target {target_id} is missing.")
     credential = registry.resolve_credential(target.credential_ref, target.credential_ciphertext)
     connection_config = dict(target.connection_config)
-    connection_config["endpoint"] = os.getenv(
-        "STATIC_LIFECYCLE_JUPYTER_ENDPOINT",
-        settings.jupyter_endpoint,
-    )
+    connection_config["endpoint"] = _host_jupyter_endpoint(target, settings)
     driver = ConfiguredRuntimeDriverFactory(settings).create(
         target.runtime_type,
         connection_config,
@@ -363,10 +371,30 @@ async def _runtime_session_exists(
         await driver.close()
 
 
-def _artifact_path(workspace_root: Path, artifact: ExecutionArtifactORM) -> Path:
-    if artifact.relative_path is None:
-        raise RuntimeError(f"Artifact {artifact.id} has no PV relative path.")
-    return workspace_root / artifact.relative_path
+async def _runtime_file_exists(
+    session_factory: async_sessionmaker[AsyncSession],
+    target_id: UUID,
+    relative_path: str,
+) -> bool:
+    settings = get_settings()
+    registry = RuntimeTargetRegistry(session_factory, settings)
+    async with session_factory() as session:
+        target = await session.get(RuntimeTargetORM, target_id)
+    if target is None:
+        raise RuntimeError(f"Runtime Target {target_id} is missing.")
+    credential = registry.resolve_credential(target.credential_ref, target.credential_ciphertext)
+    connection_config = dict(target.connection_config)
+    connection_config["endpoint"] = _host_jupyter_endpoint(target, settings)
+    driver = ConfiguredRuntimeDriverFactory(settings).create(
+        target.runtime_type, connection_config, credential
+    )
+    try:
+        await driver.file_metadata(relative_path)
+    except Exception:
+        return False
+    finally:
+        await driver.close()
+    return True
 
 
 async def _run_failure_retry_case(
@@ -380,7 +408,6 @@ async def _run_failure_retry_case(
     session_factory: async_sessionmaker[AsyncSession],
     redis: Redis,
     stream: str,
-    workspace_root: Path,
 ) -> CaseResult:
     user_id = f"static-retry-{unique}-user"
     submitted = await _mcp_result(
@@ -563,8 +590,6 @@ async def _run_failure_retry_case(
     expected_checksums = tuple(hashlib.sha256(value.encode()).hexdigest() for value in ("1", "2"))
     if tuple(artifact.checksum_sha256 for artifact in artifacts) != expected_checksums:
         raise RuntimeError("Retry Artifact checksums do not preserve both write versions.")
-    if _artifact_path(workspace_root, artifacts[-1]).read_text(encoding="utf-8") != "2":
-        raise RuntimeError("Retry Artifact did not reach the expected final PV content.")
     notebook = next(
         (
             artifact
@@ -573,8 +598,15 @@ async def _run_failure_retry_case(
         ),
         None,
     )
-    if notebook is None or not _artifact_path(workspace_root, notebook).is_file():
+    if notebook is None:
         raise RuntimeError("Successful retry notebook Artifact is missing.")
+    notebook_view = await _mcp_result(
+        mcp,
+        "execution_notebook_read",
+        {"execution_id": execution_id, "response_format": "detailed", "limit": 0},
+    )
+    if notebook_view["page"]["total_count"] != 3:
+        raise RuntimeError(f"Successful retry notebook is incomplete: {notebook_view}")
     event_types = await _assert_event_delivery(
         "MCP",
         execution_id,
@@ -597,7 +629,8 @@ async def _run_failure_retry_case(
     operation_events = [
         event
         for event in snapshot.outbox_events
-        if event.event_type in {
+        if event.event_type
+        in {
             "execution.operation_failed",
             "execution.operation_succeeded",
         }
@@ -636,7 +669,6 @@ async def _run_cancel_case(
     session_factory: async_sessionmaker[AsyncSession],
     redis: Redis,
     stream: str,
-    workspace_root: Path,
 ) -> CaseResult:
     user_id = f"static-cancel-{unique}-user"
     payload = {
@@ -689,28 +721,24 @@ async def _run_cancel_case(
     )
     runtime_target_id = UUID(str(running["runtime"]["target_id"]))
     runtime_session_id = str(running["runtime"]["session_id"])
-    marker_relative = (
-        Path("users")
-        / user_id
-        / "projects"
-        / "static-cancel-project"
-        / "sessions"
-        / f"static-cancel-session-{unique}"
-        / "executions"
-        / execution_id
-        / "artifacts"
-        / "other"
-        / "cancel-e2e.txt"
-    )
-    marker_path = workspace_root / marker_relative
+    workspace_path = running["workspace"]["path"]
+    if not workspace_path:
+        raise RuntimeError("Running Execution has no Runtime workspace path.")
+    marker_relative = f"{workspace_path}/artifacts/other/cancel-e2e.txt"
     deadline = monotonic() + timeout_seconds
     marker_poll = asyncio.Event()
-    while monotonic() < deadline and not marker_path.is_file():
+    marker_exists = False
+    while monotonic() < deadline:
+        marker_exists = await _runtime_file_exists(
+            session_factory, runtime_target_id, marker_relative
+        )
+        if marker_exists:
+            break
         try:
-            await asyncio.wait_for(marker_poll.wait(), timeout=0.05)
+            await asyncio.wait_for(marker_poll.wait(), timeout=0.2)
         except TimeoutError:
             pass
-    if not marker_path.is_file():
+    if not marker_exists:
         raise RuntimeError("Cancellation marker was not written before the deadline.")
 
     cancel_requested = await _rest_json(
@@ -777,7 +805,8 @@ async def _run_cancel_case(
     ]
     if tuple(_enum_value(artifact.status) for artifact in cancel_artifacts) != ("INCOMPLETE",):
         raise RuntimeError(f"Cancelled-cell Artifact was not preserved: {cancel_artifacts}")
-    if _artifact_path(workspace_root, cancel_artifacts[0]).read_text(encoding="utf-8") != "started":
+    expected_checksum = hashlib.sha256(b"started").hexdigest()
+    if cancel_artifacts[0].checksum_sha256 != expected_checksum:
         raise RuntimeError("Cancelled-cell Artifact content is invalid.")
     if any(_enum_value(artifact.artifact_type) == "NOTEBOOK" for artifact in snapshot.artifacts):
         raise RuntimeError("Cancelled Execution unexpectedly registered a successful notebook.")
@@ -845,7 +874,6 @@ async def main() -> None:
                     session_factory=session_factory,
                     redis=redis,
                     stream=settings.redis_stream,
-                    workspace_root=settings.workspace_host_root,
                 ),
                 await _run_cancel_case(
                     unique=unique,
@@ -857,7 +885,6 @@ async def main() -> None:
                     session_factory=session_factory,
                     redis=redis,
                     stream=settings.redis_stream,
-                    workspace_root=settings.workspace_host_root,
                 ),
             ]
         for result in results:

@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Protocol
+from uuid import UUID
 
 from executor_service.domain.enums import RuntimeType
 
@@ -41,7 +42,44 @@ class RuntimeResourceObservation:
     memory: RuntimeResourceMetric
 
 
-class RuntimeDriver(Protocol):
+@dataclass(frozen=True, slots=True)
+class RuntimeFileState:
+    path: str
+    size_bytes: int
+    modified_ns: int
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeStorageSnapshot:
+    files: tuple[RuntimeFileState, ...]
+    manifest_size: int
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeFileMetadata:
+    path: str
+    name: str
+    size_bytes: int
+    modified_ns: int
+    media_type: str | None
+    checksum_sha256: str
+
+
+class RuntimeStorage(Protocol):
+    async def prepare_workspace(self, workspace_path: str) -> None: ...
+
+    async def artifact_snapshot(self, workspace_path: str) -> RuntimeStorageSnapshot: ...
+
+    async def file_metadata(self, path: str) -> RuntimeFileMetadata: ...
+
+    async def read_manifest(self, workspace_path: str, start: int) -> bytes: ...
+
+    async def write_notebook(self, path: str, notebook: dict[str, Any]) -> None: ...
+
+    async def read_notebook(self, path: str) -> dict[str, Any]: ...
+
+
+class RuntimeDriver(RuntimeStorage, Protocol):
     async def close(self) -> None: ...
 
     async def status(self) -> dict[str, Any]: ...
@@ -68,3 +106,12 @@ class RuntimeDriverFactory(Protocol):
         connection_config: dict[str, Any],
         credential: str,
     ) -> RuntimeDriver: ...
+
+
+class RuntimeStorageAccess(Protocol):
+    async def read_notebook(
+        self,
+        runtime_type: RuntimeType,
+        preferred_target_id: UUID | None,
+        path: str,
+    ) -> dict[str, Any]: ...

@@ -1,4 +1,4 @@
-"""Transport-neutral ExecutionSpec v1 contracts and shared-PV resolver."""
+"""Transport-neutral ExecutionSpec v1 contracts and Agent/Executor input resolver."""
 
 import asyncio
 import hashlib
@@ -71,12 +71,12 @@ class ResolvedExecutionSpec:
 class ExecutionSpecResolver:
     def __init__(
         self,
-        workspace_root: Path,
+        input_root: Path,
         *,
         inline_max_bytes: int = 256 * 1024,
         file_max_bytes: int = 50 * 1024 * 1024,
     ) -> None:
-        self._workspace_root = workspace_root.resolve()
+        self._input_root = input_root.resolve()
         self._inline_max_bytes = inline_max_bytes
         self._file_max_bytes = file_max_bytes
 
@@ -100,14 +100,12 @@ class ExecutionSpecResolver:
     def _resolve_path(self, source: PathCodeSource) -> ResolvedExecutionSpec:
         relative_path = Path(source.path)
         if relative_path.is_absolute():
-            raise InvalidExecutionSpecError("PATH source must be relative to the shared PV root.")
-        resolved_path = (self._workspace_root / relative_path).resolve()
+            raise InvalidExecutionSpecError("PATH source must be relative to the input root.")
+        resolved_path = (self._input_root / relative_path).resolve()
         try:
-            resolved_path.relative_to(self._workspace_root)
+            resolved_path.relative_to(self._input_root)
         except ValueError as exc:
-            raise InvalidExecutionSpecError(
-                "PATH source resolves outside the shared PV root."
-            ) from exc
+            raise InvalidExecutionSpecError("PATH source resolves outside the input root.") from exc
         if not resolved_path.is_file():
             raise InvalidExecutionSpecError("ExecutionSpec PATH source does not exist.")
         with resolved_path.open("rb") as file:

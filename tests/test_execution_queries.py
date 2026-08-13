@@ -180,8 +180,6 @@ async def test_execution_reads_do_not_load_source_code_or_step_rows(
     normalized = [" ".join(statement.split()) for statement in statements]
     assert len(normalized) == 2
     assert all("execution_steps.code" not in statement for statement in normalized)
-    execution_selects = [
-        statement for statement in normalized if " from executions " in statement
-    ]
+    execution_selects = [statement for statement in normalized if " from executions " in statement]
     assert execution_selects
     assert all("executions.code," not in statement for statement in execution_selects)

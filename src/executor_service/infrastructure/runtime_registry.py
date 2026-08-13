@@ -343,6 +343,13 @@ class RuntimeTargetRegistry:
         resource_error: str | None = None
         try:
             status = await driver.status()
+            if (
+                target.runtime_type == RuntimeType.JUPYTER
+                and status.get("storage_id") != self._settings.jupyter_storage_id
+            ):
+                raise RuntimeTargetConfigurationError(
+                    "Runtime Target is not attached to the configured shared Jupyter storage."
+                )
             reported_profiles = await driver.supported_profiles()
             allowed_profiles = set(self._settings.runtime_allowed_profiles)
             profiles = [profile for profile in reported_profiles if profile in allowed_profiles]
@@ -675,16 +682,8 @@ class RuntimeTargetRegistry:
         if resource_fresh:
             pressure_components = [
                 active_execution_count / target.max_concurrent_executions,
-                *(
-                    [target.cpu_utilization]
-                    if target.cpu_utilization is not None
-                    else []
-                ),
-                *(
-                    [target.memory_utilization]
-                    if target.memory_utilization is not None
-                    else []
-                ),
+                *([target.cpu_utilization] if target.cpu_utilization is not None else []),
+                *([target.memory_utilization] if target.memory_utilization is not None else []),
             ]
             resource_pressure_score = max(pressure_components)
         return RuntimeTargetView(

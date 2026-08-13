@@ -30,18 +30,18 @@ from executor_service.infrastructure.db.models import ExecutionArtifactORM, Runt
 from executor_service.infrastructure.db.session import create_session_factory
 from executor_service.infrastructure.runtime_registry import RuntimeTargetRegistry
 from executor_service.infrastructure.worker import ExecutionWorker
+from tests.runtime_storage_fake import InMemoryRuntimeStorage
 
 
-class FileWritingBlockedDriver:
-    root = Path()
+class FileWritingBlockedDriver(InMemoryRuntimeStorage):
     started = asyncio.Event()
 
     def __init__(self, *_args: Any, **_kwargs: Any) -> None:
         self.workspace = ""
 
     @classmethod
-    def configure(cls, root: Path) -> None:
-        cls.root = root
+    def configure(cls, _root: Path) -> None:
+        cls.reset_storage()
         cls.started = asyncio.Event()
 
     async def start_session(self, _runtime_profile: str, path: str) -> str:
@@ -49,8 +49,7 @@ class FileWritingBlockedDriver:
         return "cancel-artifact-kernel"
 
     async def execute(self, _runtime_session_id: str, _code: str) -> Any:
-        artifact = self.root / self.workspace / "artifacts" / "other" / "cancelled.txt"
-        artifact.write_text("partial", encoding="utf-8")
+        type(self).put_runtime_file(f"{self.workspace}/artifacts/other/cancelled.txt", b"partial")
         type(self).started.set()
         await asyncio.Event().wait()
 
@@ -113,14 +112,14 @@ async def test_cancelled_cell_registers_partial_file_as_incomplete_artifact(
             ),
         )
     )
-    settings = Settings(runtime_enabled=False, workspace_host_root=tmp_path)
+    settings = Settings(runtime_enabled=False, input_host_root=tmp_path)
     redis = Redis.from_url("redis://127.0.0.1:6379/15", decode_responses=True)
     worker = ExecutionWorker(
         session_factory=session_factory,
         redis=redis,
         settings=settings,
         registry=RuntimeTargetRegistry(session_factory, settings),
-        artifact_manager=ExecutionArtifactManager(session_factory, settings),
+        artifact_manager=ExecutionArtifactManager(session_factory),
     )
     FileWritingBlockedDriver.configure(tmp_path)
     monkeypatch.setattr(
