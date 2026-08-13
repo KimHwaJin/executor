@@ -21,7 +21,9 @@ Interactive documentation is available at `/docs`, ReDoc at `/redoc`, and the Op
 | POST | `/api/v1/executions/{execution_id}/finish` | Finalize a waiting DYNAMIC execution | 202 |
 | GET | `/api/v1/executions/{execution_id}/steps` | List current Steps | 200 |
 | GET | `/api/v1/executions/{execution_id}/steps/{step_id}` | Get one current Step | 200 |
-| GET | `/api/v1/executions/{execution_id}/attempts` | List immutable Attempts and Step Attempts | 200 |
+| GET | `/api/v1/executions/{execution_id}/attempts` | List immutable Attempt summaries | 200 |
+| GET | `/api/v1/executions/{execution_id}/attempts/{attempt_id}` | Get one Attempt in detail | 200 |
+| GET | `/api/v1/executions/{execution_id}/attempts/{attempt_id}/steps` | List Step results for one Attempt | 200 |
 | GET | `/api/v1/executions/{execution_id}/events` | List Outbox/Redis publication history | 200 |
 | GET | `/api/v1/executions/{execution_id}/artifacts` | List produced Artifacts | 200 |
 | GET | `/api/v1/artifacts/{artifact_id}` | Get one Artifact and lineage references | 200 |
@@ -48,9 +50,9 @@ identifies the schedule or manual batch trigger and may differ from `context.use
 also requires `context.workflow_id`.
 Interactive submissions require `USER`, while batch submissions require `BATCH`. Responses expose
 `created_at`, `updated_at`, `created_by_type`, `created_by`, `updated_by_type`, and `updated_by` on
-audited resources. Execution detail and list responses expose immutable Runtime type and profile
-under `runtime`. Attempt history snapshots both fields so it remains self-contained even if
-fleet configuration changes later.
+audited resources. Execution detail exposes immutable Runtime type and profile under `runtime`;
+the lighter history item does not. Attempt detail snapshots Runtime and lease/recovery fields,
+while Attempt list items contain only state, failure, lifecycle, and `step_count`.
 
 ## Submit and poll
 
@@ -89,17 +91,26 @@ curl -i -X POST http://127.0.0.1:8000/api/v1/executions \
   }'
 ```
 
-The response is `202 Accepted`, includes the new `execution_id`, and sets `Location` to its GET
-resource. Tool completion is not execution completion.
+The response is `202 Accepted`, includes `execution_id`, current `state`, and the complete audit
+field set, and sets `Location` to its GET resource. It intentionally omits submitted source,
+Runtime, context, and Steps; use the Location resource and child list endpoints for those details.
+Tool completion is not execution completion. Cancel, retry, continue, and finish use the same
+compact command response and Location header.
 
 ```bash
 curl http://127.0.0.1:8000/api/v1/executions/EXECUTION_ID
 curl 'http://127.0.0.1:8000/api/v1/executions?task_id=task-001&limit=20'
 curl 'http://127.0.0.1:8000/api/v1/executions?task_id=task-001&limit=20&cursor=NEXT_CURSOR'
 curl http://127.0.0.1:8000/api/v1/executions/EXECUTION_ID/attempts
+curl http://127.0.0.1:8000/api/v1/executions/EXECUTION_ID/attempts/ATTEMPT_ID
+curl http://127.0.0.1:8000/api/v1/executions/EXECUTION_ID/attempts/ATTEMPT_ID/steps
 curl http://127.0.0.1:8000/api/v1/executions/EXECUTION_ID/events
 curl http://127.0.0.1:8000/api/v1/executions/EXECUTION_ID/artifacts
 ```
+
+Execution detail does not embed Steps, and Attempt detail does not embed Step Attempts. All child
+collections are cursor-paginated. Artifact list items are summaries; use
+`GET /api/v1/artifacts/{artifact_id}` for description, lineage, URI, checksum, and metadata.
 
 PATH submit uses the same request except for `source`:
 

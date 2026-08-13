@@ -70,7 +70,7 @@ class ExecutionAttemptView:
     updated_at: datetime
     started_at: datetime
     finished_at: datetime | None
-    steps: tuple[ExecutionStepAttemptView, ...]
+    step_count: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,6 +139,19 @@ class ExecutionQueryService(Protocol):
     async def attempts(
         self, execution_id: UUID, *, cursor: str | None = None, limit: int = 100
     ) -> Page[ExecutionAttemptView]: ...
+
+    async def attempt(
+        self, execution_id: UUID, attempt_id: UUID
+    ) -> ExecutionAttemptView: ...
+
+    async def attempt_steps(
+        self,
+        execution_id: UUID,
+        attempt_id: UUID,
+        *,
+        cursor: str | None = None,
+        limit: int = 100,
+    ) -> Page[ExecutionStepAttemptView]: ...
 
     async def events(
         self, execution_id: UUID, *, cursor: str | None = None, limit: int = 200

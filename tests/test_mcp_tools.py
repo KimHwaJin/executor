@@ -78,18 +78,25 @@ async def test_mcp_client_can_list_and_call_execution_tools(
         assert not submitted.is_error
         execution_id = submitted.structured_content["execution_id"]
         assert submitted.structured_content["state"]["status"] == "QUEUED"
-        assert submitted.structured_content["runtime"]["type"] == "JUPYTER"
-        assert submitted.structured_content["runtime"]["pool"] == "INTERACTIVE"
-        assert submitted.structured_content["source"]["type"] == "INLINE"
-        assert len(submitted.structured_content["source"]["sha256"]) == 64
-        assert submitted.structured_content["context"]["user_id"] == "user-1"
-        assert submitted.structured_content["context"]["task_id"] == "task-1"
-        assert submitted.structured_content["steps"][0]["plan"]["plan_step_id"] == "plan-step-1"
+        assert set(submitted.structured_content) == {
+            "execution_id",
+            "state",
+            "created_by_type",
+            "created_by",
+            "updated_by_type",
+            "updated_by",
+            "created_at",
+            "updated_at",
+        }
 
         fetched = await client.call_tool("execution_get", {"execution_id": execution_id})
         assert not fetched.is_error
         assert fetched.structured_content["execution_id"] == execution_id
         assert fetched.structured_content["runtime"]["type"] == "JUPYTER"
+        assert fetched.structured_content["source"]["type"] == "INLINE"
+        assert len(fetched.structured_content["source"]["sha256"]) == 64
+        assert fetched.structured_content["context"]["user_id"] == "user-1"
+        assert "steps" not in fetched.structured_content
 
         cancelled = await client.call_tool(
             "execution_cancel",
@@ -122,7 +129,9 @@ async def test_mcp_client_can_query_execution_history_resources(
         listed = await client.list_tools()
         tool_names = {tool.name for tool in listed.tools}
         assert {
+            "execution_attempt_get",
             "execution_attempt_list",
+            "execution_attempt_step_list",
             "execution_step_list",
             "execution_artifact_get",
             "execution_artifact_list",
@@ -164,7 +173,7 @@ async def test_mcp_execution_list_uses_opaque_next_cursor(
         first = await client.call_tool("execution_list", {"limit": 1})
         assert not first.is_error
         assert len(first.structured_content["items"]) == 1
-        assert first.structured_content["items"][0]["runtime"]["type"] == "JUPYTER"
+        assert "runtime" not in first.structured_content["items"][0]
         cursor = first.structured_content["next_cursor"]
         assert cursor
 
@@ -306,11 +315,12 @@ async def test_execution_submit_reads_path_spec_and_derives_batch_pool(
         submitted = await client.call_tool("execution_submit", arguments)
 
     assert not submitted.is_error
-    assert submitted.structured_content["runtime"]["pool"] == "BATCH"
-    assert submitted.structured_content["source"]["path"] == "plans/batch.execution.json"
-    assert submitted.structured_content["context"]["user_id"] == "user-1"
     assert submitted.structured_content["created_by"] == "batch-1"
-    assert submitted.structured_content["context"]["execution_plan_id"] == "batch-plan-1"
+    execution = await execution_service.get(UUID(submitted.structured_content["execution_id"]))
+    assert execution.runtime_pool.value == "BATCH"
+    assert execution.code_path == "plans/batch.execution.json"
+    assert execution.user_id == "user-1"
+    assert execution.execution_plan_id == "batch-plan-1"
 
 
 async def test_dynamic_continue_accepts_next_inline_execution_spec(
@@ -363,5 +373,6 @@ async def test_dynamic_continue_accepts_next_inline_execution_spec(
         )
 
     assert not continued.is_error
-    assert continued.structured_content["steps"][1]["plan"]["execution_plan_id"] == "plan-2"
-    assert continued.structured_content["steps"][1]["plan"]["plan_step_id"] == "plan-2-step-1"
+    execution = await execution_service.get(UUID(execution_id))
+    assert execution.steps[1].execution_plan_id == "plan-2"
+    assert execution.steps[1].plan_step_id == "plan-2-step-1"

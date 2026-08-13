@@ -19,10 +19,13 @@ from executor_service.domain.errors import ExecutionNotFoundError, InvalidExecut
 from executor_service.interfaces.contracts import (
     ExecutionArtifactPageResponse,
     ExecutionArtifactResponse,
+    ExecutionAttemptDetailResponse,
     ExecutionAttemptPageResponse,
+    ExecutionCommandResponse,
     ExecutionEventPageResponse,
     ExecutionPageResponse,
     ExecutionResponse,
+    ExecutionStepAttemptPageResponse,
     ExecutionStepPageResponse,
     ExecutionStepResponse,
     ExecutionSubmitRequest,
@@ -68,14 +71,14 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
 
     @router.post(
         "/executions",
-        response_model=ExecutionResponse,
+        response_model=ExecutionCommandResponse,
         status_code=status.HTTP_202_ACCEPTED,
         responses=DOMAIN_ERROR_RESPONSES,
         summary="Submit an asynchronous execution",
     )
     async def submit_execution(
         request: ExecutionSubmitRequest, response: Response
-    ) -> ExecutionResponse:
+    ) -> ExecutionCommandResponse:
         resolved = await resolver.resolve(request.source)
         if resolved.spec.steps[0].sequence != 0:
             raise InvalidExecutionSpecError(
@@ -93,7 +96,7 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
             ),
         )
         response.headers["Location"] = f"/api/v1/executions/{execution.id}"
-        return ExecutionResponse.from_domain(execution)
+        return ExecutionCommandResponse.from_domain(execution)
 
     @router.get(
         "/executions",
@@ -137,14 +140,14 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
 
     @router.post(
         "/executions/{execution_id}/cancel",
-        response_model=ExecutionResponse,
+        response_model=ExecutionCommandResponse,
         status_code=status.HTTP_202_ACCEPTED,
         responses=DOMAIN_ERROR_RESPONSES,
         summary="Request asynchronous cancellation",
     )
     async def cancel_execution(
-        execution_id: UUID, request: ExecutionCancelRequest
-    ) -> ExecutionResponse:
+        execution_id: UUID, request: ExecutionCancelRequest, response: Response
+    ) -> ExecutionCommandResponse:
         execution = await _trace_call(
             tracing,
             "executor.http.execution_cancel",
@@ -159,18 +162,19 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
             ),
             {"executor.execution.id": str(execution_id)},
         )
-        return ExecutionResponse.from_domain(execution)
+        response.headers["Location"] = f"/api/v1/executions/{execution.id}"
+        return ExecutionCommandResponse.from_domain(execution)
 
     @router.post(
         "/executions/{execution_id}/retry",
-        response_model=ExecutionResponse,
+        response_model=ExecutionCommandResponse,
         status_code=status.HTTP_202_ACCEPTED,
         responses=DOMAIN_ERROR_RESPONSES,
         summary="Retry a failed execution",
     )
     async def retry_execution(
-        execution_id: UUID, request: ExecutionRetryRequest
-    ) -> ExecutionResponse:
+        execution_id: UUID, request: ExecutionRetryRequest, response: Response
+    ) -> ExecutionCommandResponse:
         execution = await _trace_call(
             tracing,
             "executor.http.execution_retry",
@@ -184,18 +188,19 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
             ),
             {"executor.execution.id": str(execution_id)},
         )
-        return ExecutionResponse.from_domain(execution)
+        response.headers["Location"] = f"/api/v1/executions/{execution.id}"
+        return ExecutionCommandResponse.from_domain(execution)
 
     @router.post(
         "/executions/{execution_id}/continue",
-        response_model=ExecutionResponse,
+        response_model=ExecutionCommandResponse,
         status_code=status.HTTP_202_ACCEPTED,
         responses=DOMAIN_ERROR_RESPONSES,
         summary="Append the next dynamic execution Step",
     )
     async def continue_execution(
-        execution_id: UUID, request: ExecutionContinueRequest
-    ) -> ExecutionResponse:
+        execution_id: UUID, request: ExecutionContinueRequest, response: Response
+    ) -> ExecutionCommandResponse:
         resolved = await resolver.resolve(request.source)
         if len(resolved.spec.steps) != 1:
             raise InvalidExecutionSpecError(
@@ -228,18 +233,19 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
                 "executor.step.sequence": source_step.sequence,
             },
         )
-        return ExecutionResponse.from_domain(execution)
+        response.headers["Location"] = f"/api/v1/executions/{execution.id}"
+        return ExecutionCommandResponse.from_domain(execution)
 
     @router.post(
         "/executions/{execution_id}/finish",
-        response_model=ExecutionResponse,
+        response_model=ExecutionCommandResponse,
         status_code=status.HTTP_202_ACCEPTED,
         responses=DOMAIN_ERROR_RESPONSES,
         summary="Finalize a waiting dynamic execution",
     )
     async def finish_execution(
-        execution_id: UUID, request: ExecutionFinishRequest
-    ) -> ExecutionResponse:
+        execution_id: UUID, request: ExecutionFinishRequest, response: Response
+    ) -> ExecutionCommandResponse:
         execution = await _trace_call(
             tracing,
             "executor.http.execution_finish",
@@ -254,7 +260,8 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
             ),
             {"executor.execution.id": str(execution_id)},
         )
-        return ExecutionResponse.from_domain(execution)
+        response.headers["Location"] = f"/api/v1/executions/{execution.id}"
+        return ExecutionCommandResponse.from_domain(execution)
 
     @router.get(
         "/executions/{execution_id}/steps",
@@ -268,7 +275,7 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
         limit: ExecutionLimit = 100,
     ) -> ExecutionStepPageResponse:
         page = await execution_queries.steps(execution_id, cursor=cursor, limit=limit)
-        return ExecutionStepPageResponse.from_page(page)
+        return ExecutionStepPageResponse.from_page(page, execution_id)
 
     @router.get(
         "/executions/{execution_id}/steps/{step_id}",
@@ -283,7 +290,7 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
             raise ExecutionNotFoundError(
                 f"Execution Step {step_id} was not found in Execution {execution_id}."
             )
-        return ExecutionStepResponse.from_domain(step)
+        return ExecutionStepResponse.from_domain(step, execution_id)
 
     @router.get(
         "/executions/{execution_id}/attempts",
@@ -298,6 +305,38 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
     ) -> ExecutionAttemptPageResponse:
         page = await execution_queries.attempts(execution_id, cursor=cursor, limit=limit)
         return ExecutionAttemptPageResponse.from_page(page)
+
+    @router.get(
+        "/executions/{execution_id}/attempts/{attempt_id}",
+        response_model=ExecutionAttemptDetailResponse,
+        responses=DOMAIN_ERROR_RESPONSES,
+        summary="Get one immutable execution Attempt",
+    )
+    async def get_execution_attempt(
+        execution_id: UUID, attempt_id: UUID
+    ) -> ExecutionAttemptDetailResponse:
+        view = await execution_queries.attempt(execution_id, attempt_id)
+        return ExecutionAttemptDetailResponse.from_view(view)
+
+    @router.get(
+        "/executions/{execution_id}/attempts/{attempt_id}/steps",
+        response_model=ExecutionStepAttemptPageResponse,
+        responses=DOMAIN_ERROR_RESPONSES,
+        summary="List immutable Step results for one Attempt",
+    )
+    async def list_execution_attempt_steps(
+        execution_id: UUID,
+        attempt_id: UUID,
+        cursor: Cursor = None,
+        limit: ExecutionLimit = 100,
+    ) -> ExecutionStepAttemptPageResponse:
+        page = await execution_queries.attempt_steps(
+            execution_id,
+            attempt_id,
+            cursor=cursor,
+            limit=limit,
+        )
+        return ExecutionStepAttemptPageResponse.from_page(page)
 
     @router.get(
         "/executions/{execution_id}/events",

@@ -35,6 +35,10 @@ from executor_service.infrastructure.db.models import (
 from executor_service.infrastructure.db.session import create_session_factory
 from executor_service.infrastructure.execution_queries import SQLAlchemyExecutionQueryService
 from executor_service.infrastructure.workspace import WorkspaceManager
+from executor_service.interfaces.contracts import (
+    ExecutionArtifactPageResponse,
+    ExecutionArtifactResponse,
+)
 
 
 def _command() -> SubmitExecutionCommand:
@@ -199,6 +203,16 @@ async def test_artifact_discovery_manifest_lineage_and_idempotency(
     processed_artifact = next(
         artifact for artifact in artifacts if artifact.name == "processed-daily-data"
     )
+    artifact_page = ExecutionArtifactPageResponse.from_page(artifacts)
+    artifact_summary = next(
+        item for item in artifact_page.items if item.name == "processed-daily-data"
+    )
+    artifact_detail = ExecutionArtifactResponse.from_view(processed_artifact)
+    assert artifact_summary.storage.size_bytes == len(b"processed-data")
+    assert "uri" not in artifact_summary.storage.model_dump()
+    assert artifact_detail.storage.uri.startswith("pv://")
+    assert artifact_detail.lineage.external_parent_asset_id == "raw-daily-asset"
+    assert artifact_detail.metadata["rows"] == 1
     assert processed_artifact.storage_type == ArtifactStorageType.PV
     assert processed_artifact.external_parent_asset_id == "raw-daily-asset"
     assert processed_artifact.metadata == {
