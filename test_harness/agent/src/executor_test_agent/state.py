@@ -22,3 +22,4 @@ class AgentState(BaseModel):
     execution_request: dict[str, Any] | None = None
     terminal_event: dict[str, Any] | None = None
     execution_result: dict[str, Any] | None = None
+    wait_strategy: Literal["INTERRUPT", "STREAM"] = "INTERRUPT"

@@ -19,16 +19,26 @@ TERMINAL_EVENT_TYPES = {
 class ExecutionEventWaiter:
     """Own one temporary consumer group so concurrent E2E runs cannot steal events."""
 
-    def __init__(self, redis_url: str, stream: str, group_prefix: str) -> None:
+    def __init__(
+        self,
+        redis_url: str,
+        stream: str,
+        group_prefix: str,
+        *,
+        include_existing: bool = False,
+    ) -> None:
         suffix = uuid4().hex
         self._redis = Redis.from_url(redis_url, decode_responses=True)
         self._stream = stream
         self._group = f"{group_prefix}-{suffix}"
         self._consumer = f"{socket.gethostname()}-{suffix}"
+        self._start_id = "0-0" if include_existing else "$"
 
     async def open(self) -> None:
         try:
-            await self._redis.xgroup_create(self._stream, self._group, id="$", mkstream=True)
+            await self._redis.xgroup_create(
+                self._stream, self._group, id=self._start_id, mkstream=True
+            )
         except ResponseError as exc:
             if "BUSYGROUP" not in str(exc):
                 raise

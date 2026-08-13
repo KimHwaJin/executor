@@ -43,7 +43,7 @@ class ExecutionEventEnvelope(BaseModel):
 
 
 class AgentExecutionRequest(BaseModel):
-    """Input accepted by the test graph for one deterministic STATIC execution."""
+    """Input accepted by the test graph for one validated STATIC execution."""
 
     model_config = ConfigDict(extra="forbid")
 

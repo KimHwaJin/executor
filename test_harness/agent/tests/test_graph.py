@@ -8,6 +8,7 @@ from langgraph.types import Command
 from executor_test_agent import graph as graph_module
 from executor_test_agent.config import get_settings
 from executor_test_agent.graph import BOOTSTRAP_MESSAGE, _chat_model, graph
+from executor_test_agent.planning import PlanningDecision
 from executor_test_agent.state import AgentState
 
 
@@ -45,6 +46,9 @@ async def test_graph_runs_executor_request_and_returns_verified_result(monkeypat
             "steps": [{"result": {"status": "SUCCEEDED"}}],
             "artifacts": [{"name": "result.txt"}],
             "notebook_path": "users/u/executions/execution-1/notebooks/execution.ipynb",
+            "notebook": {
+                "cells": [{"outputs": [{"output_type": "stream", "name": "stdout", "text": "3\n"}]}]
+            },
         }
 
     monkeypatch.setattr(graph_module, "submit_execution", fake_submit_execution)
@@ -94,3 +98,86 @@ async def test_graph_runs_executor_request_and_returns_verified_result(monkeypat
     assert result.execution_id == execution_id
     assert result.execution_result is not None
     assert "result.txt" in str(result.messages[-1].content)
+
+
+async def test_graph_plans_natural_language_and_waits_for_stream_event(monkeypatch) -> None:
+    execution_id = "00000000-0000-0000-0000-000000000010"
+    terminal_event = {
+        "event_id": "00000000-0000-0000-0000-000000000011",
+        "event_type": "execution.succeeded",
+        "schema_version": "1.0",
+        "aggregate_type": "Execution",
+        "aggregate_id": execution_id,
+        "occurred_at": "2026-08-13T00:00:00Z",
+        "payload": {
+            "schema_version": "1.0",
+            "execution_id": execution_id,
+            "status": "SUCCEEDED",
+        },
+    }
+
+    async def fake_plan_message(_model, _messages):
+        return PlanningDecision.model_validate(
+            {
+                "intent": "EXECUTE",
+                "response": "합계를 실행합니다.",
+                "runtime_profile": "basic",
+                "steps": [
+                    {
+                        "skill_name": "eda",
+                        "tool_name": "sum_values",
+                        "code": "print(sum(range(1, 11)))",
+                    }
+                ],
+            }
+        )
+
+    async def fake_submit_execution(request, _settings):
+        assert request.steps[0]["tool_name"] == "sum_values"
+        return execution_id
+
+    async def fake_reconcile_execution(_execution_id, _terminal_event, _settings):
+        return {
+            "execution_id": execution_id,
+            "status": "SUCCEEDED",
+            "steps": [{"result": {"status": "SUCCEEDED"}}],
+            "artifacts": [{"name": "execution.ipynb"}],
+            "notebook_path": "users/u/executions/e/notebooks/execution.ipynb",
+            "notebook": {
+                "cells": [
+                    {"outputs": [{"output_type": "stream", "name": "stdout", "text": "55\n"}]}
+                ]
+            },
+        }
+
+    class FakeWaiter:
+        def __init__(self, *_args, **kwargs):
+            assert kwargs["include_existing"] is True
+
+        async def open(self):
+            pass
+
+        async def close(self):
+            pass
+
+        async def wait_for_terminal(self, requested_execution_id, *, timeout_seconds):
+            assert requested_execution_id == execution_id
+            assert timeout_seconds > 0
+            return graph_module.ExecutionEventEnvelope.model_validate(terminal_event)
+
+    monkeypatch.setattr(graph_module, "_chat_model", lambda: object())
+    monkeypatch.setattr(graph_module, "plan_message", fake_plan_message)
+    monkeypatch.setattr(graph_module, "submit_execution", fake_submit_execution)
+    monkeypatch.setattr(graph_module, "reconcile_execution", fake_reconcile_execution)
+    monkeypatch.setattr(graph_module, "ExecutionEventWaiter", FakeWaiter)
+
+    raw_result = await graph.ainvoke(
+        AgentState(messages=[HumanMessage(content="1부터 10까지 합계를 실행해줘")]),
+        RunnableConfig(configurable={"thread_id": "chat-test"}),
+    )
+    result = AgentState.model_validate(raw_result)
+
+    assert result.phase == "SUCCEEDED"
+    assert result.execution_id == execution_id
+    assert result.execution_request is None
+    assert "55" in str(result.messages[-1].content)
