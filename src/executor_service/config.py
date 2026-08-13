@@ -52,7 +52,6 @@ class Settings(BaseSettings):
     runtime_target_name: str = "local-jupyter"
     jupyter_endpoint: str = "http://127.0.0.1:8888"
     jupyter_token: SecretStr = SecretStr("change-me-local-only")
-    jupyter_storage_id: str = Field(default="jupyter-shared", min_length=1, max_length=255)
     # Base64-encoded 32-byte Fernet key. Replace in every non-local environment.
     runtime_credential_key: SecretStr = SecretStr("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
     runtime_pool: str = "INTERACTIVE"

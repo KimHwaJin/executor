@@ -46,23 +46,14 @@ class JupyterRuntimeDriver:
 
     async def status(self) -> dict[str, Any]:
         response = await self._request("GET", "/api/status")
-        storage_response = await self._request("GET", "/executor/storage/status")
         try:
             payload = response.json()
-            storage = storage_response.json()
-            if (
-                storage.get("schema_version") != "1.0"
-                or not isinstance(storage.get("storage_id"), str)
-                or not storage.get("readable")
-                or not storage.get("writable")
-            ):
-                raise ValueError("runtime storage is unavailable")
-            return {
-                "active_session_count": payload.get("kernels"),
-                "storage_id": storage["storage_id"],
-            }
+            active_session_count = payload.get("kernels")
+            if active_session_count is not None and not isinstance(active_session_count, int):
+                raise TypeError("kernels must be an integer")
+            return {"active_session_count": active_session_count}
         except (TypeError, ValueError) as exc:
-            raise RuntimeDriverError("Jupyter storage status response is invalid.") from exc
+            raise RuntimeDriverError("Jupyter status response is invalid.") from exc
 
     async def supported_profiles(self) -> list[str]:
         response = await self._request("GET", "/api/kernelspecs")

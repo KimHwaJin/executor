@@ -11,7 +11,7 @@ class RuntimeStorageTests(unittest.TestCase):
     def test_prepares_snapshots_and_hashes_runtime_files(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            storage = RuntimeStorage(root, "test-storage")
+            storage = RuntimeStorage(root)
             workspace = "users/u1/projects/p1/sessions/s1/executions/e1"
             prepared = storage.prepare_workspace(workspace)
             plot = root / workspace / "artifacts/plots/chart.png"
@@ -28,21 +28,10 @@ class RuntimeStorageTests(unittest.TestCase):
             "0f3850ab36e9d43a8615d62d179e484003562531b41a9f517c5f4e7313b00222",
         )
 
-    def test_status_reports_shared_storage_identity_and_access(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            storage = RuntimeStorage(directory, "shared-jupyter-pv")
-
-            status = storage.status()
-
-        self.assertEqual(status["schema_version"], "1.0")
-        self.assertEqual(status["storage_id"], "shared-jupyter-pv")
-        self.assertTrue(status["readable"])
-        self.assertTrue(status["writable"])
-
     def test_reads_only_appended_manifest_content(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            storage = RuntimeStorage(root, "test-storage")
+            storage = RuntimeStorage(root)
             workspace = "users/u1/projects/p1/sessions/s1/executions/e1"
             storage.prepare_workspace(workspace)
             manifest = root / workspace / "artifacts/manifest.jsonl"
@@ -55,7 +44,7 @@ class RuntimeStorageTests(unittest.TestCase):
     def test_rejects_paths_outside_jupyter_root(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            storage = RuntimeStorage(root, "test-storage")
+            storage = RuntimeStorage(root)
             with self.assertRaises(StoragePathError):
                 storage.prepare_workspace("../escape")
             with self.assertRaises(StoragePathError):

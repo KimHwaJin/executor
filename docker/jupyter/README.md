@@ -38,19 +38,16 @@ resource extension. The image intentionally has no separate build-time validatio
 
 ## Runtime configuration
 
-The image has three primary runtime settings:
+The image has two primary runtime settings:
 
 - `JUPYTER_TOKEN` is required and has no image default. Inject it through the deployment secret.
 - `JUPYTER_ROOT_DIR` is the Jupyter contents root and defaults to `/workspace/pv`.
-- `EXECUTOR_STORAGE_ID` identifies the shared storage attachment and defaults to
-  `jupyter-shared`. Use the same value for every server sharing that storage.
 
 Mount the shared workspace at the same in-container path configured by `JUPYTER_ROOT_DIR`:
 
 ```bash
 docker run --detach --publish 8888:8888 \
   --env JUPYTER_ROOT_DIR=/workspace/pv \
-  --env EXECUTOR_STORAGE_ID=jupyter-shared \
   --env JUPYTER_TOKEN="${JUPYTER_TOKEN}" \
   --volume /host/workspace:/workspace/pv \
   executor-jupyter:local
@@ -81,9 +78,8 @@ variables, or credentials.
 ## Runtime storage endpoints
 
 The same authenticated extension prepares workspaces, snapshots artifacts, computes file metadata
-and SHA-256 on the Jupyter side, and reads append-only manifests. `GET /executor/storage/status`
-reports the storage identity and whether the root is readable and writable. Notebook read/write
-uses Jupyter's standard Contents API. Executor can therefore persist paths and metadata without
+and SHA-256 on the Jupyter side, and reads append-only manifests. Notebook read/write uses
+Jupyter's standard Contents API. Executor can therefore persist paths and metadata without
 mounting Jupyter shared storage. File scans and hashing run in a worker thread so they do not block
 Jupyter's server event loop; Executor applies `JUPYTER_STORAGE_TIMEOUT_SECONDS` (default 300) to
 these potentially slower calls.
@@ -105,9 +101,6 @@ curl --fail \
   --header "Authorization: token ${JUPYTER_TOKEN}" \
   http://127.0.0.1:8888/executor/resource-status
 
-curl --fail \
-  --header "Authorization: token ${JUPYTER_TOKEN}" \
-  http://127.0.0.1:8888/executor/storage/status
 ```
 
 The kernelspec response must advertise `basic` and `ml` only. Runtime Target registration and
