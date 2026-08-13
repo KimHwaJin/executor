@@ -1,6 +1,7 @@
 from datetime import timedelta
 from uuid import uuid4
 
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from executor_service.application.commands import StepSpec, SubmitExecutionCommand
@@ -147,3 +148,40 @@ async def test_query_service_returns_attempt_step_and_redacted_events(
         "token": "[REDACTED]",
         "nested": {"password": "[REDACTED]"},
     }
+
+
+async def test_execution_reads_do_not_load_source_code_or_step_rows(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+) -> None:
+    execution = await execution_service.submit(_submit_command())
+    statements: list[str] = []
+
+    def capture_statement(
+        _connection: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        statements.append(statement.lower())
+
+    event.listen(engine.sync_engine, "before_cursor_execute", capture_statement)
+    try:
+        queries = SQLAlchemyExecutionQueryService(create_session_factory(engine))
+        page = await queries.executions(user_id=execution.user_id)
+        detail = await queries.execution(execution.id)
+    finally:
+        event.remove(engine.sync_engine, "before_cursor_execute", capture_statement)
+
+    assert page[0].step_count == 1
+    assert detail.source_sha256 == execution.source_sha256
+    normalized = [" ".join(statement.split()) for statement in statements]
+    assert len(normalized) == 2
+    assert all("execution_steps.code" not in statement for statement in normalized)
+    execution_selects = [
+        statement for statement in normalized if " from executions " in statement
+    ]
+    assert execution_selects
+    assert all("executions.code," not in statement for statement in execution_selects)

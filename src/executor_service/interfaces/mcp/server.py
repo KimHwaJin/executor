@@ -140,12 +140,16 @@ def build_mcp_server(
             execution = await _trace_call(
                 tracing,
                 "executor.mcp.execution_get",
-                execution_service.get(execution_id),
+                (
+                    execution_queries.execution(execution_id)
+                    if execution_queries is not None
+                    else execution_service.get(execution_id)
+                ),
                 {"executor.execution.id": str(execution_id)},
             )
         except Exception as exc:
             raise _public_tool_error(exc) from exc
-        return ExecutionResponse.from_domain(execution)
+        return ExecutionResponse.from_view(execution)
 
     @server.tool(
         description=(

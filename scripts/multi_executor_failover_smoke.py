@@ -100,7 +100,19 @@ async def _attempts(client: Client, execution_id: str) -> list[dict[str, Any]]:
     result = await client.call_tool("execution_attempt_list", {"execution_id": execution_id})
     if result.is_error:
         raise RuntimeError(str(result.content))
-    return result.structured_content["items"]
+    details = []
+    for summary in result.structured_content["items"]:
+        detail = await client.call_tool(
+            "execution_attempt_get",
+            {
+                "execution_id": execution_id,
+                "attempt_id": summary["attempt_id"],
+            },
+        )
+        if detail.is_error:
+            raise RuntimeError(str(detail.content))
+        details.append(detail.structured_content)
+    return details
 
 
 async def _wait_for_recovered_failure(client: Client, execution_id: str) -> dict[str, Any]:

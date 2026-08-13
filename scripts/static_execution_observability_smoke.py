@@ -171,6 +171,68 @@ async def _history_page(
     return page["items"]
 
 
+async def _execution_steps(
+    transport: Transport,
+    execution_id: str,
+    *,
+    mcp: Client,
+    rest: httpx.AsyncClient,
+) -> list[dict[str, Any]]:
+    if transport == "MCP":
+        page = await _mcp_result(
+            mcp,
+            "execution_step_list",
+            {"execution_id": execution_id, "limit": 100},
+        )
+    else:
+        page = await _rest_json(
+            rest, "GET", f"/executions/{execution_id}/steps?limit=100"
+        )
+    return page["items"]
+
+
+async def _attempt_detail(
+    transport: Transport,
+    execution_id: str,
+    attempt_id: str,
+    *,
+    mcp: Client,
+    rest: httpx.AsyncClient,
+) -> dict[str, Any]:
+    if transport == "MCP":
+        return await _mcp_result(
+            mcp,
+            "execution_attempt_get",
+            {"execution_id": execution_id, "attempt_id": attempt_id},
+        )
+    return await _rest_json(
+        rest, "GET", f"/executions/{execution_id}/attempts/{attempt_id}"
+    )
+
+
+async def _attempt_steps(
+    transport: Transport,
+    execution_id: str,
+    attempt_id: str,
+    *,
+    mcp: Client,
+    rest: httpx.AsyncClient,
+) -> list[dict[str, Any]]:
+    if transport == "MCP":
+        page = await _mcp_result(
+            mcp,
+            "execution_attempt_step_list",
+            {"execution_id": execution_id, "attempt_id": attempt_id, "limit": 100},
+        )
+    else:
+        page = await _rest_json(
+            rest,
+            "GET",
+            f"/executions/{execution_id}/attempts/{attempt_id}/steps?limit=100",
+        )
+    return page["items"]
+
+
 async def _wait_for_terminal(
     transport: Transport,
     execution_id: str,
@@ -328,23 +390,33 @@ async def _run_case(
         raise RuntimeError(f"Execution did not succeed: {terminal}")
     if "RUNNING" not in observed_states:
         raise RuntimeError(f"Execution RUNNING state was not observed: {observed_states}")
-    if [step["result"]["status"] for step in terminal["steps"]] != [
+    current_steps = await _execution_steps(
+        transport, execution_id, mcp=mcp, rest=rest
+    )
+    if [step["result"]["status"] for step in current_steps] != [
         "SUCCEEDED",
         "SUCCEEDED",
     ]:
-        raise RuntimeError(f"Current Step results are not successful: {terminal['steps']}")
+        raise RuntimeError(f"Current Step results are not successful: {current_steps}")
 
     attempts = await _history_page(
         transport, execution_id, "attempts", mcp=mcp, rest=rest
     )
     if len(attempts) != 1 or attempts[0]["state"]["status"] != "SUCCEEDED":
         raise RuntimeError(f"Expected exactly one successful Attempt: {attempts}")
-    if [step["result"]["status"] for step in attempts[0]["steps"]] != [
+    attempt_id = str(attempts[0]["attempt_id"])
+    attempt = await _attempt_detail(
+        transport, execution_id, attempt_id, mcp=mcp, rest=rest
+    )
+    attempt_steps = await _attempt_steps(
+        transport, execution_id, attempt_id, mcp=mcp, rest=rest
+    )
+    if [step["result"]["status"] for step in attempt_steps] != [
         "SUCCEEDED",
         "SUCCEEDED",
     ]:
-        raise RuntimeError(f"Attempt Step history is incomplete: {attempts[0]['steps']}")
-    runtime_session_id = attempts[0]["runtime"]["session_id"]
+        raise RuntimeError(f"Attempt Step history is incomplete: {attempt_steps}")
+    runtime_session_id = attempt["runtime"]["session_id"]
     if not runtime_session_id or terminal["runtime"]["session_id"] is not None:
         raise RuntimeError("Runtime session history or terminal cleanup state is invalid.")
 

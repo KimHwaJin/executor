@@ -10,8 +10,10 @@ from executor_service.application.commands import StepSpec, SubmitExecutionComma
 from executor_service.application.execution_queries import (
     ExecutionArtifactView,
     ExecutionAttemptView,
+    ExecutionDetailView,
     ExecutionEventView,
     ExecutionStepAttemptView,
+    ExecutionSummaryView,
 )
 from executor_service.application.pagination import Page
 from executor_service.application.runtime_targets import (
@@ -463,7 +465,7 @@ class DeadlinesResponse(ContractModel):
     execution_expires_at: datetime | None
 
 
-def _execution_common(execution: Execution) -> dict[str, Any]:
+def _execution_common(execution: Execution | ExecutionDetailView) -> dict[str, Any]:
     failure = None
     if execution.failure_type is not None and execution.error_message is not None:
         failure = FailureResponse(type=execution.failure_type, message=execution.error_message)
@@ -547,7 +549,9 @@ class ExecutionResponse(AuditFields):
     lifecycle: Lifecycle
 
     @classmethod
-    def from_domain(cls, execution: Execution) -> "ExecutionResponse":
+    def from_view(
+        cls, execution: ExecutionDetailView | Execution
+    ) -> "ExecutionResponse":
         return cls(
             **_execution_common(execution),
             source=ExecutionSourceResponse(
@@ -579,7 +583,7 @@ class ExecutionSummaryResponse(AuditFields):
     step_count: int
 
     @classmethod
-    def from_domain(cls, execution: Execution) -> "ExecutionSummaryResponse":
+    def from_view(cls, execution: ExecutionSummaryView) -> "ExecutionSummaryResponse":
         return cls(
             execution_id=execution.id,
             mode=execution.mode,
@@ -600,7 +604,7 @@ class ExecutionSummaryResponse(AuditFields):
                 started_at=execution.started_at,
                 finished_at=execution.finished_at,
             ),
-            step_count=len(execution.steps),
+            step_count=execution.step_count,
             created_by_type=execution.created_by_type,
             created_by=execution.created_by,
             updated_by_type=execution.updated_by_type,
@@ -614,9 +618,9 @@ class ExecutionPageResponse(PageResponse):
     items: list[ExecutionSummaryResponse]
 
     @classmethod
-    def from_page(cls, page: Page[Execution]) -> "ExecutionPageResponse":
+    def from_page(cls, page: Page[ExecutionSummaryView]) -> "ExecutionPageResponse":
         return cls(
-            items=[ExecutionSummaryResponse.from_domain(item) for item in page.items],
+            items=[ExecutionSummaryResponse.from_view(item) for item in page.items],
             next_cursor=page.next_cursor,
             has_more=page.next_cursor is not None,
         )

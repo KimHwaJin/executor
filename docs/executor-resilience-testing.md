@@ -29,6 +29,8 @@ PostgreSQL, Redis Stream, shared PV, and Runtime Target probe. Each execution mu
 
 - expose `QUEUED -> RUNNING -> SUCCEEDED`;
 - persist two successful current Steps, one successful Attempt, and two immutable Step Attempts;
+- read current Steps, Attempt detail, and Step Attempt history through their separate paginated
+  REST/MCP operations;
 - publish every PostgreSQL Outbox row and expose the same `event_id` values in Redis;
 - register the generated text Artifact and final `execution.ipynb`;
 - retain the historical Runtime session ID on the Attempt while clearing it from the terminal
