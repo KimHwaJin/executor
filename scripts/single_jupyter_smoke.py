@@ -119,6 +119,12 @@ async def main() -> None:
             raise RuntimeError(f"Execution did not succeed: {terminal}")
         if str(terminal["runtime"]["target_id"]) != str(server["target_id"]):
             raise RuntimeError("Execution used a different Jupyter server.")
+        steps_page = await _required_tool_result(
+            client,
+            "execution_step_list",
+            {"execution_id": execution_id, "limit": 100},
+        )
+        steps = steps_page["items"]
 
         artifacts_page = await _required_tool_result(
             client,
@@ -141,7 +147,7 @@ async def main() -> None:
     print("runtime_target_id:", server["target_id"])
     print("execution_id:", execution_id)
     print("status:", terminal["state"]["status"])
-    print("step_statuses:", [step["result"]["status"] for step in terminal["steps"]])
+    print("step_statuses:", [step["result"]["status"] for step in steps])
     print("notebook:", notebook)
     print("artifacts:", sorted(artifact_names))
 

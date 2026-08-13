@@ -133,10 +133,10 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
         execution = await _trace_call(
             tracing,
             "executor.http.execution_get",
-            execution_service.get(execution_id),
+            execution_queries.execution(execution_id),
             {"executor.execution.id": str(execution_id)},
         )
-        return ExecutionResponse.from_domain(execution)
+        return ExecutionResponse.from_view(execution)
 
     @router.post(
         "/executions/{execution_id}/cancel",

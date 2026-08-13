@@ -63,6 +63,12 @@ async def main() -> None:
             await asyncio.sleep(0.2)
         if terminal is None or terminal["state"]["status"] != "SUCCEEDED":
             raise RuntimeError(f"Execution did not succeed: {terminal}")
+        steps_result = await client.call_tool(
+            "execution_step_list", {"execution_id": execution_id, "limit": 100}
+        )
+        if steps_result.is_error:
+            raise RuntimeError(str(steps_result.content))
+        steps = steps_result.structured_content["items"]
 
         settings = get_settings()
         notebook = settings.workspace_host_root / Path(terminal["workspace"]["notebook_path"])
@@ -72,7 +78,7 @@ async def main() -> None:
         print("execution_id:", execution_id)
         print("status:", terminal["state"]["status"])
         print("notebook:", notebook)
-        print("step_statuses:", [step["result"]["status"] for step in terminal["steps"]])
+        print("step_statuses:", [step["result"]["status"] for step in steps])
 
 
 if __name__ == "__main__":

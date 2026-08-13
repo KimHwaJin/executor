@@ -12,15 +12,87 @@ from executor_service.domain.enums import (
     ArtifactStorageType,
     ArtifactType,
     AttemptStatus,
+    CodeSourceType,
+    ExecutionMode,
     ExecutionStatus,
     FailureType,
     OutboxStatus,
     RetryStrategy,
+    RuntimePool,
     RuntimeSessionCleanupStatus,
     RuntimeType,
     StepStatus,
+    TriggerType,
 )
-from executor_service.domain.models import Execution, ExecutionStep
+from executor_service.domain.models import ExecutionStep
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionSummaryView:
+    id: UUID
+    mode: ExecutionMode
+    trigger_type: TriggerType
+    user_id: str
+    project_id: str
+    session_id: str
+    task_id: str
+    execution_plan_id: str
+    workflow_id: str | None
+    status: ExecutionStatus
+    version: int
+    step_count: int
+    created_by_type: ActorType | None
+    created_by: str | None
+    updated_by_type: ActorType | None
+    updated_by: str | None
+    created_at: datetime
+    updated_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionDetailView:
+    id: UUID
+    mode: ExecutionMode
+    trigger_type: TriggerType
+    user_id: str
+    project_id: str
+    session_id: str
+    task_id: str
+    execution_plan_id: str
+    workflow_id: str | None
+    code_source_type: CodeSourceType
+    code_path: str | None
+    source_sha256: str
+    runtime_type: RuntimeType
+    runtime_pool: RuntimePool
+    runtime_profile: str
+    runtime_target_id: UUID | None
+    runtime_session_id: str | None
+    status: ExecutionStatus
+    version: int
+    cancellation_reason: str | None
+    workspace_path: str | None
+    notebook_path: str | None
+    failure_type: FailureType | None
+    error_message: str | None
+    retry_strategy: RetryStrategy
+    retry_count: int
+    retry_from_sequence: int | None
+    retained_runtime_session_until: datetime | None
+    recovery_count: int
+    runtime_session_cleanup_status: RuntimeSessionCleanupStatus
+    dynamic_wait_expires_at: datetime | None
+    execution_expires_at: datetime | None
+    created_by_type: ActorType | None
+    created_by: str | None
+    updated_by_type: ActorType | None
+    updated_by: str | None
+    created_at: datetime
+    updated_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,7 +202,9 @@ class ExecutionQueryService(Protocol):
         status: ExecutionStatus | None = None,
         cursor: str | None = None,
         limit: int = 100,
-    ) -> Page[Execution]: ...
+    ) -> Page[ExecutionSummaryView]: ...
+
+    async def execution(self, execution_id: UUID) -> ExecutionDetailView: ...
 
     async def steps(
         self, execution_id: UUID, *, cursor: str | None = None, limit: int = 100

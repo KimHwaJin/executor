@@ -177,7 +177,18 @@ async def main() -> None:
                 client, "execution_attempt_list", {"execution_id": execution_id}
             )
             attempts = attempt_page["items"]
-            retry_attempt = attempts[-1] if attempts else None
+            retry_attempt = (
+                await _required(
+                    client,
+                    "execution_attempt_get",
+                    {
+                        "execution_id": execution_id,
+                        "attempt_id": attempts[-1]["attempt_id"],
+                    },
+                )
+                if attempts
+                else None
+            )
             if (
                 succeeded["state"]["status"] != "SUCCEEDED"
                 or str(succeeded["runtime"]["target_id"]) != original_server_id

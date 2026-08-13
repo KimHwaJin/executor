@@ -5,13 +5,15 @@ from uuid import UUID
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import load_only, noload
 
 from executor_service.application.execution_queries import (
     ExecutionArtifactView,
     ExecutionAttemptView,
+    ExecutionDetailView,
     ExecutionEventView,
     ExecutionStepAttemptView,
+    ExecutionSummaryView,
 )
 from executor_service.application.pagination import (
     Page,
@@ -26,7 +28,7 @@ from executor_service.domain.errors import (
     ExecutionAttemptNotFoundError,
     ExecutionNotFoundError,
 )
-from executor_service.domain.models import Execution, ExecutionStep
+from executor_service.domain.models import ExecutionStep
 from executor_service.infrastructure.db.models import (
     ExecutionArtifactORM,
     ExecutionAttemptORM,
@@ -34,6 +36,53 @@ from executor_service.infrastructure.db.models import (
     ExecutionStepAttemptORM,
     ExecutionStepORM,
     OutboxEventORM,
+)
+
+_EXECUTION_SUMMARY_COLUMNS = (
+    ExecutionORM.id,
+    ExecutionORM.mode,
+    ExecutionORM.trigger_type,
+    ExecutionORM.user_id,
+    ExecutionORM.project_id,
+    ExecutionORM.session_id,
+    ExecutionORM.task_id,
+    ExecutionORM.execution_plan_id,
+    ExecutionORM.workflow_id,
+    ExecutionORM.status,
+    ExecutionORM.version,
+    ExecutionORM.created_by_type,
+    ExecutionORM.created_by,
+    ExecutionORM.updated_by_type,
+    ExecutionORM.updated_by,
+    ExecutionORM.created_at,
+    ExecutionORM.updated_at,
+    ExecutionORM.started_at,
+    ExecutionORM.finished_at,
+)
+
+_EXECUTION_DETAIL_COLUMNS = (
+    *_EXECUTION_SUMMARY_COLUMNS,
+    ExecutionORM.code_source_type,
+    ExecutionORM.code_path,
+    ExecutionORM.source_sha256,
+    ExecutionORM.runtime_type,
+    ExecutionORM.runtime_pool,
+    ExecutionORM.runtime_profile,
+    ExecutionORM.runtime_target_id,
+    ExecutionORM.runtime_session_id,
+    ExecutionORM.cancellation_reason,
+    ExecutionORM.workspace_path,
+    ExecutionORM.notebook_path,
+    ExecutionORM.failure_type,
+    ExecutionORM.error_message,
+    ExecutionORM.retry_strategy,
+    ExecutionORM.retry_count,
+    ExecutionORM.retry_from_sequence,
+    ExecutionORM.retained_runtime_session_until,
+    ExecutionORM.recovery_count,
+    ExecutionORM.runtime_session_cleanup_status,
+    ExecutionORM.dynamic_wait_expires_at,
+    ExecutionORM.execution_expires_at,
 )
 
 
@@ -51,8 +100,17 @@ class SQLAlchemyExecutionQueryService:
         status: ExecutionStatus | None = None,
         cursor: str | None = None,
         limit: int = 100,
-    ) -> Page[Execution]:
-        statement = select(ExecutionORM).options(selectinload(ExecutionORM.steps))
+    ) -> Page[ExecutionSummaryView]:
+        step_count = (
+            select(func.count(ExecutionStepORM.id))
+            .where(ExecutionStepORM.execution_id == ExecutionORM.id)
+            .correlate(ExecutionORM)
+            .scalar_subquery()
+        )
+        statement = select(ExecutionORM, step_count.label("step_count")).options(
+            load_only(*_EXECUTION_SUMMARY_COLUMNS),
+            noload(ExecutionORM.steps),
+        )
         if user_id is not None:
             statement = statement.where(ExecutionORM.user_id == user_id)
         if project_id is not None:
@@ -78,14 +136,33 @@ class SQLAlchemyExecutionQueryService:
             ExecutionORM.created_at.desc(), ExecutionORM.id.desc()
         ).limit(limit + 1)
         async with self._session_factory() as session:
-            rows = list(await session.scalars(statement))
+            rows = list((await session.execute(statement)).all())
         page_rows = rows[:limit]
         next_cursor = (
-            encode_time_cursor("executions", page_rows[-1].created_at, page_rows[-1].id)
+            encode_time_cursor(
+                "executions", page_rows[-1][0].created_at, page_rows[-1][0].id
+            )
             if len(rows) > limit and page_rows
             else None
         )
-        return Page(items=[row.to_domain() for row in page_rows], next_cursor=next_cursor)
+        return Page(
+            items=[_execution_summary_view(row, count) for row, count in page_rows],
+            next_cursor=next_cursor,
+        )
+
+    async def execution(self, execution_id: UUID) -> ExecutionDetailView:
+        async with self._session_factory() as session:
+            row = await session.scalar(
+                select(ExecutionORM)
+                .where(ExecutionORM.id == execution_id)
+                .options(
+                    load_only(*_EXECUTION_DETAIL_COLUMNS),
+                    noload(ExecutionORM.steps),
+                )
+            )
+        if row is None:
+            raise ExecutionNotFoundError(f"Execution {execution_id} was not found.")
+        return _execution_detail_view(row)
 
     async def steps(
         self, execution_id: UUID, *, cursor: str | None = None, limit: int = 100
@@ -339,6 +416,76 @@ def _redact(value: Any) -> Any:
     if isinstance(value, list):
         return [_redact(item) for item in value]
     return value
+
+
+def _execution_summary_view(row: ExecutionORM, step_count: int) -> ExecutionSummaryView:
+    return ExecutionSummaryView(
+        id=row.id,
+        mode=row.mode,
+        trigger_type=row.trigger_type,
+        user_id=row.user_id,
+        project_id=row.project_id,
+        session_id=row.session_id,
+        task_id=row.task_id,
+        execution_plan_id=row.execution_plan_id,
+        workflow_id=row.workflow_id,
+        status=row.status,
+        version=row.version,
+        step_count=step_count,
+        created_by_type=row.created_by_type,
+        created_by=row.created_by,
+        updated_by_type=row.updated_by_type,
+        updated_by=row.updated_by,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+        started_at=row.started_at,
+        finished_at=row.finished_at,
+    )
+
+
+def _execution_detail_view(row: ExecutionORM) -> ExecutionDetailView:
+    return ExecutionDetailView(
+        id=row.id,
+        mode=row.mode,
+        trigger_type=row.trigger_type,
+        user_id=row.user_id,
+        project_id=row.project_id,
+        session_id=row.session_id,
+        task_id=row.task_id,
+        execution_plan_id=row.execution_plan_id,
+        workflow_id=row.workflow_id,
+        code_source_type=row.code_source_type,
+        code_path=row.code_path,
+        source_sha256=row.source_sha256,
+        runtime_type=row.runtime_type,
+        runtime_pool=row.runtime_pool,
+        runtime_profile=row.runtime_profile,
+        runtime_target_id=row.runtime_target_id,
+        runtime_session_id=row.runtime_session_id,
+        status=row.status,
+        version=row.version,
+        cancellation_reason=row.cancellation_reason,
+        workspace_path=row.workspace_path,
+        notebook_path=row.notebook_path,
+        failure_type=row.failure_type,
+        error_message=row.error_message,
+        retry_strategy=row.retry_strategy,
+        retry_count=row.retry_count,
+        retry_from_sequence=row.retry_from_sequence,
+        retained_runtime_session_until=row.retained_runtime_session_until,
+        recovery_count=row.recovery_count,
+        runtime_session_cleanup_status=row.runtime_session_cleanup_status,
+        dynamic_wait_expires_at=row.dynamic_wait_expires_at,
+        execution_expires_at=row.execution_expires_at,
+        created_by_type=row.created_by_type,
+        created_by=row.created_by,
+        updated_by_type=row.updated_by_type,
+        updated_by=row.updated_by,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+        started_at=row.started_at,
+        finished_at=row.finished_at,
+    )
 
 
 def _is_secret_key(key: str) -> bool:

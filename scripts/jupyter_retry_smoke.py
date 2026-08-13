@@ -86,12 +86,18 @@ async def main() -> None:
             raise RuntimeError(f"Retry was not queued: {retry.content}")
 
         succeeded = await _wait(client, execution_id, {"SUCCEEDED", "FAILED"})
+        current_steps_result = await client.call_tool(
+            "execution_step_list", {"execution_id": execution_id, "limit": 100}
+        )
+        if current_steps_result.is_error:
+            raise RuntimeError(str(current_steps_result.content))
+        current_steps = current_steps_result.structured_content["items"]
         if (
             succeeded["state"]["status"] != "SUCCEEDED"
             or succeeded["retry"]["count"] != 1
-            or succeeded["runtime"]["session_id"] != original_runtime_session
             or succeeded["runtime"]["target_id"] != original_runtime_target
-            or [step["result"]["status"] for step in succeeded["steps"]]
+            or succeeded["runtime"]["session_id"] is not None
+            or [step["result"]["status"] for step in current_steps]
             != ["SUCCEEDED", "SUCCEEDED", "SUCCEEDED"]
         ):
             raise RuntimeError(f"Retained-kernel retry failed: {succeeded}")
@@ -106,14 +112,36 @@ async def main() -> None:
             "execution_artifact_list", {"execution_id": execution_id}
         )
         attempts = attempts_result.structured_content["items"]
+        attempt_details = []
+        attempt_step_rows = []
+        for attempt in attempts:
+            attempt_id = attempt["attempt_id"]
+            detail_result = await client.call_tool(
+                "execution_attempt_get",
+                {"execution_id": execution_id, "attempt_id": attempt_id},
+            )
+            steps_result = await client.call_tool(
+                "execution_attempt_step_list",
+                {
+                    "execution_id": execution_id,
+                    "attempt_id": attempt_id,
+                    "limit": 100,
+                },
+            )
+            if detail_result.is_error or steps_result.is_error:
+                raise RuntimeError("Attempt detail or Step history lookup failed.")
+            attempt_details.append(detail_result.structured_content)
+            attempt_step_rows.append(steps_result.structured_content["items"])
         if (
             len(attempts) != 2
             or attempts[0]["failure"]["type"] != "TOOL_ERROR"
-            or attempts[0]["recovery"]["retry_strategy"] != "FROM_FAILED_STEP"
-            or [step["result"]["status"] for step in attempts[0]["steps"]]
+            or attempt_details[0]["recovery"]["retry_strategy"] != "FROM_FAILED_STEP"
+            or attempt_details[1]["runtime"]["session_id"] != original_runtime_session
+            or attempt_details[1]["runtime"]["target_id"] != original_runtime_target
+            or [step["result"]["status"] for step in attempt_step_rows[0]]
             != ["SUCCEEDED", "FAILED"]
-            or [step["sequence"] for step in attempts[1]["steps"]] != [1, 2]
-            or [step["result"]["status"] for step in attempts[1]["steps"]]
+            or [step["sequence"] for step in attempt_step_rows[1]] != [1, 2]
+            or [step["result"]["status"] for step in attempt_step_rows[1]]
             != ["SUCCEEDED", "SUCCEEDED"]
         ):
             raise RuntimeError(f"Attempt Step history is incomplete: {attempts}")
@@ -146,7 +174,10 @@ async def main() -> None:
         print("initial_status:", failed["state"]["status"])
         print("retry_status:", succeeded["state"]["status"])
         print("retry_from_sequence:", failed["retry"]["from_sequence"])
-        print("same_kernel:", succeeded["runtime"]["session_id"] == original_runtime_session)
+        print(
+            "same_kernel:",
+            attempt_details[1]["runtime"]["session_id"] == original_runtime_session,
+        )
         print("attempts_in_trace:", len(attempts))
         print("event_count:", len(events_result.structured_content["items"]))
         print("retry_artifact_statuses:", [item["status"] for item in retry_artifacts])

@@ -50,3 +50,10 @@ returns the current persisted status and version, not a hard-coded state.
 
 All child collection operations use opaque cursor pagination and return `items`, `next_cursor`,
 and `has_more`.
+
+## Read performance
+
+Execution list and detail operations use dedicated SQL read projections. The list query calculates
+`step_count` in PostgreSQL without materializing Step rows. Neither query loads generated source
+content or Step code; those large fields remain available only to the execution domain and Worker
+paths that require them.

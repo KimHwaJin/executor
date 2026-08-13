@@ -47,9 +47,15 @@ async def main() -> None:
                 break
             await asyncio.sleep(0.1)
         result = current.structured_content
+        steps_result = await client.call_tool(
+            "execution_step_list", {"execution_id": execution_id, "limit": 100}
+        )
+        if steps_result.is_error:
+            raise RuntimeError(str(steps_result.content))
+        steps = steps_result.structured_content["items"]
         if (
             result["state"]["status"] != "FAILED"
-            or result["steps"][0]["result"]["status"] != "FAILED"
+            or steps[0]["result"]["status"] != "FAILED"
         ):
             raise RuntimeError(f"Expected FAILED execution and step: {result}")
         notebook = get_settings().workspace_host_root / Path(result["workspace"]["notebook_path"])
