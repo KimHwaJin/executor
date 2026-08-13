@@ -50,6 +50,15 @@ execution starts as `QUEUED`. Poll with `execution_get` or request cancellation 
 Operation through `execution_continue`. `execution_finish` persists the final notebook and deletes the
 retained Runtime session. MCP Tasks are not required for this lifecycle.
 
+## Test Agent
+
+[`test_agent`](test_agent/README.md) is an independent LangGraph/LangChain project used to run a
+real local Agent Server with `langgraph dev`. It owns its own `pyproject.toml`, `uv.lock`, virtual
+environment, graph state, tests, and environment template so Agent dependencies do not enter the
+Executor service package. The initial graph can boot deterministically without an LLM or use the
+configured OpenAI-compatible vLLM gateway. Executor MCP, REST, and Redis event-driven E2E behavior
+will be added behind the test Agent's integration boundary.
+
 ## Deferred decisions
 
 Return-value materialization, reusable Asset promotion, and user-versus-project Asset visibility
