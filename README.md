@@ -429,6 +429,10 @@ consumers must use their own consumer group and durably deduplicate on `event_id
 [Execution Event Contract v1](docs/execution-events-v1.md) and the reference
 `scripts/agent_event_consumer_example.py`.
 
+The real-Jupyter regression suite includes a combined STATIC failure/retry/cancellation scenario
+that reconciles REST/MCP history with PostgreSQL, Outbox, Redis, PV Artifacts, and Runtime sessions.
+See [Executor Resilience Testing](docs/executor-resilience-testing.md).
+
 No database migration runs automatically during service startup. Deployments must run Alembic as
 a release or init job before readiness can pass.
 
