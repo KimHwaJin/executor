@@ -68,6 +68,28 @@ Override `STATIC_LIFECYCLE_RUNTIME_PROFILE`, `STATIC_LIFECYCLE_TIMEOUT_SECONDS`,
 probe defaults to `JUPYTER_ENDPOINT`; set `STATIC_LIFECYCLE_JUPYTER_ENDPOINT` when the registered
 Target needs a different host-accessible endpoint than its container-internal address.
 
+### DYNAMIC correction, finish, and running cancellation
+
+```bash
+uv run python scripts/dynamic_execution_lifecycle_e2e.py
+```
+
+This non-disruptive scenario alternates REST and MCP commands while checking PostgreSQL, Outbox,
+Redis Streams, shared-PV Artifacts, the generated notebook, and the exact Jupyter session. Its
+normal flow submits one DYNAMIC cell, appends a successful cell, appends an expected failing cell,
+adds a corrected follow-up cell, and finishes. Every cell must use the same target, kernel, and
+Attempt; the failed cell remains immutable rather than being rerun or replaced.
+
+The second flow cancels a running DYNAMIC cell after it writes a marker. The interrupted execution
+job preserves the marker as an `INCOMPLETE` Artifact, while the replacement cancellation job is
+the single owner of kernel cleanup and the `CANCELLED` state/event. This prevents competing cleanup
+operations from incorrectly reporting a successfully removed kernel as a cleanup failure.
+
+Override `DYNAMIC_LIFECYCLE_RUNTIME_PROFILE`, `DYNAMIC_LIFECYCLE_TIMEOUT_SECONDS`, or
+`DYNAMIC_LIFECYCLE_STREAM_SCAN_LIMIT` as needed. Set
+`DYNAMIC_LIFECYCLE_JUPYTER_ENDPOINT` when the host-side session probe cannot use the target's
+container-internal endpoint.
+
 ### Graceful drain and handoff
 
 ```bash
