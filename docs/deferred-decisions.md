@@ -127,6 +127,46 @@ reusable across all projects owned by the same user or only within its source pr
 - No additional actor enum values beyond `USER` and `BATCH`.
 - No fabricated system user IDs for autonomous Executor maintenance.
 
+## DD-004: REST idempotency key transport
+
+- Status: DEFERRED
+- Area: REST mutation contracts, MCP Tool contracts, client retry behavior
+- Deferred on: 2026-08-13
+- Resume when: the public REST API contract is finalized or an upstream client requires the
+  conventional `Idempotency-Key` HTTP header
+
+### Current decision
+
+- Mutation callers create the idempotency key before sending a command. Executor does not issue
+  the key.
+- The Agent/API service creates keys for interactive commands, and the Batch service creates keys
+  for batch commands.
+- A retry of the same logical command reuses the same key and payload. A new command uses a new
+  key; reusing a key with different command content is rejected as a conflict.
+- REST and MCP currently carry `idempotency_key` in their request bodies so both transports can
+  map directly to the same application Command contract.
+
+### Deferred option
+
+- Move REST mutation keys to the `Idempotency-Key` HTTP header while keeping
+  `request.idempotency_key` as an MCP Tool argument.
+- Normalize both transport forms into the existing internal `Command.idempotency_key`; persistence
+  and idempotency semantics should remain transport-independent.
+
+### Questions still open
+
+- Whether every REST mutation or only public execution commands should use the header.
+- Whether a temporary compatibility period should accept both header and body, and how conflicting
+  duplicate values should be rejected.
+- Whether OpenAPI examples, client helpers, and upstream retry documentation require a coordinated
+  breaking-version release.
+
+### Explicitly excluded until resumed
+
+- No REST request field or header change.
+- No Executor-generated idempotency keys.
+- No change to MCP Tool input schemas or database uniqueness behavior.
+
 ## Resolved observability integration: Arize Phoenix
 
 - Status: DONE

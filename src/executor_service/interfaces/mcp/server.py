@@ -35,10 +35,13 @@ from executor_service.execution_specs import ExecutionSpecResolver
 from executor_service.interfaces.contracts import (
     ExecutionArtifactPageResponse,
     ExecutionArtifactResponse,
+    ExecutionAttemptDetailResponse,
     ExecutionAttemptPageResponse,
+    ExecutionCommandResponse,
     ExecutionEventPageResponse,
     ExecutionPageResponse,
     ExecutionResponse,
+    ExecutionStepAttemptPageResponse,
     ExecutionStepPageResponse,
     ExecutionSubmitRequest,
     RuntimeTargetPageResponse,
@@ -104,7 +107,7 @@ def build_mcp_server(
             "Reusing idempotency_key with the same request returns the original execution."
         )
     )
-    async def execution_submit(request: ExecutionSubmitRequest) -> ExecutionResponse:
+    async def execution_submit(request: ExecutionSubmitRequest) -> ExecutionCommandResponse:
         try:
             if execution_spec_resolver is None:
                 raise ToolError(
@@ -129,7 +132,7 @@ def build_mcp_server(
             )
         except Exception as exc:
             raise _public_tool_error(exc) from exc
-        return ExecutionResponse.from_domain(execution)
+        return ExecutionCommandResponse.from_domain(execution)
 
     @server.tool(description="Get the PostgreSQL-backed current execution state.")
     async def execution_get(execution_id: UUID) -> ExecutionResponse:
@@ -150,7 +153,7 @@ def build_mcp_server(
             "A successful call transitions a non-terminal execution to CANCEL_REQUESTED."
         )
     )
-    async def execution_cancel(request: ExecutionCancelRequest) -> ExecutionResponse:
+    async def execution_cancel(request: ExecutionCancelRequest) -> ExecutionCommandResponse:
         try:
             execution = await _trace_call(
                 tracing,
@@ -168,7 +171,7 @@ def build_mcp_server(
             )
         except Exception as exc:
             raise _public_tool_error(exc) from exc
-        return ExecutionResponse.from_domain(execution)
+        return ExecutionCommandResponse.from_domain(execution)
 
     @server.tool(
         description=(
@@ -176,7 +179,7 @@ def build_mcp_server(
             "The call queues a new attempt and returns immediately."
         )
     )
-    async def execution_retry(request: ExecutionRetryRequest) -> ExecutionResponse:
+    async def execution_retry(request: ExecutionRetryRequest) -> ExecutionCommandResponse:
         try:
             execution = await _trace_call(
                 tracing,
@@ -193,7 +196,7 @@ def build_mcp_server(
             )
         except Exception as exc:
             raise _public_tool_error(exc) from exc
-        return ExecutionResponse.from_domain(execution)
+        return ExecutionCommandResponse.from_domain(execution)
 
     @server.tool(
         description=(
@@ -201,7 +204,7 @@ def build_mcp_server(
             "expected_version prevents stale Agent decisions from being accepted."
         )
     )
-    async def execution_continue(request: ExecutionContinueRequest) -> ExecutionResponse:
+    async def execution_continue(request: ExecutionContinueRequest) -> ExecutionCommandResponse:
         try:
             if execution_spec_resolver is None:
                 raise ToolError(
@@ -242,7 +245,7 @@ def build_mcp_server(
             )
         except Exception as exc:
             raise _public_tool_error(exc) from exc
-        return ExecutionResponse.from_domain(execution)
+        return ExecutionCommandResponse.from_domain(execution)
 
     @server.tool(
         description=(
@@ -250,7 +253,7 @@ def build_mcp_server(
             "Runtime session."
         )
     )
-    async def execution_finish(request: ExecutionFinishRequest) -> ExecutionResponse:
+    async def execution_finish(request: ExecutionFinishRequest) -> ExecutionCommandResponse:
         try:
             execution = await _trace_call(
                 tracing,
@@ -268,7 +271,7 @@ def build_mcp_server(
             )
         except Exception as exc:
             raise _public_tool_error(exc) from exc
-        return ExecutionResponse.from_domain(execution)
+        return ExecutionCommandResponse.from_domain(execution)
 
     if execution_queries is not None:
 
@@ -321,11 +324,11 @@ def build_mcp_server(
                 )
             except Exception as exc:
                 raise _public_tool_error(exc) from exc
-            return ExecutionStepPageResponse.from_page(page)
+            return ExecutionStepPageResponse.from_page(page, execution_id)
 
         @server.tool(
             description=(
-                "List immutable execution Attempts with the Step results recorded in each attempt."
+                "List immutable execution Attempt summaries with outcome and Step count."
             )
         )
         async def execution_attempt_list(
@@ -342,6 +345,39 @@ def build_mcp_server(
             except Exception as exc:
                 raise _public_tool_error(exc) from exc
             return ExecutionAttemptPageResponse.from_page(page)
+
+        @server.tool(description="Get one immutable execution Attempt in detail.")
+        async def execution_attempt_get(
+            execution_id: UUID,
+            attempt_id: UUID,
+        ) -> ExecutionAttemptDetailResponse:
+            try:
+                view = await execution_queries.attempt(execution_id, attempt_id)
+            except Exception as exc:
+                raise _public_tool_error(exc) from exc
+            return ExecutionAttemptDetailResponse.from_view(view)
+
+        @server.tool(
+            description=(
+                "List immutable Step results for one Attempt using an opaque cursor."
+            )
+        )
+        async def execution_attempt_step_list(
+            execution_id: UUID,
+            attempt_id: UUID,
+            cursor: str | None = None,
+            limit: StandardLimit = 100,
+        ) -> ExecutionStepAttemptPageResponse:
+            try:
+                page = await execution_queries.attempt_steps(
+                    execution_id,
+                    attempt_id,
+                    cursor=cursor,
+                    limit=limit,
+                )
+            except Exception as exc:
+                raise _public_tool_error(exc) from exc
+            return ExecutionStepAttemptPageResponse.from_page(page)
 
         @server.tool(
             description=(

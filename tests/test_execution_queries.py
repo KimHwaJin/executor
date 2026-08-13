@@ -128,6 +128,8 @@ async def test_query_service_returns_attempt_step_and_redacted_events(
 
     queries = SQLAlchemyExecutionQueryService(session_factory)
     attempts = await queries.attempts(execution.id)
+    attempt = await queries.attempt(execution.id, attempt_id)
+    attempt_steps = await queries.attempt_steps(execution.id, attempt_id)
     events = await queries.events(execution.id)
 
     assert len(attempts) == 1
@@ -136,8 +138,10 @@ async def test_query_service_returns_attempt_step_and_redacted_events(
     assert attempts[0].runtime_profile == "basic"
     assert attempts[0].failure_type == FailureType.TOOL_ERROR
     assert attempts[0].retry_strategy == RetryStrategy.FROM_FAILED_STEP
-    assert attempts[0].steps[0].tool_name == "load_data"
-    assert attempts[0].steps[0].outputs == [{"output_type": "error"}]
+    assert attempts[0].step_count == 1
+    assert attempt.step_count == 1
+    assert attempt_steps[0].tool_name == "load_data"
+    assert attempt_steps[0].outputs == [{"output_type": "error"}]
     secret_event = next(event for event in events if event.event_type == "execution.test_secret")
     assert secret_event.payload == {
         "token": "[REDACTED]",

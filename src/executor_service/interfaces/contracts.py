@@ -373,6 +373,7 @@ class Lifecycle(ContractModel):
 
 class ExecutionStepResponse(AuditFields):
     step_id: UUID
+    execution_id: UUID
     sequence: int
     code_hash: str | None
     plan: PlanReference
@@ -381,9 +382,12 @@ class ExecutionStepResponse(AuditFields):
     lifecycle: Lifecycle
 
     @classmethod
-    def from_domain(cls, step: ExecutionStep) -> "ExecutionStepResponse":
+    def from_domain(
+        cls, step: ExecutionStep, execution_id: UUID
+    ) -> "ExecutionStepResponse":
         return cls(
             step_id=step.id,
+            execution_id=execution_id,
             sequence=step.sequence,
             code_hash=step.code_hash,
             plan=PlanReference(
@@ -425,6 +429,11 @@ class ExecutionState(ContractModel):
     status: ExecutionStatus
     version: int
     cancellation_reason: str | None
+
+
+class ExecutionCommandState(ContractModel):
+    status: ExecutionStatus
+    version: int
 
 
 class WorkspaceResponse(ContractModel):
@@ -501,6 +510,27 @@ def _execution_common(execution: Execution) -> dict[str, Any]:
     }
 
 
+class ExecutionCommandResponse(AuditFields):
+    execution_id: UUID
+    state: ExecutionCommandState
+
+    @classmethod
+    def from_domain(cls, execution: Execution) -> "ExecutionCommandResponse":
+        return cls(
+            execution_id=execution.id,
+            state=ExecutionCommandState(
+                status=execution.status,
+                version=execution.version,
+            ),
+            created_by_type=execution.created_by_type,
+            created_by=execution.created_by,
+            updated_by_type=execution.updated_by_type,
+            updated_by=execution.updated_by,
+            created_at=execution.created_at,
+            updated_at=execution.updated_at,
+        )
+
+
 class ExecutionResponse(AuditFields):
     execution_id: UUID
     mode: ExecutionMode
@@ -515,7 +545,6 @@ class ExecutionResponse(AuditFields):
     recovery: RecoveryResponse
     deadlines: DeadlinesResponse
     lifecycle: Lifecycle
-    steps: list[ExecutionStepResponse]
 
     @classmethod
     def from_domain(cls, execution: Execution) -> "ExecutionResponse":
@@ -537,7 +566,6 @@ class ExecutionResponse(AuditFields):
                 dynamic_wait_expires_at=execution.dynamic_wait_expires_at,
                 execution_expires_at=execution.execution_expires_at,
             ),
-            steps=[ExecutionStepResponse.from_domain(step) for step in execution.steps],
         )
 
 
@@ -546,16 +574,40 @@ class ExecutionSummaryResponse(AuditFields):
     mode: ExecutionMode
     trigger_type: TriggerType
     context: ExecutionContext
-    runtime: ExecutionRuntime
-    state: ExecutionState
-    failure: FailureResponse | None
-    retry: RetryResponse
+    state: ExecutionCommandState
     lifecycle: Lifecycle
     step_count: int
 
     @classmethod
     def from_domain(cls, execution: Execution) -> "ExecutionSummaryResponse":
-        return cls(**_execution_common(execution), step_count=len(execution.steps))
+        return cls(
+            execution_id=execution.id,
+            mode=execution.mode,
+            trigger_type=execution.trigger_type,
+            context=ExecutionContext(
+                user_id=execution.user_id,
+                project_id=execution.project_id,
+                session_id=execution.session_id,
+                task_id=execution.task_id,
+                execution_plan_id=execution.execution_plan_id,
+                workflow_id=execution.workflow_id,
+            ),
+            state=ExecutionCommandState(
+                status=execution.status,
+                version=execution.version,
+            ),
+            lifecycle=Lifecycle(
+                started_at=execution.started_at,
+                finished_at=execution.finished_at,
+            ),
+            step_count=len(execution.steps),
+            created_by_type=execution.created_by_type,
+            created_by=execution.created_by,
+            updated_by_type=execution.updated_by_type,
+            updated_by=execution.updated_by,
+            created_at=execution.created_at,
+            updated_at=execution.updated_at,
+        )
 
 
 class ExecutionPageResponse(PageResponse):
@@ -628,13 +680,10 @@ class ExecutionAttemptResponse(AuditFields):
     attempt_id: UUID
     execution_id: UUID
     attempt_number: int
-    runtime: AttemptRuntime
     state: AttemptState
-    lease: AttemptLease
     failure: FailureResponse | None
-    recovery: AttemptRecovery
     lifecycle: Lifecycle
-    steps: list[ExecutionStepAttemptResponse]
+    step_count: int
 
     @classmethod
     def from_view(cls, view: ExecutionAttemptView) -> "ExecutionAttemptResponse":
@@ -645,25 +694,10 @@ class ExecutionAttemptResponse(AuditFields):
             attempt_id=view.id,
             execution_id=view.execution_id,
             attempt_number=view.attempt_number,
-            runtime=AttemptRuntime(
-                type=view.runtime_type,
-                profile=view.runtime_profile,
-                target_id=view.runtime_target_id,
-                session_id=view.runtime_session_id,
-            ),
             state=AttemptState(status=view.status),
-            lease=AttemptLease(
-                owner=view.lease_owner,
-                expires_at=view.lease_expires_at,
-                heartbeat_at=view.heartbeat_at,
-            ),
             failure=failure,
-            recovery=AttemptRecovery(
-                retry_strategy=view.retry_strategy,
-                runtime_session_cleanup_status=view.runtime_session_cleanup_status,
-            ),
             lifecycle=Lifecycle(started_at=view.started_at, finished_at=view.finished_at),
-            steps=[ExecutionStepAttemptResponse.from_view(step) for step in view.steps],
+            step_count=view.step_count,
             created_by_type=view.created_by_type,
             created_by=view.created_by,
             updated_by_type=view.updated_by_type,
@@ -673,13 +707,45 @@ class ExecutionAttemptResponse(AuditFields):
         )
 
 
+class ExecutionAttemptDetailResponse(ExecutionAttemptResponse):
+    runtime: AttemptRuntime
+    lease: AttemptLease
+    recovery: AttemptRecovery
+
+    @classmethod
+    def from_view(cls, view: ExecutionAttemptView) -> "ExecutionAttemptDetailResponse":
+        summary = ExecutionAttemptResponse.from_view(view)
+        return cls(
+            **summary.model_dump(),
+            runtime=AttemptRuntime(
+                type=view.runtime_type,
+                profile=view.runtime_profile,
+                target_id=view.runtime_target_id,
+                session_id=view.runtime_session_id,
+            ),
+            lease=AttemptLease(
+                owner=view.lease_owner,
+                expires_at=view.lease_expires_at,
+                heartbeat_at=view.heartbeat_at,
+            ),
+            recovery=AttemptRecovery(
+                retry_strategy=view.retry_strategy,
+                runtime_session_cleanup_status=view.runtime_session_cleanup_status,
+            ),
+        )
+
+
 class ExecutionStepPageResponse(PageResponse):
     items: list[ExecutionStepResponse]
 
     @classmethod
-    def from_page(cls, page: Page[ExecutionStep]) -> "ExecutionStepPageResponse":
+    def from_page(
+        cls, page: Page[ExecutionStep], execution_id: UUID
+    ) -> "ExecutionStepPageResponse":
         return cls(
-            items=[ExecutionStepResponse.from_domain(item) for item in page.items],
+            items=[
+                ExecutionStepResponse.from_domain(item, execution_id) for item in page.items
+            ],
             next_cursor=page.next_cursor,
             has_more=page.next_cursor is not None,
         )
@@ -692,6 +758,20 @@ class ExecutionAttemptPageResponse(PageResponse):
     def from_page(cls, page: Page[ExecutionAttemptView]) -> "ExecutionAttemptPageResponse":
         return cls(
             items=[ExecutionAttemptResponse.from_view(item) for item in page.items],
+            next_cursor=page.next_cursor,
+            has_more=page.next_cursor is not None,
+        )
+
+
+class ExecutionStepAttemptPageResponse(PageResponse):
+    items: list[ExecutionStepAttemptResponse]
+
+    @classmethod
+    def from_page(
+        cls, page: Page[ExecutionStepAttemptView]
+    ) -> "ExecutionStepAttemptPageResponse":
+        return cls(
+            items=[ExecutionStepAttemptResponse.from_view(item) for item in page.items],
             next_cursor=page.next_cursor,
             has_more=page.next_cursor is not None,
         )
@@ -813,13 +893,56 @@ class ExecutionArtifactResponse(AuditFields):
         )
 
 
+class ArtifactStorageSummary(ContractModel):
+    type: ArtifactStorageType
+    media_type: str | None
+    size_bytes: int | None
+
+
+class ExecutionArtifactSummaryResponse(AuditFields):
+    artifact_id: UUID
+    name: str
+    type: ArtifactType
+    status: ArtifactStatus
+    produced_by: ArtifactProducer
+    storage: ArtifactStorageSummary
+
+    @classmethod
+    def from_view(
+        cls, view: ExecutionArtifactView
+    ) -> "ExecutionArtifactSummaryResponse":
+        return cls(
+            artifact_id=view.id,
+            name=view.name,
+            type=view.artifact_type,
+            status=view.status,
+            produced_by=ArtifactProducer(
+                execution_id=view.execution_id,
+                execution_attempt_id=view.execution_attempt_id,
+                execution_step_id=view.execution_step_id,
+                execution_step_attempt_id=view.execution_step_attempt_id,
+            ),
+            storage=ArtifactStorageSummary(
+                type=view.storage_type,
+                media_type=view.media_type,
+                size_bytes=view.size_bytes,
+            ),
+            created_by_type=view.created_by_type,
+            created_by=view.created_by,
+            updated_by_type=view.updated_by_type,
+            updated_by=view.updated_by,
+            created_at=view.created_at,
+            updated_at=view.updated_at,
+        )
+
+
 class ExecutionArtifactPageResponse(PageResponse):
-    items: list[ExecutionArtifactResponse]
+    items: list[ExecutionArtifactSummaryResponse]
 
     @classmethod
     def from_page(cls, page: Page[ExecutionArtifactView]) -> "ExecutionArtifactPageResponse":
         return cls(
-            items=[ExecutionArtifactResponse.from_view(item) for item in page.items],
+            items=[ExecutionArtifactSummaryResponse.from_view(item) for item in page.items],
             next_cursor=page.next_cursor,
             has_more=page.next_cursor is not None,
         )

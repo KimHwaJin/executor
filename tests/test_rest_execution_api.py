@@ -2,6 +2,7 @@ import hashlib
 import json
 from collections.abc import AsyncIterator
 from copy import deepcopy
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -13,12 +14,22 @@ from sqlalchemy import update
 from executor_service.config import Settings
 from executor_service.container import ApplicationContainer
 from executor_service.domain.enums import (
+    AttemptStatus,
     ExecutionStatus,
     RetryStrategy,
+    RuntimePool,
+    RuntimeTargetStatus,
     StepStatus,
 )
+from executor_service.domain.models import utc_now
 from executor_service.infrastructure.db.base import Base
-from executor_service.infrastructure.db.models import ExecutionORM, ExecutionStepORM
+from executor_service.infrastructure.db.models import (
+    ExecutionAttemptORM,
+    ExecutionORM,
+    ExecutionStepAttemptORM,
+    ExecutionStepORM,
+    RuntimeTargetORM,
+)
 from executor_service.interfaces.http.app import create_app
 
 
@@ -102,6 +113,8 @@ async def test_openapi_documents_all_execution_routes(
         "/api/v1/executions/{execution_id}/steps",
         "/api/v1/executions/{execution_id}/steps/{step_id}",
         "/api/v1/executions/{execution_id}/attempts",
+        "/api/v1/executions/{execution_id}/attempts/{attempt_id}",
+        "/api/v1/executions/{execution_id}/attempts/{attempt_id}/steps",
         "/api/v1/executions/{execution_id}/events",
         "/api/v1/executions/{execution_id}/artifacts",
         "/api/v1/artifacts/{artifact_id}",
@@ -124,13 +137,18 @@ async def test_static_execution_rest_lifecycle_and_queries(
     assert submitted.status_code == 202
     body = submitted.json()
     execution_id = body["execution_id"]
-    step_id = body["steps"][0]["step_id"]
     assert submitted.headers["location"] == f"/api/v1/executions/{execution_id}"
     assert body["state"]["status"] == "QUEUED"
-    assert body["runtime"]["type"] == "JUPYTER"
-    assert body["runtime"]["profile"] == "basic"
-    assert body["context"]["user_id"] == "rest-user"
-    assert body["context"]["task_id"] == "rest-task"
+    assert set(body) == {
+        "execution_id",
+        "state",
+        "created_by_type",
+        "created_by",
+        "updated_by_type",
+        "updated_by",
+        "created_at",
+        "updated_at",
+    }
 
     repeated = await client.post("/api/v1/executions", json=_submit_payload())
     assert repeated.status_code == 202
@@ -139,6 +157,7 @@ async def test_static_execution_rest_lifecycle_and_queries(
     fetched = await client.get(f"/api/v1/executions/{execution_id}")
     history = await client.get("/api/v1/executions", params={"user_id": "rest-user"})
     steps = await client.get(f"/api/v1/executions/{execution_id}/steps")
+    step_id = steps.json()["items"][0]["step_id"]
     step = await client.get(f"/api/v1/executions/{execution_id}/steps/{step_id}")
     attempts = await client.get(f"/api/v1/executions/{execution_id}/attempts")
     events = await client.get(f"/api/v1/executions/{execution_id}/events")
@@ -147,9 +166,11 @@ async def test_static_execution_rest_lifecycle_and_queries(
     assert fetched.status_code == 200
     assert fetched.json()["runtime"]["type"] == "JUPYTER"
     assert [item["execution_id"] for item in history.json()["items"]] == [execution_id]
-    assert history.json()["items"][0]["runtime"]["type"] == "JUPYTER"
+    assert "runtime" not in history.json()["items"][0]
+    assert "steps" not in fetched.json()
     assert history.json()["has_more"] is False
     assert steps.json()["items"][0]["step_id"] == step_id
+    assert steps.json()["items"][0]["execution_id"] == execution_id
     assert step.json()["plan"]["plan_step_id"] == "plan-rest-1-step-0"
     assert attempts.json()["items"] == []
     assert events.json()["items"][0]["event_type"] == "execution.submitted"
@@ -169,6 +190,7 @@ async def test_static_execution_rest_lifecycle_and_queries(
     )
     assert cancelled.status_code == 202
     assert cancelled.json()["state"]["status"] == "CANCEL_REQUESTED"
+    assert cancelled.headers["location"] == f"/api/v1/executions/{execution_id}"
 
 
 async def test_execution_history_cursor_pagination_and_invalid_cursor(
@@ -207,6 +229,86 @@ async def test_execution_history_cursor_pagination_and_invalid_cursor(
     invalid = await client.get("/api/v1/executions", params={"cursor": "not-a-cursor"})
     assert invalid.status_code == 422
     assert invalid.json()["error"]["code"] == "INVALID_CURSOR"
+
+
+async def test_attempt_detail_and_step_attempt_routes(
+    rest_client: tuple[httpx.AsyncClient, ApplicationContainer],
+) -> None:
+    client, container = rest_client
+    submitted = await client.post(
+        "/api/v1/executions",
+        json=_submit_payload(key="rest-attempt-submit", plan_id="rest-attempt-plan"),
+    )
+    execution_id = UUID(submitted.json()["execution_id"])
+    steps = await client.get(f"/api/v1/executions/{execution_id}/steps")
+    step_id = UUID(steps.json()["items"][0]["step_id"])
+    target_id = uuid4()
+    attempt_id = uuid4()
+    now = utc_now()
+    async with container.session_factory() as session, session.begin():
+        session.add(
+            RuntimeTargetORM(
+                id=target_id,
+                name="rest-attempt-jupyter",
+                connection_config={"endpoint": "http://127.0.0.1:8888"},
+                credential_ref="settings:JUPYTER_TOKEN",
+                pool=RuntimePool.INTERACTIVE,
+                status=RuntimeTargetStatus.ACTIVE,
+                max_concurrent_executions=1,
+                supported_profiles=["basic"],
+                enabled=True,
+            )
+        )
+        session.add(
+            ExecutionAttemptORM(
+                id=attempt_id,
+                execution_id=execution_id,
+                attempt_number=1,
+                runtime_target_id=target_id,
+                runtime_session_id="rest-kernel",
+                status=AttemptStatus.RUNNING,
+                lease_owner="rest-worker",
+                lease_expires_at=now + timedelta(minutes=1),
+                heartbeat_at=now,
+                started_at=now,
+            )
+        )
+        session.add(
+            ExecutionStepAttemptORM(
+                execution_id=execution_id,
+                execution_attempt_id=attempt_id,
+                execution_step_id=step_id,
+                sequence=0,
+                skill_name="data_load",
+                tool_name="load_data",
+                input_parameters={},
+                status=StepStatus.RUNNING,
+                outputs=[],
+                started_at=now,
+            )
+        )
+
+    attempts = await client.get(f"/api/v1/executions/{execution_id}/attempts")
+    detail = await client.get(
+        f"/api/v1/executions/{execution_id}/attempts/{attempt_id}"
+    )
+    attempt_steps = await client.get(
+        f"/api/v1/executions/{execution_id}/attempts/{attempt_id}/steps"
+    )
+
+    assert attempts.json()["items"][0]["step_count"] == 1
+    assert "runtime" not in attempts.json()["items"][0]
+    assert detail.json()["runtime"]["session_id"] == "rest-kernel"
+    assert detail.json()["lease"]["owner"] == "rest-worker"
+    assert attempt_steps.json()["items"][0]["execution_step_id"] == str(step_id)
+    assert (
+        await client.get(f"/api/v1/executions/{uuid4()}/attempts/{attempt_id}")
+    ).status_code == 404
+    wrong_parent = await client.get(
+        f"/api/v1/executions/{execution_id}/attempts/{uuid4()}/steps"
+    )
+    assert wrong_parent.status_code == 404
+    assert wrong_parent.json()["error"]["code"] == "EXECUTION_ATTEMPT_NOT_FOUND"
 
 
 async def test_dynamic_continue_and_finish_rest_api(
@@ -255,7 +357,8 @@ async def test_dynamic_continue_and_finish_rest_api(
     )
     assert continued.status_code == 202
     assert continued.json()["state"]["status"] == "QUEUED"
-    assert [step["sequence"] for step in continued.json()["steps"]] == [0, 1]
+    continued_steps = await client.get(f"/api/v1/executions/{execution_id}/steps")
+    assert [step["sequence"] for step in continued_steps.json()["items"]] == [0, 1]
 
     async with container.session_factory() as session, session.begin():
         await session.execute(
@@ -307,12 +410,13 @@ async def test_path_execution_spec_rest_submit(
     submitted = await client.post("/api/v1/executions", json=payload)
 
     assert submitted.status_code == 202
-    assert submitted.json()["source"] == {
+    fetched = await client.get(submitted.headers["location"])
+    assert fetched.json()["source"] == {
         "type": "PATH",
         "path": relative_path.as_posix(),
         "sha256": hashlib.sha256(content).hexdigest(),
     }
-    assert submitted.json()["context"]["execution_plan_id"] == "path-plan"
+    assert fetched.json()["context"]["execution_plan_id"] == "path-plan"
 
 
 async def test_retry_and_domain_error_mapping(
@@ -349,7 +453,8 @@ async def test_retry_and_domain_error_mapping(
     )
     assert retried.status_code == 202
     assert retried.json()["state"]["status"] == "QUEUED"
-    assert retried.json()["retry"]["count"] == 1
+    fetched = await client.get(f"/api/v1/executions/{execution_id}")
+    assert fetched.json()["retry"]["count"] == 1
 
     missing_execution = await client.get(f"/api/v1/executions/{uuid4()}")
     missing_artifact = await client.get(f"/api/v1/artifacts/{uuid4()}")

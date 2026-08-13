@@ -3,7 +3,7 @@
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
 
@@ -23,6 +23,7 @@ from executor_service.application.pagination import (
 from executor_service.domain.enums import ExecutionStatus
 from executor_service.domain.errors import (
     ExecutionArtifactNotFoundError,
+    ExecutionAttemptNotFoundError,
     ExecutionNotFoundError,
 )
 from executor_service.domain.models import Execution, ExecutionStep
@@ -127,80 +128,68 @@ class SQLAlchemyExecutionQueryService:
                 )
             )
             page_attempts = attempts[:limit]
-            attempt_ids = [attempt.id for attempt in page_attempts]
-            step_rows = (
-                list(
-                    await session.scalars(
-                        select(ExecutionStepAttemptORM)
-                        .where(ExecutionStepAttemptORM.execution_attempt_id.in_(attempt_ids))
-                        .order_by(
-                            ExecutionStepAttemptORM.execution_attempt_id,
-                            ExecutionStepAttemptORM.sequence,
-                        )
-                    )
-                )
-                if attempt_ids
-                else []
-            )
-        steps_by_attempt: dict[UUID, list[ExecutionStepAttemptView]] = {}
-        for row in step_rows:
-            steps_by_attempt.setdefault(row.execution_attempt_id, []).append(
-                ExecutionStepAttemptView(
-                    id=row.id,
-                    execution_attempt_id=row.execution_attempt_id,
-                    execution_step_id=row.execution_step_id,
-                    sequence=row.sequence,
-                    skill_name=row.skill_name,
-                    tool_name=row.tool_name,
-                    input_parameters=_redact(row.input_parameters),
-                    status=row.status,
-                    outputs=_redact(row.outputs),
-                    error_message=row.error_message,
-                    created_by_type=row.created_by_type,
-                    created_by=row.created_by,
-                    updated_by_type=row.updated_by_type,
-                    updated_by=row.updated_by,
-                    created_at=row.created_at,
-                    updated_at=row.updated_at,
-                    started_at=row.started_at,
-                    finished_at=row.finished_at,
-                )
-            )
-        items = [
-            ExecutionAttemptView(
-                id=row.id,
-                execution_id=row.execution_id,
-                attempt_number=row.attempt_number,
-                runtime_type=row.runtime_type,
-                runtime_profile=row.runtime_profile,
-                runtime_target_id=row.runtime_target_id,
-                runtime_session_id=row.runtime_session_id,
-                status=row.status,
-                lease_owner=row.lease_owner,
-                lease_expires_at=row.lease_expires_at,
-                heartbeat_at=row.heartbeat_at,
-                error_message=row.error_message,
-                failure_type=row.failure_type,
-                retry_strategy=row.retry_strategy,
-                runtime_session_cleanup_status=row.runtime_session_cleanup_status,
-                created_by_type=row.created_by_type,
-                created_by=row.created_by,
-                updated_by_type=row.updated_by_type,
-                updated_by=row.updated_by,
-                created_at=row.created_at,
-                updated_at=row.updated_at,
-                started_at=row.started_at,
-                finished_at=row.finished_at,
-                steps=tuple(steps_by_attempt.get(row.id, [])),
-            )
-            for row in page_attempts
-        ]
+            step_counts = await self._step_counts(session, [row.id for row in page_attempts])
+        items = [_attempt_view(row, step_counts.get(row.id, 0)) for row in page_attempts]
         next_cursor = (
             encode_integer_cursor("execution_attempts", page_attempts[-1].attempt_number)
             if len(attempts) > limit and page_attempts
             else None
         )
         return Page(items=items, next_cursor=next_cursor)
+
+    async def attempt(
+        self, execution_id: UUID, attempt_id: UUID
+    ) -> ExecutionAttemptView:
+        async with self._session_factory() as session:
+            await self._require_execution(session, execution_id)
+            row = await session.scalar(
+                select(ExecutionAttemptORM).where(
+                    ExecutionAttemptORM.id == attempt_id,
+                    ExecutionAttemptORM.execution_id == execution_id,
+                )
+            )
+            if row is None:
+                raise ExecutionAttemptNotFoundError(
+                    f"Execution Attempt {attempt_id} was not found in Execution {execution_id}."
+                )
+            step_count = await session.scalar(
+                select(func.count(ExecutionStepAttemptORM.id)).where(
+                    ExecutionStepAttemptORM.execution_attempt_id == attempt_id
+                )
+            )
+        return _attempt_view(row, step_count or 0)
+
+    async def attempt_steps(
+        self,
+        execution_id: UUID,
+        attempt_id: UUID,
+        *,
+        cursor: str | None = None,
+        limit: int = 100,
+    ) -> Page[ExecutionStepAttemptView]:
+        async with self._session_factory() as session:
+            await self._require_attempt(session, execution_id, attempt_id)
+            statement = select(ExecutionStepAttemptORM).where(
+                ExecutionStepAttemptORM.execution_attempt_id == attempt_id
+            )
+            if cursor is not None:
+                sequence = decode_integer_cursor(cursor, "execution_step_attempts")
+                statement = statement.where(ExecutionStepAttemptORM.sequence > sequence)
+            rows = list(
+                await session.scalars(
+                    statement.order_by(ExecutionStepAttemptORM.sequence).limit(limit + 1)
+                )
+            )
+        page_rows = rows[:limit]
+        next_cursor = (
+            encode_integer_cursor("execution_step_attempts", page_rows[-1].sequence)
+            if len(rows) > limit and page_rows
+            else None
+        )
+        return Page(
+            items=[_step_attempt_view(row) for row in page_rows],
+            next_cursor=next_cursor,
+        )
 
     async def events(
         self, execution_id: UUID, *, cursor: str | None = None, limit: int = 200
@@ -308,6 +297,38 @@ class SQLAlchemyExecutionQueryService:
         if exists is None:
             raise ExecutionNotFoundError(f"Execution {execution_id} was not found.")
 
+    @staticmethod
+    async def _require_attempt(
+        session: AsyncSession, execution_id: UUID, attempt_id: UUID
+    ) -> None:
+        await SQLAlchemyExecutionQueryService._require_execution(session, execution_id)
+        exists = await session.scalar(
+            select(ExecutionAttemptORM.id).where(
+                ExecutionAttemptORM.id == attempt_id,
+                ExecutionAttemptORM.execution_id == execution_id,
+            )
+        )
+        if exists is None:
+            raise ExecutionAttemptNotFoundError(
+                f"Execution Attempt {attempt_id} was not found in Execution {execution_id}."
+            )
+
+    @staticmethod
+    async def _step_counts(
+        session: AsyncSession, attempt_ids: list[UUID]
+    ) -> dict[UUID, int]:
+        if not attempt_ids:
+            return {}
+        rows = await session.execute(
+            select(
+                ExecutionStepAttemptORM.execution_attempt_id,
+                func.count(ExecutionStepAttemptORM.id),
+            )
+            .where(ExecutionStepAttemptORM.execution_attempt_id.in_(attempt_ids))
+            .group_by(ExecutionStepAttemptORM.execution_attempt_id)
+        )
+        return {attempt_id: count for attempt_id, count in rows}
+
 
 def _redact(value: Any) -> Any:
     if isinstance(value, dict):
@@ -351,4 +372,56 @@ def _artifact_view(row: ExecutionArtifactORM) -> ExecutionArtifactView:
         updated_by=row.updated_by,
         created_at=row.created_at,
         updated_at=row.updated_at,
+    )
+
+
+def _attempt_view(row: ExecutionAttemptORM, step_count: int) -> ExecutionAttemptView:
+    return ExecutionAttemptView(
+        id=row.id,
+        execution_id=row.execution_id,
+        attempt_number=row.attempt_number,
+        runtime_type=row.runtime_type,
+        runtime_profile=row.runtime_profile,
+        runtime_target_id=row.runtime_target_id,
+        runtime_session_id=row.runtime_session_id,
+        status=row.status,
+        lease_owner=row.lease_owner,
+        lease_expires_at=row.lease_expires_at,
+        heartbeat_at=row.heartbeat_at,
+        error_message=row.error_message,
+        failure_type=row.failure_type,
+        retry_strategy=row.retry_strategy,
+        runtime_session_cleanup_status=row.runtime_session_cleanup_status,
+        created_by_type=row.created_by_type,
+        created_by=row.created_by,
+        updated_by_type=row.updated_by_type,
+        updated_by=row.updated_by,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+        started_at=row.started_at,
+        finished_at=row.finished_at,
+        step_count=step_count,
+    )
+
+
+def _step_attempt_view(row: ExecutionStepAttemptORM) -> ExecutionStepAttemptView:
+    return ExecutionStepAttemptView(
+        id=row.id,
+        execution_attempt_id=row.execution_attempt_id,
+        execution_step_id=row.execution_step_id,
+        sequence=row.sequence,
+        skill_name=row.skill_name,
+        tool_name=row.tool_name,
+        input_parameters=_redact(row.input_parameters),
+        status=row.status,
+        outputs=_redact(row.outputs),
+        error_message=row.error_message,
+        created_by_type=row.created_by_type,
+        created_by=row.created_by,
+        updated_by_type=row.updated_by_type,
+        updated_by=row.updated_by,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+        started_at=row.started_at,
+        finished_at=row.finished_at,
     )

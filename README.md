@@ -13,6 +13,7 @@ DYNAMIC plans through a Runtime Driver. Jupyter REST/WebSocket is the first impl
 - Execution tools: `execution_submit`, `execution_get`,
   `execution_cancel`, `execution_retry`, `execution_continue`, `execution_finish`,
   `execution_list`, `execution_step_list`, `execution_attempt_list`,
+  `execution_attempt_get`, `execution_attempt_step_list`,
   `execution_event_list`,
   `execution_artifact_list`, `execution_artifact_get`
 - Runtime Target tools: `runtime_target_upsert`, `runtime_target_list`,
@@ -288,10 +289,11 @@ These are normal MCP Tool calls with declared input/output schemas; no private t
 introduced. MCP protocol-native list operations remain owned by the official SDK; these are
 Executor-defined Tool result contracts shared with REST.
 
-`execution_attempt_list` returns worker Attempts in order, including the selected Runtime Target,
-session, immutable Runtime type/profile snapshot, lease/heartbeat times, outcome, and only the
-Steps actually run by that Attempt.
-Each Step history row snapshots its skill, tool, inputs, outputs, error, and timestamps, so a retry
+`execution_attempt_list` returns lightweight worker Attempt history with outcome and Step count.
+Use `execution_attempt_get` for the selected Runtime Target, session, immutable Runtime
+type/profile snapshot, lease/heartbeat times, and recovery details. Use
+`execution_attempt_step_list` for the Steps actually run by that Attempt. Each Step history row
+snapshots its skill, tool, inputs, outputs, error, and timestamps, so a retry
 does not overwrite evidence from the earlier failure. `execution_event_list` returns the
 transactional Outbox timeline and current Redis publication state. Frontends compose the current
 Execution with Attempt/Step, event, and Artifact list endpoints for an end-to-end detail view.

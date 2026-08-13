@@ -1,5 +1,9 @@
 # API Contract Review
 
+The Execution-family response decisions in this historical review are superseded by
+[Execution Response Contracts](execution-response-contracts.md). Runtime Target and Runtime Pool
+decisions in this document remain current.
+
 This document records API contract decisions one item at a time. A section marked `UNDER REVIEW`
 is a draft and must not be treated as an implementation contract. A section becomes implementable
 only after it is marked `ACCEPTED`.
@@ -22,12 +26,12 @@ only after it is marked `ACCEPTED`.
 
 1. Runtime Target response — `ACCEPTED`
 2. Runtime Pool response — `ACCEPTED`
-3. Execution response and summary — `ACCEPTED`
-4. Execution Step response — `ACCEPTED`
+3. Execution response and summary — `SUPERSEDED`
+4. Execution Step response — `SUPERSEDED`
 5. Execution Attempt response — `ACCEPTED`
-6. Execution Step Attempt response — `ACCEPTED`
-7. Execution Event response — `ACCEPTED`
-8. Execution Artifact response — `ACCEPTED`
+6. Execution Step Attempt response — `SUPERSEDED`
+7. Execution Event response — `SUPERSEDED`
+8. Execution Artifact response — `SUPERSEDED`
 9. Execution Trace response semantics — `ACCEPTED: REMOVE`
 10. Capabilities response — `ACCEPTED: REMOVE`
 11. Pagination conventions — `ACCEPTED`
@@ -211,7 +215,7 @@ Accepted decisions:
 
 ## 3. Execution response and summary
 
-Status: `ACCEPTED`
+Status: `SUPERSEDED`
 
 Scope:
 
@@ -340,7 +344,7 @@ Execution version semantics:
 
 ## 4. Execution Step response
 
-Status: `ACCEPTED`
+Status: `SUPERSEDED`
 
 Scope:
 
@@ -395,13 +399,12 @@ Accepted decisions:
 
 ## 5. Execution Attempt response
 
-Status: `ACCEPTED`
+Status: `SUPERSEDED`
 
 Scope:
 
-- REST Execution Attempt list items embedded with their Step Attempts.
-- MCP Execution Attempt list items embedded with their Step Attempts.
-- Step Attempt response details are reviewed separately in section 6.
+- Historical draft for REST and MCP Execution Attempt list items.
+- Current contract separates Attempt summary, Attempt detail, and paginated Step Attempt results.
 
 Draft shape:
 
@@ -470,16 +473,16 @@ Accepted decisions:
 2. Keep `attempt_number` top-level as the user-facing chronological ordinal; `attempt_id` remains
    the stable technical identifier.
 3. Always return `lease` with nullable fields after completion, rather than return `lease: null`.
-4. Keep `steps` embedded in each Attempt because Step Attempt results are part of immutable Attempt
-   history, even though this can make list items large.
+4. Superseded on 2026-08-13: Attempt list items now expose `step_count`; Attempt detail and the
+   cursor-paginated Step Attempt list are separate REST and MCP operations.
 
 ## 6. Execution Step Attempt response
 
-Status: `ACCEPTED`
+Status: `SUPERSEDED`
 
 Scope:
 
-- Step Attempt items embedded in Execution Attempt responses for REST and MCP.
+- Step Attempt items returned by the REST and MCP Attempt Step list operations.
 - A Step Attempt is immutable evidence of one Step's actual result in one Attempt.
 
 Draft shape:
@@ -532,7 +535,7 @@ Accepted decisions:
 
 ## 7. Execution Event response
 
-Status: `ACCEPTED`
+Status: `SUPERSEDED`
 
 Scope:
 
@@ -586,7 +589,7 @@ Accepted decisions:
 
 ## 8. Execution Artifact response
 
-Status: `ACCEPTED`
+Status: `SUPERSEDED`
 
 Scope:
 

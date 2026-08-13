@@ -6,6 +6,7 @@ from enum import StrEnum
 class ErrorCode(StrEnum):
     REQUEST_VALIDATION_ERROR = "REQUEST_VALIDATION_ERROR"
     EXECUTION_NOT_FOUND = "EXECUTION_NOT_FOUND"
+    EXECUTION_ATTEMPT_NOT_FOUND = "EXECUTION_ATTEMPT_NOT_FOUND"
     ARTIFACT_NOT_FOUND = "ARTIFACT_NOT_FOUND"
     RUNTIME_TARGET_NOT_FOUND = "RUNTIME_TARGET_NOT_FOUND"
     INVALID_EXECUTION_SPEC = "INVALID_EXECUTION_SPEC"
@@ -29,6 +30,10 @@ class DomainError(Exception):
 
 class ExecutionNotFoundError(DomainError):
     code = ErrorCode.EXECUTION_NOT_FOUND
+
+
+class ExecutionAttemptNotFoundError(DomainError):
+    code = ErrorCode.EXECUTION_ATTEMPT_NOT_FOUND
 
 
 class InvalidStateTransitionError(DomainError):
