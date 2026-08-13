@@ -11,7 +11,8 @@ internals or access Executor-owned database tables.
   Executor-compatible Jupyter server extension, and the ignored shared workspace used by local
   Runtime Targets.
 - [`agent/`](agent/README.md): isolated LangGraph/LangChain Agent Server project used to exercise
-  Executor's MCP and Redis interfaces and verify code execution plus Runtime-owned Jupyter output.
+  deterministic and LLM-planned natural-language requests through Executor's MCP and Redis
+  interfaces and verify code execution plus Runtime-owned Jupyter output.
 
 PostgreSQL and Redis remain in the repository-root Compose file because they are required Executor
 infrastructure, not simulated external clients. Compose is the orchestration entry point and builds

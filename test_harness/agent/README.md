@@ -4,13 +4,15 @@ An isolated LangGraph/LangChain development application for exercising the Execu
 Agent Server. It has its own Python environment and lock file so Agent dependencies do not alter
 the Executor service dependency graph.
 
-The graph supports a deterministic Agent → Executor → Jupyter integration scenario without an
-LLM. The Agent submits an Execution through Executor MCP and interrupts after checkpointing its
+The graph supports both a deterministic Agent → Executor → Jupyter integration scenario without an
+LLM and a natural-language Chat UI scenario with an OpenAI-compatible LLM. The deterministic flow
+submits an Execution through Executor MCP and interrupts after checkpointing its
 `execution_id`. The test event bridge receives the terminal notification through an Agent-owned
 Redis consumer group and resumes the same LangGraph thread. The resumed graph reconciles
 PostgreSQL-backed state and reads Step, Artifact, and Runtime-owned Notebook results through MCP.
-When `TEST_AGENT_LLM_MODEL` is configured, ordinary non-execution messages can also use the
-OpenAI-compatible vLLM gateway.
+When `TEST_AGENT_LLM_MODEL` is configured, the planner classifies ordinary chat versus execution,
+creates a validated STATIC plan for execution requests, waits on the Redis notification, and then
+reconciles authoritative results through Executor MCP.
 
 ## Layout
 
@@ -22,7 +24,9 @@ test_harness/agent/
 ├── src/executor_test_agent/
 │   ├── config.py
 │   ├── graph.py
+│   ├── planning.py
 │   └── state.py
+├── scripts/chat_smoke.py
 ├── scripts/smoke.py
 └── tests/test_graph.py
 ```
@@ -51,9 +55,40 @@ OpenAI-compatible API, set these values in `test_harness/agent/.env`:
 TEST_AGENT_LLM_BASE_URL=http://your-vllm-gateway/v1
 TEST_AGENT_LLM_MODEL=your-model-name
 TEST_AGENT_LLM_API_KEY=your-runtime-secret
+TEST_AGENT_ENABLE_NL_EXECUTION=true
+TEST_AGENT_USER_ID=chat-ui-user
+TEST_AGENT_PROJECT_ID=chat-ui-project
 ```
 
 The API key is read only from the environment. Do not commit `.env` or real credentials.
+
+With natural-language execution enabled, connect Agent Chat UI with deployment URL
+`http://127.0.0.1:2024` and graph ID `executor_test_agent`, then try:
+
+```text
+basic 커널에서 1부터 10까지의 합계를 계산하고 출력해줘.
+```
+
+The LLM must return a strict JSON plan; validated Steps are submitted through Executor MCP. The
+Chat UI run waits for the terminal Redis event and then displays the execution ID, status, notebook
+outputs, Artifact names, and Runtime-owned notebook path. This synchronous wait exists only to make
+the local Chat UI test self-contained. Production still requires the durable Agent-owned consumer,
+event deduplication, Pending recovery, DLQ, and external thread resume described above.
+
+The same LLM path can be tested without a browser while Agent Server is running:
+
+```bash
+uv run python scripts/chat_smoke.py
+```
+
+Override the default Korean sum prompt with `TEST_AGENT_CHAT_PROMPT` and Agent Server with
+`TEST_AGENT_SERVER_URL`. Unlike `scripts/smoke.py`, this script requires `TEST_AGENT_LLM_MODEL` and
+exercises natural-language planning before submitting the execution.
+
+This planner guard rejects several obvious process, network, environment, and dynamic-code access
+patterns, but it is not a Python sandbox. Run the natural-language harness only with trusted models,
+prompts, data, and isolated test infrastructure. Production code-execution isolation remains a
+deployment and Runtime security responsibility.
 
 The Executor integration settings default to the repository Compose topology:
 
