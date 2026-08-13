@@ -432,6 +432,10 @@ consumers must use their own consumer group and durably deduplicate on `event_id
 No database migration runs automatically during service startup. Deployments must run Alembic as
 a release or init job before readiness can pass.
 
+The application uses a bounded SQLAlchemy PostgreSQL connection pool. Pool capacity, checkout
+timeout, connection recycling, per-Pod connection budgeting, and critical query-plan verification
+are documented in [Database Operations](docs/database-operations.md).
+
 ## Configuration and secrets
 
 All settings use environment variables; `.env` is ignored by Git. `DATABASE_URL` and `REDIS_URL`

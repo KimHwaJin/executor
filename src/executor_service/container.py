@@ -18,14 +18,21 @@ from executor_service.infrastructure.runtime_registry import RuntimeTargetRegist
 from executor_service.infrastructure.worker import ExecutionWorker
 from executor_service.tracing import TracingManager
 
-EXPECTED_SCHEMA_REVISION = "0002"
+EXPECTED_SCHEMA_REVISION = "0003"
 
 
 class ApplicationContainer:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.tracing = TracingManager(settings)
-        self.engine: AsyncEngine = create_engine(settings.database_dsn)
+        self.engine: AsyncEngine = create_engine(
+            settings.database_dsn,
+            pool_size=settings.database_pool_size,
+            max_overflow=settings.database_max_overflow,
+            pool_timeout_seconds=settings.database_pool_timeout_seconds,
+            pool_recycle_seconds=settings.database_pool_recycle_seconds,
+            connect_timeout_seconds=settings.database_connect_timeout_seconds,
+        )
         self.session_factory = create_session_factory(self.engine)
         self.redis: Redis = Redis.from_url(settings.redis_dsn, decode_responses=True)
         self.execution_service = ExecutionService(

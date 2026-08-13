@@ -11,6 +11,7 @@ import pytest_asyncio
 from redis.asyncio import Redis
 from sqlalchemy import func, select, text
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from executor_service.application.commands import (
@@ -326,3 +327,21 @@ async def test_concurrent_outbox_publishers_emit_one_stream_message(
     assert sum(published) == 1
     assert len(messages) == 1
     assert published_rows == 1
+
+
+async def test_bounded_pool_times_out_instead_of_opening_unlimited_connections(
+    postgres_engine: AsyncEngine,
+) -> None:
+    bounded_engine = create_engine(
+        postgres_engine.url.render_as_string(hide_password=False),
+        pool_size=1,
+        max_overflow=0,
+        pool_timeout_seconds=0.05,
+    )
+    try:
+        async with bounded_engine.connect():
+            with pytest.raises(SQLAlchemyTimeoutError):
+                async with bounded_engine.connect():
+                    pass
+    finally:
+        await bounded_engine.dispose()
