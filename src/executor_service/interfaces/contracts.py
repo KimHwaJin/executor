@@ -12,6 +12,7 @@ from executor_service.application.execution_queries import (
     ExecutionAttemptView,
     ExecutionDetailView,
     ExecutionEventView,
+    ExecutionOperationView,
     ExecutionStepAttemptView,
     ExecutionSummaryView,
 )
@@ -31,6 +32,7 @@ from executor_service.domain.enums import (
     ExecutionMode,
     ExecutionStatus,
     FailureType,
+    OperationStatus,
     OutboxStatus,
     RetryStrategy,
     RuntimePool,
@@ -384,9 +386,7 @@ class ExecutionStepResponse(AuditFields):
     lifecycle: Lifecycle
 
     @classmethod
-    def from_domain(
-        cls, step: ExecutionStep, execution_id: UUID
-    ) -> "ExecutionStepResponse":
+    def from_domain(cls, step: ExecutionStep, execution_id: UUID) -> "ExecutionStepResponse":
         return cls(
             step_id=step.id,
             execution_id=execution_id,
@@ -500,9 +500,7 @@ def _execution_common(execution: Execution | ExecutionDetailView) -> dict[str, A
             from_sequence=execution.retry_from_sequence,
             retained_runtime_session_until=execution.retained_runtime_session_until,
         ),
-        "lifecycle": Lifecycle(
-            started_at=execution.started_at, finished_at=execution.finished_at
-        ),
+        "lifecycle": Lifecycle(started_at=execution.started_at, finished_at=execution.finished_at),
         "created_by_type": execution.created_by_type,
         "created_by": execution.created_by,
         "updated_by_type": execution.updated_by_type,
@@ -514,12 +512,16 @@ def _execution_common(execution: Execution | ExecutionDetailView) -> dict[str, A
 
 class ExecutionCommandResponse(AuditFields):
     execution_id: UUID
+    operation_id: UUID | None
     state: ExecutionCommandState
 
     @classmethod
-    def from_domain(cls, execution: Execution) -> "ExecutionCommandResponse":
+    def from_domain(
+        cls, execution: Execution, *, operation_id: UUID | None = None
+    ) -> "ExecutionCommandResponse":
         return cls(
             execution_id=execution.id,
+            operation_id=operation_id,
             state=ExecutionCommandState(
                 status=execution.status,
                 version=execution.version,
@@ -549,9 +551,7 @@ class ExecutionResponse(AuditFields):
     lifecycle: Lifecycle
 
     @classmethod
-    def from_view(
-        cls, execution: ExecutionDetailView | Execution
-    ) -> "ExecutionResponse":
+    def from_view(cls, execution: ExecutionDetailView | Execution) -> "ExecutionResponse":
         return cls(
             **_execution_common(execution),
             source=ExecutionSourceResponse(
@@ -747,9 +747,7 @@ class ExecutionStepPageResponse(PageResponse):
         cls, page: Page[ExecutionStep], execution_id: UUID
     ) -> "ExecutionStepPageResponse":
         return cls(
-            items=[
-                ExecutionStepResponse.from_domain(item, execution_id) for item in page.items
-            ],
+            items=[ExecutionStepResponse.from_domain(item, execution_id) for item in page.items],
             next_cursor=page.next_cursor,
             has_more=page.next_cursor is not None,
         )
@@ -767,13 +765,73 @@ class ExecutionAttemptPageResponse(PageResponse):
         )
 
 
+class OperationSequenceRange(ContractModel):
+    first: int
+    last: int
+
+
+class OperationResult(ContractModel):
+    status: OperationStatus
+    error_message: str | None
+
+
+class ExecutionOperationResponse(AuditFields):
+    operation_id: UUID
+    execution_id: UUID
+    operation_number: int
+    sequence_range: OperationSequenceRange
+    execution_plan_id: str
+    source: ExecutionSourceResponse
+    execution_attempt_id: UUID | None
+    result: OperationResult
+    lifecycle: Lifecycle
+    step_count: int
+
+    @classmethod
+    def from_view(cls, view: ExecutionOperationView) -> "ExecutionOperationResponse":
+        return cls(
+            operation_id=view.id,
+            execution_id=view.execution_id,
+            operation_number=view.operation_number,
+            sequence_range=OperationSequenceRange(
+                first=view.first_sequence, last=view.last_sequence
+            ),
+            execution_plan_id=view.execution_plan_id,
+            source=ExecutionSourceResponse(
+                type=view.code_source_type,
+                path=view.code_path,
+                sha256=view.source_sha256,
+            ),
+            execution_attempt_id=view.execution_attempt_id,
+            result=OperationResult(status=view.status, error_message=view.error_message),
+            lifecycle=Lifecycle(started_at=view.started_at, finished_at=view.finished_at),
+            step_count=view.step_count,
+            created_by_type=view.created_by_type,
+            created_by=view.created_by,
+            updated_by_type=view.updated_by_type,
+            updated_by=view.updated_by,
+            created_at=view.created_at,
+            updated_at=view.updated_at,
+        )
+
+
+class ExecutionOperationPageResponse(PageResponse):
+    items: list[ExecutionOperationResponse]
+
+    @classmethod
+    def from_page(cls, page: Page[ExecutionOperationView]) -> "ExecutionOperationPageResponse":
+        return cls(
+            items=[ExecutionOperationResponse.from_view(item) for item in page.items],
+            next_cursor=page.next_cursor,
+            has_more=page.next_cursor is not None,
+        )
+
+
 class ExecutionStepAttemptPageResponse(PageResponse):
     items: list[ExecutionStepAttemptResponse]
 
     @classmethod
-    def from_page(
-        cls, page: Page[ExecutionStepAttemptView]
-    ) -> "ExecutionStepAttemptPageResponse":
+    def from_page(cls, page: Page[ExecutionStepAttemptView]) -> "ExecutionStepAttemptPageResponse":
         return cls(
             items=[ExecutionStepAttemptResponse.from_view(item) for item in page.items],
             next_cursor=page.next_cursor,
@@ -912,9 +970,7 @@ class ExecutionArtifactSummaryResponse(AuditFields):
     storage: ArtifactStorageSummary
 
     @classmethod
-    def from_view(
-        cls, view: ExecutionArtifactView
-    ) -> "ExecutionArtifactSummaryResponse":
+    def from_view(cls, view: ExecutionArtifactView) -> "ExecutionArtifactSummaryResponse":
         return cls(
             artifact_id=view.id,
             name=view.name,

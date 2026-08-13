@@ -364,7 +364,7 @@ async def _assert_waiting_runtime(
     expected_session_id: str | None,
     session_factory: async_sessionmaker[AsyncSession],
 ) -> tuple[UUID, str]:
-    if execution["state"]["status"] != "WAITING_FOR_NEXT_STEP":
+    if execution["state"]["status"] != "WAITING_FOR_CONTINUE":
         raise RuntimeError(f"DYNAMIC Execution is not waiting: {execution}")
     target_id = UUID(str(execution["runtime"]["target_id"]))
     session_id = str(execution["runtime"]["session_id"])
@@ -426,7 +426,7 @@ async def _run_correction_and_finish_case(
     first, first_states = await _wait_for_status(
         "MCP",
         execution_id,
-        {"WAITING_FOR_NEXT_STEP"},
+        {"WAITING_FOR_CONTINUE"},
         mcp=mcp,
         rest=rest,
         timeout_seconds=timeout_seconds,
@@ -468,7 +468,7 @@ async def _run_correction_and_finish_case(
     second, second_states = await _wait_for_status(
         "REST",
         execution_id,
-        {"WAITING_FOR_NEXT_STEP"},
+        {"WAITING_FOR_CONTINUE"},
         mcp=mcp,
         rest=rest,
         timeout_seconds=timeout_seconds,
@@ -511,7 +511,7 @@ async def _run_correction_and_finish_case(
     failed, failed_states = await _wait_for_status(
         "MCP",
         execution_id,
-        {"WAITING_FOR_NEXT_STEP"},
+        {"WAITING_FOR_CONTINUE"},
         mcp=mcp,
         rest=rest,
         timeout_seconds=timeout_seconds,
@@ -562,7 +562,7 @@ async def _run_correction_and_finish_case(
     corrected, corrected_states = await _wait_for_status(
         "REST",
         execution_id,
-        {"WAITING_FOR_NEXT_STEP"},
+        {"WAITING_FOR_CONTINUE"},
         mcp=mcp,
         rest=rest,
         timeout_seconds=timeout_seconds,
@@ -633,12 +633,8 @@ async def _run_correction_and_finish_case(
         if [item["state"]["status"] for item in api_attempts] != ["SUCCEEDED"]:
             raise RuntimeError(f"{transport} Attempt history differs from PostgreSQL.")
         attempt_id = str(api_attempts[0]["attempt_id"])
-        detail = await _attempt_detail(
-            transport, execution_id, attempt_id, mcp=mcp, rest=rest
-        )
-        history = await _attempt_steps(
-            transport, execution_id, attempt_id, mcp=mcp, rest=rest
-        )
+        detail = await _attempt_detail(transport, execution_id, attempt_id, mcp=mcp, rest=rest)
+        history = await _attempt_steps(transport, execution_id, attempt_id, mcp=mcp, rest=rest)
         if (
             detail["runtime"]["session_id"] != session_id
             or tuple(step["result"]["status"] for step in history) != step_statuses
@@ -648,8 +644,7 @@ async def _run_correction_and_finish_case(
     named_artifacts = {
         artifact.name: artifact
         for artifact in snapshot.artifacts
-        if artifact.name
-        in {"dynamic-answer.txt", "dynamic-failed.txt", "dynamic-corrected.txt"}
+        if artifact.name in {"dynamic-answer.txt", "dynamic-failed.txt", "dynamic-corrected.txt"}
     }
     expected_artifacts = {
         "dynamic-answer.txt": ("AVAILABLE", "42"),
@@ -693,8 +688,8 @@ async def _run_correction_and_finish_case(
         "execution.submitted",
         "execution.started",
         "execution.continue_requested",
-        "execution.step_completed",
-        "execution.step_failed",
+        "execution.operation_succeeded",
+        "execution.operation_failed",
         "execution.finish_requested",
         "execution.succeeded",
         "execution.artifact_registered",
@@ -832,8 +827,7 @@ async def _run_running_cancel_case(
         timeout_seconds=timeout_seconds,
     )
     if (
-        cancelled["state"]["cancellation_reason"]
-        != "dynamic running cancellation regression E2E"
+        cancelled["state"]["cancellation_reason"] != "dynamic running cancellation regression E2E"
         or cancelled["runtime"]["session_id"] is not None
         or cancelled["recovery"]["runtime_session_cleanup_status"] != "SUCCEEDED"
     ):

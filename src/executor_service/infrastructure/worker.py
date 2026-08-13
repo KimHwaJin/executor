@@ -24,6 +24,7 @@ from executor_service.domain.enums import (
     ExecutionMode,
     ExecutionStatus,
     FailureType,
+    OperationStatus,
     RetryStrategy,
     RuntimePool,
     RuntimeSessionCleanupStatus,
@@ -45,6 +46,7 @@ from executor_service.events import (
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
+    ExecutionOperationORM,
     ExecutionORM,
     ExecutionStepAttemptORM,
     ExecutionStepORM,
@@ -774,6 +776,27 @@ class ExecutionWorker:
             )
             if execution_row is None or execution_row.status != ExecutionStatus.QUEUED:
                 return None
+            operation: ExecutionOperationORM | None = None
+            if (
+                not execution_row.dynamic_finish_requested
+                and execution_row.active_operation_id is not None
+            ):
+                operation = await session.scalar(
+                    select(ExecutionOperationORM)
+                    .where(
+                        ExecutionOperationORM.id == execution_row.active_operation_id,
+                        ExecutionOperationORM.execution_id == execution_id,
+                        ExecutionOperationORM.status == OperationStatus.QUEUED,
+                    )
+                    .with_for_update()
+                )
+                if operation is None:
+                    return None
+            elif (
+                not execution_row.dynamic_finish_requested
+                and execution_row.retry_count == 0
+            ):
+                return None
             if (
                 execution_row.mode == ExecutionMode.DYNAMIC
                 and execution_row.runtime_session_id is not None
@@ -817,6 +840,11 @@ class ExecutionWorker:
                 ) + timedelta(seconds=self._settings.execution_max_runtime_seconds)
                 execution_row.updated_at = now
                 execution_row.version += 1
+                if operation is not None:
+                    operation.status = OperationStatus.RUNNING
+                    operation.execution_attempt_id = waiting_attempt.id
+                    operation.started_at = now
+                    operation.updated_at = now
                 await _add_outbox(
                     session,
                     execution_id,
@@ -897,6 +925,11 @@ class ExecutionWorker:
                     started_at=now,
                 )
             )
+            if operation is not None:
+                operation.status = OperationStatus.RUNNING
+                operation.execution_attempt_id = attempt_id
+                operation.started_at = now
+                operation.updated_at = now
             execution_row.status = ExecutionStatus.RUNNING
             execution_row.runtime_target_id = target.id
             execution_row.lease_owner = self._consumer_name
@@ -1175,50 +1208,78 @@ class ExecutionWorker:
                 )
                 return
 
-            pending = next(
-                (step for step in execution.steps if step.status == StepStatus.PENDING), None
-            )
-            if pending is None or not pending.code:
-                raise ValueError("Queued DYNAMIC execution has no pending cell code.")
-            artifact_snapshot = self._artifacts.snapshot(workspace)
-            await self._step_started(execution.id, attempt_id, pending.sequence)
-            try:
-                result = await self._trace_runtime(
-                    "executor.runtime.code.execute",
-                    driver.execute(runtime_session_id, pending.code),
-                    execution_id=execution.id,
-                    target_id=target.id,
-                    sequence=pending.sequence,
-                )
-            except asyncio.CancelledError:
-                # A cancellation can arrive after a DYNAMIC cell has written files but before
-                # Jupyter returns. Preserve those files as incomplete evidence before the outer
-                # cancellation path removes the retained Runtime session.
+            operation_id = execution.active_operation_id
+            if operation_id is None:
+                raise ValueError("Queued DYNAMIC execution has no active Operation.")
+            pending_steps = [
+                step
+                for step in execution.steps
+                if step.operation_id == operation_id and step.status == StepStatus.PENDING
+            ]
+            if not pending_steps:
+                raise ValueError("Queued DYNAMIC Operation has no pending cell code.")
+            for pending in pending_steps:
+                if not pending.code:
+                    raise ValueError("Queued DYNAMIC Operation contains blank cell code.")
+                artifact_snapshot = self._artifacts.snapshot(workspace)
+                await self._step_started(execution.id, attempt_id, pending.sequence)
                 try:
-                    await self._artifacts.discover_and_register(
-                        workspace=workspace,
-                        before=artifact_snapshot,
+                    result = await self._trace_runtime(
+                        "executor.runtime.code.execute",
+                        driver.execute(runtime_session_id, pending.code),
                         execution_id=execution.id,
-                        attempt_id=attempt_id,
+                        target_id=target.id,
                         sequence=pending.sequence,
-                        status=ArtifactStatus.INCOMPLETE,
                     )
-                except Exception as artifact_exc:
-                    await self._record_artifact_failure(
-                        execution.id, attempt_id, pending.sequence, artifact_exc
+                except asyncio.CancelledError:
+                    try:
+                        await self._artifacts.discover_and_register(
+                            workspace=workspace,
+                            before=artifact_snapshot,
+                            execution_id=execution.id,
+                            attempt_id=attempt_id,
+                            sequence=pending.sequence,
+                            status=ArtifactStatus.INCOMPLETE,
+                        )
+                    except Exception as artifact_exc:
+                        await self._record_artifact_failure(
+                            execution.id, attempt_id, pending.sequence, artifact_exc
+                        )
+                    raise
+                except RuntimeExecutionError as exc:
+                    await self._step_failed(
+                        execution.id, attempt_id, pending.sequence, exc.outputs, str(exc)
                     )
-                    logger.warning(
-                        "Cancelled DYNAMIC-cell Artifact registration failed",
-                        extra={"execution_id": str(execution.id)},
+                    await self._skip_operation_steps_after(
+                        execution.id, operation_id, pending.sequence
                     )
-                raise
-            except RuntimeExecutionError as exc:
-                await self._step_failed(
-                    execution.id,
-                    attempt_id,
-                    pending.sequence,
-                    exc.outputs,
-                    str(exc),
+                    await self._write_dynamic_notebook(
+                        execution.id, execution.runtime_profile, workspace
+                    )
+                    try:
+                        await self._artifacts.discover_and_register(
+                            workspace=workspace,
+                            before=artifact_snapshot,
+                            execution_id=execution.id,
+                            attempt_id=attempt_id,
+                            sequence=pending.sequence,
+                            status=ArtifactStatus.INCOMPLETE,
+                        )
+                    except Exception as artifact_exc:
+                        await self._record_artifact_failure(
+                            execution.id, attempt_id, pending.sequence, artifact_exc
+                        )
+                    await self._pause_dynamic_operation(
+                        execution.id,
+                        attempt_id,
+                        operation_id,
+                        OperationStatus.FAILED,
+                        failed_sequence=pending.sequence,
+                        error_message=str(exc),
+                    )
+                    return
+                await self._step_succeeded(
+                    execution.id, attempt_id, pending.sequence, result.outputs
                 )
                 await self._write_dynamic_notebook(
                     execution.id, execution.runtime_profile, workspace
@@ -1230,34 +1291,18 @@ class ExecutionWorker:
                         execution_id=execution.id,
                         attempt_id=attempt_id,
                         sequence=pending.sequence,
-                        status=ArtifactStatus.INCOMPLETE,
+                        status=ArtifactStatus.AVAILABLE,
                     )
                 except Exception as artifact_exc:
                     await self._record_artifact_failure(
                         execution.id, attempt_id, pending.sequence, artifact_exc
                     )
-                await self._pause_dynamic(
-                    execution.id, attempt_id, pending.sequence, StepStatus.FAILED
-                )
-                return
-            await self._step_succeeded(execution.id, attempt_id, pending.sequence, result.outputs)
-            await self._write_dynamic_notebook(execution.id, execution.runtime_profile, workspace)
-            try:
-                await self._artifacts.discover_and_register(
-                    workspace=workspace,
-                    before=artifact_snapshot,
-                    execution_id=execution.id,
-                    attempt_id=attempt_id,
-                    sequence=pending.sequence,
-                    status=ArtifactStatus.AVAILABLE,
-                )
-            except Exception as artifact_exc:
-                await self._record_artifact_failure(
-                    execution.id, attempt_id, pending.sequence, artifact_exc
-                )
-                raise
-            await self._pause_dynamic(
-                execution.id, attempt_id, pending.sequence, StepStatus.SUCCEEDED
+                    raise
+            await self._pause_dynamic_operation(
+                execution.id,
+                attempt_id,
+                operation_id,
+                OperationStatus.SUCCEEDED,
             )
         except asyncio.CancelledError:
             if await self._cancellation_job_owns_terminal(execution.id):
@@ -1320,12 +1365,15 @@ class ExecutionWorker:
             workspace, runtime_profile, cells, outputs, [None] * len(cells)
         )
 
-    async def _pause_dynamic(
+    async def _pause_dynamic_operation(
         self,
         execution_id: UUID,
         attempt_id: UUID,
-        sequence: int,
-        step_status: StepStatus,
+        operation_id: UUID,
+        operation_status: OperationStatus,
+        *,
+        failed_sequence: int | None = None,
+        error_message: str | None = None,
     ) -> None:
         now = utc_now()
         async with self._session_factory() as session, session.begin():
@@ -1334,7 +1382,17 @@ class ExecutionWorker:
             )
             if execution is None or execution.status != ExecutionStatus.RUNNING:
                 return
-            execution.status = ExecutionStatus.WAITING_FOR_NEXT_STEP
+            operation = await session.scalar(
+                select(ExecutionOperationORM)
+                .where(
+                    ExecutionOperationORM.id == operation_id,
+                    ExecutionOperationORM.execution_id == execution_id,
+                )
+                .with_for_update()
+            )
+            if operation is None or operation.status != OperationStatus.RUNNING:
+                return
+            execution.status = ExecutionStatus.WAITING_FOR_CONTINUE
             execution.lease_owner = None
             execution.lease_expires_at = None
             execution.updated_at = now
@@ -1344,9 +1402,17 @@ class ExecutionWorker:
             )
             execution.dynamic_wait_expires_at = min(
                 wait_deadline,
-                execution.execution_expires_at or wait_deadline,
+                (
+                    _as_utc(execution.execution_expires_at)
+                    if execution.execution_expires_at is not None
+                    else wait_deadline
+                ),
             )
             execution.version += 1
+            operation.status = operation_status
+            operation.error_message = error_message[:2000] if error_message else None
+            operation.finished_at = now
+            operation.updated_at = now
             await session.execute(
                 update(ExecutionAttemptORM)
                 .where(ExecutionAttemptORM.id == attempt_id)
@@ -1359,18 +1425,33 @@ class ExecutionWorker:
             await _add_outbox(
                 session,
                 execution_id,
-                (
-                    "execution.step_completed"
-                    if step_status == StepStatus.SUCCEEDED
-                    else "execution.step_failed"
-                ),
-                ExecutionStatus.WAITING_FOR_NEXT_STEP,
+                f"execution.operation_{operation_status.value.lower()}",
+                ExecutionStatus.WAITING_FOR_CONTINUE,
                 {
                     "execution_attempt_id": str(attempt_id),
-                    "sequence": sequence,
-                    "step_status": step_status.value,
+                    "operation_id": str(operation_id),
+                    "operation_status": operation_status.value,
+                    "first_sequence": operation.first_sequence,
+                    "last_sequence": operation.last_sequence,
+                    **({"failed_sequence": failed_sequence} if failed_sequence is not None else {}),
                     "version": execution.version,
                 },
+            )
+
+    async def _skip_operation_steps_after(
+        self, execution_id: UUID, operation_id: UUID, failed_sequence: int
+    ) -> None:
+        now = utc_now()
+        async with self._session_factory() as session, session.begin():
+            await session.execute(
+                update(ExecutionStepORM)
+                .where(
+                    ExecutionStepORM.execution_id == execution_id,
+                    ExecutionStepORM.operation_id == operation_id,
+                    ExecutionStepORM.sequence > failed_sequence,
+                    ExecutionStepORM.status == StepStatus.PENDING,
+                )
+                .values(status=StepStatus.SKIPPED, finished_at=now, updated_at=now)
             )
 
     async def _ensure_steps(self, execution_id: UUID, cell_count: int) -> None:
@@ -1663,6 +1744,58 @@ class ExecutionWorker:
                     finished_at=now,
                 )
             )
+            if execution.active_operation_id is not None:
+                operation_update = await session.execute(
+                    update(ExecutionOperationORM)
+                    .where(
+                        ExecutionOperationORM.id == execution.active_operation_id,
+                        ExecutionOperationORM.status.in_(
+                            [OperationStatus.QUEUED, OperationStatus.RUNNING]
+                        ),
+                    )
+                    .values(
+                        status=(
+                            OperationStatus.SUCCEEDED
+                            if status == ExecutionStatus.SUCCEEDED
+                            else OperationStatus.FAILED
+                        ),
+                        execution_attempt_id=attempt_id,
+                        error_message=error_message if is_failed else None,
+                        finished_at=now,
+                        updated_at=now,
+                    )
+                )
+                operation = await session.scalar(
+                    select(ExecutionOperationORM)
+                    .where(ExecutionOperationORM.id == execution.active_operation_id)
+                    .execution_options(populate_existing=True)
+                )
+                if operation is not None and getattr(operation_update, "rowcount", None) == 1:
+                    operation_payload: dict[str, object] = {
+                        "execution_attempt_id": str(attempt_id),
+                        "operation_id": str(operation.id),
+                        "operation_status": (
+                            OperationStatus.SUCCEEDED.value
+                            if status == ExecutionStatus.SUCCEEDED
+                            else OperationStatus.FAILED.value
+                        ),
+                        "first_sequence": operation.first_sequence,
+                        "last_sequence": operation.last_sequence,
+                        "version": execution.version,
+                    }
+                    if status == ExecutionStatus.FAILED:
+                        operation_payload["failed_sequence"] = retry_from_sequence
+                    await _add_outbox(
+                        session,
+                        execution_id,
+                        (
+                            "execution.operation_succeeded"
+                            if status == ExecutionStatus.SUCCEEDED
+                            else "execution.operation_failed"
+                        ),
+                        status,
+                        operation_payload,
+                    )
             if status == ExecutionStatus.FAILED:
                 await session.execute(
                     update(ExecutionStepORM)
@@ -1775,6 +1908,16 @@ class ExecutionWorker:
                 .values(status=StepStatus.CANCELLED, finished_at=now, updated_at=now)
             )
             await session.execute(
+                update(ExecutionOperationORM)
+                .where(
+                    ExecutionOperationORM.execution_id == execution_id,
+                    ExecutionOperationORM.status.in_(
+                        [OperationStatus.QUEUED, OperationStatus.RUNNING]
+                    ),
+                )
+                .values(status=OperationStatus.CANCELLED, finished_at=now, updated_at=now)
+            )
+            await session.execute(
                 update(ExecutionStepAttemptORM)
                 .where(
                     ExecutionStepAttemptORM.execution_id == execution_id,
@@ -1803,7 +1946,7 @@ class ExecutionWorker:
                     )
                     .where(
                         ExecutionORM.mode == ExecutionMode.DYNAMIC,
-                        ExecutionORM.status == ExecutionStatus.WAITING_FOR_NEXT_STEP,
+                        ExecutionORM.status == ExecutionStatus.WAITING_FOR_CONTINUE,
                     )
                     .order_by(ExecutionORM.updated_at)
                     .limit(200)
@@ -1915,7 +2058,7 @@ class ExecutionWorker:
             )
             if (
                 execution is None
-                or execution.status != ExecutionStatus.WAITING_FOR_NEXT_STEP
+                or execution.status != ExecutionStatus.WAITING_FOR_CONTINUE
                 or execution.runtime_session_id != expected_runtime_session_id
             ):
                 return

@@ -71,7 +71,7 @@ async def main() -> None:
                 ),
             )
         )
-        first = await _wait_for(container, submitted.id, ExecutionStatus.WAITING_FOR_NEXT_STEP)
+        first = await _wait_for(container, submitted.id, ExecutionStatus.WAITING_FOR_CONTINUE)
         runtime_session_id = first.runtime_session_id
         if runtime_session_id is None:
             raise RuntimeError("Dynamic execution did not retain a kernel.")
@@ -81,16 +81,18 @@ async def main() -> None:
                 execution_id=submitted.id,
                 idempotency_key=f"dynamic-continue-1-{unique}",
                 expected_version=first.version,
-                step=StepSpec(
-                    sequence=1,
-                    code="answer = value + 2\nprint(answer)",
-                    execution_plan_id="revision-2",
-                    plan_step_id="revision-2-step-1",
-                    tool_name="calculate_answer",
+                steps=(
+                    StepSpec(
+                        sequence=1,
+                        code="answer = value + 2\nprint(answer)",
+                        execution_plan_id="revision-2",
+                        plan_step_id="revision-2-step-1",
+                        tool_name="calculate_answer",
+                    ),
                 ),
             )
         )
-        second = await _wait_for(container, second.id, ExecutionStatus.WAITING_FOR_NEXT_STEP)
+        second = await _wait_for(container, second.id, ExecutionStatus.WAITING_FOR_CONTINUE)
         if second.runtime_session_id != runtime_session_id:
             raise RuntimeError("Dynamic execution changed kernels between cells.")
 
@@ -99,16 +101,18 @@ async def main() -> None:
                 execution_id=submitted.id,
                 idempotency_key=f"dynamic-continue-error-{unique}",
                 expected_version=second.version,
-                step=StepSpec(
-                    sequence=2,
-                    code="raise ValueError('planned dynamic failure')",
-                    execution_plan_id="revision-3",
-                    plan_step_id="revision-3-step-2",
-                    tool_name="failing_tool",
+                steps=(
+                    StepSpec(
+                        sequence=2,
+                        code="raise ValueError('planned dynamic failure')",
+                        execution_plan_id="revision-3",
+                        plan_step_id="revision-3-step-2",
+                        tool_name="failing_tool",
+                    ),
                 ),
             )
         )
-        failed = await _wait_for(container, failed.id, ExecutionStatus.WAITING_FOR_NEXT_STEP)
+        failed = await _wait_for(container, failed.id, ExecutionStatus.WAITING_FOR_CONTINUE)
         if failed.steps[-1].status != StepStatus.FAILED:
             raise RuntimeError("Cell error did not return to dynamic waiting state.")
 
@@ -117,16 +121,18 @@ async def main() -> None:
                 execution_id=submitted.id,
                 idempotency_key=f"dynamic-continue-corrected-{unique}",
                 expected_version=failed.version,
-                step=StepSpec(
-                    sequence=3,
-                    code="corrected = answer * 2\nprint(corrected)",
-                    execution_plan_id="revision-4",
-                    plan_step_id="revision-4-step-3",
-                    tool_name="corrected_tool",
+                steps=(
+                    StepSpec(
+                        sequence=3,
+                        code="corrected = answer * 2\nprint(corrected)",
+                        execution_plan_id="revision-4",
+                        plan_step_id="revision-4-step-3",
+                        tool_name="corrected_tool",
+                    ),
                 ),
             )
         )
-        corrected = await _wait_for(container, corrected.id, ExecutionStatus.WAITING_FOR_NEXT_STEP)
+        corrected = await _wait_for(container, corrected.id, ExecutionStatus.WAITING_FOR_CONTINUE)
         finishing = await container.execution_service.finish_execution(
             FinishExecutionCommand(
                 execution_id=submitted.id,
@@ -148,8 +154,8 @@ async def main() -> None:
         if not all(marker in notebook_text for marker in ("42", "84", "planned dynamic failure")):
             raise RuntimeError("Dynamic notebook does not prove same-kernel state continuity.")
         if not {
-            "execution.step_completed",
-            "execution.step_failed",
+            "execution.operation_succeeded",
+            "execution.operation_failed",
             "execution.succeeded",
         }.issubset(event_types):
             raise RuntimeError(f"Dynamic Outbox event history is incomplete: {event_types}")

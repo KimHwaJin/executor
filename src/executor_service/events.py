@@ -16,7 +16,6 @@ from executor_service.domain.enums import (
     FailureType,
     RetryStrategy,
     RuntimeSessionCleanupStatus,
-    StepStatus,
 )
 from executor_service.domain.models import OutboxEvent
 
@@ -36,23 +35,29 @@ class StatusPayload(EventPayload):
     status: ExecutionStatus
 
 
-class SubmittedPayload(StatusPayload):
-    status: Literal[ExecutionStatus.QUEUED]
+class TaskPlanPayload(StatusPayload):
     task_id: str = Field(min_length=1, max_length=255)
     execution_plan_id: str = Field(min_length=1, max_length=255)
 
 
+class SubmittedPayload(TaskPlanPayload):
+    status: Literal[ExecutionStatus.QUEUED]
+    operation_id: UUID
+    first_sequence: int = Field(ge=0)
+    last_sequence: int = Field(ge=0)
+
+
 class ContinueRequestedPayload(SubmittedPayload):
-    plan_step_id: str = Field(min_length=1, max_length=255)
-    sequence: int = Field(ge=0)
     version: int = Field(ge=0)
 
 
-class FinishRequestedPayload(SubmittedPayload):
+class FinishRequestedPayload(TaskPlanPayload):
+    status: Literal[ExecutionStatus.QUEUED]
     version: int = Field(ge=0)
 
 
-class RetryRequestedPayload(SubmittedPayload):
+class RetryRequestedPayload(TaskPlanPayload):
+    status: Literal[ExecutionStatus.QUEUED]
     from_sequence: int = Field(ge=0)
     retry_strategy: RetryStrategy
     previous_failure_type: FailureType | None
@@ -94,20 +99,26 @@ class FailedPayload(TerminalPayload):
     status: Literal[ExecutionStatus.FAILED]
 
 
-class StepOutcomePayload(StatusPayload):
-    status: Literal[ExecutionStatus.WAITING_FOR_NEXT_STEP]
+class OperationOutcomePayload(StatusPayload):
+    status: Literal[
+        ExecutionStatus.WAITING_FOR_CONTINUE,
+        ExecutionStatus.SUCCEEDED,
+        ExecutionStatus.FAILED,
+    ]
     execution_attempt_id: UUID
-    sequence: int = Field(ge=0)
-    step_status: StepStatus
+    operation_id: UUID
+    first_sequence: int = Field(ge=0)
+    last_sequence: int = Field(ge=0)
     version: int = Field(ge=0)
 
 
-class StepCompletedPayload(StepOutcomePayload):
-    step_status: Literal[StepStatus.SUCCEEDED]
+class OperationSucceededPayload(OperationOutcomePayload):
+    operation_status: Literal["SUCCEEDED"]
 
 
-class StepFailedPayload(StepOutcomePayload):
-    step_status: Literal[StepStatus.FAILED]
+class OperationFailedPayload(OperationOutcomePayload):
+    operation_status: Literal["FAILED"]
+    failed_sequence: int | None = Field(default=None, ge=0)
 
 
 class ArtifactRegisteredPayload(EventPayload):
@@ -166,9 +177,9 @@ ExecutionEventPayload = (
     | CancelRequestedPayload
     | SucceededPayload
     | FailedPayload
-    | StepOutcomePayload
-    | StepCompletedPayload
-    | StepFailedPayload
+    | OperationOutcomePayload
+    | OperationSucceededPayload
+    | OperationFailedPayload
     | ArtifactRegisteredPayload
     | ArtifactFailedPayload
     | CleanupPayload
@@ -188,8 +199,8 @@ EVENT_PAYLOAD_MODELS: dict[str, type[EventPayload]] = {
     "execution.started": StartedPayload,
     "execution.resumed": StartedPayload,
     "execution.retry_deferred": RetryDeferredPayload,
-    "execution.step_completed": StepCompletedPayload,
-    "execution.step_failed": StepFailedPayload,
+    "execution.operation_succeeded": OperationSucceededPayload,
+    "execution.operation_failed": OperationFailedPayload,
     "execution.artifact_registered": ArtifactRegisteredPayload,
     "execution.artifact_failed": ArtifactFailedPayload,
     "execution.succeeded": SucceededPayload,
@@ -240,9 +251,7 @@ class ExecutionStreamEnvelope(BaseModel):
         return cls.model_validate({**fields, "payload": payload})
 
 
-def validate_execution_event_payload(
-    event_type: str, payload: dict[str, Any]
-) -> dict[str, Any]:
+def validate_execution_event_payload(event_type: str, payload: dict[str, Any]) -> dict[str, Any]:
     """Validate and JSON-normalize one known Executor event payload."""
 
     model = EVENT_PAYLOAD_MODELS.get(event_type)

@@ -31,7 +31,7 @@ from executor_service.domain.enums import (
     RuntimeType,
 )
 from executor_service.domain.errors import DomainError, ErrorCode
-from executor_service.execution_specs import ExecutionSpecResolver
+from executor_service.execution_specs import ExecutionSpecResolver, PathCodeSource
 from executor_service.interfaces.contracts import (
     ExecutionArtifactPageResponse,
     ExecutionArtifactResponse,
@@ -39,6 +39,8 @@ from executor_service.interfaces.contracts import (
     ExecutionAttemptPageResponse,
     ExecutionCommandResponse,
     ExecutionEventPageResponse,
+    ExecutionOperationPageResponse,
+    ExecutionOperationResponse,
     ExecutionPageResponse,
     ExecutionResponse,
     ExecutionStepAttemptPageResponse,
@@ -119,10 +121,10 @@ def build_mcp_server(
                     f"[{ErrorCode.INVALID_EXECUTION_SPEC}] Execution submit requires an "
                     "ExecutionSpec starting at sequence 0."
                 )
-            execution = await _trace_call(
+            result = await _trace_call(
                 tracing,
                 "executor.mcp.execution_submit",
-                execution_service.submit(
+                execution_service.submit_result(
                     request.to_command(
                         resolved.spec,
                         source_content=resolved.canonical_content,
@@ -132,7 +134,9 @@ def build_mcp_server(
             )
         except Exception as exc:
             raise _public_tool_error(exc) from exc
-        return ExecutionCommandResponse.from_domain(execution)
+        return ExecutionCommandResponse.from_domain(
+            result.execution, operation_id=result.operation_id
+        )
 
     @server.tool(description="Get the PostgreSQL-backed current execution state.")
     async def execution_get(execution_id: UUID) -> ExecutionResponse:
@@ -204,7 +208,8 @@ def build_mcp_server(
 
     @server.tool(
         description=(
-            "Append and queue exactly one next cell for a waiting DYNAMIC execution. "
+            "Append and queue one or more consecutive cells as the next Operation for a "
+            "waiting DYNAMIC execution. "
             "expected_version prevents stale Agent decisions from being accepted."
         )
     )
@@ -215,28 +220,33 @@ def build_mcp_server(
                     f"[{ErrorCode.INTERNAL_ERROR}] ExecutionSpec resolver is not configured."
                 )
             resolved = await execution_spec_resolver.resolve(request.source)
-            if len(resolved.spec.steps) != 1:
-                raise ToolError(
-                    f"[{ErrorCode.INVALID_EXECUTION_SPEC}] DYNAMIC continue requires exactly "
-                    "one ExecutionSpec step."
-                )
-            source_step = resolved.spec.steps[0]
-            execution = await _trace_call(
+            source_steps = resolved.spec.steps
+            result = await _trace_call(
                 tracing,
                 "executor.mcp.execution_continue",
-                execution_service.continue_execution(
+                execution_service.continue_execution_result(
                     ContinueExecutionCommand(
                         execution_id=request.execution_id,
                         idempotency_key=request.idempotency_key,
                         expected_version=request.expected_version,
-                        step=StepSpec(
-                            sequence=source_step.sequence,
-                            code=source_step.code,
-                            execution_plan_id=resolved.spec.execution_plan_id,
-                            plan_step_id=source_step.plan_step_id,
-                            skill_name=source_step.skill_name,
-                            tool_name=source_step.tool_name,
-                            input_parameters=source_step.input_parameters,
+                        code_source_type=request.source.type,
+                        code_path=(
+                            request.source.path
+                            if isinstance(request.source, PathCodeSource)
+                            else None
+                        ),
+                        source_sha256=resolved.sha256,
+                        steps=tuple(
+                            StepSpec(
+                                sequence=source_step.sequence,
+                                code=source_step.code,
+                                execution_plan_id=resolved.spec.execution_plan_id,
+                                plan_step_id=source_step.plan_step_id,
+                                skill_name=source_step.skill_name,
+                                tool_name=source_step.tool_name,
+                                input_parameters=source_step.input_parameters,
+                            )
+                            for source_step in source_steps
                         ),
                         actor_type=request.actor.type,
                         actor_id=request.actor.id,
@@ -244,12 +254,15 @@ def build_mcp_server(
                 ),
                 {
                     "executor.execution.id": str(request.execution_id),
-                    "executor.step.sequence": source_step.sequence,
+                    "executor.operation.first_sequence": source_steps[0].sequence,
+                    "executor.operation.last_sequence": source_steps[-1].sequence,
                 },
             )
         except Exception as exc:
             raise _public_tool_error(exc) from exc
-        return ExecutionCommandResponse.from_domain(execution)
+        return ExecutionCommandResponse.from_domain(
+            result.execution, operation_id=result.operation_id
+        )
 
     @server.tool(
         description=(
@@ -332,8 +345,49 @@ def build_mcp_server(
 
         @server.tool(
             description=(
-                "List immutable execution Attempt summaries with outcome and Step count."
+                "List Agent-submitted execution Operations using an opaque cursor. An Operation "
+                "is one accepted batch of consecutive Steps."
             )
+        )
+        async def execution_operation_list(
+            execution_id: UUID,
+            cursor: str | None = None,
+            limit: StandardLimit = 100,
+        ) -> ExecutionOperationPageResponse:
+            try:
+                page = await execution_queries.operations(execution_id, cursor=cursor, limit=limit)
+            except Exception as exc:
+                raise _public_tool_error(exc) from exc
+            return ExecutionOperationPageResponse.from_page(page)
+
+        @server.tool(description="Get one execution Operation result and Step range.")
+        async def execution_operation_get(
+            execution_id: UUID,
+            operation_id: UUID,
+        ) -> ExecutionOperationResponse:
+            try:
+                view = await execution_queries.operation(execution_id, operation_id)
+            except Exception as exc:
+                raise _public_tool_error(exc) from exc
+            return ExecutionOperationResponse.from_view(view)
+
+        @server.tool(description="List current Step results belonging to one Operation.")
+        async def execution_operation_step_list(
+            execution_id: UUID,
+            operation_id: UUID,
+            cursor: str | None = None,
+            limit: StandardLimit = 100,
+        ) -> ExecutionStepPageResponse:
+            try:
+                page = await execution_queries.operation_steps(
+                    execution_id, operation_id, cursor=cursor, limit=limit
+                )
+            except Exception as exc:
+                raise _public_tool_error(exc) from exc
+            return ExecutionStepPageResponse.from_page(page, execution_id)
+
+        @server.tool(
+            description=("List immutable execution Attempt summaries with outcome and Step count.")
         )
         async def execution_attempt_list(
             execution_id: UUID,
@@ -362,9 +416,7 @@ def build_mcp_server(
             return ExecutionAttemptDetailResponse.from_view(view)
 
         @server.tool(
-            description=(
-                "List immutable Step results for one Attempt using an opaque cursor."
-            )
+            description=("List immutable Step results for one Attempt using an opaque cursor.")
         )
         async def execution_attempt_step_list(
             execution_id: UUID,

@@ -3,7 +3,7 @@
 import hashlib
 import json
 from collections.abc import Callable, Mapping
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from uuid import UUID
 
 from executor_service.application.commands import (
@@ -28,12 +28,18 @@ from executor_service.domain.errors import (
     PersistenceConflictError,
     UnsupportedRuntimeProfileError,
 )
-from executor_service.domain.models import Execution, ExecutionStep
+from executor_service.domain.models import Execution, ExecutionOperation, ExecutionStep
 from executor_service.domain.ports import UnitOfWork
 from executor_service.events import build_execution_event
 from executor_service.tracing import capture_trace_carrier
 
 UnitOfWorkFactory = Callable[[], UnitOfWork]
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionCommandResult:
+    execution: Execution
+    operation_id: UUID
 
 
 class ExecutionService:
@@ -55,6 +61,9 @@ class ExecutionService:
         }
 
     async def submit(self, command: SubmitExecutionCommand) -> Execution:
+        return (await self.submit_result(command)).execution
+
+    async def submit_result(self, command: SubmitExecutionCommand) -> ExecutionCommandResult:
         _validate_submit(command)
         allowed_profiles = self._runtime_profiles.get(command.runtime_type, ())
         if command.runtime_profile not in allowed_profiles:
@@ -69,8 +78,30 @@ class ExecutionService:
                 existing = await uow.executions.get_by_submit_key(command.idempotency_key)
                 if existing is not None:
                     _ensure_same_fingerprint(existing, fingerprint)
-                    return existing
+                    operation_id = await uow.executions.get_operation_id_by_key(
+                        command.idempotency_key
+                    )
+                    return ExecutionCommandResult(
+                        execution=existing,
+                        operation_id=_required_operation_id(operation_id),
+                    )
 
+                operation = ExecutionOperation(
+                    execution_id=UUID(int=0),
+                    operation_number=1,
+                    first_sequence=command.steps[0].sequence,
+                    last_sequence=command.steps[-1].sequence,
+                    execution_plan_id=command.execution_plan_id,
+                    code_source_type=command.code_source_type,
+                    code_path=command.code_path,
+                    source_sha256=command.source_sha256,
+                    idempotency_key=command.idempotency_key,
+                    request_fingerprint=fingerprint,
+                    created_by_type=command.actor_type,
+                    created_by=command.actor_id,
+                    updated_by_type=command.actor_type,
+                    updated_by=command.actor_id,
+                )
                 execution = Execution(
                     idempotency_key=command.idempotency_key,
                     request_fingerprint=fingerprint,
@@ -104,6 +135,7 @@ class ExecutionService:
                             skill_name=step.skill_name,
                             tool_name=step.tool_name,
                             input_parameters=step.input_parameters,
+                            operation_id=operation.id,
                             created_by_type=command.actor_type,
                             created_by=command.actor_id,
                             updated_by_type=command.actor_type,
@@ -113,8 +145,11 @@ class ExecutionService:
                     ],
                     traceparent=trace_carrier.traceparent,
                     tracestate=trace_carrier.tracestate,
+                    active_operation_id=operation.id,
                 )
+                operation.execution_id = execution.id
                 await uow.executions.add(execution)
+                await uow.executions.add_operation(operation)
                 await uow.outbox.add(
                     build_execution_event(
                         execution_id=execution.id,
@@ -122,6 +157,9 @@ class ExecutionService:
                         payload={
                             "task_id": execution.task_id,
                             "execution_plan_id": execution.execution_plan_id,
+                            "operation_id": str(operation.id),
+                            "first_sequence": operation.first_sequence,
+                            "last_sequence": operation.last_sequence,
                             "status": execution.status.value,
                         },
                         actor_type=command.actor_type,
@@ -131,7 +169,7 @@ class ExecutionService:
                     )
                 )
                 await uow.commit()
-                return execution
+                return ExecutionCommandResult(execution=execution, operation_id=operation.id)
         except PersistenceConflictError:
             # A concurrent request may have committed the same key after our first lookup.
             async with self._uow_factory() as uow:
@@ -139,9 +177,20 @@ class ExecutionService:
                 if existing is None:
                     raise
                 _ensure_same_fingerprint(existing, fingerprint)
-                return existing
+                operation_id = await uow.executions.get_operation_id_by_key(
+                    command.idempotency_key
+                )
+                return ExecutionCommandResult(
+                    execution=existing,
+                    operation_id=_required_operation_id(operation_id),
+                )
 
     async def continue_execution(self, command: ContinueExecutionCommand) -> Execution:
+        return (await self.continue_execution_result(command)).execution
+
+    async def continue_execution_result(
+        self, command: ContinueExecutionCommand
+    ) -> ExecutionCommandResult:
         fingerprint = _fingerprint(command)
         command_type = "execution_continue"
         try:
@@ -149,43 +198,90 @@ class ExecutionService:
                 repeated = await uow.executions.get_command_receipt(command.idempotency_key)
                 if repeated is not None:
                     _ensure_same_receipt(repeated, command_type, fingerprint)
-                    return await _required_execution(uow, command.execution_id)
+                    execution = await _required_execution(uow, command.execution_id)
+                    return ExecutionCommandResult(
+                        execution=execution,
+                        operation_id=_operation_id_from_receipt(repeated),
+                    )
 
                 execution = await uow.executions.get(command.execution_id, for_update=True)
                 if execution is None:
                     raise ExecutionNotFoundError(f"Execution {command.execution_id} was not found.")
-                expected_sequence = len(execution.steps)
-                if command.step.sequence != expected_sequence:
+                if not command.steps:
                     raise InvalidStateTransitionError(
-                        f"Next dynamic step sequence must be {expected_sequence}."
+                        "DYNAMIC continue requires at least one step."
                     )
-                if not command.step.code or not command.step.code.strip():
+                expected_sequence = len(execution.steps)
+                sequences = [step.sequence for step in command.steps]
+                expected_sequences = list(
+                    range(expected_sequence, expected_sequence + len(command.steps))
+                )
+                if sequences != expected_sequences:
+                    raise InvalidStateTransitionError(
+                        "Dynamic continue step sequences must be contiguous and start at "
+                        f"{expected_sequence}."
+                    )
+                if any(not step.code.strip() for step in command.steps):
                     raise InvalidStateTransitionError("Dynamic step code must not be empty.")
+                existing_plan_step_ids = {step.plan_step_id for step in execution.steps}
+                new_plan_step_ids = [step.plan_step_id for step in command.steps]
+                if len(new_plan_step_ids) != len(set(new_plan_step_ids)) or (
+                    existing_plan_step_ids & set(new_plan_step_ids)
+                ):
+                    raise InvalidStateTransitionError(
+                        "Dynamic continue plan_step_id values must be unique within the Execution."
+                    )
                 execution.request_dynamic_continue(command.expected_version)
                 _apply_actor(execution, command.actor_type, command.actor_id)
                 _apply_current_trace(execution)
-                step = ExecutionStep(
-                    sequence=command.step.sequence,
-                    code=command.step.code,
-                    code_hash=_code_hash(command.step.code),
-                    execution_plan_id=command.step.execution_plan_id,
-                    plan_step_id=command.step.plan_step_id,
-                    skill_name=command.step.skill_name,
-                    tool_name=command.step.tool_name,
-                    input_parameters=command.step.input_parameters,
+                operation = ExecutionOperation(
+                    execution_id=execution.id,
+                    operation_number=await uow.executions.next_operation_number(execution.id),
+                    first_sequence=command.steps[0].sequence,
+                    last_sequence=command.steps[-1].sequence,
+                    execution_plan_id=command.steps[0].execution_plan_id,
+                    code_source_type=command.code_source_type,
+                    code_path=command.code_path,
+                    source_sha256=command.source_sha256,
+                    idempotency_key=command.idempotency_key,
+                    request_fingerprint=fingerprint,
                     created_by_type=command.actor_type,
                     created_by=command.actor_id,
                     updated_by_type=command.actor_type,
                     updated_by=command.actor_id,
                 )
-                execution.steps.append(step)
+                steps = [
+                    ExecutionStep(
+                        sequence=source.sequence,
+                        code=source.code,
+                        code_hash=_code_hash(source.code),
+                        execution_plan_id=source.execution_plan_id,
+                        plan_step_id=source.plan_step_id,
+                        skill_name=source.skill_name,
+                        tool_name=source.tool_name,
+                        input_parameters=source.input_parameters,
+                        operation_id=operation.id,
+                        created_by_type=command.actor_type,
+                        created_by=command.actor_id,
+                        updated_by_type=command.actor_type,
+                        updated_by=command.actor_id,
+                    )
+                    for source in command.steps
+                ]
+                execution.steps.extend(steps)
+                execution.active_operation_id = operation.id
                 await uow.executions.save(execution)
-                await uow.executions.add_step(execution.id, step)
+                await uow.executions.add_operation(operation)
+                for step in steps:
+                    await uow.executions.add_step(execution.id, step)
                 await uow.executions.add_command_receipt(
                     command.idempotency_key,
                     command_type,
                     fingerprint,
-                    {"execution_id": str(execution.id)},
+                    {
+                        "execution_id": str(execution.id),
+                        "operation_id": str(operation.id),
+                    },
                 )
                 await uow.outbox.add(
                     build_execution_event(
@@ -193,10 +289,11 @@ class ExecutionService:
                         event_type="execution.continue_requested",
                         payload={
                             "task_id": execution.task_id,
-                            "execution_plan_id": step.execution_plan_id,
-                            "plan_step_id": step.plan_step_id,
+                            "execution_plan_id": steps[0].execution_plan_id,
+                            "operation_id": str(operation.id),
                             "status": execution.status.value,
-                            "sequence": step.sequence,
+                            "first_sequence": operation.first_sequence,
+                            "last_sequence": operation.last_sequence,
                             "version": execution.version,
                         },
                         actor_type=command.actor_type,
@@ -206,15 +303,20 @@ class ExecutionService:
                     )
                 )
                 await uow.commit()
-                return execution
+                return ExecutionCommandResult(execution=execution, operation_id=operation.id)
         except PersistenceConflictError as exc:
-            return await self._resolve_repeated_command(
-                command.idempotency_key,
-                command_type,
-                fingerprint,
-                command.execution_id,
-                exc,
-            )
+            async with self._uow_factory() as uow:
+                repeated = await uow.executions.get_command_receipt(command.idempotency_key)
+                if repeated is not None:
+                    _ensure_same_receipt(repeated, command_type, fingerprint)
+                    execution = await _required_execution(uow, command.execution_id)
+                    return ExecutionCommandResult(
+                        execution=execution,
+                        operation_id=_operation_id_from_receipt(repeated),
+                    )
+            raise IdempotencyConflictError(
+                "The command conflicted with another state change."
+            ) from exc
 
     async def finish_execution(self, command: FinishExecutionCommand) -> Execution:
         fingerprint = _fingerprint(command)
@@ -457,10 +559,6 @@ def _validate_submit(command: SubmitExecutionCommand) -> None:
         return
     if command.trigger_type != TriggerType.INTERACTIVE:
         raise InvalidStateTransitionError("DYNAMIC execution requires INTERACTIVE trigger_type.")
-    if len(command.steps) != 1 or command.steps[0].sequence != 0:
-        raise InvalidStateTransitionError(
-            "DYNAMIC submit requires exactly the first step (sequence 0)."
-        )
 
 
 def _code_hash(code: str | None) -> str | None:
@@ -473,6 +571,19 @@ def _ensure_same_receipt(
     receipt_type, receipt_fingerprint, _ = receipt
     if receipt_type != command_type or receipt_fingerprint != fingerprint:
         raise IdempotencyConflictError("idempotency_key was already used with a different command.")
+
+
+def _required_operation_id(operation_id: UUID | None) -> UUID:
+    if operation_id is None:
+        raise PersistenceConflictError("Accepted command has no persisted Operation.")
+    return operation_id
+
+
+def _operation_id_from_receipt(receipt: tuple[str, str, dict[str, object]]) -> UUID:
+    value = receipt[2].get("operation_id")
+    if not isinstance(value, str):
+        raise PersistenceConflictError("Accepted continue command has no Operation receipt.")
+    return UUID(value)
 
 
 def _validate_actor(actor_type: ActorType | None, actor_id: str | None) -> None:

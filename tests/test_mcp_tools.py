@@ -80,6 +80,7 @@ async def test_mcp_client_can_list_and_call_execution_tools(
         assert submitted.structured_content["state"]["status"] == "QUEUED"
         assert set(submitted.structured_content) == {
             "execution_id",
+            "operation_id",
             "state",
             "created_by_type",
             "created_by",
@@ -132,6 +133,9 @@ async def test_mcp_client_can_query_execution_history_resources(
             "execution_attempt_get",
             "execution_attempt_list",
             "execution_attempt_step_list",
+            "execution_operation_get",
+            "execution_operation_list",
+            "execution_operation_step_list",
             "execution_step_list",
             "execution_artifact_get",
             "execution_artifact_list",
@@ -140,13 +144,26 @@ async def test_mcp_client_can_query_execution_history_resources(
 
         submitted = await client.call_tool("execution_submit", SUBMIT_ARGUMENTS)
         execution_id = submitted.structured_content["execution_id"]
-        attempts = await client.call_tool(
-            "execution_attempt_list", {"execution_id": execution_id}
-        )
+        operation_id = submitted.structured_content["operation_id"]
+        attempts = await client.call_tool("execution_attempt_list", {"execution_id": execution_id})
         events = await client.call_tool("execution_event_list", {"execution_id": execution_id})
+        operations = await client.call_tool(
+            "execution_operation_list", {"execution_id": execution_id}
+        )
+        operation = await client.call_tool(
+            "execution_operation_get",
+            {"execution_id": execution_id, "operation_id": operation_id},
+        )
+        operation_steps = await client.call_tool(
+            "execution_operation_step_list",
+            {"execution_id": execution_id, "operation_id": operation_id},
+        )
 
         assert attempts.structured_content["items"] == []
         assert events.structured_content["items"][0]["event_type"] == "execution.submitted"
+        assert operations.structured_content["items"][0]["operation_id"] == operation_id
+        assert operation.structured_content["sequence_range"] == {"first": 0, "last": 0}
+        assert operation_steps.structured_content["items"][0]["sequence"] == 0
 
 
 async def test_mcp_execution_list_uses_opaque_next_cursor(
@@ -344,7 +361,7 @@ async def test_dynamic_continue_accepts_next_inline_execution_spec(
             await session.execute(
                 update(ExecutionORM)
                 .where(ExecutionORM.id == UUID(execution_id))
-                .values(status="WAITING_FOR_NEXT_STEP", version=2)
+                .values(status="WAITING_FOR_CONTINUE", version=2)
             )
         continued = await client.call_tool(
             "execution_continue",
@@ -364,7 +381,12 @@ async def test_dynamic_continue_accepts_next_inline_execution_spec(
                                     "sequence": 1,
                                     "plan_step_id": "plan-2-step-1",
                                     "code": "print('next')",
-                                }
+                                },
+                                {
+                                    "sequence": 2,
+                                    "plan_step_id": "plan-2-step-2",
+                                    "code": "print('next again')",
+                                },
                             ],
                         },
                     },
@@ -376,3 +398,5 @@ async def test_dynamic_continue_accepts_next_inline_execution_spec(
     execution = await execution_service.get(UUID(execution_id))
     assert execution.steps[1].execution_plan_id == "plan-2"
     assert execution.steps[1].plan_step_id == "plan-2-step-1"
+    assert execution.steps[2].plan_step_id == "plan-2-step-2"
+    assert execution.steps[1].operation_id == execution.steps[2].operation_id

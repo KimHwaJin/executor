@@ -187,20 +187,28 @@ async def test_dynamic_continue_and_finish_are_versioned_and_idempotent(
         await session.execute(
             update(ExecutionORM)
             .where(ExecutionORM.id == execution.id)
-            .values(status=ExecutionStatus.WAITING_FOR_NEXT_STEP, version=2)
+            .values(status=ExecutionStatus.WAITING_FOR_CONTINUE, version=2)
         )
 
     command = ContinueExecutionCommand(
         execution_id=execution.id,
         idempotency_key="dynamic-continue-1",
         expected_version=2,
-        step=StepSpec(
-            sequence=1,
-            code="answer = value + 2",
-            execution_plan_id="plan-revision-2",
-            plan_step_id="plan-revision-2-step-1",
-            skill_name="eda",
-            tool_name="calculate_answer",
+        steps=(
+            StepSpec(
+                sequence=1,
+                code="answer = value + 2",
+                execution_plan_id="plan-revision-2",
+                plan_step_id="plan-revision-2-step-1",
+                skill_name="eda",
+                tool_name="calculate_answer",
+            ),
+            StepSpec(
+                sequence=2,
+                code="print(answer)",
+                execution_plan_id="plan-revision-2",
+                plan_step_id="plan-revision-2-step-2",
+            ),
         ),
     )
     continued = await execution_service.continue_execution(command)
@@ -208,16 +216,16 @@ async def test_dynamic_continue_and_finish_are_versioned_and_idempotent(
 
     assert continued.status == ExecutionStatus.QUEUED
     assert continued.version == 3
-    assert len(continued.steps) == 2
+    assert len(continued.steps) == 3
     assert continued.steps[1].code_hash is not None
     assert repeated.version == 3
-    assert len(repeated.steps) == 2
+    assert len(repeated.steps) == 3
 
     async with session_factory() as session, session.begin():
         await session.execute(
             update(ExecutionORM)
             .where(ExecutionORM.id == execution.id)
-            .values(status=ExecutionStatus.WAITING_FOR_NEXT_STEP, version=4)
+            .values(status=ExecutionStatus.WAITING_FOR_CONTINUE, version=4)
         )
 
     finish = FinishExecutionCommand(
@@ -242,7 +250,7 @@ async def test_dynamic_continue_rejects_stale_version(
         await session.execute(
             update(ExecutionORM)
             .where(ExecutionORM.id == execution.id)
-            .values(status=ExecutionStatus.WAITING_FOR_NEXT_STEP, version=2)
+            .values(status=ExecutionStatus.WAITING_FOR_CONTINUE, version=2)
         )
 
     with pytest.raises(ExecutionVersionConflictError):
@@ -251,11 +259,13 @@ async def test_dynamic_continue_rejects_stale_version(
                 execution_id=execution.id,
                 idempotency_key="dynamic-stale-continue",
                 expected_version=1,
-                step=StepSpec(
-                    sequence=1,
-                    code="print('stale')",
-                    execution_plan_id="plan-revision-stale",
-                    plan_step_id="plan-revision-stale-step-1",
+                steps=(
+                    StepSpec(
+                        sequence=1,
+                        code="print('stale')",
+                        execution_plan_id="plan-revision-stale",
+                        plan_step_id="plan-revision-stale-step-1",
+                    ),
                 ),
             )
         )

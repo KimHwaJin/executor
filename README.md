@@ -43,9 +43,9 @@ DYNAMIC plans through a Runtime Driver. Jupyter REST/WebSocket is the first impl
 
 MCP Tasks are deliberately not used. `execution_submit` returns an `execution_id` while the
 execution starts as `QUEUED`. Poll with `execution_get` or request cancellation with
-`execution_cancel`. DYNAMIC execution accepts one initial cell, returns
-`WAITING_FOR_NEXT_STEP` after success or code error, and then accepts exactly one append-only cell
-through `execution_continue`. `execution_finish` persists the final notebook and deletes the
+`execution_cancel`. DYNAMIC execution accepts one or more initial cells as an Operation, returns
+`WAITING_FOR_CONTINUE` after the Operation succeeds or fails, and accepts another append-only
+Operation through `execution_continue`. `execution_finish` persists the final notebook and deletes the
 retained Runtime session. MCP Tasks are not required for this lifecycle.
 
 ## Deferred decisions
@@ -54,6 +54,10 @@ Return-value materialization, reusable Asset promotion, and user-versus-project 
 are intentionally not implemented yet. Their agreed constraints, open questions, and resume
 criteria are tracked in [Deferred Decisions](docs/deferred-decisions.md). Update that decision log
 before implementing or changing any deferred behavior.
+
+Cross-service architecture proposals and accepted decisions are tracked separately in
+[Architecture Decisions](docs/architecture-decisions.md). A `PROPOSED` ADR is a discussion baseline,
+not authorization to implement its undecided details.
 
 ## Local setup
 
@@ -242,10 +246,11 @@ The spec owns `execution_plan_id` and ordered Steps containing `plan_step_id`, c
 Skill/Tool metadata. Executor persists the normalized source and creates one ExecutionStep and one
 Notebook code cell per spec Step. See [ExecutionSpec v1](docs/execution-spec.md).
 
-For `DYNAMIC`, submit exactly one ExecutionSpec Step with sequence `0`. After the execution reaches
-`WAITING_FOR_NEXT_STEP`, call `execution_continue` with the current `version`, a new idempotency
-key, and an INLINE or PATH ExecutionSpec containing exactly the next consecutive Step. A stale
-version or non-consecutive sequence is rejected. Each Step records its Agent-owned
+For `DYNAMIC`, submit one or more consecutive ExecutionSpec Steps starting at sequence `0`. After the execution reaches
+`WAITING_FOR_CONTINUE`, call `execution_continue` with the current `version`, a new idempotency
+key, and an INLINE or PATH ExecutionSpec containing one or more next consecutive Steps. A stale
+version, gap, or duplicate sequence is rejected. Each Operation records its source and
+ExecutionPlan provenance, and each Step records its Agent-owned
 `execution_plan_id` and `plan_step_id`. A cell error is recorded as a failed Step and returns to the
 waiting state so the Agent can append a corrected follow-up cell; already executed cells are never
 rewritten. Call `execution_finish` with the current version when no more cells are needed. If the
@@ -414,7 +419,7 @@ the Agent consumer group still needs those events. See [Event Delivery](docs/eve
 for the ACK, reclaim, and DLQ contract.
 
 Active attempts renew a PostgreSQL lease. A dynamic Attempt in
-`WAITING_FOR_NEXT_STEP` releases its worker lease but keeps its session reservation, so it counts
+`WAITING_FOR_CONTINUE` releases its worker lease but keeps its session reservation, so it counts
 against that Runtime Target's capacity. A background audit verifies retained sessions and enforces
 both stored deadlines after Executor restarts. An expired active lease is failed safely and can be
 retried by a later retry workflow; automatic re-execution is intentionally not enabled yet.

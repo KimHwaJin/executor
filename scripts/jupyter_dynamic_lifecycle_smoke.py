@@ -73,7 +73,7 @@ async def main() -> None:
                 ),
             )
         )
-        waiting = await _wait_for(container, submitted.id, ExecutionStatus.WAITING_FOR_NEXT_STEP)
+        waiting = await _wait_for(container, submitted.id, ExecutionStatus.WAITING_FOR_CONTINUE)
         if waiting.runtime_session_id is None or waiting.runtime_target_id is None:
             raise RuntimeError("Dynamic execution did not retain its assigned kernel.")
         retained_runtime_session = waiting.runtime_session_id

@@ -55,16 +55,16 @@ use the same uppercase strings returned by the REST and MCP execution APIs.
 
 | Event | Additional required payload fields |
 | --- | --- |
-| `execution.submitted` | `task_id`, `execution_plan_id`, `status=QUEUED` |
-| `execution.continue_requested` | `task_id`, `execution_plan_id`, `plan_step_id`, `status=QUEUED`, `sequence`, `version` |
+| `execution.submitted` | `task_id`, `execution_plan_id`, `operation_id`, `first_sequence`, `last_sequence`, `status=QUEUED` |
+| `execution.continue_requested` | same Operation identity and range fields plus `version` |
 | `execution.finish_requested` | `task_id`, `execution_plan_id`, `status=QUEUED`, `version` |
 | `execution.cancel_requested` | `task_id`, `execution_plan_id`, `status=CANCEL_REQUESTED` |
 | `execution.retry_requested` | `task_id`, `execution_plan_id`, `status=QUEUED`, `from_sequence`, `retry_strategy`, nullable `previous_failure_type`, `retry_count` |
 | `execution.started` | `status=RUNNING` |
 | `execution.resumed` | `status=RUNNING` |
 | `execution.retry_deferred` | `status=QUEUED`, `failure_type`, `retry_strategy`, `reason`, `runtime_target_id` |
-| `execution.step_completed` | `status=WAITING_FOR_NEXT_STEP`, `execution_attempt_id`, `sequence`, `step_status=SUCCEEDED`, `version` |
-| `execution.step_failed` | `status=WAITING_FOR_NEXT_STEP`, `execution_attempt_id`, `sequence`, `step_status=FAILED`, `version` |
+| `execution.operation_succeeded` | `status`, `execution_attempt_id`, `operation_id`, `operation_status=SUCCEEDED`, `first_sequence`, `last_sequence`, `version` |
+| `execution.operation_failed` | same Operation identity/range fields, `operation_status=FAILED`, nullable `failed_sequence`, `version` |
 | `execution.artifact_registered` | `execution_attempt_id`, `execution_step_id`, `artifact_id`, `artifact_type`, `storage_type`, `status`, `uri` |
 | `execution.artifact_failed` | `status=RUNNING`, `execution_attempt_id`, `sequence`, `error_type` |
 | `execution.succeeded` | `status=SUCCEEDED`, nullable `failure_type`, `retry_strategy`, nullable `retry_from_sequence`, `runtime_session_cleanup_status`; optional `recovery_count`, `reason` |
@@ -92,7 +92,10 @@ the Outbox row `PUBLISHED`, or if a consumer dies before ACK. Agent handling mus
 6. Commit the database transaction.
 7. ACK the Redis message.
 
-If step 4 encounters an existing `event_id`, skip the state change and ACK it. If processing fails
+For Operation terminal notifications, first retrieve
+`/api/v1/executions/{execution_id}/operations/{operation_id}` and its `/steps` collection, then
+persist the result with the Agent graph checkpoint before resuming. If step 4 encounters an
+existing `event_id`, skip the state change and ACK it. If processing fails
 before commit or ACK, leave the message Pending and recover it with `XAUTOCLAIM`. Do not use an
 in-memory set as the only deduplication store.
 

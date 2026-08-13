@@ -262,7 +262,7 @@ def upgrade() -> None:
                 "QUEUED",
                 "DISPATCHED",
                 "RUNNING",
-                "WAITING_FOR_NEXT_STEP",
+                "WAITING_FOR_CONTINUE",
                 "CANCEL_REQUESTED",
                 "CANCELLED",
                 "SUCCEEDED",
@@ -422,7 +422,7 @@ def upgrade() -> None:
             "runtime_type IN ('JUPYTER')", name=op.f("ck_executions_valid_runtime_type")
         ),
         sa.CheckConstraint(
-            "status IN ('QUEUED', 'DISPATCHED', 'RUNNING', 'WAITING_FOR_NEXT_STEP', 'CANCEL_REQUESTED', 'CANCELLED', 'SUCCEEDED', 'FAILED')",
+            "status IN ('QUEUED', 'DISPATCHED', 'RUNNING', 'WAITING_FOR_CONTINUE', 'CANCEL_REQUESTED', 'CANCELLED', 'SUCCEEDED', 'FAILED')",
             name=op.f("ck_executions_valid_execution_status"),
         ),
         sa.CheckConstraint(
