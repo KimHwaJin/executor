@@ -4,6 +4,7 @@ from types import TracebackType
 from typing import Protocol, Self
 from uuid import UUID
 
+from executor_service.domain.enums import ActorType
 from executor_service.domain.models import Execution, ExecutionOperation, ExecutionStep, OutboxEvent
 
 
@@ -41,6 +42,14 @@ class ExecutionRepository(Protocol):
     async def next_operation_number(self, execution_id: UUID) -> int: ...
 
     async def get_operation_id_by_key(self, idempotency_key: str) -> UUID | None: ...
+
+    async def requeue_operation_for_retry(
+        self,
+        operation_id: UUID,
+        *,
+        updated_by_type: ActorType | None,
+        updated_by: str | None,
+    ) -> None: ...
 
     async def save(self, execution: Execution) -> None: ...
 

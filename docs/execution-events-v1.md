@@ -59,12 +59,12 @@ use the same uppercase strings returned by the REST and MCP execution APIs.
 | `execution.continue_requested` | same Operation identity and range fields plus `version` |
 | `execution.finish_requested` | `task_id`, `execution_plan_id`, `status=QUEUED`, `version` |
 | `execution.cancel_requested` | `task_id`, `execution_plan_id`, `status=CANCEL_REQUESTED` |
-| `execution.retry_requested` | `task_id`, `execution_plan_id`, `status=QUEUED`, `from_sequence`, `retry_strategy`, nullable `previous_failure_type`, `retry_count` |
+| `execution.retry_requested` | `task_id`, `execution_plan_id`, `operation_id`, `status=QUEUED`, `from_sequence`, `retry_strategy`, nullable `previous_failure_type`, `retry_count` |
 | `execution.started` | `status=RUNNING` |
 | `execution.resumed` | `status=RUNNING` |
 | `execution.retry_deferred` | `status=QUEUED`, `failure_type`, `retry_strategy`, `reason`, `runtime_target_id` |
 | `execution.operation_succeeded` | `status`, `execution_attempt_id`, `operation_id`, `operation_status=SUCCEEDED`, `first_sequence`, `last_sequence`, `version` |
-| `execution.operation_failed` | same Operation identity/range fields, `operation_status=FAILED`, nullable `failed_sequence`, `version` |
+| `execution.operation_failed` | same Operation identity/range fields, `operation_status=FAILED`, nullable `execution_attempt_id` and `failed_sequence`, `version` |
 | `execution.artifact_registered` | `execution_attempt_id`, `execution_step_id`, `artifact_id`, `artifact_type`, `storage_type`, `status`, `uri` |
 | `execution.artifact_failed` | `status=RUNNING`, `execution_attempt_id`, `sequence`, `error_type` |
 | `execution.succeeded` | `status=SUCCEEDED`, nullable `failure_type`, `retry_strategy`, nullable `retry_from_sequence`, `runtime_session_cleanup_status`; optional `recovery_count`, `reason` |
@@ -98,6 +98,12 @@ persist the result with the Agent graph checkpoint before resuming. If step 4 en
 existing `event_id`, skip the state change and ACK it. If processing fails
 before commit or ACK, leave the message Pending and recover it with `XAUTOCLAIM`. Do not use an
 in-memory set as the only deduplication store.
+
+A STATIC retry reuses the accepted `operation_id` but creates a new Attempt. Therefore the same
+Operation may emit more than one terminal event over time, each with a distinct `event_id` and
+normally a distinct `execution_attempt_id`. Consumers deduplicate by `event_id`, not by
+`operation_id`. `execution_attempt_id` is null only when a queued retry becomes terminal before a
+Runtime Attempt can start, such as a disabled retained target or an expired retry window.
 
 Run the reference consumer against a local Executor Stream:
 

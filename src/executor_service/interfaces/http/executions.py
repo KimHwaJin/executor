@@ -181,10 +181,10 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
     async def retry_execution(
         execution_id: UUID, request: ExecutionRetryRequest, response: Response
     ) -> ExecutionCommandResponse:
-        execution = await _trace_call(
+        result = await _trace_call(
             tracing,
             "executor.http.execution_retry",
-            execution_service.retry(
+            execution_service.retry_result(
                 RetryExecutionCommand(
                     execution_id=execution_id,
                     idempotency_key=request.idempotency_key,
@@ -194,8 +194,10 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
             ),
             {"executor.execution.id": str(execution_id)},
         )
-        response.headers["Location"] = f"/api/v1/executions/{execution.id}"
-        return ExecutionCommandResponse.from_domain(execution)
+        response.headers["Location"] = f"/api/v1/executions/{result.execution.id}"
+        return ExecutionCommandResponse.from_domain(
+            result.execution, operation_id=result.operation_id
+        )
 
     @router.post(
         "/executions/{execution_id}/continue",

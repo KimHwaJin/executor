@@ -21,6 +21,7 @@ from executor_service.domain.enums import (
     ExecutionMode,
     ExecutionStatus,
     FailureType,
+    OperationStatus,
     RetryStrategy,
     RuntimeSessionCleanupStatus,
     StepStatus,
@@ -34,7 +35,11 @@ from executor_service.domain.errors import (
     UnsupportedRuntimeProfileError,
 )
 from executor_service.domain.models import utc_now
-from executor_service.infrastructure.db.models import ExecutionORM, ExecutionStepORM
+from executor_service.infrastructure.db.models import (
+    ExecutionOperationORM,
+    ExecutionORM,
+    ExecutionStepORM,
+)
 from executor_service.infrastructure.db.session import create_session_factory
 
 
@@ -322,6 +327,11 @@ async def test_retry_resets_failed_and_later_steps_idempotently(
             )
             .values(status=StepStatus.FAILED, error_message="expected failure")
         )
+        await session.execute(
+            update(ExecutionOperationORM)
+            .where(ExecutionOperationORM.id == execution.active_operation_id)
+            .values(status=OperationStatus.FAILED, finished_at=now)
+        )
 
     command = RetryExecutionCommand(execution_id=execution.id, idempotency_key="retry-command")
     retried = await execution_service.retry(command)
@@ -336,6 +346,13 @@ async def test_retry_resets_failed_and_later_steps_idempotently(
     ]
     assert repeated.id == retried.id
     assert repeated.retry_count == 1
+    assert retried.active_operation_id == execution.active_operation_id
+    async with session_factory() as session:
+        operation = await session.get(ExecutionOperationORM, execution.active_operation_id)
+    assert operation is not None
+    assert operation.status == OperationStatus.QUEUED
+    assert operation.execution_attempt_id is None
+    assert operation.finished_at is None
 
 
 async def test_infrastructure_retry_starts_from_zero_with_a_new_kernel(
@@ -379,6 +396,11 @@ async def test_infrastructure_retry_starts_from_zero_with_a_new_kernel(
             update(ExecutionStepORM)
             .where(ExecutionStepORM.execution_id == execution.id)
             .values(status=StepStatus.FAILED, finished_at=now)
+        )
+        await session.execute(
+            update(ExecutionOperationORM)
+            .where(ExecutionOperationORM.id == execution.active_operation_id)
+            .values(status=OperationStatus.FAILED, finished_at=now)
         )
 
     retried = await execution_service.retry(
@@ -434,3 +456,41 @@ async def test_infrastructure_retry_waits_for_abandoned_runtime_session_cleanup(
     unchanged = await execution_service.get(execution.id)
     assert unchanged.status == ExecutionStatus.FAILED
     assert unchanged.runtime_session_cleanup_status == RuntimeSessionCleanupStatus.PENDING
+
+
+async def test_dynamic_execution_rejects_explicit_retry(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+) -> None:
+    execution = await execution_service.submit(
+        replace(
+            submit_command("dynamic-explicit-retry-submit"),
+            mode=ExecutionMode.DYNAMIC,
+        )
+    )
+    now = utc_now()
+    session_factory = create_session_factory(engine)
+    async with session_factory() as session, session.begin():
+        await session.execute(
+            update(ExecutionORM)
+            .where(ExecutionORM.id == execution.id)
+            .values(
+                status=ExecutionStatus.FAILED,
+                retry_strategy=RetryStrategy.FROM_START,
+                retry_from_sequence=0,
+                finished_at=now,
+            )
+        )
+        await session.execute(
+            update(ExecutionOperationORM)
+            .where(ExecutionOperationORM.id == execution.active_operation_id)
+            .values(status=OperationStatus.FAILED, finished_at=now)
+        )
+
+    with pytest.raises(InvalidStateTransitionError, match="Only STATIC"):
+        await execution_service.retry(
+            RetryExecutionCommand(
+                execution_id=execution.id,
+                idempotency_key="dynamic-explicit-retry-command",
+            )
+        )

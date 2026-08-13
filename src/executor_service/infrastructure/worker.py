@@ -997,6 +997,22 @@ class ExecutionWorker:
             attempt.retry_strategy = RetryStrategy.FROM_FAILED_STEP
             attempt.runtime_session_cleanup_status = RuntimeSessionCleanupStatus.NOT_REQUIRED
             attempt.finished_at = now
+            if execution.active_operation_id is not None:
+                await session.execute(
+                    update(ExecutionOperationORM)
+                    .where(
+                        ExecutionOperationORM.id == execution.active_operation_id,
+                        ExecutionOperationORM.status == OperationStatus.RUNNING,
+                    )
+                    .values(
+                        status=OperationStatus.QUEUED,
+                        execution_attempt_id=None,
+                        error_message=None,
+                        started_at=None,
+                        finished_at=None,
+                        updated_at=now,
+                    )
+                )
             if target is not None:
                 target.status = RuntimeTargetStatus.OFFLINE
                 target.last_health_check_at = now
@@ -1042,6 +1058,12 @@ class ExecutionWorker:
                 ExecutionStepORM.status == StepStatus.PENDING,
             )
             .values(status=StepStatus.SKIPPED, finished_at=now, updated_at=now)
+        )
+        await self._fail_active_operation_without_attempt(
+            session,
+            execution,
+            now,
+            error_message,
         )
         await _add_outbox(
             session,
@@ -2401,6 +2423,14 @@ class ExecutionWorker:
                 current.runtime_session_cleanup_status = cleanup_status
                 current.updated_at = now
                 current.version += 1
+                if retry_was_queued:
+                    await self._fail_active_operation_without_attempt(
+                        update_session,
+                        current,
+                        now,
+                        current.error_message
+                        or "The retained Runtime session retry window expired.",
+                    )
                 latest_attempt_id = await update_session.scalar(
                     select(ExecutionAttemptORM.id)
                     .where(ExecutionAttemptORM.execution_id == current.id)
@@ -2423,6 +2453,47 @@ class ExecutionWorker:
                         "retry_was_queued": retry_was_queued,
                     },
                 )
+
+    async def _fail_active_operation_without_attempt(
+        self,
+        session: AsyncSession,
+        execution: ExecutionORM,
+        now: datetime,
+        error_message: str,
+    ) -> None:
+        if execution.active_operation_id is None:
+            return
+        operation = await session.scalar(
+            select(ExecutionOperationORM)
+            .where(
+                ExecutionOperationORM.id == execution.active_operation_id,
+                ExecutionOperationORM.status.in_(
+                    [OperationStatus.QUEUED, OperationStatus.RUNNING]
+                ),
+            )
+            .with_for_update()
+        )
+        if operation is None:
+            return
+        operation.status = OperationStatus.FAILED
+        operation.execution_attempt_id = None
+        operation.error_message = error_message[:2000]
+        operation.finished_at = now
+        operation.updated_at = now
+        await _add_outbox(
+            session,
+            execution.id,
+            "execution.operation_failed",
+            ExecutionStatus.FAILED,
+            {
+                "execution_attempt_id": None,
+                "operation_id": str(operation.id),
+                "operation_status": OperationStatus.FAILED.value,
+                "first_sequence": operation.first_sequence,
+                "last_sequence": operation.last_sequence,
+                "version": execution.version,
+            },
+        )
 
 
 async def _add_outbox(

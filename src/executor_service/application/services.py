@@ -439,6 +439,9 @@ class ExecutionService:
             ) from exc
 
     async def retry(self, command: RetryExecutionCommand) -> Execution:
+        return (await self.retry_result(command)).execution
+
+    async def retry_result(self, command: RetryExecutionCommand) -> ExecutionCommandResult:
         try:
             async with self._uow_factory() as uow:
                 key_owner = await uow.executions.get_by_retry_key(command.idempotency_key)
@@ -447,12 +450,16 @@ class ExecutionService:
                         raise IdempotencyConflictError(
                             "The retry idempotency_key was already used for another execution."
                         )
-                    return key_owner
+                    return ExecutionCommandResult(
+                        execution=key_owner,
+                        operation_id=_required_operation_id(key_owner.active_operation_id),
+                    )
 
                 execution = await uow.executions.get(command.execution_id, for_update=True)
                 if execution is None:
                     raise ExecutionNotFoundError(f"Execution {command.execution_id} was not found.")
                 execution.request_retry()
+                operation_id = _required_operation_id(execution.active_operation_id)
                 _apply_actor(execution, command.actor_type, command.actor_id)
                 for step in execution.steps:
                     if (
@@ -464,6 +471,11 @@ class ExecutionService:
                 if execution.retry_from_sequence is None:
                     raise RuntimeError("Retry sequence unexpectedly missing.")
                 await uow.executions.save(execution)
+                await uow.executions.requeue_operation_for_retry(
+                    operation_id,
+                    updated_by_type=command.actor_type,
+                    updated_by=command.actor_id,
+                )
                 await uow.executions.add_retry_receipt(
                     execution.id,
                     command.idempotency_key,
@@ -476,6 +488,7 @@ class ExecutionService:
                         payload={
                             "task_id": execution.task_id,
                             "execution_plan_id": execution.execution_plan_id,
+                            "operation_id": str(operation_id),
                             "status": execution.status.value,
                             "from_sequence": execution.retry_from_sequence,
                             "retry_strategy": execution.retry_strategy.value,
@@ -493,12 +506,18 @@ class ExecutionService:
                     )
                 )
                 await uow.commit()
-                return execution
+                return ExecutionCommandResult(
+                    execution=execution,
+                    operation_id=operation_id,
+                )
         except PersistenceConflictError as exc:
             async with self._uow_factory() as uow:
                 key_owner = await uow.executions.get_by_retry_key(command.idempotency_key)
                 if key_owner is not None and key_owner.id == command.execution_id:
-                    return key_owner
+                    return ExecutionCommandResult(
+                        execution=key_owner,
+                        operation_id=_required_operation_id(key_owner.active_operation_id),
+                    )
             raise IdempotencyConflictError(
                 "The retry request conflicted with another state change."
             ) from exc

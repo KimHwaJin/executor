@@ -189,10 +189,10 @@ def build_mcp_server(
     )
     async def execution_retry(request: ExecutionRetryRequest) -> ExecutionCommandResponse:
         try:
-            execution = await _trace_call(
+            result = await _trace_call(
                 tracing,
                 "executor.mcp.execution_retry",
-                execution_service.retry(
+                execution_service.retry_result(
                     RetryExecutionCommand(
                         execution_id=request.execution_id,
                         idempotency_key=request.idempotency_key,
@@ -204,7 +204,9 @@ def build_mcp_server(
             )
         except Exception as exc:
             raise _public_tool_error(exc) from exc
-        return ExecutionCommandResponse.from_domain(execution)
+        return ExecutionCommandResponse.from_domain(
+            result.execution, operation_id=result.operation_id
+        )
 
     @server.tool(
         description=(

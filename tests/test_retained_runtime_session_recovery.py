@@ -20,6 +20,7 @@ from executor_service.domain.enums import (
     ExecutionMode,
     ExecutionStatus,
     FailureType,
+    OperationStatus,
     RetryStrategy,
     RuntimePool,
     RuntimeSessionCleanupStatus,
@@ -32,6 +33,7 @@ from executor_service.domain.runtime import RuntimeDriverError
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
+    ExecutionOperationORM,
     ExecutionORM,
     ExecutionStepORM,
     OutboxEventORM,
@@ -148,6 +150,11 @@ async def _prepare_retained_retry(
                 ExecutionStepORM.sequence == 0,
             )
             .values(status=StepStatus.SUCCEEDED)
+        )
+        await session.execute(
+            update(ExecutionOperationORM)
+            .where(ExecutionOperationORM.id == submitted.active_operation_id)
+            .values(status=OperationStatus.FAILED, finished_at=now)
         )
 
     await execution_service.retry(
@@ -267,6 +274,9 @@ async def test_disabled_retained_target_requires_an_explicit_from_start_retry(
         assert failed.retry_strategy == RetryStrategy.FROM_START
         assert failed.retry_from_sequence == 0
         assert failed.runtime_target_id == target.id
+        operation = await session.get(ExecutionOperationORM, execution.active_operation_id)
+        assert operation is not None
+        assert operation.status == OperationStatus.FAILED
         event = await session.scalar(
             select(OutboxEventORM).where(
                 OutboxEventORM.aggregate_id == execution.id,
@@ -386,6 +396,10 @@ async def test_preflight_connection_failure_defers_the_retained_retry(
         assert attempts[-1].status == AttemptStatus.FAILED
         assert attempts[-1].failure_type == FailureType.RUNTIME_UNAVAILABLE
         assert attempts[-1].retry_strategy == RetryStrategy.FROM_FAILED_STEP
+        operation = await session.get(ExecutionOperationORM, execution.active_operation_id)
+        assert operation is not None
+        assert operation.status == OperationStatus.QUEUED
+        assert operation.execution_attempt_id is None
         assert event is not None
         assert event.payload["reason"] == "retained_target_temporarily_unavailable"
 
@@ -473,6 +487,9 @@ async def test_queued_retained_retry_expires_without_switching_targets(
         assert expired.retry_strategy == RetryStrategy.NOT_RETRYABLE
         assert expired.runtime_session_id is None
         assert CleanupGateway.deleted == ["retained-session-expired-queued"]
+        operation = await session.get(ExecutionOperationORM, execution.active_operation_id)
+        assert operation is not None
+        assert operation.status == OperationStatus.FAILED
         event = await session.scalar(
             select(OutboxEventORM).where(
                 OutboxEventORM.aggregate_id == execution.id,

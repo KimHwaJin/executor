@@ -9,8 +9,15 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
 
+from executor_service.domain.enums import ActorType, OperationStatus
 from executor_service.domain.errors import PersistenceConflictError
-from executor_service.domain.models import Execution, ExecutionOperation, ExecutionStep, OutboxEvent
+from executor_service.domain.models import (
+    Execution,
+    ExecutionOperation,
+    ExecutionStep,
+    OutboxEvent,
+    utc_now,
+)
 from executor_service.infrastructure.db.models import (
     CommandReceiptORM,
     ExecutionOperationORM,
@@ -123,6 +130,33 @@ class SQLAlchemyExecutionRepository:
                 ExecutionOperationORM.idempotency_key == idempotency_key
             )
         )
+
+    async def requeue_operation_for_retry(
+        self,
+        operation_id: UUID,
+        *,
+        updated_by_type: ActorType | None,
+        updated_by: str | None,
+    ) -> None:
+        result = await self._session.execute(
+            update(ExecutionOperationORM)
+            .where(
+                ExecutionOperationORM.id == operation_id,
+                ExecutionOperationORM.status == OperationStatus.FAILED,
+            )
+            .values(
+                status=OperationStatus.QUEUED,
+                execution_attempt_id=None,
+                error_message=None,
+                updated_by_type=updated_by_type,
+                updated_by=updated_by,
+                updated_at=utc_now(),
+                started_at=None,
+                finished_at=None,
+            )
+        )
+        if getattr(result, "rowcount", None) != 1:
+            raise PersistenceConflictError("Active Operation is not retryable from FAILED.")
 
     async def save(self, execution: Execution) -> None:
         previous_version = execution.version - 1

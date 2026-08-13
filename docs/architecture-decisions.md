@@ -78,3 +78,7 @@ The following details remain open and must not be inferred from this proposal:
 - PostgreSQL stores Operation provenance and result state before the Outbox event is committed.
 - Agent resumes on `execution.operation_succeeded` or `execution.operation_failed` and then reads
   the Operation and its Steps through REST or MCP.
+- A STATIC retry requeues the same accepted Operation and creates a new immutable Attempt. The
+  Operation reflects the latest result; Attempt and Step Attempt history preserves earlier tries.
+- DYNAMIC Tool failures use a new correction Operation. DYNAMIC Runtime-state loss is not retried
+  until a deterministic replay or Runtime-checkpoint policy is approved.

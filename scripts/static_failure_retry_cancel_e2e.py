@@ -26,6 +26,7 @@ from executor_service.events import EXECUTION_EVENT_SCHEMA_VERSION, ExecutionStr
 from executor_service.infrastructure.db.models import (
     ExecutionArtifactORM,
     ExecutionAttemptORM,
+    ExecutionOperationORM,
     ExecutionORM,
     ExecutionStepAttemptORM,
     ExecutionStepORM,
@@ -46,6 +47,7 @@ class DatabaseSnapshot:
     runtime_target_id: UUID | None
     runtime_session_id: str | None
     cleanup_status: str
+    operation: ExecutionOperationORM
     step_statuses: tuple[str, ...]
     attempts: tuple[ExecutionAttemptORM, ...]
     step_attempts: tuple[ExecutionStepAttemptORM, ...]
@@ -244,11 +246,19 @@ async def _database_snapshot(
                 .order_by(OutboxEventORM.created_at, OutboxEventORM.id)
             )
         )
+        operation = await session.scalar(
+            select(ExecutionOperationORM).where(
+                ExecutionOperationORM.execution_id == execution_id
+            )
+        )
+        if operation is None:
+            raise RuntimeError(f"Execution {execution_id} has no Operation.")
     return DatabaseSnapshot(
         execution_status=_enum_value(execution.status),
         runtime_target_id=execution.runtime_target_id,
         runtime_session_id=execution.runtime_session_id,
         cleanup_status=_enum_value(execution.runtime_session_cleanup_status),
+        operation=operation,
         step_statuses=tuple(_enum_value(row.status) for row in steps),
         attempts=tuple(attempts),
         step_attempts=tuple(step_attempts),
@@ -422,6 +432,7 @@ async def _run_failure_retry_case(
         },
     )
     execution_id = str(submitted["execution_id"])
+    operation_id = str(submitted["operation_id"])
     failed, first_states = await _wait_for_status(
         "MCP",
         execution_id,
@@ -455,6 +466,8 @@ async def _run_failure_retry_case(
     )
     if retried["state"]["status"] != "QUEUED":
         raise RuntimeError(f"Retry was not queued: {retried}")
+    if retried["operation_id"] != operation_id:
+        raise RuntimeError("Retry did not return the originally accepted Operation ID.")
     succeeded, second_states = await _wait_for_status(
         "MCP",
         execution_id,
@@ -484,6 +497,9 @@ async def _run_failure_retry_case(
         or snapshot.step_statuses != ("SUCCEEDED", "SUCCEEDED", "SUCCEEDED")
         or tuple(_enum_value(attempt.status) for attempt in snapshot.attempts)
         != ("FAILED", "SUCCEEDED")
+        or str(snapshot.operation.id) != operation_id
+        or _enum_value(snapshot.operation.status) != "SUCCEEDED"
+        or snapshot.operation.execution_attempt_id != snapshot.attempts[1].id
     ):
         raise RuntimeError(f"PostgreSQL retry state is inconsistent: {snapshot}")
     if (
@@ -578,6 +594,26 @@ async def _run_failure_retry_case(
     }
     if not required_events.issubset(event_types):
         raise RuntimeError(f"Retry event timeline is incomplete: {event_types}")
+    operation_events = [
+        event
+        for event in snapshot.outbox_events
+        if event.event_type in {
+            "execution.operation_failed",
+            "execution.operation_succeeded",
+        }
+    ]
+    if [event.event_type for event in operation_events] != [
+        "execution.operation_failed",
+        "execution.operation_succeeded",
+    ]:
+        raise RuntimeError(f"Operation retry event order is inconsistent: {operation_events}")
+    if any(event.payload["operation_id"] != operation_id for event in operation_events):
+        raise RuntimeError("Operation retry events do not share the accepted Operation ID.")
+    if [event.payload["execution_attempt_id"] for event in operation_events] != [
+        str(snapshot.attempts[0].id),
+        str(snapshot.attempts[1].id),
+    ]:
+        raise RuntimeError("Operation retry events do not identify their distinct Attempts.")
     return CaseResult(
         name="MCP failure -> retry",
         execution_id=execution_id,

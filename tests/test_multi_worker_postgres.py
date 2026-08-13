@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from executor_service.application.commands import (
     CancelExecutionCommand,
+    RetryExecutionCommand,
     StepSpec,
     SubmitExecutionCommand,
 )
@@ -26,7 +27,9 @@ from executor_service.domain.enums import (
     CodeSourceType,
     ExecutionMode,
     ExecutionStatus,
+    OperationStatus,
     OutboxStatus,
+    RetryStrategy,
     RuntimePool,
     RuntimeTargetStatus,
     RuntimeType,
@@ -36,6 +39,7 @@ from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.base import Base
 from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
+    ExecutionOperationORM,
     ExecutionORM,
     OutboxEventORM,
     RuntimeTargetORM,
@@ -187,6 +191,55 @@ async def test_concurrent_workers_create_exactly_one_attempt_for_an_execution(
             )
         )
     assert attempt_count == 1
+
+
+async def test_concurrent_workers_create_one_attempt_for_a_requeued_operation(
+    postgres_engine: AsyncEngine,
+    tmp_path: Path,
+) -> None:
+    service = _service(postgres_engine)
+    session_factory = create_session_factory(postgres_engine)
+    async with session_factory() as session, session.begin():
+        session.add(_server(capacity=10))
+    execution = await service.submit(_command("retry-single-claim"))
+    async with session_factory() as session, session.begin():
+        persisted = await session.get(ExecutionORM, execution.id)
+        assert persisted is not None
+        operation = await session.get(ExecutionOperationORM, persisted.active_operation_id)
+        assert operation is not None
+        persisted.status = ExecutionStatus.FAILED
+        persisted.retry_strategy = RetryStrategy.FROM_START
+        persisted.retry_from_sequence = 0
+        operation.status = OperationStatus.FAILED
+
+    retry = await service.retry_result(
+        RetryExecutionCommand(
+            execution_id=execution.id,
+            idempotency_key=f"postgres-retry-{execution.id}",
+        )
+    )
+    assert retry.operation_id == execution.active_operation_id
+
+    workers, redis_clients = _workers(postgres_engine, tmp_path, count=8)
+    try:
+        claims = await asyncio.gather(*(worker._claim(execution.id) for worker in workers))
+    finally:
+        await _close_redis(redis_clients)
+
+    assert sum(claim is not None for claim in claims) == 1
+    async with session_factory() as session:
+        attempts = list(
+            await session.scalars(
+                select(ExecutionAttemptORM).where(
+                    ExecutionAttemptORM.execution_id == execution.id
+                )
+            )
+        )
+        operation = await session.get(ExecutionOperationORM, retry.operation_id)
+    assert len(attempts) == 1
+    assert operation is not None
+    assert operation.status == OperationStatus.RUNNING
+    assert operation.execution_attempt_id == attempts[0].id
 
 
 async def test_concurrent_workers_never_oversubscribe_jupyter_capacity(

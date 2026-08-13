@@ -16,6 +16,7 @@ from executor_service.container import ApplicationContainer
 from executor_service.domain.enums import (
     AttemptStatus,
     ExecutionStatus,
+    OperationStatus,
     RetryStrategy,
     RuntimePool,
     RuntimeTargetStatus,
@@ -25,6 +26,7 @@ from executor_service.domain.models import utc_now
 from executor_service.infrastructure.db.base import Base
 from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
+    ExecutionOperationORM,
     ExecutionORM,
     ExecutionStepAttemptORM,
     ExecutionStepORM,
@@ -482,6 +484,11 @@ async def test_retry_and_domain_error_mapping(
                 retry_from_sequence=0,
             )
         )
+        await session.execute(
+            update(ExecutionOperationORM)
+            .where(ExecutionOperationORM.execution_id == execution_id)
+            .values(status=OperationStatus.FAILED)
+        )
 
     retried = await client.post(
         f"/api/v1/executions/{execution_id}/retry",
@@ -492,6 +499,7 @@ async def test_retry_and_domain_error_mapping(
     )
     assert retried.status_code == 202
     assert retried.json()["state"]["status"] == "QUEUED"
+    assert retried.json()["operation_id"] == submitted.json()["operation_id"]
     fetched = await client.get(f"/api/v1/executions/{execution_id}")
     assert fetched.json()["retry"]["count"] == 1
 

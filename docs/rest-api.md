@@ -151,7 +151,9 @@ curl -X POST http://127.0.0.1:8000/api/v1/executions/EXECUTION_ID/retry \
 ```
 
 Cancel returns after `CANCEL_REQUESTED` is committed. Retry is accepted only when the FAILED
-Execution advertises a supported retry strategy.
+STATIC Execution advertises a supported retry strategy. A retry response returns the original
+accepted `operation_id`; it does not create a new Operation. The same Operation moves back to
+`QUEUED`, while a new Attempt preserves the new Runtime try separately.
 
 ## Dynamic continue and finish
 

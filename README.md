@@ -270,7 +270,9 @@ guard while the server recovers.
 `execution_cancel` also requires an idempotency key. It first records `CANCEL_REQUESTED`; the
 worker then interrupts and deletes the Runtime session before recording `CANCELLED`.
 
-`execution_retry` is accepted only for a `FAILED` execution with a supported `retry_strategy`. A
+`execution_retry` is accepted only for a `FAILED` STATIC execution with a supported
+`retry_strategy`. It returns the same `operation_id` accepted at submit time and creates a new
+Attempt; it does not create a new Operation. A
 notebook cell error preserves that session for `FAILED_SESSION_RETENTION_SECONDS` and uses
 `FROM_FAILED_STEP`. Worker shutdown, lease expiry, and Runtime connectivity failure use
 `FROM_START` with a new session because prior in-memory state cannot be trusted. Attempt history
