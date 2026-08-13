@@ -1,10 +1,10 @@
 """Exercise DYNAMIC correction, finish, and running cancellation across durable boundaries."""
 
 import asyncio
+import hashlib
 import json
 import os
 from dataclasses import dataclass
-from pathlib import Path
 from time import monotonic
 from typing import Any, Literal
 from uuid import UUID, uuid4
@@ -59,6 +59,20 @@ class CaseResult:
 
 def _enum_value(value: object) -> str:
     return str(getattr(value, "value", value))
+
+
+def _host_jupyter_endpoint(target: RuntimeTargetORM, settings: Any) -> str:
+    variable = (
+        "DYNAMIC_LIFECYCLE_JUPYTER_SECONDARY_ENDPOINT"
+        if target.name == "local-jupyter-secondary"
+        else "DYNAMIC_LIFECYCLE_JUPYTER_ENDPOINT"
+    )
+    default = (
+        "http://127.0.0.1:8889"
+        if target.name == "local-jupyter-secondary"
+        else settings.jupyter_endpoint
+    )
+    return os.getenv(variable, default)
 
 
 def _single_step_source(
@@ -336,10 +350,7 @@ async def _runtime_session_exists(
         raise RuntimeError(f"Runtime Target {target_id} is missing.")
     credential = registry.resolve_credential(target.credential_ref, target.credential_ciphertext)
     connection_config = dict(target.connection_config)
-    connection_config["endpoint"] = os.getenv(
-        "DYNAMIC_LIFECYCLE_JUPYTER_ENDPOINT",
-        settings.jupyter_endpoint,
-    )
+    connection_config["endpoint"] = _host_jupyter_endpoint(target, settings)
     driver = ConfiguredRuntimeDriverFactory(settings).create(
         target.runtime_type,
         connection_config,
@@ -351,10 +362,30 @@ async def _runtime_session_exists(
         await driver.close()
 
 
-def _artifact_path(workspace_root: Path, artifact: ExecutionArtifactORM) -> Path:
-    if artifact.relative_path is None:
-        raise RuntimeError(f"Artifact {artifact.id} has no PV relative path.")
-    return workspace_root / artifact.relative_path
+async def _runtime_file_exists(
+    session_factory: async_sessionmaker[AsyncSession],
+    target_id: UUID,
+    relative_path: str,
+) -> bool:
+    settings = get_settings()
+    registry = RuntimeTargetRegistry(session_factory, settings)
+    async with session_factory() as session:
+        target = await session.get(RuntimeTargetORM, target_id)
+    if target is None:
+        raise RuntimeError(f"Runtime Target {target_id} is missing.")
+    credential = registry.resolve_credential(target.credential_ref, target.credential_ciphertext)
+    connection_config = dict(target.connection_config)
+    connection_config["endpoint"] = _host_jupyter_endpoint(target, settings)
+    driver = ConfiguredRuntimeDriverFactory(settings).create(
+        target.runtime_type, connection_config, credential
+    )
+    try:
+        await driver.file_metadata(relative_path)
+    except Exception:
+        return False
+    finally:
+        await driver.close()
+    return True
 
 
 async def _assert_waiting_runtime(
@@ -388,7 +419,6 @@ async def _run_correction_and_finish_case(
     session_factory: async_sessionmaker[AsyncSession],
     redis: Redis,
     stream: str,
-    workspace_root: Path,
 ) -> CaseResult:
     user_id = f"dynamic-flow-{unique}-user"
     actor = {"type": "USER", "id": user_id}
@@ -655,7 +685,7 @@ async def _run_correction_and_finish_case(
         artifact = named_artifacts.get(name)
         if artifact is None or _enum_value(artifact.status) != status:
             raise RuntimeError(f"DYNAMIC Artifact {name} is missing or has the wrong status.")
-        if _artifact_path(workspace_root, artifact).read_text(encoding="utf-8") != content:
+        if artifact.checksum_sha256 != hashlib.sha256(content.encode()).hexdigest():
             raise RuntimeError(f"DYNAMIC Artifact {name} has unexpected content.")
     notebook = next(
         (
@@ -667,12 +697,32 @@ async def _run_correction_and_finish_case(
     )
     if notebook is None:
         raise RuntimeError("Finished DYNAMIC Execution has no notebook Artifact.")
-    notebook_data = json.loads(_artifact_path(workspace_root, notebook).read_text(encoding="utf-8"))
-    notebook_text = json.dumps(notebook_data)
-    if len(notebook_data["cells"]) != 4 or not all(
-        marker in notebook_text for marker in ("40", "42", "planned dynamic correction", "84")
+    notebook_data = await _mcp_result(
+        mcp,
+        "execution_notebook_read",
+        {"execution_id": execution_id, "response_format": "detailed", "limit": 0},
+    )
+    notebook_source = "\n".join(cell["source"] for cell in notebook_data["cells"])
+    if notebook_data["page"]["total_count"] != 4 or not all(
+        marker in notebook_source
+        for marker in (
+            "value = 40",
+            "answer = value + 2",
+            "planned dynamic correction",
+            "corrected = answer * 2",
+        )
     ):
         raise RuntimeError("DYNAMIC notebook does not preserve correction history.")
+    detailed_cells = [
+        await _rest_json(rest, "GET", f"/executions/{execution_id}/notebook/cells/{index}")
+        for index in range(4)
+    ]
+    detailed_outputs = json.dumps([item["cell"]["outputs"] for item in detailed_cells])
+    if not all(
+        marker in detailed_outputs
+        for marker in ("40", "42", "planned dynamic correction", "84")
+    ):
+        raise RuntimeError("DYNAMIC notebook does not preserve cell outputs.")
 
     event_types = await _assert_event_delivery(
         "MCP",
@@ -725,7 +775,6 @@ async def _run_running_cancel_case(
     session_factory: async_sessionmaker[AsyncSession],
     redis: Redis,
     stream: str,
-    workspace_root: Path,
 ) -> CaseResult:
     user_id = f"dynamic-cancel-{unique}-user"
     project_id = "dynamic-cancel-project"
@@ -780,28 +829,22 @@ async def _run_running_cancel_case(
     )
     target_id = UUID(str(running["runtime"]["target_id"]))
     runtime_session_id = str(running["runtime"]["session_id"])
-    marker_path = (
-        workspace_root
-        / "users"
-        / user_id
-        / "projects"
-        / project_id
-        / "sessions"
-        / session_id
-        / "executions"
-        / execution_id
-        / "artifacts"
-        / "other"
-        / "dynamic-cancel.txt"
-    )
+    workspace_path = running["workspace"]["path"]
+    if not workspace_path:
+        raise RuntimeError("Running DYNAMIC Execution has no Runtime workspace path.")
+    marker_path = f"{workspace_path}/artifacts/other/dynamic-cancel.txt"
     deadline = monotonic() + timeout_seconds
     marker_poll = asyncio.Event()
-    while monotonic() < deadline and not marker_path.is_file():
+    marker_exists = False
+    while monotonic() < deadline:
+        marker_exists = await _runtime_file_exists(session_factory, target_id, marker_path)
+        if marker_exists:
+            break
         try:
-            await asyncio.wait_for(marker_poll.wait(), timeout=0.05)
+            await asyncio.wait_for(marker_poll.wait(), timeout=0.2)
         except TimeoutError:
             pass
-    if not marker_path.is_file():
+    if not marker_exists:
         raise RuntimeError("DYNAMIC cancellation marker was not written before timeout.")
 
     cancel_requested = await _mcp_result(
@@ -869,7 +912,7 @@ async def _run_running_cancel_case(
     ]
     if tuple(_enum_value(artifact.status) for artifact in cancel_artifacts) != ("INCOMPLETE",):
         raise RuntimeError(f"Cancelled DYNAMIC Artifact was not preserved: {cancel_artifacts}")
-    if _artifact_path(workspace_root, cancel_artifacts[0]).read_text(encoding="utf-8") != "started":
+    if cancel_artifacts[0].checksum_sha256 != hashlib.sha256(b"started").hexdigest():
         raise RuntimeError("Cancelled DYNAMIC Artifact contains unexpected data.")
     if any(_enum_value(artifact.artifact_type) == "NOTEBOOK" for artifact in snapshot.artifacts):
         raise RuntimeError("Cancelled DYNAMIC Execution registered a successful notebook.")
@@ -937,7 +980,6 @@ async def main() -> None:
                     session_factory=session_factory,
                     redis=redis,
                     stream=settings.redis_stream,
-                    workspace_root=settings.workspace_host_root,
                 ),
                 await _run_running_cancel_case(
                     unique=unique,
@@ -949,7 +991,6 @@ async def main() -> None:
                     session_factory=session_factory,
                     redis=redis,
                     stream=settings.redis_stream,
-                    workspace_root=settings.workspace_host_root,
                 ),
             ]
         for result in results:

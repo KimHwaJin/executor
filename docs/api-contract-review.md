@@ -618,7 +618,7 @@ Draft shape:
   },
   "storage": {
     "type": "PV",
-    "uri": "pv:///users/user-1/.../artifacts/plots/result.png",
+    "uri": "jupyter-pv:///users/user-1/.../artifacts/plots/result.png",
     "relative_path": "artifacts/plots/result.png",
     "media_type": "image/png",
     "size_bytes": 1024,

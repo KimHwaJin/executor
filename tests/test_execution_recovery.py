@@ -130,7 +130,7 @@ async def test_expired_lease_is_failed_once_and_can_restart_from_zero(
 
     settings = Settings(
         runtime_enabled=False,
-        workspace_host_root=tmp_path,
+        input_host_root=tmp_path,
         execution_lease_seconds=30,
         execution_heartbeat_seconds=5,
     )
@@ -141,7 +141,7 @@ async def test_expired_lease_is_failed_once_and_can_restart_from_zero(
         redis=redis,
         settings=settings,
         registry=registry,
-        artifact_manager=ExecutionArtifactManager(session_factory, settings),
+        artifact_manager=ExecutionArtifactManager(session_factory),
     )
     try:
         await worker._recover_expired_leases()

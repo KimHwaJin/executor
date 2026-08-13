@@ -5,6 +5,64 @@ orchestrator. `PROPOSED` entries are discussion baselines, not implementation au
 Change an entry to `ACCEPTED` only after the owning teams approve its open questions. Allowed
 statuses are `PROPOSED`, `ACCEPTED`, `SUPERSEDED`, and `REJECTED`.
 
+## ADR-002: Runtime-owned execution storage
+
+- Status: ACCEPTED
+- Recorded on: 2026-08-13
+- Owners: Agent/API team and Executor team
+- Scope: Agent input files, Runtime workspaces, Notebooks, Artifacts, retries, and reads
+
+### Context
+
+Agent and Executor share one input volume, while every Jupyter server mounts the same separate
+Jupyter volume. Executor does not mount the Jupyter volume. The previous implementation incorrectly
+treated these volumes as one filesystem and performed workspace creation, Notebook writes,
+Artifact discovery, hashing, and reads through Executor-local paths.
+
+### Decision
+
+1. The Agent/Executor volume is input-only from Executor's perspective. A PATH ExecutionSpec is
+   read, bounded, hashed, validated, and normalized into PostgreSQL; it is never treated as an
+   execution workspace.
+2. The Runtime owns the physical execution workspace. For Jupyter, all registered servers mount
+   the same Jupyter volume and use the same root-relative hierarchy.
+3. Executor sends code through the Runtime execution interface. Notebooks, generated datasets,
+   plots, models, metrics, reports, logs, and checkpoints are stored only in Runtime storage.
+4. Executor never opens, scans, hashes, or copies a Runtime file through its local filesystem.
+   Runtime Driver storage operations create directories, read/write Notebooks, snapshot Artifact
+   paths, and calculate metadata/checksums at the Runtime.
+5. PostgreSQL stores Runtime-relative paths and verified metadata. A path alone is not an Executor
+   filesystem path. External APIs accept `execution_id`, never a Runtime token or arbitrary path.
+6. Runtime execution affinity and storage location are separate concepts. A retained in-memory
+   retry remains on the original target/session; storage-only reads may use any healthy compatible
+   Jupyter target because all Jupyter targets share the same volume.
+7. Jupyter root-relative paths are validated by the Jupyter server extension. Executor also
+   validates stable path segments before issuing Runtime storage requests.
+8. Redis carries identifiers and metadata notifications, not Notebook or Artifact bytes.
+
+### Storage layout
+
+```text
+Agent + Executor input volume
+└── plans/.../execution-spec.json
+
+Jupyter shared volume
+└── users/{user}/projects/{project}/sessions/{session}/executions/{execution}/
+    ├── notebooks/execution.ipynb
+    ├── artifacts/{datasets,plots,models,metrics,reports,logs,other}/
+    └── checkpoints/
+```
+
+### Consequences
+
+- Executor and Jupyter must not share a Compose or Kubernetes volume.
+- Runtime storage availability is part of Jupyter target health.
+- Notebook and Artifact APIs resolve an Execution to Runtime storage internally.
+- A Jupyter target may be deleted without deleting files, because files belong to the common
+  Jupyter volume; at least one healthy target is required to access them.
+- Existing local `WorkspaceManager` and local Artifact discovery paths must be removed, not kept as
+  compatibility fallbacks.
+
 ## ADR-001: Asynchronous DYNAMIC execution boundary
 
 - Status: ACCEPTED

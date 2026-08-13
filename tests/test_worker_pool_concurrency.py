@@ -28,9 +28,10 @@ from executor_service.infrastructure.db.models import RuntimeTargetORM
 from executor_service.infrastructure.db.session import create_session_factory
 from executor_service.infrastructure.runtime_registry import RuntimeTargetRegistry
 from executor_service.infrastructure.worker import ExecutionWorker
+from tests.runtime_storage_fake import InMemoryRuntimeStorage
 
 
-class ControlledJupyterGateway:
+class ControlledJupyterGateway(InMemoryRuntimeStorage):
     blocked_pool = RuntimePool.BATCH
     release = asyncio.Event()
     independent_finished = asyncio.Event()
@@ -41,6 +42,7 @@ class ControlledJupyterGateway:
 
     @classmethod
     def configure(cls, blocked_pool: RuntimePool) -> None:
+        cls.reset_storage()
         cls.blocked_pool = blocked_pool
         cls.release = asyncio.Event()
         cls.independent_finished = asyncio.Event()
@@ -119,7 +121,7 @@ def _target(name: str, pool: RuntimePool, *, capacity: int = 10) -> RuntimeTarge
 def _worker(engine: AsyncEngine, tmp_path: Path) -> tuple[ExecutionWorker, Redis]:
     settings = Settings(
         runtime_enabled=False,
-        workspace_host_root=tmp_path,
+        input_host_root=tmp_path,
     )
     session_factory = create_session_factory(engine)
     redis = Redis.from_url("redis://127.0.0.1:6379/15", decode_responses=True)
@@ -129,7 +131,7 @@ def _worker(engine: AsyncEngine, tmp_path: Path) -> tuple[ExecutionWorker, Redis
             redis=redis,
             settings=settings,
             registry=RuntimeTargetRegistry(session_factory, settings),
-            artifact_manager=ExecutionArtifactManager(session_factory, settings),
+            artifact_manager=ExecutionArtifactManager(session_factory),
         ),
         redis,
     )

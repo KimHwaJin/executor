@@ -44,7 +44,7 @@ class RecordingRedis:
 def _settings(tmp_path: Path) -> Settings:
     return Settings(
         tracing_enabled=True,
-        workspace_host_root=tmp_path,
+        input_host_root=tmp_path,
         runtime_enabled=False,
         execution_lease_seconds=30,
         execution_heartbeat_seconds=5,
@@ -120,7 +120,7 @@ async def test_trace_context_survives_outbox_redis_and_worker_boundary(
             redis=redis,
             settings=settings,
             registry=RuntimeTargetRegistry(session_factory, settings),
-            artifact_manager=ExecutionArtifactManager(session_factory, settings),
+            artifact_manager=ExecutionArtifactManager(session_factory),
             tracing=tracing,
         )
 

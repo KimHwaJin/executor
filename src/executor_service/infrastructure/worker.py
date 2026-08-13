@@ -98,7 +98,7 @@ class ExecutionWorker:
         self._driver_factory = driver_factory or ConfiguredRuntimeDriverFactory(settings)
         self._artifacts = artifact_manager
         self._tracing = tracing or TracingManager(settings)
-        self._workspace = WorkspaceManager(settings.workspace_host_root)
+        self._workspace = WorkspaceManager()
         self._consumer_name = settings.execution_consumer_name or (
             f"{socket.gethostname()}-{os.getpid()}"
         )
@@ -146,7 +146,6 @@ class ExecutionWorker:
     async def start(self) -> None:
         if not self._settings.runtime_enabled or self._admission_loops or self._maintenance_loops:
             return
-        self._settings.workspace_host_root.mkdir(parents=True, exist_ok=True)
         await self._ensure_consumer_group()
         self._stop_event.clear()
         self._stopped = False
@@ -556,8 +555,14 @@ class ExecutionWorker:
                         raise RetainedRuntimeSessionLostError(
                             "The retained Runtime session no longer exists."
                         )
-                workspace = self._workspace.prepare(execution)
-                cells = self._workspace.load_cells(execution, workspace)
+                workspace = self._workspace.plan(execution)
+                await self._trace_runtime(
+                    "executor.runtime.workspace.prepare",
+                    driver.prepare_workspace(workspace.runtime_relative_path),
+                    execution_id=execution.id,
+                    target_id=target.id,
+                )
+                cells = self._workspace.load_cells(execution)
                 await self._ensure_steps(execution.id, len(cells))
                 start_sequence = execution.retry_from_sequence if resume else 0
                 if not resume:
@@ -576,7 +581,7 @@ class ExecutionWorker:
                     attempt_id,
                     runtime_session_id,
                     workspace.runtime_relative_path,
-                    f"{workspace.runtime_relative_path}/notebooks/execution.ipynb",
+                    workspace.notebook_path,
                 )
                 heartbeat = asyncio.create_task(
                     self._heartbeat(execution.id, attempt_id),
@@ -588,7 +593,7 @@ class ExecutionWorker:
                 execution_counts: list[int | None] = [None] * len(all_outputs)
                 for sequence in range(start_sequence, len(cells)):
                     code = cells[sequence]
-                    artifact_snapshot = self._artifacts.snapshot(workspace)
+                    artifact_snapshot = await self._artifacts.snapshot(driver, workspace)
                     await self._step_started(execution.id, attempt_id, sequence)
                     try:
                         result = await self._trace_runtime(
@@ -604,6 +609,7 @@ class ExecutionWorker:
                         # before the outer cancellation path tears down the Runtime session.
                         try:
                             await self._artifacts.discover_and_register(
+                                driver=driver,
                                 workspace=workspace,
                                 before=artifact_snapshot,
                                 execution_id=execution.id,
@@ -634,15 +640,19 @@ class ExecutionWorker:
                         )
                         all_outputs.append(exc.outputs)
                         execution_counts.append(None)
-                        self._workspace.write_notebook(
-                            workspace,
-                            execution.runtime_profile,
-                            cells[: sequence + 1],
-                            all_outputs,
-                            execution_counts,
+                        await driver.write_notebook(
+                            workspace.notebook_path,
+                            self._workspace.notebook_document(
+                                workspace,
+                                execution.runtime_profile,
+                                cells[: sequence + 1],
+                                all_outputs,
+                                execution_counts,
+                            ),
                         )
                         try:
                             await self._artifacts.discover_and_register(
+                                driver=driver,
                                 workspace=workspace,
                                 before=artifact_snapshot,
                                 execution_id=execution.id,
@@ -665,15 +675,19 @@ class ExecutionWorker:
                     all_outputs.append(result.outputs)
                     execution_counts.append(result.execution_count)
                     await self._step_succeeded(execution.id, attempt_id, sequence, result.outputs)
-                    self._workspace.write_notebook(
-                        workspace,
-                        execution.runtime_profile,
-                        cells[: sequence + 1],
-                        all_outputs,
-                        execution_counts,
+                    await driver.write_notebook(
+                        workspace.notebook_path,
+                        self._workspace.notebook_document(
+                            workspace,
+                            execution.runtime_profile,
+                            cells[: sequence + 1],
+                            all_outputs,
+                            execution_counts,
+                        ),
                     )
                     try:
                         await self._artifacts.discover_and_register(
+                            driver=driver,
                             workspace=workspace,
                             before=artifact_snapshot,
                             execution_id=execution.id,
@@ -690,6 +704,7 @@ class ExecutionWorker:
                         )
                         raise
                 await self._artifacts.register_notebook(
+                    driver=driver,
                     workspace=workspace,
                     execution_id=execution.id,
                     attempt_id=attempt_id,
@@ -792,10 +807,7 @@ class ExecutionWorker:
                 )
                 if operation is None:
                     return None
-            elif (
-                not execution_row.dynamic_finish_requested
-                and execution_row.retry_count == 0
-            ):
+            elif not execution_row.dynamic_finish_requested and execution_row.retry_count == 0:
                 return None
             if (
                 execution_row.mode == ExecutionMode.DYNAMIC
@@ -1130,8 +1142,7 @@ class ExecutionWorker:
                 candidate
                 for candidate in fresh_candidates
                 if candidate[0].memory_utilization is None
-                or candidate[0].memory_utilization
-                < self._settings.runtime_memory_admission_limit
+                or candidate[0].memory_utilization < self._settings.runtime_memory_admission_limit
             ]
             if not admitted:
                 return None
@@ -1146,9 +1157,7 @@ class ExecutionWorker:
             ),
         )[0]
 
-    def _has_fresh_resource_observation(
-        self, target: RuntimeTargetORM, now: datetime
-    ) -> bool:
+    def _has_fresh_resource_observation(self, target: RuntimeTargetORM, now: datetime) -> bool:
         observed_at = target.resource_observed_at
         if observed_at is None or target.resource_last_error is not None:
             return False
@@ -1174,9 +1183,7 @@ class ExecutionWorker:
             ),
         )
         memory = (
-            target.memory_utilization
-            if target.memory_utilization is not None
-            else float("inf")
+            target.memory_utilization if target.memory_utilization is not None else float("inf")
         )
         return pressure, memory, reserved, target.name
 
@@ -1187,7 +1194,13 @@ class ExecutionWorker:
         heartbeat: asyncio.Task[None] | None = None
         runtime_session_id = execution.runtime_session_id
         try:
-            workspace = self._workspace.prepare(execution)
+            workspace = self._workspace.plan(execution)
+            await self._trace_runtime(
+                "executor.runtime.workspace.prepare",
+                driver.prepare_workspace(workspace.runtime_relative_path),
+                execution_id=execution.id,
+                target_id=target.id,
+            )
             if runtime_session_id is None:
                 runtime_session_id = await self._trace_runtime(
                     "executor.runtime.session.start",
@@ -1202,7 +1215,7 @@ class ExecutionWorker:
                 attempt_id,
                 runtime_session_id,
                 workspace.runtime_relative_path,
-                f"{workspace.runtime_relative_path}/notebooks/execution.ipynb",
+                workspace.notebook_path,
             )
             heartbeat = asyncio.create_task(
                 self._heartbeat(execution.id, attempt_id),
@@ -1211,6 +1224,7 @@ class ExecutionWorker:
             if execution.dynamic_finish_requested:
                 last_sequence = max((step.sequence for step in execution.steps), default=0)
                 await self._artifacts.register_notebook(
+                    driver=driver,
                     workspace=workspace,
                     execution_id=execution.id,
                     attempt_id=attempt_id,
@@ -1243,7 +1257,7 @@ class ExecutionWorker:
             for pending in pending_steps:
                 if not pending.code:
                     raise ValueError("Queued DYNAMIC Operation contains blank cell code.")
-                artifact_snapshot = self._artifacts.snapshot(workspace)
+                artifact_snapshot = await self._artifacts.snapshot(driver, workspace)
                 await self._step_started(execution.id, attempt_id, pending.sequence)
                 try:
                     result = await self._trace_runtime(
@@ -1256,6 +1270,7 @@ class ExecutionWorker:
                 except asyncio.CancelledError:
                     try:
                         await self._artifacts.discover_and_register(
+                            driver=driver,
                             workspace=workspace,
                             before=artifact_snapshot,
                             execution_id=execution.id,
@@ -1276,10 +1291,11 @@ class ExecutionWorker:
                         execution.id, operation_id, pending.sequence
                     )
                     await self._write_dynamic_notebook(
-                        execution.id, execution.runtime_profile, workspace
+                        driver, execution.id, execution.runtime_profile, workspace
                     )
                     try:
                         await self._artifacts.discover_and_register(
+                            driver=driver,
                             workspace=workspace,
                             before=artifact_snapshot,
                             execution_id=execution.id,
@@ -1304,10 +1320,11 @@ class ExecutionWorker:
                     execution.id, attempt_id, pending.sequence, result.outputs
                 )
                 await self._write_dynamic_notebook(
-                    execution.id, execution.runtime_profile, workspace
+                    driver, execution.id, execution.runtime_profile, workspace
                 )
                 try:
                     await self._artifacts.discover_and_register(
+                        driver=driver,
                         workspace=workspace,
                         before=artifact_snapshot,
                         execution_id=execution.id,
@@ -1371,7 +1388,11 @@ class ExecutionWorker:
         return status in {ExecutionStatus.CANCEL_REQUESTED, ExecutionStatus.CANCELLED}
 
     async def _write_dynamic_notebook(
-        self, execution_id: UUID, runtime_profile: str, workspace: ExecutionWorkspace
+        self,
+        driver: RuntimeDriver,
+        execution_id: UUID,
+        runtime_profile: str,
+        workspace: ExecutionWorkspace,
     ) -> None:
         async with self._session_factory() as session:
             steps = list(
@@ -1381,10 +1402,19 @@ class ExecutionWorker:
                     .order_by(ExecutionStepORM.sequence)
                 )
             )
-        cells = [step.code or "" for step in steps if step.status != StepStatus.PENDING]
-        outputs = [step.outputs for step in steps if step.status != StepStatus.PENDING]
-        self._workspace.write_notebook(
-            workspace, runtime_profile, cells, outputs, [None] * len(cells)
+        executed_steps = [
+            step for step in steps if step.status in {StepStatus.SUCCEEDED, StepStatus.FAILED}
+        ]
+        cells = [step.code or "" for step in executed_steps]
+        outputs = [step.outputs for step in executed_steps]
+        # DYNAMIC cells execute exactly once, sequentially, on one retained kernel. SKIPPED
+        # planned Steps never become notebook cells, so kernel history is the executed-cell order.
+        execution_counts: list[int | None] = list(range(1, len(executed_steps) + 1))
+        await driver.write_notebook(
+            workspace.notebook_path,
+            self._workspace.notebook_document(
+                workspace, runtime_profile, cells, outputs, execution_counts
+            ),
         )
 
     async def _pause_dynamic_operation(
@@ -2467,9 +2497,7 @@ class ExecutionWorker:
             select(ExecutionOperationORM)
             .where(
                 ExecutionOperationORM.id == execution.active_operation_id,
-                ExecutionOperationORM.status.in_(
-                    [OperationStatus.QUEUED, OperationStatus.RUNNING]
-                ),
+                ExecutionOperationORM.status.in_([OperationStatus.QUEUED, OperationStatus.RUNNING]),
             )
             .with_for_update()
         )

@@ -1,7 +1,7 @@
 # Executor Resilience Testing
 
 These local E2E scenarios start real Executor processes against the Docker Compose PostgreSQL,
-Redis, shared PV, and Jupyter fleet. They verify process and dependency failure behavior that unit
+Redis, Jupyter-owned shared storage, and the Jupyter fleet. They verify process and dependency failure behavior that unit
 tests cannot cover.
 
 ## Prerequisites
@@ -25,7 +25,7 @@ uv run python scripts/static_execution_observability_smoke.py
 
 This non-disruptive scenario uses the already running Executor stack. It submits one two-Step
 STATIC execution through REST and one through MCP, then cross-checks the public history APIs,
-PostgreSQL, Redis Stream, shared PV, and Runtime Target probe. Each execution must:
+PostgreSQL, Redis Stream, Runtime-owned files, and Runtime Target probe. Each execution must:
 
 - expose `QUEUED -> RUNNING -> SUCCEEDED`;
 - persist two successful current Steps, one successful Attempt, and two immutable Step Attempts;

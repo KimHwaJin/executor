@@ -1,14 +1,6 @@
-from pathlib import Path
-
-import nbformat
 import pytest
 
-from executor_service.domain.enums import (
-    CodeSourceType,
-    ExecutionMode,
-    RuntimePool,
-    TriggerType,
-)
+from executor_service.domain.enums import CodeSourceType, ExecutionMode, RuntimePool, TriggerType
 from executor_service.domain.models import Execution, ExecutionStep
 from executor_service.infrastructure.workspace import WorkspaceManager, WorkspacePathError
 
@@ -42,47 +34,20 @@ def execution(*, user_id: str = "user-1", codes: tuple[str, ...] = ("print(1)",)
     )
 
 
-def test_workspace_uses_expected_pv_hierarchy_and_writes_notebook(tmp_path: Path) -> None:
-    manager = WorkspaceManager(tmp_path)
+def test_workspace_only_builds_runtime_paths_and_notebook_document() -> None:
+    manager = WorkspaceManager()
     item = execution(codes=("print(1)", "2 + 2"))
-    workspace = manager.prepare(item)
-    cells = manager.load_cells(item, workspace)
+    workspace = manager.plan(item)
+    cells = manager.load_cells(item)
 
-    assert workspace.host_root.relative_to(tmp_path).parts[:6] == (
-        "users",
-        "user-1",
-        "projects",
-        "project-1",
-        "sessions",
-        "session-1",
+    assert workspace.runtime_relative_path.startswith(
+        "users/user-1/projects/project-1/sessions/session-1/executions/"
     )
+    assert workspace.notebook_path.endswith("/notebooks/execution.ipynb")
+    assert workspace.artifacts_path.endswith("/artifacts")
     assert cells == ["print(1)", "2 + 2"]
-    assert {
-        path.relative_to(workspace.artifacts_dir).as_posix()
-        for path in (
-            workspace.datasets_dir,
-            workspace.plots_dir,
-            workspace.models_dir,
-            workspace.metrics_dir,
-            workspace.reports_dir,
-            workspace.logs_dir,
-            workspace.other_dir,
-        )
-    } == {"datasets", "plots", "models", "metrics", "reports", "logs", "other"}
-    assert all(
-        path.is_dir()
-        for path in (
-            workspace.datasets_dir,
-            workspace.plots_dir,
-            workspace.models_dir,
-            workspace.metrics_dir,
-            workspace.reports_dir,
-            workspace.logs_dir,
-            workspace.other_dir,
-        )
-    )
 
-    manager.write_notebook(
+    notebook = manager.notebook_document(
         workspace,
         "python-analysis-a",
         cells,
@@ -99,13 +64,12 @@ def test_workspace_uses_expected_pv_hierarchy_and_writes_notebook(tmp_path: Path
         ],
         [1, 2],
     )
-    notebook = nbformat.read(workspace.notebook_file, as_version=4)
-    assert len(notebook.cells) == 2
-    assert notebook.metadata.kernelspec.name == "python-analysis-a"
-    assert notebook.cells[1].outputs[0].data["text/plain"] == "4"
+    assert len(notebook["cells"]) == 2
+    assert notebook["metadata"]["kernelspec"]["name"] == "python-analysis-a"
+    assert notebook["cells"][1]["outputs"][0]["data"]["text/plain"] == "4"
 
 
-def test_workspace_rejects_unsafe_external_id(tmp_path: Path) -> None:
-    manager = WorkspaceManager(tmp_path)
+def test_workspace_rejects_unsafe_external_id() -> None:
+    manager = WorkspaceManager()
     with pytest.raises(WorkspacePathError, match="unsafe"):
-        manager.prepare(execution(user_id="../escape"))
+        manager.plan(execution(user_id="../escape"))

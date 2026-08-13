@@ -177,9 +177,7 @@ class ExecutionService:
                 if existing is None:
                     raise
                 _ensure_same_fingerprint(existing, fingerprint)
-                operation_id = await uow.executions.get_operation_id_by_key(
-                    command.idempotency_key
-                )
+                operation_id = await uow.executions.get_operation_id_by_key(command.idempotency_key)
                 return ExecutionCommandResult(
                     execution=existing,
                     operation_id=_required_operation_id(operation_id),

@@ -1,6 +1,5 @@
 import json
 from datetime import timedelta
-from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
@@ -9,7 +8,6 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from executor_service.application.commands import StepSpec, SubmitExecutionCommand
 from executor_service.application.services import ExecutionService
-from executor_service.config import Settings
 from executor_service.domain.enums import (
     ArtifactStatus,
     ArtifactStorageType,
@@ -39,6 +37,7 @@ from executor_service.interfaces.contracts import (
     ExecutionArtifactPageResponse,
     ExecutionArtifactResponse,
 )
+from tests.runtime_storage_fake import InMemoryRuntimeStorage
 
 
 def _command() -> SubmitExecutionCommand:
@@ -126,33 +125,33 @@ async def _seed_attempt(
 async def test_artifact_discovery_manifest_lineage_and_idempotency(
     execution_service: ExecutionService,
     engine: AsyncEngine,
-    tmp_path: Path,
 ) -> None:
     execution = await execution_service.submit(_command())
     _, attempt_id = await _seed_attempt(engine, execution.id, execution.steps[0].id)
-    settings = Settings(
-        runtime_enabled=False,
-        workspace_host_root=tmp_path,
-        workspace_runtime_root="/workspace/pv",
-    )
-    workspace = WorkspaceManager(tmp_path).prepare(execution)
-    manager = ExecutionArtifactManager(create_session_factory(engine), settings)
-    before = manager.snapshot(workspace)
+    workspace = WorkspaceManager().plan(execution)
+    manager = ExecutionArtifactManager(create_session_factory(engine))
+    driver = InMemoryRuntimeStorage()
+    driver.reset_storage()
+    before = await manager.snapshot(driver, workspace)
 
-    (workspace.datasets_dir / "result.csv").write_text("value\n1\n", encoding="utf-8")
-    (workspace.plots_dir / "directory-wins.csv").write_text("not,a,dataset\n", encoding="utf-8")
-    (workspace.reports_dir / "summary.md").write_text("# Result\n", encoding="utf-8")
-    processed = (
-        tmp_path / "users" / "artifact-user" / "datasets" / "processed" / "asset-1" / "data.parquet"
+    driver.put_runtime_file(f"{workspace.artifacts_path}/datasets/result.csv", b"value\n1\n")
+    driver.put_runtime_file(
+        f"{workspace.artifacts_path}/plots/directory-wins.csv", b"not,a,dataset\n"
     )
-    processed.parent.mkdir(parents=True)
-    processed.write_bytes(b"processed-data")
-    manifest = workspace.artifacts_dir / "manifest.jsonl"
+    driver.put_runtime_file(f"{workspace.artifacts_path}/reports/summary.md", b"# Result\n")
+    processed_path = "users/artifact-user/datasets/processed/asset-1/data.parquet"
+    driver.put_runtime_file(processed_path, b"processed-data")
     entries = [
         {
             "storage_type": "PV",
+            "artifact_type": "REPORT",
+            "path": "artifacts/reports/summary.md",
+            "name": "workspace-relative-summary",
+        },
+        {
+            "storage_type": "PV",
             "artifact_type": "DATASET",
-            "path": "/workspace/pv/users/artifact-user/datasets/processed/asset-1/data.parquet",
+            "path": processed_path,
             "name": "processed-daily-data",
             "external_parent_asset_id": "raw-daily-asset",
             "metadata": {"token": "must-not-leak", "rows": 1},
@@ -166,9 +165,13 @@ async def test_artifact_discovery_manifest_lineage_and_idempotency(
             "checksum_sha256": "a" * 64,
         },
     ]
-    manifest.write_text("".join(json.dumps(entry) + "\n" for entry in entries), encoding="utf-8")
+    driver.put_runtime_file(
+        workspace.manifest_path,
+        "".join(json.dumps(entry) + "\n" for entry in entries).encode(),
+    )
 
     artifact_ids = await manager.discover_and_register(
+        driver=driver,
         workspace=workspace,
         before=before,
         execution_id=execution.id,
@@ -177,6 +180,7 @@ async def test_artifact_discovery_manifest_lineage_and_idempotency(
         status=ArtifactStatus.AVAILABLE,
     )
     repeated_ids = await manager.discover_and_register(
+        driver=driver,
         workspace=workspace,
         before=before,
         execution_id=execution.id,
@@ -210,7 +214,7 @@ async def test_artifact_discovery_manifest_lineage_and_idempotency(
     artifact_detail = ExecutionArtifactResponse.from_view(processed_artifact)
     assert artifact_summary.storage.size_bytes == len(b"processed-data")
     assert "uri" not in artifact_summary.storage.model_dump()
-    assert artifact_detail.storage.uri.startswith("pv://")
+    assert artifact_detail.storage.uri.startswith("jupyter-pv://")
     assert artifact_detail.lineage.external_parent_asset_id == "raw-daily-asset"
     assert artifact_detail.metadata["rows"] == 1
     assert processed_artifact.storage_type == ArtifactStorageType.PV
@@ -218,9 +222,13 @@ async def test_artifact_discovery_manifest_lineage_and_idempotency(
     assert processed_artifact.metadata == {
         "token": "[REDACTED]",
         "rows": 1,
-        "verification": "executor-computed",
+        "verification": "runtime-computed",
     }
     assert processed_artifact.checksum_sha256 is not None
+    relative_artifact = next(
+        artifact for artifact in artifacts if artifact.name == "workspace-relative-summary"
+    )
+    assert relative_artifact.relative_path == f"{workspace.artifacts_path}/reports/summary.md"
     async with create_session_factory(engine)() as session:
         artifact_rows = await session.scalar(select(func.count(ExecutionArtifactORM.id)))
         artifact_events = await session.scalar(
@@ -235,30 +243,31 @@ async def test_artifact_discovery_manifest_lineage_and_idempotency(
 async def test_manifest_rejects_path_outside_pv(
     execution_service: ExecutionService,
     engine: AsyncEngine,
-    tmp_path: Path,
 ) -> None:
     execution = await execution_service.submit(_command())
     _, attempt_id = await _seed_attempt(engine, execution.id, execution.steps[0].id)
-    settings = Settings(runtime_enabled=False, workspace_host_root=tmp_path)
-    workspace = WorkspaceManager(tmp_path).prepare(execution)
-    manager = ExecutionArtifactManager(create_session_factory(engine), settings)
-    before = manager.snapshot(workspace)
-    outside = tmp_path.parent / f"outside-{uuid4()}.txt"
-    outside.write_text("outside", encoding="utf-8")
-    (workspace.artifacts_dir / "manifest.jsonl").write_text(
-        json.dumps(
-            {
-                "storage_type": "PV",
-                "artifact_type": "DATASET",
-                "path": str(outside),
-            }
-        )
-        + "\n",
-        encoding="utf-8",
+    workspace = WorkspaceManager().plan(execution)
+    manager = ExecutionArtifactManager(create_session_factory(engine))
+    driver = InMemoryRuntimeStorage()
+    driver.reset_storage()
+    before = await manager.snapshot(driver, workspace)
+    driver.put_runtime_file(
+        workspace.manifest_path,
+        (
+            json.dumps(
+                {
+                    "storage_type": "PV",
+                    "artifact_type": "DATASET",
+                    "path": "../outside.txt",
+                }
+            )
+            + "\n"
+        ).encode(),
     )
 
     with pytest.raises(ArtifactRegistrationError, match="Invalid Artifact manifest"):
         await manager.discover_and_register(
+            driver=driver,
             workspace=workspace,
             before=before,
             execution_id=execution.id,
@@ -266,5 +275,3 @@ async def test_manifest_rejects_path_outside_pv(
             sequence=0,
             status=ArtifactStatus.AVAILABLE,
         )
-
-    outside.unlink()

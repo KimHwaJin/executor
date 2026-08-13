@@ -189,10 +189,7 @@ async def main() -> None:
             )
             initial_kernel = str(running["runtime"]["session_id"])
             first_attempts = await _attempts(client, execution_id)
-            if (
-                len(first_attempts) != 1
-                or first_attempts[0]["lease"]["owner"] != PRIMARY_CONSUMER
-            ):
+            if len(first_attempts) != 1 or first_attempts[0]["lease"]["owner"] != PRIMARY_CONSUMER:
                 raise RuntimeError(f"Primary did not own the first Attempt: {first_attempts}")
 
         secondary = await _start_executor(

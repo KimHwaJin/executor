@@ -112,6 +112,8 @@ curl http://127.0.0.1:8000/api/v1/executions/EXECUTION_ID/attempts/ATTEMPT_ID
 curl http://127.0.0.1:8000/api/v1/executions/EXECUTION_ID/attempts/ATTEMPT_ID/steps
 curl http://127.0.0.1:8000/api/v1/executions/EXECUTION_ID/events
 curl http://127.0.0.1:8000/api/v1/executions/EXECUTION_ID/artifacts
+curl 'http://127.0.0.1:8000/api/v1/executions/EXECUTION_ID/notebook?response_format=detailed&limit=20'
+curl http://127.0.0.1:8000/api/v1/executions/EXECUTION_ID/notebook/cells/0
 ```
 
 Execution detail does not embed Steps, and Attempt detail does not embed Step Attempts. All child
@@ -128,7 +130,7 @@ PATH submit uses the same request except for `source`:
 }
 ```
 
-The path is relative to `WORKSPACE_HOST_ROOT`. The file must contain the same ExecutionSpec object
+The path is relative to `INPUT_HOST_ROOT` on the Agent/Executor input storage. The file must contain the same ExecutionSpec object
 used as INLINE `source.spec` and must be atomically published and immutable after submission.
 
 ## Cancel and retry

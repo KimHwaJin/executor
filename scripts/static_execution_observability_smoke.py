@@ -7,7 +7,6 @@ Executor stack with PostgreSQL, Redis, and at least one schedulable INTERACTIVE 
 import asyncio
 import os
 from dataclasses import dataclass
-from pathlib import Path
 from time import monotonic
 from typing import Any, Literal
 from uuid import UUID, uuid4
@@ -55,7 +54,7 @@ class CaseResult:
     observed_states: tuple[str, ...]
     event_types: tuple[str, ...]
     artifact_names: tuple[str, ...]
-    notebook_path: Path
+    notebook_path: str
     runtime_session_id: str
     redis_delivery_count: int
 
@@ -64,9 +63,7 @@ def _enum_value(value: object) -> str:
     return str(getattr(value, "value", value))
 
 
-async def _mcp_result(
-    client: Client, tool: str, arguments: dict[str, Any]
-) -> dict[str, Any]:
+async def _mcp_result(client: Client, tool: str, arguments: dict[str, Any]) -> dict[str, Any]:
     result = await client.call_tool(tool, arguments)
     if result.is_error or result.structured_content is None:
         raise RuntimeError(f"{tool} failed: {result.content}")
@@ -185,9 +182,7 @@ async def _execution_steps(
             {"execution_id": execution_id, "limit": 100},
         )
     else:
-        page = await _rest_json(
-            rest, "GET", f"/executions/{execution_id}/steps?limit=100"
-        )
+        page = await _rest_json(rest, "GET", f"/executions/{execution_id}/steps?limit=100")
     return page["items"]
 
 
@@ -205,9 +200,7 @@ async def _attempt_detail(
             "execution_attempt_get",
             {"execution_id": execution_id, "attempt_id": attempt_id},
         )
-    return await _rest_json(
-        rest, "GET", f"/executions/{execution_id}/attempts/{attempt_id}"
-    )
+    return await _rest_json(rest, "GET", f"/executions/{execution_id}/attempts/{attempt_id}")
 
 
 async def _attempt_steps(
@@ -244,9 +237,7 @@ async def _wait_for_terminal(
     deadline = monotonic() + timeout_seconds
     observed = ["QUEUED"]
     while monotonic() < deadline:
-        execution = await _execution_get(
-            transport, execution_id, mcp=mcp, rest=rest
-        )
+        execution = await _execution_get(transport, execution_id, mcp=mcp, rest=rest)
         status = execution["state"]["status"]
         if status != observed[-1]:
             observed.append(status)
@@ -351,9 +342,7 @@ def _assert_database(snapshot: DatabaseSnapshot) -> None:
     if not required_events.issubset(snapshot.outbox_event_types):
         raise RuntimeError(f"Required Outbox events are missing: {snapshot.outbox_event_types}")
     if set(snapshot.outbox_schema_versions) != {EXECUTION_EVENT_SCHEMA_VERSION}:
-        raise RuntimeError(
-            f"Unexpected Outbox schema versions: {snapshot.outbox_schema_versions}"
-        )
+        raise RuntimeError(f"Unexpected Outbox schema versions: {snapshot.outbox_schema_versions}")
 
 
 async def _run_case(
@@ -368,7 +357,6 @@ async def _run_case(
     session_factory: Any,
     redis: Redis,
     stream: str,
-    workspace_host_root: Path,
 ) -> CaseResult:
     payload = _submission_payload(unique, transport, runtime_profile)
     if transport == "MCP":
@@ -390,27 +378,19 @@ async def _run_case(
         raise RuntimeError(f"Execution did not succeed: {terminal}")
     if "RUNNING" not in observed_states:
         raise RuntimeError(f"Execution RUNNING state was not observed: {observed_states}")
-    current_steps = await _execution_steps(
-        transport, execution_id, mcp=mcp, rest=rest
-    )
+    current_steps = await _execution_steps(transport, execution_id, mcp=mcp, rest=rest)
     if [step["result"]["status"] for step in current_steps] != [
         "SUCCEEDED",
         "SUCCEEDED",
     ]:
         raise RuntimeError(f"Current Step results are not successful: {current_steps}")
 
-    attempts = await _history_page(
-        transport, execution_id, "attempts", mcp=mcp, rest=rest
-    )
+    attempts = await _history_page(transport, execution_id, "attempts", mcp=mcp, rest=rest)
     if len(attempts) != 1 or attempts[0]["state"]["status"] != "SUCCEEDED":
         raise RuntimeError(f"Expected exactly one successful Attempt: {attempts}")
     attempt_id = str(attempts[0]["attempt_id"])
-    attempt = await _attempt_detail(
-        transport, execution_id, attempt_id, mcp=mcp, rest=rest
-    )
-    attempt_steps = await _attempt_steps(
-        transport, execution_id, attempt_id, mcp=mcp, rest=rest
-    )
+    attempt = await _attempt_detail(transport, execution_id, attempt_id, mcp=mcp, rest=rest)
+    attempt_steps = await _attempt_steps(transport, execution_id, attempt_id, mcp=mcp, rest=rest)
     if [step["result"]["status"] for step in attempt_steps] != [
         "SUCCEEDED",
         "SUCCEEDED",
@@ -420,9 +400,7 @@ async def _run_case(
     if not runtime_session_id or terminal["runtime"]["session_id"] is not None:
         raise RuntimeError("Runtime session history or terminal cleanup state is invalid.")
 
-    artifacts = await _history_page(
-        transport, execution_id, "artifacts", mcp=mcp, rest=rest
-    )
+    artifacts = await _history_page(transport, execution_id, "artifacts", mcp=mcp, rest=rest)
     artifact_names = tuple(sorted(item["name"] for item in artifacts))
     required_artifacts = {f"{transport.lower()}-observability.txt", "execution.ipynb"}
     if not required_artifacts.issubset(artifact_names):
@@ -444,9 +422,7 @@ async def _run_case(
     if any(item["delivery"]["status"] != "PUBLISHED" for item in events):
         raise RuntimeError(f"Event API still reports an unpublished event: {events}")
 
-    redis_rows = await _redis_events(
-        redis, stream, execution_id, scan_limit=scan_limit
-    )
+    redis_rows = await _redis_events(redis, stream, execution_id, scan_limit=scan_limit)
     redis_event_ids = {row["event_id"] for row in redis_rows}
     if redis_event_ids != snapshot.outbox_event_ids:
         missing = snapshot.outbox_event_ids - redis_event_ids
@@ -455,25 +431,19 @@ async def _run_case(
             f"Redis Stream and Outbox differ: missing={missing}, unexpected={unexpected}"
         )
     envelopes = [ExecutionStreamEnvelope.from_redis_fields(row) for row in redis_rows]
-    if any(
-        envelope.schema_version != EXECUTION_EVENT_SCHEMA_VERSION for envelope in envelopes
-    ):
+    if any(envelope.schema_version != EXECUTION_EVENT_SCHEMA_VERSION for envelope in envelopes):
         raise RuntimeError("Redis Stream contains a non-v1 Execution event.")
 
-    notebook_relative = terminal["workspace"]["notebook_path"]
-    if not notebook_relative:
+    notebook_path = terminal["workspace"]["notebook_path"]
+    if not notebook_path:
         raise RuntimeError("Execution did not return workspace.notebook_path.")
-    notebook_path = workspace_host_root / Path(notebook_relative)
-    artifact_path = (
-        notebook_path.parents[1]
-        / "artifacts"
-        / "other"
-        / f"{transport.lower()}-observability.txt"
+    notebook = await _rest_json(
+        rest,
+        "GET",
+        f"/executions/{execution_id}/notebook?response_format=detailed&limit=0",
     )
-    if not notebook_path.is_file():
-        raise RuntimeError(f"Notebook is absent from the host workspace: {notebook_path}")
-    if artifact_path.read_text(encoding="utf-8") != transport:
-        raise RuntimeError(f"Artifact content is invalid: {artifact_path}")
+    if notebook["page"]["total_count"] != 2:
+        raise RuntimeError(f"Runtime-owned notebook is incomplete: {notebook}")
 
     return CaseResult(
         transport=transport,
@@ -532,7 +502,6 @@ async def main() -> None:
                         session_factory=session_factory,
                         redis=redis,
                         stream=settings.redis_stream,
-                        workspace_host_root=settings.workspace_host_root,
                     )
                 )
 

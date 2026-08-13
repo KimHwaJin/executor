@@ -4,6 +4,7 @@ from redis.asyncio import Redis
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from executor_service.application.notebook_queries import ExecutionNotebookQueryService
 from executor_service.application.services import ExecutionService
 from executor_service.config import Settings
 from executor_service.domain.enums import RuntimeType
@@ -15,6 +16,7 @@ from executor_service.infrastructure.execution_queries import SQLAlchemyExecutio
 from executor_service.infrastructure.outbox import OutboxPublisher
 from executor_service.infrastructure.runtime_drivers import ConfiguredRuntimeDriverFactory
 from executor_service.infrastructure.runtime_registry import RuntimeTargetRegistry
+from executor_service.infrastructure.runtime_storage import FleetRuntimeStorageAccess
 from executor_service.infrastructure.worker import ExecutionWorker
 from executor_service.tracing import TracingManager
 
@@ -41,13 +43,19 @@ class ApplicationContainer:
         )
         self.execution_queries = SQLAlchemyExecutionQueryService(self.session_factory)
         self.execution_spec_resolver = ExecutionSpecResolver(
-            settings.workspace_host_root,
+            settings.input_host_root,
             inline_max_bytes=settings.execution_inline_spec_max_bytes,
             file_max_bytes=settings.execution_file_spec_max_bytes,
         )
         self.runtime_driver_factory = ConfiguredRuntimeDriverFactory(settings)
         self.runtime_registry = RuntimeTargetRegistry(self.session_factory, settings)
-        self.artifact_manager = ExecutionArtifactManager(self.session_factory, settings)
+        self.runtime_storage = FleetRuntimeStorageAccess(
+            self.session_factory, self.runtime_registry, self.runtime_driver_factory
+        )
+        self.notebook_queries = ExecutionNotebookQueryService(
+            self.execution_queries, self.runtime_storage
+        )
+        self.artifact_manager = ExecutionArtifactManager(self.session_factory)
         self.outbox_publisher = OutboxPublisher(
             session_factory=self.session_factory,
             redis=self.redis,

@@ -30,7 +30,7 @@ yet agreed.
   path solely for persistence.
 - The Agent-approved plan, executed notebook cells, ExecutionSteps, and final notebook must remain
   traceable without unexplained hidden user-code changes.
-- Large datasets must be written through the shared PV or object storage; they must not be returned
+- Large datasets must be written through Jupyter shared storage or object storage; they must not be returned
   through MCP, HTTP, Redis, or Jupyter WebSocket payloads.
 - A required output that cannot be materialized must not be reported as a fully successful stored
   result.
@@ -58,7 +58,7 @@ yet agreed.
 ## DD-002: Reusable Asset promotion and sharing scope
 
 - Status: DEFERRED
-- Area: Agent/API Asset catalog, Executor Artifact storage, shared PV lifecycle
+- Area: Agent/API Asset catalog, Executor Artifact metadata, Jupyter shared-storage lifecycle
 - Deferred on: 2026-08-09
 - Depends on: DD-001
 - Resume when: preprocessing storage policy and user-versus-project reuse policy are approved
@@ -72,7 +72,7 @@ reusable across all projects owned by the same user or only within its source pr
 ### Agreed constraints
 
 - Raw immutable daily source data is shared and stored in S3.
-- Processed data is isolated by user and stored on the shared PV.
+- Processed data is isolated by user and stored on Jupyter shared storage.
 - Only successful results may become reusable Assets; failed or cancelled execution output is not
   promoted.
 - Executor and Agent/API own separate database tables and exchange durable events rather than

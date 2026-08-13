@@ -115,16 +115,11 @@ async def attempts(client: Client, execution_id: str) -> list[dict[str, Any]]:
         raise RuntimeError(str(result.content))
     summaries = result.structured_content["items"]
     return await asyncio.gather(
-        *(
-            attempt_detail(client, execution_id, str(summary["attempt_id"]))
-            for summary in summaries
-        )
+        *(attempt_detail(client, execution_id, str(summary["attempt_id"])) for summary in summaries)
     )
 
 
-async def attempt_detail(
-    client: Client, execution_id: str, attempt_id: str
-) -> dict[str, Any]:
+async def attempt_detail(client: Client, execution_id: str, attempt_id: str) -> dict[str, Any]:
     result = await client.call_tool(
         "execution_attempt_get",
         {"execution_id": execution_id, "attempt_id": attempt_id},
@@ -144,9 +139,7 @@ async def execution_steps(client: Client, execution_id: str) -> list[dict[str, A
     return result.structured_content["items"]
 
 
-async def attempt_steps(
-    client: Client, execution_id: str, attempt_id: str
-) -> list[dict[str, Any]]:
+async def attempt_steps(client: Client, execution_id: str, attempt_id: str) -> list[dict[str, Any]]:
     result = await client.call_tool(
         "execution_attempt_step_list",
         {"execution_id": execution_id, "attempt_id": attempt_id, "limit": 200},

@@ -15,6 +15,7 @@ from executor_service.domain.errors import (
     ErrorCode,
     ExecutionArtifactNotFoundError,
     ExecutionAttemptNotFoundError,
+    ExecutionNotebookNotAvailableError,
     ExecutionNotFoundError,
     ExecutionOperationNotFoundError,
     ExecutionVersionConflictError,
@@ -22,6 +23,8 @@ from executor_service.domain.errors import (
     InvalidCursorError,
     InvalidExecutionSpecError,
     InvalidStateTransitionError,
+    NotebookCellNotFoundError,
+    NotebookReadError,
     PersistenceConflictError,
     RuntimeTargetNotFoundError,
     RuntimeTargetPurgeConflictError,
@@ -40,6 +43,7 @@ def create_app(container: ApplicationContainer) -> FastAPI:
         container.execution_queries,
         container.tracing,
         container.execution_spec_resolver,
+        container.notebook_queries,
     )
     transport_security = TransportSecuritySettings(
         enable_dns_rebinding_protection=True,
@@ -111,10 +115,13 @@ def create_app(container: ApplicationContainer) -> FastAPI:
                 ExecutionAttemptNotFoundError,
                 ExecutionOperationNotFoundError,
                 ExecutionArtifactNotFoundError,
+                NotebookCellNotFoundError,
                 RuntimeTargetNotFoundError,
             ),
         ):
             http_status = status.HTTP_404_NOT_FOUND
+        elif isinstance(exc, ExecutionNotebookNotAvailableError):
+            http_status = status.HTTP_409_CONFLICT
         elif isinstance(
             exc,
             (InvalidCursorError, InvalidExecutionSpecError, UnsupportedRuntimeProfileError),
@@ -131,6 +138,8 @@ def create_app(container: ApplicationContainer) -> FastAPI:
             ),
         ):
             http_status = status.HTTP_409_CONFLICT
+        elif isinstance(exc, NotebookReadError):
+            http_status = status.HTTP_422_UNPROCESSABLE_CONTENT
         else:
             http_status = status.HTTP_400_BAD_REQUEST
         return JSONResponse(

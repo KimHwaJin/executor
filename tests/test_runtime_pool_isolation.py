@@ -87,7 +87,7 @@ def _target(
 def _worker(engine: AsyncEngine, tmp_path: Path, consumer: str) -> tuple[ExecutionWorker, Redis]:
     settings = Settings(
         runtime_enabled=False,
-        workspace_host_root=tmp_path,
+        input_host_root=tmp_path,
         execution_consumer_name=consumer,
     )
     session_factory = create_session_factory(engine)
@@ -98,7 +98,7 @@ def _worker(engine: AsyncEngine, tmp_path: Path, consumer: str) -> tuple[Executi
             redis=redis,
             settings=settings,
             registry=RuntimeTargetRegistry(session_factory, settings),
-            artifact_manager=ExecutionArtifactManager(session_factory, settings),
+            artifact_manager=ExecutionArtifactManager(session_factory),
         ),
         redis,
     )

@@ -10,7 +10,6 @@ from executor_service.infrastructure.jupyter import JupyterRuntimeDriver
 async def main() -> None:
     settings = get_settings()
     relative_path = "users/smoke/projects/smoke/sessions/smoke/executions/gateway-smoke"
-    (settings.workspace_host_root / relative_path).mkdir(parents=True, exist_ok=True)
     gateway = JupyterRuntimeDriver(
         settings.jupyter_endpoint,
         settings.jupyter_auth_token,
@@ -18,6 +17,7 @@ async def main() -> None:
     )
     runtime_session_ids: list[str] = []
     try:
+        await gateway.prepare_workspace(relative_path)
         await gateway.status()
         kernels = await gateway.supported_profiles()
         print("kernels:", kernels)
@@ -40,9 +40,7 @@ async def main() -> None:
             )
             result = await gateway.execute(runtime_session_id, code)
             stream_outputs = [
-                output["text"]
-                for output in result.outputs
-                if output.get("output_type") == "stream"
+                output["text"] for output in result.outputs if output.get("output_type") == "stream"
             ]
             if not stream_outputs:
                 raise RuntimeError(f"{profile} did not return a stream output.")

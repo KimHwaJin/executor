@@ -1,14 +1,11 @@
 """Verify automatic and Manifest Artifact registration through a real Jupyter execution."""
 
 import asyncio
-from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 from execution_spec_payload import inline_source
 from mcp import Client
-
-from executor_service.config import get_settings
 
 
 async def _wait(client: Client, execution_id: str) -> dict[str, Any]:
@@ -106,25 +103,24 @@ async def main() -> None:
         if artifact_types != {"PLOT", "REPORT", "DATASET", "MODEL", "NOTEBOOK"}:
             raise RuntimeError(f"Unexpected Artifact types: {artifact_types}")
         processed_artifact = next(item for item in artifacts if item["name"] == "processed-data")
-        if (
-            processed_artifact["lineage"]["external_parent_asset_id"] != "raw-daily-data"
-            or processed_artifact["metadata"]["token"] != "[REDACTED]"
-        ):
-            raise RuntimeError(f"Lineage or redaction failed: {processed_artifact}")
-
         fetched = await client.call_tool(
             "execution_artifact_get",
             {"artifact_id": processed_artifact["artifact_id"]},
         )
-        if fetched.structured_content["artifact_id"] != processed_artifact["artifact_id"]:
+        processed_detail = fetched.structured_content
+        if processed_detail["artifact_id"] != processed_artifact["artifact_id"]:
             raise RuntimeError("Artifact detail lookup returned the wrong row.")
-    host_file = get_settings().workspace_host_root / Path(processed_relative)
-    if not host_file.is_file():
-        raise RuntimeError("Expected processed PV data was not created.")
+        if (
+            processed_detail["lineage"]["external_parent_asset_id"] != "raw-daily-data"
+            or processed_detail["metadata"]["token"] != "[REDACTED]"
+        ):
+            raise RuntimeError(f"Lineage or redaction failed: {processed_detail}")
+    if processed_detail["storage"]["size_bytes"] <= 0:
+        raise RuntimeError("Expected Runtime-computed processed data metadata.")
     print("execution_id:", execution_id)
     print("artifact_count:", len(artifacts))
     print("artifact_types:", sorted(artifact_types))
-    print("lineage_parent:", processed_artifact["lineage"]["external_parent_asset_id"])
+    print("lineage_parent:", processed_detail["lineage"]["external_parent_asset_id"])
 
 
 if __name__ == "__main__":

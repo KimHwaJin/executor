@@ -47,10 +47,12 @@ class Settings(BaseSettings):
         "http://127.0.0.1:*",
     )
     jupyter_request_timeout_seconds: float = Field(default=30, gt=0)
+    jupyter_storage_timeout_seconds: float = Field(default=300, gt=0)
     runtime_enabled: bool = True
     runtime_target_name: str = "local-jupyter"
     jupyter_endpoint: str = "http://127.0.0.1:8888"
     jupyter_token: SecretStr = SecretStr("change-me-local-only")
+    jupyter_storage_id: str = Field(default="jupyter-shared", min_length=1, max_length=255)
     # Base64-encoded 32-byte Fernet key. Replace in every non-local environment.
     runtime_credential_key: SecretStr = SecretStr("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
     runtime_pool: str = "INTERACTIVE"
@@ -59,8 +61,7 @@ class Settings(BaseSettings):
     runtime_health_poll_interval_seconds: float = Field(default=15, gt=0)
     runtime_resource_max_age_seconds: float = Field(default=45, gt=0)
     runtime_memory_admission_limit: float = Field(default=0.9, gt=0, le=1)
-    workspace_host_root: Path = Path("./notebook_dir")
-    workspace_runtime_root: str = "/workspace/pv"
+    input_host_root: Path = Path("./input_dir")
     execution_inline_spec_max_bytes: int = Field(default=262144, ge=1)
     execution_file_spec_max_bytes: int = Field(default=52428800, ge=1)
     execution_consumer_group: str = "executor-workers"

@@ -2,8 +2,8 @@
 
 Asynchronous Runtime execution control plane exposed through MCP 2026-07-28 Streamable HTTP and a
 versioned REST API. PostgreSQL is the source of truth. MCP Tool and REST calls persist work and
-return immediately while a Redis consumer worker executes STATIC plans or one-cell-at-a-time
-DYNAMIC plans through a Runtime Driver. Jupyter REST/WebSocket is the first implemented driver.
+return immediately while a Redis consumer worker executes STATIC plans or incrementally submitted
+DYNAMIC operations through a Runtime Driver. Jupyter REST/WebSocket is the first implemented driver.
 
 ## Implemented scope
 
@@ -14,6 +14,7 @@ DYNAMIC plans through a Runtime Driver. Jupyter REST/WebSocket is the first impl
   `execution_cancel`, `execution_retry`, `execution_continue`, `execution_finish`,
   `execution_list`, `execution_step_list`, `execution_attempt_list`,
   `execution_attempt_get`, `execution_attempt_step_list`,
+  `execution_notebook_read`, `execution_notebook_cell_read`,
   `execution_event_list`,
   `execution_artifact_list`, `execution_artifact_get`
 - Runtime Target tools: `runtime_target_upsert`, `runtime_target_list`,
@@ -33,7 +34,8 @@ DYNAMIC plans through a Runtime Driver. Jupyter REST/WebSocket is the first impl
 - Dynamic wait/total runtime deadlines, retained-session audits, and orphan cleanup
 - Immutable per-Attempt Step history and an end-to-end execution event trace
 - Automatic and Manifest-based Artifact registration with checksum and lineage
-- Durable `.ipynb` output and execution-scoped artifact directories on the shared PV
+- Runtime-owned `.ipynb` output and execution-scoped artifacts on Jupyter shared storage; Executor
+  retains only paths, metadata, and checksums
 - W3C trace-context propagation across HTTP/MCP, PostgreSQL Outbox, Redis Streams, Worker,
   and Jupyter operations with optional OTLP export to Arize Phoenix
 - `/healthz` and `/readyz` operational endpoints
@@ -74,7 +76,8 @@ uv run executor-service
 
 To build and run the Executor application together with PostgreSQL, Redis, and Jupyter, use the
 full Compose stack instead. The one-shot `migrate` service upgrades the schema before `executor`
-starts, and both Executor and Jupyter mount `./notebook_dir` at `/workspace/pv`.
+starts. Executor mounts `./input_dir` read-only for Agent-authored PATH ExecutionSpecs; only the
+Jupyter fleet mounts `./notebook_dir` at `/workspace/pv`.
 
 ```bash
 cp .env.example .env
@@ -95,7 +98,7 @@ SINGLE_JUPYTER_ENDPOINT=http://jupyter:8888 \
 ```
 
 Stop the stack with `docker compose down`. Named PostgreSQL and Redis volumes, and the bind-mounted
-`notebook_dir`, are retained unless they are explicitly removed.
+`input_dir` and Jupyter-owned `notebook_dir`, are retained unless explicitly removed.
 
 For MCP calls from another machine, append the Executor host or IP (including `:*` when any port
 is acceptable) to `MCP_ALLOWED_HOSTS_DOCKER` and its browser origin to
@@ -164,6 +167,7 @@ Run the official SDK client smoke test in a second terminal:
 uv run python scripts/mcp_smoke.py
 uv run python scripts/jupyter_gateway_smoke.py
 uv run python scripts/jupyter_execution_smoke.py
+uv run python scripts/path_execution_spec_smoke.py
 uv run python scripts/single_jupyter_smoke.py
 uv run python scripts/static_execution_observability_smoke.py
 uv run python scripts/jupyter_dynamic_smoke.py
@@ -171,6 +175,7 @@ uv run python scripts/jupyter_dynamic_lifecycle_smoke.py
 uv run python scripts/jupyter_cancel_smoke.py
 uv run python scripts/jupyter_failure_smoke.py
 uv run python scripts/jupyter_fleet_smoke.py
+uv run python scripts/jupyter_shared_storage_failover_smoke.py
 uv run python scripts/jupyter_retry_smoke.py
 uv run python scripts/jupyter_retry_offline_recovery_smoke.py
 uv run python scripts/jupyter_worker_recovery_smoke.py
@@ -224,7 +229,7 @@ and runnable curl examples.
 - `trigger_type`: `INTERACTIVE` or `BATCH`
 - `runtime_type`: Runtime Driver kind; currently `JUPYTER`
 - `runtime_profile`: one of the target's supported profiles; for Jupyter this is a kernelspec name
-- `source`: either an INLINE ExecutionSpec or a shared-PV PATH plus SHA-256
+- `source`: either an INLINE ExecutionSpec or an Agent/Executor input-storage PATH plus SHA-256
 - `context`: Agent-owned user/project/session/Task IDs; Executor creates `execution_id`
 - `actor`: required audit principal with type `USER` or `BATCH` and a stable upstream ID
 
@@ -241,7 +246,7 @@ that pool.
 `BATCH` submissions must include `context.workflow_id`; interactive submissions may omit it.
 
 INLINE and PATH resolve to the same versioned ExecutionSpec. INLINE embeds `source.spec`; PATH
-references a UTF-8 JSON file under the shared PV root using a relative path and required SHA-256.
+references a UTF-8 JSON file under `INPUT_HOST_ROOT` using a relative path and required SHA-256.
 The spec owns `execution_plan_id` and ordered Steps containing `plan_step_id`, code, and optional
 Skill/Tool metadata. Executor persists the normalized source and creates one ExecutionStep and one
 Notebook code cell per spec Step. See [ExecutionSpec v1](docs/execution-spec.md).
@@ -257,6 +262,19 @@ rewritten. Call `execution_finish` with the current version when no more cells a
 retained Runtime session is lost or an infrastructure failure makes its state untrustworthy, the DYNAMIC
 execution fails as non-retryable; the Agent must submit a new Execution because automatic replay
 of already executed dynamic cells is intentionally not supported.
+
+## Storage ownership
+
+- The Agent writes PATH-type ExecutionSpec JSON into the Agent/Executor input storage. Executor
+  reads it through `INPUT_HOST_ROOT`; Jupyter does not need this volume.
+- Jupyter creates execution workspaces, notebooks, artifacts, datasets, and manifests on its own
+  shared storage. All Jupyter Runtime Targets share that storage.
+- Each Jupyter target must report the configured `JUPYTER_STORAGE_ID` and readable/writable storage
+  before it becomes `ACTIVE`.
+- Executor never opens Jupyter files locally. PostgreSQL stores Runtime-relative paths and
+  Jupyter-computed metadata/checksums; notebook content is read through an available Jupyter target.
+- Runtime retry prefers the original target/kernel. Storage-only reads prefer that target but may
+  fall back to another healthy target attached to the same shared storage.
 
 `EXECUTION_MAX_RUNTIME_SECONDS` defaults to five days and starts when a worker first claims the
 Execution. `DYNAMIC_STEP_WAIT_TIMEOUT_SECONDS` defaults to one hour and is reset after every
@@ -311,7 +329,8 @@ after each Step. The standard directories are `datasets`, `plots`, `models`, `me
 `logs`, and `other`; their directory type takes precedence over the filename extension. Successful
 files are `AVAILABLE`; files left by a failed cell are `INCOMPLETE`, so a later retry produces a
 separate Attempt-linked Artifact rather than overwriting the failure evidence. The final `.ipynb`
-is registered after successful execution. PV size and SHA-256 are computed by Executor.
+is registered after successful execution. PV size and SHA-256 are computed inside Jupyter storage
+and only the verified metadata is returned to Executor.
 
 Tools can append JSON Lines to `artifacts/manifest.jsonl` to register user-level processed data or
 S3 objects outside the execution workspace. Manifest use is optional and does not require every
@@ -323,9 +342,10 @@ storage URI, media type, size, checksum, status, metadata, and a direct parent A
 Agent Asset ID. Registration emits
 `execution.artifact_registered` through the Transactional Outbox.
 
-Agent code files and `.ipynb` files are not public execution inputs. Executor owns Notebook
-materialization and writes `code/execution-spec.json` plus `notebooks/execution.ipynb` inside the
-Execution workspace.
+Agent-authored Python or `.ipynb` files are not public execution inputs. INLINE and PATH both carry
+the versioned ExecutionSpec JSON contract. Executor normalizes that contract into PostgreSQL and
+builds the Notebook document from executed Steps and outputs, while Jupyter writes
+`notebooks/execution.ipynb` into its own shared storage.
 
 ## Runtime fleet management
 
@@ -378,14 +398,13 @@ immutable audit tombstone and never cascades into execution history. Credentials
 on upsert and credentials are absent from every response. The non-secret endpoint is returned as
 `runtime.connection_config.endpoint`.
 
-## Shared PV contract
+## Jupyter shared storage contract
 
-The local bind mount is `./notebook_dir:/workspace/pv`. Kubernetes should mount the shared PVC at
-the same in-container root. Execution files use the following stable hierarchy:
+Every Jupyter target mounts the local `./notebook_dir` or production shared PVC at its configured
+contents root. Executor does not mount it. Execution files use this stable Jupyter-relative hierarchy:
 
 ```text
 /workspace/pv/users/{user_id}/projects/{project_id}/sessions/{session_id}/executions/{execution_id}/
-    ├── code/
     ├── notebooks/execution.ipynb
     ├── artifacts/
     │   ├── datasets/
@@ -398,8 +417,8 @@ the same in-container root. Execution files use the following stable hierarchy:
     └── checkpoints/
 ```
 
-Raw data remains in S3. PATH submissions are resolved under the configured PV root and path
-traversal is rejected. The reusable processed-data hierarchy is intentionally not fixed until
+Raw data remains in S3. PATH submissions are resolved separately under Executor's
+`INPUT_HOST_ROOT`, and path traversal is rejected. The reusable processed-data hierarchy is intentionally not fixed until
 [Deferred Decisions](docs/deferred-decisions.md) DD-002 is resolved.
 
 ## Consistency and delivery

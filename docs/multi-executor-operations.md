@@ -1,8 +1,8 @@
 # Multi-Executor Operations
 
-Executor supports multiple Kubernetes Pods sharing PostgreSQL, Redis Streams, the Jupyter
-registry, and the shared PV. PostgreSQL is the execution source of truth; Redis only wakes a
-Worker.
+Executor supports multiple Kubernetes Pods sharing PostgreSQL, Redis Streams, and the Jupyter
+registry. The Jupyter fleet—not Executor—mounts Jupyter shared storage. PostgreSQL is the execution
+source of truth; Redis only wakes a Worker.
 
 ## Coordination invariants
 
