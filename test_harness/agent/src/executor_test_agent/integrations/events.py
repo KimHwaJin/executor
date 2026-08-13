@@ -50,8 +50,13 @@ class ExecutionEventWaiter:
             await self._redis.aclose()
 
     async def wait_for_terminal(
-        self, execution_id: str, *, timeout_seconds: float
+        self,
+        execution_id: str,
+        *,
+        timeout_seconds: float,
+        event_types: set[str] | None = None,
     ) -> ExecutionEventEnvelope:
+        accepted_event_types = event_types or TERMINAL_EVENT_TYPES
         async with asyncio.timeout(timeout_seconds):
             while True:
                 batches = await self._redis.xreadgroup(
@@ -67,6 +72,6 @@ class ExecutionEventWaiter:
                         await self._redis.xack(self._stream, self._group, message_id)
                         if (
                             str(event.aggregate_id) == execution_id
-                            and event.event_type in TERMINAL_EVENT_TYPES
+                            and event.event_type in accepted_event_types
                         ):
                             return event

@@ -1,6 +1,8 @@
 """Local graph contract tests that never call an external LLM."""
 
-from langchain_core.messages import AIMessage, HumanMessage
+import json
+
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Command
@@ -8,7 +10,6 @@ from langgraph.types import Command
 from executor_test_agent import graph as graph_module
 from executor_test_agent.config import get_settings
 from executor_test_agent.graph import BOOTSTRAP_MESSAGE, _chat_model, graph
-from executor_test_agent.planning import PlanningDecision
 from executor_test_agent.state import AgentState
 
 
@@ -100,7 +101,7 @@ async def test_graph_runs_executor_request_and_returns_verified_result(monkeypat
     assert "result.txt" in str(result.messages[-1].content)
 
 
-async def test_graph_plans_natural_language_and_waits_for_stream_event(monkeypatch) -> None:
+async def test_graph_runs_mcp_tool_agent_and_waits_for_stream_event(monkeypatch) -> None:
     execution_id = "00000000-0000-0000-0000-000000000010"
     terminal_event = {
         "event_id": "00000000-0000-0000-0000-000000000011",
@@ -116,25 +117,36 @@ async def test_graph_plans_natural_language_and_waits_for_stream_event(monkeypat
         },
     }
 
-    async def fake_plan_message(_model, _messages):
-        return PlanningDecision.model_validate(
-            {
-                "intent": "EXECUTE",
-                "response": "합계를 실행합니다.",
-                "runtime_profile": "basic",
-                "steps": [
-                    {
-                        "skill_name": "eda",
-                        "tool_name": "sum_values",
-                        "code": "print(sum(range(1, 11)))",
-                    }
-                ],
-            }
-        )
+    async def fake_load_tools(_settings, *, request_scope_id):
+        assert request_scope_id.startswith("chat-test-")
+        return [object()]
 
-    async def fake_submit_execution(request, _settings):
-        assert request.steps[0]["tool_name"] == "sum_values"
-        return execution_id
+    class FakeToolAgent:
+        async def ainvoke(self, state):
+            original = state["messages"]
+            mutation = {
+                "execution_id": execution_id,
+                "status": "QUEUED",
+                "wait_for_event": True,
+                "event_types": ["execution.succeeded", "execution.failed"],
+            }
+            return {
+                "messages": [
+                    *original,
+                    AIMessage(content="", tool_calls=[]),
+                    ToolMessage(
+                        content=json.dumps(mutation),
+                        tool_call_id="call-1",
+                        name="execution_submit",
+                    ),
+                    AIMessage(content="실행을 제출했습니다."),
+                ]
+            }
+
+    def fake_create_agent(_model, tools, *, system_prompt):
+        assert len(tools) == 1
+        assert "Executor operations Agent" in system_prompt
+        return FakeToolAgent()
 
     async def fake_reconcile_execution(_execution_id, _terminal_event, _settings):
         return {
@@ -160,14 +172,15 @@ async def test_graph_plans_natural_language_and_waits_for_stream_event(monkeypat
         async def close(self):
             pass
 
-        async def wait_for_terminal(self, requested_execution_id, *, timeout_seconds):
+        async def wait_for_terminal(self, requested_execution_id, *, timeout_seconds, event_types):
             assert requested_execution_id == execution_id
             assert timeout_seconds > 0
+            assert event_types == {"execution.succeeded", "execution.failed"}
             return graph_module.ExecutionEventEnvelope.model_validate(terminal_event)
 
     monkeypatch.setattr(graph_module, "_chat_model", lambda: object())
-    monkeypatch.setattr(graph_module, "plan_message", fake_plan_message)
-    monkeypatch.setattr(graph_module, "submit_execution", fake_submit_execution)
+    monkeypatch.setattr(graph_module, "load_executor_tools", fake_load_tools)
+    monkeypatch.setattr(graph_module, "create_agent", fake_create_agent)
     monkeypatch.setattr(graph_module, "reconcile_execution", fake_reconcile_execution)
     monkeypatch.setattr(graph_module, "ExecutionEventWaiter", FakeWaiter)
 
