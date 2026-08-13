@@ -10,9 +10,11 @@ submits an Execution through Executor MCP and interrupts after checkpointing its
 `execution_id`. The test event bridge receives the terminal notification through an Agent-owned
 Redis consumer group and resumes the same LangGraph thread. The resumed graph reconciles
 PostgreSQL-backed state and reads Step, Artifact, and Runtime-owned Notebook results through MCP.
-When `TEST_AGENT_LLM_MODEL` is configured, the planner classifies ordinary chat versus execution,
-creates a validated STATIC plan for execution requests, waits on the Redis notification, and then
-reconciles authoritative results through Executor MCP.
+When `TEST_AGENT_LLM_MODEL` is configured, LangChain `create_agent` receives an explicit allowlist
+of Executor MCP Tools. Read Tools use the server-discovered MCP schemas, while five mutation Tools
+apply Agent-side identity, ownership, idempotency, state-version, and code policies before calling
+the corresponding MCP Tool. Runtime administration Tools are never exposed. Long-running mutations
+wait on the Redis notification and then reconcile authoritative results through Executor MCP.
 
 ## Layout
 
@@ -24,7 +26,8 @@ test_harness/agent/
 ├── src/executor_test_agent/
 │   ├── config.py
 │   ├── graph.py
-│   ├── planning.py
+│   ├── code_policy.py
+│   ├── mcp_tools.py
 │   └── state.py
 ├── scripts/chat_smoke.py
 ├── scripts/smoke.py
@@ -69,11 +72,25 @@ With natural-language execution enabled, connect Agent Chat UI with deployment U
 basic 커널에서 1부터 10까지의 합계를 계산하고 출력해줘.
 ```
 
-The LLM must return a strict JSON plan; validated Steps are submitted through Executor MCP. The
-Chat UI run waits for the terminal Redis event and then displays the execution ID, status, notebook
-outputs, Artifact names, and Runtime-owned notebook path. This synchronous wait exists only to make
-the local Chat UI test self-contained. Production still requires the durable Agent-owned consumer,
-event deduplication, Pending recovery, DLQ, and external thread resume described above.
+The Tool Agent can answer current-state questions such as `사용 가능한 커널 종류가 뭐야?` by
+calling `runtime_target_list`; `supported_profiles` contains the selectable profiles. Explicit
+execution requests call the policy-wrapped `execution_submit`. The Chat UI run waits for the
+terminal Redis event and then displays the execution ID, status, notebook outputs, Artifact names,
+and Runtime-owned notebook path. This synchronous wait exists only to make the local Chat UI test
+self-contained. Production still requires the durable Agent-owned consumer, event deduplication,
+Pending recovery, DLQ, and external thread resume described above.
+
+The Agent exposes 16 read Tools and five policy-wrapped mutation Tools:
+
+- Runtime reads: `runtime_target_list`, `runtime_target_get`.
+- Execution reads: list/get, Steps, Operations, Attempts, events, Artifacts, and notebook cells.
+- Mutations: submit, cancel, retry, continue, and finish.
+
+It does not expose Runtime target upsert, probe, disable, or state-change Tools. The bridge uses the
+official MCP Python SDK 2.x Client directly and converts discovered MCP JSON Schemas to LangChain
+`StructuredTool` objects. This preserves the project SDK baseline; the currently available
+`langchain-mcp-adapters` release is not used because it is incompatible with the SDK 2.x
+`RequestContext` API.
 
 The same LLM path can be tested without a browser while Agent Server is running:
 
@@ -83,9 +100,9 @@ uv run python scripts/chat_smoke.py
 
 Override the default Korean sum prompt with `TEST_AGENT_CHAT_PROMPT` and Agent Server with
 `TEST_AGENT_SERVER_URL`. Unlike `scripts/smoke.py`, this script requires `TEST_AGENT_LLM_MODEL` and
-exercises natural-language planning before submitting the execution.
+exercises LLM Tool selection before submitting the execution.
 
-This planner guard rejects several obvious process, network, environment, and dynamic-code access
+The mutation Tool guard rejects several obvious process, network, environment, and dynamic-code access
 patterns, but it is not a Python sandbox. Run the natural-language harness only with trusted models,
 prompts, data, and isolated test infrastructure. Production code-execution isolation remains a
 deployment and Runtime security responsibility.

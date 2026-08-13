@@ -1,10 +1,11 @@
 """LangGraph test Agent for checkpointed Executor integration exercises."""
 
+import json
 from functools import lru_cache
 from typing import Any
-from uuid import uuid4
 
-from langchain_core.messages import AIMessage
+from langchain.agents import create_agent
+from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
@@ -17,7 +18,11 @@ from executor_test_agent.integrations.contracts import (
 )
 from executor_test_agent.integrations.events import ExecutionEventWaiter
 from executor_test_agent.integrations.workflow import reconcile_execution, submit_execution
-from executor_test_agent.planning import decision_steps, plan_message
+from executor_test_agent.mcp_tools import (
+    MCP_AGENT_SYSTEM_PROMPT,
+    MUTATION_MCP_TOOL_NAMES,
+    load_executor_tools,
+)
 from executor_test_agent.state import AgentState
 
 BOOTSTRAP_MESSAGE = "Executor Test Agent is ready."
@@ -37,7 +42,7 @@ def _chat_model() -> ChatOpenAI | None:
 
 
 async def respond(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
-    """Route explicit requests or turn a natural-language message into chat or execution."""
+    """Route explicit requests or run a Tool-calling Agent over approved Executor MCP Tools."""
     if state.execution_request is not None:
         return {"phase": "SUBMITTING"}
     model = _chat_model()
@@ -48,32 +53,28 @@ async def respond(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
         return {"messages": [await model.ainvoke(state.messages)], "phase": "READY"}
 
     try:
-        decision = await plan_message(model, state.messages)
+        thread_id = str(config.get("configurable", {}).get("thread_id") or "unscoped")
+        message_id = getattr(state.messages[-1], "id", None) if state.messages else None
+        request_scope_id = f"{thread_id}-{message_id or len(state.messages)}"
+        tools = await load_executor_tools(settings, request_scope_id=request_scope_id)
+        tool_agent = create_agent(model, tools, system_prompt=MCP_AGENT_SYSTEM_PROMPT)
+        result = await tool_agent.ainvoke({"messages": state.messages})
     except Exception as exc:
         return {
-            "messages": [AIMessage(content=f"Execution planning failed: {type(exc).__name__}")],
+            "messages": [AIMessage(content=f"Executor Tool Agent failed: {type(exc).__name__}")],
             "phase": "FAILED",
         }
-    if decision.intent == "CHAT":
-        return {"messages": [AIMessage(content=decision.response)], "phase": "READY"}
-
-    unique = uuid4().hex
-    thread_id = str(config.get("configurable", {}).get("thread_id") or unique)
-    request = {
-        "runtime_profile": decision.runtime_profile,
-        "user_id": settings.default_user_id,
-        "project_id": settings.default_project_id,
-        "session_id": f"chat-{thread_id}",
-        "task_id": f"chat-task-{unique}",
-        "execution_plan_id": f"chat-plan-{unique}",
-        "steps": decision_steps(decision),
-    }
-    summary = decision.response.strip() or f"Executing {len(decision.steps)} planned Step(s)."
+    result_messages = result.get("messages", [])
+    new_messages = list(result_messages[len(state.messages) :])
+    mutation = _last_mutation_result(new_messages)
+    if mutation is None:
+        return {"messages": new_messages, "phase": "READY"}
     return {
-        "messages": [AIMessage(content=summary)],
-        "execution_request": request,
+        "messages": new_messages,
+        "execution_id": mutation["execution_id"],
         "wait_strategy": "STREAM",
-        "phase": "SUBMITTING",
+        "awaited_event_types": mutation["event_types"],
+        "phase": "WAITING_FOR_EVENT",
     }
 
 
@@ -120,6 +121,7 @@ async def wait_for_stream_event(state: AgentState) -> dict[str, Any]:
             event = await waiter.wait_for_terminal(
                 state.execution_id,
                 timeout_seconds=settings.execution_timeout_seconds,
+                event_types=set(state.awaited_event_types) or None,
             )
         finally:
             await waiter.close()
@@ -166,17 +168,22 @@ async def verify(state: AgentState) -> dict[str, Any]:
     message = AIMessage(content="\n\n".join(message_lines))
     return {
         "messages": [message],
-        "phase": "SUCCEEDED" if result["status"] == "SUCCEEDED" else "FAILED",
+        "phase": _phase_for_execution_status(result["status"]),
         "execution_id": result["execution_id"],
         "execution_result": result,
         "execution_request": None,
         "terminal_event": None,
         "wait_strategy": "INTERRUPT",
+        "awaited_event_types": [],
     }
 
 
 def _route_after_respond(state: AgentState) -> str:
-    return "submit" if state.phase == "SUBMITTING" else END
+    if state.phase == "SUBMITTING":
+        return "submit"
+    if state.phase == "WAITING_FOR_EVENT":
+        return "wait_for_stream_event"
+    return END
 
 
 def _route_after_submit(state: AgentState) -> str:
@@ -204,6 +211,35 @@ def _notebook_output_text(notebook: dict[str, Any]) -> str:
     return "\n".join(part for part in rendered if part)
 
 
+def _last_mutation_result(messages: list[Any]) -> dict[str, Any] | None:
+    for message in reversed(messages):
+        if not isinstance(message, ToolMessage) or message.name not in MUTATION_MCP_TOOL_NAMES:
+            continue
+        content = message.content
+        if not isinstance(content, str):
+            continue
+        try:
+            payload = json.loads(content)
+        except json.JSONDecodeError:
+            continue
+        if (
+            isinstance(payload, dict)
+            and payload.get("wait_for_event") is True
+            and isinstance(payload.get("execution_id"), str)
+            and isinstance(payload.get("event_types"), list)
+        ):
+            return payload
+    return None
+
+
+def _phase_for_execution_status(status: str) -> str:
+    if status == "SUCCEEDED":
+        return "SUCCEEDED"
+    if status == "WAITING_FOR_CONTINUE":
+        return "READY"
+    return "FAILED"
+
+
 builder = StateGraph(AgentState)
 builder.add_node("respond", respond)
 builder.add_node("submit", submit)
@@ -211,7 +247,11 @@ builder.add_node("wait_for_event", wait_for_event)
 builder.add_node("wait_for_stream_event", wait_for_stream_event)
 builder.add_node("verify", verify)
 builder.add_edge(START, "respond")
-builder.add_conditional_edges("respond", _route_after_respond, {"submit": "submit", END: END})
+builder.add_conditional_edges(
+    "respond",
+    _route_after_respond,
+    {"submit": "submit", "wait_for_stream_event": "wait_for_stream_event", END: END},
+)
 builder.add_conditional_edges(
     "submit",
     _route_after_submit,

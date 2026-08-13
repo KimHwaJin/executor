@@ -23,3 +23,4 @@ class AgentState(BaseModel):
     terminal_event: dict[str, Any] | None = None
     execution_result: dict[str, Any] | None = None
     wait_strategy: Literal["INTERRUPT", "STREAM"] = "INTERRUPT"
+    awaited_event_types: list[str] = Field(default_factory=list)
