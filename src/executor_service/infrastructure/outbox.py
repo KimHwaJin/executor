@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from executor_service.domain.enums import OutboxStatus
 from executor_service.domain.models import utc_now
+from executor_service.events import validate_execution_event_payload
 from executor_service.infrastructure.db.models import OutboxEventORM
 from executor_service.tracing import (
     TracingManager,
@@ -86,6 +87,12 @@ class OutboxPublisher:
             published = 0
             for event in events:
                 try:
+                    payload = validate_execution_event_payload(event.event_type, event.payload)
+                    if payload != event.payload:
+                        # A deploy may find a pre-v1 PENDING row whose otherwise valid payload is
+                        # missing only version normalization. Upgrade it in the same transaction
+                        # that publishes and marks the row PUBLISHED.
+                        event.payload = payload
                     context = extract_trace_context(
                         {
                             "traceparent": event.traceparent or "",
@@ -105,10 +112,11 @@ class OutboxPublisher:
                         fields: dict[FieldT, EncodableT] = {
                             "event_id": str(event.id),
                             "event_type": event.event_type,
+                            "schema_version": str(payload["schema_version"]),
                             "aggregate_type": event.aggregate_type,
                             "aggregate_id": str(event.aggregate_id),
                             "occurred_at": event.created_at.isoformat(),
-                            "payload": json.dumps(event.payload, separators=(",", ":")),
+                            "payload": json.dumps(payload, separators=(",", ":")),
                         }
                         carrier = capture_trace_carrier()
                         if carrier.traceparent:

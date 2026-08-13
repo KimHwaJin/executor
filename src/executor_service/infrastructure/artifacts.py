@@ -21,7 +21,7 @@ from executor_service.domain.enums import (
     ArtifactType,
 )
 from executor_service.domain.errors import ArtifactRegistrationError
-from executor_service.domain.models import OutboxEvent
+from executor_service.events import build_execution_event
 from executor_service.infrastructure.db.models import (
     ExecutionArtifactORM,
     ExecutionStepAttemptORM,
@@ -383,12 +383,10 @@ class ExecutionArtifactManager:
                 await session.flush()
                 artifact_ids.append(row.id)
                 carrier = capture_trace_carrier()
-                event = OutboxEvent(
-                    aggregate_type="Execution",
-                    aggregate_id=execution_id,
+                event = build_execution_event(
+                    execution_id=execution_id,
                     event_type="execution.artifact_registered",
                     payload={
-                        "execution_id": str(execution_id),
                         "execution_attempt_id": str(attempt_id),
                         "execution_step_id": str(step.id),
                         "artifact_id": str(row.id),
@@ -397,10 +395,8 @@ class ExecutionArtifactManager:
                         "status": descriptor.status.value,
                         "uri": descriptor.uri,
                     },
-                    created_by_type=row.created_by_type,
-                    created_by=row.created_by,
-                    updated_by_type=row.updated_by_type,
-                    updated_by=row.updated_by,
+                    actor_type=row.created_by_type,
+                    actor_id=row.created_by,
                     traceparent=carrier.traceparent,
                     tracestate=carrier.tracestate,
                 )

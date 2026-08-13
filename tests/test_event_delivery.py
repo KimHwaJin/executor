@@ -1,4 +1,5 @@
 import asyncio
+import json
 from collections.abc import AsyncIterator, Coroutine
 from pathlib import Path
 from typing import Any, cast
@@ -86,10 +87,19 @@ def _event_fields(execution_id: UUID) -> dict[str, str]:
     return {
         "event_id": str(uuid4()),
         "event_type": "execution.submitted",
+        "schema_version": "1.0",
         "aggregate_type": "Execution",
         "aggregate_id": str(execution_id),
         "occurred_at": "2026-08-09T00:00:00+00:00",
-        "payload": '{"secret":"must-not-enter-dlq"}',
+        "payload": json.dumps(
+            {
+                "schema_version": "1.0",
+                "execution_id": str(execution_id),
+                "task_id": "event-task",
+                "execution_plan_id": "event-plan",
+                "status": "QUEUED",
+            }
+        ),
     }
 
 
@@ -183,6 +193,8 @@ async def test_stale_pending_message_is_reclaimed_and_acked_once(
         ({"event_id": "not-a-uuid"}, "invalid_event_id"),
         ({"aggregate_type": "UnknownAggregate"}, "unsupported_aggregate_type"),
         ({"event_type": "TOP-SECRET-event-family"}, "unsupported_event_type"),
+        ({"schema_version": "2.0"}, "unsupported_schema_version"),
+        ({"payload": "not-json"}, "invalid_event_contract"),
     ],
 )
 async def test_invalid_message_is_safely_dead_lettered(

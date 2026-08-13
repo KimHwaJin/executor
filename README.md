@@ -422,6 +422,11 @@ groups, so a retention policy must account for every group's delivered and Pendi
 entries can be removed safely. PostgreSQL Outbox rows are also retained because they back the
 frontend execution event timeline.
 
+Every published Stream entry and JSON payload uses the versioned Executor event contract. Agent
+consumers must use their own consumer group and durably deduplicate on `event_id` before ACK. See
+[Execution Event Contract v1](docs/execution-events-v1.md) and the reference
+`scripts/agent_event_consumer_example.py`.
+
 No database migration runs automatically during service startup. Deployments must run Alembic as
 a release or init job before readiness can pass.
 

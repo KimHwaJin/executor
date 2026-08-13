@@ -28,8 +28,9 @@ from executor_service.domain.errors import (
     PersistenceConflictError,
     UnsupportedRuntimeProfileError,
 )
-from executor_service.domain.models import Execution, ExecutionStep, OutboxEvent
+from executor_service.domain.models import Execution, ExecutionStep
 from executor_service.domain.ports import UnitOfWork
+from executor_service.events import build_execution_event
 from executor_service.tracing import capture_trace_carrier
 
 UnitOfWorkFactory = Callable[[], UnitOfWork]
@@ -115,20 +116,16 @@ class ExecutionService:
                 )
                 await uow.executions.add(execution)
                 await uow.outbox.add(
-                    OutboxEvent(
-                        aggregate_type="Execution",
-                        aggregate_id=execution.id,
+                    build_execution_event(
+                        execution_id=execution.id,
                         event_type="execution.submitted",
                         payload={
-                            "execution_id": str(execution.id),
                             "task_id": execution.task_id,
                             "execution_plan_id": execution.execution_plan_id,
                             "status": execution.status.value,
                         },
-                        created_by_type=command.actor_type,
-                        created_by=command.actor_id,
-                        updated_by_type=command.actor_type,
-                        updated_by=command.actor_id,
+                        actor_type=command.actor_type,
+                        actor_id=command.actor_id,
                         traceparent=execution.traceparent,
                         tracestate=execution.tracestate,
                     )
@@ -191,12 +188,10 @@ class ExecutionService:
                     {"execution_id": str(execution.id)},
                 )
                 await uow.outbox.add(
-                    OutboxEvent(
-                        aggregate_type="Execution",
-                        aggregate_id=execution.id,
+                    build_execution_event(
+                        execution_id=execution.id,
                         event_type="execution.continue_requested",
                         payload={
-                            "execution_id": str(execution.id),
                             "task_id": execution.task_id,
                             "execution_plan_id": step.execution_plan_id,
                             "plan_step_id": step.plan_step_id,
@@ -204,10 +199,8 @@ class ExecutionService:
                             "sequence": step.sequence,
                             "version": execution.version,
                         },
-                        created_by_type=command.actor_type,
-                        created_by=command.actor_id,
-                        updated_by_type=command.actor_type,
-                        updated_by=command.actor_id,
+                        actor_type=command.actor_type,
+                        actor_id=command.actor_id,
                         traceparent=execution.traceparent,
                         tracestate=execution.tracestate,
                     )
@@ -246,21 +239,17 @@ class ExecutionService:
                     {"execution_id": str(execution.id)},
                 )
                 await uow.outbox.add(
-                    OutboxEvent(
-                        aggregate_type="Execution",
-                        aggregate_id=execution.id,
+                    build_execution_event(
+                        execution_id=execution.id,
                         event_type="execution.finish_requested",
                         payload={
-                            "execution_id": str(execution.id),
                             "task_id": execution.task_id,
                             "execution_plan_id": execution.execution_plan_id,
                             "status": execution.status.value,
                             "version": execution.version,
                         },
-                        created_by_type=command.actor_type,
-                        created_by=command.actor_id,
-                        updated_by_type=command.actor_type,
-                        updated_by=command.actor_id,
+                        actor_type=command.actor_type,
+                        actor_id=command.actor_id,
                         traceparent=execution.traceparent,
                         tracestate=execution.tracestate,
                     )
@@ -322,20 +311,16 @@ class ExecutionService:
                 _apply_current_trace(execution)
                 await uow.executions.save(execution)
                 await uow.outbox.add(
-                    OutboxEvent(
-                        aggregate_type="Execution",
-                        aggregate_id=execution.id,
+                    build_execution_event(
+                        execution_id=execution.id,
                         event_type="execution.cancel_requested",
                         payload={
-                            "execution_id": str(execution.id),
                             "task_id": execution.task_id,
                             "execution_plan_id": execution.execution_plan_id,
                             "status": execution.status.value,
                         },
-                        created_by_type=command.actor_type,
-                        created_by=command.actor_id,
-                        updated_by_type=command.actor_type,
-                        updated_by=command.actor_id,
+                        actor_type=command.actor_type,
+                        actor_id=command.actor_id,
                         traceparent=execution.traceparent,
                         tracestate=execution.tracestate,
                     )
@@ -383,12 +368,10 @@ class ExecutionService:
                     execution.retry_from_sequence,
                 )
                 await uow.outbox.add(
-                    OutboxEvent(
-                        aggregate_type="Execution",
-                        aggregate_id=execution.id,
+                    build_execution_event(
+                        execution_id=execution.id,
                         event_type="execution.retry_requested",
                         payload={
-                            "execution_id": str(execution.id),
                             "task_id": execution.task_id,
                             "execution_plan_id": execution.execution_plan_id,
                             "status": execution.status.value,
@@ -401,10 +384,8 @@ class ExecutionService:
                             ),
                             "retry_count": execution.retry_count,
                         },
-                        created_by_type=command.actor_type,
-                        created_by=command.actor_id,
-                        updated_by_type=command.actor_type,
-                        updated_by=command.actor_id,
+                        actor_type=command.actor_type,
+                        actor_id=command.actor_id,
                         traceparent=execution.traceparent,
                         tracestate=execution.tracestate,
                     )
