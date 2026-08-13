@@ -1,9 +1,0 @@
--r ../basic/requirements.txt
-
-imbalanced-learn>=0.13,<1
-joblib>=1.5,<2
-lightgbm>=4.6,<5
-optuna>=4.4,<5
-scikit-learn>=1.7,<2
-shap>=0.48,<1
-xgboost-cpu>=3.0,<4

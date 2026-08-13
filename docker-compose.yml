@@ -45,7 +45,7 @@ services:
     image: executor-jupyter:local
     build:
       context: .
-      dockerfile: docker/jupyter/Dockerfile
+      dockerfile: test_harness/jupyter/Dockerfile
     environment:
       JUPYTER_TOKEN: ${JUPYTER_TOKEN:-change-me-local-only}
       EXECUTOR_RESOURCE_CPU_CORES: ${JUPYTER_RESOURCE_CPU_CORES:-2}
@@ -63,7 +63,7 @@ services:
       retries: 20
       start_period: 20s
     volumes:
-      - ./notebook_dir:/workspace/pv
+      - ./test_harness/jupyter/workspace:/workspace/pv
 
   executor:
     image: executor-service:local
@@ -146,7 +146,7 @@ services:
       retries: 20
       start_period: 20s
     volumes:
-      - ./notebook_dir:/workspace/pv
+      - ./test_harness/jupyter/workspace:/workspace/pv
 
   jupyter-batch-primary:
     profiles: ["batch-jupyter"]
@@ -168,7 +168,7 @@ services:
       retries: 20
       start_period: 20s
     volumes:
-      - ./notebook_dir:/workspace/pv
+      - ./test_harness/jupyter/workspace:/workspace/pv
 
   jupyter-batch-secondary:
     profiles: ["batch-jupyter"]
@@ -190,7 +190,7 @@ services:
       retries: 20
       start_period: 20s
     volumes:
-      - ./notebook_dir:/workspace/pv
+      - ./test_harness/jupyter/workspace:/workspace/pv
 
   phoenix:
     profiles: ["observability"]

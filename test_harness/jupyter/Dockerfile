@@ -19,9 +19,9 @@ RUN apt-get update \
         tini \
     && rm -rf /var/lib/apt/lists/*
 
-COPY docker/jupyter/environments/server/requirements.txt /opt/jupyter-env/server/requirements.txt
-COPY docker/jupyter/environments/basic/requirements.txt /opt/jupyter-env/basic/requirements.txt
-COPY docker/jupyter/environments/ml/requirements.txt /opt/jupyter-env/ml/requirements.txt
+COPY test_harness/jupyter/environments/server/requirements.txt /opt/jupyter-env/server/requirements.txt
+COPY test_harness/jupyter/environments/basic/requirements.txt /opt/jupyter-env/basic/requirements.txt
+COPY test_harness/jupyter/environments/ml/requirements.txt /opt/jupyter-env/ml/requirements.txt
 
 RUN /usr/local/bin/python3.12 -m venv /opt/venvs/jupyter \
     && /usr/bin/python3.11 -m venv /opt/venvs/basic \
@@ -33,8 +33,8 @@ RUN /usr/local/bin/python3.12 -m venv /opt/venvs/jupyter \
     && /opt/venvs/ml/bin/pip install --no-cache-dir \
         -r /opt/jupyter-env/ml/requirements.txt
 
-COPY docker/jupyter_resource_extension /opt/jupyter-resource-extension
-COPY docker/jupyter/executor_resource_extension.json \
+COPY test_harness/jupyter/extension /opt/jupyter-resource-extension
+COPY test_harness/jupyter/executor_resource_extension.json \
     /opt/venvs/jupyter/etc/jupyter/jupyter_server_config.d/executor_resource_extension.json
 
 RUN /opt/venvs/jupyter/bin/pip install --no-cache-dir --no-deps \
@@ -60,9 +60,9 @@ RUN rm -rf /home/jovyan \
     && mkdir -p /workspace/pv /home/jovyan/.jupyter \
     && chown -R 1000:1000 /workspace/pv /home/jovyan
 
-COPY --chown=1000:1000 docker/jupyter_server_config.py \
+COPY --chown=1000:1000 test_harness/jupyter/jupyter_server_config.py \
     /home/jovyan/.jupyter/jupyter_server_config.py
-COPY --chmod=755 docker/jupyter/start-jupyter.sh /usr/local/bin/start-jupyter
+COPY --chmod=755 test_harness/jupyter/start-jupyter.sh /usr/local/bin/start-jupyter
 
 USER 1000:1000
 WORKDIR /workspace/pv

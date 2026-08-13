@@ -4,11 +4,12 @@
 .pytest_cache
 .ruff_cache
 .venv
+test_harness/jupyter/.native
 __pycache__
 *.py[cod]
 *.egg-info
-notebook_dir
+test_harness/jupyter/workspace
 tests
 scripts
 docs
-test_agent
+test_harness/agent

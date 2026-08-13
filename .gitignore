@@ -8,6 +8,7 @@ wheels/
 
 # Virtual environments
 .venv
+test_harness/jupyter/.native/
 .env
 .pytest_cache/
 .ruff_cache/
@@ -15,5 +16,5 @@ wheels/
 htmlcov/
 *.db
 .DS_Store
-notebook_dir/**
-!notebook_dir/.gitkeep
+test_harness/jupyter/workspace/**
+!test_harness/jupyter/workspace/.gitkeep

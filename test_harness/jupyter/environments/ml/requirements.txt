@@ -1,0 +1,10 @@
+-r ../basic/requirements.txt
+
+imbalanced-learn>=0.13,<1
+joblib>=1.5,<2
+lightgbm>=4.6,<5
+optuna>=4.4,<5
+scikit-learn>=1.7,<2
+shap>=0.48,<1
+xgboost-cpu>=3.0,<4; (sys_platform == "linux" and platform_machine == "x86_64") or sys_platform == "win32"
+xgboost>=3.0,<4; sys_platform == "darwin" or platform_machine == "aarch64" or platform_machine == "ARM64"

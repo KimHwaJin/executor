@@ -13,7 +13,7 @@ bootstrap response and makes no external LLM call.
 ## Layout
 
 ```text
-test_agent/
+test_harness/agent/
 ├── langgraph.json
 ├── pyproject.toml
 ├── uv.lock
@@ -34,13 +34,13 @@ must not import Executor internals or access Executor database tables.
 From the repository root:
 
 ```bash
-cd test_agent
+cd test_harness/agent
 cp .env.example .env
 uv sync
 ```
 
 For deterministic startup testing, leave `TEST_AGENT_LLM_MODEL` empty. To use the internal vLLM
-OpenAI-compatible API, set these values in `test_agent/.env`:
+OpenAI-compatible API, set these values in `test_harness/agent/.env`:
 
 ```dotenv
 TEST_AGENT_LLM_BASE_URL=http://your-vllm-gateway/v1
@@ -53,7 +53,7 @@ The API key is read only from the environment. Do not commit `.env` or real cred
 ## Run the Agent Server
 
 ```bash
-cd test_agent
+cd test_harness/agent
 uv run langgraph dev --no-browser
 ```
 
@@ -66,7 +66,7 @@ Default endpoints:
 In another terminal, invoke the running graph:
 
 ```bash
-cd test_agent
+cd test_harness/agent
 uv run python scripts/smoke.py
 ```
 
@@ -76,7 +76,7 @@ The smoke client creates a thread, starts a run, and prints streamed events. Ove
 ## Verify locally
 
 ```bash
-cd test_agent
+cd test_harness/agent
 uv run ruff check .
 uv run ruff format --check .
 uv run ty check

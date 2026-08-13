@@ -35,5 +35,6 @@ smoke script against the local Docker services.
 ## Secrets and generated files
 
 - Never commit `.env`, runtime credentials, tokens, private keys, or production endpoints.
-- Keep local Jupyter workspaces and generated notebooks under the ignored `notebook_dir/` tree.
+- Keep local Jupyter workspaces and generated notebooks under the ignored
+  `test_harness/jupyter/workspace/` tree.
 - `.env.example` may contain only documented local placeholders.

@@ -45,7 +45,10 @@ dev = [
 [tool.pytest.ini_options]
 addopts = "-ra"
 asyncio_mode = "auto"
-testpaths = ["tests"]
+testpaths = [
+    "tests",
+    "test_harness/jupyter/tests",
+]
 markers = [
     "postgres: requires a disposable local PostgreSQL database",
 ]
@@ -62,7 +65,7 @@ select = ["E", "F", "I", "UP", "B", "ASYNC", "RUF"]
 
 [tool.ty.environment]
 python-version = "3.12"
-extra-paths = ["docker/jupyter_resource_extension/src"]
+extra-paths = ["test_harness/jupyter/extension/src"]
 
 [tool.ty.src]
-exclude = ["docker/jupyter_server_config.py", "test_agent"]
+exclude = ["test_harness/jupyter/jupyter_server_config.py", "test_harness/agent"]
