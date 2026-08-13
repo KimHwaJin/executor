@@ -19,6 +19,7 @@ from redis.asyncio import Redis
 from sqlalchemy import select
 
 from executor_service.config import get_settings
+from executor_service.events import EXECUTION_EVENT_SCHEMA_VERSION, ExecutionStreamEnvelope
 from executor_service.infrastructure.db.models import (
     ExecutionArtifactORM,
     ExecutionAttemptORM,
@@ -43,6 +44,7 @@ class DatabaseSnapshot:
     outbox_event_ids: frozenset[str]
     outbox_event_types: tuple[str, ...]
     outbox_statuses: tuple[str, ...]
+    outbox_schema_versions: tuple[str | None, ...]
 
 
 @dataclass(frozen=True)
@@ -244,6 +246,7 @@ async def _database_snapshot(session_factory: Any, execution_id: UUID) -> Databa
         outbox_event_ids=frozenset(str(row.id) for row in events),
         outbox_event_types=tuple(row.event_type for row in events),
         outbox_statuses=tuple(_enum_value(row.status) for row in events),
+        outbox_schema_versions=tuple(row.payload.get("schema_version") for row in events),
     )
 
 
@@ -285,6 +288,10 @@ def _assert_database(snapshot: DatabaseSnapshot) -> None:
     required_events = {"execution.submitted", "execution.started", "execution.succeeded"}
     if not required_events.issubset(snapshot.outbox_event_types):
         raise RuntimeError(f"Required Outbox events are missing: {snapshot.outbox_event_types}")
+    if set(snapshot.outbox_schema_versions) != {EXECUTION_EVENT_SCHEMA_VERSION}:
+        raise RuntimeError(
+            f"Unexpected Outbox schema versions: {snapshot.outbox_schema_versions}"
+        )
 
 
 async def _run_case(
@@ -375,6 +382,11 @@ async def _run_case(
         raise RuntimeError(
             f"Redis Stream and Outbox differ: missing={missing}, unexpected={unexpected}"
         )
+    envelopes = [ExecutionStreamEnvelope.from_redis_fields(row) for row in redis_rows]
+    if any(
+        envelope.schema_version != EXECUTION_EVENT_SCHEMA_VERSION for envelope in envelopes
+    ):
+        raise RuntimeError("Redis Stream contains a non-v1 Execution event.")
 
     notebook_relative = terminal["workspace"]["notebook_path"]
     if not notebook_relative:

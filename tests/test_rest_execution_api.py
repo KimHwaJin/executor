@@ -153,6 +153,7 @@ async def test_static_execution_rest_lifecycle_and_queries(
     assert step.json()["plan"]["plan_step_id"] == "plan-rest-1-step-0"
     assert attempts.json()["items"] == []
     assert events.json()["items"][0]["event_type"] == "execution.submitted"
+    assert events.json()["items"][0]["payload"]["schema_version"] == "1.0"
     assert artifacts.json()["items"] == []
     assert events.json()["items"][0]["delivery"]["status"] == "PENDING"
     assert body["created_by_type"] == "USER"

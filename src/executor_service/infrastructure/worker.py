@@ -30,12 +30,17 @@ from executor_service.domain.enums import (
     RuntimeTargetStatus,
     StepStatus,
 )
-from executor_service.domain.models import Execution, OutboxEvent, utc_now
+from executor_service.domain.models import Execution, utc_now
 from executor_service.domain.runtime import (
     RuntimeDriver,
     RuntimeDriverError,
     RuntimeDriverFactory,
     RuntimeExecutionError,
+)
+from executor_service.events import (
+    EXECUTION_EVENT_SCHEMA_VERSION,
+    ExecutionStreamEnvelope,
+    build_execution_event,
 )
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.models import (
@@ -2244,15 +2249,12 @@ async def _add_outbox(
     if details:
         payload.update(details)
     carrier = capture_trace_carrier()
-    event = OutboxEvent(
-        aggregate_type="Execution",
-        aggregate_id=execution_id,
+    event = build_execution_event(
+        execution_id=execution_id,
         event_type=event_type,
         payload=payload,
-        created_by_type=actor_type,
-        created_by=actor_id,
-        updated_by_type=actor_type,
-        updated_by=actor_id,
+        actor_type=actor_type,
+        actor_id=actor_id,
         traceparent=carrier.traceparent,
         tracestate=carrier.tracestate,
     )
@@ -2281,6 +2283,17 @@ def _invalid_event_reason(fields: dict[str, str]) -> str | None:
         return "missing_event_type"
     if not event_type.startswith("execution."):
         return "unsupported_event_type"
+    schema_version = fields.get("schema_version")
+    if not schema_version:
+        return "missing_schema_version"
+    if schema_version != EXECUTION_EVENT_SCHEMA_VERSION:
+        return "unsupported_schema_version"
+    if not fields.get("payload"):
+        return "missing_payload"
+    try:
+        ExecutionStreamEnvelope.from_redis_fields(fields)
+    except (TypeError, ValueError):
+        return "invalid_event_contract"
     return None
 
 
