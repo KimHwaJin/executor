@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from typing import Any
 
 from jupyter_server.utils import url_path_join  # ty: ignore[unresolved-import]
@@ -11,7 +10,6 @@ from executor_resource_extension.handlers import (
     FileMetadataHandler,
     ManifestReadHandler,
     ResourceStatusHandler,
-    StorageStatusHandler,
     WorkspacePrepareHandler,
 )
 from executor_resource_extension.storage import RuntimeStorage
@@ -25,20 +23,13 @@ def _load_jupyter_server_extension(server_app: Any) -> None:
     web_app = server_app.web_app
     base_url = web_app.settings.get("base_url", "/")
     web_app.settings["executor_resource_collector"] = ResourceCollector.from_environment()
-    web_app.settings["executor_runtime_storage"] = RuntimeStorage(
-        server_app.root_dir,
-        os.getenv("EXECUTOR_STORAGE_ID", "jupyter-shared"),
-    )
+    web_app.settings["executor_runtime_storage"] = RuntimeStorage(server_app.root_dir)
     web_app.add_handlers(
         ".*$",
         [
             (
                 url_path_join(base_url, "executor", "resource-status"),
                 ResourceStatusHandler,
-            ),
-            (
-                url_path_join(base_url, "executor", "storage", "status"),
-                StorageStatusHandler,
             ),
             (
                 url_path_join(base_url, "executor", "storage", "workspaces", "prepare"),

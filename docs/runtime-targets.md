@@ -9,8 +9,8 @@ future driver does not change Execution, scheduling, Attempt, or fleet-managemen
 
 All local Jupyter containers use the self-contained `executor-jupyter:local` image built from
 `python:3.12-slim-bookworm`, mount the same `./notebook_dir:/workspace/pv` shared-PV contract,
-report the same `JUPYTER_STORAGE_ID`, and expose only the `basic` and `ml` Python kernels. Executor
-does not mount this Jupyter storage.
+and expose only the `basic` and `ml` Python kernels. Executor does not mount this Jupyter storage.
+Production operators must mount the same shared PVC on every Jupyter target in a pool.
 
 | Service | Pool | Host endpoint | Default token variable |
 |---|---|---|---|
@@ -37,7 +37,6 @@ enabled at image build time and exposes authenticated resource and storage endpo
 
 ```http
 GET /executor/resource-status
-GET /executor/storage/status
 POST /executor/storage/workspaces/prepare
 POST /executor/storage/artifacts/snapshot
 POST /executor/storage/files/metadata
@@ -85,8 +84,8 @@ JUPYTER_RESOURCE_MEMORY_BYTES=4294967296
 Authentication failure returns HTTP 403. A partial measurement does not make the Jupyter server
 unhealthy; `source`, `estimated`, and safe error codes describe the result. `source` is always
 `CGROUP_V2` and `estimated` is always false. Local Compose healthchecks require the standard
-Jupyter status, resource, and storage-status endpoints. Storage status includes `storage_id`,
-`readable`, and `writable`; a mismatch with `JUPYTER_STORAGE_ID` keeps the target `OFFLINE`.
+Jupyter status and resource endpoints. Shared-PVC attachment is an operator-owned deployment
+contract and is not discovered or compared by Executor.
 
 The endpoint is the Runtime Driver observation contract. Persisting these observations on Runtime
 Targets and using them in load-aware target selection is a separate Executor scheduler change;
@@ -167,7 +166,7 @@ active Executions.
 ### One native Jupyter server without Docker
 
 When Executor and Jupyter run on the same machine, they still use separate storage boundaries.
-Configure Executor's PATH input root and expected Jupyter storage identity:
+Configure Executor's PATH input root:
 
 ```env
 RUNTIME_ENABLED=true
@@ -178,7 +177,6 @@ RUNTIME_POOL=INTERACTIVE
 RUNTIME_ALLOWED_PROFILES=basic,ml
 RUNTIME_DEFAULT_MAX_CONCURRENT_EXECUTIONS=1
 INPUT_HOST_ROOT=C:/absolute/path/to/executor/input_dir
-JUPYTER_STORAGE_ID=jupyter-shared
 ```
 
 Use the equivalent absolute POSIX path on Linux or macOS. Jupyter must use the custom image or

@@ -51,19 +51,12 @@ async def test_resource_status_parses_versioned_jupyter_response() -> None:
     assert observation.observed_at.tzinfo is not None
 
 
-async def test_status_requires_readable_writable_runtime_storage() -> None:
+async def test_status_reads_active_session_count_from_jupyter() -> None:
+    requested_paths: list[str] = []
+
     def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/api/status":
-            return httpx.Response(200, json={"kernels": 2})
-        return httpx.Response(
-            200,
-            json={
-                "schema_version": "1.0",
-                "storage_id": "jupyter-shared",
-                "readable": True,
-                "writable": True,
-            },
-        )
+        requested_paths.append(request.url.path)
+        return httpx.Response(200, json={"kernels": 2})
 
     driver = JupyterRuntimeDriver("http://jupyter.invalid", "secret")
     await driver._client.aclose()
@@ -75,30 +68,21 @@ async def test_status_requires_readable_writable_runtime_storage() -> None:
     finally:
         await driver.close()
 
-    assert status == {"active_session_count": 2, "storage_id": "jupyter-shared"}
+    assert status == {"active_session_count": 2}
+    assert requested_paths == ["/api/status"]
 
 
-async def test_status_rejects_unwritable_runtime_storage() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/api/status":
-            return httpx.Response(200, json={"kernels": 0})
-        return httpx.Response(
-            200,
-            json={
-                "schema_version": "1.0",
-                "storage_id": "jupyter-shared",
-                "readable": True,
-                "writable": False,
-            },
-        )
-
+async def test_status_rejects_invalid_active_session_count() -> None:
     driver = JupyterRuntimeDriver("http://jupyter.invalid", "secret")
     await driver._client.aclose()
     driver._client = httpx.AsyncClient(
-        transport=httpx.MockTransport(handler), base_url="http://jupyter.invalid"
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(200, json={"kernels": "invalid"})
+        ),
+        base_url="http://jupyter.invalid",
     )
     try:
-        with pytest.raises(RuntimeDriverError, match="storage status response is invalid"):
+        with pytest.raises(RuntimeDriverError, match="status response is invalid"):
             await driver.status()
     finally:
         await driver.close()

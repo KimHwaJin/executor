@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import mimetypes
-import os
 import re
 from pathlib import Path
 from typing import Any
@@ -16,17 +15,8 @@ class StoragePathError(ValueError):
 
 
 class RuntimeStorage:
-    def __init__(self, root_dir: str | Path, storage_id: str) -> None:
+    def __init__(self, root_dir: str | Path) -> None:
         self._root = Path(root_dir).resolve()
-        self._storage_id = storage_id
-
-    def status(self) -> dict[str, Any]:
-        return {
-            "schema_version": "1.0",
-            "storage_id": self._storage_id,
-            "readable": os.access(self._root, os.R_OK),
-            "writable": os.access(self._root, os.W_OK),
-        }
 
     def prepare_workspace(self, workspace_path: str) -> dict[str, str]:
         workspace = self._resolve(workspace_path)

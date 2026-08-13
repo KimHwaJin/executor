@@ -29,7 +29,7 @@ class HealthyGateway:
         pass
 
     async def status(self) -> dict[str, object]:
-        return {"active_session_count": 1, "storage_id": "jupyter-shared"}
+        return {"active_session_count": 1}
 
     async def supported_profiles(self) -> list[str]:
         return ["basic", "ml"]

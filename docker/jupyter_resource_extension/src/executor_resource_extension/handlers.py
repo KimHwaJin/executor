@@ -41,13 +41,6 @@ class StorageHandler(APIHandler):
         raise exc
 
 
-class StorageStatusHandler(StorageHandler):
-    @web.authenticated
-    def get(self) -> None:
-        self.set_header("Cache-Control", "no-store")
-        self.finish(self.storage.status())
-
-
 class WorkspacePrepareHandler(StorageHandler):
     @web.authenticated
     async def post(self) -> None:

@@ -56,7 +56,11 @@ Jupyter shared volume
 ### Consequences
 
 - Executor and Jupyter must not share a Compose or Kubernetes volume.
-- Runtime storage availability is part of Jupyter target health.
+- Mounting the same shared PVC on every Jupyter target is an operator-owned deployment contract;
+  Executor does not inspect, identify, or manage PV/PVC attachments.
+- Jupyter target health covers the Jupyter server, kernel profiles, and resource observation. A
+  failure encountered by a Runtime file operation is handled as an execution or read failure, not
+  as a separate storage health probe.
 - Notebook and Artifact APIs resolve an Execution to Runtime storage internally.
 - A Jupyter target may be deleted without deleting files, because files belong to the common
   Jupyter volume; at least one healthy target is required to access them.

@@ -269,8 +269,8 @@ of already executed dynamic cells is intentionally not supported.
   reads it through `INPUT_HOST_ROOT`; Jupyter does not need this volume.
 - Jupyter creates execution workspaces, notebooks, artifacts, datasets, and manifests on its own
   shared storage. All Jupyter Runtime Targets share that storage.
-- Each Jupyter target must report the configured `JUPYTER_STORAGE_ID` and readable/writable storage
-  before it becomes `ACTIVE`.
+- Mounting the same shared PVC on every Jupyter Runtime Target is an operator-owned deployment
+  contract; Executor does not discover or manage PV/PVC identity.
 - Executor never opens Jupyter files locally. PostgreSQL stores Runtime-relative paths and
   Jupyter-computed metadata/checksums; notebook content is read through an available Jupyter target.
 - Runtime retry prefers the original target/kernel. Storage-only reads prefer that target but may

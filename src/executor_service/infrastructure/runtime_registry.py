@@ -343,13 +343,6 @@ class RuntimeTargetRegistry:
         resource_error: str | None = None
         try:
             status = await driver.status()
-            if (
-                target.runtime_type == RuntimeType.JUPYTER
-                and status.get("storage_id") != self._settings.jupyter_storage_id
-            ):
-                raise RuntimeTargetConfigurationError(
-                    "Runtime Target is not attached to the configured shared Jupyter storage."
-                )
             reported_profiles = await driver.supported_profiles()
             allowed_profiles = set(self._settings.runtime_allowed_profiles)
             profiles = [profile for profile in reported_profiles if profile in allowed_profiles]
