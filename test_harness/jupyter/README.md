@@ -174,9 +174,11 @@ $env:JUPYTER_TOKEN = "local-test-token"
 ```
 
 The script checks status, kernelspecs, resource observation, workspace preparation, Artifact
-snapshots, kernel creation/get/interrupt/deletion, notebook write/read, file metadata, and manifest
-reads. It uses a unique `diagnostics/executor-rest-*` workspace per endpoint and deletes it
-afterward. Keep the workspace for inspection or test a subset of endpoints with:
+snapshots, kernel creation/get/interrupt/deletion, notebook write/read, Jupyter checkpoint creation,
+file metadata, and manifest reads. It uses the same long
+`users/.../projects/.../sessions/.../executions/...` hierarchy as a real Execution, prints the
+relative checkpoint path length to expose Windows path-length failures, and deletes the unique
+workspace afterward. Keep the workspace for inspection or test a subset of endpoints with:
 
 ```powershell
 .\test_harness\jupyter\scripts\windows_rest_diagnostics.ps1 `

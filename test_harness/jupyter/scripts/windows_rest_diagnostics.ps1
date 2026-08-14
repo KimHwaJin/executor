@@ -117,14 +117,22 @@ $failures = New-Object System.Collections.Generic.List[string]
 foreach ($rawEndpoint in $Endpoints) {
     $endpoint = $rawEndpoint.TrimEnd('/')
     $diagnosticId = [Guid]::NewGuid().ToString("N")
-    $workspace = "diagnostics/executor-rest-$diagnosticId"
+    # Match the production Execution hierarchy so Windows path-length problems are reproducible.
+    $workspace = (
+        "users/diagnostic-user/projects/diagnostic-project/" +
+        "sessions/tool-session-$($diagnosticId.Substring(0, 24))/executions/$diagnosticId"
+    )
     $notebookPath = "$workspace/notebooks/execution.ipynb"
+    $checkpointPath = "$workspace/notebooks/.ipynb_checkpoints/execution-checkpoint.ipynb"
     $artifactPath = "$workspace/artifacts/reports/rest-diagnostic.txt"
     $kernelId = $null
     $workspacePrepared = $false
 
     Write-Host ""
     Write-Host "=== Jupyter REST diagnostics: $endpoint ===" -ForegroundColor Cyan
+    Write-Host "  Workspace relative path length: $($workspace.Length)"
+    Write-Host "  Checkpoint relative path length: $($checkpointPath.Length)"
+    Write-Host "  Checkpoint relative path: $checkpointPath"
 
     try {
         $status = Invoke-JupyterRequest -Endpoint $endpoint -Method "GET" -Path "/api/status"
@@ -191,7 +199,15 @@ foreach ($rawEndpoint in $Endpoints) {
             type = "notebook"
             format = "json"
             content = @{
-                cells = @()
+                cells = @(
+                    @{
+                        cell_type = "code"
+                        execution_count = $null
+                        metadata = @{}
+                        outputs = @()
+                        source = @("print('Executor REST diagnostics')")
+                    }
+                )
                 metadata = @{
                     kernelspec = @{
                         name = $Profile
@@ -207,6 +223,19 @@ foreach ($rawEndpoint in $Endpoints) {
             -Method "PUT" `
             -Path "/api/contents/$notebookPath" `
             -Body $notebook
+        # A second save exercises Jupyter's checkpoint creation path for an existing notebook.
+        $null = Invoke-JupyterRequest `
+            -Endpoint $endpoint `
+            -Method "PUT" `
+            -Path "/api/contents/$notebookPath" `
+            -Body $notebook
+        $checkpoints = Invoke-JupyterRequest `
+            -Endpoint $endpoint `
+            -Method "GET" `
+            -Path "/api/contents/$notebookPath/checkpoints"
+        Assert-Condition `
+            -Condition (@($checkpoints).Count -gt 0) `
+            -Message "Jupyter did not create a notebook checkpoint after the second save."
         $storedNotebook = Invoke-JupyterRequest `
             -Endpoint $endpoint `
             -Method "GET" `

@@ -166,6 +166,55 @@ async def test_runtime_storage_contract_uses_jupyter_server_apis() -> None:
     )
 
 
+async def test_request_reports_safe_http_failure_context() -> None:
+    driver = JupyterRuntimeDriver("http://jupyter.invalid", "secret")
+    await driver._client.aclose()
+    driver._client = httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(500, text="sensitive Jupyter response")
+        ),
+        base_url="http://jupyter.invalid",
+    )
+    try:
+        with pytest.raises(RuntimeDriverError) as error:
+            await driver.write_notebook(
+                "users/u/executions/e/notebooks/execution.ipynb", {"cells": []}
+            )
+    finally:
+        await driver.close()
+
+    message = str(error.value)
+    assert message == (
+        "Jupyter REST request failed: method=PUT "
+        "path=/api/contents/users/u/executions/e/notebooks/execution.ipynb status=500."
+    )
+    assert "sensitive" not in message
+    assert "secret" not in message
+
+
+async def test_request_reports_safe_transport_failure_context() -> None:
+    def fail(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("sensitive endpoint detail", request=request)
+
+    driver = JupyterRuntimeDriver("http://jupyter.invalid", "secret")
+    await driver._client.aclose()
+    driver._client = httpx.AsyncClient(
+        transport=httpx.MockTransport(fail), base_url="http://jupyter.invalid"
+    )
+    try:
+        with pytest.raises(RuntimeDriverError) as error:
+            await driver.status()
+    finally:
+        await driver.close()
+
+    message = str(error.value)
+    assert message == (
+        "Jupyter REST request failed: method=GET path=/api/status transport=ConnectError."
+    )
+    assert "sensitive" not in message
+    assert "secret" not in message
+
+
 def test_contents_path_rejects_absolute_and_parent_paths() -> None:
     assert _contents_path("users/u/notebooks/a b.ipynb") == "users/u/notebooks/a%20b.ipynb"
     with pytest.raises(RuntimeDriverError):
