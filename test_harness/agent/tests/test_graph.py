@@ -194,3 +194,67 @@ async def test_graph_runs_mcp_tool_agent_and_waits_for_stream_event(monkeypatch)
     assert result.execution_id == execution_id
     assert result.execution_request is None
     assert "55" in str(result.messages[-1].content)
+
+
+async def test_graph_ends_cleanly_when_stream_event_wait_fails(monkeypatch) -> None:
+    execution_id = "00000000-0000-0000-0000-000000000020"
+
+    async def fake_load_tools(_settings, *, request_scope_id):
+        assert request_scope_id.startswith("chat-failure-")
+        return [object()]
+
+    class FakeToolAgent:
+        async def ainvoke(self, state):
+            mutation = {
+                "execution_id": execution_id,
+                "status": "QUEUED",
+                "wait_for_event": True,
+                "event_types": ["execution.succeeded", "execution.failed"],
+            }
+            return {
+                "messages": [
+                    *state["messages"],
+                    ToolMessage(
+                        content=json.dumps(mutation),
+                        tool_call_id="call-failure",
+                        name="execution_submit",
+                    ),
+                ]
+            }
+
+    class FailingWaiter:
+        def __init__(self, *_args, **kwargs):
+            assert kwargs["include_existing"] is True
+
+        async def open(self):
+            pass
+
+        async def close(self):
+            pass
+
+        async def wait_for_terminal(self, *_args, **_kwargs):
+            raise TimeoutError
+
+    async def unexpected_reconcile(*_args, **_kwargs):
+        raise AssertionError("verify must not run without a terminal event")
+
+    monkeypatch.setattr(graph_module, "_chat_model", lambda: object())
+    monkeypatch.setattr(graph_module, "load_executor_tools", fake_load_tools)
+    monkeypatch.setattr(
+        graph_module,
+        "create_agent",
+        lambda _model, _tools, *, system_prompt: FakeToolAgent(),
+    )
+    monkeypatch.setattr(graph_module, "ExecutionEventWaiter", FailingWaiter)
+    monkeypatch.setattr(graph_module, "reconcile_execution", unexpected_reconcile)
+
+    raw_result = await graph.ainvoke(
+        AgentState(messages=[HumanMessage(content="실패 경로를 확인해줘")]),
+        RunnableConfig(configurable={"thread_id": "chat-failure"}),
+    )
+    result = AgentState.model_validate(raw_result)
+
+    assert result.phase == "FAILED"
+    assert result.execution_id == execution_id
+    assert result.terminal_event is None
+    assert "Executor event wait failed: TimeoutError" in str(result.messages[-1].content)

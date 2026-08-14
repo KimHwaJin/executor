@@ -192,6 +192,11 @@ def _route_after_submit(state: AgentState) -> str:
     return "wait_for_stream_event" if state.wait_strategy == "STREAM" else "wait_for_event"
 
 
+def _route_after_event_wait(state: AgentState) -> str:
+    """Verify only after a terminal event was successfully materialized."""
+    return "verify" if state.phase == "VERIFYING" else END
+
+
 def _notebook_output_text(notebook: dict[str, Any]) -> str:
     rendered: list[str] = []
     for cell in notebook.get("cells", []):
@@ -261,8 +266,16 @@ builder.add_conditional_edges(
         END: END,
     },
 )
-builder.add_edge("wait_for_event", "verify")
-builder.add_edge("wait_for_stream_event", "verify")
+builder.add_conditional_edges(
+    "wait_for_event",
+    _route_after_event_wait,
+    {"verify": "verify", END: END},
+)
+builder.add_conditional_edges(
+    "wait_for_stream_event",
+    _route_after_event_wait,
+    {"verify": "verify", END: END},
+)
 builder.add_edge("verify", END)
 
 graph = builder.compile()
