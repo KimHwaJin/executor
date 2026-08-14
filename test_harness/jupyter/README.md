@@ -162,6 +162,32 @@ approved for the internal Nexus installation. Do not set `UV_OFFLINE=true` when 
 reachable: uv offline mode disables Nexus access as well. If Nexus has no upstream access, preload
 its hosted PyPI repository with Windows x64 wheels and their transitive dependencies before setup.
 
+### Windows REST diagnostics
+
+After starting one or more native Jupyter servers, use the PowerShell diagnostic to validate every
+REST endpoint required by the Executor Worker. The default checks ports 8888, 8889, and 8890 with
+the token from `JUPYTER_TOKEN`:
+
+```powershell
+$env:JUPYTER_TOKEN = "local-test-token"
+.\test_harness\jupyter\scripts\windows_rest_diagnostics.ps1
+```
+
+The script checks status, kernelspecs, resource observation, workspace preparation, Artifact
+snapshots, kernel creation/get/interrupt/deletion, notebook write/read, file metadata, and manifest
+reads. It uses a unique `diagnostics/executor-rest-*` workspace per endpoint and deletes it
+afterward. Keep the workspace for inspection or test a subset of endpoints with:
+
+```powershell
+.\test_harness\jupyter\scripts\windows_rest_diagnostics.ps1 `
+  -Endpoints "http://127.0.0.1:8888", "http://127.0.0.1:8889" `
+  -Token "server-specific-token" `
+  -KeepWorkspace
+```
+
+Run the script separately for servers with different tokens. A failure identifies the HTTP method,
+path, status when available, and endpoint without printing credentials or response bodies.
+
 Set a token in the current shell and start the server. POSIX:
 
 ```bash
