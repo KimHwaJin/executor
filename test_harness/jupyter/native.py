@@ -103,13 +103,45 @@ def _environment_roots(install_root: Path) -> dict[str, Path]:
     }
 
 
+def _python_selector(value: str | None, version: str) -> str:
+    if value is None:
+        return version
+    executable = Path(value).expanduser().resolve()
+    if not executable.is_file():
+        raise NativeJupyterError(
+            f"Python {version} executable does not exist or is not a file: {executable}"
+        )
+    return str(executable)
+
+
 def setup(args: argparse.Namespace) -> None:
     uv = _required_uv()
     install_root = Path(args.install_root).expanduser().resolve()
     environments = _environment_roots(install_root)
     install_root.mkdir(parents=True, exist_ok=True)
 
-    _run([uv, "python", "install", "3.11", "3.12"])
+    setup_environment = os.environ.copy()
+    if args.index_url:
+        setup_environment["UV_DEFAULT_INDEX"] = args.index_url
+
+    python_selectors = {
+        "3.11": _python_selector(args.python_311, "3.11"),
+        "3.12": _python_selector(args.python_312, "3.12"),
+    }
+    versions_to_install = [
+        version
+        for version, explicit_path in (
+            ("3.11", args.python_311),
+            ("3.12", args.python_312),
+        )
+        if explicit_path is None
+    ]
+    if versions_to_install:
+        _run(
+            [uv, "python", "install", *versions_to_install],
+            environment=setup_environment,
+        )
+
     for name, version in (("server", "3.12"), ("basic", "3.11"), ("ml", "3.12")):
         _run(
             [
@@ -119,9 +151,10 @@ def setup(args: argparse.Namespace) -> None:
                 "--clear",
                 "--seed",
                 "--python",
-                version,
+                python_selectors[version],
                 str(environments[name]),
-            ]
+            ],
+            environment=setup_environment,
         )
 
     server_python = environment_python(environments["server"])
@@ -142,7 +175,8 @@ def setup(args: argparse.Namespace) -> None:
                 str(python),
                 "--requirements",
                 str(requirements),
-            ]
+            ],
+            environment=setup_environment,
         )
 
     _run(
@@ -155,7 +189,8 @@ def setup(args: argparse.Namespace) -> None:
             str(server_python),
             "--no-deps",
             str(EXTENSION_ROOT),
-        ]
+        ],
+        environment=setup_environment,
     )
     _run(
         [
@@ -417,6 +452,18 @@ def parser() -> argparse.ArgumentParser:
 
     setup_parser = subcommands.add_parser("setup", help="Install server/basic/ml environments.")
     setup_parser.add_argument("--install-root", default=str(DEFAULT_INSTALL_ROOT))
+    setup_parser.add_argument(
+        "--python-311",
+        help="Existing Python 3.11 executable; skips its uv-managed Python download.",
+    )
+    setup_parser.add_argument(
+        "--python-312",
+        help="Existing Python 3.12 executable; skips its uv-managed Python download.",
+    )
+    setup_parser.add_argument(
+        "--index-url",
+        help="PEP 503 package index used as uv's only default index (for example, Nexus).",
+    )
 
     run_parser = subcommands.add_parser("run", help="Run the native JupyterLab server.")
     run_parser.add_argument("--install-root", default=str(DEFAULT_INSTALL_ROOT))
