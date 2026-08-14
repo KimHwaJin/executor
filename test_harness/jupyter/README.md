@@ -131,6 +131,37 @@ uv run python test_harness/jupyter/native.py setup
 The command installs uv-managed Python 3.11 and 3.12 when they are absent. It does not alter the
 system Python installation. Re-run it after changing a requirements file or the Jupyter extension.
 
+### Windows installation through an internal Nexus
+
+The default setup command can download managed Python distributions and packages from public
+repositories. For a closed Windows network, distribute `uv.exe` and the official 64-bit Python
+3.11 and 3.12 installers through an approved internal channel, install both Python versions, and
+publish all packages required by `environments/server`, `environments/basic`, and
+`environments/ml` to a Nexus PyPI repository.
+
+Resolve the installed Python executables and run the bootstrap script directly with Python 3.12.
+Supplying both executable paths prevents `native.py` from running `uv python install`, while
+`--index-url` replaces the public PyPI default for every package installation:
+
+```powershell
+$Python311 = py -3.11 -c "import sys; print(sys.executable)"
+$Python312 = py -3.12 -c "import sys; print(sys.executable)"
+$NexusIndex = "https://nexus.example/repository/pypi-group/simple"
+
+# Use the Windows certificate store when Nexus is signed by an internal corporate CA.
+$env:UV_SYSTEM_CERTS = "true"
+
+& $Python312 test_harness\jupyter\native.py setup `
+  --python-311 $Python311 `
+  --python-312 $Python312 `
+  --index-url $NexusIndex
+```
+
+Do not put Nexus credentials in the repository or in this command. Use the authentication method
+approved for the internal Nexus installation. Do not set `UV_OFFLINE=true` when Nexus must remain
+reachable: uv offline mode disables Nexus access as well. If Nexus has no upstream access, preload
+its hosted PyPI repository with Windows x64 wheels and their transitive dependencies before setup.
+
 Set a token in the current shell and start the server. POSIX:
 
 ```bash
