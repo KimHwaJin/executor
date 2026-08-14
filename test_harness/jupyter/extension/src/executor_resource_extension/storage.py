@@ -22,7 +22,7 @@ class RuntimeStorage:
         workspace = self._resolve(workspace_path)
         for relative in (
             "notebooks",
-            "checkpoints",
+            "notebooks/.ipynb_checkpoints",
             *(f"artifacts/{name}" for name in ARTIFACT_DIRECTORIES),
         ):
             (workspace / relative).mkdir(parents=True, exist_ok=True)

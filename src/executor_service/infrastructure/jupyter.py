@@ -282,8 +282,16 @@ class JupyterRuntimeDriver:
             if allowed_statuses is None or response.status_code not in allowed_statuses:
                 response.raise_for_status()
             return response
-        except httpx.HTTPError as exc:
-            raise RuntimeDriverError("Jupyter REST API is unavailable.") from exc
+        except httpx.HTTPStatusError as exc:
+            raise RuntimeDriverError(
+                "Jupyter REST request failed: "
+                f"method={method.upper()} path={path} status={exc.response.status_code}."
+            ) from exc
+        except httpx.RequestError as exc:
+            raise RuntimeDriverError(
+                "Jupyter REST request failed: "
+                f"method={method.upper()} path={path} transport={type(exc).__name__}."
+            ) from exc
 
     def _channels_uri(self, runtime_session_id: str, session_id: str) -> str:
         parsed = urlsplit(self._endpoint)

@@ -14,13 +14,18 @@ class RuntimeStorageTests(unittest.TestCase):
             storage = RuntimeStorage(root)
             workspace = "users/u1/projects/p1/sessions/s1/executions/e1"
             prepared = storage.prepare_workspace(workspace)
+            checkpoint_directory = root / workspace / "notebooks/.ipynb_checkpoints"
             plot = root / workspace / "artifacts/plots/chart.png"
             plot.write_bytes(b"plot")
 
             snapshot = storage.snapshot(workspace)
             metadata = storage.file_metadata(plot.as_posix())
+            checkpoint_directory_exists = checkpoint_directory.is_dir()
+            legacy_checkpoint_directory_exists = (root / workspace / "checkpoints").exists()
 
         self.assertEqual(prepared["notebook_path"], f"{workspace}/notebooks/execution.ipynb")
+        self.assertTrue(checkpoint_directory_exists)
+        self.assertFalse(legacy_checkpoint_directory_exists)
         self.assertEqual(snapshot["files"][0]["path"], f"{workspace}/artifacts/plots/chart.png")
         self.assertEqual(metadata["size_bytes"], 4)
         self.assertEqual(
