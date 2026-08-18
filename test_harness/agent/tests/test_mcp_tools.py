@@ -10,6 +10,8 @@ from executor_test_agent.mcp_tools import (
     ADMIN_TOOL_NAMES,
     MUTATION_MCP_TOOL_NAMES,
     READ_TOOL_NAMES,
+    _actor,
+    _all_execution_steps,
     _enforce_read_scope,
     _idempotency_key,
     _mutation_result,
@@ -57,6 +59,10 @@ def test_idempotency_key_is_stable_per_request_scope() -> None:
     assert first != other_scope
 
 
+def test_mutation_actor_is_the_agent_not_the_context_user(settings) -> None:
+    assert _actor(settings) == {"type": "AGENT", "id": "executor-test-agent"}
+
+
 def test_render_tool_result_prefers_structured_content() -> None:
     result = CallToolResult(
         content=[TextContent(type="text", text="fallback")],
@@ -71,12 +77,38 @@ def test_mutation_result_reads_nested_command_state() -> None:
     rendered = _mutation_result(
         {
             "execution_id": "execution-1",
-            "operation_id": "operation-1",
+            "operation": {
+                "operation_id": "operation-1",
+                "steps": [{"sequence": 0, "step_id": "step-1"}],
+            },
             "state": {"status": "QUEUED", "version": 0},
         },
         wait_for_event=True,
         event_types=["execution.succeeded"],
+        event_stream_start_id="123-0",
     )
 
     assert rendered["status"] == "QUEUED"
     assert rendered["version"] == 0
+    assert rendered["operation"]["operation_id"] == "operation-1"
+    assert rendered["operation"]["steps"][0]["step_id"] == "step-1"
+    assert rendered["event_stream_start_id"] == "123-0"
+
+
+async def test_all_execution_steps_follows_opaque_cursor(monkeypatch, settings) -> None:
+    calls: list[dict] = []
+
+    async def fake_call(_settings, tool, arguments):
+        assert tool == "execution_step_list"
+        calls.append(arguments)
+        if "cursor" not in arguments:
+            return {"items": [{"sequence": 0}], "next_cursor": "opaque:next"}
+        assert arguments["cursor"] == "opaque:next"
+        return {"items": [{"sequence": 1}], "next_cursor": None}
+
+    monkeypatch.setattr("executor_test_agent.mcp_tools._call_mcp_structured", fake_call)
+
+    items = await _all_execution_steps(settings, "execution-1")
+
+    assert [item["sequence"] for item in items] == [0, 1]
+    assert calls[1]["cursor"] == "opaque:next"

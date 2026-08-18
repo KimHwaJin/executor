@@ -3,7 +3,7 @@
 import hashlib
 import json
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 from langchain_core.tools import BaseTool, StructuredTool, ToolException
@@ -14,6 +14,11 @@ from pydantic import BaseModel, ConfigDict, Field
 from executor_test_agent.code_policy import PlannedStep
 from executor_test_agent.config import AgentSettings
 from executor_test_agent.integrations.contracts import AgentExecutionRequest
+from executor_test_agent.integrations.events import (
+    MULTI_OPERATION_WAKE_EVENT_TYPES,
+    TERMINAL_EVENT_TYPES,
+    event_stream_watermark,
+)
 
 READ_TOOL_NAMES = frozenset(
     {
@@ -78,7 +83,8 @@ class SubmitExecutionInput(BaseModel):
 
     runtime_profile: str = Field(default="basic", min_length=1, max_length=128)
     steps: list[PlannedStep] = Field(min_length=1, max_length=5)
-    operation_mode: str = Field(default="SINGLE", pattern=r"^(SINGLE|MULTI)$")
+    operation_mode: Literal["SINGLE", "MULTI"] = "SINGLE"
+    operation_wait_timeout_seconds: int = Field(default=600, ge=30)
 
 
 class OwnedExecutionInput(BaseModel):
@@ -162,13 +168,15 @@ def _mutation_tools(settings: AgentSettings, request_scope_id: str) -> list[Base
         ),
         _policy_tool(
             "execution_operation_create",
-            "Append validated Steps to an owned MULTI Execution waiting for an Operation.",
+            "Append one validated Operation to an owned MULTI Execution in "
+            "WAITING_FOR_OPERATION. Returns IDs and waits for the next Operation boundary.",
             CreateOperationInput,
             lambda arguments: _create_operation(arguments, settings, request_scope_id),
         ),
         _policy_tool(
             "execution_finalize",
-            "Finalize an owned MULTI Execution waiting for an Operation.",
+            "Finalize an owned MULTI Execution in WAITING_FOR_OPERATION after the user confirms "
+            "that no more Operations are required.",
             OwnedExecutionInput,
             lambda arguments: _finalize(arguments, settings, request_scope_id),
         ),
@@ -209,16 +217,26 @@ async def _submit(
         project_id=settings.default_project_id,
         session_id=f"tool-session-{stable_id}",
         task_id=f"tool-task-{stable_id}",
+        operation_mode=parsed.operation_mode,
+        operation_wait_timeout_seconds=parsed.operation_wait_timeout_seconds,
         steps=[step.model_dump(mode="json") for step in parsed.steps],
     )
-    payload = request.executor_payload(idempotency_key, operation_mode=parsed.operation_mode)
+    payload = request.executor_payload(idempotency_key)
+    watermark = await event_stream_watermark(
+        settings.executor_redis_url, settings.executor_event_stream
+    )
     result = await _call_mcp_structured(settings, "execution_submit", {"request": payload})
     event_types = (
-        ["execution.operation_succeeded", "execution.operation_failed"]
+        sorted(MULTI_OPERATION_WAKE_EVENT_TYPES)
         if parsed.operation_mode == "MULTI"
-        else ["execution.succeeded", "execution.failed", "execution.cancelled"]
+        else sorted(TERMINAL_EVENT_TYPES)
     )
-    return _mutation_result(result, wait_for_event=True, event_types=event_types)
+    return _mutation_result(
+        result,
+        wait_for_event=True,
+        event_types=event_types,
+        event_stream_start_id=watermark,
+    )
 
 
 async def _cancel(
@@ -226,6 +244,9 @@ async def _cancel(
 ) -> dict[str, Any]:
     parsed = CancelExecutionInput.model_validate(arguments)
     await _owned_execution(settings, parsed.execution_id)
+    watermark = await event_stream_watermark(
+        settings.executor_redis_url, settings.executor_event_stream
+    )
     result = await _call_mcp_structured(
         settings,
         "execution_cancel",
@@ -241,7 +262,8 @@ async def _cancel(
     return _mutation_result(
         result,
         wait_for_event=True,
-        event_types=["execution.cancelled", "execution.failed", "execution.succeeded"],
+        event_types=sorted(TERMINAL_EVENT_TYPES),
+        event_stream_start_id=watermark,
     )
 
 
@@ -252,6 +274,9 @@ async def _retry(
     execution = await _owned_execution(settings, parsed.execution_id)
     if execution["state"]["status"] != "FAILED":
         raise ValueError("execution_retry requires an owned FAILED Execution.")
+    watermark = await event_stream_watermark(
+        settings.executor_redis_url, settings.executor_event_stream
+    )
     result = await _call_mcp_structured(
         settings,
         "execution_retry",
@@ -266,7 +291,8 @@ async def _retry(
     return _mutation_result(
         result,
         wait_for_event=True,
-        event_types=["execution.succeeded", "execution.failed", "execution.cancelled"],
+        event_types=sorted(TERMINAL_EVENT_TYPES),
+        event_stream_start_id=watermark,
     )
 
 
@@ -282,10 +308,8 @@ async def _create_operation(
         raise ValueError(
             "execution_operation_create requires an owned MULTI Execution waiting for an Operation."
         )
-    steps_page = await _call_mcp_structured(
-        settings, "execution_step_list", {"execution_id": parsed.execution_id, "limit": 200}
-    )
-    first_sequence = max((item["sequence"] for item in steps_page["items"]), default=-1) + 1
+    existing_steps = await _all_execution_steps(settings, parsed.execution_id)
+    first_sequence = max((item["sequence"] for item in existing_steps), default=-1) + 1
     source_steps = [
         {
             "sequence": first_sequence + offset,
@@ -298,6 +322,9 @@ async def _create_operation(
         }
         for offset, step in enumerate(parsed.steps)
     ]
+    watermark = await event_stream_watermark(
+        settings.executor_redis_url, settings.executor_event_stream
+    )
     result = await _call_mcp_structured(
         settings,
         "execution_operation_create",
@@ -322,7 +349,8 @@ async def _create_operation(
     return _mutation_result(
         result,
         wait_for_event=True,
-        event_types=["execution.operation_succeeded", "execution.operation_failed"],
+        event_types=sorted(MULTI_OPERATION_WAKE_EVENT_TYPES),
+        event_stream_start_id=watermark,
     )
 
 
@@ -338,6 +366,9 @@ async def _finalize(
         raise ValueError(
             "execution_finalize requires an owned MULTI Execution waiting for an Operation."
         )
+    watermark = await event_stream_watermark(
+        settings.executor_redis_url, settings.executor_event_stream
+    )
     result = await _call_mcp_structured(
         settings,
         "execution_finalize",
@@ -353,7 +384,8 @@ async def _finalize(
     return _mutation_result(
         result,
         wait_for_event=True,
-        event_types=["execution.succeeded", "execution.failed", "execution.cancelled"],
+        event_types=sorted(TERMINAL_EVENT_TYPES),
+        event_stream_start_id=watermark,
     )
 
 
@@ -399,21 +431,41 @@ async def _call_mcp_structured(
     return result.structured_content
 
 
+async def _all_execution_steps(settings: AgentSettings, execution_id: str) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    cursor: str | None = None
+    while True:
+        arguments: dict[str, Any] = {"execution_id": execution_id, "limit": 200}
+        if cursor is not None:
+            arguments["cursor"] = cursor
+        page = await _call_mcp_structured(settings, "execution_step_list", arguments)
+        items.extend(page["items"])
+        cursor = page.get("next_cursor")
+        if cursor is None:
+            return items
+
+
 def _mutation_result(
-    result: dict[str, Any], *, wait_for_event: bool, event_types: list[str]
+    result: dict[str, Any],
+    *,
+    wait_for_event: bool,
+    event_types: list[str],
+    event_stream_start_id: str,
 ) -> dict[str, Any]:
+    operation = result.get("operation")
     return {
         "execution_id": result["execution_id"],
         "status": result["state"]["status"],
         "version": result["state"]["version"],
-        "operation_id": result.get("operation_id"),
+        "operation": operation,
         "wait_for_event": wait_for_event,
         "event_types": event_types,
+        "event_stream_start_id": event_stream_start_id,
     }
 
 
 def _actor(settings: AgentSettings) -> dict[str, str]:
-    return {"type": "USER", "id": settings.default_user_id}
+    return {"type": "AGENT", "id": "executor-test-agent"}
 
 
 def _idempotency_key(prefix: str, request_scope_id: str, arguments: dict[str, Any]) -> str:

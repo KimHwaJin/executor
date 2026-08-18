@@ -1,4 +1,4 @@
-"""Run the deterministic Agent -> Executor -> Jupyter scenario through Agent Server."""
+"""Run the deterministic MULTI Agent -> Executor -> Jupyter scenario through Agent Server."""
 
 import asyncio
 import os
@@ -41,6 +41,7 @@ async def main() -> None:
                     "project_id": "agent-e2e-project",
                     "session_id": f"agent-e2e-session-{unique}",
                     "task_id": f"agent-e2e-task-{unique}",
+                    "operation_mode": "MULTI",
                     "steps": [
                         {
                             "skill_name": "eda",
@@ -48,19 +49,30 @@ async def main() -> None:
                             "code": "values = [2, 3, 5]\ntotal = sum(values)\nprint(total)",
                         },
                         {
-                            "skill_name": "report",
-                            "tool_name": "write_agent_result",
-                            "code": (
-                                "from pathlib import Path\n"
-                                "assert total == 10\n"
-                                "Path('artifacts/reports/agent-e2e.txt').write_text("
-                                "str(total), encoding='utf-8')\n"
-                                "print('agent artifact written')"
-                            ),
+                            "skill_name": "eda",
+                            "tool_name": "double_total",
+                            "code": "doubled = total * 2\nprint(doubled)",
                         },
                     ],
+                    "follow_up_operations": [
+                        [
+                            {
+                                "skill_name": "report",
+                                "tool_name": "write_agent_result",
+                                "code": (
+                                    "from pathlib import Path\n"
+                                    "assert total == 10\n"
+                                    "assert doubled == 20\n"
+                                    "Path('artifacts/reports/agent-e2e.txt').write_text("
+                                    "str(doubled), encoding='utf-8')\n"
+                                    "print('agent artifact written')"
+                                ),
+                            }
+                        ]
+                    ],
+                    "auto_finalize": True,
                 },
-                "terminal_event": None,
+                "event_batch": None,
                 "execution_result": None,
             },
         )
@@ -69,15 +81,26 @@ async def main() -> None:
         execution_id = interrupted.get("execution_id")
         if not isinstance(execution_id, str):
             raise RuntimeError("Interrupted Agent state has no execution_id.")
-        terminal_event = await waiter.wait_for_terminal(
-            execution_id,
-            timeout_seconds=settings.execution_timeout_seconds,
-        )
-        result = await client.runs.wait(
-            thread["thread_id"],
-            "executor_test_agent",
-            command={"resume": terminal_event.model_dump(mode="json")},
-        )
+        result = interrupted
+        for _ in range(5):
+            if result.get("phase") != "WAITING_FOR_EVENT":
+                break
+            event_types = result.get("awaited_event_types")
+            if not isinstance(event_types, list) or not event_types:
+                raise RuntimeError(f"Agent supplied no wake-up event types: {result}")
+            batch = await waiter.wait_for_wakeup(
+                execution_id,
+                timeout_seconds=settings.execution_timeout_seconds,
+                event_types=set(event_types),
+                operation_id=result.get("awaited_operation_id"),
+            )
+            result = await client.runs.wait(
+                thread["thread_id"],
+                "executor_test_agent",
+                command={"resume": batch.model_dump(mode="json")},
+            )
+        else:
+            raise RuntimeError("Agent MULTI scenario exceeded its expected checkpoint count.")
     finally:
         await waiter.close()
 
@@ -90,14 +113,79 @@ async def main() -> None:
     required = {"agent-e2e.txt", "execution.ipynb"}
     if not required.issubset(artifact_names):
         raise RuntimeError(f"Required Jupyter artifacts are missing: {artifact_names}")
-    if len(execution["notebook"]["cells"]) != 2:
-        raise RuntimeError("Agent did not retrieve the two executed Jupyter notebook cells.")
+    if len(execution["notebook"]["cells"]) != 3:
+        raise RuntimeError("Agent did not retrieve all three executed Jupyter notebook cells.")
+    event_types = [event["event_type"] for event in result.get("event_history", [])]
+    if event_types.count("execution.waiting_for_operation") != 2:
+        raise RuntimeError(f"Agent did not cross two MULTI Operation boundaries: {event_types}")
+    if event_types.count("execution.step_succeeded") != 3:
+        raise RuntimeError(f"Agent did not checkpoint all Step results: {event_types}")
+    receipts = result.get("command_receipts", [])
+    if len(receipts) != 3:
+        raise RuntimeError(f"Expected submit, Operation, and finalize receipts: {receipts}")
+
+    stream_thread = await client.threads.create()
+    stream_unique = uuid4().hex
+    stream_result = await client.runs.wait(
+        stream_thread["thread_id"],
+        "executor_test_agent",
+        input={
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "Run the self-contained MULTI stream scenario.",
+                }
+            ],
+            "wait_strategy": "STREAM",
+            "execution_request": {
+                "runtime_profile": os.getenv("TEST_AGENT_RUNTIME_PROFILE", "basic"),
+                "user_id": "agent-stream-user",
+                "project_id": "agent-stream-project",
+                "session_id": f"agent-stream-session-{stream_unique}",
+                "task_id": f"agent-stream-task-{stream_unique}",
+                "operation_mode": "MULTI",
+                "steps": [
+                    {
+                        "skill_name": "eda",
+                        "tool_name": "create_stream_value",
+                        "code": "stream_value = 7\nprint(stream_value)",
+                    }
+                ],
+                "follow_up_operations": [
+                    [
+                        {
+                            "skill_name": "eda",
+                            "tool_name": "reuse_stream_value",
+                            "code": "stream_result = stream_value + 1\nprint(stream_result)",
+                        }
+                    ]
+                ],
+                "auto_finalize": True,
+            },
+        },
+    )
+    if not isinstance(stream_result, dict) or stream_result.get("phase") != "SUCCEEDED":
+        raise RuntimeError(f"Self-contained MULTI stream run failed: {stream_result}")
+    stream_event_types = [event["event_type"] for event in stream_result.get("event_history", [])]
+    if stream_event_types.count("execution.waiting_for_operation") != 2:
+        raise RuntimeError(
+            "Self-contained stream run did not cross exactly two current Operation boundaries: "
+            f"{stream_event_types}"
+        )
+    if stream_event_types.count("execution.step_succeeded") != 2:
+        raise RuntimeError(
+            f"Self-contained stream run did not retain both Step results: {stream_event_types}"
+        )
     print("execution_id:", execution["execution_id"])
     print("status:", execution["status"])
-    print("terminal_event_type:", execution["terminal_event_type"])
+    print("wake_event_type:", execution["wake_event_type"])
+    print("operation_count:", 2)
+    print("step_event_count:", event_types.count("execution.step_succeeded"))
     print("runtime_target_id:", execution["runtime_target_id"])
     print("notebook_path:", execution["notebook_path"])
     print("artifacts:", sorted(artifact_names))
+    print("stream_execution_id:", stream_result["execution_id"])
+    print("stream_boundary_filter:", "verified")
 
 
 if __name__ == "__main__":

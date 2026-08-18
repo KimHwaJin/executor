@@ -1,4 +1,4 @@
-"""Reference Agent consumer for Executor event contract v1.
+"""Reference Agent consumer for Executor event contract v2.
 
 The SQLite database is intentionally local to this example. A production Agent should store the
 same deduplication key and its own state update in one PostgreSQL transaction before ACKing Redis.
