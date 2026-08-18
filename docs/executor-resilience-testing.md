@@ -15,6 +15,24 @@ The scripts select free loopback ports automatically. Set `DRAIN_SMOKE_PRIMARY_P
 `DRAIN_SMOKE_SECONDARY_PORT`, `LOAD_SMOKE_PRIMARY_PORT`, `LOAD_SMOKE_SECONDARY_PORT`,
 `REDIS_OUTAGE_SMOKE_PORT`, or `JUPYTER_OUTAGE_SMOKE_PORT` only when fixed ports are required.
 
+The SINGLE/MULTI lifecycle scenarios below use the already running Compose Executor. The
+real-process scenarios start their own one or two Executor processes and therefore require
+exclusive control of the shared PostgreSQL work queue:
+
+```bash
+docker compose stop executor
+uv run python scripts/multi_executor_load_smoke.py
+# Run the other real-process scenarios while the Compose Executor remains stopped.
+docker compose up -d --wait executor
+```
+
+This applies to `multi_executor_load_smoke.py`, `multi_executor_drain_smoke.py`,
+`multi_executor_failover_smoke.py`, `executor_redis_outage_smoke.py`, and
+`jupyter_server_outage_smoke.py`. A unique Redis Stream does not isolate these tests because every
+Executor also reconciles unleased `QUEUED` rows directly from PostgreSQL. Each script now fails
+fast when the default Executor at `RESILIENCE_EXISTING_EXECUTOR_URL` is still running. Set
+`RESILIENCE_ALLOW_CONCURRENT_EXECUTOR=true` only when the other Executor uses a different database.
+
 ## Automated scenarios
 
 ### SINGLE execution observability
@@ -51,7 +69,7 @@ uv run python scripts/single_failure_retry_cancel_e2e.py
 This non-disruptive scenario covers both abnormal SINGLE lifecycle paths against the running
 Compose stack. Failure and retry use MCP; cancellation uses REST. For each Execution it
 cross-checks the public current/history responses, PostgreSQL rows, Transactional Outbox, Redis
-Stream event IDs and v1 payloads, shared-PV Artifact evidence, and the exact Jupyter session.
+Stream event IDs and v2 payloads, shared-PV Artifact evidence, and the exact Jupyter session.
 
 The retry case fails after writing an Artifact, verifies `FROM_FAILED_STEP` preserves the original
 target and kernel, then resumes from the failed Step and deletes that kernel after success. The
@@ -129,7 +147,9 @@ uv run python scripts/executor_redis_outage_smoke.py
 This uses Redis `CLIENT PAUSE ... ALL` for eight seconds. The command affects the local Redis
 instance, so do not run it against a shared or production Redis. The submitted execution must
 finish while Redis is paused through PostgreSQL reconciliation. After Redis resumes, every durable
-Outbox event must become `PUBLISHED` and appear in the configured Stream.
+integration Outbox event must become `PUBLISHED` and have the same `event_id` in the configured
+event Stream. The internal `operation.ready` work message is verified separately in the work
+Stream.
 
 Set `REDIS_OUTAGE_PAUSE_MILLISECONDS` to a value of at least 5000 when a longer pause is needed.
 
@@ -221,6 +241,32 @@ redis-cli XRANGE <stream-name> - +
 ```
 
 ## Validated baseline
+
+The API contract v2 regression baseline validated on 2026-08-19 produced:
+
+- REST and MCP SINGLE success: two Steps, one immutable Attempt, matching PostgreSQL integration
+  Outbox and `executor.events` IDs, Runtime-owned notebook and Artifact, and zero leaked sessions;
+- SINGLE failure/retry and cancellation: retained-server/kernel `FROM_FAILED_STEP` retry,
+  `INCOMPLETE` failed output evidence, successful notebook finalization, and running cancellation
+  cleanup;
+- MULTI lifecycle: append-only multi-Step Operations, failed Operation correction, retained Runtime
+  state, explicit finalization, Step result events, and running cancellation;
+- concurrent load: 30/30 successful SINGLE executions, both Executor owners used, strict
+  INTERACTIVE/BATCH isolation, capacity peak one on every one-capacity Target, and zero leaked
+  kernels;
+- graceful drain: short work succeeded, long work became `WORKER_SHUTDOWN/FROM_START` with cleanup
+  `SUCCEEDED`, and queued work moved to the secondary Executor;
+- Redis pause: execution completed during the eight-second pause, then one work message and all
+  seven integration events recovered with matching PostgreSQL/Redis event IDs;
+- Runtime recovery: OFFLINE Target avoidance and reactivation, retained retry pinned to the same
+  server and kernel, and notebook reads failed over to another Target on the shared Runtime volume;
+- process loss: primary SIGKILL became `LEASE_EXPIRED/FROM_START`, cleaned the abandoned kernel,
+  and completed on the secondary Executor; and
+- static/unit integration checks: Ruff and ty passed, the default suite passed 131 tests with six
+  opt-in PostgreSQL cases skipped, and all six PostgreSQL cases passed when explicitly enabled.
+
+The real-process tests also verified that their Redis Stream isolation is insufficient when an
+unmanaged Executor shares PostgreSQL. The exclusive-worker preflight is part of this baseline.
 
 The local baseline validated on 2026-08-13 produced:
 

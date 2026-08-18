@@ -18,6 +18,7 @@ from redis.asyncio import Redis
 from sqlalchemy import select
 
 from executor_service.config import get_settings
+from executor_service.domain.enums import OutboxDestination
 from executor_service.events import EXECUTION_EVENT_SCHEMA_VERSION, ExecutionStreamEnvelope
 from executor_service.infrastructure.db.models import (
     ExecutionArtifactORM,
@@ -284,6 +285,7 @@ async def _database_snapshot(session_factory: Any, execution_id: UUID) -> Databa
                 .where(
                     OutboxEventORM.aggregate_type == "Execution",
                     OutboxEventORM.aggregate_id == execution_id,
+                    OutboxEventORM.destination == OutboxDestination.EVENTS,
                 )
                 .order_by(OutboxEventORM.created_at, OutboxEventORM.id)
             )
@@ -430,7 +432,7 @@ async def _run_case(
         )
     envelopes = [ExecutionStreamEnvelope.from_redis_fields(row) for row in redis_rows]
     if any(envelope.schema_version != EXECUTION_EVENT_SCHEMA_VERSION for envelope in envelopes):
-        raise RuntimeError("Redis Stream contains a non-v1 Execution event.")
+        raise RuntimeError("Redis Stream contains a non-v2 Execution event.")
 
     notebook_path = terminal["workspace"]["notebook_path"]
     if not notebook_path:

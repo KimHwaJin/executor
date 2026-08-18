@@ -8,6 +8,8 @@ from uuid import uuid4
 
 import pytest
 import pytest_asyncio
+from alembic import command
+from alembic.config import Config
 from redis.asyncio import Redis
 from sqlalchemy import func, select, text
 from sqlalchemy.engine import make_url
@@ -36,7 +38,6 @@ from executor_service.domain.enums import (
     TriggerType,
 )
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
-from executor_service.infrastructure.db.base import Base
 from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
     ExecutionOperationORM,
@@ -52,6 +53,13 @@ from executor_service.infrastructure.worker import ExecutionWorker
 from executor_service.tracing import TracingManager
 
 pytestmark = pytest.mark.postgres
+
+
+def _upgrade_and_check_baseline(database_url: str) -> None:
+    config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+    config.attributes["database_url"] = database_url
+    command.upgrade(config, "head")
+    command.check(config)
 
 
 @pytest_asyncio.fixture
@@ -73,8 +81,10 @@ async def postgres_engine() -> AsyncIterator[AsyncEngine]:
 
     engine = create_engine(database_url.render_as_string(hide_password=False))
     try:
-        async with engine.begin() as connection:
-            await connection.run_sync(Base.metadata.create_all)
+        await asyncio.to_thread(
+            _upgrade_and_check_baseline,
+            database_url.render_as_string(hide_password=False),
+        )
         yield engine
     finally:
         await engine.dispose()

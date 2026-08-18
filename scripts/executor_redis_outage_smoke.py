@@ -11,6 +11,7 @@ from resilience_common import (
     available_port,
     cleanup_streams,
     events,
+    require_exclusive_executor_control,
     start_executor,
     stop_executor,
     submit_static,
@@ -21,12 +22,14 @@ from resilience_common import (
 
 
 async def main() -> None:
+    await require_exclusive_executor_control()
     unique = uuid4().hex
     port = available_port("REDIS_OUTAGE_SMOKE_PORT")
     pause_milliseconds = int(os.getenv("REDIS_OUTAGE_PAUSE_MILLISECONDS", "8000"))
     if pause_milliseconds < 5000:
         raise ValueError("REDIS_OUTAGE_PAUSE_MILLISECONDS must be at least 5000.")
-    stream = f"executor.events.redis-outage-smoke.{unique}"
+    work_stream = f"executor.work.redis-outage-smoke.{unique}"
+    event_stream = f"{work_stream}.events"
     group = f"executor-redis-outage-smoke-{unique}"
     process: asyncio.subprocess.Process | None = None
     pause_started: float | None = None
@@ -38,7 +41,7 @@ async def main() -> None:
         process = await start_executor(
             port=port,
             consumer_name="redis-outage-smoke",
-            stream=stream,
+            stream=work_stream,
             group=group,
             extra_environment={"OUTBOX_POLL_INTERVAL_SECONDS": "0.1"},
         )
@@ -94,9 +97,21 @@ async def main() -> None:
                 await asyncio.sleep(0.1)
             else:
                 raise RuntimeError(f"Outbox did not recover after Redis resumed: {timeline}")
-            stream_entries = await redis.xrange(stream)
-            if not stream_entries:
-                raise RuntimeError("Recovered Outbox did not publish to Redis Stream.")
+            work_entries = await redis.xrange(work_stream)
+            event_entries = await redis.xrange(event_stream)
+            if not work_entries:
+                raise RuntimeError("Recovered Outbox did not publish to the work Stream.")
+            postgres_event_ids = {str(event["event_id"]) for event in timeline}
+            redis_event_ids = {
+                fields["event_id"]
+                for _, fields in event_entries
+                if fields.get("aggregate_id") == execution_id
+            }
+            if redis_event_ids != postgres_event_ids:
+                raise RuntimeError(
+                    "Recovered integration Stream and PostgreSQL Outbox differ: "
+                    f"postgres={postgres_event_ids}, redis={redis_event_ids}"
+                )
 
         print("execution_id:", execution_id)
         print("execution_status:", succeeded["state"]["status"])
@@ -104,7 +119,8 @@ async def main() -> None:
         print("redis_pause_milliseconds:", pause_milliseconds)
         print("outbox_event_count:", len(timeline))
         print("all_events_published:", True)
-        print("stream_entry_count:", len(stream_entries))
+        print("work_stream_entry_count:", len(work_entries))
+        print("event_stream_entry_count:", len(redis_event_ids))
     finally:
         if pause_started is not None:
             remaining_pause = pause_milliseconds / 1000 - (monotonic() - pause_started)
@@ -112,7 +128,7 @@ async def main() -> None:
                 await asyncio.sleep(remaining_pause + 0.1)
         await stop_executor(process)
         try:
-            await cleanup_streams(redis, stream)
+            await cleanup_streams(redis, work_stream)
         finally:
             await redis.aclose()
 

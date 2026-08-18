@@ -12,6 +12,7 @@ from resilience_common import (
     available_port,
     cleanup_streams,
     execution,
+    require_exclusive_executor_control,
     start_executor,
     stop_executor,
     submit_static,
@@ -47,6 +48,7 @@ async def _probe(client: Client, server_id: str) -> dict[str, Any]:
 
 
 async def main() -> None:
+    await require_exclusive_executor_control()
     unique = uuid4().hex
     execution_count = int(os.getenv("RESILIENCE_EXECUTION_COUNT", "30"))
     if not 20 <= execution_count <= 60:
@@ -56,7 +58,7 @@ async def main() -> None:
     secondary_port = available_port("LOAD_SMOKE_SECONDARY_PORT")
     if secondary_port == primary_port:
         raise ValueError("Load smoke Executor ports must differ.")
-    stream = f"executor.events.load-smoke.{unique}"
+    work_stream = f"executor.work.load-smoke.{unique}"
     group = f"executor-load-smoke-{unique}"
     primary: asyncio.subprocess.Process | None = None
     secondary: asyncio.subprocess.Process | None = None
@@ -64,14 +66,14 @@ async def main() -> None:
         primary = await start_executor(
             port=primary_port,
             consumer_name=PRIMARY_CONSUMER,
-            stream=stream,
+            stream=work_stream,
             group=group,
         )
         await wait_ready(primary_port)
         secondary = await start_executor(
             port=secondary_port,
             consumer_name=SECONDARY_CONSUMER,
-            stream=stream,
+            stream=work_stream,
             group=group,
         )
         await wait_ready(secondary_port)
@@ -243,7 +245,7 @@ async def main() -> None:
             decode_responses=True,
         )
         try:
-            await cleanup_streams(redis, stream)
+            await cleanup_streams(redis, work_stream)
         finally:
             await redis.aclose()
 

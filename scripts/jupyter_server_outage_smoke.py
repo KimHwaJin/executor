@@ -12,6 +12,7 @@ from resilience_common import (
     cleanup_streams,
     execution,
     probe_runtime_target,
+    require_exclusive_executor_control,
     start_executor,
     stop_executor,
     submit_static,
@@ -51,9 +52,10 @@ async def main() -> None:
             "Set ALLOW_DOCKER_JUPYTER_OUTAGE_TEST=1 to permit the temporary local "
             "jupyter-secondary stop."
         )
+    await require_exclusive_executor_control()
     unique = uuid4().hex
     port = available_port("JUPYTER_OUTAGE_SMOKE_PORT")
-    stream = f"executor.events.jupyter-outage-smoke.{unique}"
+    work_stream = f"executor.work.jupyter-outage-smoke.{unique}"
     group = f"executor-jupyter-outage-smoke-{unique}"
     process: asyncio.subprocess.Process | None = None
     secondary_restored = False
@@ -70,7 +72,7 @@ async def main() -> None:
         process = await start_executor(
             port=port,
             consumer_name="jupyter-outage-smoke",
-            stream=stream,
+            stream=work_stream,
             group=group,
         )
         await wait_ready(port)
@@ -188,7 +190,7 @@ async def main() -> None:
             decode_responses=True,
         )
         try:
-            await cleanup_streams(redis, stream)
+            await cleanup_streams(redis, work_stream)
         finally:
             await redis.aclose()
 
