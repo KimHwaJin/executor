@@ -2,8 +2,8 @@
 
 Asynchronous Runtime execution control plane exposed through MCP 2026-07-28 Streamable HTTP and a
 versioned REST API. PostgreSQL is the source of truth. MCP Tool and REST calls persist work and
-return immediately while a Redis consumer worker executes STATIC plans or incrementally submitted
-DYNAMIC operations through a Runtime Driver. Jupyter REST/WebSocket is the first implemented driver.
+return immediately while a Redis consumer worker executes SINGLE work or incrementally submitted
+MULTI Operations through a Runtime Driver. Jupyter REST/WebSocket is the first implemented driver.
 
 ## Implemented scope
 
@@ -11,7 +11,7 @@ DYNAMIC operations through a Runtime Driver. Jupyter REST/WebSocket is the first
 - REST execution facade, OpenAPI, Swagger UI, and ReDoc under `/api/v1`, `/openapi.json`, `/docs`,
   and `/redoc`
 - Execution tools: `execution_submit`, `execution_get`,
-  `execution_cancel`, `execution_retry`, `execution_continue`, `execution_finish`,
+  `execution_cancel`, `execution_retry`, `execution_operation_create`, `execution_finalize`,
   `execution_list`, `execution_step_list`, `execution_attempt_list`,
   `execution_attempt_get`, `execution_attempt_step_list`,
   `execution_notebook_read`, `execution_notebook_cell_read`,
@@ -30,8 +30,8 @@ DYNAMIC operations through a Runtime Driver. Jupyter REST/WebSocket is the first
 - Strict INTERACTIVE/BATCH Runtime scheduling isolation with a two-target local BATCH topology
 - Safe target draining and retained-session retry from a failed Step
 - Classified Tool/infrastructure failures, graceful Worker shutdown, and FROM_START recovery
-- Append-only DYNAMIC cells with optimistic version checks and same-session continuation
-- Dynamic wait/total runtime deadlines, retained-session audits, and orphan cleanup
+- Append-only MULTI Operations with optimistic version checks and same-session continuation
+- Operation wait/total runtime deadlines, retained-session audits, and orphan cleanup
 - Immutable per-Attempt Step history and an end-to-end execution event trace
 - Automatic and Manifest-based Artifact registration with checksum and lineage
 - Runtime-owned `.ipynb` output and execution-scoped artifacts on Jupyter shared storage; Executor
@@ -45,9 +45,9 @@ DYNAMIC operations through a Runtime Driver. Jupyter REST/WebSocket is the first
 
 MCP Tasks are deliberately not used. `execution_submit` returns an `execution_id` while the
 execution starts as `QUEUED`. Poll with `execution_get` or request cancellation with
-`execution_cancel`. DYNAMIC execution accepts one or more initial cells as an Operation, returns
-`WAITING_FOR_CONTINUE` after the Operation succeeds or fails, and accepts another append-only
-Operation through `execution_continue`. `execution_finish` persists the final notebook and deletes the
+`execution_cancel`. MULTI execution accepts one or more initial Steps as an Operation, returns
+`WAITING_FOR_OPERATION` after the Operation succeeds or fails, and accepts another append-only
+Operation through `execution_operation_create`. `execution_finalize` persists the final notebook and deletes the
 retained Runtime session. MCP Tasks are not required for this lifecycle.
 
 ## External test harnesses
@@ -183,9 +183,9 @@ uv run python scripts/jupyter_gateway_smoke.py
 uv run python scripts/jupyter_execution_smoke.py
 uv run python scripts/path_execution_spec_smoke.py
 uv run python scripts/single_jupyter_smoke.py
-uv run python scripts/static_execution_observability_smoke.py
-uv run python scripts/jupyter_dynamic_smoke.py
-uv run python scripts/jupyter_dynamic_lifecycle_smoke.py
+uv run python scripts/single_execution_observability_smoke.py
+uv run python scripts/jupyter_multi_smoke.py
+uv run python scripts/jupyter_multi_lifecycle_smoke.py
 uv run python scripts/jupyter_cancel_smoke.py
 uv run python scripts/jupyter_failure_smoke.py
 uv run python scripts/jupyter_fleet_smoke.py
@@ -234,48 +234,47 @@ uv run alembic upgrade head
 The same execution lifecycle is available as REST without internally calling MCP. REST requests
 and responses have transport-specific DTOs but map to the same application commands, PostgreSQL
 transactions, Outbox, and Worker. See [Executor REST API v1](docs/rest-api.md) for every endpoint
-and runnable curl examples.
+and request examples.
 
 `execution_submit` accepts one `request` object. Important fields are:
 
 - `idempotency_key`: required for safe retries; reuse with different content is rejected
-- `mode`: `STATIC` or `DYNAMIC`
-- `trigger_type`: `INTERACTIVE` or `BATCH`
-- `runtime_type`: Runtime Driver kind; currently `JUPYTER`
-- `runtime_profile`: one of the target's supported profiles; for Jupyter this is a kernelspec name
-- `source`: either an INLINE ExecutionSpec or an Agent/Executor input-storage PATH plus SHA-256
+- `lifecycle.operation_mode`: `SINGLE` or `MULTI`
+- `trigger.type`: `INTERACTIVE` or `BATCH`; `trigger.actor` is the audit principal
+- `runtime.type`: Runtime Driver kind; currently `JUPYTER`
+- `runtime.profile`: one of the target's supported profiles; for Jupyter this is a kernelspec name
+- `operation.source`: either an INLINE ExecutionSpec or input-storage PATH plus SHA-256
+- `operation.operation_timeout_seconds`: optional whole-Operation limit
 - `context`: Agent-owned user/project/session/Task IDs; Executor creates `execution_id`
-- `actor`: required audit principal with type `USER` or `BATCH` and a stable upstream ID
 
 Every public mutation records `created_by`/`updated_by` attribution on the affected Execution,
 Step, Attempt, Artifact, Outbox Event, or Runtime Target where applicable. `context.user_id` owns
-the Execution and its results. Interactive submits require a `USER` actor whose `actor.id` exactly
-matches `context.user_id`. Batch submits require a `BATCH` actor; its ID identifies the schedule or
-manual batch trigger and may differ from the owning user. Additional autonomous actor types remain
-deferred in [Deferred Decisions](docs/deferred-decisions.md#dd-003-additional-audit-actor-types).
+the Execution and its results. Interactive submits accept `AGENT` or `USER`; a USER actor ID must
+match `context.user_id`. Batch submits require a `BATCH` actor whose ID identifies the schedule or
+manual batch trigger and may differ from the owning user.
 
 `runtime_pool` is not accepted from callers. Executor derives `INTERACTIVE` or `BATCH` from
-`trigger_type`, then selects a healthy compatible Runtime Target with available capacity inside
+`trigger.type`, then selects a healthy compatible Runtime Target with available capacity inside
 that pool.
-`BATCH` submissions must include `context.workflow_id`; interactive submissions may omit it.
+`context.workflow_id` is optional for both triggers.
 
 INLINE and PATH resolve to the same versioned ExecutionSpec. INLINE embeds `source.spec`; PATH
 references a UTF-8 JSON file under `INPUT_HOST_ROOT` using a relative path and required SHA-256.
-The spec owns `execution_plan_id` and ordered Steps containing `plan_step_id`, code, and optional
-Skill/Tool metadata. Executor persists the normalized source and creates one ExecutionStep and one
-Notebook code cell per spec Step. See [ExecutionSpec v1](docs/execution-spec.md).
+The spec owns ordered Steps containing a typed payload, optional Step timeout, and optional
+Skill/Tool lineage. Executor persists the normalized source and creates one ExecutionStep per spec
+Step. The current Jupyter Driver executes each CODE Step as one code cell. See
+[ExecutionSpec v1](docs/execution-spec.md).
 
-For `DYNAMIC`, submit one or more consecutive ExecutionSpec Steps starting at sequence `0`. After the execution reaches
-`WAITING_FOR_CONTINUE`, call `execution_continue` with the current `version`, a new idempotency
+For `MULTI`, submit one or more consecutive ExecutionSpec Steps starting at sequence `0`. After the execution reaches
+`WAITING_FOR_OPERATION`, call `execution_operation_create` with the current `version`, a new idempotency
 key, and an INLINE or PATH ExecutionSpec containing one or more next consecutive Steps. A stale
 version, gap, or duplicate sequence is rejected. Each Operation records its source and
-ExecutionPlan provenance, and each Step records its Agent-owned
-`execution_plan_id` and `plan_step_id`. A cell error is recorded as a failed Step and returns to the
-waiting state so the Agent can append a corrected follow-up cell; already executed cells are never
-rewritten. Call `execution_finish` with the current version when no more cells are needed. If the
-retained Runtime session is lost or an infrastructure failure makes its state untrustworthy, the DYNAMIC
+source provenance, metadata, and Executor-owned IDs. A Runtime error is recorded as a failed Step and returns to the
+waiting state so the Agent can append a corrected follow-up Operation; already executed Steps are
+never rewritten. Call `execution_finalize` with the current version when no more Steps are needed. If the
+retained Runtime session is lost or an infrastructure failure makes its state untrustworthy, the MULTI
 execution fails as non-retryable; the Agent must submit a new Execution because automatic replay
-of already executed dynamic cells is intentionally not supported.
+of already executed Steps is intentionally not supported.
 
 ## Storage ownership
 
@@ -291,19 +290,19 @@ of already executed dynamic cells is intentionally not supported.
   fall back to another healthy target attached to the same shared storage.
 
 `EXECUTION_MAX_RUNTIME_SECONDS` defaults to five days and starts when a worker first claims the
-Execution. `DYNAMIC_STEP_WAIT_TIMEOUT_SECONDS` defaults to one hour and is reset after every
-dynamic cell. The effective wait deadline never exceeds the total execution deadline. A missed
-Agent deadline produces `DYNAMIC_WAIT_TIMEOUT`; a missing retained session produces
-`RUNTIME_SESSION_LOST`. A disabled Runtime Target produces `RUNTIME_UNAVAILABLE`. These terminal
-dynamic failures are non-retryable and their sessions are deleted when still reachable. Temporary health-probe
+Execution. Each MULTI request supplies `lifecycle.operation_wait_timeout_seconds`; its deadline is
+reset after every Operation and never exceeds the total Execution deadline. A missed Agent deadline
+produces `OPERATION_WAIT_TIMEOUT`; a missing retained session produces `RUNTIME_SESSION_LOST`.
+A disabled Runtime Target produces `RUNTIME_UNAVAILABLE`. These terminal MULTI failures are
+non-retryable and their sessions are deleted when still reachable. Temporary health-probe
 `OFFLINE` state alone does not immediately fail waiting work; the persisted deadline remains the
 guard while the server recovers.
 
 `execution_cancel` also requires an idempotency key. It first records `CANCEL_REQUESTED`; the
 worker then interrupts and deletes the Runtime session before recording `CANCELLED`.
 
-`execution_retry` is accepted only for a `FAILED` STATIC execution with a supported
-`retry_strategy`. It returns the same `operation_id` accepted at submit time and creates a new
+`execution_retry` is accepted only for a `FAILED` SINGLE execution with a supported
+`retry_strategy`. Its `operation.operation_id` is the same ID accepted at submit time and it creates a new
 Attempt; it does not create a new Operation. A
 notebook cell error preserves that session for `FAILED_SESSION_RETENTION_SECONDS` and uses
 `FROM_FAILED_STEP`. Worker shutdown, lease expiry, and Runtime connectivity failure use
@@ -454,8 +453,8 @@ metadata is written to `REDIS_WORK_DEAD_LETTER_STREAM`. Executor Workers never c
 integration events. See [Event Delivery](docs/event-delivery.md)
 for the ACK, reclaim, and DLQ contract.
 
-Active attempts renew a PostgreSQL lease. A dynamic Attempt in
-`WAITING_FOR_CONTINUE` releases its worker lease but keeps its session reservation, so it counts
+Active attempts renew a PostgreSQL lease. A MULTI Attempt in
+`WAITING_FOR_OPERATION` releases its worker lease but keeps its session reservation, so it counts
 against that Runtime Target's capacity. A background audit verifies retained sessions and enforces
 both stored deadlines after Executor restarts. An expired active lease is failed safely and can be
 retried by a later retry workflow; automatic re-execution is intentionally not enabled yet.
@@ -467,15 +466,15 @@ frontend execution event timeline.
 
 Every published Stream entry and JSON payload uses the versioned Executor event contract. Agent
 consumers must use their own consumer group and durably deduplicate on `event_id` before ACK. See
-[Execution Event Contract v1](docs/execution-events-v1.md) and the reference
+[Execution Event Contract v2](docs/execution-events-v2.md) and the reference
 `scripts/agent_event_consumer_example.py`.
 
-The real-Jupyter regression suite includes a combined STATIC failure/retry/cancellation scenario
+The real-Jupyter regression suite includes a combined SINGLE failure/retry/cancellation scenario
 that reconciles REST/MCP history with PostgreSQL, Outbox, Redis, PV Artifacts, and Runtime sessions.
 See [Executor Resilience Testing](docs/executor-resilience-testing.md).
 
-The same suite covers DYNAMIC same-kernel continuation, append-only failure correction, explicit
-finish, and running cancellation through `scripts/dynamic_execution_lifecycle_e2e.py`.
+The same suite covers MULTI same-session continuation, append-only failure correction, explicit
+finalization, and running cancellation through `scripts/multi_execution_lifecycle_e2e.py`.
 
 No database migration runs automatically during service startup. Deployments must run Alembic as
 a release or init job before readiness can pass.

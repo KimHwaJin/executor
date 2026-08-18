@@ -13,8 +13,8 @@ from pydantic import Field
 
 from executor_service.application.commands import (
     CancelExecutionCommand,
-    ContinueExecutionCommand,
-    FinishExecutionCommand,
+    CreateOperationCommand,
+    FinalizeExecutionCommand,
     RetryExecutionCommand,
     StepSpec,
 )
@@ -60,8 +60,8 @@ from executor_service.interfaces.contracts import (
 )
 from executor_service.interfaces.mcp.schemas import (
     ExecutionCancelRequest,
-    ExecutionContinueRequest,
-    ExecutionFinishRequest,
+    ExecutionFinalizeRequest,
+    ExecutionOperationCreateRequest,
     ExecutionRetryRequest,
     RuntimeTargetDisableRequest,
     RuntimeTargetProbeRequest,
@@ -124,7 +124,7 @@ def build_mcp_server(
                 raise ToolError(
                     f"[{ErrorCode.INTERNAL_ERROR}] ExecutionSpec resolver is not configured."
                 )
-            resolved = await execution_spec_resolver.resolve(request.source)
+            resolved = await execution_spec_resolver.resolve(request.operation.source)
             if resolved.spec.steps[0].sequence != 0:
                 raise ToolError(
                     f"[{ErrorCode.INVALID_EXECUTION_SPEC}] Execution submit requires an "
@@ -219,12 +219,14 @@ def build_mcp_server(
 
     @server.tool(
         description=(
-            "Append and queue one or more consecutive cells as the next Operation for a "
-            "waiting DYNAMIC execution. "
+            "Append and queue one or more consecutive Steps as the next Operation for a "
+            "waiting MULTI execution. "
             "expected_version prevents stale Agent decisions from being accepted."
         )
     )
-    async def execution_continue(request: ExecutionContinueRequest) -> ExecutionCommandResponse:
+    async def execution_operation_create(
+        request: ExecutionOperationCreateRequest,
+    ) -> ExecutionCommandResponse:
         try:
             if execution_spec_resolver is None:
                 raise ToolError(
@@ -234,12 +236,15 @@ def build_mcp_server(
             source_steps = resolved.spec.steps
             result = await _trace_call(
                 tracing,
-                "executor.mcp.execution_continue",
-                execution_service.continue_execution_result(
-                    ContinueExecutionCommand(
+                "executor.mcp.execution_operation_create",
+                execution_service.create_operation_result(
+                    CreateOperationCommand(
                         execution_id=request.execution_id,
                         idempotency_key=request.idempotency_key,
                         expected_version=request.expected_version,
+                        source_content=resolved.canonical_content,
+                        operation_timeout_seconds=request.operation_timeout_seconds,
+                        metadata=request.metadata,
                         code_source_type=request.source.type,
                         code_path=(
                             request.source.path
@@ -251,8 +256,7 @@ def build_mcp_server(
                             StepSpec(
                                 sequence=source_step.sequence,
                                 code=source_step.code,
-                                execution_plan_id=resolved.spec.execution_plan_id,
-                                plan_step_id=source_step.plan_step_id,
+                                step_timeout_seconds=source_step.step_timeout_seconds,
                                 skill_name=source_step.skill_name,
                                 tool_name=source_step.tool_name,
                                 input_parameters=source_step.input_parameters,
@@ -276,18 +280,15 @@ def build_mcp_server(
         )
 
     @server.tool(
-        description=(
-            "Finalize a waiting DYNAMIC execution, persist its notebook, and stop its "
-            "Runtime session."
-        )
+        description=("Finalize a waiting MULTI execution and release its retained Runtime session.")
     )
-    async def execution_finish(request: ExecutionFinishRequest) -> ExecutionCommandResponse:
+    async def execution_finalize(request: ExecutionFinalizeRequest) -> ExecutionCommandResponse:
         try:
             execution = await _trace_call(
                 tracing,
-                "executor.mcp.execution_finish",
-                execution_service.finish_execution(
-                    FinishExecutionCommand(
+                "executor.mcp.execution_finalize",
+                execution_service.finalize_execution(
+                    FinalizeExecutionCommand(
                         execution_id=request.execution_id,
                         idempotency_key=request.idempotency_key,
                         expected_version=request.expected_version,

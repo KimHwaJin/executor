@@ -61,30 +61,41 @@ async def rest_client(
 def _submit_payload(
     *,
     key: str = "rest-submit-1",
-    mode: str = "STATIC",
-    plan_id: str = "plan-rest-1",
+    operation_mode: str = "SINGLE",
 ) -> dict[str, Any]:
     return {
         "idempotency_key": key,
-        "mode": mode,
-        "trigger_type": "INTERACTIVE",
-        "runtime_profile": "basic",
-        "source": {
-            "type": "INLINE",
-            "spec": {
-                "schema_version": "1.0",
-                "execution_plan_id": plan_id,
-                "steps": [
-                    {
-                        "sequence": 0,
-                        "plan_step_id": f"{plan_id}-step-0",
-                        "skill_name": "data_load",
-                        "tool_name": "load_data",
-                        "input_parameters": {"product": "A"},
-                        "code": "print('hello from REST')",
-                    }
-                ],
+        "lifecycle": {
+            "operation_mode": operation_mode,
+            **({"operation_wait_timeout_seconds": 600} if operation_mode == "MULTI" else {}),
+        },
+        "trigger": {
+            "type": "INTERACTIVE",
+            "actor": {"type": "USER", "id": "rest-user"},
+        },
+        "runtime": {"type": "JUPYTER", "profile": "basic"},
+        "operation": {
+            "source": {
+                "type": "INLINE",
+                "spec": {
+                    "schema_version": "1.0",
+                    "steps": [
+                        {
+                            "sequence": 0,
+                            "payload": {
+                                "type": "CODE",
+                                "content": "print('hello from REST')",
+                            },
+                            "lineage": {
+                                "skill_name": "data_load",
+                                "tool_name": "load_data",
+                                "input_parameters": {"product": "A"},
+                            },
+                        }
+                    ],
+                },
             },
+            "metadata": {"phase": "initial"},
         },
         "context": {
             "user_id": "rest-user",
@@ -92,7 +103,6 @@ def _submit_payload(
             "session_id": "rest-session",
             "task_id": "rest-task",
         },
-        "actor": {"type": "USER", "id": "rest-user"},
         "metadata": {"caller": "integration-test"},
     }
 
@@ -112,8 +122,8 @@ async def test_openapi_documents_all_execution_routes(
         "/api/v1/executions/{execution_id}",
         "/api/v1/executions/{execution_id}/cancel",
         "/api/v1/executions/{execution_id}/retry",
-        "/api/v1/executions/{execution_id}/continue",
-        "/api/v1/executions/{execution_id}/finish",
+        "/api/v1/executions/{execution_id}/operations",
+        "/api/v1/executions/{execution_id}/finalize",
         "/api/v1/executions/{execution_id}/notebook",
         "/api/v1/executions/{execution_id}/notebook/cells/{cell_index}",
         "/api/v1/executions/{execution_id}/steps",
@@ -133,6 +143,41 @@ async def test_openapi_documents_all_execution_routes(
     assert invalid.status_code == 422
     assert invalid.json()["error"]["code"] == "REQUEST_VALIDATION_ERROR"
     assert "must-not-leak" not in invalid.text
+
+
+async def test_submit_contract_validates_lifecycle_and_optional_scope(
+    rest_client: tuple[httpx.AsyncClient, ApplicationContainer],
+) -> None:
+    client, _ = rest_client
+
+    single_with_wait = _submit_payload(key="single-with-wait")
+    single_with_wait["lifecycle"]["operation_wait_timeout_seconds"] = 600
+    response = await client.post("/api/v1/executions", json=single_with_wait)
+    assert response.status_code == 422
+
+    multi_without_wait = _submit_payload(key="multi-without-wait", operation_mode="MULTI")
+    multi_without_wait["lifecycle"].pop("operation_wait_timeout_seconds")
+    response = await client.post("/api/v1/executions", json=multi_without_wait)
+    assert response.status_code == 422
+
+    unscoped = _submit_payload(key="optional-scope")
+    unscoped["context"].pop("project_id")
+    unscoped["context"].pop("session_id")
+    response = await client.post("/api/v1/executions", json=unscoped)
+    assert response.status_code == 202
+    fetched = await client.get(response.headers["location"])
+    assert fetched.json()["context"]["project_id"] is None
+    assert fetched.json()["context"]["session_id"] is None
+
+    session_without_project = _submit_payload(key="session-without-project")
+    session_without_project["context"].pop("project_id")
+    response = await client.post("/api/v1/executions", json=session_without_project)
+    assert response.status_code == 422
+
+    reserved_scope = _submit_payload(key="reserved-scope")
+    reserved_scope["context"]["project_id"] = "unscoped"
+    response = await client.post("/api/v1/executions", json=reserved_scope)
+    assert response.status_code == 422
 
 
 async def test_rest_reads_runtime_owned_notebook_and_cell_outputs(
@@ -199,7 +244,7 @@ class _NotebookStorage(RuntimeStorageAccess):
         return self.notebook
 
 
-async def test_static_execution_rest_lifecycle_and_queries(
+async def test_single_execution_rest_lifecycle_and_queries(
     rest_client: tuple[httpx.AsyncClient, ApplicationContainer],
 ) -> None:
     client, _ = rest_client
@@ -209,9 +254,11 @@ async def test_static_execution_rest_lifecycle_and_queries(
     execution_id = body["execution_id"]
     assert submitted.headers["location"] == f"/api/v1/executions/{execution_id}"
     assert body["state"]["status"] == "QUEUED"
+    assert body["operation"]["steps"][0]["sequence"] == 0
+    assert body["operation"]["steps"][0]["step_id"]
     assert set(body) == {
         "execution_id",
-        "operation_id",
+        "operation",
         "state",
         "created_by_type",
         "created_by",
@@ -242,10 +289,10 @@ async def test_static_execution_rest_lifecycle_and_queries(
     assert history.json()["has_more"] is False
     assert steps.json()["items"][0]["step_id"] == step_id
     assert steps.json()["items"][0]["execution_id"] == execution_id
-    assert step.json()["plan"]["plan_step_id"] == "plan-rest-1-step-0"
+    assert step.json()["lineage"]["tool_name"] == "load_data"
     assert attempts.json()["items"] == []
     assert events.json()["items"][0]["event_type"] == "execution.submitted"
-    assert events.json()["items"][0]["payload"]["schema_version"] == "1.0"
+    assert events.json()["items"][0]["payload"]["schema_version"] == "2.0"
     assert artifacts.json()["items"] == []
     assert events.json()["items"][0]["delivery"]["status"] == "PENDING"
     assert body["created_by_type"] == "USER"
@@ -272,10 +319,7 @@ async def test_execution_history_cursor_pagination_and_invalid_cursor(
     for index in range(3):
         response = await client.post(
             "/api/v1/executions",
-            json=_submit_payload(
-                key=f"rest-page-{index}",
-                plan_id=f"rest-page-plan-{index}",
-            ),
+            json=_submit_payload(key=f"rest-page-{index}"),
         )
         assert response.status_code == 202
         submitted_ids.add(response.json()["execution_id"])
@@ -308,7 +352,7 @@ async def test_attempt_detail_and_step_attempt_routes(
     client, container = rest_client
     submitted = await client.post(
         "/api/v1/executions",
-        json=_submit_payload(key="rest-attempt-submit", plan_id="rest-attempt-plan"),
+        json=_submit_payload(key="rest-attempt-submit"),
     )
     execution_id = UUID(submitted.json()["execution_id"])
     steps = await client.get(f"/api/v1/executions/{execution_id}/steps")
@@ -378,13 +422,13 @@ async def test_attempt_detail_and_step_attempt_routes(
     assert wrong_parent.json()["error"]["code"] == "EXECUTION_ATTEMPT_NOT_FOUND"
 
 
-async def test_dynamic_continue_and_finish_rest_api(
+async def test_multi_operation_create_and_finalize_rest_api(
     rest_client: tuple[httpx.AsyncClient, ApplicationContainer],
 ) -> None:
     client, container = rest_client
     submitted = await client.post(
         "/api/v1/executions",
-        json=_submit_payload(key="rest-dynamic-1", mode="DYNAMIC", plan_id="dynamic-plan-1"),
+        json=_submit_payload(key="rest-multi-1", operation_mode="MULTI"),
     )
     execution_id = UUID(submitted.json()["execution_id"])
 
@@ -392,7 +436,7 @@ async def test_dynamic_continue_and_finish_rest_api(
         await session.execute(
             update(ExecutionORM)
             .where(ExecutionORM.id == execution_id)
-            .values(status=ExecutionStatus.WAITING_FOR_CONTINUE, version=1)
+            .values(status=ExecutionStatus.WAITING_FOR_OPERATION, version=1)
         )
         await session.execute(
             update(ExecutionStepORM)
@@ -401,25 +445,30 @@ async def test_dynamic_continue_and_finish_rest_api(
         )
 
     continued = await client.post(
-        f"/api/v1/executions/{execution_id}/continue",
+        f"/api/v1/executions/{execution_id}/operations",
         json={
-            "idempotency_key": "rest-continue-1",
+            "idempotency_key": "rest-operation-1",
             "expected_version": 1,
+            "operation_timeout_seconds": 900,
+            "metadata": {"phase": "follow-up"},
             "source": {
                 "type": "INLINE",
                 "spec": {
                     "schema_version": "1.0",
-                    "execution_plan_id": "dynamic-plan-2",
                     "steps": [
                         {
                             "sequence": 1,
-                            "plan_step_id": "dynamic-plan-2-step-1",
-                            "code": "print('next dynamic step')",
+                            "payload": {
+                                "type": "CODE",
+                                "content": "print('next MULTI step')",
+                            },
                         },
                         {
                             "sequence": 2,
-                            "plan_step_id": "dynamic-plan-2-step-2",
-                            "code": "print('another dynamic step')",
+                            "payload": {
+                                "type": "CODE",
+                                "content": "print('another MULTI step')",
+                            },
                         },
                     ],
                 },
@@ -430,25 +479,30 @@ async def test_dynamic_continue_and_finish_rest_api(
     assert continued.status_code == 202
     assert continued.json()["state"]["status"] == "QUEUED"
     continued_repeat = await client.post(
-        f"/api/v1/executions/{execution_id}/continue",
+        f"/api/v1/executions/{execution_id}/operations",
         json={
-            "idempotency_key": "rest-continue-1",
+            "idempotency_key": "rest-operation-1",
             "expected_version": 1,
+            "operation_timeout_seconds": 900,
+            "metadata": {"phase": "follow-up"},
             "source": {
                 "type": "INLINE",
                 "spec": {
                     "schema_version": "1.0",
-                    "execution_plan_id": "dynamic-plan-2",
                     "steps": [
                         {
                             "sequence": 1,
-                            "plan_step_id": "dynamic-plan-2-step-1",
-                            "code": "print('next dynamic step')",
+                            "payload": {
+                                "type": "CODE",
+                                "content": "print('next MULTI step')",
+                            },
                         },
                         {
                             "sequence": 2,
-                            "plan_step_id": "dynamic-plan-2-step-2",
-                            "code": "print('another dynamic step')",
+                            "payload": {
+                                "type": "CODE",
+                                "content": "print('another MULTI step')",
+                            },
                         },
                     ],
                 },
@@ -457,13 +511,20 @@ async def test_dynamic_continue_and_finish_rest_api(
         },
     )
     assert continued_repeat.status_code == 202
-    assert continued_repeat.json()["operation_id"] == continued.json()["operation_id"]
+    assert continued_repeat.json()["operation"] == continued.json()["operation"]
     continued_steps = await client.get(f"/api/v1/executions/{execution_id}/steps")
     assert [step["sequence"] for step in continued_steps.json()["items"]] == [0, 1, 2]
-    operation_id = continued.json()["operation_id"]
+    operation_id = continued.json()["operation"]["operation_id"]
     operation = await client.get(f"/api/v1/executions/{execution_id}/operations/{operation_id}")
     assert operation.status_code == 200
     assert operation.json()["sequence_range"] == {"first": 1, "last": 2}
+    assert operation.json()["operation_timeout_seconds"] == 900
+    assert operation.json()["metadata"] == {"phase": "follow-up"}
+    async with container.session_factory() as session:
+        operation_row = await session.get(ExecutionOperationORM, UUID(operation_id))
+    assert operation_row is not None
+    persisted_source = json.loads(operation_row.source_content)
+    assert [step["sequence"] for step in persisted_source["steps"]] == [1, 2]
     operation_steps = await client.get(
         f"/api/v1/executions/{execution_id}/operations/{operation_id}/steps"
     )
@@ -473,19 +534,19 @@ async def test_dynamic_continue_and_finish_rest_api(
         await session.execute(
             update(ExecutionORM)
             .where(ExecutionORM.id == execution_id)
-            .values(status=ExecutionStatus.WAITING_FOR_CONTINUE, version=3)
+            .values(status=ExecutionStatus.WAITING_FOR_OPERATION, version=3)
         )
 
     finished = await client.post(
-        f"/api/v1/executions/{execution_id}/finish",
+        f"/api/v1/executions/{execution_id}/finalize",
         json={
-            "idempotency_key": "rest-finish-1",
+            "idempotency_key": "rest-finalize-1",
             "expected_version": 3,
             "actor": {"type": "USER", "id": "rest-user"},
         },
     )
     assert finished.status_code == 202
-    assert finished.json()["state"]["status"] == "QUEUED"
+    assert finished.json()["state"]["status"] == "FINALIZING"
     assert finished.json()["state"]["version"] == 4
 
 
@@ -495,12 +556,10 @@ async def test_path_execution_spec_rest_submit(
     client, container = rest_client
     spec = {
         "schema_version": "1.0",
-        "execution_plan_id": "path-plan",
         "steps": [
             {
                 "sequence": 0,
-                "plan_step_id": "path-plan-step-0",
-                "code": "print('PATH source')",
+                "payload": {"type": "CODE", "content": "print('PATH source')"},
             }
         ],
     }
@@ -509,8 +568,8 @@ async def test_path_execution_spec_rest_submit(
     source_path = container.settings.input_host_root / relative_path
     source_path.parent.mkdir(parents=True)
     source_path.write_bytes(content)
-    payload = _submit_payload(key="rest-path-submit", plan_id="ignored-inline-plan")
-    payload["source"] = {
+    payload = _submit_payload(key="rest-path-submit")
+    payload["operation"]["source"] = {
         "type": "PATH",
         "path": relative_path.as_posix(),
         "sha256": hashlib.sha256(content).hexdigest(),
@@ -525,14 +584,13 @@ async def test_path_execution_spec_rest_submit(
         "path": relative_path.as_posix(),
         "sha256": hashlib.sha256(content).hexdigest(),
     }
-    assert fetched.json()["context"]["execution_plan_id"] == "path-plan"
 
 
 async def test_retry_and_domain_error_mapping(
     rest_client: tuple[httpx.AsyncClient, ApplicationContainer],
 ) -> None:
     client, container = rest_client
-    payload = _submit_payload(key="rest-retry-submit", plan_id="retry-plan")
+    payload = _submit_payload(key="rest-retry-submit")
     submitted = await client.post("/api/v1/executions", json=payload)
     execution_id = UUID(submitted.json()["execution_id"])
 
@@ -567,7 +625,9 @@ async def test_retry_and_domain_error_mapping(
     )
     assert retried.status_code == 202
     assert retried.json()["state"]["status"] == "QUEUED"
-    assert retried.json()["operation_id"] == submitted.json()["operation_id"]
+    assert (
+        retried.json()["operation"]["operation_id"] == submitted.json()["operation"]["operation_id"]
+    )
     fetched = await client.get(f"/api/v1/executions/{execution_id}")
     assert fetched.json()["retry"]["count"] == 1
 

@@ -25,8 +25,8 @@ from executor_service.config import Settings
 from executor_service.domain.enums import (
     AttemptStatus,
     CodeSourceType,
-    ExecutionMode,
     ExecutionStatus,
+    OperationMode,
     OperationStatus,
     OutboxStatus,
     RetryStrategy,
@@ -93,7 +93,7 @@ async def postgres_engine() -> AsyncIterator[AsyncEngine]:
 def _command(name: str) -> SubmitExecutionCommand:
     return SubmitExecutionCommand(
         idempotency_key=f"postgres-race-{name}-{uuid4().hex}",
-        mode=ExecutionMode.STATIC,
+        operation_mode=OperationMode.SINGLE,
         trigger_type=TriggerType.INTERACTIVE,
         runtime_profile="basic",
         code_source_type=CodeSourceType.INLINE,
@@ -104,13 +104,10 @@ def _command(name: str) -> SubmitExecutionCommand:
         project_id="postgres-race-project",
         session_id=f"postgres-race-session-{name}",
         task_id="test-task",
-        execution_plan_id=f"postgres-race-plan-{name}",
         steps=(
             StepSpec(
                 sequence=0,
                 code=f"print('{name}')",
-                execution_plan_id=f"postgres-race-plan-{name}",
-                plan_step_id=f"postgres-race-plan-{name}-step-0",
                 tool_name=name,
             ),
         ),

@@ -20,7 +20,7 @@ from executor_service.infrastructure.runtime_storage import FleetRuntimeStorageA
 from executor_service.infrastructure.worker import ExecutionWorker
 from executor_service.tracing import TracingManager
 
-EXPECTED_SCHEMA_REVISION = "0005"
+EXPECTED_SCHEMA_REVISION = "0006"
 
 
 class ApplicationContainer:

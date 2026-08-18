@@ -4,7 +4,7 @@ import asyncio
 from typing import Any
 from uuid import uuid4
 
-from execution_spec_payload import inline_source
+from execution_spec_payload import execution_request, inline_source
 from mcp import Client
 
 
@@ -24,14 +24,13 @@ async def main() -> None:
         submitted = await client.call_tool(
             "execution_submit",
             {
-                "request": {
-                    "idempotency_key": f"retry-submit-{unique}",
-                    "mode": "STATIC",
-                    "trigger_type": "INTERACTIVE",
-                    "actor": {"type": "USER", "id": "retry-user"},
-                    "runtime_profile": "basic",
-                    "source": inline_source(
-                        f"retry-plan-{unique}",
+                "request": execution_request(
+                    idempotency_key=f"retry-submit-{unique}",
+                    operation_mode="SINGLE",
+                    trigger_type="INTERACTIVE",
+                    actor={"type": "USER", "id": "retry-user"},
+                    runtime_profile="basic",
+                    source=inline_source(
                         [
                             {
                                 "tool_name": "initialize",
@@ -52,13 +51,13 @@ async def main() -> None:
                             {"tool_name": "finish", "code": "print('retry completed')"},
                         ],
                     ),
-                    "context": {
+                    context={
                         "user_id": "retry-user",
                         "project_id": "retry-project",
                         "session_id": "retry-session",
                         "task_id": f"retry-task-{unique}",
                     },
-                }
+                )
             },
         )
         execution_id = submitted.structured_content["execution_id"]

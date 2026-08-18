@@ -9,13 +9,13 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class ExecutionEventEnvelope(BaseModel):
-    """Version 1 Redis envelope without importing Executor implementation types."""
+    """Version 2 Redis envelope without importing Executor implementation types."""
 
     model_config = ConfigDict(extra="forbid")
 
     event_id: UUID
     event_type: str = Field(pattern=r"^execution\.")
-    schema_version: Literal["1.0"]
+    schema_version: Literal["2.0"]
     aggregate_type: Literal["Execution"]
     aggregate_id: UUID
     occurred_at: datetime
@@ -43,7 +43,7 @@ class ExecutionEventEnvelope(BaseModel):
 
 
 class AgentExecutionRequest(BaseModel):
-    """Input accepted by the test graph for one validated STATIC execution."""
+    """Input accepted by the test graph for one validated SINGLE execution."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -52,34 +52,38 @@ class AgentExecutionRequest(BaseModel):
     project_id: str
     session_id: str
     task_id: str
-    execution_plan_id: str
     steps: list[dict[str, Any]] = Field(min_length=1)
 
-    def executor_payload(self, idempotency_key: str) -> dict[str, Any]:
+    def executor_payload(
+        self, idempotency_key: str, *, operation_mode: str = "SINGLE"
+    ) -> dict[str, Any]:
         normalized_steps = [
             {
                 "sequence": sequence,
-                "plan_step_id": step.get(
-                    "plan_step_id", f"{self.execution_plan_id}-step-{sequence}"
-                ),
-                "skill_name": step["skill_name"],
-                "tool_name": step["tool_name"],
-                "code": step["code"],
+                "payload": {"type": "CODE", "content": step["code"]},
+                "lineage": {
+                    "skill_name": step["skill_name"],
+                    "tool_name": step["tool_name"],
+                    "input_parameters": step.get("input_parameters", {}),
+                },
             }
             for sequence, step in enumerate(self.steps)
         ]
         return {
             "idempotency_key": idempotency_key,
-            "mode": "STATIC",
-            "trigger_type": "INTERACTIVE",
-            "actor": {"type": "USER", "id": self.user_id},
-            "runtime_profile": self.runtime_profile,
-            "source": {
-                "type": "INLINE",
-                "spec": {
-                    "schema_version": "1.0",
-                    "execution_plan_id": self.execution_plan_id,
-                    "steps": normalized_steps,
+            "lifecycle": {
+                "operation_mode": operation_mode,
+                **({"operation_wait_timeout_seconds": 600} if operation_mode == "MULTI" else {}),
+            },
+            "trigger": {
+                "type": "INTERACTIVE",
+                "actor": {"type": "AGENT", "id": "executor-test-agent"},
+            },
+            "runtime": {"type": "JUPYTER", "profile": self.runtime_profile},
+            "operation": {
+                "source": {
+                    "type": "INLINE",
+                    "spec": {"schema_version": "1.0", "steps": normalized_steps},
                 },
             },
             "context": {

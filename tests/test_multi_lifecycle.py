@@ -10,7 +10,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from executor_service.application.commands import (
-    ContinueExecutionCommand,
+    CreateOperationCommand,
     StepSpec,
     SubmitExecutionCommand,
 )
@@ -19,9 +19,9 @@ from executor_service.config import Settings
 from executor_service.domain.enums import (
     AttemptStatus,
     CodeSourceType,
-    ExecutionMode,
     ExecutionStatus,
     FailureType,
+    OperationMode,
     OperationStatus,
     RuntimePool,
     RuntimeSessionCleanupStatus,
@@ -31,7 +31,11 @@ from executor_service.domain.enums import (
 )
 from executor_service.domain.errors import InvalidStateTransitionError
 from executor_service.domain.models import Execution, utc_now
-from executor_service.domain.runtime import RuntimeExecutionError, RuntimeExecutionResult
+from executor_service.domain.runtime import (
+    RuntimeExecutionError,
+    RuntimeExecutionResult,
+    RuntimeExecutionTimeoutError,
+)
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
@@ -69,7 +73,7 @@ class FakeJupyterGateway:
         self.deleted.append(runtime_session_id)
 
 
-class RecordingDynamicDriver(InMemoryRuntimeStorage):
+class RecordingMultiDriver(InMemoryRuntimeStorage):
     executed: ClassVar[list[str]] = []
     fail_code: ClassVar[str | None] = None
 
@@ -105,6 +109,12 @@ class RecordingDynamicDriver(InMemoryRuntimeStorage):
         )
 
 
+class SlowExecutionDriver(RecordingMultiDriver):
+    async def execute(self, _session_id: str, _code: str) -> RuntimeExecutionResult:
+        await asyncio.sleep(2)
+        return RuntimeExecutionResult(outputs=[], execution_count=1)
+
+
 def _patch_runtime_driver(monkeypatch: pytest.MonkeyPatch, driver_type: type[Any]) -> None:
     monkeypatch.setattr(
         "executor_service.infrastructure.runtime_drivers.JupyterRuntimeDriver",
@@ -112,11 +122,12 @@ def _patch_runtime_driver(monkeypatch: pytest.MonkeyPatch, driver_type: type[Any
     )
 
 
-def _dynamic_command(key: str) -> SubmitExecutionCommand:
+def _multi_command(key: str) -> SubmitExecutionCommand:
     code = "value = 1"
     return SubmitExecutionCommand(
         idempotency_key=key,
-        mode=ExecutionMode.DYNAMIC,
+        operation_mode=OperationMode.MULTI,
+        operation_wait_timeout_seconds=3600,
         trigger_type=TriggerType.INTERACTIVE,
         runtime_profile="basic",
         code_source_type=CodeSourceType.INLINE,
@@ -127,13 +138,10 @@ def _dynamic_command(key: str) -> SubmitExecutionCommand:
         project_id="lifecycle-project",
         session_id="lifecycle-session",
         task_id="test-task",
-        execution_plan_id="lifecycle-plan",
         steps=(
             StepSpec(
                 sequence=0,
                 code=code,
-                execution_plan_id="lifecycle-plan",
-                plan_step_id="lifecycle-plan-step-0",
                 tool_name="initialize",
             ),
         ),
@@ -149,7 +157,7 @@ async def _make_waiting(
     execution_expired: bool = False,
     server_enabled: bool = True,
 ) -> tuple[Execution, ExecutionAttemptORM]:
-    execution = await execution_service.submit(_dynamic_command(key))
+    execution = await execution_service.submit(_multi_command(key))
     now = utc_now()
     session_factory = create_session_factory(engine)
     async with session_factory() as session, session.begin():
@@ -196,11 +204,11 @@ async def _make_waiting(
             update(ExecutionORM)
             .where(ExecutionORM.id == execution.id)
             .values(
-                status=ExecutionStatus.WAITING_FOR_CONTINUE,
+                status=ExecutionStatus.WAITING_FOR_OPERATION,
                 runtime_target_id=target.id,
                 runtime_session_id=attempt.runtime_session_id,
                 started_at=now - timedelta(minutes=1),
-                dynamic_wait_expires_at=(
+                operation_wait_expires_at=(
                     now - timedelta(seconds=1) if wait_expired else now + timedelta(hours=1)
                 ),
                 execution_expires_at=(
@@ -238,14 +246,66 @@ def _worker(engine: AsyncEngine, tmp_path: Path) -> tuple[ExecutionWorker, Redis
     return worker, redis
 
 
+async def test_runtime_step_enforces_operation_and_step_timeouts(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+    tmp_path: Path,
+) -> None:
+    command = replace(
+        _multi_command("runtime-timeout-contract"),
+        operation_timeout_seconds=1,
+        steps=(StepSpec(0, "slow()", step_timeout_seconds=1),),
+    )
+    execution = await execution_service.submit(command)
+    operation_id = execution.active_operation_id
+    assert operation_id is not None
+    session_factory = create_session_factory(engine)
+    async with session_factory() as session, session.begin():
+        await session.execute(
+            update(ExecutionOperationORM)
+            .where(ExecutionOperationORM.id == operation_id)
+            .values(started_at=utc_now() - timedelta(seconds=2))
+        )
+
+    worker, redis = _worker(engine, tmp_path)
+    try:
+        with pytest.raises(RuntimeExecutionTimeoutError) as operation_error:
+            await worker._execute_runtime_step(
+                RecordingMultiDriver(),
+                "runtime-session",
+                "slow()",
+                execution.id,
+                0,
+            )
+        assert operation_error.value.scope == "Operation"
+
+        async with session_factory() as session, session.begin():
+            await session.execute(
+                update(ExecutionOperationORM)
+                .where(ExecutionOperationORM.id == operation_id)
+                .values(operation_timeout_seconds=None, started_at=utc_now())
+            )
+        with pytest.raises(RuntimeExecutionTimeoutError) as step_error:
+            await worker._execute_runtime_step(
+                SlowExecutionDriver(),
+                "runtime-session",
+                "slow()",
+                execution.id,
+                0,
+            )
+        assert step_error.value.scope == "Step"
+    finally:
+        await redis.aclose()
+
+
 @pytest.fixture(autouse=True)
 def _reset_fake_gateway() -> None:
-    RecordingDynamicDriver.reset_storage()
+    RecordingMultiDriver.reset_storage()
     FakeJupyterGateway.session_exists_result = True
     FakeJupyterGateway.deleted = []
     FakeJupyterGateway.interrupted = []
-    RecordingDynamicDriver.executed = []
-    RecordingDynamicDriver.fail_code = None
+    RecordingMultiDriver.executed = []
+    RecordingMultiDriver.fail_code = None
 
 
 @pytest.mark.parametrize(
@@ -265,7 +325,7 @@ def _reset_fake_gateway() -> None:
         ),
     ],
 )
-async def test_dynamic_operation_executes_submitted_steps_until_boundary(
+async def test_multi_operation_executes_submitted_steps_until_boundary(
     execution_service: ExecutionService,
     engine: AsyncEngine,
     tmp_path: Path,
@@ -275,14 +335,14 @@ async def test_dynamic_operation_executes_submitted_steps_until_boundary(
     expected_steps: list[StepStatus],
     expected_event: str,
 ) -> None:
-    command = _dynamic_command(f"operation-{expected_status.value.lower()}")
+    command = _multi_command(f"operation-{expected_status.value.lower()}")
     command = replace(
         command,
         source_content="first\nraise expected\nthird",
         steps=(
-            StepSpec(0, "first", "lifecycle-plan", "operation-step-0"),
-            StepSpec(1, "raise expected", "lifecycle-plan", "operation-step-1"),
-            StepSpec(2, "third", "lifecycle-plan", "operation-step-2"),
+            StepSpec(0, "first"),
+            StepSpec(1, "raise expected"),
+            StepSpec(2, "third"),
         ),
     )
     execution = await execution_service.submit(command)
@@ -300,8 +360,8 @@ async def test_dynamic_operation_executes_submitted_steps_until_boundary(
                 enabled=True,
             )
         )
-    RecordingDynamicDriver.fail_code = fail_code
-    _patch_runtime_driver(monkeypatch, RecordingDynamicDriver)
+    RecordingMultiDriver.fail_code = fail_code
+    _patch_runtime_driver(monkeypatch, RecordingMultiDriver)
     worker, redis = _worker(engine, tmp_path)
     try:
         await worker._run_execution(execution.id)
@@ -346,14 +406,14 @@ async def test_dynamic_operation_executes_submitted_steps_until_boundary(
             )
         )
     assert row is not None and operation is not None
-    assert row.status == ExecutionStatus.WAITING_FOR_CONTINUE, row.error_message
+    assert row.status == ExecutionStatus.WAITING_FOR_OPERATION, row.error_message
     assert operation.status == expected_status
     assert [step.status for step in steps] == expected_steps
-    assert RecordingDynamicDriver.executed == (
+    assert RecordingMultiDriver.executed == (
         ["first", "raise expected", "third"] if fail_code is None else ["first", "raise expected"]
     )
-    notebook_path = next(iter(RecordingDynamicDriver.notebooks))
-    notebook = RecordingDynamicDriver.notebooks[notebook_path]
+    notebook_path = next(iter(RecordingMultiDriver.notebooks))
+    notebook = RecordingMultiDriver.notebooks[notebook_path]
     assert [cell["source"] for cell in notebook["cells"]] == (
         ["first", "raise expected", "third"] if fail_code is None else ["first", "raise expected"]
     )
@@ -382,7 +442,7 @@ async def test_dynamic_operation_executes_submitted_steps_until_boundary(
     assert max(result_positions) < ordered_event_types.index(expected_event)
 
 
-async def test_expired_dynamic_wait_fails_and_cleans_kernel_once(
+async def test_expired_multi_wait_fails_and_cleans_kernel_once(
     execution_service: ExecutionService,
     engine: AsyncEngine,
     tmp_path: Path,
@@ -392,8 +452,8 @@ async def test_expired_dynamic_wait_fails_and_cleans_kernel_once(
     _patch_runtime_driver(monkeypatch, FakeJupyterGateway)
     worker, redis = _worker(engine, tmp_path)
     try:
-        await worker._audit_dynamic_lifecycle()
-        await worker._audit_dynamic_lifecycle()
+        await worker._audit_multi_lifecycle()
+        await worker._audit_multi_lifecycle()
     finally:
         await redis.aclose()
 
@@ -411,24 +471,23 @@ async def test_expired_dynamic_wait_fails_and_cleans_kernel_once(
         )
     assert row is not None and attempt is not None
     assert row.status == ExecutionStatus.FAILED
-    assert row.failure_type == FailureType.DYNAMIC_WAIT_TIMEOUT
+    assert row.failure_type == FailureType.OPERATION_WAIT_TIMEOUT
     assert row.runtime_session_id is None
     assert row.runtime_session_cleanup_status == RuntimeSessionCleanupStatus.SUCCEEDED
     assert attempt.status == AttemptStatus.FAILED
     assert failed_events == 1
     assert FakeJupyterGateway.deleted == ["kernel-wait-timeout"]
     with pytest.raises(InvalidStateTransitionError):
-        await execution_service.continue_execution(
-            ContinueExecutionCommand(
+        await execution_service.create_operation(
+            CreateOperationCommand(
                 execution_id=execution.id,
                 idempotency_key="continue-after-timeout",
                 expected_version=row.version,
+                source_content="print('too late')",
                 steps=(
                     StepSpec(
                         sequence=1,
                         code="print('too late')",
-                        execution_plan_id="lifecycle-plan-2",
-                        plan_step_id="lifecycle-plan-2-step-1",
                     ),
                 ),
             )
@@ -446,7 +505,7 @@ async def test_restart_audit_detects_missing_kernel_without_cleanup(
     _patch_runtime_driver(monkeypatch, FakeJupyterGateway)
     worker, redis = _worker(engine, tmp_path)
     try:
-        await worker._audit_dynamic_lifecycle()
+        await worker._audit_multi_lifecycle()
     finally:
         await redis.aclose()
 
@@ -472,7 +531,7 @@ async def test_disabled_target_fails_waiting_execution(
     _patch_runtime_driver(monkeypatch, FakeJupyterGateway)
     worker, redis = _worker(engine, tmp_path)
     try:
-        await worker._audit_dynamic_lifecycle()
+        await worker._audit_multi_lifecycle()
     finally:
         await redis.aclose()
 
@@ -500,7 +559,7 @@ async def test_execution_deadline_precedes_step_wait_deadline(
     _patch_runtime_driver(monkeypatch, FakeJupyterGateway)
     worker, redis = _worker(engine, tmp_path)
     try:
-        await worker._audit_dynamic_lifecycle()
+        await worker._audit_multi_lifecycle()
     finally:
         await redis.aclose()
 
@@ -543,7 +602,7 @@ async def test_running_execution_deadline_requests_cancel_and_reclaims_kernel(
     _patch_runtime_driver(monkeypatch, FakeJupyterGateway)
     worker, redis = _worker(engine, tmp_path)
     try:
-        await worker._audit_dynamic_lifecycle()
+        await worker._audit_multi_lifecycle()
         for _ in range(50):
             current = await execution_service.get(execution.id)
             if current.status == ExecutionStatus.CANCELLED:

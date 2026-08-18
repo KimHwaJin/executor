@@ -17,9 +17,9 @@ from executor_service.config import Settings
 from executor_service.domain.enums import (
     AttemptStatus,
     CodeSourceType,
-    ExecutionMode,
     ExecutionStatus,
     FailureType,
+    OperationMode,
     OperationStatus,
     RetryStrategy,
     RuntimePool,
@@ -47,7 +47,7 @@ from executor_service.infrastructure.worker import ExecutionWorker
 def _command(key: str) -> SubmitExecutionCommand:
     return SubmitExecutionCommand(
         idempotency_key=key,
-        mode=ExecutionMode.STATIC,
+        operation_mode=OperationMode.SINGLE,
         trigger_type=TriggerType.INTERACTIVE,
         runtime_profile="basic",
         code_source_type=CodeSourceType.INLINE,
@@ -58,20 +58,15 @@ def _command(key: str) -> SubmitExecutionCommand:
         project_id="retained-retry-project",
         session_id=f"retained-retry-session-{key}",
         task_id=f"retained-retry-task-{key}",
-        execution_plan_id=f"retained-retry-plan-{key}",
         steps=(
             StepSpec(
                 0,
                 "prepare()",
-                f"retained-retry-plan-{key}",
-                f"retained-retry-plan-{key}-step-0",
                 tool_name="prepare",
             ),
             StepSpec(
                 1,
                 "fail_once()",
-                f"retained-retry-plan-{key}",
-                f"retained-retry-plan-{key}-step-1",
                 tool_name="fail_once",
             ),
         ),

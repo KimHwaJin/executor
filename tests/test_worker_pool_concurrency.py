@@ -16,8 +16,8 @@ from executor_service.application.services import ExecutionService
 from executor_service.config import Settings
 from executor_service.domain.enums import (
     CodeSourceType,
-    ExecutionMode,
     ExecutionStatus,
+    OperationMode,
     RuntimePool,
     RuntimeTargetStatus,
     TriggerType,
@@ -80,7 +80,7 @@ def _command(pool: RuntimePool, name: str) -> SubmitExecutionCommand:
     code = f"value = '{name}'"
     return SubmitExecutionCommand(
         idempotency_key=f"worker-pool-{name}-{uuid4().hex}",
-        mode=ExecutionMode.STATIC,
+        operation_mode=OperationMode.SINGLE,
         trigger_type=(TriggerType.BATCH if pool == RuntimePool.BATCH else TriggerType.INTERACTIVE),
         runtime_profile="basic",
         code_source_type=CodeSourceType.INLINE,
@@ -91,14 +91,11 @@ def _command(pool: RuntimePool, name: str) -> SubmitExecutionCommand:
         project_id="worker-pool-project",
         session_id=f"worker-pool-session-{name}",
         task_id="test-task",
-        execution_plan_id=f"worker-pool-plan-{name}",
         workflow_id=f"worker-pool-workflow-{name}" if pool == RuntimePool.BATCH else None,
         steps=(
             StepSpec(
                 sequence=0,
                 code=code,
-                execution_plan_id=f"worker-pool-plan-{name}",
-                plan_step_id=f"worker-pool-plan-{name}-step-0",
                 tool_name=name,
             ),
         ),

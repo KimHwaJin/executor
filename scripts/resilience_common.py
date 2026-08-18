@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from typing import Any
 
 import httpx
-from execution_spec_payload import inline_source
+from execution_spec_payload import execution_request, inline_source
 from mcp import Client
 from redis.asyncio import Redis
 
@@ -191,20 +191,19 @@ async def submit_static(
     result = await client.call_tool(
         "execution_submit",
         {
-            "request": {
-                "idempotency_key": f"resilience-{unique}-{name}",
-                "mode": "STATIC",
-                "trigger_type": "BATCH" if pool == "BATCH" else "INTERACTIVE",
-                "actor": {
+            "request": execution_request(
+                idempotency_key=f"resilience-{unique}-{name}",
+                operation_mode="SINGLE",
+                trigger_type="BATCH" if pool == "BATCH" else "INTERACTIVE",
+                actor={
                     "type": "BATCH" if pool == "BATCH" else "USER",
                     "id": "resilience-batch" if pool == "BATCH" else "resilience-user",
                 },
-                "runtime_profile": "basic",
-                "source": inline_source(
-                    f"resilience-plan-{unique}-{name}",
+                runtime_profile="basic",
+                source=inline_source(
                     [{"skill_name": "data_io", "tool_name": name, "code": code}],
                 ),
-                "context": {
+                context={
                     "user_id": "resilience-user",
                     "project_id": "resilience-project",
                     "session_id": f"resilience-session-{unique}-{name}",
@@ -213,7 +212,7 @@ async def submit_static(
                         f"resilience-workflow-{unique}-{name}" if pool == "BATCH" else None
                     ),
                 },
-            }
+            )
         },
     )
     if result.is_error:

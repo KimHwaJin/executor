@@ -31,7 +31,7 @@ Every Executor-produced Stream entry contains:
 The decoded `payload` is a JSON object that also contains `schema_version` and `execution_id`.
 The payload version must equal the Stream field and its `execution_id` must equal `aggregate_id`.
 Executor validates this contract both before Outbox persistence and again immediately before Redis
-publication to `executor.events`. See [Execution Event Contract v1](execution-events-v1.md).
+publication to `executor.events`. See [Execution Event Contract v2](execution-events-v2.md).
 
 ## Internal work contract
 

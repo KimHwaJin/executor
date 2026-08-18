@@ -14,9 +14,9 @@ from executor_service.config import get_settings
 from executor_service.container import ApplicationContainer
 from executor_service.domain.enums import (
     CodeSourceType,
-    ExecutionMode,
     ExecutionStatus,
     FailureType,
+    OperationMode,
     RetryStrategy,
     RuntimeSessionCleanupStatus,
     TriggerType,
@@ -60,7 +60,7 @@ async def main() -> None:
         submitted = await first.execution_service.submit(
             SubmitExecutionCommand(
                 idempotency_key=f"worker-recovery-submit-{unique}",
-                mode=ExecutionMode.STATIC,
+                operation_mode=OperationMode.SINGLE,
                 trigger_type=TriggerType.INTERACTIVE,
                 runtime_profile="basic",
                 code_source_type=CodeSourceType.INLINE,
@@ -71,13 +71,10 @@ async def main() -> None:
                 project_id="worker-recovery-project",
                 session_id="worker-recovery-session",
                 task_id="test-task",
-                execution_plan_id=f"worker-recovery-plan-{unique}",
                 steps=(
                     StepSpec(
                         sequence=0,
                         code=code,
-                        execution_plan_id=f"worker-recovery-plan-{unique}",
-                        plan_step_id=f"worker-recovery-plan-{unique}-step-0",
                         tool_name="long_running_tool",
                     ),
                 ),

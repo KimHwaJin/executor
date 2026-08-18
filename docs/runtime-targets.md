@@ -205,7 +205,7 @@ After PostgreSQL, Redis, Jupyter, and Executor are running, execute the self-con
 uv run python scripts/single_jupyter_smoke.py
 ```
 
-The script registers/probes the configured Jupyter Runtime Target through MCP, submits a two-Step STATIC
+The script registers/probes the configured Jupyter Runtime Target through MCP, submits a two-Step SINGLE
 Execution, waits for `SUCCEEDED`, and verifies the `.ipynb` plus a generated Artifact. Override
 `EXECUTOR_MCP_URL`, `SINGLE_JUPYTER_ENDPOINT`, `SINGLE_JUPYTER_TOKEN`,
 `SINGLE_JUPYTER_KERNEL`, or `SINGLE_JUPYTER_TIMEOUT_SECONDS` when testing non-default endpoints.
@@ -222,6 +222,6 @@ uv run python scripts/jupyter_batch_pool_smoke.py
 ```
 
 The future Workflow batch service should submit successful promoted plans with
-`trigger_type=BATCH` and static execution mode. Executor derives `runtime_pool=BATCH`; callers do
+`trigger_type=BATCH` and SINGLE operation mode. Executor derives `runtime_pool=BATCH`; callers do
 not choose a pool directly. Workflow scheduling and report generation remain outside this
 Executor repository.

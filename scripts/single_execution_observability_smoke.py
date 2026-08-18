@@ -1,4 +1,4 @@
-"""Verify STATIC execution state, persistence, events, artifacts, and session cleanup.
+"""Verify SINGLE execution state, persistence, events, artifacts, and session cleanup.
 
 The script submits one execution through REST and one through MCP. It expects an already running
 Executor stack with PostgreSQL, Redis, and at least one schedulable INTERACTIVE Runtime Target.
@@ -12,7 +12,7 @@ from typing import Any, Literal
 from uuid import UUID, uuid4
 
 import httpx
-from execution_spec_payload import inline_source
+from execution_spec_payload import execution_request, inline_source
 from mcp import Client
 from redis.asyncio import Redis
 from sqlalchemy import select
@@ -84,15 +84,13 @@ async def _rest_json(
 
 def _submission_payload(unique: str, transport: Transport, runtime_profile: str) -> dict[str, Any]:
     label = transport.lower()
-    user_id = f"static-observability-{label}-user"
-    return {
-        "idempotency_key": f"static-observability-{label}-submit-{unique}",
-        "mode": "STATIC",
-        "trigger_type": "INTERACTIVE",
-        "runtime_type": "JUPYTER",
-        "runtime_profile": runtime_profile,
-        "source": inline_source(
-            f"static-observability-{label}-plan-{unique}",
+    user_id = f"single-observability-{label}-user"
+    return execution_request(
+        idempotency_key=f"single-observability-{label}-submit-{unique}",
+        operation_mode="SINGLE",
+        trigger_type="INTERACTIVE",
+        runtime_profile=runtime_profile,
+        source=inline_source(
             [
                 {
                     "skill_name": "eda",
@@ -116,14 +114,14 @@ def _submission_payload(unique: str, transport: Transport, runtime_profile: str)
                 },
             ],
         ),
-        "context": {
+        context={
             "user_id": user_id,
-            "project_id": "static-observability-project",
-            "session_id": f"static-observability-{label}-session-{unique}",
-            "task_id": f"static-observability-{label}-task-{unique}",
+            "project_id": "single-observability-project",
+            "session_id": f"single-observability-{label}-session-{unique}",
+            "task_id": f"single-observability-{label}-task-{unique}",
         },
-        "actor": {"type": "USER", "id": user_id},
-    }
+        actor={"type": "USER", "id": user_id},
+    )
 
 
 async def _execution_get(
@@ -465,7 +463,7 @@ async def _probe_target(mcp: Client, target_id: str, unique: str) -> dict[str, A
         {
             "request": {
                 "target_id": target_id,
-                "actor": {"type": "USER", "id": f"static-observability-{unique}"},
+                "actor": {"type": "USER", "id": f"single-observability-{unique}"},
             }
         },
     )

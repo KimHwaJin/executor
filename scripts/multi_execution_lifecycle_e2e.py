@@ -1,4 +1,4 @@
-"""Exercise DYNAMIC correction, finish, and running cancellation across durable boundaries."""
+"""Exercise MULTI correction, finalization, and cancellation across durable boundaries."""
 
 import asyncio
 import hashlib
@@ -10,13 +10,14 @@ from typing import Any, Literal
 from uuid import UUID, uuid4
 
 import httpx
-from execution_spec_payload import inline_source
+from execution_spec_payload import execution_request, inline_source
 from mcp import Client
 from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from executor_service.config import get_settings
+from executor_service.domain.enums import OutboxDestination
 from executor_service.events import EXECUTION_EVENT_SCHEMA_VERSION, ExecutionStreamEnvelope
 from executor_service.infrastructure.db.models import (
     ExecutionArtifactORM,
@@ -63,9 +64,9 @@ def _enum_value(value: object) -> str:
 
 def _host_jupyter_endpoint(target: RuntimeTargetORM, settings: Any) -> str:
     variable = (
-        "DYNAMIC_LIFECYCLE_JUPYTER_SECONDARY_ENDPOINT"
+        "MULTI_LIFECYCLE_JUPYTER_SECONDARY_ENDPOINT"
         if target.name == "local-jupyter-secondary"
-        else "DYNAMIC_LIFECYCLE_JUPYTER_ENDPOINT"
+        else "MULTI_LIFECYCLE_JUPYTER_ENDPOINT"
     )
     default = (
         "http://127.0.0.1:8889"
@@ -76,7 +77,6 @@ def _host_jupyter_endpoint(target: RuntimeTargetORM, settings: Any) -> str:
 
 
 def _single_step_source(
-    execution_plan_id: str,
     sequence: int,
     *,
     skill_name: str,
@@ -87,15 +87,15 @@ def _single_step_source(
         "type": "INLINE",
         "spec": {
             "schema_version": "1.0",
-            "execution_plan_id": execution_plan_id,
             "steps": [
                 {
                     "sequence": sequence,
-                    "plan_step_id": f"{execution_plan_id}-step-{sequence}",
-                    "skill_name": skill_name,
-                    "tool_name": tool_name,
-                    "input_parameters": {},
-                    "code": code,
+                    "payload": {"type": "CODE", "content": code},
+                    "lineage": {
+                        "skill_name": skill_name,
+                        "tool_name": tool_name,
+                        "input_parameters": {},
+                    },
                 }
             ],
         },
@@ -271,6 +271,7 @@ async def _database_snapshot(
                 .where(
                     OutboxEventORM.aggregate_type == "Execution",
                     OutboxEventORM.aggregate_id == execution_id,
+                    OutboxEventORM.destination == OutboxDestination.EVENTS,
                 )
                 .order_by(OutboxEventORM.created_at, OutboxEventORM.id)
             )
@@ -328,12 +329,12 @@ async def _assert_event_delivery(
         raise RuntimeError("Redis Stream and PostgreSQL Outbox event IDs differ.")
     envelopes = [ExecutionStreamEnvelope.from_redis_fields(row) for row in redis_rows]
     if any(envelope.schema_version != EXECUTION_EVENT_SCHEMA_VERSION for envelope in envelopes):
-        raise RuntimeError("Redis Stream contains a non-v1 Execution event.")
+        raise RuntimeError("Redis Stream contains an unsupported Execution event version.")
     if any(
         event.payload.get("schema_version") != EXECUTION_EVENT_SCHEMA_VERSION
         for event in snapshot.outbox_events
     ):
-        raise RuntimeError("PostgreSQL Outbox contains a non-v1 Execution event.")
+        raise RuntimeError("PostgreSQL Outbox contains an unsupported Execution event version.")
     return tuple(event.event_type for event in snapshot.outbox_events)
 
 
@@ -395,16 +396,16 @@ async def _assert_waiting_runtime(
     expected_session_id: str | None,
     session_factory: async_sessionmaker[AsyncSession],
 ) -> tuple[UUID, str]:
-    if execution["state"]["status"] != "WAITING_FOR_CONTINUE":
-        raise RuntimeError(f"DYNAMIC Execution is not waiting: {execution}")
+    if execution["state"]["status"] != "WAITING_FOR_OPERATION":
+        raise RuntimeError(f"MULTI Execution is not waiting: {execution}")
     target_id = UUID(str(execution["runtime"]["target_id"]))
     session_id = str(execution["runtime"]["session_id"])
     if expected_target_id is not None and target_id != expected_target_id:
-        raise RuntimeError("DYNAMIC Execution changed Runtime Target between cells.")
+        raise RuntimeError("MULTI Execution changed Runtime Target between cells.")
     if expected_session_id is not None and session_id != expected_session_id:
-        raise RuntimeError("DYNAMIC Execution changed Runtime session between cells.")
+        raise RuntimeError("MULTI Execution changed Runtime session between cells.")
     if not await _runtime_session_exists(session_factory, target_id, session_id):
-        raise RuntimeError("DYNAMIC waiting session is missing from Jupyter.")
+        raise RuntimeError("MULTI waiting session is missing from Jupyter.")
     return target_id, session_id
 
 
@@ -420,21 +421,20 @@ async def _run_correction_and_finish_case(
     redis: Redis,
     stream: str,
 ) -> CaseResult:
-    user_id = f"dynamic-flow-{unique}-user"
+    user_id = f"multi-flow-{unique}-user"
     actor = {"type": "USER", "id": user_id}
     submitted = await _mcp_result(
         mcp,
         "execution_submit",
         {
-            "request": {
-                "idempotency_key": f"dynamic-flow-submit-{unique}",
-                "mode": "DYNAMIC",
-                "trigger_type": "INTERACTIVE",
-                "runtime_type": "JUPYTER",
-                "runtime_profile": runtime_profile,
-                "actor": actor,
-                "source": inline_source(
-                    f"dynamic-flow-plan-0-{unique}",
+            "request": execution_request(
+                idempotency_key=f"multi-flow-submit-{unique}",
+                operation_mode="MULTI",
+                operation_wait_timeout_seconds=600,
+                trigger_type="INTERACTIVE",
+                runtime_profile=runtime_profile,
+                actor=actor,
+                source=inline_source(
                     [
                         {
                             "skill_name": "data_load",
@@ -443,20 +443,20 @@ async def _run_correction_and_finish_case(
                         }
                     ],
                 ),
-                "context": {
+                context={
                     "user_id": user_id,
-                    "project_id": "dynamic-flow-project",
-                    "session_id": f"dynamic-flow-session-{unique}",
-                    "task_id": f"dynamic-flow-task-{unique}",
+                    "project_id": "multi-flow-project",
+                    "session_id": f"multi-flow-session-{unique}",
+                    "task_id": f"multi-flow-task-{unique}",
                 },
-            }
+            )
         },
     )
     execution_id = str(submitted["execution_id"])
     first, first_states = await _wait_for_status(
         "MCP",
         execution_id,
-        {"WAITING_FOR_CONTINUE"},
+        {"WAITING_FOR_OPERATION"},
         mcp=mcp,
         rest=rest,
         timeout_seconds=timeout_seconds,
@@ -472,20 +472,19 @@ async def _run_correction_and_finish_case(
     continued = await _rest_json(
         rest,
         "POST",
-        f"/executions/{execution_id}/continue",
+        f"/executions/{execution_id}/operations",
         json_body={
-            "idempotency_key": f"dynamic-flow-continue-1-{unique}",
+            "idempotency_key": f"multi-flow-continue-1-{unique}",
             "expected_version": first["state"]["version"],
             "actor": actor,
             "source": _single_step_source(
-                f"dynamic-flow-plan-1-{unique}",
                 1,
                 skill_name="eda",
                 tool_name="calculate_answer",
                 code=(
                     "from pathlib import Path\n"
                     "answer = value + 2\n"
-                    "Path('artifacts/other/dynamic-answer.txt').write_text(\n"
+                    "Path('artifacts/other/multi-answer.txt').write_text(\n"
                     "    str(answer), encoding='utf-8'\n"
                     ")\n"
                     "print(answer)"
@@ -494,11 +493,11 @@ async def _run_correction_and_finish_case(
         },
     )
     if continued["state"]["status"] != "QUEUED":
-        raise RuntimeError(f"REST DYNAMIC continue was not queued: {continued}")
+        raise RuntimeError(f"REST MULTI continue was not queued: {continued}")
     second, second_states = await _wait_for_status(
         "REST",
         execution_id,
-        {"WAITING_FOR_CONTINUE"},
+        {"WAITING_FOR_OPERATION"},
         mcp=mcp,
         rest=rest,
         timeout_seconds=timeout_seconds,
@@ -513,35 +512,34 @@ async def _run_correction_and_finish_case(
 
     failed_command = await _mcp_result(
         mcp,
-        "execution_continue",
+        "execution_operation_create",
         {
             "request": {
                 "execution_id": execution_id,
-                "idempotency_key": f"dynamic-flow-continue-2-{unique}",
+                "idempotency_key": f"multi-flow-continue-2-{unique}",
                 "expected_version": second["state"]["version"],
                 "actor": actor,
                 "source": _single_step_source(
-                    f"dynamic-flow-plan-2-{unique}",
                     2,
                     skill_name="modeling",
                     tool_name="planned_failure",
                     code=(
                         "from pathlib import Path\n"
-                        "Path('artifacts/other/dynamic-failed.txt').write_text(\n"
+                        "Path('artifacts/other/multi-failed.txt').write_text(\n"
                         "    'partial', encoding='utf-8'\n"
                         ")\n"
-                        "raise RuntimeError('planned dynamic correction')"
+                        "raise RuntimeError('planned multi correction')"
                     ),
                 ),
             }
         },
     )
     if failed_command["state"]["status"] != "QUEUED":
-        raise RuntimeError(f"MCP DYNAMIC failure step was not queued: {failed_command}")
+        raise RuntimeError(f"MCP MULTI failure step was not queued: {failed_command}")
     failed, failed_states = await _wait_for_status(
         "MCP",
         execution_id,
-        {"WAITING_FOR_CONTINUE"},
+        {"WAITING_FOR_OPERATION"},
         mcp=mcp,
         rest=rest,
         timeout_seconds=timeout_seconds,
@@ -559,18 +557,17 @@ async def _run_correction_and_finish_case(
         "SUCCEEDED",
         "FAILED",
     ]:
-        raise RuntimeError(f"DYNAMIC failure did not remain append-only: {failed_steps}")
+        raise RuntimeError(f"MULTI failure did not remain append-only: {failed_steps}")
 
     corrected_command = await _rest_json(
         rest,
         "POST",
-        f"/executions/{execution_id}/continue",
+        f"/executions/{execution_id}/operations",
         json_body={
-            "idempotency_key": f"dynamic-flow-continue-3-{unique}",
+            "idempotency_key": f"multi-flow-continue-3-{unique}",
             "expected_version": failed["state"]["version"],
             "actor": actor,
             "source": _single_step_source(
-                f"dynamic-flow-plan-3-{unique}",
                 3,
                 skill_name="evaluation",
                 tool_name="correct_failure",
@@ -579,7 +576,7 @@ async def _run_correction_and_finish_case(
                     "assert initial_runs == 1\n"
                     "assert answer == 42\n"
                     "corrected = answer * 2\n"
-                    "Path('artifacts/reports/dynamic-corrected.txt').write_text(\n"
+                    "Path('artifacts/reports/multi-corrected.txt').write_text(\n"
                     "    str(corrected), encoding='utf-8'\n"
                     ")\n"
                     "print(corrected)"
@@ -592,7 +589,7 @@ async def _run_correction_and_finish_case(
     corrected, corrected_states = await _wait_for_status(
         "REST",
         execution_id,
-        {"WAITING_FOR_CONTINUE"},
+        {"WAITING_FOR_OPERATION"},
         mcp=mcp,
         rest=rest,
         timeout_seconds=timeout_seconds,
@@ -607,18 +604,18 @@ async def _run_correction_and_finish_case(
 
     finishing = await _mcp_result(
         mcp,
-        "execution_finish",
+        "execution_finalize",
         {
             "request": {
                 "execution_id": execution_id,
-                "idempotency_key": f"dynamic-flow-finish-{unique}",
+                "idempotency_key": f"multi-flow-finish-{unique}",
                 "expected_version": corrected["state"]["version"],
                 "actor": actor,
             }
         },
     )
-    if finishing["state"]["status"] != "QUEUED":
-        raise RuntimeError(f"MCP DYNAMIC finish was not queued: {finishing}")
+    if finishing["state"]["status"] != "FINALIZING":
+        raise RuntimeError(f"MCP MULTI finish was not queued: {finishing}")
     finished, finished_states = await _wait_for_status(
         "MCP",
         execution_id,
@@ -633,9 +630,9 @@ async def _run_correction_and_finish_case(
         or finished["runtime"]["session_id"] is not None
         or finished["recovery"]["runtime_session_cleanup_status"] != "SUCCEEDED"
     ):
-        raise RuntimeError(f"DYNAMIC finish did not clean up safely: {finished}")
+        raise RuntimeError(f"MULTI finish did not clean up safely: {finished}")
     if await _runtime_session_exists(session_factory, target_id, session_id):
-        raise RuntimeError("Finished DYNAMIC Execution leaked its Jupyter session.")
+        raise RuntimeError("Finished MULTI Execution leaked its Jupyter session.")
 
     snapshot = await _wait_for_published_snapshot(
         session_factory, UUID(execution_id), timeout_seconds
@@ -650,10 +647,10 @@ async def _run_correction_and_finish_case(
         or tuple(_enum_value(step.status) for step in snapshot.step_attempts)
         != ("SUCCEEDED", "SUCCEEDED", "FAILED", "SUCCEEDED")
     ):
-        raise RuntimeError(f"PostgreSQL DYNAMIC history is inconsistent: {snapshot}")
+        raise RuntimeError(f"PostgreSQL MULTI history is inconsistent: {snapshot}")
     attempt = snapshot.attempts[0]
     if attempt.runtime_target_id != target_id or attempt.runtime_session_id != session_id:
-        raise RuntimeError("DYNAMIC Attempt lost its historical Runtime identity.")
+        raise RuntimeError("MULTI Attempt lost its historical Runtime identity.")
 
     for transport in ("REST", "MCP"):
         api_steps = await _page(transport, execution_id, "steps", mcp=mcp, rest=rest)
@@ -674,19 +671,19 @@ async def _run_correction_and_finish_case(
     named_artifacts = {
         artifact.name: artifact
         for artifact in snapshot.artifacts
-        if artifact.name in {"dynamic-answer.txt", "dynamic-failed.txt", "dynamic-corrected.txt"}
+        if artifact.name in {"multi-answer.txt", "multi-failed.txt", "multi-corrected.txt"}
     }
     expected_artifacts = {
-        "dynamic-answer.txt": ("AVAILABLE", "42"),
-        "dynamic-failed.txt": ("INCOMPLETE", "partial"),
-        "dynamic-corrected.txt": ("AVAILABLE", "84"),
+        "multi-answer.txt": ("AVAILABLE", "42"),
+        "multi-failed.txt": ("INCOMPLETE", "partial"),
+        "multi-corrected.txt": ("AVAILABLE", "84"),
     }
     for name, (status, content) in expected_artifacts.items():
         artifact = named_artifacts.get(name)
         if artifact is None or _enum_value(artifact.status) != status:
-            raise RuntimeError(f"DYNAMIC Artifact {name} is missing or has the wrong status.")
+            raise RuntimeError(f"MULTI Artifact {name} is missing or has the wrong status.")
         if artifact.checksum_sha256 != hashlib.sha256(content.encode()).hexdigest():
-            raise RuntimeError(f"DYNAMIC Artifact {name} has unexpected content.")
+            raise RuntimeError(f"MULTI Artifact {name} has unexpected content.")
     notebook = next(
         (
             artifact
@@ -696,7 +693,7 @@ async def _run_correction_and_finish_case(
         None,
     )
     if notebook is None:
-        raise RuntimeError("Finished DYNAMIC Execution has no notebook Artifact.")
+        raise RuntimeError("Finished MULTI Execution has no notebook Artifact.")
     notebook_data = await _mcp_result(
         mcp,
         "execution_notebook_read",
@@ -708,20 +705,20 @@ async def _run_correction_and_finish_case(
         for marker in (
             "value = 40",
             "answer = value + 2",
-            "planned dynamic correction",
+            "planned multi correction",
             "corrected = answer * 2",
         )
     ):
-        raise RuntimeError("DYNAMIC notebook does not preserve correction history.")
+        raise RuntimeError("MULTI notebook does not preserve correction history.")
     detailed_cells = [
         await _rest_json(rest, "GET", f"/executions/{execution_id}/notebook/cells/{index}")
         for index in range(4)
     ]
     detailed_outputs = json.dumps([item["cell"]["outputs"] for item in detailed_cells])
     if not all(
-        marker in detailed_outputs for marker in ("40", "42", "planned dynamic correction", "84")
+        marker in detailed_outputs for marker in ("40", "42", "planned multi correction", "84")
     ):
-        raise RuntimeError("DYNAMIC notebook does not preserve cell outputs.")
+        raise RuntimeError("MULTI notebook does not preserve cell outputs.")
 
     event_types = await _assert_event_delivery(
         "MCP",
@@ -736,15 +733,15 @@ async def _run_correction_and_finish_case(
     required_events = {
         "execution.submitted",
         "execution.started",
-        "execution.continue_requested",
+        "execution.operation_submitted",
         "execution.operation_succeeded",
         "execution.operation_failed",
-        "execution.finish_requested",
+        "execution.finalization_requested",
         "execution.succeeded",
         "execution.artifact_registered",
     }
     if not required_events.issubset(event_types):
-        raise RuntimeError(f"DYNAMIC completion event timeline is incomplete: {event_types}")
+        raise RuntimeError(f"MULTI completion event timeline is incomplete: {event_types}")
     return CaseResult(
         name="REST/MCP correction -> finish",
         execution_id=execution_id,
@@ -775,23 +772,22 @@ async def _run_running_cancel_case(
     redis: Redis,
     stream: str,
 ) -> CaseResult:
-    user_id = f"dynamic-cancel-{unique}-user"
-    project_id = "dynamic-cancel-project"
-    session_id = f"dynamic-cancel-session-{unique}"
+    user_id = f"multi-cancel-{unique}-user"
+    project_id = "multi-cancel-project"
+    session_id = f"multi-cancel-session-{unique}"
     actor = {"type": "USER", "id": user_id}
     submitted = await _rest_json(
         rest,
         "POST",
         "/executions",
-        json_body={
-            "idempotency_key": f"dynamic-cancel-submit-{unique}",
-            "mode": "DYNAMIC",
-            "trigger_type": "INTERACTIVE",
-            "runtime_type": "JUPYTER",
-            "runtime_profile": runtime_profile,
-            "actor": actor,
-            "source": inline_source(
-                f"dynamic-cancel-plan-{unique}",
+        json_body=execution_request(
+            idempotency_key=f"multi-cancel-submit-{unique}",
+            operation_mode="MULTI",
+            operation_wait_timeout_seconds=600,
+            trigger_type="INTERACTIVE",
+            runtime_profile=runtime_profile,
+            actor=actor,
+            source=inline_source(
                 [
                     {
                         "skill_name": "report",
@@ -799,22 +795,22 @@ async def _run_running_cancel_case(
                         "code": (
                             "from pathlib import Path\n"
                             "import time\n"
-                            "marker = Path('artifacts/other/dynamic-cancel.txt')\n"
+                            "marker = Path('artifacts/other/multi-cancel.txt')\n"
                             "marker.write_text('started', encoding='utf-8')\n"
-                            "print('dynamic cancel marker written', flush=True)\n"
+                            "print('multi cancel marker written', flush=True)\n"
                             "time.sleep(120)\n"
                             "marker.write_text('unexpected-finish', encoding='utf-8')"
                         ),
                     }
                 ],
             ),
-            "context": {
+            context={
                 "user_id": user_id,
                 "project_id": project_id,
                 "session_id": session_id,
-                "task_id": f"dynamic-cancel-task-{unique}",
+                "task_id": f"multi-cancel-task-{unique}",
             },
-        },
+        ),
     )
     execution_id = str(submitted["execution_id"])
     running, running_states = await _wait_for_status(
@@ -830,8 +826,8 @@ async def _run_running_cancel_case(
     runtime_session_id = str(running["runtime"]["session_id"])
     workspace_path = running["workspace"]["path"]
     if not workspace_path:
-        raise RuntimeError("Running DYNAMIC Execution has no Runtime workspace path.")
-    marker_path = f"{workspace_path}/artifacts/other/dynamic-cancel.txt"
+        raise RuntimeError("Running MULTI Execution has no Runtime workspace path.")
+    marker_path = f"{workspace_path}/artifacts/other/multi-cancel.txt"
     deadline = monotonic() + timeout_seconds
     marker_poll = asyncio.Event()
     marker_exists = False
@@ -844,7 +840,7 @@ async def _run_running_cancel_case(
         except TimeoutError:
             pass
     if not marker_exists:
-        raise RuntimeError("DYNAMIC cancellation marker was not written before timeout.")
+        raise RuntimeError("MULTI cancellation marker was not written before timeout.")
 
     cancel_requested = await _mcp_result(
         mcp,
@@ -852,14 +848,14 @@ async def _run_running_cancel_case(
         {
             "request": {
                 "execution_id": execution_id,
-                "idempotency_key": f"dynamic-cancel-command-{unique}",
-                "reason": "dynamic running cancellation regression E2E",
+                "idempotency_key": f"multi-cancel-command-{unique}",
+                "reason": "multi running cancellation regression E2E",
                 "actor": actor,
             }
         },
     )
     if cancel_requested["state"]["status"] != "CANCEL_REQUESTED":
-        raise RuntimeError(f"MCP DYNAMIC cancellation was not accepted: {cancel_requested}")
+        raise RuntimeError(f"MCP MULTI cancellation was not accepted: {cancel_requested}")
     cancelled, cancelled_states = await _wait_for_status(
         "MCP",
         execution_id,
@@ -869,13 +865,13 @@ async def _run_running_cancel_case(
         timeout_seconds=timeout_seconds,
     )
     if (
-        cancelled["state"]["cancellation_reason"] != "dynamic running cancellation regression E2E"
+        cancelled["state"]["cancellation_reason"] != "multi running cancellation regression E2E"
         or cancelled["runtime"]["session_id"] is not None
         or cancelled["recovery"]["runtime_session_cleanup_status"] != "SUCCEEDED"
     ):
-        raise RuntimeError(f"DYNAMIC cancellation did not clean up safely: {cancelled}")
+        raise RuntimeError(f"MULTI cancellation did not clean up safely: {cancelled}")
     if await _runtime_session_exists(session_factory, target_id, runtime_session_id):
-        raise RuntimeError("Cancelled DYNAMIC Execution leaked its Jupyter session.")
+        raise RuntimeError("Cancelled MULTI Execution leaked its Jupyter session.")
 
     snapshot = await _wait_for_published_snapshot(
         session_factory, UUID(execution_id), timeout_seconds
@@ -889,13 +885,13 @@ async def _run_running_cancel_case(
         or tuple(_enum_value(attempt.status) for attempt in snapshot.attempts) != ("CANCELLED",)
         or tuple(_enum_value(step.status) for step in snapshot.step_attempts) != ("CANCELLED",)
     ):
-        raise RuntimeError(f"PostgreSQL DYNAMIC cancellation is inconsistent: {snapshot}")
+        raise RuntimeError(f"PostgreSQL MULTI cancellation is inconsistent: {snapshot}")
     attempts = await _page("REST", execution_id, "attempts", mcp=mcp, rest=rest)
     steps = await _page("MCP", execution_id, "steps", mcp=mcp, rest=rest)
     if [item["state"]["status"] for item in attempts] != ["CANCELLED"] or [
         item["result"]["status"] for item in steps
     ] != ["CANCELLED"]:
-        raise RuntimeError("Public DYNAMIC cancellation history differs from PostgreSQL.")
+        raise RuntimeError("Public MULTI cancellation history differs from PostgreSQL.")
     attempt_id = str(attempts[0]["attempt_id"])
     detail = await _attempt_detail("REST", execution_id, attempt_id, mcp=mcp, rest=rest)
     history = await _attempt_steps("MCP", execution_id, attempt_id, mcp=mcp, rest=rest)
@@ -904,17 +900,17 @@ async def _run_running_cancel_case(
         or detail["recovery"]["runtime_session_cleanup_status"] != "SUCCEEDED"
         or [item["result"]["status"] for item in history] != ["CANCELLED"]
     ):
-        raise RuntimeError("DYNAMIC cancelled Attempt history is inconsistent.")
+        raise RuntimeError("MULTI cancelled Attempt history is inconsistent.")
 
     cancel_artifacts = [
-        artifact for artifact in snapshot.artifacts if artifact.name == "dynamic-cancel.txt"
+        artifact for artifact in snapshot.artifacts if artifact.name == "multi-cancel.txt"
     ]
     if tuple(_enum_value(artifact.status) for artifact in cancel_artifacts) != ("INCOMPLETE",):
-        raise RuntimeError(f"Cancelled DYNAMIC Artifact was not preserved: {cancel_artifacts}")
+        raise RuntimeError(f"Cancelled MULTI Artifact was not preserved: {cancel_artifacts}")
     if cancel_artifacts[0].checksum_sha256 != hashlib.sha256(b"started").hexdigest():
-        raise RuntimeError("Cancelled DYNAMIC Artifact contains unexpected data.")
+        raise RuntimeError("Cancelled MULTI Artifact contains unexpected data.")
     if any(_enum_value(artifact.artifact_type) == "NOTEBOOK" for artifact in snapshot.artifacts):
-        raise RuntimeError("Cancelled DYNAMIC Execution registered a successful notebook.")
+        raise RuntimeError("Cancelled MULTI Execution registered a successful notebook.")
 
     event_types = await _assert_event_delivery(
         "REST",
@@ -934,7 +930,7 @@ async def _run_running_cancel_case(
         "execution.cancelled",
     }
     if not required_events.issubset(event_types):
-        raise RuntimeError(f"DYNAMIC cancellation event timeline is incomplete: {event_types}")
+        raise RuntimeError(f"MULTI cancellation event timeline is incomplete: {event_types}")
     return CaseResult(
         name="MCP running cancel",
         execution_id=execution_id,
@@ -949,9 +945,9 @@ async def main() -> None:
     settings = get_settings()
     mcp_url = os.getenv("EXECUTOR_MCP_URL", "http://127.0.0.1:8000/mcp")
     rest_url = os.getenv("EXECUTOR_REST_URL", "http://127.0.0.1:8000/api/v1")
-    runtime_profile = os.getenv("DYNAMIC_LIFECYCLE_RUNTIME_PROFILE", "basic")
-    timeout_seconds = float(os.getenv("DYNAMIC_LIFECYCLE_TIMEOUT_SECONDS", "120"))
-    scan_limit = int(os.getenv("DYNAMIC_LIFECYCLE_STREAM_SCAN_LIMIT", "10000"))
+    runtime_profile = os.getenv("MULTI_LIFECYCLE_RUNTIME_PROFILE", "basic")
+    timeout_seconds = float(os.getenv("MULTI_LIFECYCLE_TIMEOUT_SECONDS", "120"))
+    scan_limit = int(os.getenv("MULTI_LIFECYCLE_STREAM_SCAN_LIMIT", "10000"))
     unique = uuid4().hex
     engine = create_engine(
         settings.database_dsn,

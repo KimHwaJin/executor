@@ -8,7 +8,7 @@ from typing import Any
 from uuid import uuid4
 
 import httpx
-from execution_spec_payload import inline_source
+from execution_spec_payload import execution_request, inline_source
 from mcp import Client
 from redis.asyncio import Redis
 
@@ -161,23 +161,22 @@ async def main() -> None:
             submitted = await client.call_tool(
                 "execution_submit",
                 {
-                    "request": {
-                        "idempotency_key": f"multi-executor-submit-{unique}",
-                        "mode": "STATIC",
-                        "trigger_type": "INTERACTIVE",
-                        "actor": {"type": "USER", "id": "multi-executor-user"},
-                        "runtime_profile": "basic",
-                        "source": inline_source(
-                            f"multi-executor-plan-{unique}",
+                    "request": execution_request(
+                        idempotency_key=f"multi-executor-submit-{unique}",
+                        operation_mode="SINGLE",
+                        trigger_type="INTERACTIVE",
+                        actor={"type": "USER", "id": "multi-executor-user"},
+                        runtime_profile="basic",
+                        source=inline_source(
                             [{"tool_name": "multi_executor_failover", "code": code}],
                         ),
-                        "context": {
+                        context={
                             "user_id": "multi-executor-user",
                             "project_id": "multi-executor-project",
                             "session_id": f"multi-executor-session-{unique}",
                             "task_id": f"multi-executor-task-{unique}",
                         },
-                    }
+                    )
                 },
             )
             if submitted.is_error:

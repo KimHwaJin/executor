@@ -1,4 +1,4 @@
-"""Register one Jupyter server and verify an end-to-end STATIC execution."""
+"""Register one Jupyter server and verify an end-to-end SINGLE execution."""
 
 import asyncio
 import os
@@ -6,7 +6,7 @@ from time import monotonic
 from typing import Any
 from uuid import uuid4
 
-from execution_spec_payload import inline_source
+from execution_spec_payload import execution_request, inline_source
 from mcp import Client
 
 from executor_service.config import get_settings
@@ -73,14 +73,13 @@ async def main() -> None:
             client,
             "execution_submit",
             {
-                "request": {
-                    "idempotency_key": f"single-jupyter-submit-{unique}",
-                    "mode": "STATIC",
-                    "trigger_type": "INTERACTIVE",
-                    "actor": {"type": "USER", "id": "single-jupyter-user"},
-                    "runtime_profile": kernel_name,
-                    "source": inline_source(
-                        f"single-jupyter-plan-{unique}",
+                "request": execution_request(
+                    idempotency_key=f"single-jupyter-submit-{unique}",
+                    operation_mode="SINGLE",
+                    trigger_type="INTERACTIVE",
+                    actor={"type": "USER", "id": "single-jupyter-user"},
+                    runtime_profile=kernel_name,
+                    source=inline_source(
                         [
                             {
                                 "skill_name": "eda",
@@ -100,13 +99,13 @@ async def main() -> None:
                             },
                         ],
                     ),
-                    "context": {
+                    context={
                         "user_id": "single-jupyter-user",
                         "project_id": "single-jupyter-project",
                         "session_id": f"single-jupyter-session-{unique}",
                         "task_id": f"single-jupyter-task-{unique}",
                     },
-                }
+                )
             },
         )
         execution_id = str(submitted["execution_id"])

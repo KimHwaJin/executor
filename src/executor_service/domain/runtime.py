@@ -18,6 +18,16 @@ class RuntimeExecutionError(RuntimeDriverError):
         self.outputs = outputs
 
 
+class RuntimeExecutionTimeoutError(RuntimeExecutionError):
+    def __init__(self, scope: str, timeout_seconds: float) -> None:
+        super().__init__(
+            f"{scope} timeout expired after {timeout_seconds:.3f} seconds.",
+            outputs=[],
+        )
+        self.scope = scope
+        self.timeout_seconds = timeout_seconds
+
+
 @dataclass(frozen=True, slots=True)
 class RuntimeExecutionResult:
     outputs: list[dict[str, Any]]

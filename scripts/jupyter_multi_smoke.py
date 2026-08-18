@@ -1,12 +1,12 @@
-"""Verify append-only DYNAMIC execution on one retained Jupyter kernel."""
+"""Verify append-only MULTI execution on one retained Jupyter kernel."""
 
 import asyncio
 import json
 from uuid import UUID, uuid4
 
 from executor_service.application.commands import (
-    ContinueExecutionCommand,
-    FinishExecutionCommand,
+    CreateOperationCommand,
+    FinalizeExecutionCommand,
     StepSpec,
     SubmitExecutionCommand,
 )
@@ -14,8 +14,8 @@ from executor_service.config import get_settings
 from executor_service.container import ApplicationContainer
 from executor_service.domain.enums import (
     CodeSourceType,
-    ExecutionMode,
     ExecutionStatus,
+    OperationMode,
     StepStatus,
     TriggerType,
 )
@@ -46,96 +46,91 @@ async def main() -> None:
         first_code = "value = 40\nprint(value)"
         submitted = await container.execution_service.submit(
             SubmitExecutionCommand(
-                idempotency_key=f"dynamic-submit-{unique}",
-                mode=ExecutionMode.DYNAMIC,
+                idempotency_key=f"multi-submit-{unique}",
+                operation_mode=OperationMode.MULTI,
+                operation_wait_timeout_seconds=3600,
                 trigger_type=TriggerType.INTERACTIVE,
                 runtime_profile="basic",
                 code_source_type=CodeSourceType.INLINE,
                 source_content=first_code,
                 code_path=None,
                 source_sha256="0" * 64,
-                user_id="dynamic-user",
-                project_id="dynamic-project",
-                session_id="dynamic-session",
+                user_id="multi-user",
+                project_id="multi-project",
+                session_id="multi-session",
                 task_id="test-task",
-                execution_plan_id=f"dynamic-plan-{unique}",
                 steps=(
                     StepSpec(
                         sequence=0,
                         code=first_code,
-                        execution_plan_id=f"dynamic-plan-{unique}",
-                        plan_step_id=f"dynamic-plan-{unique}-step-0",
                         tool_name="initialize_value",
                     ),
                 ),
             )
         )
-        first = await _wait_for(container, submitted.id, ExecutionStatus.WAITING_FOR_CONTINUE)
+        first = await _wait_for(container, submitted.id, ExecutionStatus.WAITING_FOR_OPERATION)
         runtime_session_id = first.runtime_session_id
         if runtime_session_id is None:
-            raise RuntimeError("Dynamic execution did not retain a kernel.")
+            raise RuntimeError("Multi execution did not retain a kernel.")
 
-        second = await container.execution_service.continue_execution(
-            ContinueExecutionCommand(
+        second = await container.execution_service.create_operation(
+            CreateOperationCommand(
                 execution_id=submitted.id,
-                idempotency_key=f"dynamic-continue-1-{unique}",
+                idempotency_key=f"multi-continue-1-{unique}",
                 expected_version=first.version,
+                source_content="answer = value + 2\nprint(answer)",
                 steps=(
                     StepSpec(
                         sequence=1,
                         code="answer = value + 2\nprint(answer)",
-                        execution_plan_id="revision-2",
-                        plan_step_id="revision-2-step-1",
                         tool_name="calculate_answer",
                     ),
                 ),
             )
         )
-        second = await _wait_for(container, second.id, ExecutionStatus.WAITING_FOR_CONTINUE)
+        second = await _wait_for(container, second.id, ExecutionStatus.WAITING_FOR_OPERATION)
         if second.runtime_session_id != runtime_session_id:
-            raise RuntimeError("Dynamic execution changed kernels between cells.")
+            raise RuntimeError("Multi execution changed kernels between cells.")
 
-        failed = await container.execution_service.continue_execution(
-            ContinueExecutionCommand(
+        failed = await container.execution_service.create_operation(
+            CreateOperationCommand(
                 execution_id=submitted.id,
-                idempotency_key=f"dynamic-continue-error-{unique}",
+                idempotency_key=f"multi-continue-error-{unique}",
                 expected_version=second.version,
+                source_content="raise ValueError('planned multi failure')",
                 steps=(
                     StepSpec(
                         sequence=2,
-                        code="raise ValueError('planned dynamic failure')",
-                        execution_plan_id="revision-3",
-                        plan_step_id="revision-3-step-2",
+                        code="raise ValueError('planned multi failure')",
                         tool_name="failing_tool",
                     ),
                 ),
             )
         )
-        failed = await _wait_for(container, failed.id, ExecutionStatus.WAITING_FOR_CONTINUE)
+        failed = await _wait_for(container, failed.id, ExecutionStatus.WAITING_FOR_OPERATION)
         if failed.steps[-1].status != StepStatus.FAILED:
-            raise RuntimeError("Cell error did not return to dynamic waiting state.")
+            raise RuntimeError("Cell error did not return to multi waiting state.")
 
-        corrected = await container.execution_service.continue_execution(
-            ContinueExecutionCommand(
+        corrected = await container.execution_service.create_operation(
+            CreateOperationCommand(
                 execution_id=submitted.id,
-                idempotency_key=f"dynamic-continue-corrected-{unique}",
+                idempotency_key=f"multi-continue-corrected-{unique}",
                 expected_version=failed.version,
+                source_content="corrected = answer * 2\nprint(corrected)",
                 steps=(
                     StepSpec(
                         sequence=3,
                         code="corrected = answer * 2\nprint(corrected)",
-                        execution_plan_id="revision-4",
-                        plan_step_id="revision-4-step-3",
                         tool_name="corrected_tool",
                     ),
                 ),
             )
         )
-        corrected = await _wait_for(container, corrected.id, ExecutionStatus.WAITING_FOR_CONTINUE)
-        finishing = await container.execution_service.finish_execution(
-            FinishExecutionCommand(
+        corrected = await _wait_for(container, corrected.id, ExecutionStatus.WAITING_FOR_OPERATION)
+        finishing = await container.execution_service.finalize_execution(
+            FinalizeExecutionCommand(
                 execution_id=submitted.id,
-                idempotency_key=f"dynamic-finish-{unique}",
+                idempotency_key=f"multi-finish-{unique}",
                 expected_version=corrected.version,
             )
         )
@@ -143,7 +138,7 @@ async def main() -> None:
         attempts = await container.execution_queries.attempts(submitted.id)
         events = await container.execution_queries.events(submitted.id)
         if finished.notebook_path is None:
-            raise RuntimeError("Dynamic execution did not persist a notebook path.")
+            raise RuntimeError("Multi execution did not persist a notebook path.")
         notebook_data = await container.runtime_storage.read_notebook(
             finished.runtime_type, finished.runtime_target_id, finished.notebook_path
         )
@@ -151,17 +146,17 @@ async def main() -> None:
         event_types = {event.event_type for event in events}
         cells = notebook_data.get("cells")
         if len(attempts) != 1 or not isinstance(cells, list) or len(cells) != 4:
-            raise RuntimeError("Dynamic Attempt or notebook history is incomplete.")
-        if not all(marker in notebook_text for marker in ("42", "84", "planned dynamic failure")):
-            raise RuntimeError("Dynamic notebook does not prove same-kernel state continuity.")
+            raise RuntimeError("Multi Attempt or notebook history is incomplete.")
+        if not all(marker in notebook_text for marker in ("42", "84", "planned multi failure")):
+            raise RuntimeError("Multi notebook does not prove same-kernel state continuity.")
         if not {
             "execution.operation_succeeded",
             "execution.operation_failed",
             "execution.succeeded",
         }.issubset(event_types):
-            raise RuntimeError(f"Dynamic Outbox event history is incomplete: {event_types}")
+            raise RuntimeError(f"Multi Outbox event history is incomplete: {event_types}")
         if finished.runtime_session_id is not None:
-            raise RuntimeError("Finished dynamic execution retained its kernel.")
+            raise RuntimeError("Finished multi execution retained its kernel.")
 
         print("execution_id:", submitted.id)
         print("retained_runtime_session:", runtime_session_id)

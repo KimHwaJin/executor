@@ -41,8 +41,8 @@ MUTATION_MCP_TOOL_NAMES = frozenset(
         "execution_submit",
         "execution_cancel",
         "execution_retry",
-        "execution_continue",
-        "execution_finish",
+        "execution_operation_create",
+        "execution_finalize",
     }
 )
 
@@ -64,9 +64,10 @@ Runtime supported_profiles are the selectable Jupyter kernel profiles. For a que
 "which kernels are available", call runtime_target_list and summarize enabled ACTIVE targets and
 their supported_profiles. Use opaque next_cursor values unchanged when another page is required.
 
-You may submit, cancel, retry, continue, or finish an Execution only when the user explicitly asks
-for that mutation. The mutation Tools enforce Agent-side identity, ownership, code, version, and
-idempotency policies. Never claim that an asynchronous submission is complete merely because its
+You may submit, cancel, retry, append an Operation, or finalize an Execution only when the user
+explicitly asks for that mutation. The mutation Tools enforce Agent-side identity, ownership,
+code, version, and idempotency policies. Never claim that an asynchronous submission is complete
+merely because its
 Tool call returned. The application will wait for the Executor Redis event and reconcile the
 authoritative result when a mutation returns wait_for_event=true.
 """.strip()
@@ -77,7 +78,7 @@ class SubmitExecutionInput(BaseModel):
 
     runtime_profile: str = Field(default="basic", min_length=1, max_length=128)
     steps: list[PlannedStep] = Field(min_length=1, max_length=5)
-    mode: str = Field(default="STATIC", pattern=r"^(STATIC|DYNAMIC)$")
+    operation_mode: str = Field(default="SINGLE", pattern=r"^(SINGLE|MULTI)$")
 
 
 class OwnedExecutionInput(BaseModel):
@@ -90,7 +91,7 @@ class CancelExecutionInput(OwnedExecutionInput):
     reason: str | None = Field(default=None, max_length=2000)
 
 
-class ContinueExecutionInput(OwnedExecutionInput):
+class CreateOperationInput(OwnedExecutionInput):
     steps: list[PlannedStep] = Field(min_length=1, max_length=5)
 
 
@@ -160,16 +161,16 @@ def _mutation_tools(settings: AgentSettings, request_scope_id: str) -> list[Base
             lambda arguments: _retry(arguments, settings, request_scope_id),
         ),
         _policy_tool(
-            "execution_continue",
-            "Append validated cells to an owned DYNAMIC Execution currently waiting for continue.",
-            ContinueExecutionInput,
-            lambda arguments: _continue(arguments, settings, request_scope_id),
+            "execution_operation_create",
+            "Append validated Steps to an owned MULTI Execution waiting for an Operation.",
+            CreateOperationInput,
+            lambda arguments: _create_operation(arguments, settings, request_scope_id),
         ),
         _policy_tool(
-            "execution_finish",
-            "Finish an owned DYNAMIC Execution currently waiting for continue.",
+            "execution_finalize",
+            "Finalize an owned MULTI Execution waiting for an Operation.",
             OwnedExecutionInput,
-            lambda arguments: _finish(arguments, settings, request_scope_id),
+            lambda arguments: _finalize(arguments, settings, request_scope_id),
         ),
     ]
 
@@ -208,15 +209,13 @@ async def _submit(
         project_id=settings.default_project_id,
         session_id=f"tool-session-{stable_id}",
         task_id=f"tool-task-{stable_id}",
-        execution_plan_id=f"tool-plan-{stable_id}",
         steps=[step.model_dump(mode="json") for step in parsed.steps],
     )
-    payload = request.executor_payload(idempotency_key)
-    payload["mode"] = parsed.mode
+    payload = request.executor_payload(idempotency_key, operation_mode=parsed.operation_mode)
     result = await _call_mcp_structured(settings, "execution_submit", {"request": payload})
     event_types = (
         ["execution.operation_succeeded", "execution.operation_failed"]
-        if parsed.mode == "DYNAMIC"
+        if parsed.operation_mode == "MULTI"
         else ["execution.succeeded", "execution.failed", "execution.cancelled"]
     )
     return _mutation_result(result, wait_for_event=True, event_types=event_types)
@@ -271,39 +270,48 @@ async def _retry(
     )
 
 
-async def _continue(
+async def _create_operation(
     arguments: dict[str, Any], settings: AgentSettings, request_scope_id: str
 ) -> dict[str, Any]:
-    parsed = ContinueExecutionInput.model_validate(arguments)
+    parsed = CreateOperationInput.model_validate(arguments)
     execution = await _owned_execution(settings, parsed.execution_id)
-    if execution["mode"] != "DYNAMIC" or execution["state"]["status"] != "WAITING_FOR_CONTINUE":
-        raise ValueError("execution_continue requires an owned waiting DYNAMIC Execution.")
+    if (
+        execution["lifecycle"]["operation_mode"] != "MULTI"
+        or execution["state"]["status"] != "WAITING_FOR_OPERATION"
+    ):
+        raise ValueError(
+            "execution_operation_create requires an owned MULTI Execution waiting for an Operation."
+        )
     steps_page = await _call_mcp_structured(
         settings, "execution_step_list", {"execution_id": parsed.execution_id, "limit": 200}
     )
     first_sequence = max((item["sequence"] for item in steps_page["items"]), default=-1) + 1
-    plan_id = execution["context"]["execution_plan_id"]
     source_steps = [
         {
             "sequence": first_sequence + offset,
-            "plan_step_id": f"{plan_id}-step-{first_sequence + offset}",
-            **step.model_dump(mode="json"),
+            "payload": {"type": "CODE", "content": step.code},
+            "lineage": {
+                "skill_name": step.skill_name,
+                "tool_name": step.tool_name,
+                "input_parameters": {},
+            },
         }
         for offset, step in enumerate(parsed.steps)
     ]
     result = await _call_mcp_structured(
         settings,
-        "execution_continue",
+        "execution_operation_create",
         {
             "request": {
                 "execution_id": parsed.execution_id,
-                "idempotency_key": _idempotency_key("continue", request_scope_id, arguments),
+                "idempotency_key": _idempotency_key(
+                    "operation-create", request_scope_id, arguments
+                ),
                 "expected_version": execution["state"]["version"],
                 "source": {
                     "type": "INLINE",
                     "spec": {
                         "schema_version": "1.0",
-                        "execution_plan_id": plan_id,
                         "steps": source_steps,
                     },
                 },
@@ -318,20 +326,25 @@ async def _continue(
     )
 
 
-async def _finish(
+async def _finalize(
     arguments: dict[str, Any], settings: AgentSettings, request_scope_id: str
 ) -> dict[str, Any]:
     parsed = OwnedExecutionInput.model_validate(arguments)
     execution = await _owned_execution(settings, parsed.execution_id)
-    if execution["mode"] != "DYNAMIC" or execution["state"]["status"] != "WAITING_FOR_CONTINUE":
-        raise ValueError("execution_finish requires an owned waiting DYNAMIC Execution.")
+    if (
+        execution["lifecycle"]["operation_mode"] != "MULTI"
+        or execution["state"]["status"] != "WAITING_FOR_OPERATION"
+    ):
+        raise ValueError(
+            "execution_finalize requires an owned MULTI Execution waiting for an Operation."
+        )
     result = await _call_mcp_structured(
         settings,
-        "execution_finish",
+        "execution_finalize",
         {
             "request": {
                 "execution_id": parsed.execution_id,
-                "idempotency_key": _idempotency_key("finish", request_scope_id, arguments),
+                "idempotency_key": _idempotency_key("finalize", request_scope_id, arguments),
                 "expected_version": execution["state"]["version"],
                 "actor": _actor(settings),
             }

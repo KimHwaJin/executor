@@ -27,25 +27,29 @@ from executor_service.interfaces.mcp.server import build_mcp_server
 SUBMIT_ARGUMENTS: dict[str, Any] = {
     "request": {
         "idempotency_key": "mcp-submit-1",
-        "mode": "STATIC",
-        "trigger_type": "INTERACTIVE",
-        "actor": {"type": "USER", "id": "user-1"},
-        "runtime_profile": "basic",
-        "source": {
-            "type": "INLINE",
-            "spec": {
-                "schema_version": "1.0",
-                "execution_plan_id": "plan-1",
-                "steps": [
-                    {
-                        "sequence": 0,
-                        "plan_step_id": "plan-step-1",
-                        "skill_name": "data_load",
-                        "tool_name": "load_data",
-                        "input_parameters": {},
-                        "code": "print('hello')",
-                    }
-                ],
+        "lifecycle": {"operation_mode": "SINGLE"},
+        "trigger": {
+            "type": "INTERACTIVE",
+            "actor": {"type": "USER", "id": "user-1"},
+        },
+        "runtime": {"type": "JUPYTER", "profile": "basic"},
+        "operation": {
+            "source": {
+                "type": "INLINE",
+                "spec": {
+                    "schema_version": "1.0",
+                    "steps": [
+                        {
+                            "sequence": 0,
+                            "payload": {"type": "CODE", "content": "print('hello')"},
+                            "lineage": {
+                                "skill_name": "data_load",
+                                "tool_name": "load_data",
+                                "input_parameters": {},
+                            },
+                        }
+                    ],
+                },
             },
         },
         "context": {
@@ -75,8 +79,8 @@ async def test_mcp_client_can_list_and_call_execution_tools(
             "execution_get",
             "execution_cancel",
             "execution_retry",
-            "execution_continue",
-            "execution_finish",
+            "execution_operation_create",
+            "execution_finalize",
         }
 
         submitted = await client.call_tool("execution_submit", SUBMIT_ARGUMENTS)
@@ -85,7 +89,7 @@ async def test_mcp_client_can_list_and_call_execution_tools(
         assert submitted.structured_content["state"]["status"] == "QUEUED"
         assert set(submitted.structured_content) == {
             "execution_id",
-            "operation_id",
+            "operation",
             "state",
             "created_by_type",
             "created_by",
@@ -149,7 +153,7 @@ async def test_mcp_client_can_query_execution_history_resources(
 
         submitted = await client.call_tool("execution_submit", SUBMIT_ARGUMENTS)
         execution_id = submitted.structured_content["execution_id"]
-        operation_id = submitted.structured_content["operation_id"]
+        operation_id = submitted.structured_content["operation"]["operation_id"]
         attempts = await client.call_tool("execution_attempt_list", {"execution_id": execution_id})
         events = await client.call_tool("execution_event_list", {"execution_id": execution_id})
         operations = await client.call_tool(
@@ -188,7 +192,6 @@ async def test_mcp_execution_list_uses_opaque_next_cursor(
         submitted_ids: set[str] = set()
         for index in range(2):
             arguments["request"]["idempotency_key"] = f"mcp-page-{index}"
-            arguments["request"]["source"]["spec"]["execution_plan_id"] = f"mcp-page-plan-{index}"
             submitted = await client.call_tool("execution_submit", arguments)
             submitted_ids.add(submitted.structured_content["execution_id"])
 
@@ -312,18 +315,19 @@ async def test_execution_submit_reads_path_spec_and_derives_batch_pool(
     execution_service: ExecutionService,
     tmp_path: Path,
 ) -> None:
-    spec = deepcopy(SUBMIT_ARGUMENTS["request"]["source"]["spec"])
-    spec["execution_plan_id"] = "batch-plan-1"
+    spec = deepcopy(SUBMIT_ARGUMENTS["request"]["operation"]["source"]["spec"])
     content = json.dumps(spec, separators=(",", ":")).encode()
     source_file = tmp_path / "plans" / "batch.execution.json"
     source_file.parent.mkdir(parents=True)
     source_file.write_bytes(content)
     arguments = deepcopy(SUBMIT_ARGUMENTS)
     arguments["request"]["idempotency_key"] = "mcp-path-submit-1"
-    arguments["request"]["trigger_type"] = "BATCH"
-    arguments["request"]["actor"] = {"type": "BATCH", "id": "batch-1"}
+    arguments["request"]["trigger"] = {
+        "type": "BATCH",
+        "actor": {"type": "BATCH", "id": "batch-1"},
+    }
     arguments["request"]["context"]["workflow_id"] = "workflow-batch-1"
-    arguments["request"]["source"] = {
+    arguments["request"]["operation"]["source"] = {
         "type": "PATH",
         "path": "plans/batch.execution.json",
         "sha256": hashlib.sha256(content).hexdigest(),
@@ -342,17 +346,19 @@ async def test_execution_submit_reads_path_spec_and_derives_batch_pool(
     assert execution.runtime_pool.value == "BATCH"
     assert execution.code_path == "plans/batch.execution.json"
     assert execution.user_id == "user-1"
-    assert execution.execution_plan_id == "batch-plan-1"
 
 
-async def test_dynamic_continue_accepts_next_inline_execution_spec(
+async def test_multi_continue_accepts_next_inline_execution_spec(
     execution_service: ExecutionService,
     engine: AsyncEngine,
     tmp_path: Path,
 ) -> None:
     arguments = deepcopy(SUBMIT_ARGUMENTS)
-    arguments["request"]["idempotency_key"] = "mcp-dynamic-submit-1"
-    arguments["request"]["mode"] = "DYNAMIC"
+    arguments["request"]["idempotency_key"] = "mcp-multi-submit-1"
+    arguments["request"]["lifecycle"] = {
+        "operation_mode": "MULTI",
+        "operation_wait_timeout_seconds": 600,
+    }
     target = build_mcp_server(
         execution_service,
         execution_spec_resolver=ExecutionSpecResolver(tmp_path),
@@ -366,31 +372,31 @@ async def test_dynamic_continue_accepts_next_inline_execution_spec(
             await session.execute(
                 update(ExecutionORM)
                 .where(ExecutionORM.id == UUID(execution_id))
-                .values(status="WAITING_FOR_CONTINUE", version=2)
+                .values(status="WAITING_FOR_OPERATION", version=2)
             )
         continued = await client.call_tool(
-            "execution_continue",
+            "execution_operation_create",
             {
                 "request": {
                     "execution_id": execution_id,
-                    "idempotency_key": "mcp-dynamic-continue-1",
+                    "idempotency_key": "mcp-multi-continue-1",
                     "expected_version": 2,
                     "actor": {"type": "USER", "id": "user-1"},
                     "source": {
                         "type": "INLINE",
                         "spec": {
                             "schema_version": "1.0",
-                            "execution_plan_id": "plan-2",
                             "steps": [
                                 {
                                     "sequence": 1,
-                                    "plan_step_id": "plan-2-step-1",
-                                    "code": "print('next')",
+                                    "payload": {"type": "CODE", "content": "print('next')"},
                                 },
                                 {
                                     "sequence": 2,
-                                    "plan_step_id": "plan-2-step-2",
-                                    "code": "print('next again')",
+                                    "payload": {
+                                        "type": "CODE",
+                                        "content": "print('next again')",
+                                    },
                                 },
                             ],
                         },
@@ -401,9 +407,7 @@ async def test_dynamic_continue_accepts_next_inline_execution_spec(
 
     assert not continued.is_error
     execution = await execution_service.get(UUID(execution_id))
-    assert execution.steps[1].execution_plan_id == "plan-2"
-    assert execution.steps[1].plan_step_id == "plan-2-step-1"
-    assert execution.steps[2].plan_step_id == "plan-2-step-2"
+    assert [step.sequence for step in execution.steps] == [0, 1, 2]
     assert execution.steps[1].operation_id == execution.steps[2].operation_id
 
 
@@ -422,7 +426,7 @@ async def test_mcp_retry_returns_the_requeued_operation_id(
     async with Client(target) as client:
         submitted = await client.call_tool("execution_submit", arguments)
         execution_id = UUID(submitted.structured_content["execution_id"])
-        operation_id = UUID(submitted.structured_content["operation_id"])
+        operation_id = UUID(submitted.structured_content["operation"]["operation_id"])
         session_factory = create_session_factory(engine)
         async with session_factory() as session, session.begin():
             await session.execute(
@@ -451,5 +455,5 @@ async def test_mcp_retry_returns_the_requeued_operation_id(
         )
 
     assert not retried.is_error
-    assert retried.structured_content["operation_id"] == str(operation_id)
+    assert retried.structured_content["operation"]["operation_id"] == str(operation_id)
     assert retried.structured_content["state"]["status"] == "QUEUED"

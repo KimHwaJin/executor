@@ -5,7 +5,7 @@ import os
 from typing import Any
 from uuid import uuid4
 
-from execution_spec_payload import inline_source
+from execution_spec_payload import execution_request, inline_source
 from mcp import Client
 
 
@@ -83,14 +83,13 @@ async def main() -> None:
             client,
             "execution_submit",
             {
-                "request": {
-                    "idempotency_key": f"retry-offline-submit-{unique}",
-                    "mode": "STATIC",
-                    "trigger_type": "INTERACTIVE",
-                    "actor": {"type": "USER", "id": "retry-offline-user"},
-                    "runtime_profile": "basic",
-                    "source": inline_source(
-                        f"retry-offline-plan-{unique}",
+                "request": execution_request(
+                    idempotency_key=f"retry-offline-submit-{unique}",
+                    operation_mode="SINGLE",
+                    trigger_type="INTERACTIVE",
+                    actor={"type": "USER", "id": "retry-offline-user"},
+                    runtime_profile="basic",
+                    source=inline_source(
                         [
                             {
                                 "tool_name": "initialize",
@@ -108,13 +107,13 @@ async def main() -> None:
                             {"tool_name": "finish", "code": "print('recovered')"},
                         ],
                     ),
-                    "context": {
+                    context={
                         "user_id": "retry-offline-user",
                         "project_id": "retry-offline-project",
                         "session_id": f"retry-offline-session-{unique}",
                         "task_id": f"retry-offline-task-{unique}",
                     },
-                }
+                )
             },
         )
         execution_id = str(submitted["execution_id"])

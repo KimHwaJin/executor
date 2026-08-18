@@ -31,7 +31,7 @@ def test_agent_example_applies_one_event_id_exactly_once(tmp_path: Path) -> None
         {
             "event_id": str(event.id),
             "event_type": event.event_type,
-            "schema_version": "1.0",
+            "schema_version": "2.0",
             "aggregate_type": "Execution",
             "aggregate_id": str(execution_id),
             "occurred_at": event.created_at.isoformat(),

@@ -8,8 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from executor_service.application.commands import (
     CancelExecutionCommand,
-    ContinueExecutionCommand,
-    FinishExecutionCommand,
+    CreateOperationCommand,
+    FinalizeExecutionCommand,
     RetryExecutionCommand,
     StepSpec,
     SubmitExecutionCommand,
@@ -18,9 +18,9 @@ from executor_service.application.services import ExecutionService
 from executor_service.domain.enums import (
     ActorType,
     CodeSourceType,
-    ExecutionMode,
     ExecutionStatus,
     FailureType,
+    OperationMode,
     OperationStatus,
     RetryStrategy,
     RuntimeSessionCleanupStatus,
@@ -46,7 +46,7 @@ from executor_service.infrastructure.db.session import create_session_factory
 def submit_command(idempotency_key: str = "submit-1") -> SubmitExecutionCommand:
     return SubmitExecutionCommand(
         idempotency_key=idempotency_key,
-        mode=ExecutionMode.STATIC,
+        operation_mode=OperationMode.SINGLE,
         trigger_type=TriggerType.INTERACTIVE,
         runtime_profile="basic",
         code_source_type=CodeSourceType.INLINE,
@@ -57,13 +57,10 @@ def submit_command(idempotency_key: str = "submit-1") -> SubmitExecutionCommand:
         project_id="project-1",
         session_id="session-1",
         task_id="test-task",
-        execution_plan_id="plan-1",
         steps=(
             StepSpec(
                 sequence=0,
                 code="print('hello')",
-                execution_plan_id="plan-1",
-                plan_step_id="plan-1-step-0",
                 skill_name="data_load",
                 tool_name="load_data",
             ),
@@ -71,19 +68,17 @@ def submit_command(idempotency_key: str = "submit-1") -> SubmitExecutionCommand:
     )
 
 
-def dynamic_submit_command(idempotency_key: str = "dynamic-submit-1") -> SubmitExecutionCommand:
+def multi_submit_command(idempotency_key: str = "multi-submit-1") -> SubmitExecutionCommand:
     code = "value = 40"
     return replace(
         submit_command(idempotency_key),
-        mode=ExecutionMode.DYNAMIC,
-        execution_plan_id="plan-revision-1",
+        operation_mode=OperationMode.MULTI,
+        operation_wait_timeout_seconds=3600,
         source_content=code,
         steps=(
             StepSpec(
                 sequence=0,
                 code=code,
-                execution_plan_id="plan-revision-1",
-                plan_step_id="plan-revision-1-step-0",
                 skill_name="data_load",
                 tool_name="load_data",
             ),
@@ -182,42 +177,39 @@ async def test_unknown_execution_is_not_found(execution_service: ExecutionServic
         await execution_service.get(uuid4())
 
 
-async def test_dynamic_continue_and_finish_are_versioned_and_idempotent(
+async def test_multi_continue_and_finish_are_versioned_and_idempotent(
     execution_service: ExecutionService,
     engine: AsyncEngine,
 ) -> None:
-    execution = await execution_service.submit(dynamic_submit_command())
+    execution = await execution_service.submit(multi_submit_command())
     session_factory = create_session_factory(engine)
     async with session_factory() as session, session.begin():
         await session.execute(
             update(ExecutionORM)
             .where(ExecutionORM.id == execution.id)
-            .values(status=ExecutionStatus.WAITING_FOR_CONTINUE, version=2)
+            .values(status=ExecutionStatus.WAITING_FOR_OPERATION, version=2)
         )
 
-    command = ContinueExecutionCommand(
+    command = CreateOperationCommand(
         execution_id=execution.id,
-        idempotency_key="dynamic-continue-1",
+        idempotency_key="multi-continue-1",
         expected_version=2,
+        source_content="answer = value + 2\nprint(answer)",
         steps=(
             StepSpec(
                 sequence=1,
                 code="answer = value + 2",
-                execution_plan_id="plan-revision-2",
-                plan_step_id="plan-revision-2-step-1",
                 skill_name="eda",
                 tool_name="calculate_answer",
             ),
             StepSpec(
                 sequence=2,
                 code="print(answer)",
-                execution_plan_id="plan-revision-2",
-                plan_step_id="plan-revision-2-step-2",
             ),
         ),
     )
-    continued = await execution_service.continue_execution(command)
-    repeated = await execution_service.continue_execution(command)
+    continued = await execution_service.create_operation(command)
+    repeated = await execution_service.create_operation(command)
 
     assert continued.status == ExecutionStatus.QUEUED
     assert continued.version == 3
@@ -230,46 +222,45 @@ async def test_dynamic_continue_and_finish_are_versioned_and_idempotent(
         await session.execute(
             update(ExecutionORM)
             .where(ExecutionORM.id == execution.id)
-            .values(status=ExecutionStatus.WAITING_FOR_CONTINUE, version=4)
+            .values(status=ExecutionStatus.WAITING_FOR_OPERATION, version=4)
         )
 
-    finish = FinishExecutionCommand(
+    finish = FinalizeExecutionCommand(
         execution_id=execution.id,
-        idempotency_key="dynamic-finish-1",
+        idempotency_key="multi-finish-1",
         expected_version=4,
     )
-    finishing = await execution_service.finish_execution(finish)
-    repeated_finish = await execution_service.finish_execution(finish)
-    assert finishing.status == ExecutionStatus.QUEUED
-    assert finishing.dynamic_finish_requested
+    finishing = await execution_service.finalize_execution(finish)
+    repeated_finish = await execution_service.finalize_execution(finish)
+    assert finishing.status == ExecutionStatus.FINALIZING
+    assert finishing.finalization_requested
     assert repeated_finish.version == 5
 
 
-async def test_dynamic_continue_rejects_stale_version(
+async def test_multi_continue_rejects_stale_version(
     execution_service: ExecutionService,
     engine: AsyncEngine,
 ) -> None:
-    execution = await execution_service.submit(dynamic_submit_command("dynamic-stale"))
+    execution = await execution_service.submit(multi_submit_command("multi-stale"))
     session_factory = create_session_factory(engine)
     async with session_factory() as session, session.begin():
         await session.execute(
             update(ExecutionORM)
             .where(ExecutionORM.id == execution.id)
-            .values(status=ExecutionStatus.WAITING_FOR_CONTINUE, version=2)
+            .values(status=ExecutionStatus.WAITING_FOR_OPERATION, version=2)
         )
 
     with pytest.raises(ExecutionVersionConflictError):
-        await execution_service.continue_execution(
-            ContinueExecutionCommand(
+        await execution_service.create_operation(
+            CreateOperationCommand(
                 execution_id=execution.id,
-                idempotency_key="dynamic-stale-continue",
+                idempotency_key="multi-stale-continue",
                 expected_version=1,
+                source_content="print('stale')",
                 steps=(
                     StepSpec(
                         sequence=1,
                         code="print('stale')",
-                        execution_plan_id="plan-revision-stale",
-                        plan_step_id="plan-revision-stale-step-1",
                     ),
                 ),
             )
@@ -284,9 +275,9 @@ async def test_retry_resets_failed_and_later_steps_idempotently(
         replace(
             submit_command("retry-submit"),
             steps=(
-                StepSpec(0, "prepare()", "plan-1", "plan-1-step-0", tool_name="prepare"),
-                StepSpec(1, "fail_once()", "plan-1", "plan-1-step-1", tool_name="fail_once"),
-                StepSpec(2, "finish()", "plan-1", "plan-1-step-2", tool_name="finish"),
+                StepSpec(0, "prepare()", tool_name="prepare"),
+                StepSpec(1, "fail_once()", tool_name="fail_once"),
+                StepSpec(2, "finish()", tool_name="finish"),
             ),
         )
     )
@@ -363,12 +354,10 @@ async def test_infrastructure_retry_starts_from_zero_with_a_new_kernel(
         replace(
             submit_command("infrastructure-retry-submit"),
             steps=(
-                StepSpec(0, "prepare()", "plan-1", "plan-1-step-0", tool_name="prepare"),
+                StepSpec(0, "prepare()", tool_name="prepare"),
                 StepSpec(
                     1,
                     "long_running_tool()",
-                    "plan-1",
-                    "plan-1-step-1",
                     tool_name="long_running_tool",
                 ),
             ),
@@ -458,14 +447,15 @@ async def test_infrastructure_retry_waits_for_abandoned_runtime_session_cleanup(
     assert unchanged.runtime_session_cleanup_status == RuntimeSessionCleanupStatus.PENDING
 
 
-async def test_dynamic_execution_rejects_explicit_retry(
+async def test_multi_execution_rejects_explicit_retry(
     execution_service: ExecutionService,
     engine: AsyncEngine,
 ) -> None:
     execution = await execution_service.submit(
         replace(
-            submit_command("dynamic-explicit-retry-submit"),
-            mode=ExecutionMode.DYNAMIC,
+            submit_command("multi-explicit-retry-submit"),
+            operation_mode=OperationMode.MULTI,
+            operation_wait_timeout_seconds=3600,
         )
     )
     now = utc_now()
@@ -487,10 +477,10 @@ async def test_dynamic_execution_rejects_explicit_retry(
             .values(status=OperationStatus.FAILED, finished_at=now)
         )
 
-    with pytest.raises(InvalidStateTransitionError, match="Only STATIC"):
+    with pytest.raises(InvalidStateTransitionError, match="Only SINGLE"):
         await execution_service.retry(
             RetryExecutionCommand(
                 execution_id=execution.id,
-                idempotency_key="dynamic-explicit-retry-command",
+                idempotency_key="multi-explicit-retry-command",
             )
         )

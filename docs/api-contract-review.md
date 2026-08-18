@@ -1,5 +1,9 @@
 # API Contract Review
 
+> Historical review log. Execution request/response examples in this file were superseded by the
+> accepted Execution API contract v2 on 2026-08-19. Use `docs/rest-api.md`,
+> `docs/execution-spec.md`, and the generated OpenAPI document as the current contract.
+
 The Execution-family response decisions in this historical review are superseded by
 [Execution Response Contracts](execution-response-contracts.md). Runtime Target and Runtime Pool
 decisions in this document remain current.

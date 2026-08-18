@@ -41,7 +41,7 @@ class HealthyGateway:
         return RuntimeResourceObservation(
             observed_at=now,
             process_count=3,
-            cpu=RuntimeResourceMetric(0.4, 2.0, 0.2, "CGROUP_V2", False),
+            cpu=RuntimeResourceMetric(0.4, 1.0, 0.2, "CGROUP_V2", False),
             memory=RuntimeResourceMetric(256, 1024, 0.25, "CGROUP_V2", False),
         )
 
@@ -103,21 +103,24 @@ def _mutation_payload(key: str) -> dict[str, Any]:
 def _execution_payload() -> dict[str, Any]:
     return {
         "idempotency_key": "fleet-history-execution",
-        "mode": "STATIC",
-        "trigger_type": "INTERACTIVE",
-        "runtime_profile": "basic",
-        "source": {
-            "type": "INLINE",
-            "spec": {
-                "schema_version": "1.0",
-                "execution_plan_id": "fleet-history-plan",
-                "steps": [
-                    {
-                        "sequence": 0,
-                        "plan_step_id": "fleet-history-step",
-                        "code": "print('history')",
-                    }
-                ],
+        "lifecycle": {"operation_mode": "SINGLE"},
+        "trigger": {
+            "type": "INTERACTIVE",
+            "actor": {"type": "USER", "id": "fleet-admin"},
+        },
+        "runtime": {"type": "JUPYTER", "profile": "basic"},
+        "operation": {
+            "source": {
+                "type": "INLINE",
+                "spec": {
+                    "schema_version": "1.0",
+                    "steps": [
+                        {
+                            "sequence": 0,
+                            "payload": {"type": "CODE", "content": "print('history')"},
+                        }
+                    ],
+                },
             },
         },
         "context": {
@@ -126,7 +129,6 @@ def _execution_payload() -> dict[str, Any]:
             "session_id": "fleet-session",
             "task_id": "fleet-task",
         },
-        "actor": {"type": "USER", "id": "fleet-admin"},
     }
 
 

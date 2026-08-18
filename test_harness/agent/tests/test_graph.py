@@ -65,7 +65,6 @@ async def test_graph_runs_executor_request_and_returns_verified_result(monkeypat
                 "project_id": "p",
                 "session_id": "s",
                 "task_id": "t",
-                "execution_plan_id": "plan",
                 "steps": [
                     {
                         "skill_name": "eda",
@@ -82,12 +81,12 @@ async def test_graph_runs_executor_request_and_returns_verified_result(monkeypat
     terminal_event = {
         "event_id": "00000000-0000-0000-0000-000000000002",
         "event_type": "execution.succeeded",
-        "schema_version": "1.0",
+        "schema_version": "2.0",
         "aggregate_type": "Execution",
         "aggregate_id": execution_id,
         "occurred_at": "2026-08-13T00:00:00Z",
         "payload": {
-            "schema_version": "1.0",
+            "schema_version": "2.0",
             "execution_id": execution_id,
             "status": "SUCCEEDED",
         },
@@ -106,12 +105,12 @@ async def test_graph_runs_mcp_tool_agent_and_waits_for_stream_event(monkeypatch)
     terminal_event = {
         "event_id": "00000000-0000-0000-0000-000000000011",
         "event_type": "execution.succeeded",
-        "schema_version": "1.0",
+        "schema_version": "2.0",
         "aggregate_type": "Execution",
         "aggregate_id": execution_id,
         "occurred_at": "2026-08-13T00:00:00Z",
         "payload": {
-            "schema_version": "1.0",
+            "schema_version": "2.0",
             "execution_id": execution_id,
             "status": "SUCCEEDED",
         },

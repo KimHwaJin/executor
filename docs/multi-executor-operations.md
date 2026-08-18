@@ -27,9 +27,9 @@ Redis intake and queue reconciliation loops, and makes `/readyz` fail through th
 `EXECUTION_DRAIN_TIMEOUT_SECONDS`. Other Pods continue claiming queued work from the shared
 PostgreSQL state.
 
-When the drain deadline expires, remaining local handlers are cancelled. Unfinished STATIC work is
+When the drain deadline expires, remaining local handlers are cancelled. Unfinished SINGLE work is
 classified as `WORKER_SHUTDOWN`, its Runtime session is deleted, and a `FROM_START` retry is exposed when
-safe. A DYNAMIC cell interrupted during shutdown is not replayed automatically. `/workerz` exposes
+safe. A MULTI Step interrupted during shutdown is not replayed automatically. `/workerz` exposes
 the local lifecycle state and active execution count for diagnosis.
 
 A forced process or Pod failure cannot perform the shutdown cleanup. Another Pod detects the

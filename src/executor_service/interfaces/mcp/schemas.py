@@ -25,8 +25,8 @@ __all__ = [
     "ActorInput",
     "CodeSource",
     "ExecutionCancelRequest",
-    "ExecutionContinueRequest",
-    "ExecutionFinishRequest",
+    "ExecutionFinalizeRequest",
+    "ExecutionOperationCreateRequest",
     "ExecutionRetryRequest",
     "ExecutionSpec",
     "ExecutionStepInput",
@@ -57,15 +57,17 @@ class ExecutionRetryRequest(MCPModel):
     actor: ActorInput
 
 
-class ExecutionContinueRequest(MCPModel):
+class ExecutionOperationCreateRequest(MCPModel):
     execution_id: UUID
     idempotency_key: str = Field(min_length=1, max_length=255)
     expected_version: int = Field(ge=0)
+    operation_timeout_seconds: int | None = Field(default=None, ge=1)
     source: CodeSource
+    metadata: dict[str, object] = Field(default_factory=dict)
     actor: ActorInput
 
 
-class ExecutionFinishRequest(MCPModel):
+class ExecutionFinalizeRequest(MCPModel):
     execution_id: UUID
     idempotency_key: str = Field(min_length=1, max_length=255)
     expected_version: int = Field(ge=0)

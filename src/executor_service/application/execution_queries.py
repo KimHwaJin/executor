@@ -13,9 +13,9 @@ from executor_service.domain.enums import (
     ArtifactType,
     AttemptStatus,
     CodeSourceType,
-    ExecutionMode,
     ExecutionStatus,
     FailureType,
+    OperationMode,
     OperationStatus,
     OutboxStatus,
     RetryStrategy,
@@ -31,13 +31,13 @@ from executor_service.domain.models import ExecutionStep
 @dataclass(frozen=True, slots=True)
 class ExecutionSummaryView:
     id: UUID
-    mode: ExecutionMode
+    operation_mode: OperationMode
+    operation_wait_timeout_seconds: int | None
     trigger_type: TriggerType
     user_id: str
-    project_id: str
-    session_id: str
+    project_id: str | None
+    session_id: str | None
     task_id: str
-    execution_plan_id: str
     workflow_id: str | None
     status: ExecutionStatus
     version: int
@@ -55,13 +55,13 @@ class ExecutionSummaryView:
 @dataclass(frozen=True, slots=True)
 class ExecutionDetailView:
     id: UUID
-    mode: ExecutionMode
+    operation_mode: OperationMode
+    operation_wait_timeout_seconds: int | None
     trigger_type: TriggerType
     user_id: str
-    project_id: str
-    session_id: str
+    project_id: str | None
+    session_id: str | None
     task_id: str
-    execution_plan_id: str
     workflow_id: str | None
     code_source_type: CodeSourceType
     code_path: str | None
@@ -84,7 +84,7 @@ class ExecutionDetailView:
     retained_runtime_session_until: datetime | None
     recovery_count: int
     runtime_session_cleanup_status: RuntimeSessionCleanupStatus
-    dynamic_wait_expires_at: datetime | None
+    operation_wait_expires_at: datetime | None
     execution_expires_at: datetime | None
     created_by_type: ActorType | None
     created_by: str | None
@@ -153,7 +153,8 @@ class ExecutionOperationView:
     operation_number: int
     first_sequence: int
     last_sequence: int
-    execution_plan_id: str
+    operation_timeout_seconds: int | None
+    metadata: dict[str, Any]
     code_source_type: CodeSourceType
     code_path: str | None
     source_sha256: str

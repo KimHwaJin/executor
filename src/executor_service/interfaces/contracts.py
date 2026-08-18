@@ -30,9 +30,9 @@ from executor_service.domain.enums import (
     ArtifactType,
     AttemptStatus,
     CodeSourceType,
-    ExecutionMode,
     ExecutionStatus,
     FailureType,
+    OperationMode,
     OperationStatus,
     OutboxStatus,
     RetryStrategy,
@@ -121,27 +121,59 @@ class ExecutionNotebookCellResponse(ContractModel):
         return cls(execution_id=execution_id, cell=NotebookCellResponse.from_view(view))
 
 
-class ExecutionSubmitContext(ContractModel):
+class ExecutionContext(ContractModel):
     user_id: str = Field(min_length=1, max_length=255)
-    project_id: str = Field(min_length=1, max_length=255)
-    session_id: str = Field(min_length=1, max_length=255)
     task_id: str = Field(min_length=1, max_length=255)
+    project_id: str | None = Field(default=None, min_length=1, max_length=255)
+    session_id: str | None = Field(default=None, min_length=1, max_length=255)
     workflow_id: str | None = Field(default=None, max_length=255)
 
+    @model_validator(mode="after")
+    def validate_scope(self) -> "ExecutionContext":
+        if self.session_id is not None and self.project_id is None:
+            raise ValueError("context.session_id requires context.project_id.")
+        if self.project_id == "unscoped" or self.session_id == "unscoped":
+            raise ValueError("'unscoped' is reserved for Executor workspace paths.")
+        return self
 
-class ExecutionContext(ExecutionSubmitContext):
-    execution_plan_id: str = Field(min_length=1, max_length=255)
+
+class ExecutionLifecycleInput(ContractModel):
+    operation_mode: OperationMode
+    operation_wait_timeout_seconds: int | None = Field(default=None, ge=30)
+
+    @model_validator(mode="after")
+    def validate_wait_timeout(self) -> "ExecutionLifecycleInput":
+        if self.operation_mode == OperationMode.MULTI:
+            if self.operation_wait_timeout_seconds is None:
+                raise ValueError("MULTI lifecycle requires operation_wait_timeout_seconds.")
+        elif self.operation_wait_timeout_seconds is not None:
+            raise ValueError("SINGLE lifecycle does not accept operation_wait_timeout_seconds.")
+        return self
+
+
+class ExecutionTriggerInput(ContractModel):
+    type: TriggerType
+    actor: ActorInput
+
+
+class ExecutionRuntimeInput(ContractModel):
+    type: RuntimeType
+    profile: str = Field(min_length=1, max_length=128)
+
+
+class ExecutionOperationInput(ContractModel):
+    operation_timeout_seconds: int | None = Field(default=None, ge=1)
+    source: CodeSource
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class ExecutionSubmitRequest(ContractModel):
     idempotency_key: str = Field(min_length=1, max_length=255)
-    mode: ExecutionMode
-    trigger_type: TriggerType = TriggerType.INTERACTIVE
-    runtime_type: RuntimeType = RuntimeType.JUPYTER
-    runtime_profile: str = Field(min_length=1, max_length=128)
-    source: CodeSource
-    context: ExecutionSubmitContext
-    actor: ActorInput
+    lifecycle: ExecutionLifecycleInput
+    trigger: ExecutionTriggerInput
+    runtime: ExecutionRuntimeInput
+    context: ExecutionContext
+    operation: ExecutionOperationInput
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     def to_command(
@@ -149,29 +181,34 @@ class ExecutionSubmitRequest(ContractModel):
     ) -> SubmitExecutionCommand:
         return SubmitExecutionCommand(
             idempotency_key=self.idempotency_key,
-            mode=self.mode,
-            trigger_type=self.trigger_type,
-            runtime_type=self.runtime_type,
-            runtime_profile=self.runtime_profile,
-            code_source_type=self.source.type,
+            operation_mode=self.lifecycle.operation_mode,
+            operation_wait_timeout_seconds=self.lifecycle.operation_wait_timeout_seconds,
+            trigger_type=self.trigger.type,
+            runtime_type=self.runtime.type,
+            runtime_profile=self.runtime.profile,
+            code_source_type=self.operation.source.type,
             source_content=source_content,
-            code_path=self.source.path if isinstance(self.source, PathCodeSource) else None,
+            code_path=(
+                self.operation.source.path
+                if isinstance(self.operation.source, PathCodeSource)
+                else None
+            ),
             source_sha256=source_sha256,
             user_id=self.context.user_id,
             project_id=self.context.project_id,
             session_id=self.context.session_id,
             task_id=self.context.task_id,
-            execution_plan_id=spec.execution_plan_id,
-            actor_type=self.actor.type,
-            actor_id=self.actor.id,
+            operation_timeout_seconds=self.operation.operation_timeout_seconds,
+            actor_type=self.trigger.actor.type,
+            actor_id=self.trigger.actor.id,
             workflow_id=self.context.workflow_id,
             metadata=self.metadata,
+            operation_metadata=self.operation.metadata,
             steps=tuple(
                 StepSpec(
                     sequence=step.sequence,
                     code=step.code,
-                    execution_plan_id=spec.execution_plan_id,
-                    plan_step_id=step.plan_step_id,
+                    step_timeout_seconds=step.step_timeout_seconds,
                     skill_name=step.skill_name,
                     tool_name=step.tool_name,
                     input_parameters=step.input_parameters,
@@ -410,11 +447,6 @@ class RuntimePoolPageResponse(ContractModel):
     items: list[RuntimePoolResponse]
 
 
-class PlanReference(ContractModel):
-    execution_plan_id: str
-    plan_step_id: str
-
-
 class ToolReference(ContractModel):
     skill_name: str | None
     tool_name: str | None
@@ -437,8 +469,8 @@ class ExecutionStepResponse(AuditFields):
     execution_id: UUID
     sequence: int
     code_hash: str | None
-    plan: PlanReference
-    tool: ToolReference
+    step_timeout_seconds: int | None
+    lineage: ToolReference
     result: StepResult
     lifecycle: Lifecycle
 
@@ -449,10 +481,8 @@ class ExecutionStepResponse(AuditFields):
             execution_id=execution_id,
             sequence=step.sequence,
             code_hash=step.code_hash,
-            plan=PlanReference(
-                execution_plan_id=step.execution_plan_id, plan_step_id=step.plan_step_id
-            ),
-            tool=ToolReference(
+            step_timeout_seconds=step.step_timeout_seconds,
+            lineage=ToolReference(
                 skill_name=step.skill_name,
                 tool_name=step.tool_name,
                 input_parameters=step.input_parameters,
@@ -518,8 +548,15 @@ class RecoveryResponse(ContractModel):
 
 
 class DeadlinesResponse(ContractModel):
-    dynamic_wait_expires_at: datetime | None
+    operation_wait_expires_at: datetime | None
     execution_expires_at: datetime | None
+
+
+class ExecutionLifecycleResponse(ContractModel):
+    operation_mode: OperationMode
+    operation_wait_timeout_seconds: int | None
+    started_at: datetime | None
+    finished_at: datetime | None
 
 
 def _execution_common(execution: Execution | ExecutionDetailView) -> dict[str, Any]:
@@ -528,14 +565,18 @@ def _execution_common(execution: Execution | ExecutionDetailView) -> dict[str, A
         failure = FailureResponse(type=execution.failure_type, message=execution.error_message)
     return {
         "execution_id": execution.id,
-        "mode": execution.mode,
+        "lifecycle": ExecutionLifecycleResponse(
+            operation_mode=execution.operation_mode,
+            operation_wait_timeout_seconds=execution.operation_wait_timeout_seconds,
+            started_at=execution.started_at,
+            finished_at=execution.finished_at,
+        ),
         "trigger_type": execution.trigger_type,
         "context": ExecutionContext(
             user_id=execution.user_id,
             project_id=execution.project_id,
             session_id=execution.session_id,
             task_id=execution.task_id,
-            execution_plan_id=execution.execution_plan_id,
             workflow_id=execution.workflow_id,
         ),
         "runtime": ExecutionRuntime(
@@ -557,7 +598,6 @@ def _execution_common(execution: Execution | ExecutionDetailView) -> dict[str, A
             from_sequence=execution.retry_from_sequence,
             retained_runtime_session_until=execution.retained_runtime_session_until,
         ),
-        "lifecycle": Lifecycle(started_at=execution.started_at, finished_at=execution.finished_at),
         "created_by_type": execution.created_by_type,
         "created_by": execution.created_by,
         "updated_by_type": execution.updated_by_type,
@@ -567,9 +607,19 @@ def _execution_common(execution: Execution | ExecutionDetailView) -> dict[str, A
     }
 
 
+class ExecutionStepReceipt(ContractModel):
+    sequence: int
+    step_id: UUID
+
+
+class ExecutionOperationReceipt(ContractModel):
+    operation_id: UUID
+    steps: list[ExecutionStepReceipt]
+
+
 class ExecutionCommandResponse(AuditFields):
     execution_id: UUID
-    operation_id: UUID | None
+    operation: "ExecutionOperationReceipt | None"
     state: ExecutionCommandState
 
     @classmethod
@@ -578,7 +628,18 @@ class ExecutionCommandResponse(AuditFields):
     ) -> "ExecutionCommandResponse":
         return cls(
             execution_id=execution.id,
-            operation_id=operation_id,
+            operation=(
+                ExecutionOperationReceipt(
+                    operation_id=operation_id,
+                    steps=[
+                        ExecutionStepReceipt(sequence=step.sequence, step_id=step.id)
+                        for step in execution.steps
+                        if step.operation_id == operation_id
+                    ],
+                )
+                if operation_id is not None
+                else None
+            ),
             state=ExecutionCommandState(
                 status=execution.status,
                 version=execution.version,
@@ -594,7 +655,6 @@ class ExecutionCommandResponse(AuditFields):
 
 class ExecutionResponse(AuditFields):
     execution_id: UUID
-    mode: ExecutionMode
     trigger_type: TriggerType
     context: ExecutionContext
     source: ExecutionSourceResponse
@@ -605,7 +665,7 @@ class ExecutionResponse(AuditFields):
     retry: RetryResponse
     recovery: RecoveryResponse
     deadlines: DeadlinesResponse
-    lifecycle: Lifecycle
+    lifecycle: ExecutionLifecycleResponse
 
     @classmethod
     def from_view(cls, execution: ExecutionDetailView | Execution) -> "ExecutionResponse":
@@ -624,7 +684,7 @@ class ExecutionResponse(AuditFields):
                 runtime_session_cleanup_status=execution.runtime_session_cleanup_status,
             ),
             deadlines=DeadlinesResponse(
-                dynamic_wait_expires_at=execution.dynamic_wait_expires_at,
+                operation_wait_expires_at=execution.operation_wait_expires_at,
                 execution_expires_at=execution.execution_expires_at,
             ),
         )
@@ -632,7 +692,7 @@ class ExecutionResponse(AuditFields):
 
 class ExecutionSummaryResponse(AuditFields):
     execution_id: UUID
-    mode: ExecutionMode
+    operation_mode: OperationMode
     trigger_type: TriggerType
     context: ExecutionContext
     state: ExecutionCommandState
@@ -643,14 +703,13 @@ class ExecutionSummaryResponse(AuditFields):
     def from_view(cls, execution: ExecutionSummaryView) -> "ExecutionSummaryResponse":
         return cls(
             execution_id=execution.id,
-            mode=execution.mode,
+            operation_mode=execution.operation_mode,
             trigger_type=execution.trigger_type,
             context=ExecutionContext(
                 user_id=execution.user_id,
                 project_id=execution.project_id,
                 session_id=execution.session_id,
                 task_id=execution.task_id,
-                execution_plan_id=execution.execution_plan_id,
                 workflow_id=execution.workflow_id,
             ),
             state=ExecutionCommandState(
@@ -837,7 +896,8 @@ class ExecutionOperationResponse(AuditFields):
     execution_id: UUID
     operation_number: int
     sequence_range: OperationSequenceRange
-    execution_plan_id: str
+    operation_timeout_seconds: int | None
+    metadata: dict[str, Any]
     source: ExecutionSourceResponse
     execution_attempt_id: UUID | None
     result: OperationResult
@@ -853,7 +913,8 @@ class ExecutionOperationResponse(AuditFields):
             sequence_range=OperationSequenceRange(
                 first=view.first_sequence, last=view.last_sequence
             ),
-            execution_plan_id=view.execution_plan_id,
+            operation_timeout_seconds=view.operation_timeout_seconds,
+            metadata=view.metadata,
             source=ExecutionSourceResponse(
                 type=view.code_source_type,
                 path=view.code_path,

@@ -20,15 +20,15 @@ from executor_service.domain.enums import (
 )
 from executor_service.domain.models import OutboxEvent
 
-EXECUTION_EVENT_SCHEMA_VERSION = "1.0"
+EXECUTION_EVENT_SCHEMA_VERSION = "2.0"
 
 
 class EventPayload(BaseModel):
-    """Fields shared by every version 1 Execution event payload."""
+    """Fields shared by every version 2 Execution event payload."""
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["1.0"] = EXECUTION_EVENT_SCHEMA_VERSION
+    schema_version: Literal["2.0"] = EXECUTION_EVENT_SCHEMA_VERSION
     execution_id: UUID
 
 
@@ -36,28 +36,42 @@ class StatusPayload(EventPayload):
     status: ExecutionStatus
 
 
-class TaskPlanPayload(StatusPayload):
+class TaskPayload(StatusPayload):
     task_id: str = Field(min_length=1, max_length=255)
-    execution_plan_id: str = Field(min_length=1, max_length=255)
 
 
-class SubmittedPayload(TaskPlanPayload):
+class StepReceiptPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    sequence: int = Field(ge=0)
+    step_id: UUID
+
+
+class SubmittedPayload(TaskPayload):
     status: Literal[ExecutionStatus.QUEUED]
+    idempotency_key: str = Field(min_length=1, max_length=255)
     operation_id: UUID
+    steps: list[StepReceiptPayload]
     first_sequence: int = Field(ge=0)
     last_sequence: int = Field(ge=0)
 
 
-class ContinueRequestedPayload(SubmittedPayload):
+class OperationSubmittedPayload(SubmittedPayload):
     version: int = Field(ge=0)
 
 
-class FinishRequestedPayload(TaskPlanPayload):
-    status: Literal[ExecutionStatus.QUEUED]
+class FinalizationRequestedPayload(TaskPayload):
+    status: Literal[ExecutionStatus.FINALIZING]
     version: int = Field(ge=0)
 
 
-class RetryRequestedPayload(TaskPlanPayload):
+class WaitingForOperationPayload(StatusPayload):
+    status: Literal[ExecutionStatus.WAITING_FOR_OPERATION]
+    operation_id: UUID
+    operation_wait_expires_at: datetime
+    version: int = Field(ge=0)
+
+
+class RetryRequestedPayload(TaskPayload):
     status: Literal[ExecutionStatus.QUEUED]
     operation_id: UUID
     from_sequence: int = Field(ge=0)
@@ -122,7 +136,6 @@ class StepFailedPayload(StepEventPayload):
 class CancelRequestedPayload(StatusPayload):
     status: Literal[ExecutionStatus.CANCEL_REQUESTED]
     task_id: str = Field(min_length=1, max_length=255)
-    execution_plan_id: str = Field(min_length=1, max_length=255)
 
 
 class SucceededPayload(TerminalPayload):
@@ -135,7 +148,7 @@ class FailedPayload(TerminalPayload):
 
 class OperationOutcomePayload(StatusPayload):
     status: Literal[
-        ExecutionStatus.WAITING_FOR_CONTINUE,
+        ExecutionStatus.WAITING_FOR_OPERATION,
         ExecutionStatus.SUCCEEDED,
         ExecutionStatus.FAILED,
     ]
@@ -153,6 +166,7 @@ class OperationSucceededPayload(OperationOutcomePayload):
 class OperationFailedPayload(OperationOutcomePayload):
     operation_status: Literal["FAILED"]
     failed_sequence: int | None = Field(default=None, ge=0)
+    error_message: str = Field(min_length=1, max_length=2000)
 
 
 class ArtifactRegisteredPayload(EventPayload):
@@ -202,8 +216,9 @@ class RetryWindowExpiredPayload(CleanupPayload):
 ExecutionEventPayload = (
     StatusPayload
     | SubmittedPayload
-    | ContinueRequestedPayload
-    | FinishRequestedPayload
+    | OperationSubmittedPayload
+    | FinalizationRequestedPayload
+    | WaitingForOperationPayload
     | RetryRequestedPayload
     | RetryDeferredPayload
     | TerminalPayload
@@ -229,8 +244,9 @@ ExecutionEventPayload = (
 
 EVENT_PAYLOAD_MODELS: dict[str, type[EventPayload]] = {
     "execution.submitted": SubmittedPayload,
-    "execution.continue_requested": ContinueRequestedPayload,
-    "execution.finish_requested": FinishRequestedPayload,
+    "execution.operation_submitted": OperationSubmittedPayload,
+    "execution.finalization_requested": FinalizationRequestedPayload,
+    "execution.waiting_for_operation": WaitingForOperationPayload,
     "execution.cancel_requested": CancelRequestedPayload,
     "execution.retry_requested": RetryRequestedPayload,
     "execution.started": StartedPayload,
@@ -260,7 +276,7 @@ class ExecutionStreamEnvelope(BaseModel):
 
     event_id: UUID
     event_type: str = Field(min_length=1, max_length=255)
-    schema_version: Literal["1.0"]
+    schema_version: Literal["2.0"]
     aggregate_type: Literal["Execution"]
     aggregate_id: UUID
     occurred_at: datetime
@@ -311,7 +327,7 @@ def build_execution_event(
     traceparent: str | None = None,
     tracestate: str | None = None,
 ) -> OutboxEvent:
-    """Build a validated version 1 event for durable Outbox persistence."""
+    """Build a validated version 2 event for durable Outbox persistence."""
 
     normalized = validate_execution_event_payload(
         event_type,

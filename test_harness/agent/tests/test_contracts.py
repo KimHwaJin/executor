@@ -18,14 +18,13 @@ def test_execution_request_builds_executor_spec_v1() -> None:
         project_id="project",
         session_id="session",
         task_id="task",
-        execution_plan_id="plan",
         steps=[{"skill_name": "eda", "tool_name": "sum", "code": "print(3)"}],
     )
 
     payload = request.executor_payload("idempotency")
 
-    assert payload["source"]["spec"]["schema_version"] == "1.0"
-    assert payload["source"]["spec"]["steps"][0]["sequence"] == 0
+    assert payload["operation"]["source"]["spec"]["schema_version"] == "1.0"
+    assert payload["operation"]["source"]["spec"]["steps"][0]["sequence"] == 0
     assert payload["context"]["task_id"] == "task"
 
 
@@ -35,13 +34,13 @@ def test_event_envelope_validates_common_v1_fields() -> None:
         {
             "event_id": str(uuid4()),
             "event_type": "execution.succeeded",
-            "schema_version": "1.0",
+            "schema_version": "2.0",
             "aggregate_type": "Execution",
             "aggregate_id": str(execution_id),
             "occurred_at": "2026-08-13T00:00:00Z",
             "payload": json.dumps(
                 {
-                    "schema_version": "1.0",
+                    "schema_version": "2.0",
                     "execution_id": str(execution_id),
                     "status": "SUCCEEDED",
                 }
@@ -59,13 +58,13 @@ def test_event_envelope_rejects_mismatched_execution_id() -> None:
             {
                 "event_id": str(uuid4()),
                 "event_type": "execution.failed",
-                "schema_version": "1.0",
+                "schema_version": "2.0",
                 "aggregate_type": "Execution",
                 "aggregate_id": str(uuid4()),
                 "occurred_at": "2026-08-13T00:00:00Z",
                 "payload": json.dumps(
                     {
-                        "schema_version": "1.0",
+                        "schema_version": "2.0",
                         "execution_id": str(uuid4()),
                         "status": "FAILED",
                     }
