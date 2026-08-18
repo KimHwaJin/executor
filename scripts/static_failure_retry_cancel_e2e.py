@@ -873,7 +873,7 @@ async def main() -> None:
                     rest=rest,
                     session_factory=session_factory,
                     redis=redis,
-                    stream=settings.redis_stream,
+                    stream=settings.redis_event_stream,
                 ),
                 await _run_cancel_case(
                     unique=unique,
@@ -884,7 +884,7 @@ async def main() -> None:
                     rest=rest,
                     session_factory=session_factory,
                     redis=redis,
-                    stream=settings.redis_stream,
+                    stream=settings.redis_event_stream,
                 ),
             ]
         for result in results:

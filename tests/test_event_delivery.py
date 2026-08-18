@@ -31,8 +31,8 @@ from executor_service.infrastructure.worker import ExecutionWorker
 
 
 def test_dead_letter_stream_must_be_separate() -> None:
-    with pytest.raises(ValueError, match="must differ"):
-        Settings(redis_stream="same-stream", redis_dead_letter_stream="same-stream")
+    with pytest.raises(ValueError, match="must be distinct"):
+        Settings(redis_work_stream="same-stream", redis_event_stream="same-stream")
 
 
 @pytest_asyncio.fixture
@@ -62,8 +62,8 @@ def _worker(
     settings = Settings(
         runtime_enabled=False,
         input_host_root=tmp_path,
-        redis_stream=stream,
-        redis_dead_letter_stream=dlq_stream,
+        redis_work_stream=stream,
+        redis_work_dead_letter_stream=dlq_stream,
         execution_consumer_group=group,
         execution_consumer_name=consumer,
         execution_pending_claim_idle_milliseconds=1,
@@ -83,10 +83,10 @@ def _worker(
     return worker
 
 
-def _event_fields(execution_id: UUID) -> dict[str, str]:
+def _work_fields(execution_id: UUID) -> dict[str, str]:
     return {
-        "event_id": str(uuid4()),
-        "event_type": "execution.submitted",
+        "message_id": str(uuid4()),
+        "message_type": "operation.ready",
         "schema_version": "1.0",
         "aggregate_type": "Execution",
         "aggregate_id": str(execution_id),
@@ -95,12 +95,7 @@ def _event_fields(execution_id: UUID) -> dict[str, str]:
             {
                 "schema_version": "1.0",
                 "execution_id": str(execution_id),
-                "task_id": "event-task",
-                "execution_plan_id": "event-plan",
                 "operation_id": str(uuid4()),
-                "first_sequence": 0,
-                "last_sequence": 0,
-                "status": "QUEUED",
             }
         ),
     }
@@ -172,7 +167,7 @@ async def test_stale_pending_message_is_reclaimed_and_acked_once(
     monkeypatch.setattr(worker, "_dispatch", record_dispatch)
     try:
         await redis_client.xgroup_create(stream, group, id="0", mkstream=True)
-        await redis_client.xadd(stream, _redis_fields(_event_fields(execution_id)))
+        await redis_client.xadd(stream, _redis_fields(_work_fields(execution_id)))
         delivered = await redis_client.xreadgroup(
             groupname=group,
             consumername="dead-worker",
@@ -193,11 +188,11 @@ async def test_stale_pending_message_is_reclaimed_and_acked_once(
 @pytest.mark.parametrize(
     ("invalid_fields", "expected_reason"),
     [
-        ({"event_id": "not-a-uuid"}, "invalid_event_id"),
+        ({"message_id": "not-a-uuid"}, "invalid_message_id"),
         ({"aggregate_type": "UnknownAggregate"}, "unsupported_aggregate_type"),
-        ({"event_type": "TOP-SECRET-event-family"}, "unsupported_event_type"),
+        ({"message_type": "TOP-SECRET-event-family"}, "unsupported_message_type"),
         ({"schema_version": "2.0"}, "unsupported_schema_version"),
-        ({"payload": "not-json"}, "invalid_event_contract"),
+        ({"payload": "not-json"}, "invalid_work_message_contract"),
     ],
 )
 async def test_invalid_message_is_safely_dead_lettered(
@@ -211,7 +206,7 @@ async def test_invalid_message_is_safely_dead_lettered(
     stream = f"test:executor:{suffix}"
     dlq_stream = f"{stream}:dlq"
     group = f"test-workers-{suffix}"
-    fields = _event_fields(uuid4()) | invalid_fields
+    fields = _work_fields(uuid4()) | invalid_fields
     worker = _worker(
         engine,
         redis_client,
@@ -275,10 +270,10 @@ async def test_duplicate_dispatch_keeps_one_active_job(
         await release.wait()
 
     monkeypatch.setattr(worker, "_run_execution", blocking_execution)
-    fields = _event_fields(execution_id)
-    await worker._handle_event(fields)
+    fields = _work_fields(execution_id)
+    await worker._handle_work_message(fields)
     await started.wait()
-    await worker._handle_event(fields)
+    await worker._handle_work_message(fields)
     assert len(worker._jobs) == 1
     assert invocations == 1
 

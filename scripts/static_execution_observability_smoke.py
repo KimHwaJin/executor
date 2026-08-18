@@ -501,7 +501,7 @@ async def main() -> None:
                         rest=rest,
                         session_factory=session_factory,
                         redis=redis,
-                        stream=settings.redis_stream,
+                        stream=settings.redis_event_stream,
                     )
                 )
 

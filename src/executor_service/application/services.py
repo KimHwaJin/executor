@@ -32,6 +32,7 @@ from executor_service.domain.models import Execution, ExecutionOperation, Execut
 from executor_service.domain.ports import UnitOfWork
 from executor_service.events import build_execution_event
 from executor_service.tracing import capture_trace_carrier
+from executor_service.work_messages import build_work_message
 
 UnitOfWorkFactory = Callable[[], UnitOfWork]
 
@@ -162,6 +163,17 @@ class ExecutionService:
                             "last_sequence": operation.last_sequence,
                             "status": execution.status.value,
                         },
+                        actor_type=command.actor_type,
+                        actor_id=command.actor_id,
+                        traceparent=execution.traceparent,
+                        tracestate=execution.tracestate,
+                    )
+                )
+                await uow.outbox.add(
+                    build_work_message(
+                        execution_id=execution.id,
+                        message_type="operation.ready",
+                        operation_id=operation.id,
                         actor_type=command.actor_type,
                         actor_id=command.actor_id,
                         traceparent=execution.traceparent,
@@ -300,6 +312,17 @@ class ExecutionService:
                         tracestate=execution.tracestate,
                     )
                 )
+                await uow.outbox.add(
+                    build_work_message(
+                        execution_id=execution.id,
+                        message_type="operation.ready",
+                        operation_id=operation.id,
+                        actor_type=command.actor_type,
+                        actor_id=command.actor_id,
+                        traceparent=execution.traceparent,
+                        tracestate=execution.tracestate,
+                    )
+                )
                 await uow.commit()
                 return ExecutionCommandResult(execution=execution, operation_id=operation.id)
         except PersistenceConflictError as exc:
@@ -348,6 +371,16 @@ class ExecutionService:
                             "status": execution.status.value,
                             "version": execution.version,
                         },
+                        actor_type=command.actor_type,
+                        actor_id=command.actor_id,
+                        traceparent=execution.traceparent,
+                        tracestate=execution.tracestate,
+                    )
+                )
+                await uow.outbox.add(
+                    build_work_message(
+                        execution_id=execution.id,
+                        message_type="execution.finalization_ready",
                         actor_type=command.actor_type,
                         actor_id=command.actor_id,
                         traceparent=execution.traceparent,
@@ -419,6 +452,16 @@ class ExecutionService:
                             "execution_plan_id": execution.execution_plan_id,
                             "status": execution.status.value,
                         },
+                        actor_type=command.actor_type,
+                        actor_id=command.actor_id,
+                        traceparent=execution.traceparent,
+                        tracestate=execution.tracestate,
+                    )
+                )
+                await uow.outbox.add(
+                    build_work_message(
+                        execution_id=execution.id,
+                        message_type="execution.cancellation_ready",
                         actor_type=command.actor_type,
                         actor_id=command.actor_id,
                         traceparent=execution.traceparent,
@@ -497,6 +540,17 @@ class ExecutionService:
                             ),
                             "retry_count": execution.retry_count,
                         },
+                        actor_type=command.actor_type,
+                        actor_id=command.actor_id,
+                        traceparent=execution.traceparent,
+                        tracestate=execution.tracestate,
+                    )
+                )
+                await uow.outbox.add(
+                    build_work_message(
+                        execution_id=execution.id,
+                        message_type="execution.retry_ready",
+                        operation_id=operation_id,
                         actor_type=command.actor_type,
                         actor_id=command.actor_id,
                         traceparent=execution.traceparent,

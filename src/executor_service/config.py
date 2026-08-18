@@ -32,8 +32,10 @@ class Settings(BaseSettings):
     database_pool_recycle_seconds: int = Field(default=1800, ge=1)
     database_connect_timeout_seconds: int = Field(default=10, ge=1)
     redis_url: SecretStr = SecretStr("redis://localhost:6379/0")
-    redis_stream: str = Field(default="executor.events", min_length=1)
-    redis_dead_letter_stream: str = Field(default="executor.events.dlq", min_length=1)
+    redis_work_stream: str = Field(default="executor.work", min_length=1)
+    redis_event_stream: str = Field(default="executor.events", min_length=1)
+    redis_work_dead_letter_stream: str = Field(default="executor.work.dlq", min_length=1)
+    redis_event_dead_letter_stream: str = Field(default="executor.events.dlq", min_length=1)
     outbox_poll_interval_seconds: float = Field(default=0.5, gt=0)
     outbox_batch_size: int = Field(default=100, ge=1, le=1000)
 
@@ -98,8 +100,14 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_redis_streams(self) -> Self:
-        if self.redis_dead_letter_stream == self.redis_stream:
-            raise ValueError("REDIS_DEAD_LETTER_STREAM must differ from REDIS_STREAM.")
+        stream_names = {
+            self.redis_work_stream,
+            self.redis_event_stream,
+            self.redis_work_dead_letter_stream,
+            self.redis_event_dead_letter_stream,
+        }
+        if len(stream_names) != 4:
+            raise ValueError("Redis work, event, and dead-letter Stream names must be distinct.")
         if not self.runtime_allowed_profiles:
             raise ValueError("RUNTIME_ALLOWED_PROFILES must contain at least one profile.")
         if len(self.runtime_allowed_profiles) != len(set(self.runtime_allowed_profiles)):

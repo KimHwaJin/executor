@@ -346,7 +346,12 @@ async def test_concurrent_outbox_publishers_emit_one_stream_message(
     session_factory = create_session_factory(postgres_engine)
     unique = uuid4().hex
     stream = f"test:executor:postgres-outbox:{unique}"
-    settings = Settings(runtime_enabled=False, redis_stream=stream)
+    event_stream = f"{stream}:events"
+    settings = Settings(
+        runtime_enabled=False,
+        redis_work_stream=stream,
+        redis_event_stream=event_stream,
+    )
     redis_clients = [
         Redis.from_url("redis://127.0.0.1:6379/15", decode_responses=True) for _ in range(2)
     ]
@@ -354,7 +359,8 @@ async def test_concurrent_outbox_publishers_emit_one_stream_message(
         OutboxPublisher(
             session_factory=session_factory,
             redis=redis,
-            stream_name=stream,
+            work_stream_name=stream,
+            event_stream_name=event_stream,
             poll_interval_seconds=1,
             batch_size=100,
             tracing=TracingManager(settings),
@@ -362,11 +368,13 @@ async def test_concurrent_outbox_publishers_emit_one_stream_message(
         for redis in redis_clients
     ]
     messages: list[tuple[str, dict[str, str]]] = []
+    event_messages: list[tuple[str, dict[str, str]]] = []
     try:
         published = await asyncio.gather(*(publisher.publish_batch() for publisher in publishers))
         messages = await redis_clients[0].xrange(stream)
+        event_messages = await redis_clients[0].xrange(event_stream)
     finally:
-        await redis_clients[0].delete(stream)
+        await redis_clients[0].delete(stream, event_stream)
         await _close_redis(redis_clients)
 
     async with session_factory() as session:
@@ -375,9 +383,10 @@ async def test_concurrent_outbox_publishers_emit_one_stream_message(
                 OutboxEventORM.status == OutboxStatus.PUBLISHED
             )
         )
-    assert sum(published) == 1
+    assert sum(published) == 2
     assert len(messages) == 1
-    assert published_rows == 1
+    assert len(event_messages) == 1
+    assert published_rows == 2
 
 
 async def test_bounded_pool_times_out_instead_of_opening_unlimited_connections(

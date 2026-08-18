@@ -12,6 +12,7 @@ from executor_service.domain.enums import (
     ExecutionStatus,
     FailureType,
     OperationStatus,
+    OutboxDestination,
     OutboxStatus,
     RetryStrategy,
     RuntimePool,
@@ -257,6 +258,7 @@ class OutboxEvent:
     aggregate_id: UUID
     event_type: str
     payload: dict[str, Any]
+    destination: OutboxDestination = OutboxDestination.EVENTS
     created_by_type: ActorType | None = None
     created_by: str | None = None
     updated_by_type: ActorType | None = None

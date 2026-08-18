@@ -20,7 +20,7 @@ from executor_service.infrastructure.runtime_storage import FleetRuntimeStorageA
 from executor_service.infrastructure.worker import ExecutionWorker
 from executor_service.tracing import TracingManager
 
-EXPECTED_SCHEMA_REVISION = "0004"
+EXPECTED_SCHEMA_REVISION = "0005"
 
 
 class ApplicationContainer:
@@ -59,7 +59,8 @@ class ApplicationContainer:
         self.outbox_publisher = OutboxPublisher(
             session_factory=self.session_factory,
             redis=self.redis,
-            stream_name=settings.redis_stream,
+            work_stream_name=settings.redis_work_stream,
+            event_stream_name=settings.redis_event_stream,
             poll_interval_seconds=settings.outbox_poll_interval_seconds,
             batch_size=settings.outbox_batch_size,
             tracing=self.tracing,

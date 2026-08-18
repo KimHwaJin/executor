@@ -1,7 +1,7 @@
 # Execution Event Contract v1
 
 Executor records every event in the PostgreSQL Transactional Outbox and publishes it to the
-configured Redis Stream with at-least-once delivery. This is the integration contract for Agent,
+configured `executor.events` Redis Stream with at-least-once delivery. This is the integration contract for Agent,
 frontend notification, and operational consumers. PostgreSQL remains the source of truth for
 Execution state; events are notifications and wake-up signals.
 
@@ -34,19 +34,17 @@ Every payload contains:
 equal `aggregate_id`. All event models reject unknown fields. Changing required fields or meaning
 requires a new schema version and a parallel compatibility period.
 
-## Command and notification boundary
+## Internal work boundary
 
-Executor's own Worker group dispatches these command events:
+Executor's own Worker does not consume this Stream. Durable internal commands are published to
+`executor.work` as:
 
-- `execution.submitted`
-- `execution.continue_requested`
-- `execution.finish_requested`
-- `execution.retry_requested`
-- `execution.cancel_requested`
+- `operation.ready`
+- `execution.finalization_ready`
+- `execution.retry_ready`
+- `execution.cancellation_ready`
 
-All other valid events are notifications. Executor acknowledges them in its own group without
-starting work. The Agent must use a distinct consumer group so its delivery position and Pending
-Entries List are independent of Executor Workers.
+The Agent uses its own consumer group on `executor.events`; no group is shared with Executor Workers.
 
 ## Event payloads
 
@@ -62,6 +60,9 @@ use the same uppercase strings returned by the REST and MCP execution APIs.
 | `execution.retry_requested` | `task_id`, `execution_plan_id`, `operation_id`, `status=QUEUED`, `from_sequence`, `retry_strategy`, nullable `previous_failure_type`, `retry_count` |
 | `execution.started` | `status=RUNNING` |
 | `execution.resumed` | `status=RUNNING` |
+| `execution.step_started` | `execution_attempt_id`, `operation_id`, `step_id`, `sequence`, `status=RUNNING` |
+| `execution.step_succeeded` | same identities, `status=SUCCEEDED`, `result.outputs`, nullable `result.execution_count` |
+| `execution.step_failed` | same identities, `status=FAILED`, partial `result.outputs`, nullable `result.execution_count`, `error_message` |
 | `execution.retry_deferred` | `status=QUEUED`, `failure_type`, `retry_strategy`, `reason`, `runtime_target_id` |
 | `execution.operation_succeeded` | `status`, `execution_attempt_id`, `operation_id`, `operation_status=SUCCEEDED`, `first_sequence`, `last_sequence`, `version` |
 | `execution.operation_failed` | same Operation identity/range fields, `operation_status=FAILED`, nullable `execution_attempt_id` and `failed_sequence`, `version` |
@@ -75,9 +76,11 @@ use the same uppercase strings returned by the REST and MCP execution APIs.
 | `execution.runtime_session_cleanup_failed` | `status=FAILED`, `runtime_session_cleanup_status=FAILED` |
 | `execution.retry_window_expired` | `status=FAILED`, `runtime_session_cleanup_status`, `retry_was_queued` |
 
-Event payloads deliberately exclude generated code, cell outputs, dataset values, credentials,
-tokens, and raw exception messages. `execution.artifact_registered.uri` is storage metadata and
-must never contain embedded credentials.
+Event payloads exclude generated code, dataset values, credentials, and tokens. A Step outcome
+includes the Runtime's structured result: Jupyter MIME outputs (including base64 image data when
+returned by Jupyter) or the corresponding generic Runtime output. Current operation assumes these
+results are bounded; large-result offloading is a deferred extension. Artifact URIs must never
+contain embedded credentials.
 
 ## Agent consumption and deduplication
 
@@ -92,9 +95,9 @@ the Outbox row `PUBLISHED`, or if a consumer dies before ACK. Agent handling mus
 6. Commit the database transaction.
 7. ACK the Redis message.
 
-For Operation terminal notifications, first retrieve
-`/api/v1/executions/{execution_id}/operations/{operation_id}` and its `/steps` collection, then
-persist the result with the Agent graph checkpoint before resuming. If step 4 encounters an
+For incremental execution, persist each `execution.step_succeeded` result with the Agent graph
+checkpoint. `execution.operation_succeeded` is emitted only after all Step result events for that
+Operation, so it can safely wake the Agent to plan the next Operation. If step 4 encounters an
 existing `event_id`, skip the state change and ACK it. If processing fails
 before commit or ACK, leave the message Pending and recover it with `XAUTOCLAIM`. Do not use an
 in-memory set as the only deduplication store.
@@ -121,18 +124,8 @@ messages after
 `AGENT_EVENT_PENDING_IDLE_MILLISECONDS` (default 30000). It leaves invalid messages Pending;
 production should add an Agent-owned DLQ and alert policy.
 
-### v1 rollout
-
-Stream entries published before this contract was introduced have no `schema_version` and are not
-v1 messages. At rollout, first reconcile Agent Task state through Executor REST/MCP execution
-queries, then create the Agent consumer group at `$`. Do not replay a mixed legacy/v1 Stream from
-`0` with a v1-only consumer. The Executor Worker safely dead-letters a legacy or malformed command
-that reaches its own group rather than dispatching it.
-
-A legacy PostgreSQL Outbox row still in `PENDING` is validated and normalized to v1 inside the
-publisher transaction before its first Redis publication. A payload that cannot satisfy a known
-v1 event model remains unpublished for operator inspection rather than being emitted as malformed
-data.
+At rollout, create the Executor Worker group on `executor.work` and the Agent group on
+`executor.events`. Do not reuse the former shared Stream/group configuration.
 
 ## Retention and recovery
 

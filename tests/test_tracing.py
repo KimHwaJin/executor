@@ -17,6 +17,7 @@ from executor_service.config import Settings
 from executor_service.domain.enums import (
     CodeSourceType,
     ExecutionMode,
+    OutboxDestination,
     TriggerType,
 )
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
@@ -34,10 +35,10 @@ from executor_service.tracing import (
 
 class RecordingRedis:
     def __init__(self) -> None:
-        self.fields: dict[str, str] | None = None
+        self.messages: dict[str, dict[str, str]] = {}
 
-    async def xadd(self, _stream: str, fields: dict[Any, Any]) -> str:
-        self.fields = {str(key): str(value) for key, value in fields.items()}
+    async def xadd(self, stream: str, fields: dict[Any, Any]) -> str:
+        self.messages[stream] = {str(key): str(value) for key, value in fields.items()}
         return "1-0"
 
 
@@ -95,7 +96,10 @@ async def test_trace_context_survives_outbox_redis_and_worker_boundary(
         async with session_factory() as session:
             execution_row = await session.get(ExecutionORM, execution.id)
             outbox_row = await session.scalar(
-                select(OutboxEventORM).where(OutboxEventORM.aggregate_id == execution.id)
+                select(OutboxEventORM).where(
+                    OutboxEventORM.aggregate_id == execution.id,
+                    OutboxEventORM.destination == OutboxDestination.WORK,
+                )
             )
         assert execution_row is not None and outbox_row is not None
         assert execution_row.traceparent is not None
@@ -105,14 +109,15 @@ async def test_trace_context_survives_outbox_redis_and_worker_boundary(
         publisher = OutboxPublisher(
             session_factory=session_factory,
             redis=cast(Redis, recording_redis),
-            stream_name="trace-events",
+            work_stream_name="trace-work",
+            event_stream_name="trace-events",
             poll_interval_seconds=0.01,
             batch_size=10,
             tracing=tracing,
         )
-        assert await publisher.publish_batch() == 1
-        assert recording_redis.fields is not None
-        assert recording_redis.fields.get("traceparent") is not None
+        assert await publisher.publish_batch() == 2
+        work_fields = recording_redis.messages["trace-work"]
+        assert work_fields.get("traceparent") is not None
 
         redis = Redis.from_url("redis://127.0.0.1:6379/15", decode_responses=True)
         worker = ExecutionWorker(
@@ -136,7 +141,7 @@ async def test_trace_context_survives_outbox_redis_and_worker_boundary(
                 pass
 
         monkeypatch.setattr(worker, "_dispatch", record_dispatch)
-        await worker._handle_event(recording_redis.fields)
+        await worker._handle_work_message(work_fields)
         await redis.aclose()
         assert await tracing.force_flush()
 

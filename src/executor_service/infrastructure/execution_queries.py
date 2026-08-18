@@ -23,7 +23,7 @@ from executor_service.application.pagination import (
     encode_integer_cursor,
     encode_time_cursor,
 )
-from executor_service.domain.enums import ExecutionStatus
+from executor_service.domain.enums import ExecutionStatus, OutboxDestination
 from executor_service.domain.errors import (
     ExecutionArtifactNotFoundError,
     ExecutionAttemptNotFoundError,
@@ -346,6 +346,7 @@ class SQLAlchemyExecutionQueryService:
             statement = select(OutboxEventORM).where(
                 OutboxEventORM.aggregate_type == "Execution",
                 OutboxEventORM.aggregate_id == execution_id,
+                OutboxEventORM.destination == OutboxDestination.EVENTS,
             )
             if cursor is not None:
                 created_at, item_id = decode_time_cursor(cursor, "execution_events")
