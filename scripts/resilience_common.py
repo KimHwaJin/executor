@@ -13,6 +13,36 @@ from mcp import Client
 from redis.asyncio import Redis
 
 
+async def require_exclusive_executor_control() -> None:
+    """Fail fast when another local Executor can reconcile the shared PostgreSQL queue."""
+
+    if os.getenv("RESILIENCE_ALLOW_CONCURRENT_EXECUTOR", "false").lower() in {
+        "1",
+        "true",
+        "yes",
+    }:
+        return
+    existing_url = os.getenv("RESILIENCE_EXISTING_EXECUTOR_URL", "http://127.0.0.1:8000").rstrip(
+        "/"
+    )
+    if not existing_url:
+        return
+    try:
+        async with httpx.AsyncClient(timeout=0.75) as client:
+            response = await client.get(f"{existing_url}/workerz")
+    except httpx.HTTPError:
+        return
+    if response.status_code == 200:
+        raise RuntimeError(
+            "An unmanaged Executor is running against the shared queue at "
+            f"{existing_url}. Stop it before this real-process resilience test "
+            "(for Compose: `docker compose stop executor`). Concurrent Executors can "
+            "claim the test rows through PostgreSQL reconciliation even when Redis Stream "
+            "names differ. Set RESILIENCE_ALLOW_CONCURRENT_EXECUTOR=true only when the "
+            "other process uses an isolated database."
+        )
+
+
 def available_port(environment_name: str) -> int:
     configured = os.getenv(environment_name)
     if configured is not None:

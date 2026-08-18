@@ -206,6 +206,9 @@ uv run python scripts/phoenix_trace_smoke.py
 
 The resilience scenarios and their safety boundaries are documented in
 [Executor Resilience Testing](docs/executor-resilience-testing.md).
+The scripts that start their own Executor processes require the Compose `executor` service to be
+stopped first; unique Redis Stream names do not isolate PostgreSQL queue reconciliation. Those
+scripts fail fast with the required command instead of allowing another Worker to claim their rows.
 
 ## Quality checks
 

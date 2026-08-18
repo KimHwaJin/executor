@@ -21,6 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from executor_service.config import get_settings
+from executor_service.domain.enums import OutboxDestination
 from executor_service.events import EXECUTION_EVENT_SCHEMA_VERSION, ExecutionStreamEnvelope
 from executor_service.infrastructure.db.models import (
     ExecutionArtifactORM,
@@ -255,6 +256,7 @@ async def _database_snapshot(
                 .where(
                     OutboxEventORM.aggregate_type == "Execution",
                     OutboxEventORM.aggregate_id == execution_id,
+                    OutboxEventORM.destination == OutboxDestination.EVENTS,
                 )
                 .order_by(OutboxEventORM.created_at, OutboxEventORM.id)
             )
@@ -331,7 +333,7 @@ async def _assert_event_delivery(
     if {event.payload.get("schema_version") for event in snapshot.outbox_events} != {
         EXECUTION_EVENT_SCHEMA_VERSION
     }:
-        raise RuntimeError("PostgreSQL Outbox contains a non-v1 event payload.")
+        raise RuntimeError("PostgreSQL Outbox contains a non-v2 event payload.")
     redis_rows = await _redis_events(
         redis,
         stream,
@@ -342,7 +344,7 @@ async def _assert_event_delivery(
         raise RuntimeError("Redis Stream and PostgreSQL Outbox event IDs differ.")
     envelopes = [ExecutionStreamEnvelope.from_redis_fields(row) for row in redis_rows]
     if any(envelope.schema_version != EXECUTION_EVENT_SCHEMA_VERSION for envelope in envelopes):
-        raise RuntimeError("Redis Stream contains a non-v1 Execution event.")
+        raise RuntimeError("Redis Stream contains a non-v2 Execution event.")
     return tuple(event.event_type for event in snapshot.outbox_events)
 
 

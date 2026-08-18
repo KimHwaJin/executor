@@ -35,6 +35,8 @@ from executor_service.domain.runtime import (
     RuntimeExecutionError,
     RuntimeExecutionResult,
     RuntimeExecutionTimeoutError,
+    RuntimeResourceMetric,
+    RuntimeResourceObservation,
 )
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.models import (
@@ -83,13 +85,43 @@ class RecordingMultiDriver(InMemoryRuntimeStorage):
     async def close(self) -> None:
         pass
 
-    async def start_session(self, _profile: str, _working_directory: str) -> str:
+    async def status(self) -> dict[str, Any]:
+        return {"status": "ok"}
+
+    async def supported_profiles(self) -> list[str]:
+        return ["basic"]
+
+    async def resource_status(self) -> RuntimeResourceObservation:
+        empty = RuntimeResourceMetric(
+            used=None,
+            capacity=None,
+            utilization=None,
+            source=None,
+            estimated=None,
+        )
+        return RuntimeResourceObservation(
+            observed_at=utc_now(),
+            process_count=None,
+            cpu=empty,
+            memory=empty,
+        )
+
+    async def start_session(self, profile: str, working_directory: str) -> str:
+        del profile, working_directory
         return "operation-kernel"
 
-    async def delete_session(self, _session_id: str) -> None:
-        pass
+    async def delete_session(self, session_id: str) -> None:
+        del session_id
 
-    async def execute(self, _session_id: str, code: str) -> RuntimeExecutionResult:
+    async def interrupt_session(self, session_id: str) -> None:
+        del session_id
+
+    async def session_exists(self, session_id: str) -> bool:
+        del session_id
+        return True
+
+    async def execute(self, session_id: str, code: str) -> RuntimeExecutionResult:
+        del session_id
         self.executed.append(code)
         if code == self.fail_code:
             raise RuntimeExecutionError(
@@ -110,7 +142,8 @@ class RecordingMultiDriver(InMemoryRuntimeStorage):
 
 
 class SlowExecutionDriver(RecordingMultiDriver):
-    async def execute(self, _session_id: str, _code: str) -> RuntimeExecutionResult:
+    async def execute(self, session_id: str, code: str) -> RuntimeExecutionResult:
+        del session_id, code
         await asyncio.sleep(2)
         return RuntimeExecutionResult(outputs=[], execution_count=1)
 

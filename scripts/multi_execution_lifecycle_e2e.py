@@ -409,7 +409,7 @@ async def _assert_waiting_runtime(
     return target_id, session_id
 
 
-async def _run_correction_and_finish_case(
+async def _run_correction_and_finalization_case(
     *,
     unique: str,
     runtime_profile: str,
@@ -469,7 +469,7 @@ async def _run_correction_and_finish_case(
         session_factory=session_factory,
     )
 
-    continued = await _rest_json(
+    operation_created = await _rest_json(
         rest,
         "POST",
         f"/executions/{execution_id}/operations",
@@ -492,8 +492,8 @@ async def _run_correction_and_finish_case(
             ),
         },
     )
-    if continued["state"]["status"] != "QUEUED":
-        raise RuntimeError(f"REST MULTI continue was not queued: {continued}")
+    if operation_created["state"]["status"] != "QUEUED":
+        raise RuntimeError(f"REST MULTI Operation was not queued: {operation_created}")
     second, second_states = await _wait_for_status(
         "REST",
         execution_id,
@@ -602,7 +602,7 @@ async def _run_correction_and_finish_case(
         session_factory=session_factory,
     )
 
-    finishing = await _mcp_result(
+    finalization_requested = await _mcp_result(
         mcp,
         "execution_finalize",
         {
@@ -614,8 +614,8 @@ async def _run_correction_and_finish_case(
             }
         },
     )
-    if finishing["state"]["status"] != "FINALIZING":
-        raise RuntimeError(f"MCP MULTI finish was not queued: {finishing}")
+    if finalization_requested["state"]["status"] != "FINALIZING":
+        raise RuntimeError(f"MCP MULTI finalization was not queued: {finalization_requested}")
     finished, finished_states = await _wait_for_status(
         "MCP",
         execution_id,
@@ -630,7 +630,7 @@ async def _run_correction_and_finish_case(
         or finished["runtime"]["session_id"] is not None
         or finished["recovery"]["runtime_session_cleanup_status"] != "SUCCEEDED"
     ):
-        raise RuntimeError(f"MULTI finish did not clean up safely: {finished}")
+        raise RuntimeError(f"MULTI finalization did not clean up safely: {finished}")
     if await _runtime_session_exists(session_factory, target_id, session_id):
         raise RuntimeError("Finished MULTI Execution leaked its Jupyter session.")
 
@@ -743,7 +743,7 @@ async def _run_correction_and_finish_case(
     if not required_events.issubset(event_types):
         raise RuntimeError(f"MULTI completion event timeline is incomplete: {event_types}")
     return CaseResult(
-        name="REST/MCP correction -> finish",
+        name="REST/MCP correction -> finalization",
         execution_id=execution_id,
         statuses=(
             *first_states,
@@ -965,7 +965,7 @@ async def main() -> None:
             httpx.AsyncClient(base_url=f"{rest_url.rstrip('/')}/", timeout=30) as rest,
         ):
             results = [
-                await _run_correction_and_finish_case(
+                await _run_correction_and_finalization_case(
                     unique=unique,
                     runtime_profile=runtime_profile,
                     timeout_seconds=timeout_seconds,

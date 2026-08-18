@@ -11,13 +11,14 @@ import httpx
 from execution_spec_payload import execution_request, inline_source
 from mcp import Client
 from redis.asyncio import Redis
+from resilience_common import cleanup_streams, require_exclusive_executor_control
 
 PRIMARY_CONSUMER = "multi-smoke-primary"
 SECONDARY_CONSUMER = "multi-smoke-secondary"
 
 
 async def _start_executor(
-    *, port: int, consumer_name: str, stream: str, group: str
+    *, port: int, consumer_name: str, work_stream: str, group: str
 ) -> asyncio.subprocess.Process:
     environment = os.environ.copy()
     environment.update(
@@ -26,10 +27,10 @@ async def _start_executor(
             "EXECUTION_CONSUMER_GROUP": group,
             "EXECUTION_LEASE_SECONDS": "30",
             "EXECUTION_HEARTBEAT_SECONDS": "5",
-            "REDIS_WORK_STREAM": stream,
-            "REDIS_EVENT_STREAM": f"{stream}.events",
-            "REDIS_WORK_DEAD_LETTER_STREAM": f"{stream}.dlq",
-            "REDIS_EVENT_DEAD_LETTER_STREAM": f"{stream}.events.dlq",
+            "REDIS_WORK_STREAM": work_stream,
+            "REDIS_EVENT_STREAM": f"{work_stream}.events",
+            "REDIS_WORK_DEAD_LETTER_STREAM": f"{work_stream}.dlq",
+            "REDIS_EVENT_DEAD_LETTER_STREAM": f"{work_stream}.events.dlq",
             "LOG_LEVEL": "WARNING",
         }
     )
@@ -130,10 +131,11 @@ async def _wait_for_recovered_failure(client: Client, execution_id: str) -> dict
 
 
 async def main() -> None:
+    await require_exclusive_executor_control()
     unique = uuid4().hex
     primary_port = int(os.getenv("MULTI_EXECUTOR_PRIMARY_PORT", "8010"))
     secondary_port = int(os.getenv("MULTI_EXECUTOR_SECONDARY_PORT", "8011"))
-    stream = f"executor.events.multi-smoke.{unique}"
+    work_stream = f"executor.work.multi-smoke.{unique}"
     group = f"executor-multi-smoke-{unique}"
     primary: asyncio.subprocess.Process | None = None
     secondary: asyncio.subprocess.Process | None = None
@@ -153,7 +155,7 @@ async def main() -> None:
         primary = await _start_executor(
             port=primary_port,
             consumer_name=PRIMARY_CONSUMER,
-            stream=stream,
+            work_stream=work_stream,
             group=group,
         )
         await _wait_ready(primary_port)
@@ -196,7 +198,7 @@ async def main() -> None:
         secondary = await _start_executor(
             port=secondary_port,
             consumer_name=SECONDARY_CONSUMER,
-            stream=stream,
+            work_stream=work_stream,
             group=group,
         )
         await _wait_ready(secondary_port)
@@ -263,7 +265,7 @@ async def main() -> None:
             decode_responses=True,
         )
         try:
-            await redis.delete(stream, f"{stream}.dlq")
+            await cleanup_streams(redis, work_stream)
         finally:
             await redis.aclose()
 

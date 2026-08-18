@@ -11,6 +11,7 @@ from resilience_common import (
     attempts,
     available_port,
     cleanup_streams,
+    require_exclusive_executor_control,
     start_executor,
     stop_executor,
     submit_static,
@@ -30,12 +31,13 @@ def _attempt_owner(rows: list[dict[str, Any]]) -> str | None:
 
 
 async def main() -> None:
+    await require_exclusive_executor_control()
     unique = uuid4().hex
     primary_port = available_port("DRAIN_SMOKE_PRIMARY_PORT")
     secondary_port = available_port("DRAIN_SMOKE_SECONDARY_PORT")
     if secondary_port == primary_port:
         raise ValueError("Drain smoke Executor ports must differ.")
-    stream = f"executor.events.drain-smoke.{unique}"
+    work_stream = f"executor.work.drain-smoke.{unique}"
     group = f"executor-drain-smoke-{unique}"
     primary: asyncio.subprocess.Process | None = None
     secondary: asyncio.subprocess.Process | None = None
@@ -47,7 +49,7 @@ async def main() -> None:
         primary = await start_executor(
             port=primary_port,
             consumer_name=PRIMARY_CONSUMER,
-            stream=stream,
+            stream=work_stream,
             group=group,
             extra_environment=process_environment,
         )
@@ -100,7 +102,7 @@ async def main() -> None:
         secondary = await start_executor(
             port=secondary_port,
             consumer_name=SECONDARY_CONSUMER,
-            stream=stream,
+            stream=work_stream,
             group=group,
             extra_environment=process_environment,
         )
@@ -160,7 +162,7 @@ async def main() -> None:
             decode_responses=True,
         )
         try:
-            await cleanup_streams(redis, stream)
+            await cleanup_streams(redis, work_stream)
         finally:
             await redis.aclose()
 
