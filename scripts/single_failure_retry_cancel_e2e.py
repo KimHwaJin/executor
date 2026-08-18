@@ -1,4 +1,4 @@
-"""Exercise STATIC failure/retry and cancellation across every durable Executor boundary.
+"""Exercise SINGLE failure/retry and cancellation across every durable Executor boundary.
 
 The failure/retry case enters through MCP. The cancellation case enters through REST. Both cases
 cross-check the public history API, PostgreSQL, Transactional Outbox, Redis Stream, shared-PV
@@ -14,7 +14,7 @@ from typing import Any, Literal
 from uuid import UUID, uuid4
 
 import httpx
-from execution_spec_payload import inline_source
+from execution_spec_payload import execution_request, inline_source
 from mcp import Client
 from redis.asyncio import Redis
 from sqlalchemy import select
@@ -71,9 +71,9 @@ def _enum_value(value: object) -> str:
 
 def _host_jupyter_endpoint(target: RuntimeTargetORM, settings: Any) -> str:
     variable = (
-        "STATIC_LIFECYCLE_JUPYTER_SECONDARY_ENDPOINT"
+        "SINGLE_LIFECYCLE_JUPYTER_SECONDARY_ENDPOINT"
         if target.name == "local-jupyter-secondary"
-        else "STATIC_LIFECYCLE_JUPYTER_ENDPOINT"
+        else "SINGLE_LIFECYCLE_JUPYTER_ENDPOINT"
     )
     default = (
         "http://127.0.0.1:8889"
@@ -409,20 +409,18 @@ async def _run_failure_retry_case(
     redis: Redis,
     stream: str,
 ) -> CaseResult:
-    user_id = f"static-retry-{unique}-user"
+    user_id = f"single-retry-{unique}-user"
     submitted = await _mcp_result(
         mcp,
         "execution_submit",
         {
-            "request": {
-                "idempotency_key": f"static-retry-submit-{unique}",
-                "mode": "STATIC",
-                "trigger_type": "INTERACTIVE",
-                "actor": {"type": "USER", "id": user_id},
-                "runtime_type": "JUPYTER",
-                "runtime_profile": runtime_profile,
-                "source": inline_source(
-                    f"static-retry-plan-{unique}",
+            "request": execution_request(
+                idempotency_key=f"single-retry-submit-{unique}",
+                operation_mode="SINGLE",
+                trigger_type="INTERACTIVE",
+                actor={"type": "USER", "id": user_id},
+                runtime_profile=runtime_profile,
+                source=inline_source(
                     [
                         {
                             "skill_name": "data_io",
@@ -438,7 +436,7 @@ async def _run_failure_retry_case(
                                 "artifact = Path('artifacts/other/retry-e2e.txt')\n"
                                 "artifact.write_text(str(attempt_counter), encoding='utf-8')\n"
                                 "if attempt_counter == 1:\n"
-                                "    raise RuntimeError('expected static retry failure')\n"
+                                "    raise RuntimeError('expected single retry failure')\n"
                                 "print(attempt_counter)"
                             ),
                         },
@@ -449,17 +447,17 @@ async def _run_failure_retry_case(
                         },
                     ],
                 ),
-                "context": {
+                context={
                     "user_id": user_id,
-                    "project_id": "static-retry-project",
-                    "session_id": f"static-retry-session-{unique}",
-                    "task_id": f"static-retry-task-{unique}",
+                    "project_id": "single-retry-project",
+                    "session_id": f"single-retry-session-{unique}",
+                    "task_id": f"single-retry-task-{unique}",
                 },
-            }
+            )
         },
     )
     execution_id = str(submitted["execution_id"])
-    operation_id = str(submitted["operation_id"])
+    operation_id = str(submitted["operation"]["operation_id"])
     failed, first_states = await _wait_for_status(
         "MCP",
         execution_id,
@@ -486,14 +484,14 @@ async def _run_failure_retry_case(
         {
             "request": {
                 "execution_id": execution_id,
-                "idempotency_key": f"static-retry-command-{unique}",
+                "idempotency_key": f"single-retry-command-{unique}",
                 "actor": {"type": "USER", "id": user_id},
             }
         },
     )
     if retried["state"]["status"] != "QUEUED":
         raise RuntimeError(f"Retry was not queued: {retried}")
-    if retried["operation_id"] != operation_id:
+    if retried["operation"]["operation_id"] != operation_id:
         raise RuntimeError("Retry did not return the originally accepted Operation ID.")
     succeeded, second_states = await _wait_for_status(
         "MCP",
@@ -670,16 +668,14 @@ async def _run_cancel_case(
     redis: Redis,
     stream: str,
 ) -> CaseResult:
-    user_id = f"static-cancel-{unique}-user"
-    payload = {
-        "idempotency_key": f"static-cancel-submit-{unique}",
-        "mode": "STATIC",
-        "trigger_type": "INTERACTIVE",
-        "actor": {"type": "USER", "id": user_id},
-        "runtime_type": "JUPYTER",
-        "runtime_profile": runtime_profile,
-        "source": inline_source(
-            f"static-cancel-plan-{unique}",
+    user_id = f"single-cancel-{unique}-user"
+    payload = execution_request(
+        idempotency_key=f"single-cancel-submit-{unique}",
+        operation_mode="SINGLE",
+        trigger_type="INTERACTIVE",
+        actor={"type": "USER", "id": user_id},
+        runtime_profile=runtime_profile,
+        source=inline_source(
             [
                 {
                     "skill_name": "report",
@@ -701,13 +697,13 @@ async def _run_cancel_case(
                 },
             ],
         ),
-        "context": {
+        context={
             "user_id": user_id,
-            "project_id": "static-cancel-project",
-            "session_id": f"static-cancel-session-{unique}",
-            "task_id": f"static-cancel-task-{unique}",
+            "project_id": "single-cancel-project",
+            "session_id": f"single-cancel-session-{unique}",
+            "task_id": f"single-cancel-task-{unique}",
         },
-    }
+    )
     submitted = await _rest_json(rest, "POST", "/executions", json=payload)
     execution_id = str(submitted["execution_id"])
     running, running_states = await _wait_for_status(
@@ -746,8 +742,8 @@ async def _run_cancel_case(
         "POST",
         f"/executions/{execution_id}/cancel",
         json={
-            "idempotency_key": f"static-cancel-command-{unique}",
-            "reason": "static cancellation regression E2E",
+            "idempotency_key": f"single-cancel-command-{unique}",
+            "reason": "single cancellation regression E2E",
             "actor": {"type": "USER", "id": user_id},
         },
     )
@@ -762,7 +758,7 @@ async def _run_cancel_case(
         timeout_seconds=timeout_seconds,
     )
     if (
-        cancelled["state"]["cancellation_reason"] != "static cancellation regression E2E"
+        cancelled["state"]["cancellation_reason"] != "single cancellation regression E2E"
         or cancelled["runtime"]["session_id"] is not None
         or cancelled["retry"]["strategy"] != "NOT_RETRYABLE"
         or cancelled["recovery"]["runtime_session_cleanup_status"] != "SUCCEEDED"
@@ -844,9 +840,9 @@ async def main() -> None:
     settings = get_settings()
     mcp_url = os.getenv("EXECUTOR_MCP_URL", "http://127.0.0.1:8000/mcp")
     rest_url = os.getenv("EXECUTOR_REST_URL", "http://127.0.0.1:8000/api/v1")
-    runtime_profile = os.getenv("STATIC_LIFECYCLE_RUNTIME_PROFILE", "basic")
-    timeout_seconds = float(os.getenv("STATIC_LIFECYCLE_TIMEOUT_SECONDS", "120"))
-    scan_limit = int(os.getenv("STATIC_LIFECYCLE_STREAM_SCAN_LIMIT", "5000"))
+    runtime_profile = os.getenv("SINGLE_LIFECYCLE_RUNTIME_PROFILE", "basic")
+    timeout_seconds = float(os.getenv("SINGLE_LIFECYCLE_TIMEOUT_SECONDS", "120"))
+    scan_limit = int(os.getenv("SINGLE_LIFECYCLE_STREAM_SCAN_LIMIT", "5000"))
     unique = uuid4().hex
     engine = create_engine(
         settings.database_dsn,

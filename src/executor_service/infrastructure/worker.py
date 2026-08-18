@@ -21,9 +21,9 @@ from executor_service.config import Settings
 from executor_service.domain.enums import (
     ArtifactStatus,
     AttemptStatus,
-    ExecutionMode,
     ExecutionStatus,
     FailureType,
+    OperationMode,
     OperationStatus,
     RetryStrategy,
     RuntimePool,
@@ -37,6 +37,7 @@ from executor_service.domain.runtime import (
     RuntimeDriverError,
     RuntimeDriverFactory,
     RuntimeExecutionError,
+    RuntimeExecutionTimeoutError,
 )
 from executor_service.events import build_execution_event
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
@@ -162,8 +163,8 @@ class ExecutionWorker:
                 name="retained-session-cleanup",
             ),
             asyncio.create_task(
-                self._dynamic_lifecycle_loop(),
-                name="dynamic-lifecycle-auditor",
+                self._multi_lifecycle_loop(),
+                name="multi-lifecycle-auditor",
             ),
         ]
 
@@ -372,7 +373,11 @@ class ExecutionWorker:
                             )
                             .where(
                                 ExecutionORM.status.in_(
-                                    [ExecutionStatus.QUEUED, ExecutionStatus.CANCEL_REQUESTED]
+                                    [
+                                        ExecutionStatus.QUEUED,
+                                        ExecutionStatus.FINALIZING,
+                                        ExecutionStatus.CANCEL_REQUESTED,
+                                    ]
                                 )
                             )
                             .order_by(ExecutionORM.created_at)
@@ -425,10 +430,10 @@ class ExecutionWorker:
                 logger.exception("Retained runtime session cleanup failed")
             await asyncio.sleep(self._settings.execution_heartbeat_seconds)
 
-    async def _dynamic_lifecycle_loop(self) -> None:
+    async def _multi_lifecycle_loop(self) -> None:
         while not self._stop_event.is_set():
             try:
-                await self._audit_dynamic_lifecycle()
+                await self._audit_multi_lifecycle()
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -516,8 +521,8 @@ class ExecutionWorker:
             if claimed is None:
                 return
             execution, target, attempt_id = claimed
-            if execution.mode == ExecutionMode.DYNAMIC:
-                await self._run_dynamic_execution(execution, target, attempt_id)
+            if execution.operation_mode == OperationMode.MULTI:
+                await self._run_multi_execution(execution, target, attempt_id)
                 return
             driver = self._create_driver(target)
             runtime_session_id: str | None = None
@@ -594,7 +599,13 @@ class ExecutionWorker:
                     try:
                         result = await self._trace_runtime(
                             "executor.runtime.code.execute",
-                            driver.execute(runtime_session_id, code),
+                            self._execute_runtime_step(
+                                driver,
+                                runtime_session_id,
+                                code,
+                                execution.id,
+                                sequence,
+                            ),
                             execution_id=execution.id,
                             target_id=target.id,
                             sequence=sequence,
@@ -791,11 +802,14 @@ class ExecutionWorker:
                 .options(selectinload(ExecutionORM.steps))
                 .with_for_update()
             )
-            if execution_row is None or execution_row.status != ExecutionStatus.QUEUED:
+            if execution_row is None or execution_row.status not in {
+                ExecutionStatus.QUEUED,
+                ExecutionStatus.FINALIZING,
+            }:
                 return None
             operation: ExecutionOperationORM | None = None
             if (
-                not execution_row.dynamic_finish_requested
+                not execution_row.finalization_requested
                 and execution_row.active_operation_id is not None
             ):
                 operation = await session.scalar(
@@ -809,10 +823,10 @@ class ExecutionWorker:
                 )
                 if operation is None:
                     return None
-            elif not execution_row.dynamic_finish_requested and execution_row.retry_count == 0:
+            elif not execution_row.finalization_requested and execution_row.retry_count == 0:
                 return None
             if (
-                execution_row.mode == ExecutionMode.DYNAMIC
+                execution_row.operation_mode == OperationMode.MULTI
                 and execution_row.runtime_session_id is not None
                 and execution_row.runtime_target_id is not None
             ):
@@ -1189,7 +1203,7 @@ class ExecutionWorker:
         )
         return pressure, memory, reserved, target.name
 
-    async def _run_dynamic_execution(
+    async def _run_multi_execution(
         self, execution: Execution, target: RuntimeTargetORM, attempt_id: UUID
     ) -> None:
         driver = self._create_driver(target)
@@ -1223,7 +1237,7 @@ class ExecutionWorker:
                 self._heartbeat(execution.id, attempt_id),
                 name=f"heartbeat-{execution.id}",
             )
-            if execution.dynamic_finish_requested:
+            if execution.finalization_requested:
                 last_sequence = max((step.sequence for step in execution.steps), default=0)
                 await self._artifacts.register_notebook(
                     driver=driver,
@@ -1248,23 +1262,29 @@ class ExecutionWorker:
 
             operation_id = execution.active_operation_id
             if operation_id is None:
-                raise ValueError("Queued DYNAMIC execution has no active Operation.")
+                raise ValueError("Queued MULTI execution has no active Operation.")
             pending_steps = [
                 step
                 for step in execution.steps
                 if step.operation_id == operation_id and step.status == StepStatus.PENDING
             ]
             if not pending_steps:
-                raise ValueError("Queued DYNAMIC Operation has no pending cell code.")
+                raise ValueError("Queued MULTI Operation has no pending Step.")
             for pending in pending_steps:
                 if not pending.code:
-                    raise ValueError("Queued DYNAMIC Operation contains blank cell code.")
+                    raise ValueError("Queued MULTI Operation contains a blank Step payload.")
                 artifact_snapshot = await self._artifacts.snapshot(driver, workspace)
                 await self._step_started(execution.id, attempt_id, pending.sequence)
                 try:
                     result = await self._trace_runtime(
                         "executor.runtime.code.execute",
-                        driver.execute(runtime_session_id, pending.code),
+                        self._execute_runtime_step(
+                            driver,
+                            runtime_session_id,
+                            pending.code,
+                            execution.id,
+                            pending.sequence,
+                        ),
                         execution_id=execution.id,
                         target_id=target.id,
                         sequence=pending.sequence,
@@ -1292,7 +1312,7 @@ class ExecutionWorker:
                     await self._skip_operation_steps_after(
                         execution.id, operation_id, pending.sequence
                     )
-                    await self._write_dynamic_notebook(
+                    await self._write_multi_notebook(
                         driver, execution.id, execution.runtime_profile, workspace
                     )
                     try:
@@ -1309,7 +1329,7 @@ class ExecutionWorker:
                         await self._record_artifact_failure(
                             execution.id, attempt_id, pending.sequence, artifact_exc
                         )
-                    await self._pause_dynamic_operation(
+                    await self._complete_multi_operation(
                         execution.id,
                         attempt_id,
                         operation_id,
@@ -1325,7 +1345,7 @@ class ExecutionWorker:
                     result.outputs,
                     result.execution_count,
                 )
-                await self._write_dynamic_notebook(
+                await self._write_multi_notebook(
                     driver, execution.id, execution.runtime_profile, workspace
                 )
                 try:
@@ -1343,7 +1363,7 @@ class ExecutionWorker:
                         execution.id, attempt_id, pending.sequence, artifact_exc
                     )
                     raise
-            await self._pause_dynamic_operation(
+            await self._complete_multi_operation(
                 execution.id,
                 attempt_id,
                 operation_id,
@@ -1361,7 +1381,7 @@ class ExecutionWorker:
                 execution.id,
                 attempt_id,
                 ExecutionStatus.FAILED,
-                "Executor worker stopped while the dynamic cell was running.",
+                "Executor worker stopped while a MULTI Operation Step was running.",
                 failure_type=FailureType.WORKER_SHUTDOWN,
                 retry_strategy=RetryStrategy.NOT_RETRYABLE,
                 runtime_session_cleanup_status=cleanup_status,
@@ -1393,7 +1413,7 @@ class ExecutionWorker:
             )
         return status in {ExecutionStatus.CANCEL_REQUESTED, ExecutionStatus.CANCELLED}
 
-    async def _write_dynamic_notebook(
+    async def _write_multi_notebook(
         self,
         driver: RuntimeDriver,
         execution_id: UUID,
@@ -1413,7 +1433,7 @@ class ExecutionWorker:
         ]
         cells = [step.code or "" for step in executed_steps]
         outputs = [step.outputs for step in executed_steps]
-        # DYNAMIC cells execute exactly once, sequentially, on one retained kernel. SKIPPED
+        # MULTI Steps execute exactly once, sequentially, on one retained session. SKIPPED
         # planned Steps never become notebook cells, so kernel history is the executed-cell order.
         execution_counts: list[int | None] = list(range(1, len(executed_steps) + 1))
         await driver.write_notebook(
@@ -1423,7 +1443,7 @@ class ExecutionWorker:
             ),
         )
 
-    async def _pause_dynamic_operation(
+    async def _complete_multi_operation(
         self,
         execution_id: UUID,
         attempt_id: UUID,
@@ -1450,15 +1470,15 @@ class ExecutionWorker:
             )
             if operation is None or operation.status != OperationStatus.RUNNING:
                 return
-            execution.status = ExecutionStatus.WAITING_FOR_CONTINUE
+            execution.status = ExecutionStatus.WAITING_FOR_OPERATION
             execution.lease_owner = None
             execution.lease_expires_at = None
             execution.updated_at = now
-            execution.dynamic_finish_requested = False
-            wait_deadline = now + timedelta(
-                seconds=self._settings.dynamic_step_wait_timeout_seconds
-            )
-            execution.dynamic_wait_expires_at = min(
+            execution.finalization_requested = False
+            if execution.operation_wait_timeout_seconds is None:
+                raise ValueError("MULTI execution has no Operation wait timeout.")
+            wait_deadline = now + timedelta(seconds=execution.operation_wait_timeout_seconds)
+            execution.operation_wait_expires_at = min(
                 wait_deadline,
                 (
                     _as_utc(execution.execution_expires_at)
@@ -1484,7 +1504,7 @@ class ExecutionWorker:
                 session,
                 execution_id,
                 f"execution.operation_{operation_status.value.lower()}",
-                ExecutionStatus.WAITING_FOR_CONTINUE,
+                ExecutionStatus.WAITING_FOR_OPERATION,
                 {
                     "execution_attempt_id": str(attempt_id),
                     "operation_id": str(operation_id),
@@ -1492,6 +1512,22 @@ class ExecutionWorker:
                     "first_sequence": operation.first_sequence,
                     "last_sequence": operation.last_sequence,
                     **({"failed_sequence": failed_sequence} if failed_sequence is not None else {}),
+                    "version": execution.version,
+                    **(
+                        {"error_message": error_message or "Operation failed."}
+                        if operation_status == OperationStatus.FAILED
+                        else {}
+                    ),
+                },
+            )
+            await _add_outbox(
+                session,
+                execution_id,
+                "execution.waiting_for_operation",
+                ExecutionStatus.WAITING_FOR_OPERATION,
+                {
+                    "operation_id": str(operation_id),
+                    "operation_wait_expires_at": execution.operation_wait_expires_at,
                     "version": execution.version,
                 },
             )
@@ -1730,6 +1766,52 @@ class ExecutionWorker:
                 },
             )
 
+    async def _execute_runtime_step(
+        self,
+        driver: RuntimeDriver,
+        runtime_session_id: str,
+        code: str,
+        execution_id: UUID,
+        sequence: int,
+    ) -> Any:
+        async with self._session_factory() as session:
+            row = (
+                await session.execute(
+                    select(
+                        ExecutionStepORM.step_timeout_seconds,
+                        ExecutionOperationORM.operation_timeout_seconds,
+                        ExecutionOperationORM.started_at,
+                    )
+                    .join(
+                        ExecutionOperationORM,
+                        ExecutionOperationORM.id == ExecutionStepORM.operation_id,
+                    )
+                    .where(
+                        ExecutionStepORM.execution_id == execution_id,
+                        ExecutionStepORM.sequence == sequence,
+                    )
+                )
+            ).one()
+        timeouts: list[tuple[float, str]] = []
+        if row.step_timeout_seconds is not None:
+            timeouts.append((float(row.step_timeout_seconds), "Step"))
+        if row.operation_timeout_seconds is not None:
+            started_at = _as_utc(row.started_at or utc_now())
+            remaining = row.operation_timeout_seconds - (utc_now() - started_at).total_seconds()
+            if remaining <= 0:
+                raise RuntimeExecutionTimeoutError(
+                    "Operation", float(row.operation_timeout_seconds)
+                )
+            timeouts.append((remaining, "Operation"))
+        if not timeouts:
+            return await driver.execute(runtime_session_id, code)
+        timeout_seconds, scope = min(timeouts)
+        try:
+            async with asyncio.timeout(timeout_seconds):
+                return await driver.execute(runtime_session_id, code)
+        except TimeoutError as exc:
+            raise RuntimeExecutionTimeoutError(scope, timeout_seconds) from exc
+
     async def _heartbeat(self, execution_id: UUID, attempt_id: UUID) -> None:
         while True:
             await asyncio.sleep(self._settings.execution_heartbeat_seconds)
@@ -1818,7 +1900,7 @@ class ExecutionWorker:
             execution.updated_at = now
             execution.lease_owner = None
             execution.lease_expires_at = None
-            execution.dynamic_wait_expires_at = None
+            execution.operation_wait_expires_at = None
             execution.retry_strategy = effective_retry_strategy
             execution.retry_from_sequence = None
             if effective_retry_strategy == RetryStrategy.FROM_FAILED_STEP:
@@ -1890,6 +1972,7 @@ class ExecutionWorker:
                     }
                     if status == ExecutionStatus.FAILED:
                         operation_payload["failed_sequence"] = retry_from_sequence
+                        operation_payload["error_message"] = error_message or "Operation failed."
                     await _add_outbox(
                         session,
                         execution_id,
@@ -1981,7 +2064,7 @@ class ExecutionWorker:
             execution.updated_at = now
             execution.lease_owner = None
             execution.lease_expires_at = None
-            execution.dynamic_wait_expires_at = None
+            execution.operation_wait_expires_at = None
             execution.failure_type = None
             execution.retry_strategy = RetryStrategy.NOT_RETRYABLE
             execution.retry_from_sequence = None
@@ -2038,7 +2121,7 @@ class ExecutionWorker:
                 {"runtime_session_cleanup_status": cleanup_status.value},
             )
 
-    async def _audit_dynamic_lifecycle(self) -> None:
+    async def _audit_multi_lifecycle(self) -> None:
         await self._request_expired_execution_cancellations()
         now = utc_now()
         async with self._session_factory() as session:
@@ -2050,8 +2133,8 @@ class ExecutionWorker:
                         RuntimeTargetORM.id == ExecutionORM.runtime_target_id,
                     )
                     .where(
-                        ExecutionORM.mode == ExecutionMode.DYNAMIC,
-                        ExecutionORM.status == ExecutionStatus.WAITING_FOR_CONTINUE,
+                        ExecutionORM.operation_mode == OperationMode.MULTI,
+                        ExecutionORM.status == ExecutionStatus.WAITING_FOR_OPERATION,
                     )
                     .order_by(ExecutionORM.updated_at)
                     .limit(200)
@@ -2070,14 +2153,14 @@ class ExecutionWorker:
                 )
                 continue
             if (
-                execution.dynamic_wait_expires_at is not None
-                and _as_utc(execution.dynamic_wait_expires_at) <= now
+                execution.operation_wait_expires_at is not None
+                and _as_utc(execution.operation_wait_expires_at) <= now
             ):
                 await self._fail_waiting_execution(
                     execution.id,
                     execution.runtime_session_id,
-                    FailureType.DYNAMIC_WAIT_TIMEOUT,
-                    "Agent did not provide the next dynamic step before the deadline.",
+                    FailureType.OPERATION_WAIT_TIMEOUT,
+                    "The next Operation was not provided before the wait deadline.",
                 )
                 continue
             if not target.enabled:
@@ -2093,7 +2176,7 @@ class ExecutionWorker:
                     execution.id,
                     None,
                     FailureType.RUNTIME_SESSION_LOST,
-                    "The retained dynamic Runtime session reference was lost.",
+                    "The retained MULTI Runtime session reference was lost.",
                 )
                 continue
             driver = self._create_driver(target)
@@ -2109,7 +2192,7 @@ class ExecutionWorker:
                     execution.id,
                     execution.runtime_session_id,
                     FailureType.RUNTIME_SESSION_LOST,
-                    "The retained dynamic Runtime session no longer exists.",
+                    "The retained MULTI Runtime session no longer exists.",
                 )
 
     async def _request_expired_execution_cancellations(self) -> None:
@@ -2130,7 +2213,7 @@ class ExecutionWorker:
             for execution in expired:
                 execution.status = ExecutionStatus.CANCEL_REQUESTED
                 execution.cancellation_reason = "Execution exceeded its maximum runtime."
-                execution.dynamic_wait_expires_at = None
+                execution.operation_wait_expires_at = None
                 execution.updated_at = now
                 execution.version += 1
                 expired_ids.append(execution.id)
@@ -2163,7 +2246,7 @@ class ExecutionWorker:
             )
             if (
                 execution is None
-                or execution.status != ExecutionStatus.WAITING_FOR_CONTINUE
+                or execution.status != ExecutionStatus.WAITING_FOR_OPERATION
                 or execution.runtime_session_id != expected_runtime_session_id
             ):
                 return
@@ -2192,7 +2275,7 @@ class ExecutionWorker:
             execution.updated_at = now
             execution.lease_owner = None
             execution.lease_expires_at = None
-            execution.dynamic_wait_expires_at = None
+            execution.operation_wait_expires_at = None
             execution.retry_strategy = RetryStrategy.NOT_RETRYABLE
             execution.retry_from_sequence = None
             execution.retained_runtime_session_until = None
@@ -2251,7 +2334,7 @@ class ExecutionWorker:
             for execution in expired:
                 retry_strategy = (
                     RetryStrategy.NOT_RETRYABLE
-                    if execution.mode == ExecutionMode.DYNAMIC
+                    if execution.operation_mode == OperationMode.MULTI
                     else RetryStrategy.FROM_START
                 )
                 attempt = await session.scalar(
@@ -2376,6 +2459,8 @@ class ExecutionWorker:
                                 "first_sequence": operation.first_sequence,
                                 "last_sequence": operation.last_sequence,
                                 "version": execution.version,
+                                "error_message": execution.error_message
+                                or "Operation recovery failed.",
                             },
                         )
                 await _add_outbox(
@@ -2609,6 +2694,7 @@ class ExecutionWorker:
                 "first_sequence": operation.first_sequence,
                 "last_sequence": operation.last_sequence,
                 "version": execution.version,
+                "error_message": operation.error_message or "Operation failed.",
             },
         )
 
@@ -2702,6 +2788,14 @@ def _valid_uuid_or_empty(value: str | None) -> str:
 def _failure_policy(exc: Exception, retain_session: bool) -> tuple[FailureType, RetryStrategy]:
     if isinstance(exc, RetainedRuntimeSessionLostError):
         return FailureType.RUNTIME_SESSION_LOST, RetryStrategy.FROM_START
+    if isinstance(exc, RuntimeExecutionTimeoutError):
+        failure_type = (
+            FailureType.STEP_TIMEOUT if exc.scope == "Step" else FailureType.OPERATION_TIMEOUT
+        )
+        retry_strategy = (
+            RetryStrategy.FROM_FAILED_STEP if retain_session else RetryStrategy.FROM_START
+        )
+        return failure_type, retry_strategy
     if isinstance(exc, RuntimeExecutionError) and retain_session:
         return FailureType.TOOL_ERROR, RetryStrategy.FROM_FAILED_STEP
     if isinstance(exc, RuntimeDriverError):

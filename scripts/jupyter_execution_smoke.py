@@ -1,9 +1,9 @@
-"""Submit a STATIC execution through MCP and wait for its Jupyter result."""
+"""Submit a SINGLE execution through MCP and wait for its Jupyter result."""
 
 import asyncio
 from uuid import uuid4
 
-from execution_spec_payload import inline_source
+from execution_spec_payload import execution_request, inline_source
 from mcp import Client
 
 
@@ -13,14 +13,13 @@ async def main() -> None:
         submitted = await client.call_tool(
             "execution_submit",
             {
-                "request": {
-                    "idempotency_key": f"jupyter-smoke-{unique}",
-                    "mode": "STATIC",
-                    "trigger_type": "INTERACTIVE",
-                    "actor": {"type": "USER", "id": "smoke-user"},
-                    "runtime_profile": "basic",
-                    "source": inline_source(
-                        f"smoke-plan-{unique}",
+                "request": execution_request(
+                    idempotency_key=f"jupyter-smoke-{unique}",
+                    operation_mode="SINGLE",
+                    trigger_type="INTERACTIVE",
+                    actor={"type": "USER", "id": "smoke-user"},
+                    runtime_profile="basic",
+                    source=inline_source(
                         [
                             {
                                 "skill_name": "eda",
@@ -39,13 +38,13 @@ async def main() -> None:
                             },
                         ],
                     ),
-                    "context": {
+                    context={
                         "user_id": "smoke-user",
                         "project_id": "smoke-project",
                         "session_id": "smoke-session",
                         "task_id": f"smoke-task-{unique}",
                     },
-                }
+                )
             },
         )
         if submitted.is_error:

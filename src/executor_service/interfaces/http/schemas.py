@@ -27,8 +27,8 @@ __all__ = [
     "ActorInput",
     "ErrorResponse",
     "ExecutionCancelRequest",
-    "ExecutionContinueRequest",
-    "ExecutionFinishRequest",
+    "ExecutionFinalizeRequest",
+    "ExecutionOperationCreateRequest",
     "ExecutionRetryRequest",
     "ExecutionSubmitRequest",
     "RuntimeTargetMutationRequest",
@@ -113,14 +113,16 @@ class ExecutionRetryRequest(HTTPModel):
     actor: ActorInput
 
 
-class ExecutionContinueRequest(HTTPModel):
+class ExecutionOperationCreateRequest(HTTPModel):
     idempotency_key: str = Field(min_length=1, max_length=255)
     expected_version: int = Field(ge=0)
+    operation_timeout_seconds: int | None = Field(default=None, ge=1)
     source: CodeSource
+    metadata: dict[str, object] = Field(default_factory=dict)
     actor: ActorInput
 
 
-class ExecutionFinishRequest(HTTPModel):
+class ExecutionFinalizeRequest(HTTPModel):
     idempotency_key: str = Field(min_length=1, max_length=255)
     expected_version: int = Field(ge=0)
     actor: ActorInput

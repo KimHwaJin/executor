@@ -1,4 +1,4 @@
-"""Verify that an expired DYNAMIC wait reclaims a real Jupyter kernel exactly once."""
+"""Verify that an expired MULTI wait reclaims a real Jupyter kernel exactly once."""
 
 import asyncio
 from datetime import timedelta
@@ -11,9 +11,9 @@ from executor_service.config import get_settings
 from executor_service.container import ApplicationContainer
 from executor_service.domain.enums import (
     CodeSourceType,
-    ExecutionMode,
     ExecutionStatus,
     FailureType,
+    OperationMode,
     RuntimeSessionCleanupStatus,
     TriggerType,
 )
@@ -49,33 +49,31 @@ async def main() -> None:
     try:
         submitted = await container.execution_service.submit(
             SubmitExecutionCommand(
-                idempotency_key=f"dynamic-lifecycle-{unique}",
-                mode=ExecutionMode.DYNAMIC,
+                idempotency_key=f"multi-lifecycle-{unique}",
+                operation_mode=OperationMode.MULTI,
+                operation_wait_timeout_seconds=3600,
                 trigger_type=TriggerType.INTERACTIVE,
                 runtime_profile="basic",
                 code_source_type=CodeSourceType.INLINE,
                 source_content=code,
                 code_path=None,
                 source_sha256="0" * 64,
-                user_id="dynamic-lifecycle-user",
-                project_id="dynamic-lifecycle-project",
-                session_id="dynamic-lifecycle-session",
+                user_id="multi-lifecycle-user",
+                project_id="multi-lifecycle-project",
+                session_id="multi-lifecycle-session",
                 task_id="test-task",
-                execution_plan_id=f"dynamic-lifecycle-plan-{unique}",
                 steps=(
                     StepSpec(
                         sequence=0,
                         code=code,
-                        execution_plan_id=f"dynamic-lifecycle-plan-{unique}",
-                        plan_step_id=f"dynamic-lifecycle-plan-{unique}-step-0",
                         tool_name="initialize",
                     ),
                 ),
             )
         )
-        waiting = await _wait_for(container, submitted.id, ExecutionStatus.WAITING_FOR_CONTINUE)
+        waiting = await _wait_for(container, submitted.id, ExecutionStatus.WAITING_FOR_OPERATION)
         if waiting.runtime_session_id is None or waiting.runtime_target_id is None:
-            raise RuntimeError("Dynamic execution did not retain its assigned kernel.")
+            raise RuntimeError("Multi execution did not retain its assigned kernel.")
         retained_runtime_session = waiting.runtime_session_id
         server_id = waiting.runtime_target_id
 
@@ -83,11 +81,11 @@ async def main() -> None:
             await session.execute(
                 update(ExecutionORM)
                 .where(ExecutionORM.id == submitted.id)
-                .values(dynamic_wait_expires_at=utc_now() - timedelta(seconds=1))
+                .values(operation_wait_expires_at=utc_now() - timedelta(seconds=1))
             )
-        await container.execution_worker._audit_dynamic_lifecycle()
+        await container.execution_worker._audit_multi_lifecycle()
         failed = await _wait_for(container, submitted.id, ExecutionStatus.FAILED)
-        await container.execution_worker._audit_dynamic_lifecycle()
+        await container.execution_worker._audit_multi_lifecycle()
 
         async with container.session_factory() as session:
             server = await session.get(RuntimeTargetORM, server_id)
@@ -114,13 +112,13 @@ async def main() -> None:
         finally:
             await gateway.close()
         if (
-            failed.failure_type != FailureType.DYNAMIC_WAIT_TIMEOUT
+            failed.failure_type != FailureType.OPERATION_WAIT_TIMEOUT
             or failed.runtime_session_cleanup_status != RuntimeSessionCleanupStatus.SUCCEEDED
             or failed.runtime_session_id is not None
             or session_exists
             or failed_events != 1
         ):
-            raise RuntimeError(f"Dynamic lifecycle cleanup is incomplete: {failed}")
+            raise RuntimeError(f"Multi lifecycle cleanup is incomplete: {failed}")
 
         print("execution_id:", submitted.id)
         print("retained_runtime_session:", retained_runtime_session)

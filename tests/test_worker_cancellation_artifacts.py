@@ -19,8 +19,8 @@ from executor_service.config import Settings
 from executor_service.domain.enums import (
     ArtifactStatus,
     CodeSourceType,
-    ExecutionMode,
     ExecutionStatus,
+    OperationMode,
     RuntimePool,
     RuntimeTargetStatus,
     TriggerType,
@@ -63,13 +63,13 @@ class FileWritingBlockedDriver(InMemoryRuntimeStorage):
         pass
 
 
-@pytest.mark.parametrize("mode", [ExecutionMode.STATIC, ExecutionMode.DYNAMIC])
+@pytest.mark.parametrize("mode", [OperationMode.SINGLE, OperationMode.MULTI])
 async def test_cancelled_cell_registers_partial_file_as_incomplete_artifact(
     execution_service: ExecutionService,
     engine: AsyncEngine,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    mode: ExecutionMode,
+    mode: OperationMode,
 ) -> None:
     session_factory = create_session_factory(engine)
     async with session_factory() as session, session.begin():
@@ -89,7 +89,7 @@ async def test_cancelled_cell_registers_partial_file_as_incomplete_artifact(
     execution = await execution_service.submit(
         SubmitExecutionCommand(
             idempotency_key="cancel-artifact-submit",
-            mode=mode,
+            operation_mode=mode,
             trigger_type=TriggerType.INTERACTIVE,
             runtime_profile="basic",
             code_source_type=CodeSourceType.INLINE,
@@ -100,13 +100,11 @@ async def test_cancelled_cell_registers_partial_file_as_incomplete_artifact(
             project_id="cancel-artifact-project",
             session_id="cancel-artifact-session",
             task_id="cancel-artifact-task",
-            execution_plan_id="cancel-artifact-plan",
+            operation_wait_timeout_seconds=(3600 if mode == OperationMode.MULTI else None),
             steps=(
                 StepSpec(
                     sequence=0,
                     code=code,
-                    execution_plan_id="cancel-artifact-plan",
-                    plan_step_id="cancel-artifact-plan-step-0",
                     tool_name="write_partial",
                 ),
             ),

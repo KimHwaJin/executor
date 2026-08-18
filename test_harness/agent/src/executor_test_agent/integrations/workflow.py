@@ -16,11 +16,7 @@ async def submit_execution(request: AgentExecutionRequest, settings: AgentSettin
         submitted = await required_tool_result(
             client,
             "execution_submit",
-            {
-                "request": request.executor_payload(
-                    f"agent-submit-{request.task_id}-{request.execution_plan_id}"
-                )
-            },
+            {"request": request.executor_payload(f"agent-submit-{request.task_id}")},
         )
     return str(submitted["execution_id"])
 

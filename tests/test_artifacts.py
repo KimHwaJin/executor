@@ -14,7 +14,7 @@ from executor_service.domain.enums import (
     ArtifactType,
     AttemptStatus,
     CodeSourceType,
-    ExecutionMode,
+    OperationMode,
     RuntimePool,
     RuntimeTargetStatus,
     StepStatus,
@@ -43,7 +43,7 @@ from tests.runtime_storage_fake import InMemoryRuntimeStorage
 def _command() -> SubmitExecutionCommand:
     return SubmitExecutionCommand(
         idempotency_key="artifact-submit",
-        mode=ExecutionMode.STATIC,
+        operation_mode=OperationMode.SINGLE,
         trigger_type=TriggerType.INTERACTIVE,
         runtime_profile="basic",
         code_source_type=CodeSourceType.INLINE,
@@ -54,13 +54,10 @@ def _command() -> SubmitExecutionCommand:
         project_id="artifact-project",
         session_id="artifact-session",
         task_id="test-task",
-        execution_plan_id="artifact-plan",
         steps=(
             StepSpec(
                 sequence=0,
                 code="print('artifact')",
-                execution_plan_id="artifact-plan",
-                plan_step_id="artifact-plan-step-0",
                 skill_name="report",
                 tool_name="write_outputs",
             ),

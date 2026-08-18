@@ -17,14 +17,14 @@ The scripts select free loopback ports automatically. Set `DRAIN_SMOKE_PRIMARY_P
 
 ## Automated scenarios
 
-### STATIC execution observability
+### SINGLE execution observability
 
 ```bash
-uv run python scripts/static_execution_observability_smoke.py
+uv run python scripts/single_execution_observability_smoke.py
 ```
 
 This non-disruptive scenario uses the already running Executor stack. It submits one two-Step
-STATIC execution through REST and one through MCP, then cross-checks the public history APIs,
+SINGLE execution through REST and one through MCP, then cross-checks the public history APIs,
 PostgreSQL, Redis Stream, Runtime-owned files, and Runtime Target probe. Each execution must:
 
 - expose `QUEUED -> RUNNING -> SUCCEEDED`;
@@ -42,13 +42,13 @@ The default profile is `basic`. Override `OBSERVABILITY_RUNTIME_PROFILE`,
 requires it. Run this against an otherwise idle local Runtime Target because the final session
 leak assertion expects the probed target to have no unrelated sessions.
 
-### STATIC failure, retained-kernel retry, and running cancellation
+### SINGLE failure, retained-session retry, and running cancellation
 
 ```bash
-uv run python scripts/static_failure_retry_cancel_e2e.py
+uv run python scripts/single_failure_retry_cancel_e2e.py
 ```
 
-This non-disruptive scenario covers both abnormal STATIC lifecycle paths against the running
+This non-disruptive scenario covers both abnormal SINGLE lifecycle paths against the running
 Compose stack. Failure and retry use MCP; cancellation uses REST. For each Execution it
 cross-checks the public current/history responses, PostgreSQL rows, Transactional Outbox, Redis
 Stream event IDs and v1 payloads, shared-PV Artifact evidence, and the exact Jupyter session.
@@ -63,31 +63,31 @@ the kernel is running, and requires Execution, Attempt, current Steps, and the r
 to become `CANCELLED`. The kernel must be deleted, the marker must be preserved as `INCOMPLETE`,
 later Steps must not run, and no successful notebook Artifact may be registered.
 
-Override `STATIC_LIFECYCLE_RUNTIME_PROFILE`, `STATIC_LIFECYCLE_TIMEOUT_SECONDS`, or
-`STATIC_LIFECYCLE_STREAM_SCAN_LIMIT` when the local topology requires it. The host-side session
-probe defaults to `JUPYTER_ENDPOINT`; set `STATIC_LIFECYCLE_JUPYTER_ENDPOINT` when the registered
+Override `SINGLE_LIFECYCLE_RUNTIME_PROFILE`, `SINGLE_LIFECYCLE_TIMEOUT_SECONDS`, or
+`SINGLE_LIFECYCLE_STREAM_SCAN_LIMIT` when the local topology requires it. The host-side session
+probe defaults to `JUPYTER_ENDPOINT`; set `SINGLE_LIFECYCLE_JUPYTER_ENDPOINT` when the registered
 Target needs a different host-accessible endpoint than its container-internal address.
 
-### DYNAMIC correction, finish, and running cancellation
+### MULTI correction, finalization, and running cancellation
 
 ```bash
-uv run python scripts/dynamic_execution_lifecycle_e2e.py
+uv run python scripts/multi_execution_lifecycle_e2e.py
 ```
 
 This non-disruptive scenario alternates REST and MCP commands while checking PostgreSQL, Outbox,
 Redis Streams, shared-PV Artifacts, the generated notebook, and the exact Jupyter session. Its
-normal flow submits one DYNAMIC cell, appends a successful cell, appends an expected failing cell,
+normal flow submits one MULTI Operation, appends a successful Operation, appends an expected failure,
 adds a corrected follow-up cell, and finishes. Every cell must use the same target, kernel, and
 Attempt; the failed cell remains immutable rather than being rerun or replaced.
 
-The second flow cancels a running DYNAMIC cell after it writes a marker. The interrupted execution
+The second flow cancels a running MULTI Step after it writes a marker. The interrupted execution
 job preserves the marker as an `INCOMPLETE` Artifact, while the replacement cancellation job is
 the single owner of kernel cleanup and the `CANCELLED` state/event. This prevents competing cleanup
 operations from incorrectly reporting a successfully removed kernel as a cleanup failure.
 
-Override `DYNAMIC_LIFECYCLE_RUNTIME_PROFILE`, `DYNAMIC_LIFECYCLE_TIMEOUT_SECONDS`, or
-`DYNAMIC_LIFECYCLE_STREAM_SCAN_LIMIT` as needed. Set
-`DYNAMIC_LIFECYCLE_JUPYTER_ENDPOINT` when the host-side session probe cannot use the target's
+Override `MULTI_LIFECYCLE_RUNTIME_PROFILE`, `MULTI_LIFECYCLE_TIMEOUT_SECONDS`, or
+`MULTI_LIFECYCLE_STREAM_SCAN_LIMIT` as needed. Set
+`MULTI_LIFECYCLE_JUPYTER_ENDPOINT` when the host-side session probe cannot use the target's
 container-internal endpoint.
 
 ### Graceful drain and handoff
@@ -111,7 +111,7 @@ It verifies that:
 uv run python scripts/multi_executor_load_smoke.py
 ```
 
-The default run submits 30 STATIC executions across the INTERACTIVE and BATCH pools, with two
+The default run submits 30 SINGLE executions across the INTERACTIVE and BATCH pools, with two
 Executor processes and four one-capacity Jupyter servers. It requires all executions to succeed
 with exactly one Attempt, both Executor consumers to own work, every server peak to remain within
 capacity, INTERACTIVE/BATCH assignments to remain isolated to their requested pools, and zero
@@ -224,7 +224,7 @@ redis-cli XRANGE <stream-name> - +
 
 The local baseline validated on 2026-08-13 produced:
 
-- STATIC and DYNAMIC lifecycle: normal execution, retained-kernel retry, correction/continue,
+- SINGLE and MULTI lifecycle: normal execution, retained-session retry, correction/append,
   finish, running cancellation, notebooks, Artifacts, DB history, and Redis events succeeded;
 - graceful drain: short `SUCCEEDED`, long `WORKER_SHUTDOWN` with cleanup `SUCCEEDED`, queued work
   owned by the secondary;

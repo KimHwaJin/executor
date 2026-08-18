@@ -5,7 +5,7 @@ import os
 from typing import Any
 from uuid import uuid4
 
-from execution_spec_payload import inline_source
+from execution_spec_payload import execution_request, inline_source
 from mcp import Client
 
 
@@ -44,14 +44,13 @@ async def _submit(client: Client, unique: str, index: int, sleep: int) -> str:
     result = await client.call_tool(
         "execution_submit",
         {
-            "request": {
-                "idempotency_key": f"drain-execution-{unique}-{index}",
-                "mode": "STATIC",
-                "trigger_type": "INTERACTIVE",
-                "actor": {"type": "USER", "id": "drain-user"},
-                "runtime_profile": "basic",
-                "source": inline_source(
-                    f"drain-plan-{unique}-{index}",
+            "request": execution_request(
+                idempotency_key=f"drain-execution-{unique}-{index}",
+                operation_mode="SINGLE",
+                trigger_type="INTERACTIVE",
+                actor={"type": "USER", "id": "drain-user"},
+                runtime_profile="basic",
+                source=inline_source(
                     [
                         {
                             "tool_name": "drain_test",
@@ -59,13 +58,13 @@ async def _submit(client: Client, unique: str, index: int, sleep: int) -> str:
                         }
                     ],
                 ),
-                "context": {
+                context={
                     "user_id": "drain-user",
                     "project_id": "drain-project",
                     "session_id": f"drain-session-{index}",
                     "task_id": f"drain-task-{unique}-{index}",
                 },
-            }
+            )
         },
     )
     return result.structured_content["execution_id"]

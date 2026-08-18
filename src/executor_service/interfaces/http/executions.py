@@ -8,8 +8,8 @@ from fastapi import APIRouter, Path, Query, Response, status
 
 from executor_service.application.commands import (
     CancelExecutionCommand,
-    ContinueExecutionCommand,
-    FinishExecutionCommand,
+    CreateOperationCommand,
+    FinalizeExecutionCommand,
     RetryExecutionCommand,
     StepSpec,
 )
@@ -39,8 +39,8 @@ from executor_service.interfaces.contracts import (
 from executor_service.interfaces.http.schemas import (
     ErrorResponse,
     ExecutionCancelRequest,
-    ExecutionContinueRequest,
-    ExecutionFinishRequest,
+    ExecutionFinalizeRequest,
+    ExecutionOperationCreateRequest,
     ExecutionRetryRequest,
 )
 from executor_service.tracing import TracingManager
@@ -87,7 +87,7 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
     async def submit_execution(
         request: ExecutionSubmitRequest, response: Response
     ) -> ExecutionCommandResponse:
-        resolved = await resolver.resolve(request.source)
+        resolved = await resolver.resolve(request.operation.source)
         if resolved.spec.steps[0].sequence != 0:
             raise InvalidExecutionSpecError(
                 "Execution submit requires an ExecutionSpec starting at sequence 0."
@@ -239,25 +239,28 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
         )
 
     @router.post(
-        "/executions/{execution_id}/continue",
+        "/executions/{execution_id}/operations",
         response_model=ExecutionCommandResponse,
         status_code=status.HTTP_202_ACCEPTED,
         responses=DOMAIN_ERROR_RESPONSES,
-        summary="Append the next dynamic execution Operation",
+        summary="Append the next Operation to a MULTI execution",
     )
-    async def continue_execution(
-        execution_id: UUID, request: ExecutionContinueRequest, response: Response
+    async def create_operation(
+        execution_id: UUID, request: ExecutionOperationCreateRequest, response: Response
     ) -> ExecutionCommandResponse:
         resolved = await resolver.resolve(request.source)
         source_steps = resolved.spec.steps
         result = await _trace_call(
             tracing,
-            "executor.http.execution_continue",
-            execution_service.continue_execution_result(
-                ContinueExecutionCommand(
+            "executor.http.execution_operation_create",
+            execution_service.create_operation_result(
+                CreateOperationCommand(
                     execution_id=execution_id,
                     idempotency_key=request.idempotency_key,
                     expected_version=request.expected_version,
+                    source_content=resolved.canonical_content,
+                    operation_timeout_seconds=request.operation_timeout_seconds,
+                    metadata=request.metadata,
                     code_source_type=request.source.type,
                     code_path=(
                         request.source.path if isinstance(request.source, PathCodeSource) else None
@@ -267,8 +270,7 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
                         StepSpec(
                             sequence=source_step.sequence,
                             code=source_step.code,
-                            execution_plan_id=resolved.spec.execution_plan_id,
-                            plan_step_id=source_step.plan_step_id,
+                            step_timeout_seconds=source_step.step_timeout_seconds,
                             skill_name=source_step.skill_name,
                             tool_name=source_step.tool_name,
                             input_parameters=source_step.input_parameters,
@@ -290,20 +292,20 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
         return ExecutionCommandResponse.from_domain(execution, operation_id=result.operation_id)
 
     @router.post(
-        "/executions/{execution_id}/finish",
+        "/executions/{execution_id}/finalize",
         response_model=ExecutionCommandResponse,
         status_code=status.HTTP_202_ACCEPTED,
         responses=DOMAIN_ERROR_RESPONSES,
-        summary="Finalize a waiting dynamic execution",
+        summary="Finalize a waiting MULTI execution",
     )
-    async def finish_execution(
-        execution_id: UUID, request: ExecutionFinishRequest, response: Response
+    async def finalize_execution(
+        execution_id: UUID, request: ExecutionFinalizeRequest, response: Response
     ) -> ExecutionCommandResponse:
         execution = await _trace_call(
             tracing,
-            "executor.http.execution_finish",
-            execution_service.finish_execution(
-                FinishExecutionCommand(
+            "executor.http.execution_finalize",
+            execution_service.finalize_execution(
+                FinalizeExecutionCommand(
                     execution_id=execution_id,
                     idempotency_key=request.idempotency_key,
                     expected_version=request.expected_version,

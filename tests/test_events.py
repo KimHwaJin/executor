@@ -14,7 +14,7 @@ from executor_service.application.services import ExecutionService
 from executor_service.config import Settings
 from executor_service.domain.enums import (
     CodeSourceType,
-    ExecutionMode,
+    OperationMode,
     OutboxDestination,
     TriggerType,
 )
@@ -41,8 +41,8 @@ class RecordingRedis:
 
 def _submit_command() -> SubmitExecutionCommand:
     return SubmitExecutionCommand(
-        idempotency_key="event-contract-v1",
-        mode=ExecutionMode.STATIC,
+        idempotency_key="event-contract-v2",
+        operation_mode=OperationMode.SINGLE,
         trigger_type=TriggerType.INTERACTIVE,
         runtime_profile="basic",
         code_source_type=CodeSourceType.INLINE,
@@ -53,13 +53,10 @@ def _submit_command() -> SubmitExecutionCommand:
         project_id="event-project",
         session_id="event-session",
         task_id="event-task",
-        execution_plan_id="event-plan",
         steps=(
             StepSpec(
                 sequence=0,
                 code="print('event contract')",
-                execution_plan_id="event-plan",
-                plan_step_id="event-plan-step-0",
             ),
         ),
     )
@@ -68,8 +65,8 @@ def _submit_command() -> SubmitExecutionCommand:
 def test_every_supported_event_has_a_versioned_strict_payload_model() -> None:
     expected = {
         "execution.submitted",
-        "execution.continue_requested",
-        "execution.finish_requested",
+        "execution.operation_submitted",
+        "execution.finalization_requested",
         "execution.cancel_requested",
         "execution.retry_requested",
         "execution.started",
@@ -80,6 +77,7 @@ def test_every_supported_event_has_a_versioned_strict_payload_model() -> None:
         "execution.retry_deferred",
         "execution.operation_succeeded",
         "execution.operation_failed",
+        "execution.waiting_for_operation",
         "execution.artifact_registered",
         "execution.artifact_failed",
         "execution.succeeded",
@@ -93,7 +91,7 @@ def test_every_supported_event_has_a_versioned_strict_payload_model() -> None:
 
     assert set(EVENT_PAYLOAD_MODELS) == expected
     assert all(
-        model.model_fields["schema_version"].default == "1.0"
+        model.model_fields["schema_version"].default == "2.0"
         for model in EVENT_PAYLOAD_MODELS.values()
     )
 
@@ -118,9 +116,23 @@ def test_event_factory_rejects_unknown_missing_and_extra_fields() -> None:
             event_type="execution.started",
             payload={"status": "RUNNING", "unexpected": True},
         )
+    with pytest.raises(ValidationError):
+        build_execution_event(
+            execution_id=execution_id,
+            event_type="execution.operation_failed",
+            payload={
+                "status": "FAILED",
+                "execution_attempt_id": None,
+                "operation_id": str(uuid4()),
+                "operation_status": "FAILED",
+                "first_sequence": 0,
+                "last_sequence": 0,
+                "version": 1,
+            },
+        )
 
 
-async def test_postgres_outbox_and_redis_stream_share_the_same_v1_payload(
+async def test_postgres_outbox_and_redis_stream_share_the_same_v2_payload(
     execution_service: ExecutionService,
     engine: AsyncEngine,
 ) -> None:
@@ -140,8 +152,8 @@ async def test_postgres_outbox_and_redis_stream_share_the_same_v1_payload(
     publisher = OutboxPublisher(
         session_factory=session_factory,
         redis=cast(Redis, recording_redis),
-        work_stream_name="work-contract-v1",
-        event_stream_name="event-contract-v1",
+        work_stream_name="work-contract-v2",
+        event_stream_name="event-contract-v2",
         poll_interval_seconds=0.01,
         batch_size=10,
         tracing=TracingManager(Settings(runtime_enabled=False)),
@@ -149,7 +161,7 @@ async def test_postgres_outbox_and_redis_stream_share_the_same_v1_payload(
 
     assert await publisher.publish_batch() == 2
     fields = {
-        key: str(value) for key, value in recording_redis.messages["event-contract-v1"].items()
+        key: str(value) for key, value in recording_redis.messages["event-contract-v2"].items()
     }
     envelope = ExecutionStreamEnvelope.from_redis_fields(fields)
 
@@ -196,8 +208,8 @@ async def test_publisher_upgrades_a_valid_pre_v1_pending_payload(
             )
         )
     assert upgraded is not None
-    assert upgraded.payload["schema_version"] == "1.0"
-    assert recording_redis.messages["event-contract-v1-upgrade"]["schema_version"] == "1.0"
+    assert upgraded.payload["schema_version"] == "2.0"
+    assert recording_redis.messages["event-contract-v1-upgrade"]["schema_version"] == "2.0"
 
 
 def test_stream_envelope_rejects_version_or_aggregate_mismatch() -> None:
@@ -210,7 +222,7 @@ def test_stream_envelope_rejects_version_or_aggregate_mismatch() -> None:
     fields = {
         "event_id": str(event.id),
         "event_type": event.event_type,
-        "schema_version": "1.0",
+        "schema_version": "2.0",
         "aggregate_type": "Execution",
         "aggregate_id": str(uuid4()),
         "occurred_at": event.created_at.isoformat(),
@@ -220,6 +232,6 @@ def test_stream_envelope_rejects_version_or_aggregate_mismatch() -> None:
         ExecutionStreamEnvelope.from_redis_fields(fields)
 
     fields["aggregate_id"] = str(execution_id)
-    fields["schema_version"] = "2.0"
+    fields["schema_version"] = "1.0"
     with pytest.raises(ValidationError):
         ExecutionStreamEnvelope.from_redis_fields(fields)

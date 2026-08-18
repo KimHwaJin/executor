@@ -3,7 +3,7 @@
 import asyncio
 from uuid import uuid4
 
-from execution_spec_payload import inline_source
+from execution_spec_payload import execution_request, inline_source
 from mcp import Client
 
 
@@ -13,14 +13,13 @@ async def main() -> None:
         submitted = await client.call_tool(
             "execution_submit",
             {
-                "request": {
-                    "idempotency_key": f"cancel-smoke-submit-{unique}",
-                    "mode": "STATIC",
-                    "trigger_type": "INTERACTIVE",
-                    "actor": {"type": "USER", "id": "smoke-user"},
-                    "runtime_profile": "basic",
-                    "source": inline_source(
-                        f"cancel-plan-{unique}",
+                "request": execution_request(
+                    idempotency_key=f"cancel-smoke-submit-{unique}",
+                    operation_mode="SINGLE",
+                    trigger_type="INTERACTIVE",
+                    actor={"type": "USER", "id": "smoke-user"},
+                    runtime_profile="basic",
+                    source=inline_source(
                         [
                             {
                                 "tool_name": "long_running",
@@ -31,13 +30,13 @@ async def main() -> None:
                             }
                         ],
                     ),
-                    "context": {
+                    context={
                         "user_id": "smoke-user",
                         "project_id": "smoke-project",
                         "session_id": "smoke-session",
                         "task_id": f"cancel-task-{unique}",
                     },
-                }
+                )
             },
         )
         execution_id = submitted.structured_content["execution_id"]

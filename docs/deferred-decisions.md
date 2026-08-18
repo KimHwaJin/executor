@@ -108,10 +108,10 @@ reusable across all projects owned by the same user or only within its source pr
 
 ### Current decision
 
-- Public mutation requests accept only `USER` and `BATCH` actor types.
+- Public mutation requests accept `AGENT`, `USER`, and `BATCH` actor types.
 - `actor.id` is the stable identifier supplied by the upstream Agent/API or Batch service.
-- Interactive submissions require `USER`; batch submissions require `BATCH`.
-- Executor-created child records inherit the actor of the user or batch command that caused them.
+- Interactive submissions accept `AGENT` or `USER`; batch submissions require `BATCH`.
+- Executor-created child records inherit the actor of the Agent, user, or batch command.
 - Executor background maintenance that has no new external command may leave actor fields nullable
   while retaining its operational identity in logs and traces.
 
@@ -124,7 +124,7 @@ reusable across all projects owned by the same user or only within its source pr
 
 ### Explicitly excluded until resumed
 
-- No additional actor enum values beyond `USER` and `BATCH`.
+- No additional actor enum values beyond `AGENT`, `USER`, and `BATCH`.
 - No fabricated system user IDs for autonomous Executor maintenance.
 
 ## DD-004: REST idempotency key transport
@@ -167,21 +167,21 @@ reusable across all projects owned by the same user or only within its source pr
 - No Executor-generated idempotency keys.
 - No change to MCP Tool input schemas or database uniqueness behavior.
 
-## DD-005: DYNAMIC Runtime-state recovery and replay
+## DD-005: MULTI Runtime-state recovery and replay
 
 - Status: DEFERRED
-- Area: DYNAMIC execution, Runtime checkpointing, Agent replanning, infrastructure recovery
+- Area: MULTI execution, Runtime checkpointing, Agent replanning, infrastructure recovery
 - Deferred on: 2026-08-13
 - Resume when: the Agent and Executor teams approve how a replacement Runtime reconstructs prior
   in-memory state
 
 ### Current decision
 
-- A DYNAMIC Tool error completes the current Operation as `FAILED`, returns the Execution to
-  `WAITING_FOR_CONTINUE`, and accepts a new correction Operation on the retained session.
+- A MULTI Tool error completes the current Operation as `FAILED`, returns the Execution to
+  `WAITING_FOR_OPERATION`, and accepts a new correction Operation on the retained session.
 - Loss of the retained Runtime session or other infrastructure failure that makes its state
   untrustworthy is terminal and `NOT_RETRYABLE`.
-- `execution_retry` is restricted to STATIC executions.
+- `execution_retry` is restricted to SINGLE executions.
 
 ### Questions still open
 
@@ -193,9 +193,9 @@ reusable across all projects owned by the same user or only within its source pr
 
 ### Explicitly excluded until resumed
 
-- No automatic DYNAMIC replay on a replacement Runtime.
+- No automatic MULTI replay on a replacement Runtime.
 - No inference that a new kernel can continue from prior in-memory variables.
-- No reuse of STATIC `FROM_START` semantics for DYNAMIC.
+- No reuse of SINGLE `FROM_START` semantics for MULTI.
 
 ## Resolved observability integration: Arize Phoenix
 

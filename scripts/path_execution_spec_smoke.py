@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from execution_spec_payload import execution_request
 from mcp import Client
 
 
@@ -34,20 +35,23 @@ def _publish_input(unique: str) -> tuple[Path, Path, Path, bytes]:
     temporary_path = source_path.with_suffix(".tmp")
     spec = {
         "schema_version": "1.0",
-        "execution_plan_id": f"path-smoke-plan-{unique}",
         "steps": [
             {
                 "sequence": 0,
-                "plan_step_id": f"path-smoke-plan-{unique}-step-0",
-                "skill_name": "report",
-                "tool_name": "path_source_probe",
-                "input_parameters": {},
-                "code": (
-                    "from pathlib import Path\n"
-                    "Path('artifacts/other/path-source.txt').write_text("
-                    "'runtime-owned', encoding='utf-8')\n"
-                    "print('PATH source executed')"
-                ),
+                "payload": {
+                    "type": "CODE",
+                    "content": (
+                        "from pathlib import Path\n"
+                        "Path('artifacts/other/path-source.txt').write_text("
+                        "'runtime-owned', encoding='utf-8')\n"
+                        "print('PATH source executed')"
+                    ),
+                },
+                "lineage": {
+                    "skill_name": "report",
+                    "tool_name": "path_source_probe",
+                    "input_parameters": {},
+                },
             }
         ],
     }
@@ -80,25 +84,24 @@ async def main() -> None:
                 client,
                 "execution_submit",
                 {
-                    "request": {
-                        "idempotency_key": f"path-smoke-submit-{unique}",
-                        "mode": "STATIC",
-                        "trigger_type": "INTERACTIVE",
-                        "runtime_type": "JUPYTER",
-                        "runtime_profile": "basic",
-                        "source": {
+                    "request": execution_request(
+                        idempotency_key=f"path-smoke-submit-{unique}",
+                        operation_mode="SINGLE",
+                        trigger_type="INTERACTIVE",
+                        runtime_profile="basic",
+                        source={
                             "type": "PATH",
                             "path": relative_path.as_posix(),
                             "sha256": hashlib.sha256(content).hexdigest(),
                         },
-                        "context": {
+                        context={
                             "user_id": "path-smoke-user",
                             "project_id": "path-smoke-project",
                             "session_id": f"path-smoke-session-{unique}",
                             "task_id": f"path-smoke-task-{unique}",
                         },
-                        "actor": {"type": "USER", "id": "path-smoke-user"},
-                    }
+                        actor={"type": "USER", "id": "path-smoke-user"},
+                    )
                 },
             )
             execution_id = str(submitted["execution_id"])

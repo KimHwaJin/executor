@@ -13,12 +13,10 @@ from executor_service.interfaces.mcp.schemas import InlineCodeSource, PathCodeSo
 def _spec() -> dict[str, object]:
     return {
         "schema_version": "1.0",
-        "execution_plan_id": "plan-1",
         "steps": [
             {
                 "sequence": 0,
-                "plan_step_id": "plan-step-1",
-                "code": "print('hello')",
+                "payload": {"type": "CODE", "content": "print('hello')"},
             }
         ],
     }

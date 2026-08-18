@@ -240,7 +240,7 @@ def _last_mutation_result(messages: list[Any]) -> dict[str, Any] | None:
 def _phase_for_execution_status(status: str) -> str:
     if status == "SUCCEEDED":
         return "SUCCEEDED"
-    if status == "WAITING_FOR_CONTINUE":
+    if status == "WAITING_FOR_OPERATION":
         return "READY"
     return "FAILED"
 

@@ -8,15 +8,15 @@ from uuid import UUID
 
 from executor_service.application.commands import (
     CancelExecutionCommand,
-    ContinueExecutionCommand,
-    FinishExecutionCommand,
+    CreateOperationCommand,
+    FinalizeExecutionCommand,
     RetryExecutionCommand,
     SubmitExecutionCommand,
 )
 from executor_service.domain.enums import (
     ActorType,
-    ExecutionMode,
     ExecutionStatus,
+    OperationMode,
     RuntimePool,
     RuntimeType,
     TriggerType,
@@ -92,8 +92,10 @@ class ExecutionService:
                     operation_number=1,
                     first_sequence=command.steps[0].sequence,
                     last_sequence=command.steps[-1].sequence,
-                    execution_plan_id=command.execution_plan_id,
+                    operation_timeout_seconds=command.operation_timeout_seconds,
+                    metadata=command.operation_metadata,
                     code_source_type=command.code_source_type,
+                    source_content=command.source_content,
                     code_path=command.code_path,
                     source_sha256=command.source_sha256,
                     idempotency_key=command.idempotency_key,
@@ -106,7 +108,8 @@ class ExecutionService:
                 execution = Execution(
                     idempotency_key=command.idempotency_key,
                     request_fingerprint=fingerprint,
-                    mode=command.mode,
+                    operation_mode=command.operation_mode,
+                    operation_wait_timeout_seconds=command.operation_wait_timeout_seconds,
                     trigger_type=command.trigger_type,
                     runtime_type=command.runtime_type,
                     runtime_pool=RuntimePool(command.trigger_type.value),
@@ -119,7 +122,6 @@ class ExecutionService:
                     project_id=command.project_id,
                     session_id=command.session_id,
                     task_id=command.task_id,
-                    execution_plan_id=command.execution_plan_id,
                     workflow_id=command.workflow_id,
                     created_by_type=command.actor_type,
                     created_by=command.actor_id,
@@ -130,9 +132,8 @@ class ExecutionService:
                         ExecutionStep(
                             sequence=step.sequence,
                             code=step.code,
+                            step_timeout_seconds=step.step_timeout_seconds,
                             code_hash=_code_hash(step.code),
-                            execution_plan_id=step.execution_plan_id,
-                            plan_step_id=step.plan_step_id,
                             skill_name=step.skill_name,
                             tool_name=step.tool_name,
                             input_parameters=step.input_parameters,
@@ -157,8 +158,13 @@ class ExecutionService:
                         event_type="execution.submitted",
                         payload={
                             "task_id": execution.task_id,
-                            "execution_plan_id": execution.execution_plan_id,
+                            "idempotency_key": command.idempotency_key,
                             "operation_id": str(operation.id),
+                            "steps": [
+                                {"sequence": step.sequence, "step_id": str(step.id)}
+                                for step in execution.steps
+                                if step.operation_id == operation.id
+                            ],
                             "first_sequence": operation.first_sequence,
                             "last_sequence": operation.last_sequence,
                             "status": execution.status.value,
@@ -195,14 +201,14 @@ class ExecutionService:
                     operation_id=_required_operation_id(operation_id),
                 )
 
-    async def continue_execution(self, command: ContinueExecutionCommand) -> Execution:
-        return (await self.continue_execution_result(command)).execution
+    async def create_operation(self, command: CreateOperationCommand) -> Execution:
+        return (await self.create_operation_result(command)).execution
 
-    async def continue_execution_result(
-        self, command: ContinueExecutionCommand
+    async def create_operation_result(
+        self, command: CreateOperationCommand
     ) -> ExecutionCommandResult:
         fingerprint = _fingerprint(command)
-        command_type = "execution_continue"
+        command_type = "execution_operation_create"
         try:
             async with self._uow_factory() as uow:
                 repeated = await uow.executions.get_command_receipt(command.idempotency_key)
@@ -218,9 +224,7 @@ class ExecutionService:
                 if execution is None:
                     raise ExecutionNotFoundError(f"Execution {command.execution_id} was not found.")
                 if not command.steps:
-                    raise InvalidStateTransitionError(
-                        "DYNAMIC continue requires at least one step."
-                    )
+                    raise InvalidStateTransitionError("An Operation requires at least one Step.")
                 expected_sequence = len(execution.steps)
                 sequences = [step.sequence for step in command.steps]
                 expected_sequences = list(
@@ -233,15 +237,7 @@ class ExecutionService:
                     )
                 if any(not step.code.strip() for step in command.steps):
                     raise InvalidStateTransitionError("Dynamic step code must not be empty.")
-                existing_plan_step_ids = {step.plan_step_id for step in execution.steps}
-                new_plan_step_ids = [step.plan_step_id for step in command.steps]
-                if len(new_plan_step_ids) != len(set(new_plan_step_ids)) or (
-                    existing_plan_step_ids & set(new_plan_step_ids)
-                ):
-                    raise InvalidStateTransitionError(
-                        "Dynamic continue plan_step_id values must be unique within the Execution."
-                    )
-                execution.request_dynamic_continue(command.expected_version)
+                execution.request_operation(command.expected_version)
                 _apply_actor(execution, command.actor_type, command.actor_id)
                 _apply_current_trace(execution)
                 operation = ExecutionOperation(
@@ -249,8 +245,10 @@ class ExecutionService:
                     operation_number=await uow.executions.next_operation_number(execution.id),
                     first_sequence=command.steps[0].sequence,
                     last_sequence=command.steps[-1].sequence,
-                    execution_plan_id=command.steps[0].execution_plan_id,
+                    operation_timeout_seconds=command.operation_timeout_seconds,
+                    metadata=command.metadata,
                     code_source_type=command.code_source_type,
+                    source_content=command.source_content,
                     code_path=command.code_path,
                     source_sha256=command.source_sha256,
                     idempotency_key=command.idempotency_key,
@@ -264,9 +262,8 @@ class ExecutionService:
                     ExecutionStep(
                         sequence=source.sequence,
                         code=source.code,
+                        step_timeout_seconds=source.step_timeout_seconds,
                         code_hash=_code_hash(source.code),
-                        execution_plan_id=source.execution_plan_id,
-                        plan_step_id=source.plan_step_id,
                         skill_name=source.skill_name,
                         tool_name=source.tool_name,
                         input_parameters=source.input_parameters,
@@ -296,11 +293,15 @@ class ExecutionService:
                 await uow.outbox.add(
                     build_execution_event(
                         execution_id=execution.id,
-                        event_type="execution.continue_requested",
+                        event_type="execution.operation_submitted",
                         payload={
                             "task_id": execution.task_id,
-                            "execution_plan_id": steps[0].execution_plan_id,
+                            "idempotency_key": command.idempotency_key,
                             "operation_id": str(operation.id),
+                            "steps": [
+                                {"sequence": step.sequence, "step_id": str(step.id)}
+                                for step in steps
+                            ],
                             "status": execution.status.value,
                             "first_sequence": operation.first_sequence,
                             "last_sequence": operation.last_sequence,
@@ -339,9 +340,9 @@ class ExecutionService:
                 "The command conflicted with another state change."
             ) from exc
 
-    async def finish_execution(self, command: FinishExecutionCommand) -> Execution:
+    async def finalize_execution(self, command: FinalizeExecutionCommand) -> Execution:
         fingerprint = _fingerprint(command)
-        command_type = "execution_finish"
+        command_type = "execution_finalize"
         try:
             async with self._uow_factory() as uow:
                 repeated = await uow.executions.get_command_receipt(command.idempotency_key)
@@ -351,7 +352,7 @@ class ExecutionService:
                 execution = await uow.executions.get(command.execution_id, for_update=True)
                 if execution is None:
                     raise ExecutionNotFoundError(f"Execution {command.execution_id} was not found.")
-                execution.request_dynamic_finish(command.expected_version)
+                execution.request_finalization(command.expected_version)
                 _apply_actor(execution, command.actor_type, command.actor_id)
                 _apply_current_trace(execution)
                 await uow.executions.save(execution)
@@ -364,10 +365,9 @@ class ExecutionService:
                 await uow.outbox.add(
                     build_execution_event(
                         execution_id=execution.id,
-                        event_type="execution.finish_requested",
+                        event_type="execution.finalization_requested",
                         payload={
                             "task_id": execution.task_id,
-                            "execution_plan_id": execution.execution_plan_id,
                             "status": execution.status.value,
                             "version": execution.version,
                         },
@@ -449,7 +449,6 @@ class ExecutionService:
                         event_type="execution.cancel_requested",
                         payload={
                             "task_id": execution.task_id,
-                            "execution_plan_id": execution.execution_plan_id,
                             "status": execution.status.value,
                         },
                         actor_type=command.actor_type,
@@ -528,7 +527,6 @@ class ExecutionService:
                         event_type="execution.retry_requested",
                         payload={
                             "task_id": execution.task_id,
-                            "execution_plan_id": execution.execution_plan_id,
                             "operation_id": str(operation_id),
                             "status": execution.status.value,
                             "from_sequence": execution.retry_from_sequence,
@@ -576,7 +574,7 @@ class ExecutionService:
 
 
 def _fingerprint(
-    command: SubmitExecutionCommand | ContinueExecutionCommand | FinishExecutionCommand,
+    command: SubmitExecutionCommand | CreateOperationCommand | FinalizeExecutionCommand,
 ) -> str:
     payload = asdict(command)
     payload.pop("idempotency_key")
@@ -593,23 +591,26 @@ def _ensure_same_fingerprint(execution: Execution, fingerprint: str) -> None:
 
 def _validate_submit(command: SubmitExecutionCommand) -> None:
     _validate_actor(command.actor_type, command.actor_id)
-    expected_actor_type = (
-        ActorType.BATCH if command.trigger_type == TriggerType.BATCH else ActorType.USER
-    )
-    if command.actor_type is not None and command.actor_type != expected_actor_type:
-        raise InvalidStateTransitionError(
-            f"{command.trigger_type.value} submit requires {expected_actor_type.value} actor."
-        )
     if (
-        command.trigger_type == TriggerType.INTERACTIVE
-        and command.actor_type == ActorType.USER
-        and command.actor_id != command.user_id
+        command.actor_type is not None
+        and command.trigger_type == TriggerType.BATCH
+        and command.actor_type != ActorType.BATCH
     ):
+        raise InvalidStateTransitionError("BATCH submit requires BATCH actor.")
+    if (
+        command.actor_type is not None
+        and command.trigger_type == TriggerType.INTERACTIVE
+        and command.actor_type not in {ActorType.AGENT, ActorType.USER}
+    ):
+        raise InvalidStateTransitionError("INTERACTIVE submit requires AGENT or USER actor.")
+    if command.actor_type == ActorType.USER and command.actor_id != command.user_id:
         raise InvalidStateTransitionError(
             "INTERACTIVE submit requires actor.id to match context.user_id."
         )
-    if command.trigger_type == TriggerType.BATCH and not command.workflow_id:
-        raise InvalidStateTransitionError("BATCH submit requires context.workflow_id.")
+    if command.session_id is not None and command.project_id is None:
+        raise InvalidStateTransitionError("session_id requires project_id.")
+    if command.project_id == "unscoped" or command.session_id == "unscoped":
+        raise InvalidStateTransitionError("'unscoped' is reserved for workspace paths.")
     if not command.steps:
         raise InvalidStateTransitionError("ExecutionSpec must contain at least one step.")
     sequences = [step.sequence for step in command.steps]
@@ -617,19 +618,20 @@ def _validate_submit(command: SubmitExecutionCommand) -> None:
         raise InvalidStateTransitionError(
             "ExecutionSpec step sequences must be contiguous and start at 0."
         )
-    plan_step_ids = [step.plan_step_id for step in command.steps]
-    if len(plan_step_ids) != len(set(plan_step_ids)):
-        raise InvalidStateTransitionError("ExecutionSpec plan_step_id values must be unique.")
     if any(not step.code.strip() for step in command.steps):
         raise InvalidStateTransitionError("ExecutionSpec step code must not be blank.")
-    if any(step.execution_plan_id != command.execution_plan_id for step in command.steps):
-        raise InvalidStateTransitionError(
-            "Submit steps must belong to the submitted execution_plan_id."
-        )
-    if command.mode != ExecutionMode.DYNAMIC:
+    if command.operation_mode == OperationMode.SINGLE:
+        if command.operation_wait_timeout_seconds is not None:
+            raise InvalidStateTransitionError(
+                "SINGLE execution does not accept operation_wait_timeout_seconds."
+            )
         return
     if command.trigger_type != TriggerType.INTERACTIVE:
-        raise InvalidStateTransitionError("DYNAMIC execution requires INTERACTIVE trigger_type.")
+        raise InvalidStateTransitionError("MULTI execution requires INTERACTIVE trigger_type.")
+    if command.operation_wait_timeout_seconds is None:
+        raise InvalidStateTransitionError(
+            "MULTI execution requires operation_wait_timeout_seconds."
+        )
 
 
 def _code_hash(code: str | None) -> str | None:

@@ -14,9 +14,9 @@ from executor_service.config import Settings
 from executor_service.domain.enums import (
     AttemptStatus,
     CodeSourceType,
-    ExecutionMode,
     ExecutionStatus,
     FailureType,
+    OperationMode,
     OperationStatus,
     RetryStrategy,
     RuntimePool,
@@ -138,7 +138,7 @@ async def test_runtime_storage_failure_finalizes_consistent_state_and_events(
     execution = await execution_service.submit(
         SubmitExecutionCommand(
             idempotency_key=f"storage-failure-{failure_point}",
-            mode=ExecutionMode.STATIC,
+            operation_mode=OperationMode.SINGLE,
             trigger_type=TriggerType.INTERACTIVE,
             runtime_profile="basic",
             code_source_type=CodeSourceType.INLINE,
@@ -149,13 +149,10 @@ async def test_runtime_storage_failure_finalizes_consistent_state_and_events(
             project_id="storage-project",
             session_id="storage-session",
             task_id="storage-task",
-            execution_plan_id="storage-plan",
             steps=(
                 StepSpec(
                     sequence=0,
                     code=code,
-                    execution_plan_id="storage-plan",
-                    plan_step_id="storage-plan-step-0",
                     tool_name="storage_failure_probe",
                 ),
             ),

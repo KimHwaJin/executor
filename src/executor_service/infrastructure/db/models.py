@@ -30,9 +30,9 @@ from executor_service.domain.enums import (
     ArtifactType,
     AttemptStatus,
     CodeSourceType,
-    ExecutionMode,
     ExecutionStatus,
     FailureType,
+    OperationMode,
     OperationStatus,
     OutboxDestination,
     OutboxStatus,
@@ -61,11 +61,11 @@ def enum_type(enum_class: type[PythonEnum], name: str) -> Enum:
 def audit_actor_constraints() -> tuple[CheckConstraint, ...]:
     return (
         CheckConstraint(
-            "created_by_type IS NULL OR created_by_type IN ('USER', 'BATCH')",
+            "created_by_type IS NULL OR created_by_type IN ('AGENT', 'USER', 'BATCH')",
             name="valid_created_by_type",
         ),
         CheckConstraint(
-            "updated_by_type IS NULL OR updated_by_type IN ('USER', 'BATCH')",
+            "updated_by_type IS NULL OR updated_by_type IN ('AGENT', 'USER', 'BATCH')",
             name="valid_updated_by_type",
         ),
         CheckConstraint(
@@ -84,11 +84,16 @@ class ExecutionORM(Base):
     __table_args__ = (
         *audit_actor_constraints(),
         CheckConstraint(
-            "status IN ('QUEUED', 'DISPATCHED', 'RUNNING', 'WAITING_FOR_CONTINUE', "
-            "'CANCEL_REQUESTED', 'CANCELLED', 'SUCCEEDED', 'FAILED')",
+            "status IN ('QUEUED', 'DISPATCHED', 'RUNNING', 'WAITING_FOR_OPERATION', "
+            "'FINALIZING', 'CANCEL_REQUESTED', 'CANCELLED', 'SUCCEEDED', 'FAILED')",
             name="valid_execution_status",
         ),
-        CheckConstraint("mode IN ('STATIC', 'DYNAMIC')", name="valid_execution_mode"),
+        CheckConstraint("operation_mode IN ('SINGLE', 'MULTI')", name="valid_operation_mode"),
+        CheckConstraint(
+            "(operation_mode = 'SINGLE' AND operation_wait_timeout_seconds IS NULL) OR "
+            "(operation_mode = 'MULTI' AND operation_wait_timeout_seconds >= 30)",
+            name="valid_operation_wait_timeout",
+        ),
         CheckConstraint("trigger_type IN ('INTERACTIVE', 'BATCH')", name="valid_trigger_type"),
         CheckConstraint("runtime_pool IN ('INTERACTIVE', 'BATCH')", name="valid_runtime_pool"),
         CheckConstraint("runtime_type IN ('JUPYTER')", name="valid_runtime_type"),
@@ -103,8 +108,9 @@ class ExecutionORM(Base):
         CheckConstraint(
             "failure_type IS NULL OR failure_type IN ('TOOL_ERROR', "
             "'INFRASTRUCTURE_ERROR', 'WORKER_SHUTDOWN', 'RUNTIME_UNAVAILABLE', "
-            "'LEASE_EXPIRED', 'INTERNAL_ERROR', 'DYNAMIC_WAIT_TIMEOUT', "
-            "'EXECUTION_TIMEOUT', 'RUNTIME_SESSION_LOST')",
+            "'LEASE_EXPIRED', 'INTERNAL_ERROR', 'OPERATION_WAIT_TIMEOUT', "
+            "'OPERATION_TIMEOUT', 'STEP_TIMEOUT', 'EXECUTION_TIMEOUT', "
+            "'RUNTIME_SESSION_LOST')",
             name="valid_failure_type",
         ),
         CheckConstraint(
@@ -149,9 +155,10 @@ class ExecutionORM(Base):
     status: Mapped[ExecutionStatus] = mapped_column(
         enum_type(ExecutionStatus, "execution_status"), nullable=False
     )
-    mode: Mapped[ExecutionMode] = mapped_column(
-        enum_type(ExecutionMode, "execution_mode"), nullable=False
+    operation_mode: Mapped[OperationMode] = mapped_column(
+        enum_type(OperationMode, "operation_mode"), nullable=False
     )
+    operation_wait_timeout_seconds: Mapped[int | None] = mapped_column(Integer)
     trigger_type: Mapped[TriggerType] = mapped_column(
         enum_type(TriggerType, "trigger_type"), nullable=False
     )
@@ -170,10 +177,9 @@ class ExecutionORM(Base):
     source_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
 
     user_id: Mapped[str] = mapped_column(String(255), nullable=False)
-    project_id: Mapped[str] = mapped_column(String(255), nullable=False)
-    session_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    project_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    session_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     task_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
-    execution_plan_id: Mapped[str] = mapped_column(String(255), nullable=False)
     workflow_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     execution_metadata: Mapped[dict[str, Any]] = mapped_column(
         "metadata", JSON, nullable=False, default=dict
@@ -206,11 +212,11 @@ class ExecutionORM(Base):
         nullable=False,
         default=RuntimeSessionCleanupStatus.NOT_REQUIRED,
     )
-    dynamic_finish_requested: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    finalization_requested: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     active_operation_id: Mapped[UUID | None] = mapped_column(
         Uuid(as_uuid=True), nullable=True, index=True
     )
-    dynamic_wait_expires_at: Mapped[datetime | None] = mapped_column(
+    operation_wait_expires_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, index=True
     )
     execution_expires_at: Mapped[datetime | None] = mapped_column(
@@ -253,7 +259,8 @@ class ExecutionORM(Base):
             request_fingerprint=execution.request_fingerprint,
             cancel_idempotency_key=execution.cancel_idempotency_key,
             status=execution.status,
-            mode=execution.mode,
+            operation_mode=execution.operation_mode,
+            operation_wait_timeout_seconds=execution.operation_wait_timeout_seconds,
             trigger_type=execution.trigger_type,
             runtime_type=execution.runtime_type,
             runtime_pool=execution.runtime_pool,
@@ -266,7 +273,6 @@ class ExecutionORM(Base):
             project_id=execution.project_id,
             session_id=execution.session_id,
             task_id=execution.task_id,
-            execution_plan_id=execution.execution_plan_id,
             workflow_id=execution.workflow_id,
             created_by_type=execution.created_by_type,
             created_by=execution.created_by,
@@ -289,9 +295,9 @@ class ExecutionORM(Base):
             retry_count=execution.retry_count,
             recovery_count=execution.recovery_count,
             runtime_session_cleanup_status=execution.runtime_session_cleanup_status,
-            dynamic_finish_requested=execution.dynamic_finish_requested,
+            finalization_requested=execution.finalization_requested,
             active_operation_id=execution.active_operation_id,
-            dynamic_wait_expires_at=execution.dynamic_wait_expires_at,
+            operation_wait_expires_at=execution.operation_wait_expires_at,
             execution_expires_at=execution.execution_expires_at,
             traceparent=execution.traceparent,
             tracestate=execution.tracestate,
@@ -310,7 +316,8 @@ class ExecutionORM(Base):
             request_fingerprint=self.request_fingerprint,
             cancel_idempotency_key=self.cancel_idempotency_key,
             status=self.status,
-            mode=self.mode,
+            operation_mode=self.operation_mode,
+            operation_wait_timeout_seconds=self.operation_wait_timeout_seconds,
             trigger_type=self.trigger_type,
             runtime_type=self.runtime_type,
             runtime_pool=self.runtime_pool,
@@ -323,7 +330,6 @@ class ExecutionORM(Base):
             project_id=self.project_id,
             session_id=self.session_id,
             task_id=self.task_id,
-            execution_plan_id=self.execution_plan_id,
             workflow_id=self.workflow_id,
             created_by_type=self.created_by_type,
             created_by=self.created_by,
@@ -346,9 +352,9 @@ class ExecutionORM(Base):
             retry_count=self.retry_count,
             recovery_count=self.recovery_count,
             runtime_session_cleanup_status=self.runtime_session_cleanup_status,
-            dynamic_finish_requested=self.dynamic_finish_requested,
+            finalization_requested=self.finalization_requested,
             active_operation_id=self.active_operation_id,
-            dynamic_wait_expires_at=self.dynamic_wait_expires_at,
+            operation_wait_expires_at=self.operation_wait_expires_at,
             execution_expires_at=self.execution_expires_at,
             traceparent=self.traceparent,
             tracestate=self.tracestate,
@@ -367,6 +373,10 @@ class ExecutionStepORM(Base):
         *audit_actor_constraints(),
         UniqueConstraint("execution_id", "sequence", name="uq_execution_steps_execution_sequence"),
         CheckConstraint("sequence >= 0", name="non_negative_sequence"),
+        CheckConstraint(
+            "step_timeout_seconds IS NULL OR step_timeout_seconds >= 1",
+            name="valid_step_timeout",
+        ),
         CheckConstraint(
             "status IN ('PENDING', 'RUNNING', 'SUCCEEDED', 'FAILED', 'SKIPPED', 'CANCELLED')",
             name="valid_step_status",
@@ -389,8 +399,7 @@ class ExecutionStepORM(Base):
     sequence: Mapped[int] = mapped_column(Integer, nullable=False)
     code: Mapped[str] = mapped_column(Text, nullable=False)
     code_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    execution_plan_id: Mapped[str] = mapped_column(String(255), nullable=False)
-    plan_step_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    step_timeout_seconds: Mapped[int | None] = mapped_column(Integer)
     skill_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     tool_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     status: Mapped[StepStatus] = mapped_column(
@@ -426,8 +435,7 @@ class ExecutionStepORM(Base):
             sequence=step.sequence,
             code=step.code,
             code_hash=step.code_hash,
-            execution_plan_id=step.execution_plan_id,
-            plan_step_id=step.plan_step_id,
+            step_timeout_seconds=step.step_timeout_seconds,
             skill_name=step.skill_name,
             tool_name=step.tool_name,
             status=step.status,
@@ -451,8 +459,7 @@ class ExecutionStepORM(Base):
             sequence=self.sequence,
             code=self.code,
             code_hash=self.code_hash,
-            execution_plan_id=self.execution_plan_id,
-            plan_step_id=self.plan_step_id,
+            step_timeout_seconds=self.step_timeout_seconds,
             skill_name=self.skill_name,
             tool_name=self.tool_name,
             status=self.status,
@@ -481,6 +488,10 @@ class ExecutionOperationORM(Base):
         CheckConstraint("first_sequence >= 0", name="non_negative_first_sequence"),
         CheckConstraint("last_sequence >= first_sequence", name="valid_operation_sequence_range"),
         CheckConstraint(
+            "operation_timeout_seconds IS NULL OR operation_timeout_seconds >= 1",
+            name="valid_operation_timeout",
+        ),
+        CheckConstraint(
             "status IN ('QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED', 'CANCELLED')",
             name="valid_operation_status",
         ),
@@ -494,10 +505,14 @@ class ExecutionOperationORM(Base):
     operation_number: Mapped[int] = mapped_column(Integer, nullable=False)
     first_sequence: Mapped[int] = mapped_column(Integer, nullable=False)
     last_sequence: Mapped[int] = mapped_column(Integer, nullable=False)
-    execution_plan_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    operation_timeout_seconds: Mapped[int | None] = mapped_column(Integer)
+    operation_metadata: Mapped[dict[str, Any]] = mapped_column(
+        "metadata", JSON, nullable=False, default=dict
+    )
     code_source_type: Mapped[CodeSourceType] = mapped_column(
         enum_type(CodeSourceType, "operation_code_source_type"), nullable=False
     )
+    source_content: Mapped[str] = mapped_column(Text, nullable=False)
     code_path: Mapped[str | None] = mapped_column(Text)
     source_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
@@ -534,8 +549,10 @@ class ExecutionOperationORM(Base):
             operation_number=operation.operation_number,
             first_sequence=operation.first_sequence,
             last_sequence=operation.last_sequence,
-            execution_plan_id=operation.execution_plan_id,
+            operation_timeout_seconds=operation.operation_timeout_seconds,
+            operation_metadata=operation.metadata,
             code_source_type=operation.code_source_type,
+            source_content=operation.source_content,
             code_path=operation.code_path,
             source_sha256=operation.source_sha256,
             idempotency_key=operation.idempotency_key,
@@ -703,8 +720,9 @@ class ExecutionAttemptORM(Base):
         CheckConstraint(
             "failure_type IS NULL OR failure_type IN ('TOOL_ERROR', "
             "'INFRASTRUCTURE_ERROR', 'WORKER_SHUTDOWN', 'RUNTIME_UNAVAILABLE', "
-            "'LEASE_EXPIRED', 'INTERNAL_ERROR', 'DYNAMIC_WAIT_TIMEOUT', "
-            "'EXECUTION_TIMEOUT', 'RUNTIME_SESSION_LOST')",
+            "'LEASE_EXPIRED', 'INTERNAL_ERROR', 'OPERATION_WAIT_TIMEOUT', "
+            "'OPERATION_TIMEOUT', 'STEP_TIMEOUT', 'EXECUTION_TIMEOUT', "
+            "'RUNTIME_SESSION_LOST')",
             name="valid_attempt_failure_type",
         ),
         CheckConstraint(

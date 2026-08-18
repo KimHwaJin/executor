@@ -1,6 +1,6 @@
 import pytest
 
-from executor_service.domain.enums import CodeSourceType, ExecutionMode, RuntimePool, TriggerType
+from executor_service.domain.enums import CodeSourceType, OperationMode, RuntimePool, TriggerType
 from executor_service.domain.models import Execution, ExecutionStep
 from executor_service.infrastructure.workspace import WorkspaceManager, WorkspacePathError
 
@@ -9,7 +9,7 @@ def execution(*, user_id: str = "user-1", codes: tuple[str, ...] = ("print(1)",)
     return Execution(
         idempotency_key="workspace-test",
         request_fingerprint="fingerprint",
-        mode=ExecutionMode.STATIC,
+        operation_mode=OperationMode.SINGLE,
         trigger_type=TriggerType.INTERACTIVE,
         runtime_pool=RuntimePool.INTERACTIVE,
         runtime_profile="basic",
@@ -21,13 +21,10 @@ def execution(*, user_id: str = "user-1", codes: tuple[str, ...] = ("print(1)",)
         project_id="project-1",
         session_id="session-1",
         task_id="test-task",
-        execution_plan_id="plan-1",
         steps=[
             ExecutionStep(
                 sequence=sequence,
                 code=code,
-                execution_plan_id="plan-1",
-                plan_step_id=f"plan-step-{sequence}",
             )
             for sequence, code in enumerate(codes)
         ],

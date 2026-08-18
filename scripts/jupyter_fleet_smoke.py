@@ -5,7 +5,7 @@ import os
 from typing import Any
 from uuid import uuid4
 
-from execution_spec_payload import inline_source
+from execution_spec_payload import execution_request, inline_source
 from mcp import Client
 
 
@@ -61,14 +61,13 @@ async def main() -> None:
             submitted = await client.call_tool(
                 "execution_submit",
                 {
-                    "request": {
-                        "idempotency_key": f"fleet-execution-{unique}-{index}",
-                        "mode": "STATIC",
-                        "trigger_type": "INTERACTIVE",
-                        "actor": {"type": "USER", "id": "fleet-user"},
-                        "runtime_profile": "basic",
-                        "source": inline_source(
-                            f"fleet-plan-{unique}-{index}",
+                    "request": execution_request(
+                        idempotency_key=f"fleet-execution-{unique}-{index}",
+                        operation_mode="SINGLE",
+                        trigger_type="INTERACTIVE",
+                        actor={"type": "USER", "id": "fleet-user"},
+                        runtime_profile="basic",
+                        source=inline_source(
                             [
                                 {
                                     "tool_name": "fleet_test",
@@ -79,13 +78,13 @@ async def main() -> None:
                                 }
                             ],
                         ),
-                        "context": {
+                        context={
                             "user_id": "fleet-user",
                             "project_id": "fleet-project",
                             "session_id": f"fleet-session-{index}",
                             "task_id": f"fleet-task-{unique}-{index}",
                         },
-                    }
+                    )
                 },
             )
             if submitted.is_error:

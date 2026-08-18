@@ -7,7 +7,7 @@ from uuid import UUID
 from executor_service.domain.enums import (
     ActorType,
     CodeSourceType,
-    ExecutionMode,
+    OperationMode,
     RuntimeType,
     TriggerType,
 )
@@ -17,8 +17,7 @@ from executor_service.domain.enums import (
 class StepSpec:
     sequence: int
     code: str
-    execution_plan_id: str
-    plan_step_id: str
+    step_timeout_seconds: int | None = None
     skill_name: str | None = None
     tool_name: str | None = None
     input_parameters: dict[str, Any] = field(default_factory=dict)
@@ -27,7 +26,7 @@ class StepSpec:
 @dataclass(frozen=True, slots=True)
 class SubmitExecutionCommand:
     idempotency_key: str
-    mode: ExecutionMode
+    operation_mode: OperationMode
     trigger_type: TriggerType
     runtime_profile: str
     code_source_type: CodeSourceType
@@ -35,15 +34,17 @@ class SubmitExecutionCommand:
     code_path: str | None
     source_sha256: str
     user_id: str
-    project_id: str
-    session_id: str
+    project_id: str | None
+    session_id: str | None
     task_id: str
-    execution_plan_id: str
+    operation_wait_timeout_seconds: int | None = None
+    operation_timeout_seconds: int | None = None
     runtime_type: RuntimeType = RuntimeType.JUPYTER
     actor_type: ActorType | None = None
     actor_id: str | None = None
     workflow_id: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    operation_metadata: dict[str, Any] = field(default_factory=dict)
     steps: tuple[StepSpec, ...] = ()
 
 
@@ -65,11 +66,14 @@ class RetryExecutionCommand:
 
 
 @dataclass(frozen=True, slots=True)
-class ContinueExecutionCommand:
+class CreateOperationCommand:
     execution_id: UUID
     idempotency_key: str
     expected_version: int
     steps: tuple[StepSpec, ...]
+    source_content: str
+    operation_timeout_seconds: int | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
     code_source_type: CodeSourceType = CodeSourceType.INLINE
     code_path: str | None = None
     source_sha256: str = ""
@@ -78,7 +82,7 @@ class ContinueExecutionCommand:
 
 
 @dataclass(frozen=True, slots=True)
-class FinishExecutionCommand:
+class FinalizeExecutionCommand:
     execution_id: UUID
     idempotency_key: str
     expected_version: int

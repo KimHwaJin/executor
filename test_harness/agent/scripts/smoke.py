@@ -41,7 +41,6 @@ async def main() -> None:
                     "project_id": "agent-e2e-project",
                     "session_id": f"agent-e2e-session-{unique}",
                     "task_id": f"agent-e2e-task-{unique}",
-                    "execution_plan_id": f"agent-e2e-plan-{unique}",
                     "steps": [
                         {
                             "skill_name": "eda",

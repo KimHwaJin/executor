@@ -4,7 +4,7 @@ import asyncio
 from typing import Any
 from uuid import uuid4
 
-from execution_spec_payload import inline_source
+from execution_spec_payload import execution_request, inline_source
 from mcp import Client
 
 
@@ -60,14 +60,13 @@ async def main() -> None:
         submitted = await client.call_tool(
             "execution_submit",
             {
-                "request": {
-                    "idempotency_key": f"artifact-smoke-{unique}",
-                    "mode": "STATIC",
-                    "trigger_type": "INTERACTIVE",
-                    "actor": {"type": "USER", "id": user_id},
-                    "runtime_profile": "basic",
-                    "source": inline_source(
-                        f"artifact-smoke-plan-{unique}",
+                "request": execution_request(
+                    idempotency_key=f"artifact-smoke-{unique}",
+                    operation_mode="SINGLE",
+                    trigger_type="INTERACTIVE",
+                    actor={"type": "USER", "id": user_id},
+                    runtime_profile="basic",
+                    source=inline_source(
                         [
                             {
                                 "skill_name": "report",
@@ -81,13 +80,13 @@ async def main() -> None:
                             },
                         ],
                     ),
-                    "context": {
+                    context={
                         "user_id": user_id,
                         "project_id": "artifact-smoke-project",
                         "session_id": "artifact-smoke-session",
                         "task_id": f"artifact-smoke-task-{unique}",
                     },
-                }
+                )
             },
         )
         execution_id = submitted.structured_content["execution_id"]

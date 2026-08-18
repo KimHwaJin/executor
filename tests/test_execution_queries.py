@@ -9,8 +9,8 @@ from executor_service.application.services import ExecutionService
 from executor_service.domain.enums import (
     AttemptStatus,
     CodeSourceType,
-    ExecutionMode,
     FailureType,
+    OperationMode,
     RetryStrategy,
     RuntimePool,
     RuntimeSessionCleanupStatus,
@@ -33,7 +33,7 @@ from executor_service.infrastructure.execution_queries import SQLAlchemyExecutio
 def _submit_command() -> SubmitExecutionCommand:
     return SubmitExecutionCommand(
         idempotency_key="trace-submit",
-        mode=ExecutionMode.STATIC,
+        operation_mode=OperationMode.SINGLE,
         trigger_type=TriggerType.INTERACTIVE,
         runtime_profile="basic",
         code_source_type=CodeSourceType.INLINE,
@@ -44,13 +44,10 @@ def _submit_command() -> SubmitExecutionCommand:
         project_id="trace-project",
         session_id="trace-session",
         task_id="test-task",
-        execution_plan_id="trace-plan",
         steps=(
             StepSpec(
                 sequence=0,
                 code="print('trace')",
-                execution_plan_id="trace-plan",
-                plan_step_id="trace-plan-step-0",
                 skill_name="data_load",
                 tool_name="load_data",
             ),

@@ -32,9 +32,9 @@ class WorkspaceManager:
                 "users",
                 _segment(execution.user_id, "user_id"),
                 "projects",
-                _segment(execution.project_id, "project_id"),
+                _segment(execution.project_id or "unscoped", "project_id"),
                 "sessions",
-                _segment(execution.session_id, "session_id"),
+                _segment(execution.session_id or "unscoped", "session_id"),
                 "executions",
                 str(execution.id),
             )

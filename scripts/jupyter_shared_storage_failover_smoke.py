@@ -5,7 +5,7 @@ import os
 from typing import Any
 from uuid import uuid4
 
-from execution_spec_payload import inline_source
+from execution_spec_payload import execution_request, inline_source
 from mcp import Client
 
 
@@ -61,14 +61,12 @@ async def main() -> None:
             client,
             "execution_submit",
             {
-                "request": {
-                    "idempotency_key": f"shared-storage-execution-{unique}",
-                    "mode": "STATIC",
-                    "trigger_type": "INTERACTIVE",
-                    "runtime_type": "JUPYTER",
-                    "runtime_profile": "basic",
-                    "source": inline_source(
-                        f"shared-storage-plan-{unique}",
+                "request": execution_request(
+                    idempotency_key=f"shared-storage-execution-{unique}",
+                    operation_mode="SINGLE",
+                    trigger_type="INTERACTIVE",
+                    runtime_profile="basic",
+                    source=inline_source(
                         [
                             {
                                 "skill_name": "report",
@@ -77,14 +75,14 @@ async def main() -> None:
                             }
                         ],
                     ),
-                    "context": {
+                    context={
                         "user_id": "shared-storage-user",
                         "project_id": "shared-storage-project",
                         "session_id": f"shared-storage-session-{unique}",
                         "task_id": f"shared-storage-task-{unique}",
                     },
-                    "actor": {"type": "USER", "id": "shared-storage-user"},
-                }
+                    actor={"type": "USER", "id": "shared-storage-user"},
+                )
             },
         )
         execution_id = str(submitted["execution_id"])

@@ -7,7 +7,8 @@ class ExecutionStatus(StrEnum):
     QUEUED = "QUEUED"
     DISPATCHED = "DISPATCHED"
     RUNNING = "RUNNING"
-    WAITING_FOR_CONTINUE = "WAITING_FOR_CONTINUE"
+    WAITING_FOR_OPERATION = "WAITING_FOR_OPERATION"
+    FINALIZING = "FINALIZING"
     CANCEL_REQUESTED = "CANCEL_REQUESTED"
     CANCELLED = "CANCELLED"
     SUCCEEDED = "SUCCEEDED"
@@ -18,9 +19,9 @@ class ExecutionStatus(StrEnum):
         return self in {self.CANCELLED, self.SUCCEEDED, self.FAILED}
 
 
-class ExecutionMode(StrEnum):
-    STATIC = "STATIC"
-    DYNAMIC = "DYNAMIC"
+class OperationMode(StrEnum):
+    SINGLE = "SINGLE"
+    MULTI = "MULTI"
 
 
 class TriggerType(StrEnum):
@@ -29,6 +30,7 @@ class TriggerType(StrEnum):
 
 
 class ActorType(StrEnum):
+    AGENT = "AGENT"
     USER = "USER"
     BATCH = "BATCH"
 
@@ -45,6 +47,10 @@ class RuntimeType(StrEnum):
 class CodeSourceType(StrEnum):
     INLINE = "INLINE"
     PATH = "PATH"
+
+
+class StepPayloadType(StrEnum):
+    CODE = "CODE"
 
 
 class StepStatus(StrEnum):
@@ -99,7 +105,9 @@ class FailureType(StrEnum):
     RUNTIME_UNAVAILABLE = "RUNTIME_UNAVAILABLE"
     LEASE_EXPIRED = "LEASE_EXPIRED"
     INTERNAL_ERROR = "INTERNAL_ERROR"
-    DYNAMIC_WAIT_TIMEOUT = "DYNAMIC_WAIT_TIMEOUT"
+    OPERATION_WAIT_TIMEOUT = "OPERATION_WAIT_TIMEOUT"
+    OPERATION_TIMEOUT = "OPERATION_TIMEOUT"
+    STEP_TIMEOUT = "STEP_TIMEOUT"
     EXECUTION_TIMEOUT = "EXECUTION_TIMEOUT"
     RUNTIME_SESSION_LOST = "RUNTIME_SESSION_LOST"
 

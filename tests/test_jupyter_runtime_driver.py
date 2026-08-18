@@ -13,7 +13,7 @@ def _resource_payload() -> dict[str, Any]:
         "process_count": 5,
         "cpu": {
             "used_cores": 0.25,
-            "capacity_cores": 2.0,
+            "capacity_cores": 1.0,
             "utilization": 0.125,
             "source": "CGROUP_V2",
             "estimated": False,

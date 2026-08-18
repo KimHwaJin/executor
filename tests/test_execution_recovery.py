@@ -11,9 +11,9 @@ from executor_service.config import Settings
 from executor_service.domain.enums import (
     AttemptStatus,
     CodeSourceType,
-    ExecutionMode,
     ExecutionStatus,
     FailureType,
+    OperationMode,
     OperationStatus,
     RetryStrategy,
     RuntimePool,
@@ -41,7 +41,7 @@ from executor_service.infrastructure.worker import ExecutionWorker
 def _command() -> SubmitExecutionCommand:
     return SubmitExecutionCommand(
         idempotency_key="lease-recovery-submit",
-        mode=ExecutionMode.STATIC,
+        operation_mode=OperationMode.SINGLE,
         trigger_type=TriggerType.INTERACTIVE,
         runtime_profile="basic",
         code_source_type=CodeSourceType.INLINE,
@@ -52,13 +52,10 @@ def _command() -> SubmitExecutionCommand:
         project_id="recovery-project",
         session_id="recovery-session",
         task_id="test-task",
-        execution_plan_id="recovery-plan",
         steps=(
             StepSpec(
                 sequence=0,
                 code="print('long-running')",
-                execution_plan_id="recovery-plan",
-                plan_step_id="recovery-plan-step-0",
                 tool_name="long_running_tool",
             ),
         ),

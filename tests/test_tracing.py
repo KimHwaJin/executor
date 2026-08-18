@@ -16,7 +16,7 @@ from executor_service.application.services import ExecutionService
 from executor_service.config import Settings
 from executor_service.domain.enums import (
     CodeSourceType,
-    ExecutionMode,
+    OperationMode,
     OutboxDestination,
     TriggerType,
 )
@@ -55,7 +55,7 @@ def _settings(tmp_path: Path) -> Settings:
 def _command() -> SubmitExecutionCommand:
     return SubmitExecutionCommand(
         idempotency_key="tracing-submit",
-        mode=ExecutionMode.STATIC,
+        operation_mode=OperationMode.SINGLE,
         trigger_type=TriggerType.INTERACTIVE,
         runtime_profile="basic",
         code_source_type=CodeSourceType.INLINE,
@@ -66,13 +66,10 @@ def _command() -> SubmitExecutionCommand:
         project_id="trace-project",
         session_id="trace-session",
         task_id="test-task",
-        execution_plan_id="trace-plan",
         steps=(
             StepSpec(
                 sequence=0,
                 code="print('sensitive generated code')",
-                execution_plan_id="trace-plan",
-                plan_step_id="trace-plan-step-0",
                 tool_name="trace_tool",
             ),
         ),

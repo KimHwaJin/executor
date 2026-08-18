@@ -9,7 +9,7 @@ from typing import Annotated, Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
-from executor_service.domain.enums import CodeSourceType
+from executor_service.domain.enums import CodeSourceType, StepPayloadType
 from executor_service.domain.errors import InvalidExecutionSpecError
 
 
@@ -19,18 +19,45 @@ class ExecutionSpecModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class ExecutionStepInput(ExecutionSpecModel):
-    sequence: int = Field(ge=0)
-    plan_step_id: str = Field(min_length=1, max_length=255)
+class StepLineage(ExecutionSpecModel):
     skill_name: str | None = Field(default=None, max_length=255)
     tool_name: str | None = Field(default=None, max_length=255)
     input_parameters: dict[str, Any] = Field(default_factory=dict)
-    code: str = Field(min_length=1)
+
+
+class CodeStepPayload(ExecutionSpecModel):
+    type: Literal[StepPayloadType.CODE]
+    content: str = Field(min_length=1)
+
+
+StepPayload = Annotated[CodeStepPayload, Field(discriminator="type")]
+
+
+class ExecutionStepInput(ExecutionSpecModel):
+    sequence: int = Field(ge=0)
+    payload: StepPayload
+    step_timeout_seconds: int | None = Field(default=None, ge=1)
+    lineage: StepLineage | None = None
+
+    @property
+    def code(self) -> str:
+        return self.payload.content
+
+    @property
+    def skill_name(self) -> str | None:
+        return self.lineage.skill_name if self.lineage else None
+
+    @property
+    def tool_name(self) -> str | None:
+        return self.lineage.tool_name if self.lineage else None
+
+    @property
+    def input_parameters(self) -> dict[str, Any]:
+        return self.lineage.input_parameters if self.lineage else {}
 
 
 class ExecutionSpec(ExecutionSpecModel):
     schema_version: Literal["1.0"]
-    execution_plan_id: str = Field(min_length=1, max_length=255)
     steps: list[ExecutionStepInput] = Field(min_length=1)
 
     @model_validator(mode="after")
@@ -39,9 +66,6 @@ class ExecutionSpec(ExecutionSpecModel):
         expected = list(range(sequences[0], sequences[0] + len(sequences)))
         if sequences != expected:
             raise ValueError("Step sequence values must be contiguous and ordered.")
-        plan_step_ids = [step.plan_step_id for step in self.steps]
-        if len(plan_step_ids) != len(set(plan_step_ids)):
-            raise ValueError("plan_step_id values must be unique within an ExecutionSpec.")
         if any(not step.code.strip() for step in self.steps):
             raise ValueError("Step code must not be blank.")
         return self

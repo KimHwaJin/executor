@@ -5,7 +5,7 @@ import os
 from typing import Any
 from uuid import uuid4
 
-from execution_spec_payload import inline_source
+from execution_spec_payload import execution_request, inline_source
 from mcp import Client
 
 
@@ -115,17 +115,16 @@ async def _submit(
     result = await client.call_tool(
         "execution_submit",
         {
-            "request": {
-                "idempotency_key": f"batch-pool-execution-{unique}-{name}",
-                "mode": "STATIC",
-                "trigger_type": "BATCH" if pool == "BATCH" else "INTERACTIVE",
-                "actor": {
+            "request": execution_request(
+                idempotency_key=f"batch-pool-execution-{unique}-{name}",
+                operation_mode="SINGLE",
+                trigger_type="BATCH" if pool == "BATCH" else "INTERACTIVE",
+                actor={
                     "type": "BATCH" if pool == "BATCH" else "USER",
                     "id": "batch-smoke-job" if pool == "BATCH" else "batch-pool-user",
                 },
-                "runtime_profile": "basic",
-                "source": inline_source(
-                    f"batch-pool-plan-{unique}-{name}",
+                runtime_profile="basic",
+                source=inline_source(
                     [
                         {
                             "skill_name": "report",
@@ -134,7 +133,7 @@ async def _submit(
                         }
                     ],
                 ),
-                "context": {
+                context={
                     "user_id": "batch-pool-user",
                     "project_id": "batch-pool-project",
                     "session_id": f"batch-pool-session-{unique}-{name}",
@@ -143,7 +142,7 @@ async def _submit(
                         f"batch-pool-workflow-{unique}-{name}" if pool == "BATCH" else None
                     ),
                 },
-            }
+            )
         },
     )
     if result.is_error:

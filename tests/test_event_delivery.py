@@ -18,7 +18,7 @@ from executor_service.config import Settings
 from executor_service.domain.enums import (
     AttemptStatus,
     CodeSourceType,
-    ExecutionMode,
+    OperationMode,
     RuntimePool,
     RuntimeTargetStatus,
     TriggerType,
@@ -108,7 +108,7 @@ def _redis_fields(fields: dict[str, str]) -> dict[FieldT, EncodableT]:
 def _command() -> SubmitExecutionCommand:
     return SubmitExecutionCommand(
         idempotency_key=f"event-delivery-{uuid4().hex}",
-        mode=ExecutionMode.STATIC,
+        operation_mode=OperationMode.SINGLE,
         trigger_type=TriggerType.INTERACTIVE,
         runtime_profile="basic",
         code_source_type=CodeSourceType.INLINE,
@@ -119,13 +119,10 @@ def _command() -> SubmitExecutionCommand:
         project_id="event-project",
         session_id="event-session",
         task_id="test-task",
-        execution_plan_id="event-plan",
         steps=(
             StepSpec(
                 sequence=0,
                 code="print('claim once')",
-                execution_plan_id="event-plan",
-                plan_step_id="event-plan-step-0",
                 tool_name="claim_once",
             ),
         ),

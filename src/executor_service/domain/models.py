@@ -8,9 +8,9 @@ from uuid import UUID, uuid4
 from executor_service.domain.enums import (
     ActorType,
     CodeSourceType,
-    ExecutionMode,
     ExecutionStatus,
     FailureType,
+    OperationMode,
     OperationStatus,
     OutboxDestination,
     OutboxStatus,
@@ -35,8 +35,7 @@ def utc_now() -> datetime:
 class ExecutionStep:
     sequence: int
     code: str
-    execution_plan_id: str
-    plan_step_id: str
+    step_timeout_seconds: int | None = None
     code_hash: str | None = None
     skill_name: str | None = None
     tool_name: str | None = None
@@ -60,7 +59,7 @@ class ExecutionStep:
 class Execution:
     idempotency_key: str
     request_fingerprint: str
-    mode: ExecutionMode
+    operation_mode: OperationMode
     trigger_type: TriggerType
     runtime_pool: RuntimePool
     runtime_profile: str
@@ -69,10 +68,10 @@ class Execution:
     code_path: str | None
     source_sha256: str
     user_id: str
-    project_id: str
-    session_id: str
+    project_id: str | None
+    session_id: str | None
     task_id: str
-    execution_plan_id: str
+    operation_wait_timeout_seconds: int | None = None
     runtime_type: RuntimeType = RuntimeType.JUPYTER
     workflow_id: str | None = None
     created_by_type: ActorType | None = None
@@ -102,9 +101,9 @@ class Execution:
     runtime_session_cleanup_status: RuntimeSessionCleanupStatus = (
         RuntimeSessionCleanupStatus.NOT_REQUIRED
     )
-    dynamic_finish_requested: bool = False
+    finalization_requested: bool = False
     active_operation_id: UUID | None = None
-    dynamic_wait_expires_at: datetime | None = None
+    operation_wait_expires_at: datetime | None = None
     execution_expires_at: datetime | None = None
     traceparent: str | None = None
     tracestate: str | None = None
@@ -124,7 +123,7 @@ class Execution:
         self.status = ExecutionStatus.CANCEL_REQUESTED
         self.cancel_idempotency_key = idempotency_key
         self.cancellation_reason = reason
-        self.dynamic_wait_expires_at = None
+        self.operation_wait_expires_at = None
         self.version += 1
         self.updated_at = utc_now()
 
@@ -132,9 +131,9 @@ class Execution:
         now = utc_now()
         if self.status != ExecutionStatus.FAILED:
             raise InvalidStateTransitionError(f"Execution {self.id} must be FAILED before retry.")
-        if self.mode != ExecutionMode.STATIC:
+        if self.operation_mode != OperationMode.SINGLE:
             raise InvalidStateTransitionError(
-                "Only STATIC executions support explicit retry; DYNAMIC Tool failures require "
+                "Only SINGLE executions support explicit retry; MULTI Tool failures require "
                 "a correction Operation."
             )
         if self.active_operation_id is None:
@@ -186,37 +185,37 @@ class Execution:
             step.finished_at = None
             step.updated_at = now
 
-    def request_dynamic_continue(self, expected_version: int) -> None:
-        if self.mode != ExecutionMode.DYNAMIC:
-            raise InvalidStateTransitionError("Only DYNAMIC executions can be continued.")
-        if self.status != ExecutionStatus.WAITING_FOR_CONTINUE:
+    def request_operation(self, expected_version: int) -> None:
+        if self.operation_mode != OperationMode.MULTI:
+            raise InvalidStateTransitionError("Only MULTI executions accept another Operation.")
+        if self.status != ExecutionStatus.WAITING_FOR_OPERATION:
             raise InvalidStateTransitionError(
-                f"Execution {self.id} must be WAITING_FOR_CONTINUE before continue."
+                f"Execution {self.id} must be WAITING_FOR_OPERATION before adding an Operation."
             )
         if self.version != expected_version:
             raise ExecutionVersionConflictError(
                 f"Execution version is {self.version}, expected {expected_version}."
             )
         self.status = ExecutionStatus.QUEUED
-        self.dynamic_finish_requested = False
-        self.dynamic_wait_expires_at = None
+        self.finalization_requested = False
+        self.operation_wait_expires_at = None
         self.updated_at = utc_now()
         self.version += 1
 
-    def request_dynamic_finish(self, expected_version: int) -> None:
-        if self.mode != ExecutionMode.DYNAMIC:
-            raise InvalidStateTransitionError("Only DYNAMIC executions can be finished.")
-        if self.status != ExecutionStatus.WAITING_FOR_CONTINUE:
+    def request_finalization(self, expected_version: int) -> None:
+        if self.operation_mode != OperationMode.MULTI:
+            raise InvalidStateTransitionError("Only MULTI executions can be finalized.")
+        if self.status != ExecutionStatus.WAITING_FOR_OPERATION:
             raise InvalidStateTransitionError(
-                f"Execution {self.id} must be WAITING_FOR_CONTINUE before finish."
+                f"Execution {self.id} must be WAITING_FOR_OPERATION before finalization."
             )
         if self.version != expected_version:
             raise ExecutionVersionConflictError(
                 f"Execution version is {self.version}, expected {expected_version}."
             )
-        self.status = ExecutionStatus.QUEUED
-        self.dynamic_finish_requested = True
-        self.dynamic_wait_expires_at = None
+        self.status = ExecutionStatus.FINALIZING
+        self.finalization_requested = True
+        self.operation_wait_expires_at = None
         self.updated_at = utc_now()
         self.version += 1
 
@@ -232,12 +231,14 @@ class ExecutionOperation:
     operation_number: int
     first_sequence: int
     last_sequence: int
-    execution_plan_id: str
     code_source_type: CodeSourceType
+    source_content: str
     code_path: str | None
     source_sha256: str
     idempotency_key: str
     request_fingerprint: str
+    operation_timeout_seconds: int | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
     status: OperationStatus = OperationStatus.QUEUED
     execution_attempt_id: UUID | None = None
     error_message: str | None = None

@@ -17,11 +17,14 @@ renew leases while a Jupyter cell is running, and reconcile expired leases.
 | `LEASE_EXPIRED` | A running Worker stopped renewing its PostgreSQL lease | `FROM_START` with a new session |
 | `INTERNAL_ERROR` | Executor validation or internal processing failed | `NOT_RETRYABLE` until reviewed |
 | `INFRASTRUCTURE_ERROR` | Reserved for non-Jupyter infrastructure failures | Policy is assigned at the failure site |
+| `STEP_TIMEOUT` | One Step exceeded `step_timeout_seconds` | `FROM_FAILED_STEP` when the session is retained |
+| `OPERATION_TIMEOUT` | Total Operation time exceeded `operation_timeout_seconds` | `FROM_FAILED_STEP` when the session is retained |
+| `OPERATION_WAIT_TIMEOUT` | A MULTI caller did not submit/finalize before its wait deadline | `NOT_RETRYABLE` |
 
 A successful or cancelled Execution has no `failure_type` and uses `NOT_RETRYABLE`.
 `retry_strategy` is the single source of truth for whether and how an Execution can be retried.
-Explicit retry is currently restricted to `STATIC`. DYNAMIC Tool failures return to
-`WAITING_FOR_CONTINUE` and accept a correction Operation. DYNAMIC Runtime-state loss remains
+Explicit retry is currently restricted to `SINGLE`. MULTI Tool failures return to
+`WAITING_FOR_OPERATION` and accept a correction Operation. MULTI Runtime-state loss remains
 non-retryable because a new kernel cannot reconstruct prior in-memory cell state safely.
 
 For an in-flight user cancellation, the interrupted execution job only preserves files written by
@@ -39,7 +42,7 @@ do not originate from `CANCEL_REQUESTED` remain owned by the execution job and a
   an eligible target again, starts a new session, and executes from sequence zero.
 - `NOT_RETRYABLE` rejects `execution_retry`.
 
-Both STATIC strategies retry the same accepted Operation rather than creating another one. The
+Both SINGLE strategies retry the same accepted Operation rather than creating another one. The
 Operation returns from `FAILED` to `QUEUED`, then records the latest terminal result and current
 Attempt ID. Immutable Attempt and Step Attempt rows preserve every previous try. Consequently a
 single Operation can have multiple terminal Outbox events; their `event_id` values identify the

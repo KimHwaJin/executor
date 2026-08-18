@@ -137,7 +137,7 @@ cd test_harness/agent
 uv run python scripts/smoke.py
 ```
 
-The smoke client creates a thread and invokes a deterministic two-Step STATIC Execution. It first
+The smoke client creates a thread and invokes a deterministic two-Step SINGLE Execution. It first
 observes the graph's `WAITING_FOR_EVENT` interrupt, consumes the terminal Redis notification, and
 resumes the same thread with that event. The second cell creates
 `artifacts/reports/agent-e2e.txt`; the client requires both that file and the Runtime-owned
