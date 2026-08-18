@@ -6,10 +6,12 @@ the Executor service dependency graph.
 
 The graph supports both a deterministic Agent → Executor → Jupyter integration scenario without an
 LLM and a natural-language Chat UI scenario with an OpenAI-compatible LLM. The deterministic flow
-submits an Execution through Executor MCP and interrupts after checkpointing its
-`execution_id`. The test event bridge receives the terminal notification through an Agent-owned
-Redis consumer group and resumes the same LangGraph thread. The resumed graph reconciles
-PostgreSQL-backed state and reads Step, Artifact, and Runtime-owned Notebook results through MCP.
+submits a MULTI Execution through Executor MCP and interrupts after checkpointing its
+`execution_id`. The test event bridge collects Step and Operation events through an Agent-owned
+Redis consumer group and resumes the same LangGraph thread at each
+`execution.waiting_for_operation` boundary. The graph appends the planned follow-up Operation,
+finalizes the Execution after the last Operation, and then reconciles PostgreSQL-backed state plus
+the Runtime-owned Notebook through MCP.
 When `TEST_AGENT_LLM_MODEL` is configured, LangChain `create_agent` receives an explicit allowlist
 of Executor MCP Tools. Read Tools use the server-discovered MCP schemas, while five mutation Tools
 apply Agent-side identity, ownership, idempotency, state-version, and code policies before calling
@@ -36,10 +38,15 @@ test_harness/agent/
 
 Executor integration code lives under `src/executor_test_agent/integrations/`. It owns public
 contract models and does not import Executor internals or access Executor database tables. Redis
-is only a wake-up channel; after a terminal event, MCP state is treated as the source of truth.
+is only a wake-up channel; after every Operation or terminal boundary, MCP state is treated as the
+source of truth.
 The smoke bridge creates a unique temporary consumer group per run and deletes it afterward. It is
-not the production consumer design: production requires a stable Agent-owned group, transactional
-and durable `event_id` deduplication, Pending recovery with `XAUTOCLAIM`, and an Agent-owned DLQ.
+started at the Redis Stream watermark captured immediately before each mutation, scoped to the
+expected `operation_id`, and removes duplicate `event_id` values in memory. A newly created group
+therefore neither scans the complete history nor mistakes an earlier MULTI boundary for the current
+one. It is not the production consumer design: production requires a stable Agent-owned group,
+transactional and durable `event_id` deduplication, Pending recovery with `XAUTOCLAIM`, and an
+Agent-owned DLQ.
 
 ## Setup
 
@@ -75,16 +82,18 @@ basic 커널에서 1부터 10까지의 합계를 계산하고 출력해줘.
 The Tool Agent can answer current-state questions such as `사용 가능한 커널 종류가 뭐야?` by
 calling `runtime_target_list`; `supported_profiles` contains the selectable profiles. Explicit
 execution requests call the policy-wrapped `execution_submit`. The Chat UI run waits for the
-terminal Redis event and then displays the execution ID, status, notebook outputs, Artifact names,
-and Runtime-owned notebook path. This synchronous wait exists only to make the local Chat UI test
-self-contained. Production still requires the durable Agent-owned consumer, event deduplication,
-Pending recovery, DLQ, and external thread resume described above.
+relevant Redis boundary and then displays the execution ID, status, Step results, notebook outputs,
+Artifact names, and Runtime-owned notebook path. A MULTI submit or Operation wakes on
+`execution.waiting_for_operation`; a finalize wakes on the terminal event. This synchronous wait
+exists only to make the local Chat UI test self-contained. Production still requires the durable
+Agent-owned consumer, event deduplication, Pending recovery, DLQ, and external thread resume
+described above.
 
 The Agent exposes 16 read Tools and five policy-wrapped mutation Tools:
 
 - Runtime reads: `runtime_target_list`, `runtime_target_get`.
 - Execution reads: list/get, Steps, Operations, Attempts, events, Artifacts, and notebook cells.
-- Mutations: submit, cancel, retry, continue, and finish.
+- Mutations: submit, cancel, retry, append Operation, and finalize.
 
 It does not expose Runtime target upsert, probe, disable, or state-change Tools. The bridge uses the
 official MCP Python SDK 2.x Client directly and converts discovered MCP JSON Schemas to LangChain
@@ -137,11 +146,13 @@ cd test_harness/agent
 uv run python scripts/smoke.py
 ```
 
-The smoke client creates a thread and invokes a deterministic two-Step SINGLE Execution. It first
-observes the graph's `WAITING_FOR_EVENT` interrupt, consumes the terminal Redis notification, and
-resumes the same thread with that event. The second cell creates
-`artifacts/reports/agent-e2e.txt`; the client requires both that file and the Runtime-owned
-`execution.ipynb`, then prints the terminal event and Jupyter Runtime Target. Override
+The smoke client creates a thread and invokes a deterministic two-Operation MULTI Execution. The
+initial Operation executes two Steps. After the first `execution.waiting_for_operation`, the graph
+submits a one-Step follow-up Operation that reuses variables from the retained Runtime session.
+After the second boundary, the graph calls `execution_finalize` and waits for
+`execution.succeeded`. The follow-up Step creates `artifacts/reports/agent-e2e.txt`; the client
+requires both that file and the Runtime-owned `execution.ipynb`, verifies all three Step results and
+the submit/Operation/finalize receipts, then prints the Runtime Target. Override
 `TEST_AGENT_SERVER_URL` when the development server uses a different address.
 
 ## Full integration test

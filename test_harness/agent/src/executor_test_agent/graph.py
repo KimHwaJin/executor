@@ -14,10 +14,19 @@ from langgraph.types import interrupt
 from executor_test_agent.config import get_settings
 from executor_test_agent.integrations.contracts import (
     AgentExecutionRequest,
-    ExecutionEventEnvelope,
+    ExecutionEventBatch,
 )
-from executor_test_agent.integrations.events import ExecutionEventWaiter
-from executor_test_agent.integrations.workflow import reconcile_execution, submit_execution
+from executor_test_agent.integrations.events import (
+    MULTI_OPERATION_WAKE_EVENT_TYPES,
+    TERMINAL_EVENT_TYPES,
+    ExecutionEventWaiter,
+)
+from executor_test_agent.integrations.workflow import (
+    create_execution_operation,
+    finalize_execution,
+    reconcile_execution,
+    submit_execution,
+)
 from executor_test_agent.mcp_tools import (
     MCP_AGENT_SYSTEM_PROMPT,
     MUTATION_MCP_TOOL_NAMES,
@@ -74,6 +83,8 @@ async def respond(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
         "execution_id": mutation["execution_id"],
         "wait_strategy": "STREAM",
         "awaited_event_types": mutation["event_types"],
+        "awaited_operation_id": _operation_id(mutation),
+        "event_stream_start_id": _stream_start_id(mutation),
         "phase": "WAITING_FOR_EVENT",
     }
 
@@ -84,7 +95,7 @@ async def submit(state: AgentState) -> dict[str, Any]:
         raise ValueError("execution_request is required in the execution branch.")
     request = AgentExecutionRequest.model_validate(state.execution_request)
     try:
-        execution_id = await submit_execution(request, get_settings())
+        receipt = await submit_execution(request, get_settings())
     except Exception as exc:
         return {
             "messages": [AIMessage(content=f"Executor submission failed: {type(exc).__name__}")],
@@ -92,36 +103,54 @@ async def submit(state: AgentState) -> dict[str, Any]:
             "execution_request": None,
             "wait_strategy": "INTERRUPT",
         }
-    return {"phase": "WAITING_FOR_EVENT", "execution_id": execution_id}
+    return {
+        "phase": "WAITING_FOR_EVENT",
+        "execution_id": str(receipt["execution_id"]),
+        "awaited_event_types": sorted(_wake_event_types(request.operation_mode)),
+        "awaited_operation_id": _operation_id(receipt),
+        "event_stream_start_id": _stream_start_id(receipt),
+        "command_receipts": [*state.command_receipts, receipt],
+        "next_operation_index": 0,
+    }
 
 
 def wait_for_event(state: AgentState) -> dict[str, Any]:
-    """Suspend at a checkpoint until the event bridge supplies a terminal event."""
+    """Suspend until the external event bridge supplies a validated event batch."""
+
     if state.execution_id is None:
         raise ValueError("execution_id is required before waiting for an event.")
-    resumed = interrupt({"execution_id": state.execution_id})
-    event = ExecutionEventEnvelope.model_validate(resumed)
-    return {"phase": "VERIFYING", "terminal_event": event.model_dump(mode="json")}
+    resumed = interrupt(
+        {
+            "execution_id": state.execution_id,
+            "event_types": state.awaited_event_types,
+            "operation_id": state.awaited_operation_id,
+        }
+    )
+    batch = ExecutionEventBatch.model_validate(resumed)
+    return {"phase": "VERIFYING", "event_batch": batch.model_dump(mode="json")}
 
 
 async def wait_for_stream_event(state: AgentState) -> dict[str, Any]:
-    """Keep a Chat UI run alive until its Executor terminal event is observable."""
+    """Keep a Chat UI run alive until its requested Executor boundary is observable."""
     if state.execution_id is None:
         raise ValueError("execution_id is required before waiting for an event.")
+    if state.event_stream_start_id is None:
+        raise ValueError("event_stream_start_id is required for in-process event waiting.")
     settings = get_settings()
     try:
         waiter = ExecutionEventWaiter(
             settings.executor_redis_url,
             settings.executor_event_stream,
             settings.executor_consumer_group_prefix,
-            include_existing=True,
+            start_id=state.event_stream_start_id,
         )
         await waiter.open()
         try:
-            event = await waiter.wait_for_terminal(
+            batch = await waiter.wait_for_wakeup(
                 state.execution_id,
                 timeout_seconds=settings.execution_timeout_seconds,
                 event_types=set(state.awaited_event_types) or None,
+                operation_id=state.awaited_operation_id,
             )
         finally:
             await waiter.close()
@@ -130,29 +159,33 @@ async def wait_for_stream_event(state: AgentState) -> dict[str, Any]:
             "messages": [AIMessage(content=f"Executor event wait failed: {type(exc).__name__}")],
             "phase": "FAILED",
             "execution_request": None,
+            "event_batch": None,
             "wait_strategy": "INTERRUPT",
         }
-    return {"phase": "VERIFYING", "terminal_event": event.model_dump(mode="json")}
+    return {"phase": "VERIFYING", "event_batch": batch.model_dump(mode="json")}
 
 
 async def verify(state: AgentState) -> dict[str, Any]:
     """Reconcile PostgreSQL-backed Executor state and Runtime-owned Jupyter output."""
-    if state.execution_id is None or state.terminal_event is None:
-        raise ValueError("execution_id and terminal_event are required for verification.")
-    terminal_event = ExecutionEventEnvelope.model_validate(state.terminal_event)
+
+    if state.execution_id is None or state.event_batch is None:
+        raise ValueError("execution_id and event_batch are required for verification.")
+    event_batch = ExecutionEventBatch.model_validate(state.event_batch)
     try:
-        result = await reconcile_execution(state.execution_id, terminal_event, get_settings())
+        result = await reconcile_execution(state.execution_id, event_batch, get_settings())
     except Exception as exc:
         return {
             "messages": [AIMessage(content=f"Executor verification failed: {type(exc).__name__}")],
             "phase": "FAILED",
             "execution_request": None,
-            "terminal_event": None,
+            "event_batch": None,
             "wait_strategy": "INTERRUPT",
         }
 
     artifact_names = sorted(artifact["name"] for artifact in result["artifacts"])
-    output_text = _notebook_output_text(result["notebook"])
+    output_text = _step_event_output_text(result["step_events"])
+    if not output_text:
+        output_text = _notebook_output_text(result["notebook"])
     message_lines = [
         f"Execution {result['execution_id']} {result['status']}.",
         f"Steps: {len(result['steps'])}",
@@ -166,16 +199,91 @@ async def verify(state: AgentState) -> dict[str, Any]:
         ]
     )
     message = AIMessage(content="\n\n".join(message_lines))
+    phase = _phase_for_execution_status(result["status"])
+    scenario_request = (
+        AgentExecutionRequest.model_validate(state.execution_request)
+        if state.execution_request is not None
+        else None
+    )
+    if result["status"] == "WAITING_FOR_OPERATION" and scenario_request is not None:
+        has_follow_up = state.next_operation_index < len(scenario_request.follow_up_operations)
+        if has_follow_up or scenario_request.auto_finalize:
+            phase = "ADVANCING"
     return {
         "messages": [message],
-        "phase": _phase_for_execution_status(result["status"]),
+        "phase": phase,
         "execution_id": result["execution_id"],
         "execution_result": result,
-        "execution_request": None,
-        "terminal_event": None,
-        "wait_strategy": "INTERRUPT",
+        "execution_request": (state.execution_request if phase == "ADVANCING" else None),
+        "event_batch": None,
+        "event_history": [
+            *state.event_history,
+            *(event.model_dump(mode="json") for event in event_batch.events),
+        ],
         "awaited_event_types": [],
+        "awaited_operation_id": None,
+        "event_stream_start_id": None,
     }
+
+
+async def advance_multi(state: AgentState) -> dict[str, Any]:
+    """Submit the next deterministic Operation or finalize the MULTI Execution."""
+
+    if (
+        state.execution_id is None
+        or state.execution_request is None
+        or state.execution_result is None
+    ):
+        raise ValueError("A deterministic MULTI scenario is required before advancing.")
+    request = AgentExecutionRequest.model_validate(state.execution_request)
+    expected_version = int(state.execution_result["version"])
+    try:
+        if state.next_operation_index < len(request.follow_up_operations):
+            operation_index = state.next_operation_index
+            first_sequence = (
+                max(
+                    (int(step["sequence"]) for step in state.execution_result["steps"]),
+                    default=-1,
+                )
+                + 1
+            )
+            receipt = await create_execution_operation(
+                state.execution_id,
+                request.follow_up_operations[operation_index],
+                get_settings(),
+                operation_index=operation_index,
+                expected_version=expected_version,
+                first_sequence=first_sequence,
+            )
+            return {
+                "phase": "WAITING_FOR_EVENT",
+                "next_operation_index": operation_index + 1,
+                "awaited_event_types": sorted(MULTI_OPERATION_WAKE_EVENT_TYPES),
+                "awaited_operation_id": _operation_id(receipt),
+                "event_stream_start_id": _stream_start_id(receipt),
+                "command_receipts": [*state.command_receipts, receipt],
+            }
+        if request.auto_finalize:
+            receipt = await finalize_execution(
+                state.execution_id,
+                get_settings(),
+                expected_version=expected_version,
+            )
+            return {
+                "phase": "WAITING_FOR_EVENT",
+                "awaited_event_types": sorted(TERMINAL_EVENT_TYPES),
+                "awaited_operation_id": None,
+                "event_stream_start_id": _stream_start_id(receipt),
+                "command_receipts": [*state.command_receipts, receipt],
+            }
+    except Exception as exc:
+        return {
+            "messages": [AIMessage(content=f"Executor MULTI advance failed: {type(exc).__name__}")],
+            "phase": "FAILED",
+            "execution_request": None,
+            "event_batch": None,
+        }
+    return {"phase": "READY", "execution_request": None}
 
 
 def _route_after_respond(state: AgentState) -> str:
@@ -193,14 +301,45 @@ def _route_after_submit(state: AgentState) -> str:
 
 
 def _route_after_event_wait(state: AgentState) -> str:
-    """Verify only after a terminal event was successfully materialized."""
+    """Verify only after a requested event batch was materialized."""
+
     return "verify" if state.phase == "VERIFYING" else END
+
+
+def _route_after_verify(state: AgentState) -> str:
+    return "advance_multi" if state.phase == "ADVANCING" else END
+
+
+def _route_after_advance(state: AgentState) -> str:
+    if state.phase == "WAITING_FOR_EVENT":
+        return "wait_for_stream_event" if state.wait_strategy == "STREAM" else "wait_for_event"
+    return END
 
 
 def _notebook_output_text(notebook: dict[str, Any]) -> str:
     rendered: list[str] = []
     for cell in notebook.get("cells", []):
         for output in cell.get("outputs", []):
+            text = output.get("text")
+            if isinstance(text, list):
+                rendered.append("".join(str(part) for part in text).strip())
+            elif isinstance(text, str):
+                rendered.append(text.strip())
+            data = output.get("data")
+            if isinstance(data, dict):
+                plain = data.get("text/plain")
+                if isinstance(plain, list):
+                    rendered.append("".join(str(part) for part in plain).strip())
+                elif isinstance(plain, str):
+                    rendered.append(plain.strip())
+    return "\n".join(part for part in rendered if part)
+
+
+def _step_event_output_text(events: list[dict[str, Any]]) -> str:
+    rendered: list[str] = []
+    for event in events:
+        result = event.get("payload", {}).get("result", {})
+        for output in result.get("outputs", []):
             text = output.get("text")
             if isinstance(text, list):
                 rendered.append("".join(str(part) for part in text).strip())
@@ -245,12 +384,32 @@ def _phase_for_execution_status(status: str) -> str:
     return "FAILED"
 
 
+def _wake_event_types(operation_mode: str) -> set[str]:
+    return MULTI_OPERATION_WAKE_EVENT_TYPES if operation_mode == "MULTI" else TERMINAL_EVENT_TYPES
+
+
+def _operation_id(receipt: dict[str, Any]) -> str | None:
+    operation = receipt.get("operation")
+    if not isinstance(operation, dict):
+        return None
+    operation_id = operation.get("operation_id")
+    return str(operation_id) if operation_id is not None else None
+
+
+def _stream_start_id(receipt: dict[str, Any]) -> str:
+    start_id = receipt.get("event_stream_start_id")
+    if not isinstance(start_id, str) or not start_id:
+        raise ValueError("Mutation receipt is missing event_stream_start_id.")
+    return start_id
+
+
 builder = StateGraph(AgentState)
 builder.add_node("respond", respond)
 builder.add_node("submit", submit)
 builder.add_node("wait_for_event", wait_for_event)
 builder.add_node("wait_for_stream_event", wait_for_stream_event)
 builder.add_node("verify", verify)
+builder.add_node("advance_multi", advance_multi)
 builder.add_edge(START, "respond")
 builder.add_conditional_edges(
     "respond",
@@ -276,6 +435,19 @@ builder.add_conditional_edges(
     _route_after_event_wait,
     {"verify": "verify", END: END},
 )
-builder.add_edge("verify", END)
+builder.add_conditional_edges(
+    "verify",
+    _route_after_verify,
+    {"advance_multi": "advance_multi", END: END},
+)
+builder.add_conditional_edges(
+    "advance_multi",
+    _route_after_advance,
+    {
+        "wait_for_event": "wait_for_event",
+        "wait_for_stream_event": "wait_for_stream_event",
+        END: END,
+    },
+)
 
 graph = builder.compile()

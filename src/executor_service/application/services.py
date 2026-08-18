@@ -232,11 +232,11 @@ class ExecutionService:
                 )
                 if sequences != expected_sequences:
                     raise InvalidStateTransitionError(
-                        "Dynamic continue step sequences must be contiguous and start at "
+                        "MULTI Operation Step sequences must be contiguous and start at "
                         f"{expected_sequence}."
                     )
                 if any(not step.code.strip() for step in command.steps):
-                    raise InvalidStateTransitionError("Dynamic step code must not be empty.")
+                    raise InvalidStateTransitionError("Operation Step code must not be empty.")
                 execution.request_operation(command.expected_version)
                 _apply_actor(execution, command.actor_type, command.actor_id)
                 _apply_current_trace(execution)

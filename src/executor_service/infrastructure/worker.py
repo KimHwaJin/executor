@@ -437,7 +437,7 @@ class ExecutionWorker:
             except asyncio.CancelledError:
                 raise
             except Exception:
-                logger.exception("Dynamic execution lifecycle audit failed")
+                logger.exception("MULTI execution lifecycle audit failed")
             await asyncio.sleep(self._settings.execution_heartbeat_seconds)
 
     def _dispatch(
@@ -2295,7 +2295,7 @@ class ExecutionWorker:
                 attempt.finished_at = now
             if cleanup_required:
                 if execution.runtime_target_id is None or expected_runtime_session_id is None:
-                    raise RuntimeError("Dynamic cleanup target unexpectedly missing.")
+                    raise RuntimeError("Retained Runtime cleanup target unexpectedly missing.")
                 cleanup_target = (
                     execution.id,
                     attempt.id if attempt is not None else None,

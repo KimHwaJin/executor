@@ -20,15 +20,17 @@ async def required_tool_result(
 
 async def collect_execution_result(client: Client, execution_id: str) -> dict[str, Any]:
     execution = await required_tool_result(client, "execution_get", {"execution_id": execution_id})
-    steps = await required_tool_result(
+    steps = await _collect_items(
         client,
         "execution_step_list",
-        {"execution_id": execution_id, "limit": 100},
+        {"execution_id": execution_id},
+        limit=200,
     )
-    artifacts = await required_tool_result(
+    artifacts = await _collect_items(
         client,
         "execution_artifact_list",
-        {"execution_id": execution_id, "limit": 500},
+        {"execution_id": execution_id},
+        limit=500,
     )
     notebook = await required_tool_result(
         client,
@@ -42,7 +44,27 @@ async def collect_execution_result(client: Client, execution_id: str) -> dict[st
     )
     return {
         "execution": execution,
-        "steps": steps["items"],
-        "artifacts": artifacts["items"],
+        "steps": steps,
+        "artifacts": artifacts,
         "notebook": notebook,
     }
+
+
+async def _collect_items(
+    client: Client,
+    tool: str,
+    arguments: dict[str, Any],
+    *,
+    limit: int,
+) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    cursor: str | None = None
+    while True:
+        page_arguments = {**arguments, "limit": limit}
+        if cursor is not None:
+            page_arguments["cursor"] = cursor
+        page = await required_tool_result(client, tool, page_arguments)
+        items.extend(page["items"])
+        cursor = page.get("next_cursor")
+        if cursor is None:
+            return items
