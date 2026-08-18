@@ -127,7 +127,7 @@ async def _consume_message(
 
 async def main() -> None:
     settings = get_settings()
-    stream = os.getenv("AGENT_EVENT_STREAM", settings.redis_stream)
+    stream = os.getenv("AGENT_EVENT_STREAM", settings.redis_event_stream)
     group = os.getenv("AGENT_EVENT_CONSUMER_GROUP", "agent-execution-events")
     group_start_id = os.getenv("AGENT_EVENT_GROUP_START_ID", "$")
     consumer = os.getenv(

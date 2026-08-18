@@ -38,11 +38,7 @@ from executor_service.domain.runtime import (
     RuntimeDriverFactory,
     RuntimeExecutionError,
 )
-from executor_service.events import (
-    EXECUTION_EVENT_SCHEMA_VERSION,
-    ExecutionStreamEnvelope,
-    build_execution_event,
-)
+from executor_service.events import build_execution_event
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
@@ -61,19 +57,19 @@ from executor_service.tracing import (
     capture_trace_carrier,
     extract_trace_context,
 )
+from executor_service.work_messages import WORK_MESSAGE_SCHEMA_VERSION, WorkStreamEnvelope
 
 logger = logging.getLogger(__name__)
 
-DISPATCH_EVENT_TYPES = frozenset(
+DISPATCH_MESSAGE_TYPES = frozenset(
     {
-        "execution.submitted",
-        "execution.continue_requested",
-        "execution.finish_requested",
-        "execution.retry_requested",
-        "execution.cancel_requested",
+        "operation.ready",
+        "execution.finalization_ready",
+        "execution.retry_ready",
+        "execution.cancellation_ready",
     }
 )
-RUN_EVENT_TYPES = DISPATCH_EVENT_TYPES - {"execution.cancel_requested"}
+RUN_MESSAGE_TYPES = DISPATCH_MESSAGE_TYPES - {"execution.cancellation_ready"}
 
 
 class RetainedRuntimeSessionLostError(RuntimeDriverError):
@@ -216,7 +212,7 @@ class ExecutionWorker:
     async def _ensure_consumer_group(self) -> None:
         try:
             await self._redis.xgroup_create(
-                self._settings.redis_stream,
+                self._settings.redis_work_stream,
                 self._settings.execution_consumer_group,
                 id="0",
                 mkstream=True,
@@ -231,7 +227,7 @@ class ExecutionWorker:
                 batches = await self._redis.xreadgroup(
                     groupname=self._settings.execution_consumer_group,
                     consumername=self._consumer_name,
-                    streams={self._settings.redis_stream: ">"},
+                    streams={self._settings.redis_work_stream: ">"},
                     count=20,
                     block=1000,
                 )
@@ -262,7 +258,7 @@ class ExecutionWorker:
 
     async def _recover_pending_messages(self) -> int:
         result = await self._redis.xautoclaim(
-            self._settings.redis_stream,
+            self._settings.redis_work_stream,
             self._settings.execution_consumer_group,
             self._consumer_name,
             min_idle_time=self._settings.execution_pending_claim_idle_milliseconds,
@@ -283,23 +279,23 @@ class ExecutionWorker:
         message_id: str,
         fields: dict[str, str],
     ) -> None:
-        invalid_reason = _invalid_event_reason(fields)
+        invalid_reason = _invalid_work_message_reason(fields)
         if invalid_reason is not None:
             try:
                 await self._dead_letter(message_id, fields, invalid_reason)
                 await self._ack_message(message_id)
             except Exception:
                 logger.exception(
-                    "Execution event DLQ delivery failed",
+                    "Execution work message DLQ delivery failed",
                     extra={"message_id": message_id, "reason": invalid_reason},
                 )
                 return
             return
         try:
-            await self._handle_event(fields)
+            await self._handle_work_message(fields)
         except Exception:
             logger.exception(
-                "Execution event handling failed",
+                "Execution work message handling failed",
                 extra={"message_id": message_id},
             )
             return
@@ -307,7 +303,7 @@ class ExecutionWorker:
 
     async def _ack_message(self, message_id: str) -> None:
         await self._redis.xack(
-            self._settings.redis_stream,
+            self._settings.redis_work_stream,
             self._settings.execution_consumer_group,
             message_id,
         )
@@ -326,19 +322,19 @@ class ExecutionWorker:
             attributes={"executor.event.failure.reason": reason},
         ):
             await self._redis.xadd(
-                self._settings.redis_dead_letter_stream,
+                self._settings.redis_work_dead_letter_stream,
                 {
-                    "source_stream": self._settings.redis_stream,
+                    "source_stream": self._settings.redis_work_stream,
                     "source_message_id": message_id,
-                    "event_id": _valid_uuid_or_empty(fields.get("event_id")),
+                    "message_id": _valid_uuid_or_empty(fields.get("message_id")),
                     "aggregate_id": _valid_uuid_or_empty(fields.get("aggregate_id")),
                     "reason": reason,
                     "dead_lettered_at": utc_now().isoformat(),
                 },
             )
 
-    async def _handle_event(self, fields: dict[str, str]) -> bool:
-        event_type = fields.get("event_type")
+    async def _handle_work_message(self, fields: dict[str, str]) -> bool:
+        message_type = fields.get("message_type")
         execution_id = UUID(fields["aggregate_id"])
         context = extract_trace_context(fields)
         with self._tracing.span(
@@ -346,13 +342,13 @@ class ExecutionWorker:
             context=context,
             kind=SpanKind.CONSUMER,
             attributes={
-                "executor.event.type": event_type,
+                "executor.work.message_type": message_type,
                 "executor.execution.id": str(execution_id),
             },
         ):
-            if event_type in RUN_EVENT_TYPES:
+            if message_type in RUN_MESSAGE_TYPES:
                 self._dispatch(execution_id, self._run_execution(execution_id))
-            elif event_type == "execution.cancel_requested":
+            elif message_type == "execution.cancellation_ready":
                 self._dispatch(
                     execution_id,
                     self._cancel_execution(execution_id),
@@ -674,7 +670,13 @@ class ExecutionWorker:
                         raise
                     all_outputs.append(result.outputs)
                     execution_counts.append(result.execution_count)
-                    await self._step_succeeded(execution.id, attempt_id, sequence, result.outputs)
+                    await self._step_succeeded(
+                        execution.id,
+                        attempt_id,
+                        sequence,
+                        result.outputs,
+                        result.execution_count,
+                    )
                     await driver.write_notebook(
                         workspace.notebook_path,
                         self._workspace.notebook_document(
@@ -1317,7 +1319,11 @@ class ExecutionWorker:
                     )
                     return
                 await self._step_succeeded(
-                    execution.id, attempt_id, pending.sequence, result.outputs
+                    execution.id,
+                    attempt_id,
+                    pending.sequence,
+                    result.outputs,
+                    result.execution_count,
                 )
                 await self._write_dynamic_notebook(
                     driver, execution.id, execution.runtime_profile, workspace
@@ -1603,6 +1609,21 @@ class ExecutionWorker:
                 history.finished_at = None
                 history.error_message = None
                 history.outputs = []
+            if step.operation_id is None:
+                raise ValueError(f"Execution Step {sequence} has no Operation.")
+            await _add_outbox(
+                session,
+                execution_id,
+                "execution.step_started",
+                ExecutionStatus.RUNNING,
+                {
+                    "execution_attempt_id": str(attempt_id),
+                    "operation_id": str(step.operation_id),
+                    "step_id": str(step.id),
+                    "sequence": sequence,
+                    "status": StepStatus.RUNNING.value,
+                },
+            )
 
     async def _step_succeeded(
         self,
@@ -1610,22 +1631,22 @@ class ExecutionWorker:
         attempt_id: UUID,
         sequence: int,
         outputs: list[dict[str, Any]],
+        execution_count: int | None,
     ) -> None:
         now = utc_now()
         async with self._session_factory() as session, session.begin():
-            await session.execute(
-                update(ExecutionStepORM)
-                .where(
+            step = await session.scalar(
+                select(ExecutionStepORM).where(
                     ExecutionStepORM.execution_id == execution_id,
                     ExecutionStepORM.sequence == sequence,
                 )
-                .values(
-                    status=StepStatus.SUCCEEDED,
-                    outputs=outputs,
-                    finished_at=now,
-                    updated_at=now,
-                )
             )
+            if step is None or step.operation_id is None:
+                raise ValueError(f"Execution Step {sequence} or its Operation was not found.")
+            step.status = StepStatus.SUCCEEDED
+            step.outputs = outputs
+            step.finished_at = now
+            step.updated_at = now
             await session.execute(
                 update(ExecutionStepAttemptORM)
                 .where(
@@ -1637,6 +1658,23 @@ class ExecutionWorker:
                     outputs=outputs,
                     finished_at=now,
                 )
+            )
+            await _add_outbox(
+                session,
+                execution_id,
+                "execution.step_succeeded",
+                ExecutionStatus.RUNNING,
+                {
+                    "execution_attempt_id": str(attempt_id),
+                    "operation_id": str(step.operation_id),
+                    "step_id": str(step.id),
+                    "sequence": sequence,
+                    "status": StepStatus.SUCCEEDED.value,
+                    "result": {
+                        "outputs": outputs,
+                        "execution_count": execution_count,
+                    },
+                },
             )
 
     async def _step_failed(
@@ -1649,20 +1687,20 @@ class ExecutionWorker:
     ) -> None:
         now = utc_now()
         async with self._session_factory() as session, session.begin():
-            await session.execute(
-                update(ExecutionStepORM)
-                .where(
+            step = await session.scalar(
+                select(ExecutionStepORM).where(
                     ExecutionStepORM.execution_id == execution_id,
                     ExecutionStepORM.sequence == sequence,
                 )
-                .values(
-                    status=StepStatus.FAILED,
-                    outputs=outputs,
-                    error_message=error_message[:2000],
-                    finished_at=now,
-                    updated_at=now,
-                )
             )
+            if step is None or step.operation_id is None:
+                raise ValueError(f"Execution Step {sequence} or its Operation was not found.")
+            safe_error = error_message[:2000]
+            step.status = StepStatus.FAILED
+            step.outputs = outputs
+            step.error_message = safe_error
+            step.finished_at = now
+            step.updated_at = now
             await session.execute(
                 update(ExecutionStepAttemptORM)
                 .where(
@@ -1672,9 +1710,24 @@ class ExecutionWorker:
                 .values(
                     status=StepStatus.FAILED,
                     outputs=outputs,
-                    error_message=error_message[:2000],
+                    error_message=safe_error,
                     finished_at=now,
                 )
+            )
+            await _add_outbox(
+                session,
+                execution_id,
+                "execution.step_failed",
+                ExecutionStatus.RUNNING,
+                {
+                    "execution_attempt_id": str(attempt_id),
+                    "operation_id": str(step.operation_id),
+                    "step_id": str(step.id),
+                    "sequence": sequence,
+                    "status": StepStatus.FAILED.value,
+                    "result": {"outputs": outputs, "execution_count": None},
+                    "error_message": safe_error,
+                },
             )
 
     async def _heartbeat(self, execution_id: UUID, attempt_id: UUID) -> None:
@@ -2601,14 +2654,14 @@ async def _add_outbox(
     session.add(OutboxEventORM.from_domain(event))
 
 
-def _invalid_event_reason(fields: dict[str, str]) -> str | None:
-    event_id = fields.get("event_id")
-    if not event_id:
-        return "missing_event_id"
+def _invalid_work_message_reason(fields: dict[str, str]) -> str | None:
+    message_id = fields.get("message_id")
+    if not message_id:
+        return "missing_message_id"
     try:
-        UUID(event_id)
+        UUID(message_id)
     except ValueError:
-        return "invalid_event_id"
+        return "invalid_message_id"
     if fields.get("aggregate_type") != "Execution":
         return "unsupported_aggregate_type"
     aggregate_id = fields.get("aggregate_id")
@@ -2618,22 +2671,22 @@ def _invalid_event_reason(fields: dict[str, str]) -> str | None:
         UUID(aggregate_id)
     except ValueError:
         return "invalid_aggregate_id"
-    event_type = fields.get("event_type")
-    if not event_type:
-        return "missing_event_type"
-    if not event_type.startswith("execution."):
-        return "unsupported_event_type"
+    message_type = fields.get("message_type")
+    if not message_type:
+        return "missing_message_type"
+    if message_type not in DISPATCH_MESSAGE_TYPES:
+        return "unsupported_message_type"
     schema_version = fields.get("schema_version")
     if not schema_version:
         return "missing_schema_version"
-    if schema_version != EXECUTION_EVENT_SCHEMA_VERSION:
+    if schema_version != WORK_MESSAGE_SCHEMA_VERSION:
         return "unsupported_schema_version"
     if not fields.get("payload"):
         return "missing_payload"
     try:
-        ExecutionStreamEnvelope.from_redis_fields(fields)
+        WorkStreamEnvelope.from_redis_fields(fields)
     except (TypeError, ValueError):
-        return "invalid_event_contract"
+        return "invalid_work_message_contract"
     return None
 
 

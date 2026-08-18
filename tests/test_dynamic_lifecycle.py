@@ -326,6 +326,25 @@ async def test_dynamic_operation_executes_submitted_steps_until_boundary(
                 )
             )
         )
+        step_result_events = list(
+            await session.scalars(
+                select(OutboxEventORM)
+                .where(
+                    OutboxEventORM.aggregate_id == execution.id,
+                    OutboxEventORM.event_type.in_(
+                        ["execution.step_succeeded", "execution.step_failed"]
+                    ),
+                )
+                .order_by(OutboxEventORM.created_at)
+            )
+        )
+        ordered_event_types = list(
+            await session.scalars(
+                select(OutboxEventORM.event_type)
+                .where(OutboxEventORM.aggregate_id == execution.id)
+                .order_by(OutboxEventORM.created_at, OutboxEventORM.id)
+            )
+        )
     assert row is not None and operation is not None
     assert row.status == ExecutionStatus.WAITING_FOR_CONTINUE, row.error_message
     assert operation.status == expected_status
@@ -344,6 +363,23 @@ async def test_dynamic_operation_executes_submitted_steps_until_boundary(
     assert all(cell["outputs"] for cell in notebook["cells"])
     assert len(events) == 1
     assert events[0].payload["operation_id"] == str(operation.id)
+    assert len(step_result_events) == (3 if fail_code is None else 2)
+    assert [event.payload["sequence"] for event in step_result_events] == list(
+        range(len(step_result_events))
+    )
+    for index, event in enumerate(step_result_events, start=1):
+        assert event.payload["operation_id"] == str(operation.id)
+        assert event.payload["step_id"] == str(steps[index - 1].id)
+        assert event.payload["result"]["outputs"]
+        assert event.payload["result"]["execution_count"] == (
+            None if event.event_type == "execution.step_failed" else index
+        )
+    result_positions = [
+        index
+        for index, event_type in enumerate(ordered_event_types)
+        if event_type in {"execution.step_succeeded", "execution.step_failed"}
+    ]
+    assert max(result_positions) < ordered_event_types.index(expected_event)
 
 
 async def test_expired_dynamic_wait_fails_and_cleans_kernel_once(

@@ -34,6 +34,7 @@ from executor_service.domain.enums import (
     ExecutionStatus,
     FailureType,
     OperationStatus,
+    OutboxDestination,
     OutboxStatus,
     RetryStrategy,
     RuntimePool,
@@ -926,6 +927,7 @@ class OutboxEventORM(Base):
     __table_args__ = (
         *audit_actor_constraints(),
         CheckConstraint("status IN ('PENDING', 'PUBLISHED')", name="valid_outbox_status"),
+        CheckConstraint("destination IN ('WORK', 'EVENTS')", name="valid_outbox_destination"),
         Index("ix_outbox_pending", "status", "available_at", "created_at"),
         Index(
             "ix_outbox_execution_cursor",
@@ -940,6 +942,9 @@ class OutboxEventORM(Base):
     aggregate_type: Mapped[str] = mapped_column(String(128), nullable=False)
     aggregate_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False, index=True)
     event_type: Mapped[str] = mapped_column(String(255), nullable=False)
+    destination: Mapped[OutboxDestination] = mapped_column(
+        enum_type(OutboxDestination, "outbox_destination"), nullable=False
+    )
     payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     created_by_type: Mapped[ActorType | None] = mapped_column(
         enum_type(ActorType, "actor_type"), nullable=True
@@ -970,6 +975,7 @@ class OutboxEventORM(Base):
             aggregate_type=event.aggregate_type,
             aggregate_id=event.aggregate_id,
             event_type=event.event_type,
+            destination=event.destination,
             payload=event.payload,
             created_by_type=event.created_by_type,
             created_by=event.created_by,

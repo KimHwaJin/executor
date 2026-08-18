@@ -26,8 +26,10 @@ async def _start_executor(
             "EXECUTION_CONSUMER_GROUP": group,
             "EXECUTION_LEASE_SECONDS": "30",
             "EXECUTION_HEARTBEAT_SECONDS": "5",
-            "REDIS_STREAM": stream,
-            "REDIS_DEAD_LETTER_STREAM": f"{stream}.dlq",
+            "REDIS_WORK_STREAM": stream,
+            "REDIS_EVENT_STREAM": f"{stream}.events",
+            "REDIS_WORK_DEAD_LETTER_STREAM": f"{stream}.dlq",
+            "REDIS_EVENT_DEAD_LETTER_STREAM": f"{stream}.events.dlq",
             "LOG_LEVEL": "WARNING",
         }
     )

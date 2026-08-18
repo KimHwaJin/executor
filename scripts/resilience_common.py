@@ -39,8 +39,10 @@ async def start_executor(
             "EXECUTION_HEARTBEAT_SECONDS": "5",
             "RUNTIME_HEALTH_POLL_INTERVAL_SECONDS": "2",
             "RUNTIME_DEFAULT_MAX_CONCURRENT_EXECUTIONS": "1",
-            "REDIS_STREAM": stream,
-            "REDIS_DEAD_LETTER_STREAM": f"{stream}.dlq",
+            "REDIS_WORK_STREAM": stream,
+            "REDIS_EVENT_STREAM": f"{stream}.events",
+            "REDIS_WORK_DEAD_LETTER_STREAM": f"{stream}.dlq",
+            "REDIS_EVENT_DEAD_LETTER_STREAM": f"{stream}.events.dlq",
             "LOG_LEVEL": "WARNING",
         }
     )
@@ -80,7 +82,7 @@ async def stop_executor(
 async def cleanup_streams(redis: Redis, stream: str) -> None:
     if os.getenv("RESILIENCE_KEEP_STREAMS", "false").lower() in {"1", "true", "yes"}:
         return
-    await redis.delete(stream, f"{stream}.dlq")
+    await redis.delete(stream, f"{stream}.dlq", f"{stream}.events", f"{stream}.events.dlq")
 
 
 async def wait_ready(port: int, *, attempts: int = 160) -> None:

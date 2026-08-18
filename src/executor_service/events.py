@@ -16,6 +16,7 @@ from executor_service.domain.enums import (
     FailureType,
     RetryStrategy,
     RuntimeSessionCleanupStatus,
+    StepStatus,
 )
 from executor_service.domain.models import OutboxEvent
 
@@ -84,6 +85,38 @@ class TerminalPayload(StatusPayload):
 
 class StartedPayload(StatusPayload):
     status: Literal[ExecutionStatus.RUNNING]
+
+
+class RuntimeStepResult(BaseModel):
+    """Transport-neutral result returned by one Runtime execution unit."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    outputs: list[dict[str, Any]]
+    execution_count: int | None = Field(default=None, ge=0)
+
+
+class StepEventPayload(EventPayload):
+    execution_attempt_id: UUID
+    operation_id: UUID
+    step_id: UUID
+    sequence: int = Field(ge=0)
+    status: StepStatus
+
+
+class StepStartedPayload(StepEventPayload):
+    status: Literal[StepStatus.RUNNING]
+
+
+class StepSucceededPayload(StepEventPayload):
+    status: Literal[StepStatus.SUCCEEDED]
+    result: RuntimeStepResult
+
+
+class StepFailedPayload(StepEventPayload):
+    status: Literal[StepStatus.FAILED]
+    result: RuntimeStepResult
+    error_message: str = Field(min_length=1, max_length=2000)
 
 
 class CancelRequestedPayload(StatusPayload):
@@ -175,6 +208,9 @@ ExecutionEventPayload = (
     | RetryDeferredPayload
     | TerminalPayload
     | StartedPayload
+    | StepStartedPayload
+    | StepSucceededPayload
+    | StepFailedPayload
     | CancelRequestedPayload
     | SucceededPayload
     | FailedPayload
@@ -199,6 +235,9 @@ EVENT_PAYLOAD_MODELS: dict[str, type[EventPayload]] = {
     "execution.retry_requested": RetryRequestedPayload,
     "execution.started": StartedPayload,
     "execution.resumed": StartedPayload,
+    "execution.step_started": StepStartedPayload,
+    "execution.step_succeeded": StepSucceededPayload,
+    "execution.step_failed": StepFailedPayload,
     "execution.retry_deferred": RetryDeferredPayload,
     "execution.operation_succeeded": OperationSucceededPayload,
     "execution.operation_failed": OperationFailedPayload,

@@ -2,9 +2,20 @@
 
 PostgreSQL is the Execution state source of truth. Redis Streams is an at-least-once wake-up and
 notification channel populated through the Transactional Outbox. This document defines how an
-Executor replica acknowledges, reclaims, and quarantines Stream messages.
+Executor replica acknowledges, reclaims, and quarantines internal work messages, while Agent
+consumers independently process integration events.
 
-## Message contract
+## Stream boundary
+
+- `executor.work`: internal commands consumed only by the shared `executor-workers` group
+- `executor.events`: integration events consumed by an Agent-owned consumer group
+- `executor.work.dlq`: invalid internal work-message metadata
+- `executor.events.dlq`: reserved for the Agent consumer's invalid integration-event policy
+
+The two primary Streams must never share a consumer group. PostgreSQL and the Transactional
+Outbox are the source of truth; Redis is not used as an Execution cache.
+
+## Integration event contract
 
 Every Executor-produced Stream entry contains:
 
@@ -20,12 +31,14 @@ Every Executor-produced Stream entry contains:
 The decoded `payload` is a JSON object that also contains `schema_version` and `execution_id`.
 The payload version must equal the Stream field and its `execution_id` must equal `aggregate_id`.
 Executor validates this contract both before Outbox persistence and again immediately before Redis
-publication. See [Execution Event Contract v1](execution-events-v1.md) for every event payload.
+publication to `executor.events`. See [Execution Event Contract v1](execution-events-v1.md).
 
-The Executor Worker dispatches only `execution.submitted`, `execution.continue_requested`,
-`execution.finish_requested`, `execution.retry_requested`, and `execution.cancel_requested`.
-Other valid `execution.*` notifications belong to Agent/frontend consumers and are acknowledged by
-the Executor group without starting a job.
+## Internal work contract
+
+Internal entries use `message_id`, `message_type`, the same aggregate and trace fields, and a strict
+versioned payload. Supported message types are `operation.ready`,
+`execution.finalization_ready`, `execution.retry_ready`, and
+`execution.cancellation_ready`. The Worker never reads or acknowledges `executor.events`.
 
 ## ACK and duplicate rules
 
@@ -53,9 +66,9 @@ claim rather than discarding it.
 
 ## Dead-letter stream
 
-Messages with missing/invalid UUID routing fields, a non-`Execution` aggregate, a non-
-`execution.*` event family, an unsupported schema version, or an invalid v1 payload are copied to
-`REDIS_DEAD_LETTER_STREAM` and then ACKed from the primary group. DLQ entries contain only source
+Work messages with missing/invalid UUID routing fields, a non-`Execution` aggregate, an unsupported
+message type/schema version, or an invalid payload are copied to
+`REDIS_WORK_DEAD_LETTER_STREAM` and then ACKed from the Worker group. DLQ entries contain only source
 Stream/message IDs, UUIDs that passed validation, a fixed reason code, and timestamp. They
 deliberately exclude unvalidated routing text, payload, trace headers, code, outputs, and secrets.
 
@@ -65,7 +78,7 @@ untrusted DLQ entry back to the primary Stream.
 
 ## Retention boundary
 
-Executor does not trim the primary Stream. Agent-owned consumer groups may be slower or may retain
-Pending entries, so safe trimming requires a shared retention agreement across all groups.
+Executor does not trim either primary Stream. Each Stream needs a retention policy based on its own
+consumer group's delivered and Pending positions.
 Published Outbox rows are also retained because `execution_event_list` uses them as the durable
 frontend event timeline.

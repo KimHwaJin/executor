@@ -438,20 +438,20 @@ Raw data remains in S3. PATH submissions are resolved separately under Executor'
 
 ## Consistency and delivery
 
-Submission and its `execution.submitted` OutboxEvent are committed in one PostgreSQL transaction.
-Cancellation and `execution.cancel_requested` work the same way. A background publisher claims
-pending rows with `FOR UPDATE SKIP LOCKED`, adds each event to the configured Redis Stream, and
+Submission commits both its Agent-facing `execution.submitted` event and internal
+`operation.ready` message in one PostgreSQL transaction. Cancellation uses the same pattern. A
+background publisher claims pending rows with `FOR UPDATE SKIP LOCKED`, routes each row to either
+`executor.events` or `executor.work`, and
 then marks it published. A crash between Redis `XADD` and the database update can create a
 duplicate, so consumers must deduplicate on `event_id`.
 
 The consumer group treats Redis as a wake-up channel and reconciles `QUEUED` and
-`CANCEL_REQUESTED` rows from PostgreSQL, so an acknowledged or lost notification does not lose the
+`CANCEL_REQUESTED` rows from PostgreSQL, so an acknowledged or lost work message does not lose the
 execution. A message left Pending by a dead consumer is reclaimed with `XAUTOCLAIM` after
 `EXECUTION_PENDING_CLAIM_IDLE_MILLISECONDS`; the new Worker handles and acknowledges it using the
-same PostgreSQL state guards. Malformed messages and unsupported aggregate/event families are
-acknowledged only after sanitized metadata is written to `REDIS_DEAD_LETTER_STREAM`. Valid
-non-command `execution.*` notifications are intentionally acknowledged without dispatch because
-the Agent consumer group still needs those events. See [Event Delivery](docs/event-delivery.md)
+same PostgreSQL state guards. Malformed internal messages are acknowledged only after sanitized
+metadata is written to `REDIS_WORK_DEAD_LETTER_STREAM`. Executor Workers never consume Agent
+integration events. See [Event Delivery](docs/event-delivery.md)
 for the ACK, reclaim, and DLQ contract.
 
 Active attempts renew a PostgreSQL lease. A dynamic Attempt in
@@ -460,9 +460,9 @@ against that Runtime Target's capacity. A background audit verifies retained ses
 both stored deadlines after Executor restarts. An expired active lease is failed safely and can be
 retried by a later retry workflow; automatic re-execution is intentionally not enabled yet.
 
-Redis Stream trimming is deliberately disabled. The Stream is shared with Agent-owned consumer
-groups, so a retention policy must account for every group's delivered and Pending positions before
-entries can be removed safely. PostgreSQL Outbox rows are also retained because they back the
+Redis Stream trimming is deliberately disabled. `executor.work` and `executor.events` have
+independent consumers, and each retention policy must account for its group's delivered and Pending
+positions. PostgreSQL Outbox rows are also retained because they back the
 frontend execution event timeline.
 
 Every published Stream entry and JSON payload uses the versioned Executor event contract. Agent
@@ -494,7 +494,8 @@ local-only credentials. Inject production values through the Kubernetes secret m
 protection. Add the Kubernetes gateway hostname and origin before deployment; do not disable the
 protection to make a proxy work.
 
-`REDIS_DEAD_LETTER_STREAM` must differ from `REDIS_STREAM`. Pending recovery cadence, minimum idle
+`REDIS_WORK_STREAM`, `REDIS_EVENT_STREAM`, `REDIS_WORK_DEAD_LETTER_STREAM`, and
+`REDIS_EVENT_DEAD_LETTER_STREAM` must all differ. Pending recovery cadence, minimum idle
 time, and batch size are configured with `EXECUTION_PENDING_CLAIM_INTERVAL_SECONDS`,
 `EXECUTION_PENDING_CLAIM_IDLE_MILLISECONDS`, and `EXECUTION_PENDING_CLAIM_BATCH_SIZE`. The minimum
 idle time should exceed normal message dispatch latency; it does not need to match the much longer

@@ -12,7 +12,12 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from executor_service.application.commands import StepSpec, SubmitExecutionCommand
 from executor_service.application.services import ExecutionService
 from executor_service.config import Settings
-from executor_service.domain.enums import CodeSourceType, ExecutionMode, TriggerType
+from executor_service.domain.enums import (
+    CodeSourceType,
+    ExecutionMode,
+    OutboxDestination,
+    TriggerType,
+)
 from executor_service.events import (
     EVENT_PAYLOAD_MODELS,
     EXECUTION_EVENT_SCHEMA_VERSION,
@@ -27,10 +32,10 @@ from executor_service.tracing import TracingManager
 
 class RecordingRedis:
     def __init__(self) -> None:
-        self.fields: dict[str, Any] | None = None
+        self.messages: dict[str, dict[str, Any]] = {}
 
-    async def xadd(self, _stream: str, fields: dict[FieldT, EncodableT]) -> str:
-        self.fields = {str(key): value for key, value in fields.items()}
+    async def xadd(self, stream: str, fields: dict[FieldT, EncodableT]) -> str:
+        self.messages[stream] = {str(key): value for key, value in fields.items()}
         return "1-0"
 
 
@@ -69,6 +74,9 @@ def test_every_supported_event_has_a_versioned_strict_payload_model() -> None:
         "execution.retry_requested",
         "execution.started",
         "execution.resumed",
+        "execution.step_started",
+        "execution.step_succeeded",
+        "execution.step_failed",
         "execution.retry_deferred",
         "execution.operation_succeeded",
         "execution.operation_failed",
@@ -120,7 +128,10 @@ async def test_postgres_outbox_and_redis_stream_share_the_same_v1_payload(
     session_factory = create_session_factory(engine)
     async with session_factory() as session:
         before = await session.scalar(
-            select(OutboxEventORM).where(OutboxEventORM.aggregate_id == execution.id)
+            select(OutboxEventORM).where(
+                OutboxEventORM.aggregate_id == execution.id,
+                OutboxEventORM.destination == OutboxDestination.EVENTS,
+            )
         )
     assert before is not None
     assert before.payload["schema_version"] == EXECUTION_EVENT_SCHEMA_VERSION
@@ -129,15 +140,17 @@ async def test_postgres_outbox_and_redis_stream_share_the_same_v1_payload(
     publisher = OutboxPublisher(
         session_factory=session_factory,
         redis=cast(Redis, recording_redis),
-        stream_name="event-contract-v1",
+        work_stream_name="work-contract-v1",
+        event_stream_name="event-contract-v1",
         poll_interval_seconds=0.01,
         batch_size=10,
         tracing=TracingManager(Settings(runtime_enabled=False)),
     )
 
-    assert await publisher.publish_batch() == 1
-    assert recording_redis.fields is not None
-    fields = {key: str(value) for key, value in recording_redis.fields.items()}
+    assert await publisher.publish_batch() == 2
+    fields = {
+        key: str(value) for key, value in recording_redis.messages["event-contract-v1"].items()
+    }
     envelope = ExecutionStreamEnvelope.from_redis_fields(fields)
 
     assert envelope.event_id == before.id
@@ -155,7 +168,10 @@ async def test_publisher_upgrades_a_valid_pre_v1_pending_payload(
     session_factory = create_session_factory(engine)
     async with session_factory() as session, session.begin():
         row = await session.scalar(
-            select(OutboxEventORM).where(OutboxEventORM.aggregate_id == execution.id)
+            select(OutboxEventORM).where(
+                OutboxEventORM.aggregate_id == execution.id,
+                OutboxEventORM.destination == OutboxDestination.EVENTS,
+            )
         )
         assert row is not None
         row.payload = {key: value for key, value in row.payload.items() if key != "schema_version"}
@@ -164,21 +180,24 @@ async def test_publisher_upgrades_a_valid_pre_v1_pending_payload(
     publisher = OutboxPublisher(
         session_factory=session_factory,
         redis=cast(Redis, recording_redis),
-        stream_name="event-contract-v1-upgrade",
+        work_stream_name="work-contract-v1-upgrade",
+        event_stream_name="event-contract-v1-upgrade",
         poll_interval_seconds=0.01,
         batch_size=10,
         tracing=TracingManager(Settings(runtime_enabled=False)),
     )
-    assert await publisher.publish_batch() == 1
+    assert await publisher.publish_batch() == 2
 
     async with session_factory() as session:
         upgraded = await session.scalar(
-            select(OutboxEventORM).where(OutboxEventORM.aggregate_id == execution.id)
+            select(OutboxEventORM).where(
+                OutboxEventORM.aggregate_id == execution.id,
+                OutboxEventORM.destination == OutboxDestination.EVENTS,
+            )
         )
     assert upgraded is not None
     assert upgraded.payload["schema_version"] == "1.0"
-    assert recording_redis.fields is not None
-    assert recording_redis.fields["schema_version"] == "1.0"
+    assert recording_redis.messages["event-contract-v1-upgrade"]["schema_version"] == "1.0"
 
 
 def test_stream_envelope_rejects_version_or_aggregate_mismatch() -> None:

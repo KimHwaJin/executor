@@ -11,7 +11,7 @@ from redis.typing import EncodableT, FieldT
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from executor_service.domain.enums import OutboxStatus
+from executor_service.domain.enums import OutboxDestination, OutboxStatus
 from executor_service.domain.models import utc_now
 from executor_service.events import validate_execution_event_payload
 from executor_service.infrastructure.db.models import OutboxEventORM
@@ -20,6 +20,7 @@ from executor_service.tracing import (
     capture_trace_carrier,
     extract_trace_context,
 )
+from executor_service.work_messages import validate_work_payload
 
 logger = logging.getLogger(__name__)
 
@@ -29,14 +30,18 @@ class OutboxPublisher:
         self,
         session_factory: async_sessionmaker[AsyncSession],
         redis: Redis,
-        stream_name: str,
+        work_stream_name: str,
+        event_stream_name: str,
         poll_interval_seconds: float,
         batch_size: int,
         tracing: TracingManager,
     ) -> None:
         self._session_factory = session_factory
         self._redis = redis
-        self._stream_name = stream_name
+        self._stream_names = {
+            OutboxDestination.WORK: work_stream_name,
+            OutboxDestination.EVENTS: event_stream_name,
+        }
         self._poll_interval_seconds = poll_interval_seconds
         self._batch_size = batch_size
         self._tracing = tracing
@@ -87,7 +92,14 @@ class OutboxPublisher:
             published = 0
             for event in events:
                 try:
-                    payload = validate_execution_event_payload(event.event_type, event.payload)
+                    if event.destination == OutboxDestination.WORK:
+                        payload = validate_work_payload(event.event_type, event.payload)
+                        id_field = "message_id"
+                        type_field = "message_type"
+                    else:
+                        payload = validate_execution_event_payload(event.event_type, event.payload)
+                        id_field = "event_id"
+                        type_field = "event_type"
                     if payload != event.payload:
                         # A deploy may find a pre-v1 PENDING row whose otherwise valid payload is
                         # missing only version normalization. Upgrade it in the same transaction
@@ -110,8 +122,8 @@ class OutboxPublisher:
                         },
                     ):
                         fields: dict[FieldT, EncodableT] = {
-                            "event_id": str(event.id),
-                            "event_type": event.event_type,
+                            id_field: str(event.id),
+                            type_field: event.event_type,
                             "schema_version": str(payload["schema_version"]),
                             "aggregate_type": event.aggregate_type,
                             "aggregate_id": str(event.aggregate_id),
@@ -123,7 +135,7 @@ class OutboxPublisher:
                             fields["traceparent"] = carrier.traceparent
                         if carrier.tracestate:
                             fields["tracestate"] = carrier.tracestate
-                        await self._redis.xadd(self._stream_name, fields)
+                        await self._redis.xadd(self._stream_names[event.destination], fields)
                     event.status = OutboxStatus.PUBLISHED
                     event.published_at = utc_now()
                     event.last_error = None
