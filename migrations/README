@@ -1,1 +1,15 @@
-Single-database Alembic migration environment for the executor PostgreSQL schema.
+Single-database Alembic environment for the Executor PostgreSQL schema.
+
+Revision `0001` is the complete pre-release schema baseline recorded on 2026-08-19. It replaces
+the former incremental development chain and is intended to create a new empty database directly
+at the current schema. Existing databases stamped with a removed development revision must be
+recreated; no compatibility or data-preserving upgrade path is provided for that discarded chain.
+
+Create or verify a database with:
+
+    uv run alembic upgrade head
+    uv run alembic current
+    uv run alembic check
+
+Service startup never runs Alembic automatically. Run it as a release/init job before starting
+Executor processes.

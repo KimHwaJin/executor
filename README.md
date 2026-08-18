@@ -227,10 +227,14 @@ EXECUTOR_RUN_POSTGRES_TESTS=1 uv run pytest tests/test_multi_worker_postgres.py
 Migration checks:
 
 ```bash
-uv run alembic current
-uv run alembic downgrade base
 uv run alembic upgrade head
+uv run alembic current
+uv run alembic check
 ```
+
+Revision `0001` is the complete 2026-08-19 pre-release schema baseline. It replaces the discarded
+incremental development chain and must be applied to an empty database; existing databases on an
+old development revision must be recreated. See [Database Operations](docs/database-operations.md).
 
 ## Tool contracts
 

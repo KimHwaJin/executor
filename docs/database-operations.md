@@ -4,6 +4,34 @@ Executor uses a bounded SQLAlchemy `AsyncAdaptedQueuePool` for application traff
 its independent `NullPool`, so a migration job opens only its migration connection and does not
 consume an application pool.
 
+## Schema baseline
+
+Revision `0001` is a complete snapshot of the Executor schema recorded on 2026-08-19. It creates
+all current tables, foreign keys, check/unique constraints, and operational indexes in one step.
+The earlier incremental development revisions were deliberately removed; this is a pre-release
+baseline reset, not a data-preserving upgrade from that discarded chain.
+
+For a new empty database:
+
+```bash
+uv run alembic upgrade head
+uv run alembic current
+uv run alembic check
+```
+
+`current` must report `0001 (head)`, and `check` must report that no new upgrade operations are
+detected. A development database carrying one of the removed revisions must be backed up if its
+data matters, then recreated as an empty database before `upgrade head`. Clear the four Executor
+Redis Streams at the same time so stale work messages cannot reference rows removed by the reset.
+Do not use this reset procedure for a production database.
+
+The opt-in PostgreSQL suite creates a fresh database per test, applies the real Alembic baseline,
+runs `alembic check`, and only then executes the concurrency scenario:
+
+```bash
+EXECUTOR_RUN_POSTGRES_TESTS=1 uv run pytest tests/test_multi_worker_postgres.py
+```
+
 ## Pool settings
 
 | Environment variable | Default | Meaning |
@@ -41,9 +69,9 @@ transactions and Pod count rather than from total active analyses.
 
 ## Query-plan verification
 
-Migration `0003` adds indexes for the unfiltered Execution cursor list and retained-session cleanup.
-Existing indexes cover maximum-runtime expiry, status lists, worker lease recovery, Runtime Target
-capacity, Outbox publication, and child history pagination.
+Baseline `0001` includes indexes for the unfiltered Execution cursor list, retained-session cleanup,
+maximum-runtime expiry, status lists, worker lease recovery, Runtime Target capacity, Outbox
+publication, and child history pagination.
 
 After applying migrations to a local PostgreSQL database, verify the critical plans with:
 
