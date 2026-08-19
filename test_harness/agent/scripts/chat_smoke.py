@@ -8,6 +8,7 @@ from langgraph_sdk import get_client
 
 async def main() -> None:
     server_url = os.getenv("TEST_AGENT_SERVER_URL", "http://127.0.0.1:2024")
+    graph_id = os.getenv("TEST_AGENT_GRAPH_ID", "executor_mcp_agent")
     prompt = os.getenv(
         "TEST_AGENT_CHAT_PROMPT",
         "basic 커널에서 1부터 10까지의 합계를 실제로 계산하고 출력해줘.",
@@ -16,7 +17,7 @@ async def main() -> None:
     thread = await client.threads.create()
     result = await client.runs.wait(
         thread["thread_id"],
-        "executor_test_agent",
+        graph_id,
         input={"messages": [{"role": "user", "content": prompt}]},
     )
     if not isinstance(result, dict):

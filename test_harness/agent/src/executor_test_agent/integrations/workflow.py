@@ -41,6 +41,7 @@ async def create_execution_operation(
     operation_index: int,
     expected_version: int,
     first_sequence: int,
+    actor_id: str = "executor-test-agent",
 ) -> dict[str, Any]:
     """Append one deterministic follow-up Operation to a waiting MULTI Execution."""
 
@@ -74,7 +75,7 @@ async def create_execution_operation(
                         "type": "INLINE",
                         "spec": {"schema_version": "1.0", "steps": source_steps},
                     },
-                    "actor": _agent_actor(),
+                    "actor": _agent_actor(actor_id),
                 }
             },
         )
@@ -86,6 +87,7 @@ async def finalize_execution(
     settings: AgentSettings,
     *,
     expected_version: int,
+    actor_id: str = "executor-test-agent",
 ) -> dict[str, Any]:
     """Finalize a deterministic MULTI scenario after its last Operation."""
 
@@ -101,7 +103,7 @@ async def finalize_execution(
                     "execution_id": execution_id,
                     "idempotency_key": _scenario_idempotency_key(execution_id, "finalize", 0, {}),
                     "expected_version": expected_version,
-                    "actor": _agent_actor(),
+                    "actor": _agent_actor(actor_id),
                 }
             },
         )
@@ -162,5 +164,5 @@ def _scenario_idempotency_key(
     return f"agent-scenario-{action}-{execution_id}-{index}-{digest}"
 
 
-def _agent_actor() -> dict[str, str]:
-    return {"type": "AGENT", "id": "executor-test-agent"}
+def _agent_actor(actor_id: str = "executor-test-agent") -> dict[str, str]:
+    return {"type": "AGENT", "id": actor_id}

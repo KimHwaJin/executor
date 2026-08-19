@@ -71,6 +71,7 @@ class AgentExecutionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     runtime_profile: str = "basic"
+    actor_id: str = Field(default="executor-test-agent", min_length=1, max_length=255)
     user_id: str
     project_id: str
     session_id: str
@@ -116,7 +117,7 @@ class AgentExecutionRequest(BaseModel):
             },
             "trigger": {
                 "type": "INTERACTIVE",
-                "actor": {"type": "AGENT", "id": "executor-test-agent"},
+                "actor": {"type": "AGENT", "id": self.actor_id},
             },
             "runtime": {"type": "JUPYTER", "profile": self.runtime_profile},
             "operation": {

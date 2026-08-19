@@ -114,6 +114,12 @@ async def load_executor_tools(
     settings: AgentSettings, *, request_scope_id: str | None = None
 ) -> list[BaseTool]:
     """Discover server schemas and return only Agent-approved read plus policy Tools."""
+    read_tools = await load_executor_read_tools(settings)
+    return [*read_tools, *_mutation_tools(settings, request_scope_id or uuid4().hex)]
+
+
+async def load_executor_read_tools(settings: AgentSettings) -> list[BaseTool]:
+    """Discover and expose read-only Executor Tools to the guarded planning Agent."""
     async with Client(settings.executor_mcp_url) as client:
         discovered = await client.list_tools()
     by_name = {tool.name: tool for tool in discovered.tools}
@@ -124,8 +130,7 @@ async def load_executor_tools(
     if leaked_admin:
         raise RuntimeError(f"Runtime admin Tools cannot be exposed: {sorted(leaked_admin)}")
 
-    read_tools = [_read_tool(by_name[name], settings) for name in sorted(READ_TOOL_NAMES)]
-    return [*read_tools, *_mutation_tools(settings, request_scope_id or uuid4().hex)]
+    return [_read_tool(by_name[name], settings) for name in sorted(READ_TOOL_NAMES)]
 
 
 def _read_tool(definition: Any, settings: AgentSettings) -> StructuredTool:

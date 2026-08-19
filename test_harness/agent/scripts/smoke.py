@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+from typing import Any
 from uuid import uuid4
 
 from langgraph_sdk import get_client
@@ -25,7 +26,7 @@ async def main() -> None:
     try:
         interrupted = await client.runs.wait(
             thread["thread_id"],
-            "executor_test_agent",
+            "executor_mcp_agent",
             input={
                 "messages": [
                     {
@@ -81,7 +82,7 @@ async def main() -> None:
         execution_id = interrupted.get("execution_id")
         if not isinstance(execution_id, str):
             raise RuntimeError("Interrupted Agent state has no execution_id.")
-        result = interrupted
+        result: dict[str, Any] = interrupted
         for _ in range(5):
             if result.get("phase") != "WAITING_FOR_EVENT":
                 break
@@ -94,11 +95,14 @@ async def main() -> None:
                 event_types=set(event_types),
                 operation_id=result.get("awaited_operation_id"),
             )
-            result = await client.runs.wait(
+            resumed = await client.runs.wait(
                 thread["thread_id"],
-                "executor_test_agent",
+                "executor_mcp_agent",
                 command={"resume": batch.model_dump(mode="json")},
             )
+            if not isinstance(resumed, dict):
+                raise RuntimeError(f"Agent returned an invalid resumed state: {resumed}")
+            result = resumed
         else:
             raise RuntimeError("Agent MULTI scenario exceeded its expected checkpoint count.")
     finally:
@@ -128,7 +132,7 @@ async def main() -> None:
     stream_unique = uuid4().hex
     stream_result = await client.runs.wait(
         stream_thread["thread_id"],
-        "executor_test_agent",
+        "executor_mcp_agent",
         input={
             "messages": [
                 {
