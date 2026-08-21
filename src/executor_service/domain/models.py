@@ -35,6 +35,9 @@ def utc_now() -> datetime:
 class ExecutionStep:
     sequence: int
     code: str
+    source_type: CodeSourceType = CodeSourceType.INLINE
+    source_path: str | None = None
+    source_sha256: str = ""
     step_timeout_seconds: int | None = None
     code_hash: str | None = None
     skill_name: str | None = None
@@ -63,10 +66,6 @@ class Execution:
     trigger_type: TriggerType
     runtime_pool: RuntimePool
     runtime_profile: str
-    code_source_type: CodeSourceType
-    source_content: str
-    code_path: str | None
-    source_sha256: str
     user_id: str
     project_id: str | None
     session_id: str | None
@@ -231,12 +230,9 @@ class ExecutionOperation:
     operation_number: int
     first_sequence: int
     last_sequence: int
-    code_source_type: CodeSourceType
-    source_content: str
-    code_path: str | None
-    source_sha256: str
     idempotency_key: str
     request_fingerprint: str
+    schema_version: str = "1.0"
     operation_timeout_seconds: int | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
     status: OperationStatus = OperationStatus.QUEUED

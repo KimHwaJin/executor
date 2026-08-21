@@ -1,12 +1,16 @@
 """Transport-shared Pydantic contracts for REST responses and MCP structured content."""
 
 from datetime import datetime
-from typing import Any
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 
-from executor_service.application.commands import StepSpec, SubmitExecutionCommand
+from executor_service.application.commands import (
+    MaterializeArtifactCommand,
+    StepSpec,
+    SubmitExecutionCommand,
+)
 from executor_service.application.execution_queries import (
     ExecutionArtifactView,
     ExecutionAttemptView,
@@ -15,6 +19,11 @@ from executor_service.application.execution_queries import (
     ExecutionOperationView,
     ExecutionStepAttemptView,
     ExecutionSummaryView,
+)
+from executor_service.application.execution_results import (
+    AttemptResultBundle,
+    ExecutionResultBundle,
+    OperationResultBundle,
 )
 from executor_service.application.notebook_queries import NotebookCellView, NotebookView
 from executor_service.application.pagination import Page
@@ -44,7 +53,8 @@ from executor_service.domain.enums import (
     TriggerType,
 )
 from executor_service.domain.models import Execution, ExecutionStep
-from executor_service.execution_specs import CodeSource, ExecutionSpec, PathCodeSource
+from executor_service.execution_specs import ExecutionSpec, ResolvedExecutionSpec
+from executor_service.result_summaries import OutputSummary
 
 
 class ContractModel(BaseModel):
@@ -65,6 +75,60 @@ class ActorInput(ContractModel):
     id: str = Field(min_length=1, max_length=255)
 
 
+class InlineArtifactSource(ContractModel):
+    type: Literal[CodeSourceType.INLINE]
+    content: str = Field(min_length=1)
+
+
+class PathArtifactSource(ContractModel):
+    type: Literal[CodeSourceType.PATH]
+    path: str = Field(min_length=1, max_length=4096)
+    sha256: str = Field(pattern=r"^[0-9a-fA-F]{64}$")
+
+
+ArtifactSource = Annotated[InlineArtifactSource | PathArtifactSource, Field(discriminator="type")]
+
+
+class ExecutionArtifactMaterializeRequest(ContractModel):
+    idempotency_key: str = Field(min_length=1, max_length=255)
+    type: ArtifactType
+    source: ArtifactSource
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = Field(default=None, max_length=4000)
+    media_type: str | None = Field(default=None, min_length=1, max_length=255)
+    append_to_notebook: bool = False
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    actor: ActorInput
+
+    @model_validator(mode="after")
+    def validate_notebook_append(self) -> "ExecutionArtifactMaterializeRequest":
+        if self.append_to_notebook and self.type != ArtifactType.REPORT:
+            raise ValueError("append_to_notebook is supported only for REPORT Artifacts.")
+        return self
+
+    def to_command(self, execution_id: UUID) -> MaterializeArtifactCommand:
+        return MaterializeArtifactCommand(
+            execution_id=execution_id,
+            idempotency_key=self.idempotency_key,
+            artifact_type=self.type,
+            source_type=self.source.type,
+            source_content=(
+                self.source.content if isinstance(self.source, InlineArtifactSource) else None
+            ),
+            source_path=(self.source.path if isinstance(self.source, PathArtifactSource) else None),
+            source_sha256=(
+                self.source.sha256 if isinstance(self.source, PathArtifactSource) else None
+            ),
+            name=self.name,
+            description=self.description,
+            media_type=self.media_type,
+            append_to_notebook=self.append_to_notebook,
+            metadata=self.metadata,
+            actor_type=self.actor.type,
+            actor_id=self.actor.id,
+        )
+
+
 class NotebookCellResponse(ContractModel):
     index: int
     id: str | None
@@ -73,6 +137,7 @@ class NotebookCellResponse(ContractModel):
     source: str
     line_count: int
     metadata: dict[str, Any]
+    output_summary: OutputSummary
     outputs: list[dict[str, Any]]
 
     @classmethod
@@ -163,7 +228,7 @@ class ExecutionRuntimeInput(ContractModel):
 
 class ExecutionOperationInput(ContractModel):
     operation_timeout_seconds: int | None = Field(default=None, ge=1)
-    source: CodeSource
+    spec: ExecutionSpec
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -176,9 +241,7 @@ class ExecutionSubmitRequest(ContractModel):
     operation: ExecutionOperationInput
     metadata: dict[str, Any] = Field(default_factory=dict)
 
-    def to_command(
-        self, spec: ExecutionSpec, *, source_content: str, source_sha256: str
-    ) -> SubmitExecutionCommand:
+    def to_command(self, resolved: ResolvedExecutionSpec) -> SubmitExecutionCommand:
         return SubmitExecutionCommand(
             idempotency_key=self.idempotency_key,
             operation_mode=self.lifecycle.operation_mode,
@@ -186,18 +249,11 @@ class ExecutionSubmitRequest(ContractModel):
             trigger_type=self.trigger.type,
             runtime_type=self.runtime.type,
             runtime_profile=self.runtime.profile,
-            code_source_type=self.operation.source.type,
-            source_content=source_content,
-            code_path=(
-                self.operation.source.path
-                if isinstance(self.operation.source, PathCodeSource)
-                else None
-            ),
-            source_sha256=source_sha256,
             user_id=self.context.user_id,
             project_id=self.context.project_id,
             session_id=self.context.session_id,
             task_id=self.context.task_id,
+            spec_schema_version=resolved.spec.schema_version,
             operation_timeout_seconds=self.operation.operation_timeout_seconds,
             actor_type=self.trigger.actor.type,
             actor_id=self.trigger.actor.id,
@@ -207,13 +263,16 @@ class ExecutionSubmitRequest(ContractModel):
             steps=tuple(
                 StepSpec(
                     sequence=step.sequence,
-                    code=step.code,
+                    code=step.content,
+                    source_type=step.source_type,
+                    source_path=step.source_path,
+                    source_sha256=step.source_sha256,
                     step_timeout_seconds=step.step_timeout_seconds,
                     skill_name=step.skill_name,
                     tool_name=step.tool_name,
                     input_parameters=step.input_parameters,
                 )
-                for step in spec.steps
+                for step in resolved.steps
             ),
         )
 
@@ -469,6 +528,7 @@ class ExecutionStepResponse(AuditFields):
     execution_id: UUID
     sequence: int
     code_hash: str | None
+    source: "StepSourceResponse"
     step_timeout_seconds: int | None
     lineage: ToolReference
     result: StepResult
@@ -481,6 +541,11 @@ class ExecutionStepResponse(AuditFields):
             execution_id=execution_id,
             sequence=step.sequence,
             code_hash=step.code_hash,
+            source=StepSourceResponse(
+                type=step.source_type,
+                path=step.source_path,
+                sha256=step.source_sha256,
+            ),
             step_timeout_seconds=step.step_timeout_seconds,
             lineage=ToolReference(
                 skill_name=step.skill_name,
@@ -500,7 +565,7 @@ class ExecutionStepResponse(AuditFields):
         )
 
 
-class ExecutionSourceResponse(ContractModel):
+class StepSourceResponse(ContractModel):
     type: CodeSourceType
     path: str | None
     sha256: str
@@ -657,7 +722,6 @@ class ExecutionResponse(AuditFields):
     execution_id: UUID
     trigger_type: TriggerType
     context: ExecutionContext
-    source: ExecutionSourceResponse
     runtime: ExecutionRuntime
     state: ExecutionState
     workspace: WorkspaceResponse
@@ -671,11 +735,6 @@ class ExecutionResponse(AuditFields):
     def from_view(cls, execution: ExecutionDetailView | Execution) -> "ExecutionResponse":
         return cls(
             **_execution_common(execution),
-            source=ExecutionSourceResponse(
-                type=execution.code_source_type,
-                path=execution.code_path,
-                sha256=execution.source_sha256,
-            ),
             workspace=WorkspaceResponse(
                 path=execution.workspace_path, notebook_path=execution.notebook_path
             ),
@@ -895,10 +954,10 @@ class ExecutionOperationResponse(AuditFields):
     operation_id: UUID
     execution_id: UUID
     operation_number: int
+    schema_version: str
     sequence_range: OperationSequenceRange
     operation_timeout_seconds: int | None
     metadata: dict[str, Any]
-    source: ExecutionSourceResponse
     execution_attempt_id: UUID | None
     result: OperationResult
     lifecycle: Lifecycle
@@ -910,16 +969,12 @@ class ExecutionOperationResponse(AuditFields):
             operation_id=view.id,
             execution_id=view.execution_id,
             operation_number=view.operation_number,
+            schema_version=view.schema_version,
             sequence_range=OperationSequenceRange(
                 first=view.first_sequence, last=view.last_sequence
             ),
             operation_timeout_seconds=view.operation_timeout_seconds,
             metadata=view.metadata,
-            source=ExecutionSourceResponse(
-                type=view.code_source_type,
-                path=view.code_path,
-                sha256=view.source_sha256,
-            ),
             execution_attempt_id=view.execution_attempt_id,
             result=OperationResult(status=view.status, error_message=view.error_message),
             lifecycle=Lifecycle(started_at=view.started_at, finished_at=view.finished_at),
@@ -1007,7 +1062,7 @@ class ExecutionEventPageResponse(PageResponse):
 
 class ArtifactProducer(ContractModel):
     execution_id: UUID
-    execution_attempt_id: UUID
+    execution_attempt_id: UUID | None
     execution_step_id: UUID | None
     execution_step_attempt_id: UUID | None
 
@@ -1123,4 +1178,54 @@ class ExecutionArtifactPageResponse(PageResponse):
             items=[ExecutionArtifactSummaryResponse.from_view(item) for item in page.items],
             next_cursor=page.next_cursor,
             has_more=page.next_cursor is not None,
+        )
+
+
+class ExecutionOperationResultResponse(ContractModel):
+    operation: ExecutionOperationResponse
+    steps: list[ExecutionStepResponse]
+
+    @classmethod
+    def from_bundle(cls, bundle: OperationResultBundle) -> "ExecutionOperationResultResponse":
+        return cls(
+            operation=ExecutionOperationResponse.from_view(bundle.operation),
+            steps=[
+                ExecutionStepResponse.from_domain(step, bundle.operation.execution_id)
+                for step in bundle.steps
+            ],
+        )
+
+
+class ExecutionAttemptResultResponse(ContractModel):
+    attempt: ExecutionAttemptDetailResponse
+    steps: list[ExecutionStepAttemptResponse]
+
+    @classmethod
+    def from_bundle(cls, bundle: AttemptResultBundle) -> "ExecutionAttemptResultResponse":
+        return cls(
+            attempt=ExecutionAttemptDetailResponse.from_view(bundle.attempt),
+            steps=[ExecutionStepAttemptResponse.from_view(step) for step in bundle.steps],
+        )
+
+
+class ExecutionResultResponse(ContractModel):
+    execution: ExecutionResponse
+    operations: list[ExecutionOperationResultResponse]
+    attempts: list[ExecutionAttemptResultResponse]
+    artifacts: list[ExecutionArtifactResponse]
+
+    @classmethod
+    def from_bundle(cls, bundle: ExecutionResultBundle) -> "ExecutionResultResponse":
+        return cls(
+            execution=ExecutionResponse.from_view(bundle.execution),
+            operations=[
+                ExecutionOperationResultResponse.from_bundle(operation)
+                for operation in bundle.operations
+            ],
+            attempts=[
+                ExecutionAttemptResultResponse.from_bundle(attempt) for attempt in bundle.attempts
+            ],
+            artifacts=[
+                ExecutionArtifactResponse.from_view(artifact) for artifact in bundle.artifacts
+            ],
         )

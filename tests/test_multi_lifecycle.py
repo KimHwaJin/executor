@@ -18,7 +18,6 @@ from executor_service.application.services import ExecutionService
 from executor_service.config import Settings
 from executor_service.domain.enums import (
     AttemptStatus,
-    CodeSourceType,
     ExecutionStatus,
     FailureType,
     OperationMode,
@@ -163,10 +162,6 @@ def _multi_command(key: str) -> SubmitExecutionCommand:
         operation_wait_timeout_seconds=3600,
         trigger_type=TriggerType.INTERACTIVE,
         runtime_profile="basic",
-        code_source_type=CodeSourceType.INLINE,
-        source_content=code,
-        code_path=None,
-        source_sha256="0" * 64,
         user_id="lifecycle-user",
         project_id="lifecycle-project",
         session_id="lifecycle-session",
@@ -371,7 +366,6 @@ async def test_multi_operation_executes_submitted_steps_until_boundary(
     command = _multi_command(f"operation-{expected_status.value.lower()}")
     command = replace(
         command,
-        source_content="first\nraise expected\nthird",
         steps=(
             StepSpec(0, "first"),
             StepSpec(1, "raise expected"),
@@ -463,8 +457,10 @@ async def test_multi_operation_executes_submitted_steps_until_boundary(
     for index, event in enumerate(step_result_events, start=1):
         assert event.payload["operation_id"] == str(operation.id)
         assert event.payload["step_id"] == str(steps[index - 1].id)
-        assert event.payload["result"]["outputs"]
-        assert event.payload["result"]["execution_count"] == (
+        assert event.payload["result_available"] is True
+        assert event.payload["result_ref"]["scope"] == "STEP"
+        assert event.payload["output_summary"]["output_count"] > 0
+        assert event.payload.get("execution_count") == (
             None if event.event_type == "execution.step_failed" else index
         )
     result_positions = [
@@ -516,7 +512,6 @@ async def test_expired_multi_wait_fails_and_cleans_kernel_once(
                 execution_id=execution.id,
                 idempotency_key="continue-after-timeout",
                 expected_version=row.version,
-                source_content="print('too late')",
                 steps=(
                     StepSpec(
                         sequence=1,

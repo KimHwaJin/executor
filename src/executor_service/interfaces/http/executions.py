@@ -17,8 +17,8 @@ from executor_service.application.notebook_queries import NotebookResponseFormat
 from executor_service.container import ApplicationContainer
 from executor_service.domain.enums import ExecutionStatus
 from executor_service.domain.errors import ExecutionNotFoundError, InvalidExecutionSpecError
-from executor_service.execution_specs import PathCodeSource
 from executor_service.interfaces.contracts import (
+    ExecutionArtifactMaterializeRequest,
     ExecutionArtifactPageResponse,
     ExecutionArtifactResponse,
     ExecutionAttemptDetailResponse,
@@ -29,8 +29,10 @@ from executor_service.interfaces.contracts import (
     ExecutionNotebookResponse,
     ExecutionOperationPageResponse,
     ExecutionOperationResponse,
+    ExecutionOperationResultResponse,
     ExecutionPageResponse,
     ExecutionResponse,
+    ExecutionResultResponse,
     ExecutionStepAttemptPageResponse,
     ExecutionStepPageResponse,
     ExecutionStepResponse,
@@ -74,6 +76,7 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
     router = APIRouter(prefix="/api/v1", tags=["executions"])
     execution_service = container.execution_service
     execution_queries = container.execution_queries
+    execution_results = container.execution_results
     resolver = container.execution_spec_resolver
     tracing = container.tracing
 
@@ -87,7 +90,7 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
     async def submit_execution(
         request: ExecutionSubmitRequest, response: Response
     ) -> ExecutionCommandResponse:
-        resolved = await resolver.resolve(request.operation.source)
+        resolved = await resolver.resolve(request.operation.spec)
         if resolved.spec.steps[0].sequence != 0:
             raise InvalidExecutionSpecError(
                 "Execution submit requires an ExecutionSpec starting at sequence 0."
@@ -95,13 +98,7 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
         result = await _trace_call(
             tracing,
             "executor.http.execution_submit",
-            execution_service.submit_result(
-                request.to_command(
-                    resolved.spec,
-                    source_content=resolved.canonical_content,
-                    source_sha256=resolved.sha256,
-                )
-            ),
+            execution_service.submit_result(request.to_command(resolved)),
         )
         execution = result.execution
         response.headers["Location"] = f"/api/v1/executions/{execution.id}"
@@ -146,6 +143,21 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
             {"executor.execution.id": str(execution_id)},
         )
         return ExecutionResponse.from_view(execution)
+
+    @router.get(
+        "/executions/{execution_id}/result",
+        response_model=ExecutionResultResponse,
+        responses=DOMAIN_ERROR_RESPONSES,
+        summary="Get the consolidated execution result for Agent reporting",
+    )
+    async def get_execution_result(execution_id: UUID) -> ExecutionResultResponse:
+        bundle = await _trace_call(
+            tracing,
+            "executor.http.execution_result_get",
+            execution_results.execution(execution_id),
+            {"executor.execution.id": str(execution_id)},
+        )
+        return ExecutionResultResponse.from_bundle(bundle)
 
     @router.get(
         "/executions/{execution_id}/notebook",
@@ -248,8 +260,8 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
     async def create_operation(
         execution_id: UUID, request: ExecutionOperationCreateRequest, response: Response
     ) -> ExecutionCommandResponse:
-        resolved = await resolver.resolve(request.source)
-        source_steps = resolved.spec.steps
+        resolved = await resolver.resolve(request.spec)
+        source_steps = resolved.steps
         result = await _trace_call(
             tracing,
             "executor.http.execution_operation_create",
@@ -258,18 +270,16 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
                     execution_id=execution_id,
                     idempotency_key=request.idempotency_key,
                     expected_version=request.expected_version,
-                    source_content=resolved.canonical_content,
+                    spec_schema_version=resolved.spec.schema_version,
                     operation_timeout_seconds=request.operation_timeout_seconds,
                     metadata=request.metadata,
-                    code_source_type=request.source.type,
-                    code_path=(
-                        request.source.path if isinstance(request.source, PathCodeSource) else None
-                    ),
-                    source_sha256=resolved.sha256,
                     steps=tuple(
                         StepSpec(
                             sequence=source_step.sequence,
-                            code=source_step.code,
+                            code=source_step.content,
+                            source_type=source_step.source_type,
+                            source_path=source_step.source_path,
+                            source_sha256=source_step.source_sha256,
                             step_timeout_seconds=source_step.step_timeout_seconds,
                             skill_name=source_step.skill_name,
                             tool_name=source_step.tool_name,
@@ -374,6 +384,18 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
         return ExecutionOperationResponse.from_view(view)
 
     @router.get(
+        "/executions/{execution_id}/operations/{operation_id}/result",
+        response_model=ExecutionOperationResultResponse,
+        responses=DOMAIN_ERROR_RESPONSES,
+        summary="Get one Operation and all of its Step results",
+    )
+    async def get_execution_operation_result(
+        execution_id: UUID, operation_id: UUID
+    ) -> ExecutionOperationResultResponse:
+        bundle = await execution_results.operation(execution_id, operation_id)
+        return ExecutionOperationResultResponse.from_bundle(bundle)
+
+    @router.get(
         "/executions/{execution_id}/operations/{operation_id}/steps",
         response_model=ExecutionStepPageResponse,
         responses=DOMAIN_ERROR_RESPONSES,
@@ -463,6 +485,25 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
     ) -> ExecutionArtifactPageResponse:
         page = await execution_queries.artifacts(execution_id, cursor=cursor, limit=limit)
         return ExecutionArtifactPageResponse.from_page(page)
+
+    @router.post(
+        "/executions/{execution_id}/artifacts",
+        response_model=ExecutionArtifactResponse,
+        status_code=status.HTTP_201_CREATED,
+        responses=DOMAIN_ERROR_RESPONSES,
+        summary="Materialize Agent-authored text as a Runtime-owned Artifact",
+    )
+    async def materialize_execution_artifact(
+        execution_id: UUID,
+        request: ExecutionArtifactMaterializeRequest,
+        response: Response,
+    ) -> ExecutionArtifactResponse:
+        artifact_id = await container.materialized_artifacts.materialize(
+            request.to_command(execution_id)
+        )
+        response.headers["Location"] = f"/api/v1/artifacts/{artifact_id}"
+        view = await execution_queries.artifact(artifact_id)
+        return ExecutionArtifactResponse.from_view(view)
 
     @router.get(
         "/artifacts/{artifact_id}",

@@ -94,7 +94,10 @@ class AgentExecutionRequest(BaseModel):
         normalized_steps = [
             {
                 "sequence": sequence,
-                "payload": {"type": "CODE", "content": step.code},
+                "payload": {
+                    "type": "PYTHON_EXECUTE",
+                    "source": {"type": "INLINE", "content": step.code},
+                },
                 "lineage": {
                     "skill_name": step.skill_name,
                     "tool_name": step.tool_name,
@@ -121,10 +124,7 @@ class AgentExecutionRequest(BaseModel):
             },
             "runtime": {"type": "JUPYTER", "profile": self.runtime_profile},
             "operation": {
-                "source": {
-                    "type": "INLINE",
-                    "spec": {"schema_version": "1.0", "steps": normalized_steps},
-                },
+                "spec": {"schema_version": "1.0", "steps": normalized_steps},
             },
             "context": {
                 "user_id": self.user_id,

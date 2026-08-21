@@ -13,7 +13,6 @@ from executor_service.application.services import ExecutionService
 from executor_service.config import Settings
 from executor_service.domain.enums import (
     AttemptStatus,
-    CodeSourceType,
     ExecutionStatus,
     FailureType,
     OperationMode,
@@ -141,10 +140,6 @@ async def test_runtime_storage_failure_finalizes_consistent_state_and_events(
             operation_mode=OperationMode.SINGLE,
             trigger_type=TriggerType.INTERACTIVE,
             runtime_profile="basic",
-            code_source_type=CodeSourceType.INLINE,
-            source_content=code,
-            code_path=None,
-            source_sha256="0" * 64,
             user_id="storage-user",
             project_id="storage-project",
             session_id="storage-session",

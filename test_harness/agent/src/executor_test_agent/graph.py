@@ -183,9 +183,7 @@ async def verify(state: AgentState) -> dict[str, Any]:
         }
 
     artifact_names = sorted(artifact["name"] for artifact in result["artifacts"])
-    output_text = _step_event_output_text(result["step_events"])
-    if not output_text:
-        output_text = _notebook_output_text(result["notebook"])
+    output_text = _step_output_text(result["steps"])
     message_lines = [
         f"Execution {result['execution_id']} {result['status']}.",
         f"Steps: {len(result['steps'])}",
@@ -316,29 +314,10 @@ def _route_after_advance(state: AgentState) -> str:
     return END
 
 
-def _notebook_output_text(notebook: dict[str, Any]) -> str:
+def _step_output_text(steps: list[dict[str, Any]]) -> str:
     rendered: list[str] = []
-    for cell in notebook.get("cells", []):
-        for output in cell.get("outputs", []):
-            text = output.get("text")
-            if isinstance(text, list):
-                rendered.append("".join(str(part) for part in text).strip())
-            elif isinstance(text, str):
-                rendered.append(text.strip())
-            data = output.get("data")
-            if isinstance(data, dict):
-                plain = data.get("text/plain")
-                if isinstance(plain, list):
-                    rendered.append("".join(str(part) for part in plain).strip())
-                elif isinstance(plain, str):
-                    rendered.append(plain.strip())
-    return "\n".join(part for part in rendered if part)
-
-
-def _step_event_output_text(events: list[dict[str, Any]]) -> str:
-    rendered: list[str] = []
-    for event in events:
-        result = event.get("payload", {}).get("result", {})
+    for step in steps:
+        result = step.get("result", {})
         for output in result.get("outputs", []):
             text = output.get("text")
             if isinstance(text, list):

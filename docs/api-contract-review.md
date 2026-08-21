@@ -243,11 +243,6 @@ Draft detail shape:
     "execution_plan_id": "plan-1",
     "workflow_id": null
   },
-  "source": {
-    "type": "INLINE",
-    "path": null,
-    "sha256": "..."
-  },
   "runtime": {
     "type": "JUPYTER",
     "pool": "INTERACTIVE",

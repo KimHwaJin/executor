@@ -14,7 +14,7 @@ from typing import Any, Literal
 from uuid import UUID, uuid4
 
 import httpx
-from execution_spec_payload import execution_request, inline_source
+from execution_spec_payload import execution_request, inline_spec
 from mcp import Client
 from redis.asyncio import Redis
 from sqlalchemy import select
@@ -422,7 +422,7 @@ async def _run_failure_retry_case(
                 trigger_type="INTERACTIVE",
                 actor={"type": "USER", "id": user_id},
                 runtime_profile=runtime_profile,
-                source=inline_source(
+                spec=inline_spec(
                     [
                         {
                             "skill_name": "data_io",
@@ -677,7 +677,7 @@ async def _run_cancel_case(
         trigger_type="INTERACTIVE",
         actor={"type": "USER", "id": user_id},
         runtime_profile=runtime_profile,
-        source=inline_source(
+        spec=inline_spec(
             [
                 {
                     "skill_name": "report",

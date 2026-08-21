@@ -79,7 +79,21 @@ async def test_graph_runs_executor_request_and_returns_verified_result(monkeypat
         return {
             "execution_id": execution_id,
             "status": "SUCCEEDED",
-            "steps": [{"result": {"status": "SUCCEEDED"}}],
+            "steps": [
+                {
+                    "result": {
+                        "status": "SUCCEEDED",
+                        "outputs": [
+                            {
+                                "output_type": "stream",
+                                "name": "stdout",
+                                "text": "55\n",
+                            }
+                        ],
+                        "error_message": None,
+                    }
+                }
+            ],
             "artifacts": [{"name": "result.txt"}],
             "notebook_path": "users/u/executions/execution-1/notebooks/execution.ipynb",
             "notebook": {
@@ -175,7 +189,21 @@ async def test_graph_runs_mcp_tool_agent_and_waits_for_stream_event(monkeypatch)
         return {
             "execution_id": execution_id,
             "status": "SUCCEEDED",
-            "steps": [{"result": {"status": "SUCCEEDED"}}],
+            "steps": [
+                {
+                    "result": {
+                        "status": "SUCCEEDED",
+                        "outputs": [
+                            {
+                                "output_type": "stream",
+                                "name": "stdout",
+                                "text": "55\n",
+                            }
+                        ],
+                        "error_message": None,
+                    }
+                }
+            ],
             "artifacts": [{"name": "execution.ipynb"}],
             "notebook_path": "users/u/executions/e/notebooks/execution.ipynb",
             "notebook": {

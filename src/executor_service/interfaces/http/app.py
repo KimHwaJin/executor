@@ -44,6 +44,8 @@ def create_app(container: ApplicationContainer) -> FastAPI:
         container.tracing,
         container.execution_spec_resolver,
         container.notebook_queries,
+        container.execution_results,
+        container.materialized_artifacts,
     )
     transport_security = TransportSecuritySettings(
         enable_dns_rebinding_protection=True,

@@ -52,7 +52,10 @@ async def create_execution_operation(
         source_steps = [
             {
                 "sequence": first_sequence + offset,
-                "payload": {"type": "CODE", "content": step.code},
+                "payload": {
+                    "type": "PYTHON_EXECUTE",
+                    "source": {"type": "INLINE", "content": step.code},
+                },
                 "lineage": {
                     "skill_name": step.skill_name,
                     "tool_name": step.tool_name,
@@ -71,10 +74,7 @@ async def create_execution_operation(
                         execution_id, "operation", operation_index, source_steps
                     ),
                     "expected_version": expected_version,
-                    "source": {
-                        "type": "INLINE",
-                        "spec": {"schema_version": "1.0", "steps": source_steps},
-                    },
+                    "spec": {"schema_version": "1.0", "steps": source_steps},
                     "actor": _agent_actor(actor_id),
                 }
             },
@@ -129,6 +129,7 @@ async def reconcile_execution(
         raise RuntimeError(
             f"Redis wake-up status {event_status!r} does not match Executor state {status!r}."
         )
+    steps = [step for operation in result["operations"] for step in operation["steps"]]
     return {
         "execution_id": execution_id,
         "wake_event_id": str(wake_event.event_id),
@@ -137,9 +138,10 @@ async def reconcile_execution(
         "version": result["execution"]["state"]["version"],
         "runtime_target_id": result["execution"]["runtime"]["target_id"],
         "notebook_path": result["execution"]["workspace"]["notebook_path"],
-        "steps": result["steps"],
+        "steps": steps,
         "artifacts": result["artifacts"],
-        "notebook": result["notebook"],
+        "attempts": result["attempts"],
+        "notebook": {"cells": []},
         "step_events": [
             event.model_dump(mode="json")
             for event in event_batch.events

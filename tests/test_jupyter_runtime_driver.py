@@ -152,6 +152,7 @@ async def test_runtime_storage_contract_uses_jupyter_server_apis() -> None:
         metadata = await driver.file_metadata(snapshot.files[0].path)
         manifest = await driver.read_manifest("users/u/executions/e", 0)
         await driver.write_notebook("users/u/executions/e/notebooks/execution.ipynb", {"cells": []})
+        await driver.write_text("users/u/executions/e/reports/final-report.md", "# Report")
         notebook = await driver.read_notebook("users/u/executions/e/notebooks/execution.ipynb")
     finally:
         await driver.close()
@@ -160,6 +161,11 @@ async def test_runtime_storage_contract_uses_jupyter_server_apis() -> None:
     assert metadata.checksum_sha256 == "a" * 64
     assert manifest == b"{}\n"
     assert notebook == {"cells": []}
+    text_request = next(
+        request for request in requests if request.url.path.endswith("/reports/final-report.md")
+    )
+    assert text_request.method == "PUT"
+    assert text_request.content == b'{"type":"file","format":"text","content":"# Report"}'
     assert requests[0].url.path == "/executor/storage/workspaces/prepare"
     assert requests[-1].url.path.endswith(
         "/api/contents/users/u/executions/e/notebooks/execution.ipynb"

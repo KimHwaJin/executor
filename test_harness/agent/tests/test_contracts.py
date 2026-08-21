@@ -24,8 +24,8 @@ def test_execution_request_builds_single_executor_spec() -> None:
 
     payload = request.executor_payload("idempotency")
 
-    assert payload["operation"]["source"]["spec"]["schema_version"] == "1.0"
-    assert payload["operation"]["source"]["spec"]["steps"][0]["sequence"] == 0
+    assert payload["operation"]["spec"]["schema_version"] == "1.0"
+    assert payload["operation"]["spec"]["steps"][0]["sequence"] == 0
     assert payload["context"]["task_id"] == "task"
     assert payload["lifecycle"] == {"operation_mode": "SINGLE"}
 

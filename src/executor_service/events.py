@@ -19,6 +19,7 @@ from executor_service.domain.enums import (
     StepStatus,
 )
 from executor_service.domain.models import OutboxEvent
+from executor_service.result_summaries import OutputSummary
 
 EXECUTION_EVENT_SCHEMA_VERSION = "2.0"
 
@@ -101,13 +102,12 @@ class StartedPayload(StatusPayload):
     status: Literal[ExecutionStatus.RUNNING]
 
 
-class RuntimeStepResult(BaseModel):
-    """Transport-neutral result returned by one Runtime execution unit."""
-
+class ResultReference(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    outputs: list[dict[str, Any]]
-    execution_count: int | None = Field(default=None, ge=0)
+    scope: Literal["STEP", "OPERATION", "EXECUTION"]
+    operation_id: UUID | None = None
+    step_id: UUID | None = None
 
 
 class StepEventPayload(EventPayload):
@@ -124,12 +124,17 @@ class StepStartedPayload(StepEventPayload):
 
 class StepSucceededPayload(StepEventPayload):
     status: Literal[StepStatus.SUCCEEDED]
-    result: RuntimeStepResult
+    result_available: Literal[True]
+    result_ref: ResultReference
+    output_summary: OutputSummary
+    execution_count: int | None = Field(default=None, ge=0)
 
 
 class StepFailedPayload(StepEventPayload):
     status: Literal[StepStatus.FAILED]
-    result: RuntimeStepResult
+    result_available: Literal[True]
+    result_ref: ResultReference
+    output_summary: OutputSummary
     error_message: str = Field(min_length=1, max_length=2000)
 
 
@@ -140,10 +145,14 @@ class CancelRequestedPayload(StatusPayload):
 
 class SucceededPayload(TerminalPayload):
     status: Literal[ExecutionStatus.SUCCEEDED]
+    result_available: Literal[True]
+    result_ref: ResultReference
 
 
 class FailedPayload(TerminalPayload):
     status: Literal[ExecutionStatus.FAILED]
+    result_available: Literal[True]
+    result_ref: ResultReference
 
 
 class OperationOutcomePayload(StatusPayload):
@@ -157,6 +166,8 @@ class OperationOutcomePayload(StatusPayload):
     first_sequence: int = Field(ge=0)
     last_sequence: int = Field(ge=0)
     version: int = Field(ge=0)
+    result_available: Literal[True]
+    result_ref: ResultReference
 
 
 class OperationSucceededPayload(OperationOutcomePayload):
@@ -170,8 +181,8 @@ class OperationFailedPayload(OperationOutcomePayload):
 
 
 class ArtifactRegisteredPayload(EventPayload):
-    execution_attempt_id: UUID
-    execution_step_id: UUID
+    execution_attempt_id: UUID | None
+    execution_step_id: UUID | None
     artifact_id: UUID
     artifact_type: ArtifactType
     storage_type: ArtifactStorageType

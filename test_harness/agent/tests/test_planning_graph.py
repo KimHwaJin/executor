@@ -424,7 +424,16 @@ async def test_planning_agent_reports_multi_operation_error_and_stops(monkeypatc
             "execution_id": execution_id,
             "status": "WAITING_FOR_OPERATION",
             "version": 2,
-            "steps": [{"sequence": 0, "result": {"status": "FAILED"}}],
+            "steps": [
+                {
+                    "sequence": 0,
+                    "result": {
+                        "status": "FAILED",
+                        "outputs": [],
+                        "error_message": "division by zero",
+                    },
+                }
+            ],
             "artifacts": [],
             "notebook_path": "users/u/executions/e/notebooks/execution.ipynb",
             "notebook": {"cells": []},

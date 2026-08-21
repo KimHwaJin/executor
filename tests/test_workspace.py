@@ -1,6 +1,6 @@
 import pytest
 
-from executor_service.domain.enums import CodeSourceType, OperationMode, RuntimePool, TriggerType
+from executor_service.domain.enums import OperationMode, RuntimePool, TriggerType
 from executor_service.domain.models import Execution, ExecutionStep
 from executor_service.infrastructure.workspace import WorkspaceManager, WorkspacePathError
 
@@ -13,10 +13,6 @@ def execution(*, user_id: str = "user-1", codes: tuple[str, ...] = ("print(1)",)
         trigger_type=TriggerType.INTERACTIVE,
         runtime_pool=RuntimePool.INTERACTIVE,
         runtime_profile="basic",
-        code_source_type=CodeSourceType.INLINE,
-        source_content='{"schema_version":"1.0"}',
-        code_path=None,
-        source_sha256="0" * 64,
         user_id=user_id,
         project_id="project-1",
         session_id="session-1",
@@ -41,6 +37,7 @@ def test_workspace_only_builds_runtime_paths_and_notebook_document() -> None:
         "users/user-1/projects/project-1/sessions/session-1/executions/"
     )
     assert workspace.notebook_path.endswith("/notebooks/execution.ipynb")
+    assert workspace.reports_path.endswith("/reports")
     assert workspace.artifacts_path.endswith("/artifacts")
     assert cells == ["print(1)", "2 + 2"]
 

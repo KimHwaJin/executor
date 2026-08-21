@@ -12,7 +12,7 @@ from typing import Any, Literal
 from uuid import UUID, uuid4
 
 import httpx
-from execution_spec_payload import execution_request, inline_source
+from execution_spec_payload import execution_request, inline_spec
 from mcp import Client
 from redis.asyncio import Redis
 from sqlalchemy import select
@@ -91,7 +91,7 @@ def _submission_payload(unique: str, transport: Transport, runtime_profile: str)
         operation_mode="SINGLE",
         trigger_type="INTERACTIVE",
         runtime_profile=runtime_profile,
-        source=inline_source(
+        spec=inline_spec(
             [
                 {
                     "skill_name": "eda",

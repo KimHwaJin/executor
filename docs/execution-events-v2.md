@@ -24,18 +24,22 @@ Executor Workers consume a separate `executor.work` Stream. Its internal message
 | `execution.retry_requested` | `task_id`, `operation_id`, retry range/strategy/count |
 | `execution.started`, `execution.resumed` | `status=RUNNING` |
 | `execution.step_started` | Attempt, Operation, Step IDs, sequence, status |
-| `execution.step_succeeded` | identities plus `result.outputs` and `result.execution_count` |
-| `execution.step_failed` | identities, partial outputs, and `error_message` |
-| `execution.operation_succeeded`, `execution.operation_failed` | Operation outcome, sequence range, version; failure includes `error_message` |
+| `execution.step_succeeded` | identities, `output_summary`, execution count, and Step result reference |
+| `execution.step_failed` | identities, `output_summary`, result reference, and `error_message` |
+| `execution.operation_succeeded`, `execution.operation_failed` | Operation outcome, sequence range, version, and Operation result reference; failure includes `error_message` |
 | `execution.waiting_for_operation` | `operation_id`, `operation_wait_expires_at`, version |
 | `execution.artifact_registered`, `execution.artifact_failed` | Artifact identity or registration failure |
-| `execution.succeeded`, `execution.failed`, `execution.cancelled` | terminal state and cleanup/retry information |
+| `execution.succeeded`, `execution.failed` | terminal state, cleanup/retry information, and Execution result reference |
+| `execution.cancelled` | terminal cancellation and cleanup information; no result is produced |
 | `execution.timeout_requested` | Execution maximum-runtime cancellation request |
 | cleanup/retry-window events | retained-session cleanup outcome |
 
-Step success carries the complete bounded Runtime result. For Jupyter this is the cell MIME output,
-including base64 image data when returned by Jupyter. A MULTI Agent can checkpoint each Step result;
-the Operation outcome and `execution.waiting_for_operation` arrive after all Step events.
+Redis never carries complete output text or base64 image content. A Step summary reports output
+counts/types, stream names, MIME types, image/error presence, `result_available=true`, and a
+structured `result_ref`. The Operation outcome and `execution.waiting_for_operation` arrive after
+all Step events. The Agent treats these as wake-up signals, then calls
+`execution_operation_result_get` or `execution_result_get` for authoritative PostgreSQL-backed
+results. The REST equivalents are the `/result` endpoints.
 
 Consumers must deduplicate by `event_id` in durable storage, commit the deduplication record and
 business state together, and ACK only after commit. Reclaim stale Pending entries with

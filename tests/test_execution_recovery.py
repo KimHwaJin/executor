@@ -10,7 +10,6 @@ from executor_service.application.services import ExecutionService
 from executor_service.config import Settings
 from executor_service.domain.enums import (
     AttemptStatus,
-    CodeSourceType,
     ExecutionStatus,
     FailureType,
     OperationMode,
@@ -44,10 +43,6 @@ def _command() -> SubmitExecutionCommand:
         operation_mode=OperationMode.SINGLE,
         trigger_type=TriggerType.INTERACTIVE,
         runtime_profile="basic",
-        code_source_type=CodeSourceType.INLINE,
-        source_content="print('long-running')",
-        code_path=None,
-        source_sha256="0" * 64,
         user_id="recovery-user",
         project_id="recovery-project",
         session_id="recovery-session",

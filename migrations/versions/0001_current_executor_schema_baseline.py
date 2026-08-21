@@ -320,14 +320,6 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("runtime_profile", sa.String(length=128), nullable=False),
-        sa.Column(
-            "code_source_type",
-            sa.Enum("INLINE", "PATH", name="code_source_type", native_enum=False, length=32),
-            nullable=False,
-        ),
-        sa.Column("code", sa.Text(), nullable=False),
-        sa.Column("code_path", sa.Text(), nullable=True),
-        sa.Column("source_sha256", sa.String(length=64), nullable=False),
         sa.Column("user_id", sa.String(length=255), nullable=False),
         sa.Column("project_id", sa.String(length=255), nullable=True),
         sa.Column("session_id", sa.String(length=255), nullable=True),
@@ -416,16 +408,8 @@ def upgrade() -> None:
         sa.Column("started_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("finished_at", sa.DateTime(timezone=True), nullable=True),
         sa.CheckConstraint(
-            "(code_source_type = 'INLINE' AND code_path IS NULL) OR (code_source_type = 'PATH' AND code_path IS NOT NULL)",
-            name=op.f("ck_executions_valid_code_source"),
-        ),
-        sa.CheckConstraint(
             "(operation_mode = 'SINGLE' AND operation_wait_timeout_seconds IS NULL) OR (operation_mode = 'MULTI' AND operation_wait_timeout_seconds >= 30)",
             name=op.f("ck_executions_valid_operation_wait_timeout"),
-        ),
-        sa.CheckConstraint(
-            "code_source_type IN ('INLINE', 'PATH')",
-            name=op.f("ck_executions_valid_code_source_type"),
         ),
         sa.CheckConstraint(
             "created_by_type IS NULL OR created_by_type IN ('AGENT', 'USER', 'BATCH')",
@@ -720,20 +704,11 @@ def upgrade() -> None:
         sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column("execution_id", sa.Uuid(), nullable=False),
         sa.Column("operation_number", sa.Integer(), nullable=False),
+        sa.Column("schema_version", sa.String(length=16), nullable=False),
         sa.Column("first_sequence", sa.Integer(), nullable=False),
         sa.Column("last_sequence", sa.Integer(), nullable=False),
         sa.Column("operation_timeout_seconds", sa.Integer(), nullable=True),
         sa.Column("metadata", sa.JSON(), nullable=False),
-        sa.Column(
-            "code_source_type",
-            sa.Enum(
-                "INLINE", "PATH", name="operation_code_source_type", native_enum=False, length=32
-            ),
-            nullable=False,
-        ),
-        sa.Column("source_content", sa.Text(), nullable=False),
-        sa.Column("code_path", sa.Text(), nullable=True),
-        sa.Column("source_sha256", sa.String(length=64), nullable=False),
         sa.Column("idempotency_key", sa.String(length=255), nullable=False),
         sa.Column("request_fingerprint", sa.String(length=64), nullable=False),
         sa.Column(
@@ -799,6 +774,10 @@ def upgrade() -> None:
             "operation_number > 0", name=op.f("ck_execution_operations_positive_operation_number")
         ),
         sa.CheckConstraint(
+            "schema_version = '1.0'",
+            name=op.f("ck_execution_operations_supported_schema_version"),
+        ),
+        sa.CheckConstraint(
             "operation_timeout_seconds IS NULL OR operation_timeout_seconds >= 1",
             name=op.f("ck_execution_operations_valid_operation_timeout"),
         ),
@@ -859,6 +838,13 @@ def upgrade() -> None:
         sa.Column("operation_id", sa.Uuid(), nullable=False),
         sa.Column("sequence", sa.Integer(), nullable=False),
         sa.Column("code", sa.Text(), nullable=False),
+        sa.Column(
+            "source_type",
+            sa.Enum("INLINE", "PATH", name="step_source_type", native_enum=False, length=32),
+            nullable=False,
+        ),
+        sa.Column("source_path", sa.Text(), nullable=True),
+        sa.Column("source_sha256", sa.String(length=64), nullable=False),
         sa.Column("code_hash", sa.String(length=64), nullable=True),
         sa.Column("step_timeout_seconds", sa.Integer(), nullable=True),
         sa.Column("skill_name", sa.String(length=255), nullable=True),
@@ -904,6 +890,14 @@ def upgrade() -> None:
         sa.CheckConstraint(
             "status IN ('PENDING', 'RUNNING', 'SUCCEEDED', 'FAILED', 'SKIPPED', 'CANCELLED')",
             name=op.f("ck_execution_steps_valid_step_status"),
+        ),
+        sa.CheckConstraint(
+            "source_type IN ('INLINE', 'PATH')",
+            name=op.f("ck_execution_steps_valid_source_type"),
+        ),
+        sa.CheckConstraint(
+            "(source_type = 'INLINE' AND source_path IS NULL) OR (source_type = 'PATH' AND source_path IS NOT NULL)",
+            name=op.f("ck_execution_steps_valid_source"),
         ),
         sa.CheckConstraint(
             "updated_by_type IS NULL OR updated_by_type IN ('AGENT', 'USER', 'BATCH')",
@@ -1050,7 +1044,7 @@ def upgrade() -> None:
         "execution_artifacts",
         sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column("execution_id", sa.Uuid(), nullable=False),
-        sa.Column("execution_attempt_id", sa.Uuid(), nullable=False),
+        sa.Column("execution_attempt_id", sa.Uuid(), nullable=True),
         sa.Column("execution_step_id", sa.Uuid(), nullable=True),
         sa.Column("execution_step_attempt_id", sa.Uuid(), nullable=True),
         sa.Column("parent_artifact_id", sa.Uuid(), nullable=True),

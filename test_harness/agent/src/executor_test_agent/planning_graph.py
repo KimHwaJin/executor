@@ -451,9 +451,7 @@ def _phase_after_result(status: str, failed_step: bool, state: PlanningAgentStat
 
 
 def _result_message(result: dict[str, Any], failed_step: bool) -> str:
-    output = _event_output_text(result.get("step_events", [])) or _notebook_output_text(
-        result.get("notebook", {})
-    )
+    output = _step_output_text(result.get("steps", []))
     lines = [
         f"Execution {result['execution_id']} 상태: {result['status']}",
         f"Step 수: {len(result.get('steps', []))}",
@@ -468,21 +466,14 @@ def _result_message(result: dict[str, Any], failed_step: bool) -> str:
     return "\n\n".join(lines)
 
 
-def _event_output_text(events: list[dict[str, Any]]) -> str:
+def _step_output_text(steps: list[dict[str, Any]]) -> str:
     rendered: list[str] = []
-    for event in events:
-        result = event.get("payload", {}).get("result", {})
-        error = result.get("error") or result.get("error_message")
+    for step in steps:
+        result = step.get("result", {})
+        error = result.get("error_message")
         if error:
             rendered.append(str(error))
         rendered.extend(_render_outputs(result.get("outputs", [])))
-    return "\n".join(part for part in rendered if part)
-
-
-def _notebook_output_text(notebook: dict[str, Any]) -> str:
-    rendered: list[str] = []
-    for cell in notebook.get("cells", []):
-        rendered.extend(_render_outputs(cell.get("outputs", [])))
     return "\n".join(part for part in rendered if part)
 
 

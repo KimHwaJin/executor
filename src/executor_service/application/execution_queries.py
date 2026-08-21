@@ -12,7 +12,6 @@ from executor_service.domain.enums import (
     ArtifactStorageType,
     ArtifactType,
     AttemptStatus,
-    CodeSourceType,
     ExecutionStatus,
     FailureType,
     OperationMode,
@@ -63,9 +62,6 @@ class ExecutionDetailView:
     session_id: str | None
     task_id: str
     workflow_id: str | None
-    code_source_type: CodeSourceType
-    code_path: str | None
-    source_sha256: str
     runtime_type: RuntimeType
     runtime_pool: RuntimePool
     runtime_profile: str
@@ -151,13 +147,11 @@ class ExecutionOperationView:
     id: UUID
     execution_id: UUID
     operation_number: int
+    schema_version: str
     first_sequence: int
     last_sequence: int
     operation_timeout_seconds: int | None
     metadata: dict[str, Any]
-    code_source_type: CodeSourceType
-    code_path: str | None
-    source_sha256: str
     status: OperationStatus
     execution_attempt_id: UUID | None
     error_message: str | None
@@ -194,7 +188,7 @@ class ExecutionEventView:
 class ExecutionArtifactView:
     id: UUID
     execution_id: UUID
-    execution_attempt_id: UUID
+    execution_attempt_id: UUID | None
     execution_step_id: UUID | None
     execution_step_attempt_id: UUID | None
     parent_artifact_id: UUID | None

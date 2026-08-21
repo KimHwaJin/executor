@@ -1,6 +1,7 @@
 """Verify append-only MULTI execution on one retained Jupyter kernel."""
 
 import asyncio
+import hashlib
 import json
 from uuid import UUID, uuid4
 
@@ -13,7 +14,6 @@ from executor_service.application.commands import (
 from executor_service.config import get_settings
 from executor_service.container import ApplicationContainer
 from executor_service.domain.enums import (
-    CodeSourceType,
     ExecutionStatus,
     OperationMode,
     StepStatus,
@@ -51,10 +51,6 @@ async def main() -> None:
                 operation_wait_timeout_seconds=3600,
                 trigger_type=TriggerType.INTERACTIVE,
                 runtime_profile="basic",
-                code_source_type=CodeSourceType.INLINE,
-                source_content=first_code,
-                code_path=None,
-                source_sha256="0" * 64,
                 user_id="multi-user",
                 project_id="multi-project",
                 session_id="multi-session",
@@ -63,6 +59,7 @@ async def main() -> None:
                     StepSpec(
                         sequence=0,
                         code=first_code,
+                        source_sha256=hashlib.sha256(first_code.encode()).hexdigest(),
                         tool_name="initialize_value",
                     ),
                 ),
@@ -78,11 +75,13 @@ async def main() -> None:
                 execution_id=submitted.id,
                 idempotency_key=f"multi-continue-1-{unique}",
                 expected_version=first.version,
-                source_content="answer = value + 2\nprint(answer)",
                 steps=(
                     StepSpec(
                         sequence=1,
                         code="answer = value + 2\nprint(answer)",
+                        source_sha256=hashlib.sha256(
+                            b"answer = value + 2\nprint(answer)"
+                        ).hexdigest(),
                         tool_name="calculate_answer",
                     ),
                 ),
@@ -97,11 +96,13 @@ async def main() -> None:
                 execution_id=submitted.id,
                 idempotency_key=f"multi-continue-error-{unique}",
                 expected_version=second.version,
-                source_content="raise ValueError('planned multi failure')",
                 steps=(
                     StepSpec(
                         sequence=2,
                         code="raise ValueError('planned multi failure')",
+                        source_sha256=hashlib.sha256(
+                            b"raise ValueError('planned multi failure')"
+                        ).hexdigest(),
                         tool_name="failing_tool",
                     ),
                 ),
@@ -116,11 +117,13 @@ async def main() -> None:
                 execution_id=submitted.id,
                 idempotency_key=f"multi-continue-corrected-{unique}",
                 expected_version=failed.version,
-                source_content="corrected = answer * 2\nprint(corrected)",
                 steps=(
                     StepSpec(
                         sequence=3,
                         code="corrected = answer * 2\nprint(corrected)",
+                        source_sha256=hashlib.sha256(
+                            b"corrected = answer * 2\nprint(corrected)"
+                        ).hexdigest(),
                         tool_name="corrected_tool",
                     ),
                 ),

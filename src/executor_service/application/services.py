@@ -94,12 +94,9 @@ class ExecutionService:
                     last_sequence=command.steps[-1].sequence,
                     operation_timeout_seconds=command.operation_timeout_seconds,
                     metadata=command.operation_metadata,
-                    code_source_type=command.code_source_type,
-                    source_content=command.source_content,
-                    code_path=command.code_path,
-                    source_sha256=command.source_sha256,
                     idempotency_key=command.idempotency_key,
                     request_fingerprint=fingerprint,
+                    schema_version=command.spec_schema_version,
                     created_by_type=command.actor_type,
                     created_by=command.actor_id,
                     updated_by_type=command.actor_type,
@@ -114,10 +111,6 @@ class ExecutionService:
                     runtime_type=command.runtime_type,
                     runtime_pool=RuntimePool(command.trigger_type.value),
                     runtime_profile=command.runtime_profile,
-                    code_source_type=command.code_source_type,
-                    source_content=command.source_content,
-                    code_path=command.code_path,
-                    source_sha256=command.source_sha256,
                     user_id=command.user_id,
                     project_id=command.project_id,
                     session_id=command.session_id,
@@ -132,6 +125,9 @@ class ExecutionService:
                         ExecutionStep(
                             sequence=step.sequence,
                             code=step.code,
+                            source_type=step.source_type,
+                            source_path=step.source_path,
+                            source_sha256=step.source_sha256,
                             step_timeout_seconds=step.step_timeout_seconds,
                             code_hash=_code_hash(step.code),
                             skill_name=step.skill_name,
@@ -207,6 +203,8 @@ class ExecutionService:
     async def create_operation_result(
         self, command: CreateOperationCommand
     ) -> ExecutionCommandResult:
+        if command.spec_schema_version != "1.0":
+            raise InvalidStateTransitionError("Only ExecutionSpec schema_version 1.0 is supported.")
         fingerprint = _fingerprint(command)
         command_type = "execution_operation_create"
         try:
@@ -247,12 +245,9 @@ class ExecutionService:
                     last_sequence=command.steps[-1].sequence,
                     operation_timeout_seconds=command.operation_timeout_seconds,
                     metadata=command.metadata,
-                    code_source_type=command.code_source_type,
-                    source_content=command.source_content,
-                    code_path=command.code_path,
-                    source_sha256=command.source_sha256,
                     idempotency_key=command.idempotency_key,
                     request_fingerprint=fingerprint,
+                    schema_version=command.spec_schema_version,
                     created_by_type=command.actor_type,
                     created_by=command.actor_id,
                     updated_by_type=command.actor_type,
@@ -262,6 +257,9 @@ class ExecutionService:
                     ExecutionStep(
                         sequence=source.sequence,
                         code=source.code,
+                        source_type=source.source_type,
+                        source_path=source.source_path,
+                        source_sha256=source.source_sha256,
                         step_timeout_seconds=source.step_timeout_seconds,
                         code_hash=_code_hash(source.code),
                         skill_name=source.skill_name,
@@ -590,6 +588,8 @@ def _ensure_same_fingerprint(execution: Execution, fingerprint: str) -> None:
 
 
 def _validate_submit(command: SubmitExecutionCommand) -> None:
+    if command.spec_schema_version != "1.0":
+        raise InvalidStateTransitionError("Only ExecutionSpec schema_version 1.0 is supported.")
     _validate_actor(command.actor_type, command.actor_id)
     if (
         command.actor_type is not None

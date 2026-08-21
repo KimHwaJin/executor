@@ -1,4 +1,4 @@
-"""Transport-neutral ExecutionSpec v1 contracts and Agent/Executor input resolver."""
+"""Transport-neutral ExecutionSpec 1.0 with per-Step content sources."""
 
 import asyncio
 import hashlib
@@ -7,15 +7,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Any, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from executor_service.domain.enums import CodeSourceType, StepPayloadType
 from executor_service.domain.errors import InvalidExecutionSpecError
 
 
 class ExecutionSpecModel(BaseModel):
-    """Strict JSON contract shared by MCP and REST transport adapters."""
-
     model_config = ConfigDict(extra="forbid")
 
 
@@ -25,12 +23,26 @@ class StepLineage(ExecutionSpecModel):
     input_parameters: dict[str, Any] = Field(default_factory=dict)
 
 
-class CodeStepPayload(ExecutionSpecModel):
-    type: Literal[StepPayloadType.CODE]
+class InlineStepSource(ExecutionSpecModel):
+    type: Literal[CodeSourceType.INLINE]
     content: str = Field(min_length=1)
 
 
-StepPayload = Annotated[CodeStepPayload, Field(discriminator="type")]
+class PathStepSource(ExecutionSpecModel):
+    type: Literal[CodeSourceType.PATH]
+    path: str = Field(min_length=1, max_length=4096)
+    sha256: str = Field(pattern=r"^[0-9a-fA-F]{64}$")
+
+
+StepSource = Annotated[InlineStepSource | PathStepSource, Field(discriminator="type")]
+
+
+class PythonExecutePayload(ExecutionSpecModel):
+    type: Literal[StepPayloadType.PYTHON_EXECUTE]
+    source: StepSource
+
+
+StepPayload = Annotated[PythonExecutePayload, Field(discriminator="type")]
 
 
 class ExecutionStepInput(ExecutionSpecModel):
@@ -38,22 +50,6 @@ class ExecutionStepInput(ExecutionSpecModel):
     payload: StepPayload
     step_timeout_seconds: int | None = Field(default=None, ge=1)
     lineage: StepLineage | None = None
-
-    @property
-    def code(self) -> str:
-        return self.payload.content
-
-    @property
-    def skill_name(self) -> str | None:
-        return self.lineage.skill_name if self.lineage else None
-
-    @property
-    def tool_name(self) -> str | None:
-        return self.lineage.tool_name if self.lineage else None
-
-    @property
-    def input_parameters(self) -> dict[str, Any]:
-        return self.lineage.input_parameters if self.lineage else {}
 
 
 class ExecutionSpec(ExecutionSpecModel):
@@ -66,30 +62,26 @@ class ExecutionSpec(ExecutionSpecModel):
         expected = list(range(sequences[0], sequences[0] + len(sequences)))
         if sequences != expected:
             raise ValueError("Step sequence values must be contiguous and ordered.")
-        if any(not step.code.strip() for step in self.steps):
-            raise ValueError("Step code must not be blank.")
         return self
 
 
-class InlineCodeSource(ExecutionSpecModel):
-    type: Literal[CodeSourceType.INLINE]
-    spec: ExecutionSpec
-
-
-class PathCodeSource(ExecutionSpecModel):
-    type: Literal[CodeSourceType.PATH]
-    path: str = Field(min_length=1, max_length=4096)
-    sha256: str = Field(pattern=r"^[0-9a-fA-F]{64}$")
-
-
-CodeSource = Annotated[InlineCodeSource | PathCodeSource, Field(discriminator="type")]
+@dataclass(frozen=True, slots=True)
+class ResolvedExecutionStep:
+    sequence: int
+    content: str
+    source_type: CodeSourceType
+    source_path: str | None
+    source_sha256: str
+    step_timeout_seconds: int | None
+    skill_name: str | None
+    tool_name: str | None
+    input_parameters: dict[str, Any]
 
 
 @dataclass(frozen=True, slots=True)
 class ResolvedExecutionSpec:
     spec: ExecutionSpec
-    canonical_content: str
-    sha256: str
+    steps: tuple[ResolvedExecutionStep, ...]
 
 
 class ExecutionSpecResolver:
@@ -104,51 +96,68 @@ class ExecutionSpecResolver:
         self._inline_max_bytes = inline_max_bytes
         self._file_max_bytes = file_max_bytes
 
-    async def resolve(self, source: CodeSource) -> ResolvedExecutionSpec:
-        if isinstance(source, InlineCodeSource):
-            content = source.spec.model_dump_json()
+    async def resolve(self, spec: ExecutionSpec) -> ResolvedExecutionSpec:
+        resolved = tuple([await self._resolve_step(step) for step in spec.steps])
+        return ResolvedExecutionSpec(spec=spec, steps=resolved)
+
+    async def _resolve_step(self, step: ExecutionStepInput) -> ResolvedExecutionStep:
+        source = step.payload.source
+        if isinstance(source, InlineStepSource):
+            content = source.content
             encoded = content.encode("utf-8")
             if len(encoded) > self._inline_max_bytes:
                 raise InvalidExecutionSpecError(
-                    "INLINE ExecutionSpec exceeds the configured size limit; use PATH."
+                    "INLINE Step source exceeds the configured size limit; use PATH."
                 )
-            return ResolvedExecutionSpec(
-                spec=source.spec,
-                canonical_content=content,
-                sha256=hashlib.sha256(encoded).hexdigest(),
-            )
-        if not isinstance(source, PathCodeSource):
-            raise InvalidExecutionSpecError("Unsupported ExecutionSpec source type.")
-        return await asyncio.to_thread(self._resolve_path, source)
-
-    def _resolve_path(self, source: PathCodeSource) -> ResolvedExecutionSpec:
-        relative_path = Path(source.path)
-        if relative_path.is_absolute():
-            raise InvalidExecutionSpecError("PATH source must be relative to the input root.")
-        resolved_path = (self._input_root / relative_path).resolve()
-        try:
-            resolved_path.relative_to(self._input_root)
-        except ValueError as exc:
-            raise InvalidExecutionSpecError("PATH source resolves outside the input root.") from exc
-        if not resolved_path.is_file():
-            raise InvalidExecutionSpecError("ExecutionSpec PATH source does not exist.")
-        with resolved_path.open("rb") as file:
-            content = file.read(self._file_max_bytes + 1)
-        if len(content) > self._file_max_bytes:
-            raise InvalidExecutionSpecError(
-                "PATH ExecutionSpec exceeds the configured file size limit."
-            )
-        digest = hashlib.sha256(content).hexdigest()
-        if not hmac.compare_digest(digest, source.sha256.lower()):
-            raise InvalidExecutionSpecError("ExecutionSpec SHA-256 does not match the file.")
-        try:
-            spec = ExecutionSpec.model_validate_json(content)
-        except (ValidationError, UnicodeDecodeError) as exc:
-            raise InvalidExecutionSpecError(
-                "PATH source is not a valid ExecutionSpec v1 JSON file."
-            ) from exc
-        return ResolvedExecutionSpec(
-            spec=spec,
-            canonical_content=spec.model_dump_json(),
-            sha256=digest,
+            source_type = CodeSourceType.INLINE
+            source_path = None
+            checksum = hashlib.sha256(encoded).hexdigest()
+        elif isinstance(source, PathStepSource):
+            content, checksum = await asyncio.to_thread(self._read_path, source)
+            source_type = CodeSourceType.PATH
+            source_path = source.path
+        else:  # pragma: no cover
+            raise InvalidExecutionSpecError("Unsupported Step source type.")
+        if not content.strip():
+            raise InvalidExecutionSpecError("Python Step source must not be blank.")
+        lineage = step.lineage
+        return ResolvedExecutionStep(
+            sequence=step.sequence,
+            content=content,
+            source_type=source_type,
+            source_path=source_path,
+            source_sha256=checksum,
+            step_timeout_seconds=step.step_timeout_seconds,
+            skill_name=lineage.skill_name if lineage else None,
+            tool_name=lineage.tool_name if lineage else None,
+            input_parameters=lineage.input_parameters if lineage else {},
         )
+
+    def _read_path(self, source: PathStepSource) -> tuple[str, str]:
+        candidate = Path(source.path)
+        if candidate.is_absolute():
+            raise InvalidExecutionSpecError("PATH Step source must be relative to the input root.")
+        try:
+            resolved = (self._input_root / candidate).resolve()
+            resolved.relative_to(self._input_root)
+        except ValueError as exc:
+            raise InvalidExecutionSpecError(
+                "PATH Step source resolves outside the input root."
+            ) from exc
+        if resolved.suffix.lower() != ".py":
+            raise InvalidExecutionSpecError("PATH Python Step source must use a .py file.")
+        if not resolved.is_file():
+            raise InvalidExecutionSpecError("PATH Python Step source does not exist.")
+        if resolved.stat().st_size > self._file_max_bytes:
+            raise InvalidExecutionSpecError(
+                "PATH Python Step source exceeds the configured file size limit."
+            )
+        try:
+            encoded = resolved.read_bytes()
+            content = encoded.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise InvalidExecutionSpecError("PATH Python Step source must be UTF-8.") from exc
+        checksum = hashlib.sha256(encoded).hexdigest()
+        if not hmac.compare_digest(checksum, source.sha256.lower()):
+            raise InvalidExecutionSpecError("Python Step source SHA-256 does not match the file.")
+        return content, checksum

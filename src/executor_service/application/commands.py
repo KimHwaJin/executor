@@ -6,6 +6,7 @@ from uuid import UUID
 
 from executor_service.domain.enums import (
     ActorType,
+    ArtifactType,
     CodeSourceType,
     OperationMode,
     RuntimeType,
@@ -17,6 +18,9 @@ from executor_service.domain.enums import (
 class StepSpec:
     sequence: int
     code: str
+    source_type: CodeSourceType = CodeSourceType.INLINE
+    source_path: str | None = None
+    source_sha256: str = ""
     step_timeout_seconds: int | None = None
     skill_name: str | None = None
     tool_name: str | None = None
@@ -29,14 +33,11 @@ class SubmitExecutionCommand:
     operation_mode: OperationMode
     trigger_type: TriggerType
     runtime_profile: str
-    code_source_type: CodeSourceType
-    source_content: str
-    code_path: str | None
-    source_sha256: str
     user_id: str
     project_id: str | None
     session_id: str | None
     task_id: str
+    spec_schema_version: str = "1.0"
     operation_wait_timeout_seconds: int | None = None
     operation_timeout_seconds: int | None = None
     runtime_type: RuntimeType = RuntimeType.JUPYTER
@@ -71,12 +72,9 @@ class CreateOperationCommand:
     idempotency_key: str
     expected_version: int
     steps: tuple[StepSpec, ...]
-    source_content: str
+    spec_schema_version: str = "1.0"
     operation_timeout_seconds: int | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
-    code_source_type: CodeSourceType = CodeSourceType.INLINE
-    code_path: str | None = None
-    source_sha256: str = ""
     actor_type: ActorType | None = None
     actor_id: str | None = None
 
@@ -86,5 +84,23 @@ class FinalizeExecutionCommand:
     execution_id: UUID
     idempotency_key: str
     expected_version: int
+    actor_type: ActorType | None = None
+    actor_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class MaterializeArtifactCommand:
+    execution_id: UUID
+    idempotency_key: str
+    artifact_type: ArtifactType
+    source_type: CodeSourceType
+    source_content: str | None
+    source_path: str | None
+    source_sha256: str | None
+    name: str | None = None
+    description: str | None = None
+    media_type: str | None = None
+    append_to_notebook: bool = False
+    metadata: dict[str, Any] = field(default_factory=dict)
     actor_type: ActorType | None = None
     actor_id: str | None = None

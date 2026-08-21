@@ -5,7 +5,7 @@ import os
 from typing import Any
 from uuid import uuid4
 
-from execution_spec_payload import execution_request, inline_source
+from execution_spec_payload import execution_request, inline_spec
 from mcp import Client
 
 
@@ -66,7 +66,7 @@ async def main() -> None:
                     operation_mode="SINGLE",
                     trigger_type="INTERACTIVE",
                     runtime_profile="basic",
-                    source=inline_source(
+                    spec=inline_spec(
                         [
                             {
                                 "skill_name": "report",

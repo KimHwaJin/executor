@@ -2,7 +2,6 @@
 
 import asyncio
 import hashlib
-import json
 import os
 from pathlib import Path
 from typing import Any
@@ -30,32 +29,15 @@ async def _wait_terminal(client: Client, execution_id: str) -> dict[str, Any]:
 
 def _publish_input(unique: str) -> tuple[Path, Path, Path, bytes]:
     input_root = Path(os.getenv("EXECUTOR_INPUT_HOST_ROOT", "input_dir")).resolve()
-    relative_path = Path("smoke") / unique / "execution-spec.json"
+    relative_path = Path("smoke") / unique / "step-0.py"
     source_path = input_root / relative_path
     temporary_path = source_path.with_suffix(".tmp")
-    spec = {
-        "schema_version": "1.0",
-        "steps": [
-            {
-                "sequence": 0,
-                "payload": {
-                    "type": "CODE",
-                    "content": (
-                        "from pathlib import Path\n"
-                        "Path('artifacts/other/path-source.txt').write_text("
-                        "'runtime-owned', encoding='utf-8')\n"
-                        "print('PATH source executed')"
-                    ),
-                },
-                "lineage": {
-                    "skill_name": "report",
-                    "tool_name": "path_source_probe",
-                    "input_parameters": {},
-                },
-            }
-        ],
-    }
-    content = json.dumps(spec, separators=(",", ":"), ensure_ascii=False).encode()
+    content = (
+        b"from pathlib import Path\n"
+        b"Path('artifacts/other/path-source.txt').write_text("
+        b"'runtime-owned', encoding='utf-8')\n"
+        b"print('PATH source executed')"
+    )
     source_path.parent.mkdir(parents=True, exist_ok=True)
     temporary_path.write_bytes(content)
     temporary_path.replace(source_path)
@@ -89,10 +71,26 @@ async def main() -> None:
                         operation_mode="SINGLE",
                         trigger_type="INTERACTIVE",
                         runtime_profile="basic",
-                        source={
-                            "type": "PATH",
-                            "path": relative_path.as_posix(),
-                            "sha256": hashlib.sha256(content).hexdigest(),
+                        spec={
+                            "schema_version": "1.0",
+                            "steps": [
+                                {
+                                    "sequence": 0,
+                                    "payload": {
+                                        "type": "PYTHON_EXECUTE",
+                                        "source": {
+                                            "type": "PATH",
+                                            "path": relative_path.as_posix(),
+                                            "sha256": hashlib.sha256(content).hexdigest(),
+                                        },
+                                    },
+                                    "lineage": {
+                                        "skill_name": "report",
+                                        "tool_name": "path_source_probe",
+                                        "input_parameters": {},
+                                    },
+                                }
+                            ],
                         },
                         context={
                             "user_id": "path-smoke-user",

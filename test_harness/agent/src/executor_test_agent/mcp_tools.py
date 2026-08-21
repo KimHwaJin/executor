@@ -26,9 +26,11 @@ READ_TOOL_NAMES = frozenset(
         "runtime_target_get",
         "execution_list",
         "execution_get",
+        "execution_result_get",
         "execution_step_list",
         "execution_operation_list",
         "execution_operation_get",
+        "execution_operation_result_get",
         "execution_operation_step_list",
         "execution_attempt_list",
         "execution_attempt_get",
@@ -318,7 +320,10 @@ async def _create_operation(
     source_steps = [
         {
             "sequence": first_sequence + offset,
-            "payload": {"type": "CODE", "content": step.code},
+            "payload": {
+                "type": "PYTHON_EXECUTE",
+                "source": {"type": "INLINE", "content": step.code},
+            },
             "lineage": {
                 "skill_name": step.skill_name,
                 "tool_name": step.tool_name,
@@ -340,12 +345,9 @@ async def _create_operation(
                     "operation-create", request_scope_id, arguments
                 ),
                 "expected_version": execution["state"]["version"],
-                "source": {
-                    "type": "INLINE",
-                    "spec": {
-                        "schema_version": "1.0",
-                        "steps": source_steps,
-                    },
+                "spec": {
+                    "schema_version": "1.0",
+                    "steps": source_steps,
                 },
                 "actor": _actor(settings),
             }

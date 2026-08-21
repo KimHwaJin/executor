@@ -26,7 +26,6 @@ from executor_service.application.services import ExecutionService
 from executor_service.config import Settings
 from executor_service.domain.enums import (
     AttemptStatus,
-    CodeSourceType,
     ExecutionStatus,
     OperationMode,
     OperationStatus,
@@ -106,10 +105,6 @@ def _command(name: str) -> SubmitExecutionCommand:
         operation_mode=OperationMode.SINGLE,
         trigger_type=TriggerType.INTERACTIVE,
         runtime_profile="basic",
-        code_source_type=CodeSourceType.INLINE,
-        source_content=f"print('{name}')",
-        code_path=None,
-        source_sha256="0" * 64,
         user_id="postgres-race-user",
         project_id="postgres-race-project",
         session_id=f"postgres-race-session-{name}",
