@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 
 from executor_service.config import get_settings
 from executor_service.infrastructure.jupyter import JupyterRuntimeDriver
@@ -9,10 +10,14 @@ from executor_service.infrastructure.jupyter import JupyterRuntimeDriver
 
 async def main() -> None:
     settings = get_settings()
+    endpoint = os.getenv("JUPYTER_GATEWAY_ENDPOINT")
+    token = os.getenv("JUPYTER_GATEWAY_TOKEN")
+    if not endpoint or not token:
+        raise RuntimeError("JUPYTER_GATEWAY_ENDPOINT and JUPYTER_GATEWAY_TOKEN are required.")
     relative_path = "users/smoke/projects/smoke/sessions/smoke/executions/gateway-smoke"
     gateway = JupyterRuntimeDriver(
-        settings.jupyter_endpoint,
-        settings.jupyter_auth_token,
+        endpoint,
+        token,
         settings.jupyter_request_timeout_seconds,
     )
     runtime_session_ids: list[str] = []

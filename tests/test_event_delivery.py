@@ -27,6 +27,7 @@ from executor_service.infrastructure.db.models import ExecutionAttemptORM, Runti
 from executor_service.infrastructure.db.session import create_session_factory
 from executor_service.infrastructure.runtime_registry import RuntimeTargetRegistry
 from executor_service.infrastructure.worker import ExecutionWorker
+from tests.runtime_credentials import runtime_credential_fields
 
 
 def test_dead_letter_stream_must_be_separate() -> None:
@@ -288,7 +289,7 @@ async def test_two_workers_create_only_one_execution_attempt(
             RuntimeTargetORM(
                 name=f"claim-target-{uuid4().hex}",
                 connection_config={"endpoint": "http://127.0.0.1:9"},
-                credential_ref="settings:JUPYTER_TOKEN",
+                **runtime_credential_fields(),
                 pool=RuntimePool.INTERACTIVE,
                 status=RuntimeTargetStatus.ACTIVE,
                 max_concurrent_executions=2,

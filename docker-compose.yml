@@ -89,12 +89,8 @@ services:
       MCP_ALLOWED_HOSTS: ${MCP_ALLOWED_HOSTS_DOCKER:-localhost:*,127.0.0.1:*,testserver,executor:*}
       MCP_ALLOWED_ORIGINS: ${MCP_ALLOWED_ORIGINS_DOCKER:-http://localhost:*,http://127.0.0.1:*}
       RUNTIME_ENABLED: "true"
-      RUNTIME_TARGET_NAME: ${RUNTIME_TARGET_NAME:-local-jupyter}
-      JUPYTER_ENDPOINT: http://jupyter:8888
-      JUPYTER_TOKEN: ${JUPYTER_TOKEN:-change-me-local-only}
       JUPYTER_STORAGE_TIMEOUT_SECONDS: ${JUPYTER_STORAGE_TIMEOUT_SECONDS:-300}
       RUNTIME_CREDENTIAL_KEY: ${RUNTIME_CREDENTIAL_KEY:-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}
-      RUNTIME_POOL: INTERACTIVE
       RUNTIME_ALLOWED_PROFILES: ${RUNTIME_ALLOWED_PROFILES:-basic,ml}
       RUNTIME_DEFAULT_MAX_CONCURRENT_EXECUTIONS: ${RUNTIME_DEFAULT_MAX_CONCURRENT_EXECUTIONS:-2}
       RUNTIME_HEALTH_POLL_INTERVAL_SECONDS: ${RUNTIME_HEALTH_POLL_INTERVAL_SECONDS:-15}
@@ -121,8 +117,6 @@ services:
       migrate:
         condition: service_completed_successfully
       redis:
-        condition: service_healthy
-      jupyter:
         condition: service_healthy
     volumes:
       - ./input_dir:/workspace/input:ro

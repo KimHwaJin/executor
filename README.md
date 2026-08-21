@@ -415,10 +415,9 @@ The same fleet registry is available to operators through REST at `/api/v1/runti
 `/api/v1/runtime-pools`. REST supports registration, filtered cursor listing, detail, immediate
 probe, drain, activate, disable, and a deliberately restricted hard purge. Hard purge requires
 the exact target name, an already disabled `OFFLINE` target, and no Execution or Attempt reference;
-the environment-configured default target is never purgeable. A successful purge preserves an
-immutable audit tombstone and never cascades into execution history. Credentials are accepted only
-on upsert and credentials are absent from every response. The non-secret endpoint is returned as
-`runtime.connection_config.endpoint`.
+a successful purge preserves an immutable audit tombstone and never cascades into execution
+history. Credentials are accepted only on upsert and credentials are absent from every response.
+The non-secret endpoint is returned as `runtime.connection_config.endpoint`.
 
 ## Jupyter shared storage contract
 
@@ -519,11 +518,11 @@ Set Kubernetes `terminationGracePeriodSeconds` greater than
 Executions longer than the configured drain window cannot move their live Jupyter WebSocket to
 another Pod; they use the documented failure and explicit retry path when the deadline expires.
 
-The bootstrap Jupyter token is supplied through `JUPYTER_TOKEN`. It is loaded by the mounted
-Jupyter config and sent by the Executor only in the `Authorization` header. Dynamically registered
-tokens are encrypted with `RUNTIME_CREDENTIAL_KEY` before PostgreSQL storage. Neither plaintext
-token is placed in request URLs or responses. Rotate the encryption key only with a credential
-re-encryption procedure; replacing it directly makes existing dynamic credentials unreadable.
+Executor starts with an empty Runtime Fleet. Every Jupyter endpoint and credential is registered
+through the Runtime Target REST or MCP API and the credential is encrypted with
+`RUNTIME_CREDENTIAL_KEY` before PostgreSQL storage. Plaintext credentials are not placed in request
+URLs or responses. Rotate the encryption key only with a credential re-encryption procedure;
+replacing it directly makes existing dynamic credentials unreadable.
 
 ## Kubernetes deployment
 

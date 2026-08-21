@@ -35,6 +35,7 @@ from executor_service.infrastructure.db.models import (
 from executor_service.infrastructure.db.session import create_session_factory
 from executor_service.infrastructure.runtime_registry import RuntimeTargetRegistry
 from executor_service.infrastructure.worker import ExecutionWorker
+from tests.runtime_credentials import runtime_credential_fields
 
 
 def _command() -> SubmitExecutionCommand:
@@ -69,7 +70,7 @@ async def test_expired_lease_is_failed_once_and_can_restart_from_zero(
         target = RuntimeTargetORM(
             name="recovery-jupyter",
             connection_config={"endpoint": "http://127.0.0.1:9"},
-            credential_ref="settings:JUPYTER_TOKEN",
+            **runtime_credential_fields(),
             pool=RuntimePool.INTERACTIVE,
             status=RuntimeTargetStatus.ACTIVE,
             max_concurrent_executions=1,

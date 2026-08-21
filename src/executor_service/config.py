@@ -51,12 +51,8 @@ class Settings(BaseSettings):
     jupyter_request_timeout_seconds: float = Field(default=30, gt=0)
     jupyter_storage_timeout_seconds: float = Field(default=300, gt=0)
     runtime_enabled: bool = True
-    runtime_target_name: str = "local-jupyter"
-    jupyter_endpoint: str = "http://127.0.0.1:8888"
-    jupyter_token: SecretStr = SecretStr("change-me-local-only")
     # Base64-encoded 32-byte Fernet key. Replace in every non-local environment.
     runtime_credential_key: SecretStr = SecretStr("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
-    runtime_pool: str = "INTERACTIVE"
     runtime_allowed_profiles: Annotated[tuple[str, ...], NoDecode] = ("basic", "ml")
     runtime_default_max_concurrent_executions: int = Field(default=2, ge=1)
     runtime_health_poll_interval_seconds: float = Field(default=15, gt=0)
@@ -110,16 +106,12 @@ class Settings(BaseSettings):
             raise ValueError("RUNTIME_ALLOWED_PROFILES must contain at least one profile.")
         if len(self.runtime_allowed_profiles) != len(set(self.runtime_allowed_profiles)):
             raise ValueError("RUNTIME_ALLOWED_PROFILES must not contain duplicates.")
-        if self.app_env.lower() != "local":
-            if self.jupyter_auth_token == "change-me-local-only":
-                raise ValueError("JUPYTER_TOKEN must be replaced outside local environments.")
-            if (
-                self.runtime_credential_encryption_key
-                == "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
-            ):
-                raise ValueError(
-                    "RUNTIME_CREDENTIAL_KEY must be replaced outside local environments."
-                )
+        if (
+            self.app_env.lower() != "local"
+            and self.runtime_credential_encryption_key
+            == "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+        ):
+            raise ValueError("RUNTIME_CREDENTIAL_KEY must be replaced outside local environments.")
         return self
 
     @property
@@ -129,10 +121,6 @@ class Settings(BaseSettings):
     @property
     def redis_dsn(self) -> str:
         return self.redis_url.get_secret_value()
-
-    @property
-    def jupyter_auth_token(self) -> str:
-        return self.jupyter_token.get_secret_value()
 
     @property
     def runtime_credential_encryption_key(self) -> str:

@@ -27,6 +27,7 @@ from executor_service.infrastructure.db.models import RuntimeTargetORM
 from executor_service.infrastructure.db.session import create_session_factory
 from executor_service.infrastructure.runtime_registry import RuntimeTargetRegistry
 from executor_service.infrastructure.worker import ExecutionWorker
+from tests.runtime_credentials import runtime_credential_fields
 from tests.runtime_storage_fake import InMemoryRuntimeStorage
 
 
@@ -101,7 +102,7 @@ def _target(name: str, pool: RuntimePool, *, capacity: int = 10) -> RuntimeTarge
     return RuntimeTargetORM(
         name=name,
         connection_config={"endpoint": f"http://{name}.invalid:8888"},
-        credential_ref="settings:JUPYTER_TOKEN",
+        **runtime_credential_fields(),
         pool=pool,
         status=RuntimeTargetStatus.ACTIVE,
         max_concurrent_executions=capacity,

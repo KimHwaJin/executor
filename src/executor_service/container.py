@@ -87,8 +87,6 @@ class ApplicationContainer:
     async def start(self) -> None:
         self.outbox_publisher.start()
         if self.settings.runtime_enabled:
-            target_id = await self.runtime_registry.ensure_configured_target()
-            await self.runtime_registry.probe(target_id)
             await self.runtime_registry.start()
             await self.execution_worker.start()
 
@@ -116,8 +114,4 @@ class ApplicationContainer:
         checks = {"postgresql": database_ready, "redis": redis_ready}
         if self.settings.runtime_enabled:
             checks["worker_accepting"] = self.execution_worker.accepting_work
-            try:
-                checks["runtime_fleet"] = await self.runtime_registry.any_active()
-            except Exception:
-                checks["runtime_fleet"] = False
         return checks

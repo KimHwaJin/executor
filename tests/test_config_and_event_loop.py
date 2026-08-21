@@ -37,8 +37,17 @@ def test_comma_separated_lists_load_from_dotenv(tmp_path: Path) -> None:
 
 
 def test_non_local_environment_rejects_placeholder_secrets() -> None:
-    with pytest.raises(ValueError, match="JUPYTER_TOKEN"):
+    with pytest.raises(ValueError, match="RUNTIME_CREDENTIAL_KEY"):
         Settings(app_env="production")
+
+
+def test_settings_have_no_bootstrap_runtime_target_fields() -> None:
+    settings = Settings()
+
+    assert not hasattr(settings, "runtime_target_name")
+    assert not hasattr(settings, "jupyter_endpoint")
+    assert not hasattr(settings, "jupyter_token")
+    assert not hasattr(settings, "runtime_pool")
 
 
 def test_windows_async_runner_uses_selector_event_loop() -> None:

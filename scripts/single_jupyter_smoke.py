@@ -9,8 +9,6 @@ from uuid import uuid4
 from execution_spec_payload import execution_request, inline_spec
 from mcp import Client
 
-from executor_service.config import get_settings
-
 
 async def _required_tool_result(
     client: Client, tool: str, arguments: dict[str, Any]
@@ -36,11 +34,10 @@ async def _wait_for_terminal(
 
 
 async def main() -> None:
-    settings = get_settings()
     mcp_url = os.getenv("EXECUTOR_MCP_URL", "http://127.0.0.1:8000/mcp")
-    server_name = os.getenv("SINGLE_JUPYTER_NAME", settings.runtime_target_name)
-    endpoint = os.getenv("SINGLE_JUPYTER_ENDPOINT", settings.jupyter_endpoint)
-    token = os.getenv("SINGLE_JUPYTER_TOKEN", settings.jupyter_auth_token)
+    server_name = os.getenv("SINGLE_JUPYTER_NAME", "single-jupyter-smoke")
+    endpoint = os.getenv("SINGLE_JUPYTER_ENDPOINT", "http://127.0.0.1:8888")
+    token = os.getenv("SINGLE_JUPYTER_TOKEN", "change-me-local-only")
     kernel_name = os.getenv("SINGLE_JUPYTER_KERNEL", "basic")
     timeout_seconds = float(os.getenv("SINGLE_JUPYTER_TIMEOUT_SECONDS", "120"))
     unique = uuid4().hex

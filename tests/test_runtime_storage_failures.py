@@ -36,6 +36,7 @@ from executor_service.infrastructure.db.models import (
 from executor_service.infrastructure.db.session import create_session_factory
 from executor_service.infrastructure.runtime_registry import RuntimeTargetRegistry
 from executor_service.infrastructure.worker import ExecutionWorker
+from tests.runtime_credentials import runtime_credential_fields
 from tests.runtime_storage_fake import InMemoryRuntimeStorage
 
 
@@ -125,7 +126,7 @@ async def test_runtime_storage_failure_finalizes_consistent_state_and_events(
             RuntimeTargetORM(
                 name=f"storage-failure-{failure_point}",
                 connection_config={"endpoint": "http://runtime.invalid:8888"},
-                credential_ref="settings:JUPYTER_TOKEN",
+                **runtime_credential_fields(),
                 pool=RuntimePool.INTERACTIVE,
                 status=RuntimeTargetStatus.ACTIVE,
                 max_concurrent_executions=1,

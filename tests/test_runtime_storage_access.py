@@ -15,6 +15,7 @@ from executor_service.infrastructure.db.models import RuntimeTargetORM
 from executor_service.infrastructure.db.session import create_session_factory
 from executor_service.infrastructure.runtime_registry import RuntimeTargetRegistry
 from executor_service.infrastructure.runtime_storage import FleetRuntimeStorageAccess
+from tests.runtime_credentials import runtime_credential_fields
 
 
 class ReadDriver:
@@ -63,8 +64,7 @@ async def _target(
         name=name,
         runtime_type=RuntimeType.JUPYTER,
         connection_config={"endpoint": endpoint},
-        credential_ref="settings:JUPYTER_TOKEN",
-        credential_ciphertext=None,
+        **runtime_credential_fields(),
         pool=RuntimePool.INTERACTIVE,
         status=status,
         max_concurrent_executions=2,
@@ -78,7 +78,7 @@ async def _target(
 
 def _access(engine: AsyncEngine, factory: DriverFactory) -> FleetRuntimeStorageAccess:
     session_factory = create_session_factory(engine)
-    settings = Settings(jupyter_token="test-token")
+    settings = Settings()
     registry = RuntimeTargetRegistry(session_factory, settings)
     return FleetRuntimeStorageAccess(
         session_factory,

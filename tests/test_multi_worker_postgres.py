@@ -50,6 +50,7 @@ from executor_service.infrastructure.outbox import OutboxPublisher
 from executor_service.infrastructure.runtime_registry import RuntimeTargetRegistry
 from executor_service.infrastructure.worker import ExecutionWorker
 from executor_service.tracing import TracingManager
+from tests.runtime_credentials import runtime_credential_fields
 
 pytestmark = pytest.mark.postgres
 
@@ -123,7 +124,7 @@ def _server(*, capacity: int) -> RuntimeTargetORM:
     return RuntimeTargetORM(
         name=f"postgres-race-target-{uuid4().hex}",
         connection_config={"endpoint": "http://127.0.0.1:9"},
-        credential_ref="settings:JUPYTER_TOKEN",
+        **runtime_credential_fields(),
         pool=RuntimePool.INTERACTIVE,
         status=RuntimeTargetStatus.ACTIVE,
         max_concurrent_executions=capacity,

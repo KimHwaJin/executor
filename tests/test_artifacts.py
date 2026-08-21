@@ -36,6 +36,7 @@ from executor_service.interfaces.contracts import (
     ExecutionArtifactPageResponse,
     ExecutionArtifactResponse,
 )
+from tests.runtime_credentials import runtime_credential_fields
 from tests.runtime_storage_fake import InMemoryRuntimeStorage
 
 
@@ -75,7 +76,7 @@ async def _seed_attempt(
                 id=target_id,
                 name="artifact-jupyter",
                 connection_config={"endpoint": "http://127.0.0.1:8888"},
-                credential_ref="settings:JUPYTER_TOKEN",
+                **runtime_credential_fields(),
                 pool=RuntimePool.INTERACTIVE,
                 status=RuntimeTargetStatus.ACTIVE,
                 max_concurrent_executions=1,

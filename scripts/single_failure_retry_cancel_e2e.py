@@ -70,7 +70,7 @@ def _enum_value(value: object) -> str:
     return str(getattr(value, "value", value))
 
 
-def _host_jupyter_endpoint(target: RuntimeTargetORM, settings: Any) -> str:
+def _host_jupyter_endpoint(target: RuntimeTargetORM) -> str:
     variable = (
         "SINGLE_LIFECYCLE_JUPYTER_SECONDARY_ENDPOINT"
         if target.name == "local-jupyter-secondary"
@@ -79,7 +79,7 @@ def _host_jupyter_endpoint(target: RuntimeTargetORM, settings: Any) -> str:
     default = (
         "http://127.0.0.1:8889"
         if target.name == "local-jupyter-secondary"
-        else settings.jupyter_endpoint
+        else "http://127.0.0.1:8888"
     )
     return os.getenv(variable, default)
 
@@ -361,7 +361,7 @@ async def _runtime_session_exists(
         raise RuntimeError(f"Runtime Target {target_id} is missing.")
     credential = registry.resolve_credential(target.credential_ref, target.credential_ciphertext)
     connection_config = dict(target.connection_config)
-    connection_config["endpoint"] = _host_jupyter_endpoint(target, settings)
+    connection_config["endpoint"] = _host_jupyter_endpoint(target)
     driver = ConfiguredRuntimeDriverFactory(settings).create(
         target.runtime_type,
         connection_config,
@@ -386,7 +386,7 @@ async def _runtime_file_exists(
         raise RuntimeError(f"Runtime Target {target_id} is missing.")
     credential = registry.resolve_credential(target.credential_ref, target.credential_ciphertext)
     connection_config = dict(target.connection_config)
-    connection_config["endpoint"] = _host_jupyter_endpoint(target, settings)
+    connection_config["endpoint"] = _host_jupyter_endpoint(target)
     driver = ConfiguredRuntimeDriverFactory(settings).create(
         target.runtime_type, connection_config, credential
     )

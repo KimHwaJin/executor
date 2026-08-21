@@ -83,7 +83,7 @@ later Steps must not run, and no successful notebook Artifact may be registered.
 
 Override `SINGLE_LIFECYCLE_RUNTIME_PROFILE`, `SINGLE_LIFECYCLE_TIMEOUT_SECONDS`, or
 `SINGLE_LIFECYCLE_STREAM_SCAN_LIMIT` when the local topology requires it. The host-side session
-probe defaults to `JUPYTER_ENDPOINT`; set `SINGLE_LIFECYCLE_JUPYTER_ENDPOINT` when the registered
+probe defaults to `http://127.0.0.1:8888`; set `SINGLE_LIFECYCLE_JUPYTER_ENDPOINT` when the registered
 Target needs a different host-accessible endpoint than its container-internal address.
 
 ### MULTI correction, finalization, and running cancellation
