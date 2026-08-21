@@ -4,7 +4,7 @@ import asyncio
 from typing import Any
 from uuid import uuid4
 
-from execution_spec_payload import execution_request, inline_source
+from execution_spec_payload import execution_request, inline_spec
 from mcp import Client
 
 
@@ -30,7 +30,7 @@ async def main() -> None:
                     trigger_type="INTERACTIVE",
                     actor={"type": "USER", "id": "retry-user"},
                     runtime_profile="basic",
-                    source=inline_source(
+                    spec=inline_spec(
                         [
                             {
                                 "tool_name": "initialize",

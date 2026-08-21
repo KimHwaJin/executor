@@ -5,7 +5,8 @@
 - Status: ACCEPTED
 - Recorded on: 2026-08-13
 
-Agent and Executor share an input volume used only for PATH ExecutionSpec files. Runtime workspaces,
+Agent and Executor share an input volume used only for PATH Step `.py` files and Agent-authored
+Artifact inputs. Runtime workspaces,
 notebooks, generated datasets, artifacts, and checkpoints belong to Runtime storage. Executor never
 opens a Runtime path locally; it uses Runtime Driver operations and stores only relative paths,
 metadata, lineage, and checksums in PostgreSQL.
@@ -16,11 +17,12 @@ on its original target/session, while storage-only reads may use another healthy
 
 ```text
 Agent + Executor input volume
-└── requests/.../execution-spec.json
+└── requests/.../step-N.py
 
 Jupyter shared volume
 └── users/{user|unscoped}/projects/{project|unscoped}/sessions/{session|unscoped}/executions/{execution}/
     ├── notebooks/execution.ipynb
+    ├── reports/final-report.md
     ├── artifacts/{datasets,plots,models,metrics,reports,logs,other}/
     └── checkpoints/
 ```
@@ -52,21 +54,22 @@ Both REST and MCP expose the same application commands. Submit and Operation cre
 Executor-generated ID receipts immediately. PostgreSQL commits state and Outbox records in one
 transaction. `executor.work` wakes Workers; `executor.events` wakes Agent/frontend consumers.
 
-Every Step success event carries its bounded transport-neutral Runtime result. For Jupyter this is
-the cell MIME output and execution count. After all Step events, Executor publishes the Operation
-outcome and `execution.waiting_for_operation`; the Agent checkpoints the results and resumes its
-graph. Notebook APIs remain available for complete audit and deep inspection, but the notebook is
-not the orchestration protocol.
+Step completion events carry only a bounded output summary, `result_available=true`, and a
+structured result reference. Full text and image payloads stay in PostgreSQL/Runtime storage.
+After all Step events, Executor publishes the Operation outcome and
+`execution.waiting_for_operation`; the Agent resumes and calls `execution_operation_result_get` or
+`execution_result_get` once for authoritative results. Notebook APIs remain available for audit and
+deep inspection, but the notebook and Redis payload are not the orchestration result store.
 
 ```text
 Agent -> Executor: submit Execution + initial Operation
 Executor -> Agent: execution_id + operation_id + step_id receipts
 Executor Worker -> Runtime: execute accepted Steps
 Executor -> PostgreSQL: persist Step/Operation result
-Executor -> executor.events: Step results, Operation outcome, waiting notification
-Agent consumer -> LangGraph: deduplicate, checkpoint, resume
+Executor -> executor.events: result summaries/references, Operation outcome, waiting notification
+Agent consumer -> LangGraph: deduplicate, resume, fetch one consolidated result
 Agent -> Executor: append next Operation or finalize
 ```
 
-Large-result offloading, authentication/authorization, and deterministic MULTI replay onto a new
-Runtime remain deferred decisions.
+Automatic intent discovery for Runtime-produced Artifacts, authentication/authorization, and
+deterministic MULTI replay onto a new Runtime remain deferred decisions.

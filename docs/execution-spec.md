@@ -1,8 +1,9 @@
 # ExecutionSpec 1.0
 
-ExecutionSpec is the transport-neutral source format used by both REST and MCP. It contains only
-ordered runtime Steps. Agent-owned plan IDs are deliberately excluded; the Agent binds its Plan to
-the Executor-generated `execution_id`, `operation_id`, and `step_id` values returned by a command.
+ExecutionSpec is the transport-neutral Operation payload shared by REST and MCP. The contract
+version remains `1.0` throughout pre-release development. Agent-owned Plan IDs are deliberately
+excluded; the Agent stores the Executor-generated `execution_id`, `operation_id`, and `step_id`
+receipts beside its own Task, ExecutionPlan, and PlanStep records.
 
 ```json
 {
@@ -11,8 +12,11 @@ the Executor-generated `execution_id`, `operation_id`, and `step_id` values retu
     {
       "sequence": 0,
       "payload": {
-        "type": "CODE",
-        "content": "result = load_data(product='A')"
+        "type": "PYTHON_EXECUTE",
+        "source": {
+          "type": "INLINE",
+          "content": "result = load_data(product='A')"
+        }
       },
       "step_timeout_seconds": 300,
       "lineage": {
@@ -20,28 +24,33 @@ the Executor-generated `execution_id`, `operation_id`, and `step_id` values retu
         "tool_name": "load_data",
         "input_parameters": {"product": "A"}
       }
+    },
+    {
+      "sequence": 1,
+      "payload": {
+        "type": "PYTHON_EXECUTE",
+        "source": {
+          "type": "PATH",
+          "path": "requests/task-100/step-1.py",
+          "sha256": "<64 lowercase hex characters>"
+        }
+      }
     }
   ]
 }
 ```
 
-Required fields are `schema_version`, `steps`, each Step `sequence`, and `payload`. The only current
-payload variant is `{"type":"CODE","content":"..."}`. `step_timeout_seconds` and `lineage` are
-optional. Sequences must be ordered and contiguous. Initial submit starts at `0`; each later MULTI
-Operation starts at the next unused sequence.
+Required fields are `schema_version`, `steps`, each Step `sequence`, `payload.type`, and
+`payload.source`. The current payload type is `PYTHON_EXECUTE`. Each Step independently chooses:
 
-INLINE embeds this document in the request. PATH identifies a UTF-8 JSON document under
-`INPUT_HOST_ROOT` and includes its SHA-256 checksum:
+- `INLINE`: UTF-8 Python source is carried in `content`.
+- `PATH`: a relative `.py` file under `INPUT_HOST_ROOT` is referenced by `path` and required
+  SHA-256. The whole ExecutionSpec is never loaded from one PATH file.
 
-```json
-{
-  "type": "PATH",
-  "path": "requests/task-100/execution-spec.json",
-  "sha256": "<64 lowercase hex characters>"
-}
-```
+`step_timeout_seconds` and `lineage` are optional. Sequences are ordered and contiguous. Initial
+submit begins at `0`; each later MULTI Operation starts at the next unused sequence.
 
-Executor validates the path boundary, file type, size, hash, schema, sequence order, nonblank code,
-and unknown fields before creating durable state. The immutable canonical source and checksum are
-stored on the Operation. Runtime notebooks and artifacts are written through the selected Runtime
-Driver to Runtime-owned storage, never to the Agent/Executor input directory.
+Executor validates input-root boundaries, `.py` type, size, checksum, UTF-8, nonblank content,
+schema, ordering, and unknown fields before durable state is created. The resolved code and its
+source provenance are stored on each ExecutionStep. Runtime notebooks and outputs are written
+through the selected Runtime Driver to Runtime-owned storage; input files are never modified.

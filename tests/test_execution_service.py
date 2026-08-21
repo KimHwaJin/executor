@@ -17,7 +17,6 @@ from executor_service.application.commands import (
 from executor_service.application.services import ExecutionService
 from executor_service.domain.enums import (
     ActorType,
-    CodeSourceType,
     ExecutionStatus,
     FailureType,
     OperationMode,
@@ -49,10 +48,6 @@ def submit_command(idempotency_key: str = "submit-1") -> SubmitExecutionCommand:
         operation_mode=OperationMode.SINGLE,
         trigger_type=TriggerType.INTERACTIVE,
         runtime_profile="basic",
-        code_source_type=CodeSourceType.INLINE,
-        source_content="print('hello')",
-        code_path=None,
-        source_sha256="0" * 64,
         user_id="user-1",
         project_id="project-1",
         session_id="session-1",
@@ -74,7 +69,6 @@ def multi_submit_command(idempotency_key: str = "multi-submit-1") -> SubmitExecu
         submit_command(idempotency_key),
         operation_mode=OperationMode.MULTI,
         operation_wait_timeout_seconds=3600,
-        source_content=code,
         steps=(
             StepSpec(
                 sequence=0,
@@ -131,7 +125,10 @@ async def test_submit_key_rejects_different_request(
     execution_service: ExecutionService,
 ) -> None:
     await execution_service.submit(submit_command())
-    changed = replace(submit_command(), source_content="print('changed')")
+    changed = replace(
+        submit_command(),
+        steps=(StepSpec(sequence=0, code="print('changed')"),),
+    )
 
     with pytest.raises(IdempotencyConflictError):
         await execution_service.submit(changed)
@@ -194,7 +191,6 @@ async def test_multi_continue_and_finish_are_versioned_and_idempotent(
         execution_id=execution.id,
         idempotency_key="multi-continue-1",
         expected_version=2,
-        source_content="answer = value + 2\nprint(answer)",
         steps=(
             StepSpec(
                 sequence=1,
@@ -256,7 +252,6 @@ async def test_multi_continue_rejects_stale_version(
                 execution_id=execution.id,
                 idempotency_key="multi-stale-continue",
                 expected_version=1,
-                source_content="print('stale')",
                 steps=(
                     StepSpec(
                         sequence=1,

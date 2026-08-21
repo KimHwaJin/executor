@@ -88,6 +88,8 @@ class RuntimeStorage(Protocol):
 
     async def read_notebook(self, path: str) -> dict[str, Any]: ...
 
+    async def write_text(self, path: str, content: str) -> None: ...
+
 
 class RuntimeDriver(RuntimeStorage, Protocol):
     async def close(self) -> None: ...
@@ -125,3 +127,19 @@ class RuntimeStorageAccess(Protocol):
         preferred_target_id: UUID | None,
         path: str,
     ) -> dict[str, Any]: ...
+
+    async def write_notebook(
+        self,
+        runtime_type: RuntimeType,
+        preferred_target_id: UUID | None,
+        path: str,
+        notebook: dict[str, Any],
+    ) -> None: ...
+
+    async def write_text(
+        self,
+        runtime_type: RuntimeType,
+        preferred_target_id: UUID | None,
+        path: str,
+        content: str,
+    ) -> RuntimeFileMetadata: ...

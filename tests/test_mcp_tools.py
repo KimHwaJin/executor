@@ -1,5 +1,4 @@
 import hashlib
-import json
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -34,22 +33,22 @@ SUBMIT_ARGUMENTS: dict[str, Any] = {
         },
         "runtime": {"type": "JUPYTER", "profile": "basic"},
         "operation": {
-            "source": {
-                "type": "INLINE",
-                "spec": {
-                    "schema_version": "1.0",
-                    "steps": [
-                        {
-                            "sequence": 0,
-                            "payload": {"type": "CODE", "content": "print('hello')"},
-                            "lineage": {
-                                "skill_name": "data_load",
-                                "tool_name": "load_data",
-                                "input_parameters": {},
-                            },
-                        }
-                    ],
-                },
+            "spec": {
+                "schema_version": "1.0",
+                "steps": [
+                    {
+                        "sequence": 0,
+                        "payload": {
+                            "type": "PYTHON_EXECUTE",
+                            "source": {"type": "INLINE", "content": "print('hello')"},
+                        },
+                        "lineage": {
+                            "skill_name": "data_load",
+                            "tool_name": "load_data",
+                            "input_parameters": {},
+                        },
+                    }
+                ],
             },
         },
         "context": {
@@ -103,8 +102,6 @@ async def test_mcp_client_can_list_and_call_execution_tools(
         assert not fetched.is_error
         assert fetched.structured_content["execution_id"] == execution_id
         assert fetched.structured_content["runtime"]["type"] == "JUPYTER"
-        assert fetched.structured_content["source"]["type"] == "INLINE"
-        assert len(fetched.structured_content["source"]["sha256"]) == 64
         assert fetched.structured_content["context"]["user_id"] == "user-1"
         assert "steps" not in fetched.structured_content
 
@@ -315,9 +312,8 @@ async def test_execution_submit_reads_path_spec_and_derives_batch_pool(
     execution_service: ExecutionService,
     tmp_path: Path,
 ) -> None:
-    spec = deepcopy(SUBMIT_ARGUMENTS["request"]["operation"]["source"]["spec"])
-    content = json.dumps(spec, separators=(",", ":")).encode()
-    source_file = tmp_path / "plans" / "batch.execution.json"
+    content = b"print('hello from PATH')"
+    source_file = tmp_path / "plans" / "batch-step.py"
     source_file.parent.mkdir(parents=True)
     source_file.write_bytes(content)
     arguments = deepcopy(SUBMIT_ARGUMENTS)
@@ -327,10 +323,13 @@ async def test_execution_submit_reads_path_spec_and_derives_batch_pool(
         "actor": {"type": "BATCH", "id": "batch-1"},
     }
     arguments["request"]["context"]["workflow_id"] = "workflow-batch-1"
-    arguments["request"]["operation"]["source"] = {
-        "type": "PATH",
-        "path": "plans/batch.execution.json",
-        "sha256": hashlib.sha256(content).hexdigest(),
+    arguments["request"]["operation"]["spec"]["steps"][0]["payload"] = {
+        "type": "PYTHON_EXECUTE",
+        "source": {
+            "type": "PATH",
+            "path": "plans/batch-step.py",
+            "sha256": hashlib.sha256(content).hexdigest(),
+        },
     }
     target = build_mcp_server(
         execution_service,
@@ -344,7 +343,7 @@ async def test_execution_submit_reads_path_spec_and_derives_batch_pool(
     assert submitted.structured_content["created_by"] == "batch-1"
     execution = await execution_service.get(UUID(submitted.structured_content["execution_id"]))
     assert execution.runtime_pool.value == "BATCH"
-    assert execution.code_path == "plans/batch.execution.json"
+    assert execution.steps[0].source_path == "plans/batch-step.py"
     assert execution.user_id == "user-1"
 
 
@@ -382,24 +381,27 @@ async def test_multi_continue_accepts_next_inline_execution_spec(
                     "idempotency_key": "mcp-multi-continue-1",
                     "expected_version": 2,
                     "actor": {"type": "USER", "id": "user-1"},
-                    "source": {
-                        "type": "INLINE",
-                        "spec": {
-                            "schema_version": "1.0",
-                            "steps": [
-                                {
-                                    "sequence": 1,
-                                    "payload": {"type": "CODE", "content": "print('next')"},
+                    "spec": {
+                        "schema_version": "1.0",
+                        "steps": [
+                            {
+                                "sequence": 1,
+                                "payload": {
+                                    "type": "PYTHON_EXECUTE",
+                                    "source": {"type": "INLINE", "content": "print('next')"},
                                 },
-                                {
-                                    "sequence": 2,
-                                    "payload": {
-                                        "type": "CODE",
+                            },
+                            {
+                                "sequence": 2,
+                                "payload": {
+                                    "type": "PYTHON_EXECUTE",
+                                    "source": {
+                                        "type": "INLINE",
                                         "content": "print('next again')",
                                     },
                                 },
-                            ],
-                        },
+                            },
+                        ],
                     },
                 }
             },

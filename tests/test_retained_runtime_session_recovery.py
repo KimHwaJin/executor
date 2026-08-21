@@ -16,7 +16,6 @@ from executor_service.application.services import ExecutionService
 from executor_service.config import Settings
 from executor_service.domain.enums import (
     AttemptStatus,
-    CodeSourceType,
     ExecutionStatus,
     FailureType,
     OperationMode,
@@ -50,10 +49,6 @@ def _command(key: str) -> SubmitExecutionCommand:
         operation_mode=OperationMode.SINGLE,
         trigger_type=TriggerType.INTERACTIVE,
         runtime_profile="basic",
-        code_source_type=CodeSourceType.INLINE,
-        source_content="prepare()\nfail_once()",
-        code_path=None,
-        source_sha256="0" * 64,
         user_id="retained-retry-user",
         project_id="retained-retry-project",
         session_id=f"retained-retry-session-{key}",

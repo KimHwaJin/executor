@@ -269,6 +269,13 @@ class JupyterRuntimeDriver:
         except (TypeError, ValueError) as exc:
             raise RuntimeDriverError("Jupyter Notebook response is invalid.") from exc
 
+    async def write_text(self, path: str, content: str) -> None:
+        await self._request(
+            "PUT",
+            f"/api/contents/{_contents_path(path)}",
+            json={"type": "file", "format": "text", "content": content},
+        )
+
     async def _request(
         self,
         method: str,

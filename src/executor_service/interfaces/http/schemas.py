@@ -15,7 +15,7 @@ from executor_service.application.runtime_targets import (
     SetRuntimeTargetStateCommand,
 )
 from executor_service.domain.enums import RuntimeTargetStatus
-from executor_service.execution_specs import CodeSource
+from executor_service.execution_specs import ExecutionSpec
 from executor_service.interfaces.contracts import (
     ActorInput,
     AuditFields,
@@ -117,7 +117,7 @@ class ExecutionOperationCreateRequest(HTTPModel):
     idempotency_key: str = Field(min_length=1, max_length=255)
     expected_version: int = Field(ge=0)
     operation_timeout_seconds: int | None = Field(default=None, ge=1)
-    source: CodeSource
+    spec: ExecutionSpec
     metadata: dict[str, object] = Field(default_factory=dict)
     actor: ActorInput
 

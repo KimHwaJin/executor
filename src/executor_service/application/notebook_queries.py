@@ -12,6 +12,7 @@ from executor_service.domain.errors import (
     NotebookReadError,
 )
 from executor_service.domain.runtime import RuntimeStorageAccess
+from executor_service.result_summaries import OutputSummary, summarize_outputs
 
 NotebookResponseFormat = Literal["brief", "detailed"]
 
@@ -25,6 +26,7 @@ class NotebookCellView:
     source: str
     line_count: int
     metadata: dict[str, Any]
+    output_summary: OutputSummary
     outputs: list[dict[str, Any]]
 
 
@@ -134,9 +136,10 @@ def _cell_view(
         source = "".join(str(line) for line in source)
     source = str(source)
     lines = source.splitlines()
-    outputs = cell.get("outputs", []) if include_outputs and cell.get("cell_type") == "code" else []
-    if not isinstance(outputs, list):
+    raw_outputs = cell.get("outputs", []) if cell.get("cell_type") == "code" else []
+    if not isinstance(raw_outputs, list):
         raise NotebookReadError("Notebook cell outputs must be an array.")
+    normalized_outputs = _array(raw_outputs)
     return NotebookCellView(
         index=index,
         id=str(cell["id"]) if cell.get("id") is not None else None,
@@ -147,7 +150,8 @@ def _cell_view(
         source=source if response_format == "detailed" else (lines[0] if lines else ""),
         line_count=len(lines),
         metadata=_object(cell.get("metadata", {})),
-        outputs=_array(outputs),
+        output_summary=summarize_outputs(normalized_outputs),
+        outputs=normalized_outputs if include_outputs else [],
     )
 
 

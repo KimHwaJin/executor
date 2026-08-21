@@ -8,7 +8,7 @@ from typing import Any
 from uuid import uuid4
 
 import httpx
-from execution_spec_payload import execution_request, inline_source
+from execution_spec_payload import execution_request, inline_spec
 from mcp import Client
 from redis.asyncio import Redis
 from resilience_common import cleanup_streams, require_exclusive_executor_control
@@ -169,7 +169,7 @@ async def main() -> None:
                         trigger_type="INTERACTIVE",
                         actor={"type": "USER", "id": "multi-executor-user"},
                         runtime_profile="basic",
-                        source=inline_source(
+                        spec=inline_spec(
                             [{"tool_name": "multi_executor_failover", "code": code}],
                         ),
                         context={

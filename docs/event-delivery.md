@@ -21,7 +21,7 @@ Every Executor-produced Stream entry contains:
 
 - `event_id`: UUID of the PostgreSQL Outbox Event and consumer deduplication key
 - `event_type`: `execution.*` command or notification name
-- `schema_version`: event contract version; every event currently uses `1.0`
+- `schema_version`: event contract version; every event currently uses `2.0`
 - `aggregate_type`: `Execution`
 - `aggregate_id`: Executor-owned Execution UUID
 - `occurred_at`: Outbox creation timestamp

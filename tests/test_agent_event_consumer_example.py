@@ -25,6 +25,12 @@ def test_agent_example_applies_one_event_id_exactly_once(tmp_path: Path) -> None
             "retry_strategy": "NOT_RETRYABLE",
             "retry_from_sequence": None,
             "runtime_session_cleanup_status": "SUCCEEDED",
+            "result_available": True,
+            "result_ref": {
+                "scope": "EXECUTION",
+                "operation_id": None,
+                "step_id": None,
+            },
         },
     )
     envelope = ExecutionStreamEnvelope.from_redis_fields(

@@ -110,17 +110,17 @@ def _execution_payload() -> dict[str, Any]:
         },
         "runtime": {"type": "JUPYTER", "profile": "basic"},
         "operation": {
-            "source": {
-                "type": "INLINE",
-                "spec": {
-                    "schema_version": "1.0",
-                    "steps": [
-                        {
-                            "sequence": 0,
-                            "payload": {"type": "CODE", "content": "print('history')"},
-                        }
-                    ],
-                },
+            "spec": {
+                "schema_version": "1.0",
+                "steps": [
+                    {
+                        "sequence": 0,
+                        "payload": {
+                            "type": "PYTHON_EXECUTE",
+                            "source": {"type": "INLINE", "content": "print('history')"},
+                        },
+                    }
+                ],
             },
         },
         "context": {

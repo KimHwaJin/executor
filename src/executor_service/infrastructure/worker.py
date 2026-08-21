@@ -53,6 +53,7 @@ from executor_service.infrastructure.db.models import (
 from executor_service.infrastructure.runtime_drivers import ConfiguredRuntimeDriverFactory
 from executor_service.infrastructure.runtime_registry import RuntimeTargetRegistry
 from executor_service.infrastructure.workspace import ExecutionWorkspace, WorkspaceManager
+from executor_service.result_summaries import summarize_outputs
 from executor_service.tracing import (
     TracingManager,
     capture_trace_carrier,
@@ -1557,22 +1558,9 @@ class ExecutionWorker:
                     .order_by(ExecutionStepORM.sequence)
                 )
             )
-            if steps and len(steps) != cell_count:
+            if len(steps) != cell_count:
                 raise ValueError(
                     f"Execution has {len(steps)} planned steps but source has {cell_count} cells."
-                )
-            if not steps:
-                session.add_all(
-                    [
-                        ExecutionStepORM(
-                            execution_id=execution_id,
-                            sequence=index,
-                            status=StepStatus.PENDING,
-                            input_parameters={},
-                            outputs=[],
-                        )
-                        for index in range(cell_count)
-                    ]
                 )
 
     async def _record_runtime_session(
@@ -1706,10 +1694,14 @@ class ExecutionWorker:
                     "step_id": str(step.id),
                     "sequence": sequence,
                     "status": StepStatus.SUCCEEDED.value,
-                    "result": {
-                        "outputs": outputs,
-                        "execution_count": execution_count,
+                    "result_available": True,
+                    "result_ref": {
+                        "scope": "STEP",
+                        "operation_id": str(step.operation_id),
+                        "step_id": str(step.id),
                     },
+                    "output_summary": summarize_outputs(outputs).model_dump(mode="json"),
+                    "execution_count": execution_count,
                 },
             )
 
@@ -1761,7 +1753,13 @@ class ExecutionWorker:
                     "step_id": str(step.id),
                     "sequence": sequence,
                     "status": StepStatus.FAILED.value,
-                    "result": {"outputs": outputs, "execution_count": None},
+                    "result_available": True,
+                    "result_ref": {
+                        "scope": "STEP",
+                        "operation_id": str(step.operation_id),
+                        "step_id": str(step.id),
+                    },
+                    "output_summary": summarize_outputs(outputs).model_dump(mode="json"),
                     "error_message": safe_error,
                 },
             )
@@ -2727,6 +2725,21 @@ async def _add_outbox(
     }
     if details:
         payload.update(details)
+    if event_type in {"execution.operation_succeeded", "execution.operation_failed"}:
+        operation_id = payload.get("operation_id")
+        payload["result_available"] = True
+        payload["result_ref"] = {
+            "scope": "OPERATION",
+            "operation_id": operation_id,
+            "step_id": None,
+        }
+    elif event_type in {"execution.succeeded", "execution.failed"}:
+        payload["result_available"] = True
+        payload["result_ref"] = {
+            "scope": "EXECUTION",
+            "operation_id": None,
+            "step_id": None,
+        }
     carrier = capture_trace_carrier()
     event = build_execution_event(
         execution_id=execution_id,

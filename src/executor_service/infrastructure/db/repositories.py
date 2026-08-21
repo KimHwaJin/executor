@@ -201,6 +201,9 @@ class SQLAlchemyExecutionRepository:
                 .values(
                     status=step.status,
                     code=step.code,
+                    source_type=step.source_type,
+                    source_path=step.source_path,
+                    source_sha256=step.source_sha256,
                     code_hash=step.code_hash,
                     step_timeout_seconds=step.step_timeout_seconds,
                     updated_by_type=step.updated_by_type,

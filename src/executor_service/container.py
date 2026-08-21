@@ -4,6 +4,7 @@ from redis.asyncio import Redis
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from executor_service.application.execution_results import ExecutionResultQueryService
 from executor_service.application.notebook_queries import ExecutionNotebookQueryService
 from executor_service.application.services import ExecutionService
 from executor_service.config import Settings
@@ -13,6 +14,7 @@ from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.repositories import SQLAlchemyUnitOfWork
 from executor_service.infrastructure.db.session import create_engine, create_session_factory
 from executor_service.infrastructure.execution_queries import SQLAlchemyExecutionQueryService
+from executor_service.infrastructure.materialized_artifacts import MaterializedArtifactService
 from executor_service.infrastructure.outbox import OutboxPublisher
 from executor_service.infrastructure.runtime_drivers import ConfiguredRuntimeDriverFactory
 from executor_service.infrastructure.runtime_registry import RuntimeTargetRegistry
@@ -42,6 +44,7 @@ class ApplicationContainer:
             {RuntimeType.JUPYTER: settings.runtime_allowed_profiles},
         )
         self.execution_queries = SQLAlchemyExecutionQueryService(self.session_factory)
+        self.execution_results = ExecutionResultQueryService(self.execution_queries)
         self.execution_spec_resolver = ExecutionSpecResolver(
             settings.input_host_root,
             inline_max_bytes=settings.execution_inline_spec_max_bytes,
@@ -56,6 +59,12 @@ class ApplicationContainer:
             self.execution_queries, self.runtime_storage
         )
         self.artifact_manager = ExecutionArtifactManager(self.session_factory)
+        self.materialized_artifacts = MaterializedArtifactService(
+            self.session_factory,
+            self.runtime_storage,
+            settings.input_host_root,
+            max_bytes=settings.execution_file_spec_max_bytes,
+        )
         self.outbox_publisher = OutboxPublisher(
             session_factory=self.session_factory,
             redis=self.redis,

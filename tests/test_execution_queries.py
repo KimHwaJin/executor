@@ -8,7 +8,6 @@ from executor_service.application.commands import StepSpec, SubmitExecutionComma
 from executor_service.application.services import ExecutionService
 from executor_service.domain.enums import (
     AttemptStatus,
-    CodeSourceType,
     FailureType,
     OperationMode,
     RetryStrategy,
@@ -36,10 +35,6 @@ def _submit_command() -> SubmitExecutionCommand:
         operation_mode=OperationMode.SINGLE,
         trigger_type=TriggerType.INTERACTIVE,
         runtime_profile="basic",
-        code_source_type=CodeSourceType.INLINE,
-        source_content="print('trace')",
-        code_path=None,
-        source_sha256="0" * 64,
         user_id="trace-user",
         project_id="trace-project",
         session_id="trace-session",
@@ -173,7 +168,7 @@ async def test_execution_reads_do_not_load_source_code_or_step_rows(
         event.remove(engine.sync_engine, "before_cursor_execute", capture_statement)
 
     assert page[0].step_count == 1
-    assert detail.source_sha256 == execution.source_sha256
+    assert detail.id == execution.id
     normalized = [" ".join(statement.split()) for statement in statements]
     assert len(normalized) == 2
     assert all("execution_steps.code" not in statement for statement in normalized)

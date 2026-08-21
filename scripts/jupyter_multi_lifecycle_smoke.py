@@ -1,6 +1,7 @@
 """Verify that an expired MULTI wait reclaims a real Jupyter kernel exactly once."""
 
 import asyncio
+import hashlib
 from datetime import timedelta
 from uuid import UUID, uuid4
 
@@ -10,7 +11,6 @@ from executor_service.application.commands import StepSpec, SubmitExecutionComma
 from executor_service.config import get_settings
 from executor_service.container import ApplicationContainer
 from executor_service.domain.enums import (
-    CodeSourceType,
     ExecutionStatus,
     FailureType,
     OperationMode,
@@ -54,10 +54,6 @@ async def main() -> None:
                 operation_wait_timeout_seconds=3600,
                 trigger_type=TriggerType.INTERACTIVE,
                 runtime_profile="basic",
-                code_source_type=CodeSourceType.INLINE,
-                source_content=code,
-                code_path=None,
-                source_sha256="0" * 64,
                 user_id="multi-lifecycle-user",
                 project_id="multi-lifecycle-project",
                 session_id="multi-lifecycle-session",
@@ -66,6 +62,7 @@ async def main() -> None:
                     StepSpec(
                         sequence=0,
                         code=code,
+                        source_sha256=hashlib.sha256(code.encode()).hexdigest(),
                         tool_name="initialize",
                     ),
                 ),

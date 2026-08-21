@@ -3,7 +3,7 @@
 from typing import Any
 
 
-def inline_source(
+def inline_spec(
     steps: list[dict[str, Any]],
 ) -> dict[str, Any]:
     normalized_steps = []
@@ -18,18 +18,15 @@ def inline_source(
         normalized_steps.append(
             {
                 "sequence": sequence,
-                "payload": {"type": "CODE", "content": code},
+                "payload": {
+                    "type": "PYTHON_EXECUTE",
+                    "source": {"type": "INLINE", "content": code},
+                },
                 **({"lineage": lineage} if lineage else {}),
                 **values,
             }
         )
-    return {
-        "type": "INLINE",
-        "spec": {
-            "schema_version": "1.0",
-            "steps": normalized_steps,
-        },
-    }
+    return {"schema_version": "1.0", "steps": normalized_steps}
 
 
 def execution_request(
@@ -39,7 +36,7 @@ def execution_request(
     trigger_type: str,
     actor: dict[str, str],
     runtime_profile: str,
-    source: dict[str, Any],
+    spec: dict[str, Any],
     context: dict[str, Any],
     operation_wait_timeout_seconds: int | None = None,
     operation_timeout_seconds: int | None = None,
@@ -49,7 +46,7 @@ def execution_request(
     lifecycle: dict[str, Any] = {"operation_mode": operation_mode}
     if operation_wait_timeout_seconds is not None:
         lifecycle["operation_wait_timeout_seconds"] = operation_wait_timeout_seconds
-    operation: dict[str, Any] = {"source": source}
+    operation: dict[str, Any] = {"spec": spec}
     if operation_timeout_seconds is not None:
         operation["operation_timeout_seconds"] = operation_timeout_seconds
     if operation_metadata:

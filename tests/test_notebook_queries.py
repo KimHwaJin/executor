@@ -16,6 +16,7 @@ from executor_service.domain.errors import (
     NotebookReadError,
 )
 from executor_service.interfaces.mcp.server import _notebook_cell_content
+from executor_service.result_summaries import summarize_outputs
 
 
 class ExecutionLookup:
@@ -151,6 +152,19 @@ def test_mcp_notebook_cell_content_preserves_text_and_images() -> None:
             source="display(value)",
             line_count=1,
             metadata={},
+            output_summary=summarize_outputs(
+                [
+                    {"output_type": "stream", "name": "stdout", "text": "ready\n"},
+                    {
+                        "output_type": "display_data",
+                        "data": {
+                            "text/plain": "<Figure size 640x480>",
+                            "image/png": "aW1hZ2UtYnl0ZXM=",
+                        },
+                        "metadata": {},
+                    },
+                ]
+            ),
             outputs=[
                 {"output_type": "stream", "name": "stdout", "text": "ready\n"},
                 {

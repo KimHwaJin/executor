@@ -71,6 +71,7 @@ class AgentExecutionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     runtime_profile: str = "basic"
+    actor_id: str = Field(default="executor-test-agent", min_length=1, max_length=255)
     user_id: str
     project_id: str
     session_id: str
@@ -93,7 +94,10 @@ class AgentExecutionRequest(BaseModel):
         normalized_steps = [
             {
                 "sequence": sequence,
-                "payload": {"type": "CODE", "content": step.code},
+                "payload": {
+                    "type": "PYTHON_EXECUTE",
+                    "source": {"type": "INLINE", "content": step.code},
+                },
                 "lineage": {
                     "skill_name": step.skill_name,
                     "tool_name": step.tool_name,
@@ -116,14 +120,11 @@ class AgentExecutionRequest(BaseModel):
             },
             "trigger": {
                 "type": "INTERACTIVE",
-                "actor": {"type": "AGENT", "id": "executor-test-agent"},
+                "actor": {"type": "AGENT", "id": self.actor_id},
             },
             "runtime": {"type": "JUPYTER", "profile": self.runtime_profile},
             "operation": {
-                "source": {
-                    "type": "INLINE",
-                    "spec": {"schema_version": "1.0", "steps": normalized_steps},
-                },
+                "spec": {"schema_version": "1.0", "steps": normalized_steps},
             },
             "context": {
                 "user_id": self.user_id,

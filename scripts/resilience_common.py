@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from typing import Any
 
 import httpx
-from execution_spec_payload import execution_request, inline_source
+from execution_spec_payload import execution_request, inline_spec
 from mcp import Client
 from redis.asyncio import Redis
 
@@ -230,7 +230,7 @@ async def submit_static(
                     "id": "resilience-batch" if pool == "BATCH" else "resilience-user",
                 },
                 runtime_profile="basic",
-                source=inline_source(
+                spec=inline_spec(
                     [{"skill_name": "data_io", "tool_name": name, "code": code}],
                 ),
                 context={

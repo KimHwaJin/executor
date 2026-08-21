@@ -197,6 +197,77 @@ reusable across all projects owned by the same user or only within its source pr
 - No inference that a new kernel can continue from prior in-memory variables.
 - No reuse of SINGLE `FROM_START` semantics for MULTI.
 
+## DD-006: Declaring and discovering Step-produced Artifacts
+
+- Status: DEFERRED
+- Area: Execution Step contract, Agent planning, analysis Tool contract, Jupyter workspace,
+  Artifact registration
+- Deferred on: 2026-08-21
+- Related to: DD-001
+- Resume when: the Agent, Executor, and analysis teams agree on how an executed Step identifies
+  files that must become tracked Artifacts
+
+### Context
+
+Agent-authored content such as a final Markdown report can be materialized explicitly through an
+Artifact command using `INLINE` or Agent/Executor shared-input `PATH` content. Runtime-produced
+Artifacts are different: Python executed by a Step may create plots, models, datasets, metrics, or
+other files inside the Jupyter execution workspace. Executor needs a deterministic way to know
+which created files are intended Artifacts and which Step produced them.
+
+Adding `declared_artifacts` to every Step is one candidate, but it has not been accepted. Static
+declarations may not represent Tools that choose filenames dynamically, return in-memory values,
+or create a variable number of outputs. Blindly scanning the whole workspace after each Step is
+also ambiguous and can be expensive.
+
+### Agreed constraints
+
+- Artifact registration must retain Execution, Attempt, Step, Tool, storage, checksum, creator,
+  timestamps, and available lineage references.
+- Runtime-generated files remain on Runtime-owned Jupyter storage; large content must not pass
+  through HTTP, MCP, Redis, or PostgreSQL JSON fields.
+- Agent callers do not choose arbitrary Jupyter target directories. Executor owns canonical
+  workspace directories such as `reports/` and `artifacts/<type>/`.
+- A final report may use an explicit Artifact materialization command, but that does not determine
+  how arbitrary Python Step outputs are discovered.
+- Missing required output and Artifact registration failure must have explicit state semantics;
+  they must not be silently reported as successful stored output.
+- The design must not reintroduce unexplained hidden code cells or break traceability between the
+  approved Step and the final notebook.
+
+### Candidate approaches requiring review
+
+- Static Step declarations containing expected Artifact type, name, media type, and canonical
+  relative path.
+- A Runtime-written Artifact Manifest that reports the actual dynamic files created by a Step.
+- A standardized analysis Tool return/output contract interpreted by an agreed Runtime adapter.
+- A narrow before/after directory-delta check used only as supporting evidence, not as the sole
+  Artifact intent signal.
+- A hybrid in which static declarations define required outputs and a Runtime Manifest resolves
+  their actual paths and metadata.
+
+### Questions still open
+
+- Whether Artifact intent is declared by Agent planning policy, analysis Tool metadata, or both.
+- How Python code learns its canonical Artifact output location without Tool-specific platform
+  parameters or hidden source rewriting.
+- How dynamic filenames, multiple outputs, optional outputs, and directory-shaped datasets are
+  represented.
+- Whether an undeclared file may be registered and whether an unfulfilled declaration fails only
+  Artifact registration, the Step, the Operation, or the whole Execution.
+- When checksum, file size, schema, and row/column metadata are collected and how retries remain
+  idempotent.
+- Whether report materialization and Runtime-produced Artifact registration share one public
+  command contract or only the same underlying Artifact model.
+
+### Explicitly excluded until resumed
+
+- No `declared_artifacts` field is added to the public Step contract yet.
+- No whole-workspace or whole-directory scan is treated as authoritative Artifact discovery.
+- Executor does not infer Artifact intent only from filename extensions or newly created files.
+- No arbitrary in-memory Tool return serialization is implemented; DD-001 remains authoritative.
+- No automatic promotion from ExecutionArtifact to a reusable Agent-owned Asset is introduced.
+
 ## Resolved observability integration: Arize Phoenix
 
 - Status: DONE

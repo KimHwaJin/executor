@@ -1,5 +1,4 @@
 import hashlib
-import json
 from collections.abc import AsyncIterator
 from copy import deepcopy
 from datetime import timedelta
@@ -24,7 +23,7 @@ from executor_service.domain.enums import (
     StepStatus,
 )
 from executor_service.domain.models import utc_now
-from executor_service.domain.runtime import RuntimeStorageAccess
+from executor_service.domain.runtime import RuntimeFileMetadata, RuntimeStorageAccess
 from executor_service.infrastructure.db.base import Base
 from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
@@ -75,25 +74,25 @@ def _submit_payload(
         },
         "runtime": {"type": "JUPYTER", "profile": "basic"},
         "operation": {
-            "source": {
-                "type": "INLINE",
-                "spec": {
-                    "schema_version": "1.0",
-                    "steps": [
-                        {
-                            "sequence": 0,
-                            "payload": {
-                                "type": "CODE",
+            "spec": {
+                "schema_version": "1.0",
+                "steps": [
+                    {
+                        "sequence": 0,
+                        "payload": {
+                            "type": "PYTHON_EXECUTE",
+                            "source": {
+                                "type": "INLINE",
                                 "content": "print('hello from REST')",
                             },
-                            "lineage": {
-                                "skill_name": "data_load",
-                                "tool_name": "load_data",
-                                "input_parameters": {"product": "A"},
-                            },
-                        }
-                    ],
-                },
+                        },
+                        "lineage": {
+                            "skill_name": "data_load",
+                            "tool_name": "load_data",
+                            "input_parameters": {"product": "A"},
+                        },
+                    }
+                ],
             },
             "metadata": {"phase": "initial"},
         },
@@ -120,19 +119,21 @@ async def test_openapi_documents_all_execution_routes(
     assert {
         "/api/v1/executions",
         "/api/v1/executions/{execution_id}",
+        "/api/v1/executions/{execution_id}/result",
         "/api/v1/executions/{execution_id}/cancel",
         "/api/v1/executions/{execution_id}/retry",
         "/api/v1/executions/{execution_id}/operations",
+        "/api/v1/executions/{execution_id}/operations/{operation_id}/result",
         "/api/v1/executions/{execution_id}/finalize",
         "/api/v1/executions/{execution_id}/notebook",
         "/api/v1/executions/{execution_id}/notebook/cells/{cell_index}",
         "/api/v1/executions/{execution_id}/steps",
         "/api/v1/executions/{execution_id}/steps/{step_id}",
+        "/api/v1/executions/{execution_id}/artifacts",
         "/api/v1/executions/{execution_id}/attempts",
         "/api/v1/executions/{execution_id}/attempts/{attempt_id}",
         "/api/v1/executions/{execution_id}/attempts/{attempt_id}/steps",
         "/api/v1/executions/{execution_id}/events",
-        "/api/v1/executions/{execution_id}/artifacts",
         "/api/v1/artifacts/{artifact_id}",
     } <= set(paths)
 
@@ -220,6 +221,15 @@ async def test_rest_reads_runtime_owned_notebook_and_cell_outputs(
     assert brief.status_code == 200
     assert brief.json()["cells"][0]["source"] == "print('first')"
     assert brief.json()["cells"][0]["outputs"] == []
+    assert brief.json()["cells"][0]["output_summary"] == {
+        "output_count": 1,
+        "output_types": {"stream": 1},
+        "stream_names": ["stdout"],
+        "mime_types": [],
+        "has_image": False,
+        "image_count": 0,
+        "has_error": False,
+    }
 
     cell = await client.get(f"/api/v1/executions/{execution_id}/notebook/cells/0")
     assert cell.status_code == 200
@@ -242,6 +252,114 @@ class _NotebookStorage(RuntimeStorageAccess):
     ) -> dict[str, Any]:
         del runtime_type, preferred_target_id, path
         return self.notebook
+
+    async def write_notebook(
+        self,
+        runtime_type: RuntimeType,
+        preferred_target_id: UUID | None,
+        path: str,
+        notebook: dict[str, Any],
+    ) -> None:
+        self.notebook = notebook
+
+    async def write_text(
+        self,
+        runtime_type: RuntimeType,
+        preferred_target_id: UUID | None,
+        path: str,
+        content: str,
+    ) -> RuntimeFileMetadata:
+        raw = content.encode()
+        return RuntimeFileMetadata(
+            path=path,
+            name=Path(path).name,
+            size_bytes=len(raw),
+            modified_ns=1,
+            media_type="text/markdown",
+            checksum_sha256=hashlib.sha256(raw).hexdigest(),
+        )
+
+
+async def test_consolidated_result_returns_operation_steps_in_one_call(
+    rest_client: tuple[httpx.AsyncClient, ApplicationContainer],
+) -> None:
+    client, container = rest_client
+    submitted = await client.post(
+        "/api/v1/executions", json=_submit_payload(key="rest-result-submit")
+    )
+    execution_id = UUID(submitted.json()["execution_id"])
+    operation_id = UUID(submitted.json()["operation"]["operation_id"])
+    async with container.session_factory() as session, session.begin():
+        await session.execute(
+            update(ExecutionORM)
+            .where(ExecutionORM.id == execution_id)
+            .values(status=ExecutionStatus.SUCCEEDED)
+        )
+        await session.execute(
+            update(ExecutionOperationORM)
+            .where(ExecutionOperationORM.id == operation_id)
+            .values(status=OperationStatus.SUCCEEDED)
+        )
+        await session.execute(
+            update(ExecutionStepORM)
+            .where(ExecutionStepORM.execution_id == execution_id)
+            .values(
+                status=StepStatus.SUCCEEDED,
+                outputs=[{"output_type": "stream", "name": "stdout", "text": "ok\n"}],
+            )
+        )
+
+    result = await client.get(f"/api/v1/executions/{execution_id}/result")
+    operation_result = await client.get(
+        f"/api/v1/executions/{execution_id}/operations/{operation_id}/result"
+    )
+
+    assert result.status_code == 200
+    assert result.json()["execution"]["state"]["status"] == "SUCCEEDED"
+    assert result.json()["operations"][0]["steps"][0]["result"]["outputs"][0]["text"] == "ok\n"
+    assert operation_result.status_code == 200
+    assert operation_result.json()["operation"]["operation_id"] == str(operation_id)
+
+
+async def test_materializes_final_report_below_runtime_reports_directory(
+    rest_client: tuple[httpx.AsyncClient, ApplicationContainer],
+) -> None:
+    client, container = rest_client
+    submitted = await client.post(
+        "/api/v1/executions", json=_submit_payload(key="rest-report-submit")
+    )
+    execution_id = UUID(submitted.json()["execution_id"])
+    workspace = (
+        f"users/rest-user/projects/rest-project/sessions/rest-session/executions/{execution_id}"
+    )
+    storage = _NotebookStorage({"nbformat": 4, "nbformat_minor": 5, "metadata": {}, "cells": []})
+    container.materialized_artifacts._runtime_storage = storage
+    async with container.session_factory() as session, session.begin():
+        await session.execute(
+            update(ExecutionORM)
+            .where(ExecutionORM.id == execution_id)
+            .values(
+                status=ExecutionStatus.SUCCEEDED,
+                workspace_path=workspace,
+                notebook_path=f"{workspace}/notebooks/execution.ipynb",
+            )
+        )
+
+    response = await client.post(
+        f"/api/v1/executions/{execution_id}/artifacts",
+        json={
+            "idempotency_key": "report-materialize-1",
+            "type": "REPORT",
+            "source": {"type": "INLINE", "content": "# Final report\n\nDone."},
+            "append_to_notebook": True,
+            "actor": {"type": "USER", "id": "rest-user"},
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["storage"]["relative_path"] == f"{workspace}/reports/final-report.md"
+    assert response.json()["storage"]["media_type"] == "text/markdown"
+    assert storage.notebook["cells"][-1]["cell_type"] == "markdown"
 
 
 async def test_single_execution_rest_lifecycle_and_queries(
@@ -451,27 +569,27 @@ async def test_multi_operation_create_and_finalize_rest_api(
             "expected_version": 1,
             "operation_timeout_seconds": 900,
             "metadata": {"phase": "follow-up"},
-            "source": {
-                "type": "INLINE",
-                "spec": {
-                    "schema_version": "1.0",
-                    "steps": [
-                        {
-                            "sequence": 1,
-                            "payload": {
-                                "type": "CODE",
-                                "content": "print('next MULTI step')",
-                            },
+            "spec": {
+                "schema_version": "1.0",
+                "steps": [
+                    {
+                        "sequence": 1,
+                        "payload": {
+                            "type": "PYTHON_EXECUTE",
+                            "source": {"type": "INLINE", "content": "print('next MULTI step')"},
                         },
-                        {
-                            "sequence": 2,
-                            "payload": {
-                                "type": "CODE",
+                    },
+                    {
+                        "sequence": 2,
+                        "payload": {
+                            "type": "PYTHON_EXECUTE",
+                            "source": {
+                                "type": "INLINE",
                                 "content": "print('another MULTI step')",
                             },
                         },
-                    ],
-                },
+                    },
+                ],
             },
             "actor": {"type": "USER", "id": "rest-user"},
         },
@@ -485,27 +603,27 @@ async def test_multi_operation_create_and_finalize_rest_api(
             "expected_version": 1,
             "operation_timeout_seconds": 900,
             "metadata": {"phase": "follow-up"},
-            "source": {
-                "type": "INLINE",
-                "spec": {
-                    "schema_version": "1.0",
-                    "steps": [
-                        {
-                            "sequence": 1,
-                            "payload": {
-                                "type": "CODE",
-                                "content": "print('next MULTI step')",
-                            },
+            "spec": {
+                "schema_version": "1.0",
+                "steps": [
+                    {
+                        "sequence": 1,
+                        "payload": {
+                            "type": "PYTHON_EXECUTE",
+                            "source": {"type": "INLINE", "content": "print('next MULTI step')"},
                         },
-                        {
-                            "sequence": 2,
-                            "payload": {
-                                "type": "CODE",
+                    },
+                    {
+                        "sequence": 2,
+                        "payload": {
+                            "type": "PYTHON_EXECUTE",
+                            "source": {
+                                "type": "INLINE",
                                 "content": "print('another MULTI step')",
                             },
                         },
-                    ],
-                },
+                    },
+                ],
             },
             "actor": {"type": "USER", "id": "rest-user"},
         },
@@ -517,14 +635,10 @@ async def test_multi_operation_create_and_finalize_rest_api(
     operation_id = continued.json()["operation"]["operation_id"]
     operation = await client.get(f"/api/v1/executions/{execution_id}/operations/{operation_id}")
     assert operation.status_code == 200
+    assert operation.json()["schema_version"] == "1.0"
     assert operation.json()["sequence_range"] == {"first": 1, "last": 2}
     assert operation.json()["operation_timeout_seconds"] == 900
     assert operation.json()["metadata"] == {"phase": "follow-up"}
-    async with container.session_factory() as session:
-        operation_row = await session.get(ExecutionOperationORM, UUID(operation_id))
-    assert operation_row is not None
-    persisted_source = json.loads(operation_row.source_content)
-    assert [step["sequence"] for step in persisted_source["steps"]] == [1, 2]
     operation_steps = await client.get(
         f"/api/v1/executions/{execution_id}/operations/{operation_id}/steps"
     )
@@ -554,32 +668,26 @@ async def test_path_execution_spec_rest_submit(
     rest_client: tuple[httpx.AsyncClient, ApplicationContainer],
 ) -> None:
     client, container = rest_client
-    spec = {
-        "schema_version": "1.0",
-        "steps": [
-            {
-                "sequence": 0,
-                "payload": {"type": "CODE", "content": "print('PATH source')"},
-            }
-        ],
-    }
-    content = json.dumps(spec, separators=(",", ":")).encode()
-    relative_path = Path("plans/path-plan/execution-spec.json")
+    content = b"print('PATH source')"
+    relative_path = Path("plans/path-plan/step-0.py")
     source_path = container.settings.input_host_root / relative_path
     source_path.parent.mkdir(parents=True)
     source_path.write_bytes(content)
     payload = _submit_payload(key="rest-path-submit")
-    payload["operation"]["source"] = {
-        "type": "PATH",
-        "path": relative_path.as_posix(),
-        "sha256": hashlib.sha256(content).hexdigest(),
+    payload["operation"]["spec"]["steps"][0]["payload"] = {
+        "type": "PYTHON_EXECUTE",
+        "source": {
+            "type": "PATH",
+            "path": relative_path.as_posix(),
+            "sha256": hashlib.sha256(content).hexdigest(),
+        },
     }
 
     submitted = await client.post("/api/v1/executions", json=payload)
 
     assert submitted.status_code == 202
-    fetched = await client.get(submitted.headers["location"])
-    assert fetched.json()["source"] == {
+    steps = await client.get(f"{submitted.headers['location']}/steps")
+    assert steps.json()["items"][0]["source"] == {
         "type": "PATH",
         "path": relative_path.as_posix(),
         "sha256": hashlib.sha256(content).hexdigest(),

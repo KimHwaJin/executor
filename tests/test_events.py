@@ -13,7 +13,6 @@ from executor_service.application.commands import StepSpec, SubmitExecutionComma
 from executor_service.application.services import ExecutionService
 from executor_service.config import Settings
 from executor_service.domain.enums import (
-    CodeSourceType,
     OperationMode,
     OutboxDestination,
     TriggerType,
@@ -45,10 +44,6 @@ def _submit_command() -> SubmitExecutionCommand:
         operation_mode=OperationMode.SINGLE,
         trigger_type=TriggerType.INTERACTIVE,
         runtime_profile="basic",
-        code_source_type=CodeSourceType.INLINE,
-        source_content="print('event contract')",
-        code_path=None,
-        source_sha256="0" * 64,
         user_id="event-user",
         project_id="event-project",
         session_id="event-session",

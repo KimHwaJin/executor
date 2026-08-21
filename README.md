@@ -89,7 +89,7 @@ uv run executor-service
 
 To build and run the Executor application together with PostgreSQL, Redis, and Jupyter, use the
 full Compose stack instead. The one-shot `migrate` service upgrades the schema before `executor`
-starts. Executor mounts `./input_dir` read-only for Agent-authored PATH ExecutionSpecs; only the
+starts. Executor mounts `./input_dir` read-only for Agent-authored PATH Step `.py` files; only the
 Jupyter fleet mounts `./test_harness/jupyter/workspace` at `/workspace/pv`.
 
 ```bash
@@ -250,7 +250,8 @@ and request examples.
 - `trigger.type`: `INTERACTIVE` or `BATCH`; `trigger.actor` is the audit principal
 - `runtime.type`: Runtime Driver kind; currently `JUPYTER`
 - `runtime.profile`: one of the target's supported profiles; for Jupyter this is a kernelspec name
-- `operation.source`: either an INLINE ExecutionSpec or input-storage PATH plus SHA-256
+- `operation.spec`: ExecutionSpec `1.0`; every Step independently supplies INLINE code or a
+  `.py` input-storage PATH plus SHA-256
 - `operation.operation_timeout_seconds`: optional whole-Operation limit
 - `context`: Agent-owned user/project/session/Task IDs; Executor creates `execution_id`
 
@@ -265,18 +266,17 @@ manual batch trigger and may differ from the owning user.
 that pool.
 `context.workflow_id` is optional for both triggers.
 
-INLINE and PATH resolve to the same versioned ExecutionSpec. INLINE embeds `source.spec`; PATH
-references a UTF-8 JSON file under `INPUT_HOST_ROOT` using a relative path and required SHA-256.
-The spec owns ordered Steps containing a typed payload, optional Step timeout, and optional
-Skill/Tool lineage. Executor persists the normalized source and creates one ExecutionStep per spec
-Step. The current Jupyter Driver executes each CODE Step as one code cell. See
+ExecutionSpec stays at schema version `1.0` during pre-release development. Each ordered Step uses
+`PYTHON_EXECUTE` and independently embeds INLINE code or references one UTF-8 `.py` file below
+`INPUT_HOST_ROOT` with a relative path and SHA-256. Executor persists the resolved source and
+provenance on that ExecutionStep. The Jupyter Driver executes each Step as one code cell. See
 [ExecutionSpec v1](docs/execution-spec.md).
 
 For `MULTI`, submit one or more consecutive ExecutionSpec Steps starting at sequence `0`. After the execution reaches
 `WAITING_FOR_OPERATION`, call `execution_operation_create` with the current `version`, a new idempotency
-key, and an INLINE or PATH ExecutionSpec containing one or more next consecutive Steps. A stale
-version, gap, or duplicate sequence is rejected. Each Operation records its source and
-source provenance, metadata, and Executor-owned IDs. A Runtime error is recorded as a failed Step and returns to the
+key, and an ExecutionSpec containing one or more next consecutive Steps. A stale version, gap, or
+duplicate sequence is rejected. Each Operation records metadata and its Executor-owned IDs; each
+Step records its own resolved source provenance. A Runtime error is recorded as a failed Step and returns to the
 waiting state so the Agent can append a corrected follow-up Operation; already executed Steps are
 never rewritten. Call `execution_finalize` with the current version when no more Steps are needed. If the
 retained Runtime session is lost or an infrastructure failure makes its state untrustworthy, the MULTI
@@ -285,8 +285,8 @@ of already executed Steps is intentionally not supported.
 
 ## Storage ownership
 
-- The Agent writes PATH-type ExecutionSpec JSON into the Agent/Executor input storage. Executor
-  reads it through `INPUT_HOST_ROOT`; Jupyter does not need this volume.
+- The Agent writes PATH-type Step `.py` files into Agent/Executor input storage. Executor reads
+  them through `INPUT_HOST_ROOT`; Jupyter does not need this volume.
 - Jupyter creates execution workspaces, notebooks, artifacts, datasets, and manifests on its own
   shared storage. All Jupyter Runtime Targets share that storage.
 - Mounting the same shared PVC on every Jupyter Runtime Target is an operator-owned deployment
@@ -362,10 +362,12 @@ storage URI, media type, size, checksum, status, metadata, and a direct parent A
 Agent Asset ID. Registration emits
 `execution.artifact_registered` through the Transactional Outbox.
 
-Agent-authored Python or `.ipynb` files are not public execution inputs. INLINE and PATH both carry
-the versioned ExecutionSpec JSON contract. Executor normalizes that contract into PostgreSQL and
-builds the Notebook document from executed Steps and outputs, while Jupyter writes
-`notebooks/execution.ipynb` into its own shared storage.
+Agent-authored `.ipynb` files are not execution inputs. Agent-authored Python is supplied per Step,
+either INLINE or as a `.py` PATH. Executor builds the Notebook document from executed Steps and
+outputs, while Jupyter writes `notebooks/execution.ipynb` into its own shared storage. Agent-authored
+reports can be materialized through `execution_artifact_create` or
+`POST /api/v1/executions/{execution_id}/artifacts`; REPORT content is written below `reports/` and
+may also be appended as a Markdown notebook cell.
 
 ## Runtime fleet management
 

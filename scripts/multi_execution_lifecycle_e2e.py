@@ -10,7 +10,7 @@ from typing import Any, Literal
 from uuid import UUID, uuid4
 
 import httpx
-from execution_spec_payload import execution_request, inline_source
+from execution_spec_payload import execution_request, inline_spec
 from mcp import Client
 from redis.asyncio import Redis
 from sqlalchemy import select
@@ -76,7 +76,7 @@ def _host_jupyter_endpoint(target: RuntimeTargetORM, settings: Any) -> str:
     return os.getenv(variable, default)
 
 
-def _single_step_source(
+def _single_step_spec(
     sequence: int,
     *,
     skill_name: str,
@@ -84,21 +84,21 @@ def _single_step_source(
     code: str,
 ) -> dict[str, Any]:
     return {
-        "type": "INLINE",
-        "spec": {
-            "schema_version": "1.0",
-            "steps": [
-                {
-                    "sequence": sequence,
-                    "payload": {"type": "CODE", "content": code},
-                    "lineage": {
-                        "skill_name": skill_name,
-                        "tool_name": tool_name,
-                        "input_parameters": {},
-                    },
-                }
-            ],
-        },
+        "schema_version": "1.0",
+        "steps": [
+            {
+                "sequence": sequence,
+                "payload": {
+                    "type": "PYTHON_EXECUTE",
+                    "source": {"type": "INLINE", "content": code},
+                },
+                "lineage": {
+                    "skill_name": skill_name,
+                    "tool_name": tool_name,
+                    "input_parameters": {},
+                },
+            }
+        ],
     }
 
 
@@ -434,7 +434,7 @@ async def _run_correction_and_finalization_case(
                 trigger_type="INTERACTIVE",
                 runtime_profile=runtime_profile,
                 actor=actor,
-                source=inline_source(
+                spec=inline_spec(
                     [
                         {
                             "skill_name": "data_load",
@@ -477,7 +477,7 @@ async def _run_correction_and_finalization_case(
             "idempotency_key": f"multi-flow-continue-1-{unique}",
             "expected_version": first["state"]["version"],
             "actor": actor,
-            "source": _single_step_source(
+            "spec": _single_step_spec(
                 1,
                 skill_name="eda",
                 tool_name="calculate_answer",
@@ -519,7 +519,7 @@ async def _run_correction_and_finalization_case(
                 "idempotency_key": f"multi-flow-continue-2-{unique}",
                 "expected_version": second["state"]["version"],
                 "actor": actor,
-                "source": _single_step_source(
+                "spec": _single_step_spec(
                     2,
                     skill_name="modeling",
                     tool_name="planned_failure",
@@ -567,7 +567,7 @@ async def _run_correction_and_finalization_case(
             "idempotency_key": f"multi-flow-continue-3-{unique}",
             "expected_version": failed["state"]["version"],
             "actor": actor,
-            "source": _single_step_source(
+            "spec": _single_step_spec(
                 3,
                 skill_name="evaluation",
                 tool_name="correct_failure",
@@ -787,7 +787,7 @@ async def _run_running_cancel_case(
             trigger_type="INTERACTIVE",
             runtime_profile=runtime_profile,
             actor=actor,
-            source=inline_source(
+            spec=inline_spec(
                 [
                     {
                         "skill_name": "report",

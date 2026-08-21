@@ -97,12 +97,6 @@ class ExecutionORM(Base):
         CheckConstraint("trigger_type IN ('INTERACTIVE', 'BATCH')", name="valid_trigger_type"),
         CheckConstraint("runtime_pool IN ('INTERACTIVE', 'BATCH')", name="valid_runtime_pool"),
         CheckConstraint("runtime_type IN ('JUPYTER')", name="valid_runtime_type"),
-        CheckConstraint("code_source_type IN ('INLINE', 'PATH')", name="valid_code_source_type"),
-        CheckConstraint(
-            "(code_source_type = 'INLINE' AND code_path IS NULL) OR "
-            "(code_source_type = 'PATH' AND code_path IS NOT NULL)",
-            name="valid_code_source",
-        ),
         CheckConstraint("retry_count >= 0", name="non_negative_retry_count"),
         CheckConstraint("recovery_count >= 0", name="non_negative_recovery_count"),
         CheckConstraint(
@@ -169,13 +163,6 @@ class ExecutionORM(Base):
         enum_type(RuntimePool, "runtime_pool"), nullable=False
     )
     runtime_profile: Mapped[str] = mapped_column(String(128), nullable=False)
-    code_source_type: Mapped[CodeSourceType] = mapped_column(
-        enum_type(CodeSourceType, "code_source_type"), nullable=False
-    )
-    source_content: Mapped[str] = mapped_column("code", Text, nullable=False)
-    code_path: Mapped[str | None] = mapped_column(Text, nullable=True)
-    source_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
-
     user_id: Mapped[str] = mapped_column(String(255), nullable=False)
     project_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     session_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -265,10 +252,6 @@ class ExecutionORM(Base):
             runtime_type=execution.runtime_type,
             runtime_pool=execution.runtime_pool,
             runtime_profile=execution.runtime_profile,
-            code_source_type=execution.code_source_type,
-            source_content=execution.source_content,
-            code_path=execution.code_path,
-            source_sha256=execution.source_sha256,
             user_id=execution.user_id,
             project_id=execution.project_id,
             session_id=execution.session_id,
@@ -322,10 +305,6 @@ class ExecutionORM(Base):
             runtime_type=self.runtime_type,
             runtime_pool=self.runtime_pool,
             runtime_profile=self.runtime_profile,
-            code_source_type=self.code_source_type,
-            source_content=self.source_content,
-            code_path=self.code_path,
-            source_sha256=self.source_sha256,
             user_id=self.user_id,
             project_id=self.project_id,
             session_id=self.session_id,
@@ -381,6 +360,12 @@ class ExecutionStepORM(Base):
             "status IN ('PENDING', 'RUNNING', 'SUCCEEDED', 'FAILED', 'SKIPPED', 'CANCELLED')",
             name="valid_step_status",
         ),
+        CheckConstraint("source_type IN ('INLINE', 'PATH')", name="valid_source_type"),
+        CheckConstraint(
+            "(source_type = 'INLINE' AND source_path IS NULL) OR "
+            "(source_type = 'PATH' AND source_path IS NOT NULL)",
+            name="valid_source",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
@@ -398,6 +383,11 @@ class ExecutionStepORM(Base):
     )
     sequence: Mapped[int] = mapped_column(Integer, nullable=False)
     code: Mapped[str] = mapped_column(Text, nullable=False)
+    source_type: Mapped[CodeSourceType] = mapped_column(
+        enum_type(CodeSourceType, "step_source_type"), nullable=False
+    )
+    source_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     code_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     step_timeout_seconds: Mapped[int | None] = mapped_column(Integer)
     skill_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -434,6 +424,9 @@ class ExecutionStepORM(Base):
             operation_id=step.operation_id,
             sequence=step.sequence,
             code=step.code,
+            source_type=step.source_type,
+            source_path=step.source_path,
+            source_sha256=step.source_sha256,
             code_hash=step.code_hash,
             step_timeout_seconds=step.step_timeout_seconds,
             skill_name=step.skill_name,
@@ -458,6 +451,9 @@ class ExecutionStepORM(Base):
             operation_id=self.operation_id,
             sequence=self.sequence,
             code=self.code,
+            source_type=self.source_type,
+            source_path=self.source_path,
+            source_sha256=self.source_sha256,
             code_hash=self.code_hash,
             step_timeout_seconds=self.step_timeout_seconds,
             skill_name=self.skill_name,
@@ -485,6 +481,7 @@ class ExecutionOperationORM(Base):
         *audit_actor_constraints(),
         UniqueConstraint("execution_id", "operation_number", name="uq_operations_execution_number"),
         CheckConstraint("operation_number > 0", name="positive_operation_number"),
+        CheckConstraint("schema_version = '1.0'", name="supported_schema_version"),
         CheckConstraint("first_sequence >= 0", name="non_negative_first_sequence"),
         CheckConstraint("last_sequence >= first_sequence", name="valid_operation_sequence_range"),
         CheckConstraint(
@@ -503,18 +500,13 @@ class ExecutionOperationORM(Base):
         Uuid(as_uuid=True), ForeignKey("executions.id", ondelete="CASCADE"), nullable=False
     )
     operation_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    schema_version: Mapped[str] = mapped_column(String(16), nullable=False, default="1.0")
     first_sequence: Mapped[int] = mapped_column(Integer, nullable=False)
     last_sequence: Mapped[int] = mapped_column(Integer, nullable=False)
     operation_timeout_seconds: Mapped[int | None] = mapped_column(Integer)
     operation_metadata: Mapped[dict[str, Any]] = mapped_column(
         "metadata", JSON, nullable=False, default=dict
     )
-    code_source_type: Mapped[CodeSourceType] = mapped_column(
-        enum_type(CodeSourceType, "operation_code_source_type"), nullable=False
-    )
-    source_content: Mapped[str] = mapped_column(Text, nullable=False)
-    code_path: Mapped[str | None] = mapped_column(Text)
-    source_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     request_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[OperationStatus] = mapped_column(
@@ -547,14 +539,11 @@ class ExecutionOperationORM(Base):
             id=operation.id,
             execution_id=operation.execution_id,
             operation_number=operation.operation_number,
+            schema_version=operation.schema_version,
             first_sequence=operation.first_sequence,
             last_sequence=operation.last_sequence,
             operation_timeout_seconds=operation.operation_timeout_seconds,
             operation_metadata=operation.metadata,
-            code_source_type=operation.code_source_type,
-            source_content=operation.source_content,
-            code_path=operation.code_path,
-            source_sha256=operation.source_sha256,
             idempotency_key=operation.idempotency_key,
             request_fingerprint=operation.request_fingerprint,
             status=operation.status,
@@ -856,7 +845,7 @@ class ExecutionStepAttemptORM(Base):
 
 
 class ExecutionArtifactORM(Base):
-    """Artifact evidence produced by one execution Attempt and optionally one Step."""
+    """Artifact evidence attached at Execution, Attempt, or Step scope."""
 
     __tablename__ = "execution_artifacts"
     __table_args__ = (
@@ -887,10 +876,10 @@ class ExecutionArtifactORM(Base):
         ForeignKey("executions.id", ondelete="CASCADE"),
         nullable=False,
     )
-    execution_attempt_id: Mapped[UUID] = mapped_column(
+    execution_attempt_id: Mapped[UUID | None] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey("execution_attempts.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
     )
     execution_step_id: Mapped[UUID | None] = mapped_column(
         Uuid(as_uuid=True),

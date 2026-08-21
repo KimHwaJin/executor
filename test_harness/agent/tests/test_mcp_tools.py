@@ -37,7 +37,7 @@ def settings() -> AgentSettings:
 
 
 def test_allowlist_has_no_runtime_admin_tools() -> None:
-    assert len(READ_TOOL_NAMES) == 16
+    assert len(READ_TOOL_NAMES) == 18
     assert len(MUTATION_MCP_TOOL_NAMES) == 5
     assert not READ_TOOL_NAMES & ADMIN_TOOL_NAMES
     assert not MUTATION_MCP_TOOL_NAMES & ADMIN_TOOL_NAMES

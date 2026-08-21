@@ -19,6 +19,7 @@ class WorkspacePathError(ValueError):
 class ExecutionWorkspace:
     runtime_relative_path: str
     notebook_path: str
+    reports_path: str
     artifacts_path: str
     manifest_path: str
 
@@ -42,6 +43,7 @@ class WorkspaceManager:
         return ExecutionWorkspace(
             runtime_relative_path=relative,
             notebook_path=f"{relative}/notebooks/execution.ipynb",
+            reports_path=f"{relative}/reports",
             artifacts_path=f"{relative}/artifacts",
             manifest_path=f"{relative}/artifacts/manifest.jsonl",
         )

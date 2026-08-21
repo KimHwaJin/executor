@@ -19,6 +19,7 @@ from executor_service.application.commands import (
     StepSpec,
 )
 from executor_service.application.execution_queries import ExecutionQueryService
+from executor_service.application.execution_results import ExecutionResultQueryService
 from executor_service.application.notebook_queries import (
     ExecutionNotebookQueryService,
     NotebookCellView,
@@ -38,7 +39,8 @@ from executor_service.domain.enums import (
     RuntimeType,
 )
 from executor_service.domain.errors import DomainError, ErrorCode
-from executor_service.execution_specs import ExecutionSpecResolver, PathCodeSource
+from executor_service.execution_specs import ExecutionSpecResolver
+from executor_service.infrastructure.materialized_artifacts import MaterializedArtifactService
 from executor_service.interfaces.contracts import (
     ExecutionArtifactPageResponse,
     ExecutionArtifactResponse,
@@ -49,8 +51,10 @@ from executor_service.interfaces.contracts import (
     ExecutionNotebookResponse,
     ExecutionOperationPageResponse,
     ExecutionOperationResponse,
+    ExecutionOperationResultResponse,
     ExecutionPageResponse,
     ExecutionResponse,
+    ExecutionResultResponse,
     ExecutionStepAttemptPageResponse,
     ExecutionStepPageResponse,
     ExecutionSubmitRequest,
@@ -59,6 +63,7 @@ from executor_service.interfaces.contracts import (
     RuntimeTargetUpsertRequest,
 )
 from executor_service.interfaces.mcp.schemas import (
+    ExecutionArtifactMaterializeToolRequest,
     ExecutionCancelRequest,
     ExecutionFinalizeRequest,
     ExecutionOperationCreateRequest,
@@ -102,6 +107,8 @@ def build_mcp_server(
     tracing: TracingManager | None = None,
     execution_spec_resolver: ExecutionSpecResolver | None = None,
     notebook_queries: ExecutionNotebookQueryService | None = None,
+    execution_results: ExecutionResultQueryService | None = None,
+    materialized_artifacts: MaterializedArtifactService | None = None,
 ) -> MCPServer:
     server = MCPServer(
         name="executor-service",
@@ -124,7 +131,7 @@ def build_mcp_server(
                 raise ToolError(
                     f"[{ErrorCode.INTERNAL_ERROR}] ExecutionSpec resolver is not configured."
                 )
-            resolved = await execution_spec_resolver.resolve(request.operation.source)
+            resolved = await execution_spec_resolver.resolve(request.operation.spec)
             if resolved.spec.steps[0].sequence != 0:
                 raise ToolError(
                     f"[{ErrorCode.INVALID_EXECUTION_SPEC}] Execution submit requires an "
@@ -133,13 +140,7 @@ def build_mcp_server(
             result = await _trace_call(
                 tracing,
                 "executor.mcp.execution_submit",
-                execution_service.submit_result(
-                    request.to_command(
-                        resolved.spec,
-                        source_content=resolved.canonical_content,
-                        source_sha256=resolved.sha256,
-                    )
-                ),
+                execution_service.submit_result(request.to_command(resolved)),
             )
         except Exception as exc:
             raise _public_tool_error(exc) from exc
@@ -232,8 +233,8 @@ def build_mcp_server(
                 raise ToolError(
                     f"[{ErrorCode.INTERNAL_ERROR}] ExecutionSpec resolver is not configured."
                 )
-            resolved = await execution_spec_resolver.resolve(request.source)
-            source_steps = resolved.spec.steps
+            resolved = await execution_spec_resolver.resolve(request.spec)
+            source_steps = resolved.steps
             result = await _trace_call(
                 tracing,
                 "executor.mcp.execution_operation_create",
@@ -242,20 +243,16 @@ def build_mcp_server(
                         execution_id=request.execution_id,
                         idempotency_key=request.idempotency_key,
                         expected_version=request.expected_version,
-                        source_content=resolved.canonical_content,
+                        spec_schema_version=resolved.spec.schema_version,
                         operation_timeout_seconds=request.operation_timeout_seconds,
                         metadata=request.metadata,
-                        code_source_type=request.source.type,
-                        code_path=(
-                            request.source.path
-                            if isinstance(request.source, PathCodeSource)
-                            else None
-                        ),
-                        source_sha256=resolved.sha256,
                         steps=tuple(
                             StepSpec(
                                 sequence=source_step.sequence,
-                                code=source_step.code,
+                                code=source_step.content,
+                                source_type=source_step.source_type,
+                                source_path=source_step.source_path,
+                                source_sha256=source_step.source_sha256,
                                 step_timeout_seconds=source_step.step_timeout_seconds,
                                 skill_name=source_step.skill_name,
                                 tool_name=source_step.tool_name,
@@ -349,6 +346,58 @@ def build_mcp_server(
             return _notebook_cell_content(view)
 
     if execution_queries is not None:
+        if materialized_artifacts is not None:
+
+            @server.tool(
+                description=(
+                    "Materialize Agent-authored UTF-8 text from INLINE content or an Executor "
+                    "input-PV PATH as a Runtime-owned Execution Artifact. REPORT files are "
+                    "written below reports/ and may also be appended to the notebook."
+                )
+            )
+            async def execution_artifact_create(
+                request: ExecutionArtifactMaterializeToolRequest,
+            ) -> ExecutionArtifactResponse:
+                try:
+                    artifact_id = await materialized_artifacts.materialize(
+                        request.to_command(request.execution_id)
+                    )
+                    view = await execution_queries.artifact(artifact_id)
+                except Exception as exc:
+                    raise _public_tool_error(exc) from exc
+                return ExecutionArtifactResponse.from_view(view)
+
+        if execution_results is not None:
+
+            @server.tool(
+                description=(
+                    "Get the complete Execution result after an Executor event signals that "
+                    "results are available. Includes Operations, current Steps, immutable "
+                    "Attempts, Step Attempts, and Artifacts."
+                )
+            )
+            async def execution_result_get(execution_id: UUID) -> ExecutionResultResponse:
+                try:
+                    bundle = await execution_results.execution(execution_id)
+                except Exception as exc:
+                    raise _public_tool_error(exc) from exc
+                return ExecutionResultResponse.from_bundle(bundle)
+
+            @server.tool(
+                description=(
+                    "Get one Operation together with all current Step results after an "
+                    "operation result event is received."
+                )
+            )
+            async def execution_operation_result_get(
+                execution_id: UUID,
+                operation_id: UUID,
+            ) -> ExecutionOperationResultResponse:
+                try:
+                    bundle = await execution_results.operation(execution_id, operation_id)
+                except Exception as exc:
+                    raise _public_tool_error(exc) from exc
+                return ExecutionOperationResultResponse.from_bundle(bundle)
 
         @server.tool(
             description=(

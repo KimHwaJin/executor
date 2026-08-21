@@ -41,6 +41,7 @@ async def create_execution_operation(
     operation_index: int,
     expected_version: int,
     first_sequence: int,
+    actor_id: str = "executor-test-agent",
 ) -> dict[str, Any]:
     """Append one deterministic follow-up Operation to a waiting MULTI Execution."""
 
@@ -51,7 +52,10 @@ async def create_execution_operation(
         source_steps = [
             {
                 "sequence": first_sequence + offset,
-                "payload": {"type": "CODE", "content": step.code},
+                "payload": {
+                    "type": "PYTHON_EXECUTE",
+                    "source": {"type": "INLINE", "content": step.code},
+                },
                 "lineage": {
                     "skill_name": step.skill_name,
                     "tool_name": step.tool_name,
@@ -70,11 +74,8 @@ async def create_execution_operation(
                         execution_id, "operation", operation_index, source_steps
                     ),
                     "expected_version": expected_version,
-                    "source": {
-                        "type": "INLINE",
-                        "spec": {"schema_version": "1.0", "steps": source_steps},
-                    },
-                    "actor": _agent_actor(),
+                    "spec": {"schema_version": "1.0", "steps": source_steps},
+                    "actor": _agent_actor(actor_id),
                 }
             },
         )
@@ -86,6 +87,7 @@ async def finalize_execution(
     settings: AgentSettings,
     *,
     expected_version: int,
+    actor_id: str = "executor-test-agent",
 ) -> dict[str, Any]:
     """Finalize a deterministic MULTI scenario after its last Operation."""
 
@@ -101,7 +103,7 @@ async def finalize_execution(
                     "execution_id": execution_id,
                     "idempotency_key": _scenario_idempotency_key(execution_id, "finalize", 0, {}),
                     "expected_version": expected_version,
-                    "actor": _agent_actor(),
+                    "actor": _agent_actor(actor_id),
                 }
             },
         )
@@ -127,6 +129,7 @@ async def reconcile_execution(
         raise RuntimeError(
             f"Redis wake-up status {event_status!r} does not match Executor state {status!r}."
         )
+    steps = [step for operation in result["operations"] for step in operation["steps"]]
     return {
         "execution_id": execution_id,
         "wake_event_id": str(wake_event.event_id),
@@ -135,9 +138,10 @@ async def reconcile_execution(
         "version": result["execution"]["state"]["version"],
         "runtime_target_id": result["execution"]["runtime"]["target_id"],
         "notebook_path": result["execution"]["workspace"]["notebook_path"],
-        "steps": result["steps"],
+        "steps": steps,
         "artifacts": result["artifacts"],
-        "notebook": result["notebook"],
+        "attempts": result["attempts"],
+        "notebook": {"cells": []},
         "step_events": [
             event.model_dump(mode="json")
             for event in event_batch.events
@@ -162,5 +166,5 @@ def _scenario_idempotency_key(
     return f"agent-scenario-{action}-{execution_id}-{index}-{digest}"
 
 
-def _agent_actor() -> dict[str, str]:
-    return {"type": "AGENT", "id": "executor-test-agent"}
+def _agent_actor(actor_id: str = "executor-test-agent") -> dict[str, str]:
+    return {"type": "AGENT", "id": actor_id}

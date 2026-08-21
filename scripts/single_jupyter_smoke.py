@@ -6,7 +6,7 @@ from time import monotonic
 from typing import Any
 from uuid import uuid4
 
-from execution_spec_payload import execution_request, inline_source
+from execution_spec_payload import execution_request, inline_spec
 from mcp import Client
 
 from executor_service.config import get_settings
@@ -79,7 +79,7 @@ async def main() -> None:
                     trigger_type="INTERACTIVE",
                     actor={"type": "USER", "id": "single-jupyter-user"},
                     runtime_profile=kernel_name,
-                    source=inline_source(
+                    spec=inline_spec(
                         [
                             {
                                 "skill_name": "eda",

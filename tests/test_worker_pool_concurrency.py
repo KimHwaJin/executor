@@ -15,7 +15,6 @@ from executor_service.application.commands import (
 from executor_service.application.services import ExecutionService
 from executor_service.config import Settings
 from executor_service.domain.enums import (
-    CodeSourceType,
     ExecutionStatus,
     OperationMode,
     RuntimePool,
@@ -83,10 +82,6 @@ def _command(pool: RuntimePool, name: str) -> SubmitExecutionCommand:
         operation_mode=OperationMode.SINGLE,
         trigger_type=(TriggerType.BATCH if pool == RuntimePool.BATCH else TriggerType.INTERACTIVE),
         runtime_profile="basic",
-        code_source_type=CodeSourceType.INLINE,
-        source_content=code,
-        code_path=None,
-        source_sha256="0" * 64,
         user_id="worker-pool-user",
         project_id="worker-pool-project",
         session_id=f"worker-pool-session-{name}",

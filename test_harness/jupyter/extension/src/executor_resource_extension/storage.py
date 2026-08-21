@@ -23,6 +23,7 @@ class RuntimeStorage:
         for relative in (
             "notebooks",
             "notebooks/.ipynb_checkpoints",
+            "reports",
             *(f"artifacts/{name}" for name in ARTIFACT_DIRECTORIES),
         ):
             (workspace / relative).mkdir(parents=True, exist_ok=True)

@@ -10,9 +10,9 @@ internals or access Executor-owned database tables.
 - [`jupyter/`](jupyter/README.md): Jupyter image and native runner, `basic` and `ml` kernels,
   Executor-compatible Jupyter server extension, and the ignored shared workspace used by local
   Runtime Targets.
-- [`agent/`](agent/README.md): isolated LangGraph/LangChain `create_agent` project using an approved
-  Executor MCP Tool set for current-state questions and policy-wrapped mutations, plus a
-  deterministic E2E path for verifying Redis wake-up and Runtime-owned Jupyter output.
+- [`agent/`](agent/README.md): isolated LangGraph/LangChain project exposing both a direct Executor
+  MCP Tool Agent and a guarded plan → HITL → execution Agent, plus deterministic E2E paths for
+  verifying Redis wake-up and Runtime-owned Jupyter output.
 
 PostgreSQL and Redis remain in the repository-root Compose file because they are required Executor
 infrastructure, not simulated external clients. Compose is the orchestration entry point and builds

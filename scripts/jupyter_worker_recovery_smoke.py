@@ -1,6 +1,7 @@
 """Verify graceful Worker shutdown and a FROM_START retry against real Jupyter."""
 
 import asyncio
+import hashlib
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -13,7 +14,6 @@ from executor_service.application.commands import (
 from executor_service.config import get_settings
 from executor_service.container import ApplicationContainer
 from executor_service.domain.enums import (
-    CodeSourceType,
     ExecutionStatus,
     FailureType,
     OperationMode,
@@ -63,10 +63,6 @@ async def main() -> None:
                 operation_mode=OperationMode.SINGLE,
                 trigger_type=TriggerType.INTERACTIVE,
                 runtime_profile="basic",
-                code_source_type=CodeSourceType.INLINE,
-                source_content=code,
-                code_path=None,
-                source_sha256="0" * 64,
                 user_id="worker-recovery-user",
                 project_id="worker-recovery-project",
                 session_id="worker-recovery-session",
@@ -75,6 +71,7 @@ async def main() -> None:
                     StepSpec(
                         sequence=0,
                         code=code,
+                        source_sha256=hashlib.sha256(code.encode()).hexdigest(),
                         tool_name="long_running_tool",
                     ),
                 ),

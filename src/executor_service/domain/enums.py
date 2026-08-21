@@ -50,7 +50,7 @@ class CodeSourceType(StrEnum):
 
 
 class StepPayloadType(StrEnum):
-    CODE = "CODE"
+    PYTHON_EXECUTE = "PYTHON_EXECUTE"
 
 
 class StepStatus(StrEnum):
