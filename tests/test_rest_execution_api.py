@@ -34,6 +34,7 @@ from executor_service.infrastructure.db.models import (
     RuntimeTargetORM,
 )
 from executor_service.interfaces.http.app import create_app
+from tests.runtime_credentials import runtime_credential_fields
 
 
 @pytest_asyncio.fixture
@@ -484,7 +485,7 @@ async def test_attempt_detail_and_step_attempt_routes(
                 id=target_id,
                 name="rest-attempt-jupyter",
                 connection_config={"endpoint": "http://127.0.0.1:8888"},
-                credential_ref="settings:JUPYTER_TOKEN",
+                **runtime_credential_fields(),
                 pool=RuntimePool.INTERACTIVE,
                 status=RuntimeTargetStatus.ACTIVE,
                 max_concurrent_executions=1,

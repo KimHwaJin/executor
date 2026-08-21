@@ -298,31 +298,6 @@ async def test_hard_purge_requires_disable_confirmation_and_keeps_tombstone(
         assert tombstone.created_by == "fleet-admin"
 
 
-async def test_environment_configured_default_server_cannot_be_purged(
-    fleet_client: tuple[httpx.AsyncClient, ApplicationContainer],
-) -> None:
-    client, container = fleet_client
-    container.settings.runtime_enabled = True
-    created = await client.post(
-        "/api/v1/runtime-targets",
-        json=_upsert_payload(20, name=container.settings.runtime_target_name),
-    )
-    target_id = created.json()["target_id"]
-    await client.post(
-        f"/api/v1/runtime-targets/{target_id}/disable",
-        json=_mutation_payload("fleet-disable-default"),
-    )
-    purged = await client.post(
-        f"/api/v1/runtime-targets/{target_id}/purge",
-        json={
-            **_mutation_payload("fleet-purge-default"),
-            "confirmation_name": container.settings.runtime_target_name,
-        },
-    )
-    assert purged.status_code == 409
-    assert "environment-configured" in purged.json()["error"]["message"]
-
-
 async def test_server_referenced_by_execution_history_cannot_be_purged(
     fleet_client: tuple[httpx.AsyncClient, ApplicationContainer],
 ) -> None:

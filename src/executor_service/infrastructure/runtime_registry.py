@@ -69,54 +69,6 @@ class RuntimeTargetRegistry:
         self._monitor_task: asyncio.Task[None] | None = None
         self._stop_event = asyncio.Event()
 
-    async def ensure_configured_target(self) -> UUID:
-        """Seed the environment-configured target as unhealthy until a real probe succeeds."""
-        if not self._settings.runtime_enabled:
-            raise RuntimeTargetConfigurationError("Runtime integration is disabled.")
-        pool = RuntimePool(self._settings.runtime_pool)
-        async with self._session_factory() as session, session.begin():
-            target = await session.scalar(
-                select(RuntimeTargetORM).where(
-                    RuntimeTargetORM.name == self._settings.runtime_target_name
-                )
-            )
-            if target is None:
-                target = RuntimeTargetORM(
-                    name=self._settings.runtime_target_name,
-                    runtime_type=RuntimeType.JUPYTER,
-                    connection_config={"endpoint": self._settings.jupyter_endpoint.rstrip("/")},
-                    credential_ref="settings:JUPYTER_TOKEN",
-                    credential_ciphertext=None,
-                    pool=pool,
-                    status=RuntimeTargetStatus.OFFLINE,
-                    enabled=True,
-                    max_concurrent_executions=(
-                        self._settings.runtime_default_max_concurrent_executions
-                    ),
-                    supported_profiles=[],
-                    last_health_check_at=None,
-                    last_health_error="Runtime Target has not been probed.",
-                )
-                session.add(target)
-                await session.flush()
-                return target.id
-            if target.runtime_type != RuntimeType.JUPYTER:
-                raise RuntimeTargetConfigurationError(
-                    "The environment-configured Runtime Target name is already registered "
-                    "with a different runtime_type. Use a distinct RUNTIME_TARGET_NAME."
-                )
-            target.connection_config = {"endpoint": self._settings.jupyter_endpoint.rstrip("/")}
-            target.credential_ref = "settings:JUPYTER_TOKEN"
-            target.credential_ciphertext = None
-            target.pool = pool
-            if target.enabled and target.status != RuntimeTargetStatus.DRAINING:
-                target.status = RuntimeTargetStatus.OFFLINE
-            target.max_concurrent_executions = (
-                self._settings.runtime_default_max_concurrent_executions
-            )
-            target.updated_at = utc_now()
-            return target.id
-
     async def start(self) -> None:
         if self._monitor_task is not None:
             return
@@ -527,11 +479,6 @@ class RuntimeTargetRegistry:
                 raise RuntimeTargetPurgeConflictError(
                     "A target must be disabled and OFFLINE before it can be purged."
                 )
-            if self._settings.runtime_enabled and target.name == self._settings.runtime_target_name:
-                raise RuntimeTargetPurgeConflictError(
-                    "The environment-configured default Runtime Target cannot be purged."
-                )
-
             execution_count = await session.scalar(
                 select(func.count(ExecutionORM.id)).where(
                     ExecutionORM.runtime_target_id == target.id
@@ -573,19 +520,7 @@ class RuntimeTargetRegistry:
             await session.flush()
             return self._purge_view(tombstone)
 
-    async def any_active(self) -> bool:
-        async with self._session_factory() as session:
-            count = await session.scalar(
-                select(func.count(RuntimeTargetORM.id)).where(
-                    RuntimeTargetORM.enabled.is_(True),
-                    RuntimeTargetORM.status == RuntimeTargetStatus.ACTIVE,
-                )
-            )
-            return bool(count)
-
     def resolve_credential(self, credential_ref: str, credential_ciphertext: str | None) -> str:
-        if credential_ref == "settings:JUPYTER_TOKEN":
-            return self._settings.jupyter_auth_token
         if credential_ref == "encrypted:database" and credential_ciphertext:
             try:
                 return self._fernet.decrypt(credential_ciphertext.encode("ascii")).decode()

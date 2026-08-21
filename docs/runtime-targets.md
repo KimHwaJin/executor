@@ -137,9 +137,10 @@ observation (`RUNTIME_RESOURCE_MAX_AGE_SECONDS`), scheduling safely falls back t
 A resource-only probe failure leaves an otherwise healthy target `ACTIVE`, marks resource data
 stale, and does not erase its last successful observation.
 
-`/readyz` reports `runtime_fleet=true` when any registered pool has an ACTIVE target. A BATCH-only
-outage therefore does not make the whole service unready or interrupt INTERACTIVE work. Use
-`runtime_target_list` to inspect the status and capacity of each pool.
+Executor starts with an empty Runtime Fleet. `/readyz` covers PostgreSQL, Redis, and Worker
+admission, so the control API remains reachable while no target is registered. Use
+`runtime_target_list` or `GET /api/v1/runtime-targets` to inspect the status and capacity of each
+pool. Executions remain durably queued until a compatible ACTIVE target is registered.
 
 ## Scale up
 
@@ -167,14 +168,11 @@ active Executions.
 ### One native Jupyter server without Docker
 
 When Executor and Jupyter run on the same machine, they still use separate storage boundaries.
-Configure Executor's PATH input root:
+Configure only Executor's Runtime policy and PATH input root. Do not configure a default Jupyter
+endpoint, token, target name, or pool on the Executor process:
 
 ```env
 RUNTIME_ENABLED=true
-RUNTIME_TARGET_NAME=single-jupyter
-JUPYTER_ENDPOINT=http://127.0.0.1:8888
-JUPYTER_TOKEN=change-me-local-only
-RUNTIME_POOL=INTERACTIVE
 RUNTIME_ALLOWED_PROFILES=basic,ml
 RUNTIME_DEFAULT_MAX_CONCURRENT_EXECUTIONS=1
 INPUT_HOST_ROOT=C:/absolute/path/to/executor/input_dir
@@ -199,7 +197,8 @@ uv run python test_harness/jupyter/native.py run \
 
 PowerShell uses `$env:JUPYTER_TOKEN = 'change-me-local-only'` and a Windows `--root-dir` path.
 
-After PostgreSQL, Redis, Jupyter, and Executor are running, execute the self-contained smoke test:
+After PostgreSQL, Redis, Jupyter, and Executor are running, execute the self-contained smoke test.
+The script explicitly registers and probes its target before submitting an Execution:
 
 ```bash
 uv run python scripts/single_jupyter_smoke.py

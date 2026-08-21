@@ -26,6 +26,7 @@ from executor_service.infrastructure.db.models import (
 from executor_service.infrastructure.db.session import create_session_factory
 from executor_service.infrastructure.runtime_registry import RuntimeTargetRegistry
 from executor_service.infrastructure.worker import ExecutionWorker
+from tests.runtime_credentials import runtime_credential_fields
 
 
 def _command(pool: RuntimePool, name: str) -> SubmitExecutionCommand:
@@ -63,7 +64,7 @@ def _target(
     return RuntimeTargetORM(
         name=name,
         connection_config={"endpoint": f"http://{name}.invalid:8888"},
-        credential_ref="settings:JUPYTER_TOKEN",
+        **runtime_credential_fields(),
         pool=pool,
         status=status,
         max_concurrent_executions=capacity,

@@ -130,16 +130,16 @@ async def test_readiness_fails_as_soon_as_worker_enters_drain(
         await connection.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(32))"))
         await connection.execute(text("INSERT INTO alembic_version VALUES ('0001')"))
     monkeypatch.setattr(container.redis, "ping", AsyncMock(return_value=True))
-    monkeypatch.setattr(
-        container.runtime_registry,
-        "any_active",
-        AsyncMock(return_value=True),
-    )
     container.execution_worker._stopped = False
     container.execution_worker._accepting_work = True
 
     try:
-        assert all((await container.readiness()).values())
+        initial_checks = await container.readiness()
+        assert initial_checks == {
+            "postgresql": True,
+            "redis": True,
+            "worker_accepting": True,
+        }
         await container.execution_worker.begin_drain()
         checks = await container.readiness()
     finally:

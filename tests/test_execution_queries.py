@@ -27,6 +27,7 @@ from executor_service.infrastructure.db.models import (
 )
 from executor_service.infrastructure.db.session import create_session_factory
 from executor_service.infrastructure.execution_queries import SQLAlchemyExecutionQueryService
+from tests.runtime_credentials import runtime_credential_fields
 
 
 def _submit_command() -> SubmitExecutionCommand:
@@ -65,7 +66,7 @@ async def test_query_service_returns_attempt_step_and_redacted_events(
                 id=target_id,
                 name="trace-jupyter",
                 connection_config={"endpoint": "http://127.0.0.1:8888"},
-                credential_ref="settings:JUPYTER_TOKEN",
+                **runtime_credential_fields(),
                 pool=RuntimePool.INTERACTIVE,
                 status=RuntimeTargetStatus.ACTIVE,
                 max_concurrent_executions=1,

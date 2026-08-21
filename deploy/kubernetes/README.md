@@ -22,8 +22,8 @@ Before deployment:
 
 1. Replace `executor-service:latest` in both workload manifests with the same immutable image
    digest or release tag.
-2. Update `JUPYTER_ENDPOINT`, MCP host/origin allowlists, tracing endpoint, pool size, and resource
-   limits in `configmap.yaml`.
+2. Update MCP host/origin allowlists, tracing endpoint, database pool size, and resource limits in
+   `configmap.yaml`.
 3. Create `executor-secret` through the platform Secret manager with the keys shown in
    `secret.example.yaml`. A local `secret.yaml` is ignored by Git, but the platform Secret manager
    is preferred. `RUNTIME_CREDENTIAL_KEY` must be a Fernet key and must remain stable while
@@ -32,6 +32,9 @@ Before deployment:
    The Agent mounts it read-write; Executor mounts it read-only at `/workspace/input`.
 5. Ensure all Jupyter servers mount their own common Jupyter PV. Executor must not mount or inspect
    that Jupyter PV; notebook and artifact access goes through Jupyter APIs.
+6. After Executor is Ready, register every Jupyter server through the Runtime Target REST or MCP
+   API. Executor starts with an empty Runtime Fleet and never creates a target from environment
+   variables.
 
 Generate a Fernet key outside Git with:
 
@@ -63,14 +66,15 @@ Job before applying the new release manifest. A fixed, already-completed Job doe
 ## Probes and endpoints
 
 - Startup/liveness: `GET /healthz` checks that the process serves HTTP.
-- Readiness: `GET /readyz` requires the expected database schema, Redis, a Worker accepting work,
-  and at least one active Runtime Target.
+- Readiness: `GET /readyz` requires the expected database schema, Redis, and a Worker accepting
+  work. An empty Runtime Fleet does not make the control API unready.
 - REST/OpenAPI: `GET /docs`, `GET /redoc`, `GET /openapi.json`
 - MCP Streamable HTTP: `POST /mcp`
 - Internal Service URL: `http://executor:8000`
 
-If the Pod is running but not Ready, inspect `/readyz`; a missing migration, Redis outage, inactive
-Jupyter target, or draining Worker is intentionally reported there.
+If the Pod is running but not Ready, inspect `/readyz`; a missing migration, Redis outage, or
+draining Worker is intentionally reported there. Inspect `/api/v1/runtime-targets` separately for
+Runtime Fleet health.
 
 ## Shutdown and scaling
 

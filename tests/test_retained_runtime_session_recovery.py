@@ -41,6 +41,7 @@ from executor_service.infrastructure.db.models import (
 from executor_service.infrastructure.db.session import create_session_factory
 from executor_service.infrastructure.runtime_registry import RuntimeTargetRegistry
 from executor_service.infrastructure.worker import ExecutionWorker
+from tests.runtime_credentials import runtime_credential_fields
 
 
 def _command(key: str) -> SubmitExecutionCommand:
@@ -84,7 +85,7 @@ async def _prepare_retained_retry(
         target = RuntimeTargetORM(
             name=f"retained-target-{key}",
             connection_config={"endpoint": "http://retained-jupyter.invalid:8888"},
-            credential_ref="settings:JUPYTER_TOKEN",
+            **runtime_credential_fields(),
             pool=RuntimePool.INTERACTIVE,
             status=target_status,
             max_concurrent_executions=2,
