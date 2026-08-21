@@ -36,6 +36,9 @@ Before deployment:
    API. Executor starts with an empty Runtime Fleet and never creates a target from environment
    variables.
 
+The manifest intentionally omits Runtime/Jupyter tuning variables and uses the application defaults.
+Add a setting to the ConfigMap only when the deployment needs an explicit environment override.
+
 Generate a Fernet key outside Git with:
 
 ```bash
