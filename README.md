@@ -525,6 +525,13 @@ tokens are encrypted with `RUNTIME_CREDENTIAL_KEY` before PostgreSQL storage. Ne
 token is placed in request URLs or responses. Rotate the encryption key only with a credential
 re-encryption procedure; replacing it directly makes existing dynamic credentials unreadable.
 
+## Kubernetes deployment
+
+A Kubernetes Deployment, ClusterIP Service, release migration Job, environment ConfigMap, and
+Secret key example are provided in [deploy/kubernetes](deploy/kubernetes/README.md). The baseline
+mounts only the Agent/Executor input PVC; Jupyter notebook and artifact storage remains attached to
+the Jupyter fleet and is accessed through Jupyter APIs.
+
 ## Package structure
 
 ```text
