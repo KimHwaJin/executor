@@ -17,10 +17,12 @@ def _load_jupyter_server_extension(server_app: Any) -> None:
         ArtifactSnapshotHandler,
         FileMetadataHandler,
         ManifestReadHandler,
+        NotebookPrepareHandler,
         OutputJournalAbortHandler,
         OutputJournalAppendHandler,
         OutputJournalBeginHandler,
         OutputJournalFinalizeHandler,
+        OutputJournalMaterializeNotebookHandler,
         ResourceStatusHandler,
         WorkspacePrepareHandler,
     )
@@ -73,6 +75,12 @@ def _load_jupyter_server_extension(server_app: Any) -> None:
             ),
             (
                 url_path_join(
+                    base_url, "executor", "storage", "notebooks", "prepare"
+                ),
+                NotebookPrepareHandler,
+            ),
+            (
+                url_path_join(
                     base_url,
                     "executor",
                     "storage",
@@ -110,6 +118,16 @@ def _load_jupyter_server_extension(server_app: Any) -> None:
                     "abort",
                 ),
                 OutputJournalAbortHandler,
+            ),
+            (
+                url_path_join(
+                    base_url,
+                    "executor",
+                    "storage",
+                    "output-journals",
+                    "materialize-notebook",
+                ),
+                OutputJournalMaterializeNotebookHandler,
             ),
         ],
     )

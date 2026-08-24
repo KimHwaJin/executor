@@ -21,6 +21,10 @@ from executor_service.domain.runtime import (
     RuntimeExecutionResult,
     RuntimeFileMetadata,
     RuntimeFileState,
+    RuntimeNotebookCell,
+    RuntimeNotebookMaterializationResult,
+    RuntimeNotebookPreparationResult,
+    RuntimeNotebookSourceCell,
     RuntimeOutputAppendResult,
     RuntimeOutputDescriptor,
     RuntimeOutputHandler,
@@ -289,12 +293,15 @@ class JupyterRuntimeDriver:
         )
 
     async def output_journal_begin(
-        self, identity: RuntimeOutputJournalIdentity
+        self, identity: RuntimeOutputJournalIdentity, source: str
     ) -> RuntimeOutputJournalDescriptor:
         response = await self._request(
             "POST",
             "/executor/storage/output-journals/begin",
-            json=_journal_identity_payload(identity),
+            json={
+                "journal": _journal_identity_payload(identity),
+                "source": source,
+            },
             timeout=self._storage_timeout,
         )
         return _journal_descriptor(response, "begin")
@@ -377,6 +384,100 @@ class JupyterRuntimeDriver:
             timeout=self._storage_timeout,
         )
         return _journal_descriptor(response, "abort")
+
+    async def materialize_notebook(
+        self,
+        workspace_path: str,
+        runtime_profile: str,
+        cells: tuple[RuntimeNotebookCell, ...],
+    ) -> RuntimeNotebookMaterializationResult:
+        response = await self._request(
+            "POST",
+            "/executor/storage/output-journals/materialize-notebook",
+            json={
+                "workspace_path": workspace_path,
+                "runtime_profile": runtime_profile,
+                "cells": [
+                    {
+                        "sequence": cell.sequence,
+                        "execution_count": cell.execution_count,
+                        "journal_id": str(cell.journal_id),
+                        "journal": _journal_identity_payload(cell.journal),
+                    }
+                    for cell in cells
+                ],
+            },
+            timeout=self._storage_timeout,
+        )
+        try:
+            payload = response.json()
+            result = RuntimeNotebookMaterializationResult(
+                notebook_path=str(payload["notebook_path"]),
+                cell_count=int(payload["cell_count"]),
+                output_count=int(payload["output_count"]),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise RuntimeDriverError(
+                "Jupyter notebook materialization response is invalid."
+            ) from exc
+        if (
+            result.notebook_path
+            != f"{workspace_path}/notebooks/execution.ipynb"
+            or result.cell_count != len(cells)
+            or result.output_count < 0
+        ):
+            raise RuntimeDriverError(
+                "Jupyter notebook materialization acknowledgement is invalid."
+            )
+        return result
+
+    async def prepare_notebook(
+        self,
+        workspace_path: str,
+        execution_id: UUID,
+        runtime_profile: str,
+        cells: tuple[RuntimeNotebookSourceCell, ...],
+    ) -> RuntimeNotebookPreparationResult:
+        response = await self._request(
+            "POST",
+            "/executor/storage/notebooks/prepare",
+            json={
+                "workspace_path": workspace_path,
+                "execution_id": str(execution_id),
+                "runtime_profile": runtime_profile,
+                "cells": [
+                    {
+                        "sequence": cell.sequence,
+                        "operation_id": str(cell.operation_id),
+                        "step_id": str(cell.step_id),
+                        "source": cell.source,
+                    }
+                    for cell in cells
+                ],
+            },
+            timeout=self._storage_timeout,
+        )
+        try:
+            payload = response.json()
+            result = RuntimeNotebookPreparationResult(
+                notebook_path=str(payload["notebook_path"]),
+                prepared_cell_count=int(payload["prepared_cell_count"]),
+                total_cell_count=int(payload["total_cell_count"]),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise RuntimeDriverError(
+                "Jupyter notebook preparation response is invalid."
+            ) from exc
+        if (
+            result.notebook_path
+            != f"{workspace_path}/notebooks/execution.ipynb"
+            or result.prepared_cell_count != len(cells)
+            or result.total_cell_count < result.prepared_cell_count
+        ):
+            raise RuntimeDriverError(
+                "Jupyter notebook preparation acknowledgement is invalid."
+            )
+        return result
 
     async def prepare_workspace(self, workspace_path: str) -> None:
         await self._request(
@@ -676,11 +777,10 @@ def _output_representation(
     normalized_media_type = media_type.strip().lower()
     if not normalized_media_type or "/" not in normalized_media_type:
         raise RuntimeDriverError("Jupyter output media type is invalid.")
-    base64_encoded = normalized_media_type in {
-        "image/png",
-        "image/jpeg",
-        "application/pdf",
-    }
+    base64_encoded = normalized_media_type == "application/pdf" or (
+        normalized_media_type.startswith("image/")
+        and normalized_media_type != "image/svg+xml"
+    )
     if base64_encoded:
         if not isinstance(value, str):
             raise RuntimeDriverError(

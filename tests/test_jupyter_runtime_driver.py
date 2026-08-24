@@ -8,6 +8,8 @@ import pytest
 from executor_service.domain.enums import RuntimeAbortStatus
 from executor_service.domain.runtime import (
     RuntimeDriverError,
+    RuntimeNotebookCell,
+    RuntimeNotebookSourceCell,
     RuntimeOutputJournalIdentity,
     RuntimeOutputRecord,
 )
@@ -432,7 +434,7 @@ async def test_output_journal_contract_uses_authenticated_extension_apis() -> (
     record = _as_output_record("stream", {"name": "stdout", "text": "done"})
     assert record is not None
     try:
-        begun = await driver.output_journal_begin(identity)
+        begun = await driver.output_journal_begin(identity, "print('done')")
         appended = await driver.output_journal_append(
             identity,
             journal_id=begun.journal_id,
@@ -462,6 +464,9 @@ async def test_output_journal_contract_uses_authenticated_extension_apis() -> (
         "abort",
     ]
     append_payload = json.loads(requests[1].content)
+    begin_payload = json.loads(requests[0].content)
+    assert begin_payload["source"] == "print('done')"
+    assert begin_payload["journal"]["fencing_token"] == 7
     assert append_payload["journal"]["fencing_token"] == 7
     assert append_payload["records"] == [
         {
@@ -479,7 +484,117 @@ async def test_output_journal_contract_uses_authenticated_extension_apis() -> (
             "metadata": {},
         }
     ]
+
+
+async def test_jupyter_materializes_notebook_from_output_journals() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "notebook_path": (
+                    "users/u/projects/p/sessions/s/executions/e/"
+                    "notebooks/execution.ipynb"
+                ),
+                "cell_count": 1,
+                "output_count": 2,
+            },
+        )
+
+    driver = JupyterRuntimeDriver("http://jupyter.invalid", "secret")
+    await driver._client.aclose()
+    driver._client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        base_url="http://jupyter.invalid",
+        headers={"Authorization": "token secret"},
+    )
+    identity = _journal_identity()
+    try:
+        result = await driver.materialize_notebook(
+            identity.workspace_path,
+            "basic",
+            (
+                RuntimeNotebookCell(
+                    sequence=0,
+                    execution_count=1,
+                    journal_id=UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
+                    journal=identity,
+                ),
+            ),
+        )
+    finally:
+        await driver.close()
+
+    assert result.cell_count == 1
+    assert result.output_count == 2
+    assert requests[0].url.path.endswith(
+        "/output-journals/materialize-notebook"
+    )
+    payload = json.loads(requests[0].content)
+    assert "source" not in payload["cells"][0]
+    assert payload["cells"][0]["journal"]["fencing_token"] == 7
     assert requests[0].headers["authorization"] == "token secret"
+
+
+async def test_jupyter_prepares_notebook_source_cells_before_execution() -> (
+    None
+):
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "notebook_path": (
+                    "users/u/projects/p/sessions/s/executions/e/"
+                    "notebooks/execution.ipynb"
+                ),
+                "prepared_cell_count": 1,
+                "total_cell_count": 1,
+            },
+        )
+
+    driver = JupyterRuntimeDriver("http://jupyter.invalid", "secret")
+    await driver._client.aclose()
+    driver._client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        base_url="http://jupyter.invalid",
+        headers={"Authorization": "token secret"},
+    )
+    identity = _journal_identity()
+    try:
+        result = await driver.prepare_notebook(
+            identity.workspace_path,
+            identity.execution_id,
+            "basic",
+            (
+                RuntimeNotebookSourceCell(
+                    sequence=0,
+                    operation_id=identity.operation_id,
+                    step_id=identity.step_id,
+                    source="print('prepared')",
+                ),
+            ),
+        )
+    finally:
+        await driver.close()
+
+    assert result.prepared_cell_count == 1
+    assert result.total_cell_count == 1
+    assert requests[0].url.path.endswith("/storage/notebooks/prepare")
+    payload = json.loads(requests[0].content)
+    assert payload["execution_id"] == str(identity.execution_id)
+    assert payload["cells"] == [
+        {
+            "sequence": 0,
+            "operation_id": str(identity.operation_id),
+            "step_id": str(identity.step_id),
+            "source": "print('prepared')",
+        }
+    ]
 
 
 def test_output_record_mapping_preserves_jupyter_mime_semantics() -> None:
@@ -490,6 +605,8 @@ def test_output_record_mapping_preserves_jupyter_mime_semantics() -> None:
                 "text/plain": "chart",
                 "application/json": {"score": 0.9},
                 "image/png": "cG5n",
+                "image/gif": "Z2lm",
+                "image/svg+xml": "<svg></svg>",
             },
             "metadata": {"width": 10},
             "transient": {"display_id": "display-1"},
@@ -510,6 +627,8 @@ def test_output_record_mapping_preserves_jupyter_mime_semantics() -> None:
         "UTF8",
         "UTF8",
         "BASE64",
+        "BASE64",
+        "UTF8",
     ]
     assert display.representations[1].content == '{"score":0.9}'
     assert display.metadata["transient"] == {"display_id": "display-1"}

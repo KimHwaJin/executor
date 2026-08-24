@@ -78,26 +78,42 @@ variables, or credentials.
 ## Runtime storage endpoints
 
 The same authenticated extension prepares workspaces, snapshots artifacts, computes file metadata
-and SHA-256 on the Jupyter side, and reads append-only manifests. Notebook read/write uses
-Jupyter's standard Contents API. Executor can therefore persist paths and metadata without
-mounting Jupyter shared storage. File scans and hashing run in a worker thread so they do not block
-Jupyter's server event loop; Executor applies `JUPYTER_STORAGE_TIMEOUT_SECONDS` (default 300) to
-these potentially slower calls.
+and SHA-256 on the Jupyter side, and reads append-only manifests. Notebook reads and explicit
+Agent-authored file writes use Jupyter's standard Contents API. Executed notebook materialization
+uses the Output Journal endpoint described below, so Executor does not download and re-upload all
+cell outputs. Executor can therefore persist paths and metadata without mounting Jupyter shared
+storage. File scans and hashing run in a worker thread so they do not block Jupyter's server event
+loop; Executor applies `JUPYTER_STORAGE_TIMEOUT_SECONDS` (default 300) to these potentially slower
+calls.
 
 The extension also exposes authenticated internal Output Journal operations:
 
+- `POST /executor/storage/notebooks/prepare`
 - `POST /executor/storage/output-journals/begin`
 - `POST /executor/storage/output-journals/append`
 - `POST /executor/storage/output-journals/finalize`
 - `POST /executor/storage/output-journals/abort`
+- `POST /executor/storage/output-journals/materialize-notebook`
 
 These are Runtime-driver endpoints, not public Agent APIs. They durably store complete Step output
 under `<workspace>/outputs/<operation>/<step>/<attempt>/<fencing-token>/`. Append uses both a stable
 UUID `batch_id` and `expected_offset`: an identical replay is idempotent, while a reused batch ID
-with changed records or a non-current offset returns HTTP 409. Output bodies are stored in
-`content/`; responses contain checksums and opaque `journal://` references rather than echoing the
-bodies or physical paths. All operations require the same Jupyter token as the standard Contents
-API, and the workspace must first be created through `workspaces/prepare`.
+with changed records or a non-current offset returns HTTP 409. Output bodies are stored through
+one append-only `journal.jsonl` per Step Attempt. Text and structured output stay in that journal;
+`image/*` output is stored as native files under `images/`. Responses contain checksums and opaque
+`journal://` references rather than echoing bodies or physical paths. All operations require the
+same Jupyter token as the standard Contents API, and the workspace must first be created through
+`workspaces/prepare`.
+
+`notebooks/prepare` atomically creates or appends stable, Executor-managed code
+cells before their Operation executes. It is intentionally implemented without
+NbModelClient, YDoc, or RTC, so an already open JupyterLab document may require
+reload. `begin` also stores the exact Step source in the JSONL header. After
+terminal Journals are selected by Executor fencing metadata,
+`materialize-notebook` reconstructs complete Jupyter outputs from JSONL content
+and native image files and updates the matching prepared cells without removing
+pending cells. The request carries only ordered Journal identities and execution counts,
+not accumulated source or output bodies.
 
 ## Verification
 
