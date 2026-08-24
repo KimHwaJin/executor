@@ -80,12 +80,8 @@ async def test_collect_execution_result_resolves_shared_manifest(
                                     "step_id": "step-1",
                                     "attempt_id": "attempt-1",
                                     "fencing_token": 1,
-                                    "relative_path": manifest_path.relative_to(
-                                        tmp_path
-                                    ).as_posix(),
-                                    "checksum_sha256": hashlib.sha256(
-                                        manifest_body
-                                    ).hexdigest(),
+                                    "relative_path": manifest_path.relative_to(tmp_path).as_posix(),
+                                    "checksum_sha256": hashlib.sha256(manifest_body).hexdigest(),
                                 }
                             }
                         }
@@ -94,16 +90,12 @@ async def test_collect_execution_result_resolves_shared_manifest(
             ],
         }
 
-    monkeypatch.setattr(
-        executor_module, "required_tool_result", fake_required_result
-    )
+    monkeypatch.setattr(executor_module, "required_tool_result", fake_required_result)
     result = await executor_module.collect_execution_result(
         cast(Any, object()), "execution-1", tmp_path
     )
 
-    resolved = result["operations"][0]["steps"][0]["result"][
-        "resolved_result"
-    ]
+    resolved = result["operations"][0]["steps"][0]["result"]["resolved_result"]
     assert resolved["outputs"][0]["representations"][0]["content"] == "55\n"
 
 

@@ -1903,9 +1903,7 @@ class ExecutionWorker:
                 projection = await self._result_store.read_step_projection(
                     StepResultReference(
                         relative_path=step.result_manifest_path,
-                        checksum_sha256=(
-                            step.result_manifest_checksum_sha256
-                        ),
+                        checksum_sha256=(step.result_manifest_checksum_sha256),
                         execution_attempt_id=(
                             step.result_execution_attempt_id
                         ),
@@ -2284,9 +2282,7 @@ class ExecutionWorker:
                     result_representation_count=(
                         stored_result.representation_count
                     ),
-                    result_total_size_bytes=(
-                        stored_result.total_size_bytes
-                    ),
+                    result_total_size_bytes=(stored_result.total_size_bytes),
                     finished_at=now,
                 )
             )
@@ -2374,9 +2370,7 @@ class ExecutionWorker:
                     result_representation_count=(
                         stored_result.representation_count
                     ),
-                    result_total_size_bytes=(
-                        stored_result.total_size_bytes
-                    ),
+                    result_total_size_bytes=(stored_result.total_size_bytes),
                     error_message=safe_error,
                     finished_at=now,
                 )
@@ -2424,9 +2418,7 @@ class ExecutionWorker:
             stored_result.reference.checksum_sha256
         )
         step.result_fencing_token = stored_result.reference.fencing_token
-        step.result_representation_count = (
-            stored_result.representation_count
-        )
+        step.result_representation_count = stored_result.representation_count
         step.result_total_size_bytes = stored_result.total_size_bytes
 
     async def _execute_runtime_step(
@@ -2518,9 +2510,7 @@ class ExecutionWorker:
                 records=(record,),
             )
             expected_committed_offset = committed_offset + 1
-            if (
-                result.committed_offset != expected_committed_offset
-            ):
+            if result.committed_offset != expected_committed_offset:
                 raise RuntimeDriverError(
                     "Shared result append acknowledgement is invalid."
                 )
@@ -4165,13 +4155,9 @@ def _output_record(output: dict[str, Any]) -> RuntimeOutputRecord:
             raise RuntimeDriverError("Runtime output metadata is invalid.")
         execution_count = output.get("execution_count")
         return RuntimeOutputRecord(
-            kind=(
-                "RESULT" if output_type == "execute_result" else "DISPLAY"
-            ),
+            kind=("RESULT" if output_type == "execute_result" else "DISPLAY"),
             execution_count=(
-                int(execution_count)
-                if execution_count is not None
-                else None
+                int(execution_count) if execution_count is not None else None
             ),
             representations=representations,
             metadata=metadata,
@@ -4205,11 +4191,15 @@ def _output_representation(
     normalized = media_type.lower().strip()
     if normalized.startswith("image/"):
         if not isinstance(value, str):
-            raise RuntimeDriverError("Runtime image output must be base64 text.")
+            raise RuntimeDriverError(
+                "Runtime image output must be base64 text."
+            )
         try:
             base64.b64decode(value, validate=True)
         except ValueError as exc:
-            raise RuntimeDriverError("Runtime image output is invalid.") from exc
+            raise RuntimeDriverError(
+                "Runtime image output is invalid."
+            ) from exc
         return RuntimeOutputRepresentation(
             media_type=normalized,
             encoding="BASE64",
@@ -4229,9 +4219,7 @@ def _output_representation(
 
 def _required_text(value: str | None, field: str) -> str:
     if value is None or not value:
-        raise RuntimeDriverError(
-            f"Execution Step has no immutable {field}."
-        )
+        raise RuntimeDriverError(f"Execution Step has no immutable {field}.")
     return value
 
 

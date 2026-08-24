@@ -645,9 +645,7 @@ class ExecutionStepResponse(AuditFields):
                         attempt_id=step.result_execution_attempt_id,
                         fencing_token=step.result_fencing_token,
                         relative_path=step.result_manifest_path,
-                        checksum_sha256=(
-                            step.result_manifest_checksum_sha256
-                        ),
+                        checksum_sha256=(step.result_manifest_checksum_sha256),
                         representation_count=(
                             step.result_representation_count
                         ),
@@ -1020,9 +1018,7 @@ class ExecutionStepAttemptResponse(AuditFields):
                         attempt_id=view.execution_attempt_id,
                         fencing_token=view.result_fencing_token,
                         relative_path=view.result_manifest_path,
-                        checksum_sha256=(
-                            view.result_manifest_checksum_sha256
-                        ),
+                        checksum_sha256=(view.result_manifest_checksum_sha256),
                         representation_count=(
                             view.result_representation_count
                         ),

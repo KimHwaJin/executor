@@ -128,9 +128,7 @@ def create_app(container: ApplicationContainer) -> FastAPI:
             http_status = status.HTTP_404_NOT_FOUND
         elif isinstance(
             exc,
-            (
-                ExecutionNotebookNotAvailableError,
-            ),
+            (ExecutionNotebookNotAvailableError,),
         ):
             http_status = status.HTTP_409_CONFLICT
         elif isinstance(

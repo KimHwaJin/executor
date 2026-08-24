@@ -26,7 +26,7 @@ though the Worker process is still alive.
 
 ### Implementation
 
-- Alembic revision `0002` stores a non-negative monotonic `fencing_token` on each Execution and
+- Alembic baseline revision `0001` stores a non-negative monotonic `fencing_token` on each Execution and
   ExecutionAttempt.
 - Every claim and waiting MULTI resume increments the token while holding the Execution row lock;
   expired-lease recovery revokes the previous token before releasing ownership.
@@ -100,7 +100,7 @@ still busy or whose state continued to change.
   `RuntimeAbortResult`; Worker code is not coupled to Jupyter REST details.
 - Jupyter interruption is followed by bounded kernel-state polling. Only an explicit `idle`
   response produces `IDLE_CONFIRMED`; missing kernels and failed confirmation cannot be reused.
-- Execution and Attempt rows persist `runtime_abort_status`. Revision `0003` adds the durable
+- Execution and Attempt rows persist `runtime_abort_status`. Baseline revision `0001` includes the durable
   fields and constraints, while versioned Outbox events record abort start and outcome.
 - SINGLE and MULTI timeout paths persist `PENDING` before touching the Runtime. Idle-confirmed
   sessions may resume from the failed Step; every uncertain outcome forces session deletion and
@@ -186,7 +186,7 @@ HTTP calls must not be placed inside the Target row-lock transaction.
 - A shared admission module counts distinct durable reservations from active Attempts, retained
   retries, and unresolved cleanup sessions. Runtime Target views and Worker claims use the same
   query rather than maintaining a counter.
-- Alembic revision `0004` stores `session_count_observed_at` separately from health and resource
+- Alembic baseline revision `0001` stores `session_count_observed_at` separately from health and resource
   timestamps. Successful probes replace the observation; failed probes preserve it and mark it
   stale through health state.
 - The fresh baseline schema stores immutable source snapshot references, bounded Step summaries,

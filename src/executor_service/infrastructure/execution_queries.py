@@ -600,6 +600,7 @@ class SQLAlchemyExecutionQueryService:
         )
         return {attempt_id: count for attempt_id, count in rows}
 
+
 def _redact(value: Any) -> Any:
     if isinstance(value, dict):
         return {
@@ -796,9 +797,7 @@ def _step_attempt_view(
         status=row.status,
         output_summary=_redact(row.output_summary),
         result_manifest_path=row.result_manifest_path,
-        result_manifest_checksum_sha256=(
-            row.result_manifest_checksum_sha256
-        ),
+        result_manifest_checksum_sha256=(row.result_manifest_checksum_sha256),
         result_fencing_token=row.result_fencing_token,
         result_representation_count=row.result_representation_count,
         result_total_size_bytes=row.result_total_size_bytes,

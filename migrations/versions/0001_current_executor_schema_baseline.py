@@ -279,6 +279,11 @@ def upgrade() -> None:
         sa.Column("last_health_error", sa.String(length=500), nullable=True),
         sa.Column("active_session_count", sa.Integer(), nullable=True),
         sa.Column(
+            "session_count_observed_at",
+            sa.DateTime(timezone=True),
+            nullable=True,
+        ),
+        sa.Column(
             "resource_observed_at", sa.DateTime(timezone=True), nullable=True
         ),
         sa.Column(
@@ -350,6 +355,10 @@ def upgrade() -> None:
         sa.CheckConstraint(
             "max_concurrent_executions > 0",
             name=op.f("ck_runtime_targets_positive_max_concurrency"),
+        ),
+        sa.CheckConstraint(
+            "active_session_count IS NULL OR active_session_count >= 0",
+            name=op.f("ck_runtime_targets_non_negative_active_session_count"),
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_runtime_targets")),
         sa.UniqueConstraint("name", name=op.f("uq_runtime_targets_name")),
@@ -490,6 +499,18 @@ def upgrade() -> None:
         ),
         sa.Column("heartbeat_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column(
+            "fencing_token",
+            sa.BigInteger(),
+            server_default=sa.text("0"),
+            nullable=False,
+        ),
+        sa.Column(
+            "runtime_abort_status",
+            sa.String(length=32),
+            server_default="NOT_REQUIRED",
+            nullable=False,
+        ),
+        sa.Column(
             "retry_strategy",
             sa.Enum(
                 "NOT_RETRYABLE",
@@ -624,6 +645,16 @@ def upgrade() -> None:
         sa.CheckConstraint(
             "retry_count >= 0",
             name=op.f("ck_executions_non_negative_retry_count"),
+        ),
+        sa.CheckConstraint(
+            "fencing_token >= 0",
+            name=op.f("ck_executions_non_negative_fencing_token"),
+        ),
+        sa.CheckConstraint(
+            "runtime_abort_status IN ('NOT_REQUIRED', 'PENDING', "
+            "'IDLE_CONFIRMED', 'SESSION_DELETED', 'SESSION_MISSING', "
+            "'FAILED')",
+            name=op.f("ck_executions_valid_runtime_abort_status"),
         ),
         sa.CheckConstraint(
             "notebook_projection_attempt_count >= 0",
@@ -766,6 +797,18 @@ def upgrade() -> None:
             "lease_expires_at", sa.DateTime(timezone=True), nullable=True
         ),
         sa.Column("heartbeat_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column(
+            "fencing_token",
+            sa.BigInteger(),
+            server_default=sa.text("0"),
+            nullable=False,
+        ),
+        sa.Column(
+            "runtime_abort_status",
+            sa.String(length=32),
+            server_default="NOT_REQUIRED",
+            nullable=False,
+        ),
         sa.Column("error_message", sa.Text(), nullable=True),
         sa.Column(
             "failure_type",
@@ -883,6 +926,16 @@ def upgrade() -> None:
         sa.CheckConstraint(
             "attempt_number > 0",
             name=op.f("ck_execution_attempts_positive_attempt_number"),
+        ),
+        sa.CheckConstraint(
+            "fencing_token >= 0",
+            name=op.f("ck_execution_attempts_non_negative_fencing_token"),
+        ),
+        sa.CheckConstraint(
+            "runtime_abort_status IN ('NOT_REQUIRED', 'PENDING', "
+            "'IDLE_CONFIRMED', 'SESSION_DELETED', 'SESSION_MISSING', "
+            "'FAILED')",
+            name=op.f("ck_execution_attempts_valid_runtime_abort_status"),
         ),
         sa.ForeignKeyConstraint(
             ["execution_id"],
@@ -1128,9 +1181,7 @@ def upgrade() -> None:
         sa.Column(
             "result_representation_count", sa.BigInteger(), nullable=False
         ),
-        sa.Column(
-            "result_total_size_bytes", sa.BigInteger(), nullable=False
-        ),
+        sa.Column("result_total_size_bytes", sa.BigInteger(), nullable=False),
         sa.Column("error_message", sa.Text(), nullable=True),
         sa.Column(
             "created_by_type",
@@ -1271,9 +1322,7 @@ def upgrade() -> None:
         sa.Column(
             "result_representation_count", sa.BigInteger(), nullable=False
         ),
-        sa.Column(
-            "result_total_size_bytes", sa.BigInteger(), nullable=False
-        ),
+        sa.Column("result_total_size_bytes", sa.BigInteger(), nullable=False),
         sa.Column("error_message", sa.Text(), nullable=True),
         sa.Column(
             "created_by_type",

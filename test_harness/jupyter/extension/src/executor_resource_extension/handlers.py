@@ -56,6 +56,7 @@ class StorageHandler(APIHandler):
             ) from exc
         raise exc
 
+
 class WorkspacePrepareHandler(StorageHandler):
     @web.authenticated
     async def post(self) -> None:

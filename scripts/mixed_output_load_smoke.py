@@ -139,7 +139,9 @@ async def _validate_outputs(
             for media_type in (
                 output.get("data", {}).keys()
                 if isinstance(output.get("data"), dict)
-                else (["text/plain"] if output["output_type"] == "stream" else [])
+                else (
+                    ["text/plain"] if output["output_type"] == "stream" else []
+                )
             )
         }
     )

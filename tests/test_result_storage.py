@@ -107,9 +107,7 @@ async def test_seals_source_text_and_image_as_immutable_files(
         "text": "hello\n",
     }
     assert notebook_outputs[1]["output_type"] == "display_data"
-    assert notebook_outputs[1]["data"] == {
-        "image/png": "iVBORw0KGgo="
-    }
+    assert notebook_outputs[1]["data"] == {"image/png": "iVBORw0KGgo="}
     projection = await store.read_step_projection(result.reference)
     assert projection.outputs == notebook_outputs
     assert projection.execution_count == 1

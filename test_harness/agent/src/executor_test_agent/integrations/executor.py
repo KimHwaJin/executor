@@ -41,9 +41,7 @@ async def collect_execution_result(
         for step in operation["steps"]:
             reference = step["result"].get("result_ref")
             step["result"]["resolved_result"] = (
-                read_step_result(shared_storage_root, reference)
-                if reference is not None
-                else None
+                read_step_result(shared_storage_root, reference) if reference is not None else None
             )
     return result
 
@@ -71,8 +69,7 @@ def read_step_result(
     if not isinstance(identity, dict) or (
         str(identity.get("execution_id")) != str(reference["execution_id"])
         or str(identity.get("step_id")) != str(reference["step_id"])
-        or str(identity.get("execution_attempt_id"))
-        != str(reference["attempt_id"])
+        or str(identity.get("execution_attempt_id")) != str(reference["attempt_id"])
         or identity.get("fencing_token") != reference["fencing_token"]
     ):
         raise ExecutionResultReadError("Result manifest identity conflicts.")
@@ -80,8 +77,7 @@ def read_step_result(
     if not isinstance(outputs, list):
         raise ExecutionResultReadError("Result manifest outputs are invalid.")
     manifest["outputs"] = [
-        _resolve_output(root, manifest_path.parent, output)
-        for output in outputs
+        _resolve_output(root, manifest_path.parent, output) for output in outputs
     ]
     return manifest
 
@@ -98,8 +94,7 @@ def _resolve_output(
         raise ExecutionResultReadError("Result representations are invalid.")
     resolved = dict(output)
     resolved["representations"] = [
-        _resolve_representation(root, result_directory, value)
-        for value in representations
+        _resolve_representation(root, result_directory, value) for value in representations
     ]
     return resolved
 
@@ -117,9 +112,7 @@ def _resolve_representation(
     except ValueError as exc:
         raise ExecutionResultReadError("Result content escapes shared root.") from exc
     body = path.read_bytes()
-    if len(body) != value.get("size_bytes") or _sha256(body) != value.get(
-        "checksum_sha256"
-    ):
+    if len(body) != value.get("size_bytes") or _sha256(body) != value.get("checksum_sha256"):
         raise ExecutionResultReadError("Result content checksum failed.")
     resolved = dict(value)
     resolved["content_path"] = path.as_posix()
@@ -132,16 +125,16 @@ def _resolve_representation(
         try:
             resolved["content"] = body.decode("utf-8")
         except UnicodeDecodeError as exc:
-            raise ExecutionResultReadError(
-                "Text result content is not UTF-8."
-            ) from exc
+            raise ExecutionResultReadError("Text result content is not UTF-8.") from exc
     return resolved
 
 
 def _resolve(root: Path, raw_relative: str) -> Path:
     candidate = Path(raw_relative)
-    if candidate.is_absolute() or not candidate.parts or any(
-        part in {"", ".", ".."} for part in candidate.parts
+    if (
+        candidate.is_absolute()
+        or not candidate.parts
+        or any(part in {"", ".", ".."} for part in candidate.parts)
     ):
         raise ExecutionResultReadError("Result path is unsafe.")
     try:

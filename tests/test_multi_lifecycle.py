@@ -524,9 +524,7 @@ async def test_multi_operation_executes_submitted_steps_until_boundary(
         [1, 2, 3] if fail_code is None else [1, None, None]
     )
     assert [bool(cell["outputs"]) for cell in notebook["cells"]] == (
-        [True, True, True]
-        if fail_code is None
-        else [True, True, False]
+        [True, True, True] if fail_code is None else [True, True, False]
     )
     assert len(events) == 1
     assert events[0].payload["operation_id"] == str(operation.id)

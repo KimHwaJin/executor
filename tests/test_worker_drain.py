@@ -135,7 +135,7 @@ async def test_readiness_fails_as_soon_as_worker_enters_drain(
             text("CREATE TABLE alembic_version (version_num VARCHAR(32))")
         )
         await connection.execute(
-            text("INSERT INTO alembic_version VALUES ('0004')")
+            text("INSERT INTO alembic_version VALUES ('0001')")
         )
     monkeypatch.setattr(container.redis, "ping", AsyncMock(return_value=True))
     container.execution_worker._stopped = False

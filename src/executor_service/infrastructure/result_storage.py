@@ -154,15 +154,15 @@ class FilesystemExecutionResultStore:
             != str(reference.execution_attempt_id)
             or identity.get("fencing_token") != reference.fencing_token
         ):
-            raise ResultStorageError("Step result reference identity conflicts.")
+            raise ResultStorageError(
+                "Step result reference identity conflicts."
+            )
         outputs = manifest.get("outputs")
         if not isinstance(outputs, list):
             raise ResultStorageError("Step result outputs are invalid.")
         execution_count = manifest.get("execution_count")
         if execution_count is not None and type(execution_count) is not int:
-            raise ResultStorageError(
-                "Step result execution count is invalid."
-            )
+            raise ResultStorageError("Step result execution count is invalid.")
         return StepResultProjection(
             outputs=[
                 self._notebook_output(manifest_path.parent, output)
@@ -235,7 +235,9 @@ class FilesystemExecutionResultStore:
         try:
             path.relative_to(result_directory)
         except ValueError as exc:
-            raise ResultStorageError("Step output path escapes its result.") from exc
+            raise ResultStorageError(
+                "Step output path escapes its result."
+            ) from exc
         body = path.read_bytes()
         if len(body) != value.get("size_bytes") or _sha256(body) != value.get(
             "checksum_sha256"
@@ -247,9 +249,7 @@ class FilesystemExecutionResultStore:
         try:
             text_value = body.decode("utf-8")
         except UnicodeDecodeError as exc:
-            raise ResultStorageError(
-                "Text Step output is not UTF-8."
-            ) from exc
+            raise ResultStorageError("Text Step output is not UTF-8.") from exc
         if media_type == "application/json" or media_type.endswith("+json"):
             try:
                 return json.loads(text_value)

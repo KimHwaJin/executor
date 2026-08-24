@@ -228,9 +228,9 @@ def _sha256(path: Path) -> str:
 
 
 def _atomic_json_write(path: Path, value: dict[str, Any]) -> None:
-    body = json.dumps(
-        value, ensure_ascii=False, separators=(",", ":")
-    ).encode("utf-8")
+    body = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode(
+        "utf-8"
+    )
     with tempfile.NamedTemporaryFile(
         mode="wb", dir=path.parent, prefix=f".{path.name}.", delete=False
     ) as handle:
