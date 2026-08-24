@@ -17,6 +17,7 @@ MULTI Operations through a Runtime Driver. Jupyter REST/WebSocket is the first i
   `execution_notebook_read`, `execution_notebook_cell_read`,
   `execution_event_list`,
   `execution_output_list`, `execution_output_get`,
+  `execution_output_content_get`,
   `execution_artifact_list`, `execution_artifact_get`
 - Runtime Target tools: `runtime_target_upsert`, `runtime_target_list`,
   `runtime_target_get`, `runtime_target_probe`, `runtime_target_disable`,

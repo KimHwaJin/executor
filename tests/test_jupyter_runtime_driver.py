@@ -360,6 +360,8 @@ async def test_output_journal_contract_uses_authenticated_extension_apis() -> (
     requests: list[httpx.Request] = []
     journal_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
     batch_id = UUID("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
+    output_id = UUID("11111111-1111-4111-8111-111111111111")
+    representation_id = UUID("22222222-2222-4222-8222-222222222222")
 
     def descriptor(state: str, offset: int) -> dict[str, Any]:
         return {
@@ -374,6 +376,19 @@ async def test_output_journal_contract_uses_authenticated_extension_apis() -> (
 
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
+        if request.url.path.endswith("/read"):
+            return httpx.Response(
+                206,
+                content=b"on",
+                headers={
+                    "Content-Type": "text/plain",
+                    "X-Content-Size": "4",
+                    "X-Checksum-SHA256": "a" * 64,
+                    "X-Content-Complete": "true",
+                    "X-Content-Start": "1",
+                    "X-Content-End-Exclusive": "3",
+                },
+            )
         if request.url.path.endswith("/append"):
             return httpx.Response(
                 200,
@@ -450,6 +465,31 @@ async def test_output_journal_contract_uses_authenticated_extension_apis() -> (
             journal_id=begun.journal_id,
             reason="incomplete",
         )
+        content = await driver.output_journal_read(
+            identity,
+            journal_id=begun.journal_id,
+            output_id=output_id,
+            representation_id=representation_id,
+            start=1,
+            end_exclusive=3,
+        )
+        streamed = b"".join(
+            [
+                chunk
+                async for chunk in driver.output_journal_stream(
+                    identity,
+                    journal_id=begun.journal_id,
+                    output_id=output_id,
+                    representation_id=representation_id,
+                    start=1,
+                    end_exclusive=3,
+                    expected_media_type="text/plain",
+                    expected_size_bytes=4,
+                    expected_checksum_sha256="a" * 64,
+                    expected_complete=True,
+                )
+            ]
+        )
     finally:
         await driver.close()
 
@@ -457,11 +497,16 @@ async def test_output_journal_contract_uses_authenticated_extension_apis() -> (
     assert appended.committed_offset == 1
     assert finalized.state == "FINALIZED"
     assert aborted.state == "ABORTED"
+    assert content.content == b"on"
+    assert streamed == b"on"
+    assert content.size_bytes == 4
     assert [request.url.path.rsplit("/", 1)[-1] for request in requests] == [
         "begin",
         "append",
         "finalize",
         "abort",
+        "read",
+        "read",
     ]
     append_payload = json.loads(requests[1].content)
     begin_payload = json.loads(requests[0].content)

@@ -1,6 +1,6 @@
 """Runtime driver contracts shared by the application and infrastructure layers."""
 
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Protocol, runtime_checkable
@@ -113,6 +113,17 @@ class RuntimeOutputAppendResult:
 
 
 @dataclass(frozen=True, slots=True)
+class RuntimeOutputContentChunk:
+    content: bytes
+    media_type: str
+    size_bytes: int
+    checksum_sha256: str
+    complete: bool
+    start: int
+    end_exclusive: int
+
+
+@dataclass(frozen=True, slots=True)
 class RuntimeNotebookSourceCell:
     sequence: int
     operation_id: UUID
@@ -185,6 +196,35 @@ class RuntimeOutputJournal(Protocol):
         journal_id: UUID,
         reason: str,
     ) -> RuntimeOutputJournalDescriptor: ...
+
+
+@runtime_checkable
+class RuntimeOutputContentReader(Protocol):
+    async def output_journal_read(
+        self,
+        identity: RuntimeOutputJournalIdentity,
+        *,
+        journal_id: UUID,
+        output_id: UUID,
+        representation_id: UUID,
+        start: int,
+        end_exclusive: int,
+    ) -> RuntimeOutputContentChunk: ...
+
+    def output_journal_stream(
+        self,
+        identity: RuntimeOutputJournalIdentity,
+        *,
+        journal_id: UUID,
+        output_id: UUID,
+        representation_id: UUID,
+        start: int,
+        end_exclusive: int,
+        expected_media_type: str,
+        expected_size_bytes: int,
+        expected_checksum_sha256: str,
+        expected_complete: bool,
+    ) -> AsyncIterator[bytes]: ...
 
 
 @runtime_checkable
@@ -337,3 +377,35 @@ class RuntimeStorageAccess(Protocol):
         path: str,
         content: str,
     ) -> RuntimeFileMetadata: ...
+
+
+class RuntimeOutputContentAccess(Protocol):
+    async def read_output_content(
+        self,
+        runtime_type: RuntimeType,
+        preferred_target_id: UUID | None,
+        identity: RuntimeOutputJournalIdentity,
+        *,
+        journal_id: UUID,
+        output_id: UUID,
+        representation_id: UUID,
+        start: int,
+        end_exclusive: int,
+    ) -> RuntimeOutputContentChunk: ...
+
+    def stream_output_content(
+        self,
+        runtime_type: RuntimeType,
+        preferred_target_id: UUID | None,
+        identity: RuntimeOutputJournalIdentity,
+        *,
+        journal_id: UUID,
+        output_id: UUID,
+        representation_id: UUID,
+        start: int,
+        end_exclusive: int,
+        expected_media_type: str,
+        expected_size_bytes: int,
+        expected_checksum_sha256: str,
+        expected_complete: bool,
+    ) -> AsyncIterator[bytes]: ...

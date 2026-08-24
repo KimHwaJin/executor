@@ -71,6 +71,10 @@ class Settings(BaseSettings):
     input_host_root: Path = Path("./input_dir")
     execution_inline_spec_max_bytes: int = Field(default=262144, ge=1)
     execution_file_spec_max_bytes: int = Field(default=52428800, ge=1)
+    output_content_chunk_bytes: int = Field(
+        default=1048576, ge=4096, le=16777216
+    )
+    mcp_output_inline_max_bytes: int = Field(default=65536, ge=1, le=1048576)
     execution_consumer_group: str = "executor-workers"
     execution_consumer_name: str = ""
     execution_pending_claim_interval_seconds: float = Field(default=5, gt=0)

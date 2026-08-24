@@ -23,6 +23,7 @@ def _load_jupyter_server_extension(server_app: Any) -> None:
         OutputJournalBeginHandler,
         OutputJournalFinalizeHandler,
         OutputJournalMaterializeNotebookHandler,
+        OutputJournalReadHandler,
         ResourceStatusHandler,
         WorkspacePrepareHandler,
     )
@@ -118,6 +119,16 @@ def _load_jupyter_server_extension(server_app: Any) -> None:
                     "abort",
                 ),
                 OutputJournalAbortHandler,
+            ),
+            (
+                url_path_join(
+                    base_url,
+                    "executor",
+                    "storage",
+                    "output-journals",
+                    "read",
+                ),
+                OutputJournalReadHandler,
             ),
             (
                 url_path_join(

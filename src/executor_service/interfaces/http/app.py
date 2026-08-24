@@ -18,6 +18,8 @@ from executor_service.domain.errors import (
     ExecutionNotebookNotAvailableError,
     ExecutionNotFoundError,
     ExecutionOperationNotFoundError,
+    ExecutionOutputContentUnavailableError,
+    ExecutionOutputNotFoundError,
     ExecutionVersionConflictError,
     IdempotencyConflictError,
     InvalidCursorError,
@@ -48,6 +50,8 @@ def create_app(container: ApplicationContainer) -> FastAPI:
         container.notebook_queries,
         container.execution_results,
         container.materialized_artifacts,
+        container.output_contents,
+        container.settings.mcp_output_inline_max_bytes,
     )
     transport_security = TransportSecuritySettings(
         enable_dns_rebinding_protection=True,
@@ -121,12 +125,19 @@ def create_app(container: ApplicationContainer) -> FastAPI:
                 ExecutionAttemptNotFoundError,
                 ExecutionOperationNotFoundError,
                 ExecutionArtifactNotFoundError,
+                ExecutionOutputNotFoundError,
                 NotebookCellNotFoundError,
                 RuntimeTargetNotFoundError,
             ),
         ):
             http_status = status.HTTP_404_NOT_FOUND
-        elif isinstance(exc, ExecutionNotebookNotAvailableError):
+        elif isinstance(
+            exc,
+            (
+                ExecutionNotebookNotAvailableError,
+                ExecutionOutputContentUnavailableError,
+            ),
+        ):
             http_status = status.HTTP_409_CONFLICT
         elif isinstance(
             exc,

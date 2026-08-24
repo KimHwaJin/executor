@@ -20,6 +20,7 @@ authoritative state store and execution happens asynchronously through the Worke
 | GET | `/executions/{execution_id}/events` | Integration event history |
 | GET | `/executions/{execution_id}/outputs` | Cursor-paginated normalized Runtime output metadata |
 | GET | `/executions/{execution_id}/outputs/{output_id}` | One output and its MIME representation metadata |
+| GET | `/executions/{execution_id}/outputs/{output_id}/representations/{representation_id}/content` | Stream native representation bytes; supports one HTTP byte Range |
 | GET | `/executions/{execution_id}/artifacts` | Artifact history |
 | POST | `/executions/{execution_id}/artifacts` | Materialize Agent-authored text on Runtime storage |
 | GET | `/executions/{execution_id}/notebook` | Runtime-owned notebook |
@@ -119,8 +120,16 @@ without loading complete Runtime-owned bodies. Optional `operation_id`,
 `step_id`, and `attempt_id` filters narrow the result. Each representation
 contains its MIME type, byte size, checksum, completeness, and an opaque
 `content_ref`; clients must not parse the reference. Native content retrieval
-is introduced with the streaming content endpoint in the next implementation
-slice.
+uses `GET /executions/{execution_id}/outputs/{output_id}/representations/
+{representation_id}/content`. The response preserves the native media type,
+returns `Content-Length`, `ETag`, `X-Checksum-SHA256`, and `Accept-Ranges`, and
+supports one standard `Range: bytes=...` value. Invalid or multiple ranges
+return `416` with `Content-Range: bytes */<total>`.
+
+MCP `execution_output_content_get` inlines only UTF-8 textual
+representations no larger than `MCP_OUTPUT_INLINE_MAX_BYTES`. Images, binary
+representations, and larger text return `delivery=HTTP` plus the relative
+`content_url`; they are never embedded as base64 in MCP or Redis.
 
 `POST /executions/{execution_id}/artifacts` accepts idempotent Agent-authored UTF-8 content from an
 INLINE source or input-PV PATH. A REPORT defaults to `reports/final-report.md`; callers do not

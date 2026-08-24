@@ -10,6 +10,9 @@ from executor_service.application.execution_results import (
 from executor_service.application.notebook_queries import (
     ExecutionNotebookQueryService,
 )
+from executor_service.application.output_contents import (
+    ExecutionOutputContentService,
+)
 from executor_service.application.services import ExecutionService
 from executor_service.config import Settings
 from executor_service.domain.enums import RuntimeType
@@ -86,6 +89,10 @@ class ApplicationContainer:
         )
         self.notebook_queries = ExecutionNotebookQueryService(
             self.execution_queries, self.runtime_storage
+        )
+        self.output_contents = ExecutionOutputContentService(
+            self.execution_queries,
+            self.runtime_storage,
         )
         self.artifact_manager = ExecutionArtifactManager(self.session_factory)
         self.materialized_artifacts = MaterializedArtifactService(

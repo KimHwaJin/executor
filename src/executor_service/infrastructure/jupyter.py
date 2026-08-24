@@ -1,7 +1,9 @@
 """Jupyter implementation of the generic RuntimeDriver contract."""
 
 import asyncio
+import hashlib
 import json
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from pathlib import PurePosixPath
 from typing import Any
@@ -26,6 +28,7 @@ from executor_service.domain.runtime import (
     RuntimeNotebookPreparationResult,
     RuntimeNotebookSourceCell,
     RuntimeOutputAppendResult,
+    RuntimeOutputContentChunk,
     RuntimeOutputDescriptor,
     RuntimeOutputHandler,
     RuntimeOutputJournalDescriptor,
@@ -46,6 +49,7 @@ class JupyterRuntimeDriver:
         token: str,
         request_timeout_seconds: float = 30,
         storage_timeout_seconds: float = 300,
+        output_chunk_bytes: int = 1048576,
     ) -> None:
         self._endpoint = endpoint.rstrip("/")
         self._token = token
@@ -55,6 +59,7 @@ class JupyterRuntimeDriver:
             timeout=request_timeout_seconds,
         )
         self._storage_timeout = storage_timeout_seconds
+        self._output_chunk_bytes = output_chunk_bytes
 
     async def close(self) -> None:
         await self._client.aclose()
@@ -384,6 +389,148 @@ class JupyterRuntimeDriver:
             timeout=self._storage_timeout,
         )
         return _journal_descriptor(response, "abort")
+
+    async def output_journal_read(
+        self,
+        identity: RuntimeOutputJournalIdentity,
+        *,
+        journal_id: UUID,
+        output_id: UUID,
+        representation_id: UUID,
+        start: int,
+        end_exclusive: int,
+    ) -> RuntimeOutputContentChunk:
+        response = await self._request(
+            "POST",
+            "/executor/storage/output-journals/read",
+            json={
+                "journal": _journal_identity_payload(identity),
+                "journal_id": str(journal_id),
+                "output_id": str(output_id),
+                "representation_id": str(representation_id),
+                "start": start,
+                "end_exclusive": end_exclusive,
+            },
+            timeout=self._storage_timeout,
+        )
+        try:
+            size_bytes = int(response.headers["X-Content-Size"])
+            checksum = response.headers["X-Checksum-SHA256"]
+            complete = response.headers["X-Content-Complete"].lower() == "true"
+            response_start = int(response.headers["X-Content-Start"])
+            response_end = int(response.headers["X-Content-End-Exclusive"])
+            media_type = response.headers["Content-Type"].split(";", 1)[0]
+            if (
+                size_bytes < 0
+                or len(checksum) != 64
+                or response_start != start
+                or response_end != end_exclusive
+                or len(response.content) != end_exclusive - start
+                or not media_type
+            ):
+                raise ValueError("inconsistent content metadata")
+        except (KeyError, TypeError, ValueError) as exc:
+            raise RuntimeDriverError(
+                "Jupyter Output Journal read response is invalid."
+            ) from exc
+        return RuntimeOutputContentChunk(
+            content=response.content,
+            media_type=media_type,
+            size_bytes=size_bytes,
+            checksum_sha256=checksum,
+            complete=complete,
+            start=response_start,
+            end_exclusive=response_end,
+        )
+
+    async def output_journal_stream(
+        self,
+        identity: RuntimeOutputJournalIdentity,
+        *,
+        journal_id: UUID,
+        output_id: UUID,
+        representation_id: UUID,
+        start: int,
+        end_exclusive: int,
+        expected_media_type: str,
+        expected_size_bytes: int,
+        expected_checksum_sha256: str,
+        expected_complete: bool,
+    ) -> AsyncIterator[bytes]:
+        path = "/executor/storage/output-journals/read"
+        try:
+            async with self._client.stream(
+                "POST",
+                path,
+                json={
+                    "journal": _journal_identity_payload(identity),
+                    "journal_id": str(journal_id),
+                    "output_id": str(output_id),
+                    "representation_id": str(representation_id),
+                    "start": start,
+                    "end_exclusive": end_exclusive,
+                },
+                timeout=self._storage_timeout,
+            ) as response:
+                response.raise_for_status()
+                try:
+                    response_size = int(response.headers["X-Content-Size"])
+                    response_checksum = response.headers["X-Checksum-SHA256"]
+                    response_complete = (
+                        response.headers["X-Content-Complete"].lower()
+                        == "true"
+                    )
+                    response_start = int(response.headers["X-Content-Start"])
+                    response_end = int(
+                        response.headers["X-Content-End-Exclusive"]
+                    )
+                    response_media_type = response.headers[
+                        "Content-Type"
+                    ].split(";", 1)[0]
+                    if (
+                        response_size != expected_size_bytes
+                        or response_checksum != expected_checksum_sha256
+                        or response_complete != expected_complete
+                        or response_start != start
+                        or response_end != end_exclusive
+                        or response_media_type != expected_media_type
+                    ):
+                        raise ValueError("inconsistent content metadata")
+                except (KeyError, TypeError, ValueError) as exc:
+                    raise RuntimeDriverError(
+                        "Jupyter Output Journal stream response is invalid."
+                    ) from exc
+                received = 0
+                digest = hashlib.sha256()
+                async for chunk in response.aiter_bytes(
+                    self._output_chunk_bytes
+                ):
+                    received += len(chunk)
+                    if start == 0 and end_exclusive == expected_size_bytes:
+                        digest.update(chunk)
+                    yield chunk
+                if received != end_exclusive - start:
+                    raise RuntimeDriverError(
+                        "Jupyter Output Journal stream ended early."
+                    )
+                if (
+                    start == 0
+                    and end_exclusive == expected_size_bytes
+                    and digest.hexdigest() != expected_checksum_sha256
+                ):
+                    raise RuntimeDriverError(
+                        "Jupyter Output Journal stream checksum failed."
+                    )
+        except httpx.HTTPStatusError as exc:
+            raise RuntimeDriverError(
+                "Jupyter REST request failed: "
+                f"method=POST path={path} status={exc.response.status_code}."
+            ) from exc
+        except httpx.RequestError as exc:
+            raise RuntimeDriverError(
+                "Jupyter REST request failed: "
+                f"method=POST path={path} transport={type(exc).__name__}."
+            ) from exc
 
     async def materialize_notebook(
         self,

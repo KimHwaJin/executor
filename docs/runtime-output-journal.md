@@ -200,6 +200,21 @@ within the selected threshold; otherwise it returns the same stable reference an
 which content operation to call. Large binary bodies use the streaming HTTP content operation
 rather than an MCP JSON/base64 envelope.
 
+The public content URL never contains a Runtime path or credential. Executor
+first resolves the Execution, Output, and Representation from PostgreSQL,
+reconstructs the full fenced Journal identity, and asks the original Runtime
+Target first. If that target is unavailable, another active or draining target
+of the same Runtime type may serve the bytes from the operator-guaranteed
+shared Runtime PV. The Jupyter extension verifies Journal, Output,
+Representation, fencing identity, byte size, and checksum before returning a
+bounded chunk. Executor compares the returned metadata with PostgreSQL again.
+
+`OUTPUT_CONTENT_CHUNK_BYTES` bounds each internal Runtime read (1 MiB by
+default), so a full REST response streams multiple chunks instead of building
+the complete representation in Executor memory. HTTP Range narrows that same
+stream. The current JSONL reader still scans one Step Journal to locate inline
+text; indexing and large-output measurements remain part of T35.
+
 ## Safety bounds selected after T35
 
 The implementation will configure and report separate bounds for:
@@ -223,6 +238,6 @@ failure while keeping already committed journal metadata observable.
 4. Add PostgreSQL output metadata and shared REST/MCP reference contracts.
    (implemented additively; legacy Step output JSON remains until slice 5)
 5. Add streaming content reads and notebook materialization from journals.
-   (notebook-first preparation and fenced Journal materialization implemented;
-   content reads remain pending)
+   (implemented with notebook-first preparation, fenced Journal
+   materialization, native REST streaming/Range, and bounded MCP text reads)
 6. Re-run T35, choose production thresholds, and record before/after evidence.
