@@ -318,19 +318,14 @@ def _step_output_text(steps: list[dict[str, Any]]) -> str:
     rendered: list[str] = []
     for step in steps:
         result = step.get("result", {})
-        for output in result.get("outputs", []):
-            text = output.get("text")
-            if isinstance(text, list):
-                rendered.append("".join(str(part) for part in text).strip())
-            elif isinstance(text, str):
-                rendered.append(text.strip())
-            data = output.get("data")
-            if isinstance(data, dict):
-                plain = data.get("text/plain")
-                if isinstance(plain, list):
-                    rendered.append("".join(str(part) for part in plain).strip())
-                elif isinstance(plain, str):
-                    rendered.append(plain.strip())
+        error = result.get("error_message")
+        if error:
+            rendered.append(str(error))
+        for output in result.get("resolved_outputs", []):
+            for representation in output.get("representations", []):
+                content = representation.get("content")
+                if isinstance(content, str) and content.strip():
+                    rendered.append(content.strip())
     return "\n".join(part for part in rendered if part)
 
 

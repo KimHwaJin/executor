@@ -1,31 +1,37 @@
 # Architecture decisions
 
-## ADR-002: Runtime-owned execution storage
+## ADR-002: Split execution storage ownership
 
 - Status: ACCEPTED
 - Recorded on: 2026-08-13
 
-Agent and Executor share an input volume used only for PATH Step `.py` files and Agent-authored
-Artifact inputs. Runtime workspaces,
-notebooks, generated datasets, artifacts, and checkpoints belong to Runtime storage. Executor never
-opens a Runtime path locally; it uses Runtime Driver operations and stores only relative paths,
-metadata, lineage, and checksums in PostgreSQL.
+Agent and Executor share a volume for PATH request files, immutable executed source snapshots, and
+complete Step output bodies. Runtime workspaces, notebooks, generated datasets, reports, and other
+artifacts belong to Runtime storage. Executor never opens a Runtime path locally; it uses Runtime
+Driver operations. PostgreSQL stores authoritative state, fencing, bounded summaries, lineage,
+and canonical relative result references, but not output bodies.
 
 All Jupyter targets must mount the same shared Jupyter volume. This is an operator deployment
 contract; Executor does not discover or compare PV/PVC identities. A retained in-memory retry stays
 on its original target/session, while storage-only reads may use another healthy compatible target.
 
-Execution notebooks use a notebook-first Runtime projection. The Jupyter
-extension writes accepted Step sources as stable code cells before Kernel
-execution and later applies terminal Output Journals to those same cells.
+Execution notebooks are a retryable Runtime projection. The Jupyter extension writes accepted
+Step sources as stable code cells before Kernel execution. Executor streams IOPub output into a
+fenced partial directory on the shared Agent/Executor volume, atomically seals it, commits the
+canonical reference under its active lease, and projects sealed results into those notebook cells.
 NbModelClient, YDoc, and RTC are not runtime dependencies; live synchronization
 with an already open JupyterLab document is deferred unless collaborative
-editing becomes an explicit requirement. Output Journals remain the durable
-recovery source and PostgreSQL remains the authoritative fenced execution state.
+editing becomes an explicit requirement. Notebook projection failure does not reverse a successful
+Step; its separate status and retries remain observable.
 
 ```text
-Agent + Executor input volume
-└── requests/.../step-N.py
+Agent + Executor shared volume
+├── requests/.../step-N.py
+└── executions/<execution-id>/
+    ├── sources/<step-id>/source.py
+    └── operations/<operation-id>/steps/<step-id>/attempts/<attempt-id>/<fence>/
+        ├── outputs/...
+        └── manifest.json
 
 Jupyter shared volume
 └── users/{user|unscoped}/projects/{project|unscoped}/sessions/{session|unscoped}/executions/{execution}/
@@ -63,7 +69,8 @@ Executor-generated ID receipts immediately. PostgreSQL commits state and Outbox 
 transaction. `executor.work` wakes Workers; `executor.events` wakes Agent/frontend consumers.
 
 Step completion events carry only a bounded output summary, `result_available=true`, and a
-structured result reference. Full text and image payloads stay in PostgreSQL/Runtime storage.
+structured shared-volume result reference. Full text and image payloads stay in immutable shared
+files and never enter PostgreSQL or Redis.
 After all Step events, Executor publishes the Operation outcome and
 `execution.waiting_for_operation`; the Agent resumes and calls `execution_operation_result_get` or
 `execution_result_get` once for authoritative results. Notebook APIs remain available for audit and

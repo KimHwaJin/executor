@@ -4,6 +4,7 @@ import asyncio
 from uuid import uuid4
 
 from execution_spec_payload import execution_request, inline_spec
+from local_test_support import execution_step_outputs
 from mcp import Client
 
 
@@ -57,26 +58,14 @@ async def main() -> None:
             or steps[0]["result"]["status"] != "FAILED"
         ):
             raise RuntimeError(f"Expected FAILED execution and step: {result}")
-        consolidated = await client.call_tool(
-            "execution_result_get", {"execution_id": execution_id}
-        )
-        if consolidated.is_error or consolidated.structured_content is None:
-            raise RuntimeError(
-                f"Failed to read consolidated error result: {consolidated.content}"
-            )
-        outputs = consolidated.structured_content["operations"][0]["steps"][0][
-            "result"
-        ]["outputs"]
+        outputs = await execution_step_outputs(client, execution_id)
         errors = [
-            output
-            for output in outputs
-            if output.get("output_type") == "error"
+            output for output in outputs if output["output_type"] == "error"
         ]
         if (
             len(errors) != 1
             or errors[0].get("ename") != "ValueError"
             or errors[0].get("evalue") != "expected"
-            or not errors[0].get("traceback")
         ):
             raise RuntimeError(
                 f"Jupyter error output was not preserved: {outputs}"
@@ -96,8 +85,8 @@ async def main() -> None:
         print("execution_id:", execution_id)
         print("status: FAILED")
         print("error:", result["failure"]["message"])
-        print("output_type:", errors[0]["output_type"])
-        print("exception:", f"{errors[0]['ename']}: {errors[0]['evalue']}")
+        print("output_kind:", errors[0]["output_type"])
+        print("traceback:", errors[0]["traceback"])
 
 
 if __name__ == "__main__":

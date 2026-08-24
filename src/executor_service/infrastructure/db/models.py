@@ -49,7 +49,9 @@ from executor_service.domain.models import (
     Execution,
     ExecutionOperation,
     ExecutionStep,
+    NotebookProjectionStatus,
     OutboxEvent,
+    empty_output_summary,
     utc_now,
 )
 from executor_service.infrastructure.db.base import Base
@@ -147,6 +149,15 @@ class ExecutionORM(Base):
         CheckConstraint(
             "fencing_token >= 0", name="non_negative_fencing_token"
         ),
+        CheckConstraint(
+            "notebook_projection_status IN "
+            "('NOT_STARTED', 'PENDING', 'SUCCEEDED', 'FAILED')",
+            name="valid_notebook_projection_status",
+        ),
+        CheckConstraint(
+            "notebook_projection_attempt_count >= 0",
+            name="non_negative_notebook_projection_attempt_count",
+        ),
         Index("ix_executions_status_created_at", "status", "created_at", "id"),
         Index("ix_executions_created_cursor", "created_at", "id"),
         Index(
@@ -235,6 +246,16 @@ class ExecutionORM(Base):
     )
     workspace_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     notebook_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    notebook_projection_status: Mapped[NotebookProjectionStatus] = (
+        mapped_column(String(16), nullable=False, default="NOT_STARTED")
+    )
+    notebook_projection_attempt_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
+    )
+    notebook_projection_error: Mapped[str | None] = mapped_column(Text)
+    notebook_projected_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     failure_type: Mapped[FailureType | None] = mapped_column(
         enum_type(FailureType, "failure_type"), nullable=True
@@ -355,6 +376,12 @@ class ExecutionORM(Base):
             runtime_session_id=execution.runtime_session_id,
             workspace_path=execution.workspace_path,
             notebook_path=execution.notebook_path,
+            notebook_projection_status=(execution.notebook_projection_status),
+            notebook_projection_attempt_count=(
+                execution.notebook_projection_attempt_count
+            ),
+            notebook_projection_error=execution.notebook_projection_error,
+            notebook_projected_at=execution.notebook_projected_at,
             error_message=execution.error_message,
             failure_type=execution.failure_type,
             lease_owner=execution.lease_owner,
@@ -411,6 +438,12 @@ class ExecutionORM(Base):
             runtime_session_id=self.runtime_session_id,
             workspace_path=self.workspace_path,
             notebook_path=self.notebook_path,
+            notebook_projection_status=self.notebook_projection_status,
+            notebook_projection_attempt_count=(
+                self.notebook_projection_attempt_count
+            ),
+            notebook_projection_error=self.notebook_projection_error,
+            notebook_projected_at=self.notebook_projected_at,
             error_message=self.error_message,
             failure_type=self.failure_type,
             lease_owner=self.lease_owner,
@@ -482,12 +515,13 @@ class ExecutionStepORM(Base):
         index=True,
     )
     sequence: Mapped[int] = mapped_column(Integer, nullable=False)
-    code: Mapped[str] = mapped_column(Text, nullable=False)
     source_type: Mapped[CodeSourceType] = mapped_column(
         enum_type(CodeSourceType, "step_source_type"), nullable=False
     )
     source_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_snapshot_path: Mapped[str] = mapped_column(Text, nullable=False)
+    source_size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
     code_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     step_timeout_seconds: Mapped[int | None] = mapped_column(Integer)
     skill_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -500,8 +534,24 @@ class ExecutionStepORM(Base):
     input_parameters: Mapped[dict[str, Any]] = mapped_column(
         JSON, nullable=False, default=dict
     )
-    outputs: Mapped[list[dict[str, Any]]] = mapped_column(
-        JSON, nullable=False, default=list
+    output_summary: Mapped[dict[str, Any]] = mapped_column(
+        JSON, nullable=False, default=empty_output_summary
+    )
+    result_execution_attempt_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("execution_attempts.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    result_manifest_path: Mapped[str | None] = mapped_column(Text)
+    result_manifest_checksum_sha256: Mapped[str | None] = mapped_column(
+        String(64)
+    )
+    result_fencing_token: Mapped[int | None] = mapped_column(BigInteger)
+    result_representation_count: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0
+    )
+    result_total_size_bytes: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0
     )
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by_type: Mapped[ActorType | None] = mapped_column(
@@ -536,17 +586,26 @@ class ExecutionStepORM(Base):
             id=step.id,
             operation_id=step.operation_id,
             sequence=step.sequence,
-            code=step.code,
             source_type=step.source_type,
             source_path=step.source_path,
             source_sha256=step.source_sha256,
+            source_snapshot_path=step.source_snapshot_path,
+            source_size_bytes=step.source_size_bytes,
             code_hash=step.code_hash,
             step_timeout_seconds=step.step_timeout_seconds,
             skill_name=step.skill_name,
             tool_name=step.tool_name,
             status=step.status,
             input_parameters=step.input_parameters,
-            outputs=step.outputs,
+            output_summary=step.output_summary,
+            result_execution_attempt_id=step.result_execution_attempt_id,
+            result_manifest_path=step.result_manifest_path,
+            result_manifest_checksum_sha256=(
+                step.result_manifest_checksum_sha256
+            ),
+            result_fencing_token=step.result_fencing_token,
+            result_representation_count=step.result_representation_count,
+            result_total_size_bytes=step.result_total_size_bytes,
             error_message=step.error_message,
             created_by_type=step.created_by_type,
             created_by=step.created_by,
@@ -563,17 +622,27 @@ class ExecutionStepORM(Base):
             id=self.id,
             operation_id=self.operation_id,
             sequence=self.sequence,
-            code=self.code,
+            code="",
             source_type=self.source_type,
             source_path=self.source_path,
             source_sha256=self.source_sha256,
+            source_snapshot_path=self.source_snapshot_path,
+            source_size_bytes=self.source_size_bytes,
             code_hash=self.code_hash,
             step_timeout_seconds=self.step_timeout_seconds,
             skill_name=self.skill_name,
             tool_name=self.tool_name,
             status=self.status,
             input_parameters=self.input_parameters,
-            outputs=self.outputs,
+            output_summary=self.output_summary,
+            result_execution_attempt_id=self.result_execution_attempt_id,
+            result_manifest_path=self.result_manifest_path,
+            result_manifest_checksum_sha256=(
+                self.result_manifest_checksum_sha256
+            ),
+            result_fencing_token=self.result_fencing_token,
+            result_representation_count=self.result_representation_count,
+            result_total_size_bytes=self.result_total_size_bytes,
             error_message=self.error_message,
             created_by_type=self.created_by_type,
             created_by=self.created_by,
@@ -1088,8 +1157,19 @@ class ExecutionStepAttemptORM(Base):
     status: Mapped[StepStatus] = mapped_column(
         enum_type(StepStatus, "step_attempt_status"), nullable=False
     )
-    outputs: Mapped[list[dict[str, Any]]] = mapped_column(
-        JSON, nullable=False, default=list
+    output_summary: Mapped[dict[str, Any]] = mapped_column(
+        JSON, nullable=False, default=empty_output_summary
+    )
+    result_manifest_path: Mapped[str | None] = mapped_column(Text)
+    result_manifest_checksum_sha256: Mapped[str | None] = mapped_column(
+        String(64)
+    )
+    result_fencing_token: Mapped[int | None] = mapped_column(BigInteger)
+    result_representation_count: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0
+    )
+    result_total_size_bytes: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0
     )
     error_message: Mapped[str | None] = mapped_column(Text)
     created_by_type: Mapped[ActorType | None] = mapped_column(
@@ -1114,247 +1194,6 @@ class ExecutionStepAttemptORM(Base):
     )
     finished_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True)
-    )
-
-
-class ExecutionOutputJournalORM(Base):
-    """Fenced Runtime-owned output journal projected into PostgreSQL."""
-
-    __tablename__ = "execution_output_journals"
-    __table_args__ = (
-        *audit_actor_constraints(),
-        UniqueConstraint(
-            "execution_attempt_id",
-            "execution_step_id",
-            "fencing_token",
-            name="uq_output_journals_attempt_step_fence",
-        ),
-        CheckConstraint("sequence >= 0", name="non_negative_sequence"),
-        CheckConstraint("fencing_token > 0", name="positive_fencing_token"),
-        CheckConstraint(
-            "state IN ('OPEN', 'FINALIZED', 'ABORTED')",
-            name="valid_state",
-        ),
-        CheckConstraint(
-            "committed_offset >= 0", name="non_negative_committed_offset"
-        ),
-        CheckConstraint("output_count >= 0", name="non_negative_output_count"),
-        CheckConstraint(
-            "representation_count >= 0",
-            name="non_negative_representation_count",
-        ),
-        CheckConstraint("total_bytes >= 0", name="non_negative_total_bytes"),
-        Index(
-            "ix_output_journals_execution_sequence",
-            "execution_id",
-            "sequence",
-        ),
-    )
-
-    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
-    execution_id: Mapped[UUID] = mapped_column(
-        Uuid(as_uuid=True),
-        ForeignKey("executions.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-    operation_id: Mapped[UUID] = mapped_column(
-        Uuid(as_uuid=True),
-        ForeignKey("execution_operations.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    execution_step_id: Mapped[UUID] = mapped_column(
-        Uuid(as_uuid=True),
-        ForeignKey("execution_steps.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    execution_attempt_id: Mapped[UUID] = mapped_column(
-        Uuid(as_uuid=True),
-        ForeignKey("execution_attempts.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    execution_step_attempt_id: Mapped[UUID] = mapped_column(
-        Uuid(as_uuid=True),
-        ForeignKey("execution_step_attempts.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    runtime_target_id: Mapped[UUID] = mapped_column(
-        Uuid(as_uuid=True),
-        ForeignKey("runtime_targets.id"),
-        nullable=False,
-    )
-    runtime_session_id: Mapped[str] = mapped_column(
-        String(1024), nullable=False
-    )
-    workspace_path: Mapped[str] = mapped_column(Text, nullable=False)
-    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
-    fencing_token: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    state: Mapped[str] = mapped_column(String(16), nullable=False)
-    committed_offset: Mapped[int] = mapped_column(
-        BigInteger, nullable=False, default=0
-    )
-    output_count: Mapped[int] = mapped_column(
-        BigInteger, nullable=False, default=0
-    )
-    representation_count: Mapped[int] = mapped_column(
-        BigInteger, nullable=False, default=0
-    )
-    total_bytes: Mapped[int] = mapped_column(
-        BigInteger, nullable=False, default=0
-    )
-    checksum_sha256: Mapped[str | None] = mapped_column(String(64))
-    abort_reason: Mapped[str | None] = mapped_column(Text)
-    created_by_type: Mapped[ActorType | None] = mapped_column(
-        enum_type(ActorType, "actor_type"), nullable=True
-    )
-    created_by: Mapped[str | None] = mapped_column(String(255))
-    updated_by_type: Mapped[ActorType | None] = mapped_column(
-        enum_type(ActorType, "actor_type"), nullable=True
-    )
-    updated_by: Mapped[str | None] = mapped_column(String(255))
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utc_now
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        default=utc_now,
-        onupdate=utc_now,
-    )
-    completed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True)
-    )
-
-
-class ExecutionOutputORM(Base):
-    """One ordered output descriptor from a Runtime Output Journal."""
-
-    __tablename__ = "execution_outputs"
-    __table_args__ = (
-        *audit_actor_constraints(),
-        UniqueConstraint(
-            "journal_id", "ordinal", name="uq_outputs_journal_ordinal"
-        ),
-        CheckConstraint("sequence >= 0", name="non_negative_sequence"),
-        CheckConstraint("ordinal >= 0", name="non_negative_ordinal"),
-        CheckConstraint(
-            "kind IN ('STREAM', 'DISPLAY', 'RESULT', 'ERROR')",
-            name="valid_kind",
-        ),
-        CheckConstraint(
-            "execution_count IS NULL OR execution_count >= 0",
-            name="non_negative_execution_count",
-        ),
-        Index(
-            "ix_outputs_execution_created_cursor",
-            "execution_id",
-            "created_at",
-            "id",
-        ),
-        Index(
-            "ix_outputs_step_ordinal",
-            "execution_step_id",
-            "ordinal",
-        ),
-    )
-
-    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
-    journal_id: Mapped[UUID] = mapped_column(
-        Uuid(as_uuid=True),
-        ForeignKey("execution_output_journals.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-    batch_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
-    execution_id: Mapped[UUID] = mapped_column(
-        Uuid(as_uuid=True),
-        ForeignKey("executions.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-    operation_id: Mapped[UUID] = mapped_column(
-        Uuid(as_uuid=True),
-        ForeignKey("execution_operations.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    execution_step_id: Mapped[UUID] = mapped_column(
-        Uuid(as_uuid=True),
-        ForeignKey("execution_steps.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    execution_attempt_id: Mapped[UUID] = mapped_column(
-        Uuid(as_uuid=True),
-        ForeignKey("execution_attempts.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
-    ordinal: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    kind: Mapped[str] = mapped_column(String(16), nullable=False)
-    stream_name: Mapped[str | None] = mapped_column(String(32))
-    execution_count: Mapped[int | None] = mapped_column(Integer)
-    output_metadata: Mapped[dict[str, Any]] = mapped_column(
-        "metadata", JSON, nullable=False, default=dict
-    )
-    created_by_type: Mapped[ActorType | None] = mapped_column(
-        enum_type(ActorType, "actor_type"), nullable=True
-    )
-    created_by: Mapped[str | None] = mapped_column(String(255))
-    updated_by_type: Mapped[ActorType | None] = mapped_column(
-        enum_type(ActorType, "actor_type"), nullable=True
-    )
-    updated_by: Mapped[str | None] = mapped_column(String(255))
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utc_now
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        default=utc_now,
-        onupdate=utc_now,
-    )
-
-
-class ExecutionOutputRepresentationORM(Base):
-    """One MIME representation with an opaque Runtime content reference."""
-
-    __tablename__ = "execution_output_representations"
-    __table_args__ = (
-        *audit_actor_constraints(),
-        CheckConstraint("size_bytes >= 0", name="non_negative_size_bytes"),
-        UniqueConstraint("content_ref", name="uq_output_representations_ref"),
-    )
-
-    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
-    output_id: Mapped[UUID] = mapped_column(
-        Uuid(as_uuid=True),
-        ForeignKey("execution_outputs.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-    media_type: Mapped[str] = mapped_column(String(255), nullable=False)
-    size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    checksum_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
-    complete: Mapped[bool] = mapped_column(Boolean, nullable=False)
-    content_ref: Mapped[str] = mapped_column(Text, nullable=False)
-    representation_metadata: Mapped[dict[str, Any]] = mapped_column(
-        "metadata", JSON, nullable=False, default=dict
-    )
-    created_by_type: Mapped[ActorType | None] = mapped_column(
-        enum_type(ActorType, "actor_type"), nullable=True
-    )
-    created_by: Mapped[str | None] = mapped_column(String(255))
-    updated_by_type: Mapped[ActorType | None] = mapped_column(
-        enum_type(ActorType, "actor_type"), nullable=True
-    )
-    updated_by: Mapped[str | None] = mapped_column(String(255))
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utc_now
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        default=utc_now,
-        onupdate=utc_now,
     )
 
 

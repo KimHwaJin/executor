@@ -8,12 +8,13 @@ One Agent Server exposes two independent Graph IDs:
 
 | Graph ID | Behavior |
 | --- | --- |
-| `executor_mcp_agent` | Preserves the direct Tool Agent. The LLM receives 16 read Tools and five policy-wrapped Executor mutation Tools. |
+| `executor_mcp_agent` | Preserves the direct Tool Agent. The LLM receives 21 read Tools and five policy-wrapped Executor mutation Tools. |
 | `executor_planning_agent` | Routes ordinary chat separately, generates a structured code plan, interrupts for approve/edit/reject, and only then lets graph-owned nodes call Executor mutation Tools. |
 
 Both Agents discover Executor contracts through official MCP SDK 2.x Clients. Redis Streams are a
 wake-up channel; after every Operation or terminal boundary the graph reconciles PostgreSQL-backed
-state, Step outputs, Artifacts, and the Runtime-owned Notebook through MCP.
+state, bounded Step summaries, referenced Runtime outputs, Artifacts, and the Runtime-owned
+Notebook through MCP.
 
 ## Layout
 
@@ -88,7 +89,7 @@ basic 커널에서 1부터 10까지의 합계를 계산하고 출력해줘.
 The MCP Agent can answer current-state questions such as `사용 가능한 커널 종류가 뭐야?` by
 calling `runtime_target_list`; `supported_profiles` contains the selectable profiles. Explicit
 execution requests call the policy-wrapped `execution_submit`. The Chat UI run waits for the
-relevant Redis boundary and then displays the execution ID, status, Step results, notebook outputs,
+relevant Redis boundary and then displays the execution ID, status, referenced Step results,
 Artifact names, and Runtime-owned notebook path. A MULTI submit or Operation wakes on
 `execution.waiting_for_operation`; a finalize wakes on the terminal event. This synchronous wait
 exists only to make the local Chat UI test self-contained. Production still requires the durable
@@ -107,10 +108,11 @@ on the retained Runtime session and finalize after the last boundary. An Operati
 to the user and stops later approved Operations; automatic LLM correction is intentionally not
 performed without another review policy.
 
-The Agent exposes 16 read Tools and five policy-wrapped mutation Tools:
+The Agent exposes 21 read Tools and five policy-wrapped mutation Tools:
 
 - Runtime reads: `runtime_target_list`, `runtime_target_get`.
-- Execution reads: list/get, Steps, Operations, Attempts, events, Artifacts, and notebook cells.
+- Execution reads: list/get, Steps, Operations, Attempts, events, normalized output metadata and
+  content, Artifacts, and notebook cells.
 - Mutations: submit, cancel, retry, append Operation, and finalize.
 
 It does not expose Runtime target upsert, probe, disable, or state-change Tools. The bridge uses the

@@ -1,6 +1,7 @@
 """Test fixtures using a real SQLAlchemy repository over isolated SQLite."""
 
 from collections.abc import AsyncIterator
+from pathlib import Path
 
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -15,6 +16,9 @@ from executor_service.infrastructure.db.session import (
     create_engine,
     create_session_factory,
 )
+from executor_service.infrastructure.result_storage import (
+    FilesystemExecutionResultStore,
+)
 
 
 @pytest_asyncio.fixture
@@ -27,9 +31,12 @@ async def engine() -> AsyncIterator[AsyncEngine]:
 
 
 @pytest_asyncio.fixture
-async def execution_service(engine: AsyncEngine) -> ExecutionService:
+async def execution_service(
+    engine: AsyncEngine, tmp_path: Path
+) -> ExecutionService:
     session_factory = create_session_factory(engine)
     return ExecutionService(
         lambda: SQLAlchemyUnitOfWork(session_factory),
         {RuntimeType.JUPYTER: ("basic", "ml")},
+        FilesystemExecutionResultStore(tmp_path),
     )

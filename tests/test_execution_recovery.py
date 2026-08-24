@@ -1,7 +1,7 @@
 from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, cast
 
 import pytest
 from redis.asyncio import Redis
@@ -31,6 +31,7 @@ from executor_service.domain.enums import (
 )
 from executor_service.domain.errors import InvalidStateTransitionError
 from executor_service.domain.models import utc_now
+from executor_service.domain.results import StepResultDescriptor
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
@@ -133,7 +134,6 @@ async def test_expired_lease_is_failed_once_and_can_restart_from_zero(
                 tool_name="long_running_tool",
                 input_parameters={},
                 status=StepStatus.RUNNING,
-                outputs=[],
                 started_at=now - timedelta(minutes=2),
             )
         )
@@ -171,7 +171,7 @@ async def test_expired_lease_is_failed_once_and_can_restart_from_zero(
 
     settings = Settings(
         runtime_enabled=False,
-        input_host_root=tmp_path,
+        shared_storage_root=tmp_path,
         execution_lease_seconds=30,
         execution_heartbeat_seconds=5,
     )
@@ -197,8 +197,7 @@ async def test_expired_lease_is_failed_once_and_can_restart_from_zero(
             await worker._step_succeeded(
                 stale_lease,
                 0,
-                [{"output_type": "stream", "text": "stale"}],
-                1,
+                cast(StepResultDescriptor, None),
             )
         with pytest.raises(ExecutionLeaseLostError):
             await worker._finalize(
@@ -357,7 +356,7 @@ async def test_expired_lease_resolves_pending_runtime_abort(
     )
     settings = Settings(
         runtime_enabled=False,
-        input_host_root=tmp_path,
+        shared_storage_root=tmp_path,
         execution_lease_seconds=30,
         execution_heartbeat_seconds=5,
     )

@@ -18,17 +18,9 @@ def _load_jupyter_server_extension(server_app: Any) -> None:
         FileMetadataHandler,
         ManifestReadHandler,
         NotebookPrepareHandler,
-        OutputJournalAbortHandler,
-        OutputJournalAppendHandler,
-        OutputJournalBeginHandler,
-        OutputJournalFinalizeHandler,
-        OutputJournalMaterializeNotebookHandler,
-        OutputJournalReadHandler,
+        NotebookProjectHandler,
         ResourceStatusHandler,
         WorkspacePrepareHandler,
-    )
-    from executor_resource_extension.output_journal import (
-        OutputJournalStorage,
     )
     from executor_resource_extension.storage import RuntimeStorage
 
@@ -38,9 +30,6 @@ def _load_jupyter_server_extension(server_app: Any) -> None:
         ResourceCollector.from_environment()
     )
     web_app.settings["executor_runtime_storage"] = RuntimeStorage(
-        server_app.root_dir
-    )
-    web_app.settings["executor_output_journals"] = OutputJournalStorage(
         server_app.root_dir
     )
     web_app.add_handlers(
@@ -82,63 +71,9 @@ def _load_jupyter_server_extension(server_app: Any) -> None:
             ),
             (
                 url_path_join(
-                    base_url,
-                    "executor",
-                    "storage",
-                    "output-journals",
-                    "begin",
+                    base_url, "executor", "storage", "notebooks", "project"
                 ),
-                OutputJournalBeginHandler,
-            ),
-            (
-                url_path_join(
-                    base_url,
-                    "executor",
-                    "storage",
-                    "output-journals",
-                    "append",
-                ),
-                OutputJournalAppendHandler,
-            ),
-            (
-                url_path_join(
-                    base_url,
-                    "executor",
-                    "storage",
-                    "output-journals",
-                    "finalize",
-                ),
-                OutputJournalFinalizeHandler,
-            ),
-            (
-                url_path_join(
-                    base_url,
-                    "executor",
-                    "storage",
-                    "output-journals",
-                    "abort",
-                ),
-                OutputJournalAbortHandler,
-            ),
-            (
-                url_path_join(
-                    base_url,
-                    "executor",
-                    "storage",
-                    "output-journals",
-                    "read",
-                ),
-                OutputJournalReadHandler,
-            ),
-            (
-                url_path_join(
-                    base_url,
-                    "executor",
-                    "storage",
-                    "output-journals",
-                    "materialize-notebook",
-                ),
-                OutputJournalMaterializeNotebookHandler,
+                NotebookProjectHandler,
             ),
         ],
     )

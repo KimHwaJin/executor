@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -11,6 +12,61 @@ from executor_resource_extension.storage import (
 
 
 class RuntimeStorageTests(unittest.TestCase):
+    def test_prepares_user_notebook_without_runtime_output_metadata(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            storage = RuntimeStorage(root)
+            workspace = "users/u1/projects/p1/sessions/s1/executions/e1"
+            storage.prepare_workspace(workspace)
+
+            result = storage.prepare_notebook(
+                workspace_path=workspace,
+                execution_id="e1",
+                runtime_profile="basic",
+                cells=[
+                    {
+                        "sequence": 0,
+                        "operation_id": "o1",
+                        "step_id": "s1",
+                        "source": "print('hello')",
+                    }
+                ],
+            )
+            notebook_path = root / result["notebook_path"]
+            notebook = json.loads(notebook_path.read_text(encoding="utf-8"))
+
+            self.assertEqual(notebook["cells"][0]["source"], "print('hello')")
+            self.assertEqual(notebook["cells"][0]["outputs"], [])
+            self.assertFalse((root / workspace / "outputs").exists())
+            projected = {
+                **notebook,
+                "cells": [
+                    {
+                        **notebook["cells"][0],
+                        "outputs": [
+                            {
+                                "output_type": "stream",
+                                "name": "stdout",
+                                "text": "hello\n",
+                            }
+                        ],
+                    }
+                ],
+            }
+            projection = storage.project_notebook(
+                notebook_path=result["notebook_path"], notebook=projected
+            )
+            persisted = json.loads(notebook_path.read_text(encoding="utf-8"))
+            self.assertEqual(projection["cell_count"], 1)
+            self.assertEqual(
+                persisted["cells"][0]["outputs"][0]["text"], "hello\n"
+            )
+            self.assertFalse(
+                (root / workspace / "notebooks/.ipynb_checkpoints").exists()
+            )
+
     def test_prepares_snapshots_and_hashes_runtime_files(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -35,7 +91,7 @@ class RuntimeStorageTests(unittest.TestCase):
         self.assertEqual(
             prepared["notebook_path"], f"{workspace}/notebooks/execution.ipynb"
         )
-        self.assertTrue(checkpoint_directory_exists)
+        self.assertFalse(checkpoint_directory_exists)
         self.assertTrue(reports_directory_exists)
         self.assertFalse(legacy_checkpoint_directory_exists)
         self.assertEqual(

@@ -34,6 +34,7 @@ from executor_service.domain.models import (
     ExecutionStep,
 )
 from executor_service.domain.ports import UnitOfWork
+from executor_service.domain.results import ExecutionResultStore
 from executor_service.events import build_execution_event
 from executor_service.tracing import capture_trace_carrier
 from executor_service.work_messages import build_work_message
@@ -52,12 +53,14 @@ class ExecutionService:
         self,
         uow_factory: UnitOfWorkFactory,
         runtime_profiles: Mapping[RuntimeType, tuple[str, ...]],
+        result_store: ExecutionResultStore,
     ) -> None:
         self._uow_factory = uow_factory
         self._runtime_profiles = {
             runtime_type: tuple(profiles)
             for runtime_type, profiles in runtime_profiles.items()
         }
+        self._result_store = result_store
 
     @property
     def runtime_profiles(self) -> dict[str, tuple[str, ...]]:
@@ -157,6 +160,7 @@ class ExecutionService:
                     active_operation_id=operation.id,
                 )
                 operation.execution_id = execution.id
+                await self._snapshot_sources(execution.steps, execution.id)
                 await uow.executions.add(execution)
                 await uow.executions.add_operation(operation)
                 await uow.outbox.add(
@@ -314,6 +318,7 @@ class ExecutionService:
                     )
                     for source in command.steps
                 ]
+                await self._snapshot_sources(steps, execution.id)
                 execution.steps.extend(steps)
                 execution.active_operation_id = operation.id
                 await uow.executions.save(execution)
@@ -665,6 +670,23 @@ class ExecutionService:
             raise IdempotencyConflictError(
                 "The retry request conflicted with another state change."
             ) from exc
+
+    async def _snapshot_sources(
+        self, steps: list[ExecutionStep], execution_id: UUID
+    ) -> None:
+        for step in steps:
+            source = await self._result_store.snapshot_source(
+                execution_id, step.id, step.code
+            )
+            step.source_snapshot_path = source.relative_path
+            step.source_size_bytes = source.size_bytes
+            if step.source_sha256 and (
+                source.checksum_sha256 != step.source_sha256
+            ):
+                raise InvalidStateTransitionError(
+                    "Resolved Step source checksum changed before persistence."
+                )
+            step.source_sha256 = source.checksum_sha256
 
 
 def _fingerprint(

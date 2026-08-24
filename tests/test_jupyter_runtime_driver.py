@@ -8,9 +8,7 @@ import pytest
 from executor_service.domain.enums import RuntimeAbortStatus
 from executor_service.domain.runtime import (
     RuntimeDriverError,
-    RuntimeNotebookCell,
     RuntimeNotebookSourceCell,
-    RuntimeOutputJournalIdentity,
     RuntimeOutputRecord,
 )
 from executor_service.infrastructure.jupyter import (
@@ -43,20 +41,6 @@ def _resource_payload() -> dict[str, Any]:
         },
         "observed_at": "2026-08-12T10:00:00Z",
     }
-
-
-def _journal_identity() -> RuntimeOutputJournalIdentity:
-    return RuntimeOutputJournalIdentity(
-        workspace_path="users/u/projects/p/sessions/s/executions/e",
-        execution_id=UUID("11111111-1111-4111-8111-111111111111"),
-        operation_id=UUID("22222222-2222-4222-8222-222222222222"),
-        step_id=UUID("33333333-3333-4333-8333-333333333333"),
-        sequence=0,
-        execution_attempt_id=UUID("44444444-4444-4444-8444-444444444444"),
-        fencing_token=7,
-        runtime_target_id=UUID("55555555-5555-4555-8555-555555555555"),
-        runtime_session_id="kernel-1",
-    )
 
 
 async def test_resource_status_parses_versioned_jupyter_response() -> None:
@@ -243,6 +227,17 @@ async def test_runtime_storage_contract_uses_jupyter_server_apis() -> None:
             return httpx.Response(
                 200, json={"start": 0, "end": 3, "content": "{}\n"}
             )
+        if request.url.path.endswith("/notebooks/project"):
+            return httpx.Response(
+                200,
+                json={
+                    "notebook_path": (
+                        "users/u/executions/e/notebooks/execution.ipynb"
+                    ),
+                    "cell_count": 0,
+                    "checksum_sha256": "b" * 64,
+                },
+            )
         if request.method == "GET" and "/api/contents/" in request.url.path:
             return httpx.Response(
                 200, json={"type": "notebook", "content": {"cells": []}}
@@ -287,6 +282,12 @@ async def test_runtime_storage_contract_uses_jupyter_server_apis() -> None:
         == b'{"type":"file","format":"text","content":"# Report"}'
     )
     assert requests[0].url.path == "/executor/storage/workspaces/prepare"
+    notebook_request = next(
+        request
+        for request in requests
+        if request.url.path.endswith("/notebooks/project")
+    )
+    assert notebook_request.method == "POST"
     assert requests[-1].url.path.endswith(
         "/api/contents/users/u/executions/e/notebooks/execution.ipynb"
     )
@@ -313,8 +314,8 @@ async def test_request_reports_safe_http_failure_context() -> None:
 
     message = str(error.value)
     assert message == (
-        "Jupyter REST request failed: method=PUT "
-        "path=/api/contents/users/u/executions/e/notebooks/execution.ipynb status=500."
+        "Jupyter REST request failed: method=POST "
+        "path=/executor/storage/notebooks/project status=500."
     )
     assert "sensitive" not in message
     assert "secret" not in message
@@ -354,235 +355,6 @@ def test_contents_path_rejects_absolute_and_parent_paths() -> None:
         _contents_path("/absolute.ipynb")
 
 
-async def test_output_journal_contract_uses_authenticated_extension_apis() -> (
-    None
-):
-    requests: list[httpx.Request] = []
-    journal_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
-    batch_id = UUID("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
-    output_id = UUID("11111111-1111-4111-8111-111111111111")
-    representation_id = UUID("22222222-2222-4222-8222-222222222222")
-
-    def descriptor(state: str, offset: int) -> dict[str, Any]:
-        return {
-            "journal_id": journal_id,
-            "state": state,
-            "committed_offset": offset,
-            "output_count": offset,
-            "representation_count": offset,
-            "total_bytes": 4 * offset,
-            "checksum_sha256": "c" * 64 if state == "FINALIZED" else None,
-        }
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        requests.append(request)
-        if request.url.path.endswith("/read"):
-            return httpx.Response(
-                206,
-                content=b"on",
-                headers={
-                    "Content-Type": "text/plain",
-                    "X-Content-Size": "4",
-                    "X-Checksum-SHA256": "a" * 64,
-                    "X-Content-Complete": "true",
-                    "X-Content-Start": "1",
-                    "X-Content-End-Exclusive": "3",
-                },
-            )
-        if request.url.path.endswith("/append"):
-            return httpx.Response(
-                200,
-                json={
-                    "journal_id": journal_id,
-                    "state": "OPEN",
-                    "batch_id": str(batch_id),
-                    "committed_offset": 1,
-                    "output_count": 1,
-                    "representation_count": 1,
-                    "total_bytes": 4,
-                    "replayed": False,
-                    "outputs": [
-                        {
-                            "output_id": (
-                                "11111111-1111-4111-8111-111111111111"
-                            ),
-                            "ordinal": 0,
-                            "kind": "STREAM",
-                            "stream_name": "stdout",
-                            "execution_count": None,
-                            "representations": [
-                                {
-                                    "representation_id": (
-                                        "22222222-2222-4222-8222-222222222222"
-                                    ),
-                                    "media_type": "text/plain",
-                                    "size_bytes": 4,
-                                    "checksum_sha256": "a" * 64,
-                                    "complete": True,
-                                    "content_ref": (
-                                        "journal://aaaaaaaa-aaaa-4aaa-8aaa-"
-                                        "aaaaaaaaaaaa/output/representation"
-                                    ),
-                                    "metadata": {},
-                                }
-                            ],
-                            "metadata": {},
-                            "created_at": "2026-08-24T00:00:00+00:00",
-                        }
-                    ],
-                },
-            )
-        if request.url.path.endswith("/finalize"):
-            return httpx.Response(200, json=descriptor("FINALIZED", 1))
-        if request.url.path.endswith("/abort"):
-            return httpx.Response(200, json=descriptor("ABORTED", 1))
-        return httpx.Response(200, json=descriptor("OPEN", 0))
-
-    driver = JupyterRuntimeDriver("http://jupyter.invalid", "secret")
-    await driver._client.aclose()
-    driver._client = httpx.AsyncClient(
-        transport=httpx.MockTransport(handler),
-        base_url="http://jupyter.invalid",
-        headers={"Authorization": "token secret"},
-    )
-    identity = _journal_identity()
-    record = _as_output_record("stream", {"name": "stdout", "text": "done"})
-    assert record is not None
-    try:
-        begun = await driver.output_journal_begin(identity, "print('done')")
-        appended = await driver.output_journal_append(
-            identity,
-            journal_id=begun.journal_id,
-            expected_offset=0,
-            batch_id=batch_id,
-            records=(record,),
-        )
-        finalized = await driver.output_journal_finalize(
-            identity, journal_id=begun.journal_id
-        )
-        aborted = await driver.output_journal_abort(
-            identity,
-            journal_id=begun.journal_id,
-            reason="incomplete",
-        )
-        content = await driver.output_journal_read(
-            identity,
-            journal_id=begun.journal_id,
-            output_id=output_id,
-            representation_id=representation_id,
-            start=1,
-            end_exclusive=3,
-        )
-        streamed = b"".join(
-            [
-                chunk
-                async for chunk in driver.output_journal_stream(
-                    identity,
-                    journal_id=begun.journal_id,
-                    output_id=output_id,
-                    representation_id=representation_id,
-                    start=1,
-                    end_exclusive=3,
-                    expected_media_type="text/plain",
-                    expected_size_bytes=4,
-                    expected_checksum_sha256="a" * 64,
-                    expected_complete=True,
-                )
-            ]
-        )
-    finally:
-        await driver.close()
-
-    assert begun.state == "OPEN"
-    assert appended.committed_offset == 1
-    assert finalized.state == "FINALIZED"
-    assert aborted.state == "ABORTED"
-    assert content.content == b"on"
-    assert streamed == b"on"
-    assert content.size_bytes == 4
-    assert [request.url.path.rsplit("/", 1)[-1] for request in requests] == [
-        "begin",
-        "append",
-        "finalize",
-        "abort",
-        "read",
-        "read",
-    ]
-    append_payload = json.loads(requests[1].content)
-    begin_payload = json.loads(requests[0].content)
-    assert begin_payload["source"] == "print('done')"
-    assert begin_payload["journal"]["fencing_token"] == 7
-    assert append_payload["journal"]["fencing_token"] == 7
-    assert append_payload["records"] == [
-        {
-            "kind": "STREAM",
-            "stream_name": "stdout",
-            "execution_count": None,
-            "representations": [
-                {
-                    "media_type": "text/plain",
-                    "encoding": "UTF8",
-                    "content": "done",
-                    "metadata": {},
-                }
-            ],
-            "metadata": {},
-        }
-    ]
-
-
-async def test_jupyter_materializes_notebook_from_output_journals() -> None:
-    requests: list[httpx.Request] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        requests.append(request)
-        return httpx.Response(
-            200,
-            json={
-                "notebook_path": (
-                    "users/u/projects/p/sessions/s/executions/e/"
-                    "notebooks/execution.ipynb"
-                ),
-                "cell_count": 1,
-                "output_count": 2,
-            },
-        )
-
-    driver = JupyterRuntimeDriver("http://jupyter.invalid", "secret")
-    await driver._client.aclose()
-    driver._client = httpx.AsyncClient(
-        transport=httpx.MockTransport(handler),
-        base_url="http://jupyter.invalid",
-        headers={"Authorization": "token secret"},
-    )
-    identity = _journal_identity()
-    try:
-        result = await driver.materialize_notebook(
-            identity.workspace_path,
-            "basic",
-            (
-                RuntimeNotebookCell(
-                    sequence=0,
-                    execution_count=1,
-                    journal_id=UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
-                    journal=identity,
-                ),
-            ),
-        )
-    finally:
-        await driver.close()
-
-    assert result.cell_count == 1
-    assert result.output_count == 2
-    assert requests[0].url.path.endswith(
-        "/output-journals/materialize-notebook"
-    )
-    payload = json.loads(requests[0].content)
-    assert "source" not in payload["cells"][0]
-    assert payload["cells"][0]["journal"]["fencing_token"] == 7
-    assert requests[0].headers["authorization"] == "token secret"
-
-
 async def test_jupyter_prepares_notebook_source_cells_before_execution() -> (
     None
 ):
@@ -609,17 +381,20 @@ async def test_jupyter_prepares_notebook_source_cells_before_execution() -> (
         base_url="http://jupyter.invalid",
         headers={"Authorization": "token secret"},
     )
-    identity = _journal_identity()
+    workspace_path = "users/u/projects/p/sessions/s/executions/e"
+    execution_id = UUID("11111111-1111-4111-8111-111111111111")
+    operation_id = UUID("22222222-2222-4222-8222-222222222222")
+    step_id = UUID("33333333-3333-4333-8333-333333333333")
     try:
         result = await driver.prepare_notebook(
-            identity.workspace_path,
-            identity.execution_id,
+            workspace_path,
+            execution_id,
             "basic",
             (
                 RuntimeNotebookSourceCell(
                     sequence=0,
-                    operation_id=identity.operation_id,
-                    step_id=identity.step_id,
+                    operation_id=operation_id,
+                    step_id=step_id,
                     source="print('prepared')",
                 ),
             ),
@@ -631,12 +406,12 @@ async def test_jupyter_prepares_notebook_source_cells_before_execution() -> (
     assert result.total_cell_count == 1
     assert requests[0].url.path.endswith("/storage/notebooks/prepare")
     payload = json.loads(requests[0].content)
-    assert payload["execution_id"] == str(identity.execution_id)
+    assert payload["execution_id"] == str(execution_id)
     assert payload["cells"] == [
         {
             "sequence": 0,
-            "operation_id": str(identity.operation_id),
-            "step_id": str(identity.step_id),
+            "operation_id": str(operation_id),
+            "step_id": str(step_id),
             "source": "print('prepared')",
         }
     ]
@@ -739,8 +514,6 @@ async def test_execute_streaming_delivers_each_iopub_output(
         await driver.close()
 
     assert result.execution_count == 3
-    assert result.outputs == [
-        {"output_type": "stream", "name": "stdout", "text": "one\n"}
-    ]
+    assert result.outputs == []
     assert len(records) == 1
     assert records[0].kind == "STREAM"

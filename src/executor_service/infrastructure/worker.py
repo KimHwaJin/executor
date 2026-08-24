@@ -1,6 +1,8 @@
 """Redis-triggered Runtime execution worker with PostgreSQL leases."""
 
 import asyncio
+import base64
+import json
 import logging
 import os
 import socket
@@ -33,7 +35,20 @@ from executor_service.domain.enums import (
     RuntimeTargetStatus,
     StepStatus,
 )
-from executor_service.domain.models import Execution, ExecutionStep, utc_now
+from executor_service.domain.models import (
+    Execution,
+    ExecutionStep,
+    NotebookProjectionStatus,
+    empty_output_summary,
+    utc_now,
+)
+from executor_service.domain.results import (
+    ExecutionResultStore,
+    ExecutionSourceReference,
+    StepResultDescriptor,
+    StepResultIdentity,
+    StepResultReference,
+)
 from executor_service.domain.runtime import (
     RuntimeAbortResult,
     RuntimeDriver,
@@ -41,15 +56,10 @@ from executor_service.domain.runtime import (
     RuntimeDriverFactory,
     RuntimeExecutionError,
     RuntimeExecutionTimeoutError,
-    RuntimeNotebookCell,
-    RuntimeNotebookMaterializer,
     RuntimeNotebookPreparer,
     RuntimeNotebookSourceCell,
-    RuntimeOutputAppendResult,
-    RuntimeOutputJournal,
-    RuntimeOutputJournalDescriptor,
-    RuntimeOutputJournalIdentity,
     RuntimeOutputRecord,
+    RuntimeOutputRepresentation,
     RuntimeStreamingExecutor,
 )
 from executor_service.events import build_execution_event
@@ -58,9 +68,6 @@ from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
     ExecutionOperationORM,
     ExecutionORM,
-    ExecutionOutputJournalORM,
-    ExecutionOutputORM,
-    ExecutionOutputRepresentationORM,
     ExecutionStepAttemptORM,
     ExecutionStepORM,
     OutboxEventORM,
@@ -70,6 +77,9 @@ from executor_service.infrastructure.execution_leases import (
     ExecutionLease,
     ExecutionLeaseLostError,
     require_active_lease,
+)
+from executor_service.infrastructure.result_storage import (
+    FilesystemExecutionResultStore,
 )
 from executor_service.infrastructure.runtime_admission import (
     admission_used_count,
@@ -85,7 +95,6 @@ from executor_service.infrastructure.workspace import (
     ExecutionWorkspace,
     WorkspaceManager,
 )
-from executor_service.result_summaries import summarize_outputs
 from executor_service.tracing import (
     TracingManager,
     capture_trace_carrier,
@@ -121,6 +130,28 @@ class RuntimeTimeoutResolution:
     retain_session: bool
 
 
+class StoredRuntimeExecutionError(RuntimeExecutionError):
+    def __init__(
+        self,
+        message: str,
+        outputs: list[dict[str, Any]],
+        stored_result: StepResultDescriptor,
+    ) -> None:
+        super().__init__(message, outputs)
+        self.stored_result = stored_result
+
+
+class StoredRuntimeExecutionTimeoutError(RuntimeExecutionTimeoutError):
+    def __init__(
+        self,
+        scope: str,
+        timeout_seconds: float,
+        stored_result: StepResultDescriptor,
+    ) -> None:
+        super().__init__(scope, timeout_seconds)
+        self.stored_result = stored_result
+
+
 class ExecutionWorker:
     def __init__(
         self,
@@ -129,6 +160,7 @@ class ExecutionWorker:
         settings: Settings,
         registry: RuntimeTargetRegistry,
         artifact_manager: ExecutionArtifactManager,
+        result_store: ExecutionResultStore | None = None,
         driver_factory: RuntimeDriverFactory | None = None,
         tracing: TracingManager | None = None,
     ) -> None:
@@ -140,6 +172,9 @@ class ExecutionWorker:
             driver_factory or ConfiguredRuntimeDriverFactory(settings)
         )
         self._artifacts = artifact_manager
+        self._result_store = result_store or FilesystemExecutionResultStore(
+            settings.shared_storage_root
+        )
         self._tracing = tracing or TracingManager(settings)
         self._workspace = WorkspaceManager()
         self._consumer_name = settings.execution_consumer_name or (
@@ -647,7 +682,19 @@ class ExecutionWorker:
                     execution_id=execution.id,
                     target_id=target.id,
                 )
-                cells = self._workspace.load_cells(execution)
+                steps_by_sequence = {
+                    step.sequence: step for step in execution.steps
+                }
+                source_references = {
+                    sequence: self._step_source_reference(step)
+                    for sequence, step in steps_by_sequence.items()
+                }
+                cells = [
+                    await self._result_store.read_source(
+                        source_references[sequence]
+                    )
+                    for sequence in range(len(steps_by_sequence))
+                ]
                 await self._ensure_steps(lease, len(cells))
                 await self._prepare_execution_notebook(
                     driver,
@@ -657,6 +704,7 @@ class ExecutionWorker:
                     workspace,
                     execution.steps,
                     target.id,
+                    source_references,
                 )
                 start_sequence = execution.retry_from_sequence if resume else 0
                 if not resume:
@@ -679,15 +727,6 @@ class ExecutionWorker:
                     workspace.runtime_relative_path,
                     workspace.notebook_path,
                 )
-                all_outputs: list[list[dict[str, object]]] = [
-                    step.outputs
-                    for step in execution.steps
-                    if step.sequence < start_sequence
-                ]
-                execution_counts: list[int | None] = [None] * len(all_outputs)
-                steps_by_sequence = {
-                    step.sequence: step for step in execution.steps
-                }
                 for sequence in range(start_sequence, len(cells)):
                     code = cells[sequence]
                     artifact_snapshot = await self._artifacts.snapshot(
@@ -703,16 +742,10 @@ class ExecutionWorker:
                                 code,
                                 execution.id,
                                 sequence,
-                                output_journal_identity=(
-                                    self._output_journal_identity(
-                                        steps_by_sequence[sequence],
-                                        lease,
-                                        target.id,
-                                        workspace.runtime_relative_path,
-                                        runtime_session_id,
-                                    )
+                                result_identity=self._step_result_identity(
+                                    steps_by_sequence[sequence], lease
                                 ),
-                                output_journal_lease=lease,
+                                source_reference=source_references[sequence],
                             ),
                             execution_id=execution.id,
                             target_id=target.id,
@@ -744,29 +777,22 @@ class ExecutionWorker:
                                 extra={"execution_id": str(execution.id)},
                             )
                         raise
-                    except RuntimeExecutionTimeoutError as exc:
+                    except StoredRuntimeExecutionTimeoutError:
                         failed_sequence = sequence
-                        all_outputs.append(exc.outputs)
-                        execution_counts.append(None)
                         raise
-                    except RuntimeExecutionError as exc:
+                    except StoredRuntimeExecutionError as exc:
                         failed_sequence = sequence
                         await self._step_failed(
                             lease,
                             sequence,
-                            exc.outputs,
+                            exc.stored_result,
                             str(exc),
                         )
-                        all_outputs.append(exc.outputs)
-                        execution_counts.append(None)
                         await self._write_execution_notebook(
                             driver,
                             lease,
                             execution.runtime_profile,
                             workspace,
-                            cells[: sequence + 1],
-                            all_outputs,
-                            execution_counts,
                         )
                         try:
                             await self._artifacts.discover_and_register(
@@ -788,22 +814,16 @@ class ExecutionWorker:
                                 extra={"execution_id": str(execution.id)},
                             )
                         raise
-                    all_outputs.append(result.outputs)
-                    execution_counts.append(result.execution_count)
                     await self._step_succeeded(
                         lease,
                         sequence,
-                        result.outputs,
-                        result.execution_count,
+                        result,
                     )
                     await self._write_execution_notebook(
                         driver,
                         lease,
                         execution.runtime_profile,
                         workspace,
-                        cells[: sequence + 1],
-                        all_outputs,
-                        execution_counts,
                     )
                     try:
                         await self._artifacts.discover_and_register(
@@ -821,7 +841,7 @@ class ExecutionWorker:
                             artifact_exc,
                         )
                         raise
-                await self._artifacts.register_notebook(
+                await self._register_notebook_if_projected(
                     driver=driver,
                     workspace=workspace,
                     lease=lease,
@@ -868,7 +888,7 @@ class ExecutionWorker:
                     runtime_session_cleanup_status=cleanup_status,
                 )
                 raise
-            except RuntimeExecutionTimeoutError as exc:
+            except StoredRuntimeExecutionTimeoutError as exc:
                 if runtime_session_id is None or failed_sequence is None:
                     raise RuntimeError(
                         "Runtime timeout has no active session or Step."
@@ -887,7 +907,7 @@ class ExecutionWorker:
                 await self._step_failed(
                     lease,
                     failed_sequence,
-                    exc.outputs,
+                    exc.stored_result,
                     str(exc),
                 )
                 await self._write_execution_notebook(
@@ -895,9 +915,6 @@ class ExecutionWorker:
                     lease,
                     execution.runtime_profile,
                     workspace,
-                    cells[: failed_sequence + 1],
-                    all_outputs,
-                    execution_counts,
                 )
                 try:
                     await self._artifacts.discover_and_register(
@@ -1496,7 +1513,7 @@ class ExecutionWorker:
                 last_sequence = max(
                     (step.sequence for step in execution.steps), default=0
                 )
-                await self._artifacts.register_notebook(
+                await self._register_notebook_if_projected(
                     driver=driver,
                     workspace=workspace,
                     lease=lease,
@@ -1529,6 +1546,10 @@ class ExecutionWorker:
             ]
             if not pending_steps:
                 raise ValueError("Queued MULTI Operation has no pending Step.")
+            source_references = {
+                step.sequence: self._step_source_reference(step)
+                for step in pending_steps
+            }
             await self._prepare_execution_notebook(
                 driver,
                 lease,
@@ -1537,12 +1558,11 @@ class ExecutionWorker:
                 workspace,
                 pending_steps,
                 target.id,
+                source_references,
             )
             for pending in pending_steps:
-                if not pending.code:
-                    raise ValueError(
-                        "Queued MULTI Operation contains a blank Step payload."
-                    )
+                source_reference = source_references[pending.sequence]
+                code = await self._result_store.read_source(source_reference)
                 artifact_snapshot = await self._artifacts.snapshot(
                     driver, workspace
                 )
@@ -1553,19 +1573,13 @@ class ExecutionWorker:
                         self._execute_runtime_step(
                             driver,
                             runtime_session_id,
-                            pending.code,
+                            code,
                             execution.id,
                             pending.sequence,
-                            output_journal_identity=(
-                                self._output_journal_identity(
-                                    pending,
-                                    lease,
-                                    target.id,
-                                    workspace.runtime_relative_path,
-                                    runtime_session_id,
-                                )
+                            result_identity=self._step_result_identity(
+                                pending, lease
                             ),
-                            output_journal_lease=lease,
+                            source_reference=source_reference,
                         ),
                         execution_id=execution.id,
                         target_id=target.id,
@@ -1590,7 +1604,7 @@ class ExecutionWorker:
                             allow_cancel_requested=True,
                         )
                     raise
-                except RuntimeExecutionTimeoutError as exc:
+                except StoredRuntimeExecutionTimeoutError as exc:
                     failure_type = (
                         FailureType.STEP_TIMEOUT
                         if exc.scope == "Step"
@@ -1605,7 +1619,7 @@ class ExecutionWorker:
                     await self._step_failed(
                         lease,
                         pending.sequence,
-                        exc.outputs,
+                        exc.stored_result,
                         str(exc),
                     )
                     await self._skip_operation_steps_after(
@@ -1652,11 +1666,11 @@ class ExecutionWorker:
                             ),
                         )
                     return
-                except RuntimeExecutionError as exc:
+                except StoredRuntimeExecutionError as exc:
                     await self._step_failed(
                         lease,
                         pending.sequence,
-                        exc.outputs,
+                        exc.stored_result,
                         str(exc),
                     )
                     await self._skip_operation_steps_after(
@@ -1694,11 +1708,13 @@ class ExecutionWorker:
                 await self._step_succeeded(
                     lease,
                     pending.sequence,
-                    result.outputs,
-                    result.execution_count,
+                    result,
                 )
                 await self._write_multi_notebook(
-                    driver, lease, execution.runtime_profile, workspace
+                    driver,
+                    lease,
+                    execution.runtime_profile,
+                    workspace,
                 )
                 try:
                     await self._artifacts.discover_and_register(
@@ -1790,36 +1806,12 @@ class ExecutionWorker:
         lease: ExecutionLease,
         runtime_profile: str,
         workspace: ExecutionWorkspace,
-    ) -> None:
-        async with self._session_factory() as session, session.begin():
-            await require_active_lease(session, lease)
-            steps = list(
-                await session.scalars(
-                    select(ExecutionStepORM)
-                    .where(ExecutionStepORM.execution_id == lease.execution_id)
-                    .order_by(ExecutionStepORM.sequence)
-                )
-            )
-        executed_steps = [
-            step
-            for step in steps
-            if step.status in {StepStatus.SUCCEEDED, StepStatus.FAILED}
-        ]
-        cells = [step.code or "" for step in executed_steps]
-        outputs = [step.outputs for step in executed_steps]
-        # Compatibility output counts follow the executed-cell order. The
-        # notebook-first Runtime path retains prepared but unexecuted cells.
-        execution_counts: list[int | None] = list(
-            range(1, len(executed_steps) + 1)
-        )
-        await self._write_execution_notebook(
+    ) -> bool:
+        return await self._write_execution_notebook(
             driver,
             lease,
             runtime_profile,
             workspace,
-            cells,
-            outputs,
-            execution_counts,
         )
 
     async def _prepare_execution_notebook(
@@ -1831,6 +1823,7 @@ class ExecutionWorker:
         workspace: ExecutionWorkspace,
         steps: list[ExecutionStep],
         runtime_target_id: UUID,
+        source_references: dict[int, ExecutionSourceReference],
     ) -> None:
         if not isinstance(driver, RuntimeNotebookPreparer):
             return
@@ -1843,7 +1836,9 @@ class ExecutionWorker:
                     sequence=step.sequence,
                     operation_id=step.operation_id,
                     step_id=step.id,
-                    source=step.code,
+                    source=await self._result_store.read_source(
+                        source_references[step.sequence]
+                    ),
                 )
             )
         cells = tuple(source_cells)
@@ -1872,117 +1867,146 @@ class ExecutionWorker:
         lease: ExecutionLease,
         runtime_profile: str,
         workspace: ExecutionWorkspace,
-        fallback_cells: list[str],
-        fallback_outputs: list[list[dict[str, object]]],
-        fallback_execution_counts: list[int | None],
-    ) -> None:
+    ) -> bool:
         await self._assert_active_lease(lease)
-        if isinstance(driver, RuntimeNotebookMaterializer):
-            journal_cells = await self._journal_notebook_cells(lease)
-            if len(journal_cells) == len(fallback_cells):
-                result = await driver.materialize_notebook(
-                    workspace.runtime_relative_path,
-                    runtime_profile,
-                    journal_cells,
-                )
-                if result.notebook_path != workspace.notebook_path:
-                    raise RuntimeDriverError(
-                        "Runtime materialized an unexpected notebook path."
-                    )
-                return
-            logger.warning(
-                "Runtime Output Journal coverage is incomplete; using "
-                "compatibility notebook materialization",
-                extra={"execution_id": str(lease.execution_id)},
-            )
-        await driver.write_notebook(
-            workspace.notebook_path,
-            self._workspace.notebook_document(
-                workspace,
-                runtime_profile,
-                fallback_cells,
-                fallback_outputs,
-                fallback_execution_counts,
-            ),
-        )
-
-    async def _journal_notebook_cells(
-        self, lease: ExecutionLease
-    ) -> tuple[RuntimeNotebookCell, ...]:
         async with self._session_factory() as session, session.begin():
-            await require_active_lease(session, lease)
+            execution, _attempt = await require_active_lease(session, lease)
+            execution.notebook_projection_status = "PENDING"
+            execution.notebook_projection_error = None
+            execution.updated_at = utc_now()
             steps = list(
                 await session.scalars(
                     select(ExecutionStepORM)
-                    .where(
-                        ExecutionStepORM.execution_id == lease.execution_id,
-                        ExecutionStepORM.status.in_(
-                            (StepStatus.SUCCEEDED, StepStatus.FAILED)
-                        ),
-                    )
+                    .where(ExecutionStepORM.execution_id == lease.execution_id)
                     .order_by(ExecutionStepORM.sequence)
                 )
             )
-            journals = list(
-                await session.scalars(
-                    select(ExecutionOutputJournalORM)
-                    .where(
-                        ExecutionOutputJournalORM.execution_id
-                        == lease.execution_id,
-                        ExecutionOutputJournalORM.state.in_(
-                            ("FINALIZED", "ABORTED")
+        cells: list[str] = []
+        outputs: list[list[dict[str, object]]] = []
+        execution_counts: list[int | None] = []
+        for step in steps:
+            cells.append(
+                await self._result_store.read_source(
+                    ExecutionSourceReference(
+                        relative_path=step.source_snapshot_path,
+                        checksum_sha256=step.source_sha256,
+                        size_bytes=step.source_size_bytes,
+                    )
+                )
+            )
+            if (
+                step.result_manifest_path is not None
+                and step.result_manifest_checksum_sha256 is not None
+                and step.result_execution_attempt_id is not None
+                and step.result_fencing_token is not None
+            ):
+                projection = await self._result_store.read_step_projection(
+                    StepResultReference(
+                        relative_path=step.result_manifest_path,
+                        checksum_sha256=(step.result_manifest_checksum_sha256),
+                        execution_attempt_id=(
+                            step.result_execution_attempt_id
                         ),
-                    )
-                    .order_by(
-                        ExecutionOutputJournalORM.fencing_token.desc(),
-                        ExecutionOutputJournalORM.created_at.desc(),
+                        fencing_token=step.result_fencing_token,
                     )
                 )
-            )
-            journals_by_step: dict[UUID, ExecutionOutputJournalORM] = {}
-            for journal in journals:
-                journals_by_step.setdefault(journal.execution_step_id, journal)
-            selected = [
-                journals_by_step[step.id]
-                for step in steps
-                if step.id in journals_by_step
-            ]
-            execution_counts = {
-                journal_id: execution_count
-                for journal_id, execution_count in await session.execute(
-                    select(
-                        ExecutionOutputORM.journal_id,
-                        func.max(ExecutionOutputORM.execution_count),
-                    )
-                    .where(
-                        ExecutionOutputORM.journal_id.in_(
-                            [journal.id for journal in selected]
-                        )
-                    )
-                    .group_by(ExecutionOutputORM.journal_id)
-                )
-            }
-        if len(selected) != len(steps):
-            return ()
-        return tuple(
-            RuntimeNotebookCell(
-                sequence=step.sequence,
-                execution_count=execution_counts.get(journal.id),
-                journal_id=journal.id,
-                journal=RuntimeOutputJournalIdentity(
-                    workspace_path=journal.workspace_path,
-                    execution_id=journal.execution_id,
-                    operation_id=journal.operation_id,
-                    step_id=journal.execution_step_id,
-                    sequence=journal.sequence,
-                    execution_attempt_id=journal.execution_attempt_id,
-                    fencing_token=journal.fencing_token,
-                    runtime_target_id=journal.runtime_target_id,
-                    runtime_session_id=journal.runtime_session_id,
-                ),
-            )
-            for step, journal in zip(steps, selected, strict=True)
+                outputs.append(projection.outputs)
+                execution_counts.append(projection.execution_count)
+            else:
+                outputs.append([])
+                execution_counts.append(None)
+        notebook = self._workspace.notebook_document(
+            workspace,
+            runtime_profile,
+            cells,
+            outputs,
+            execution_counts,
         )
+        last_error: Exception | None = None
+        for attempt in range(1, 4):
+            try:
+                await self._assert_active_lease(lease)
+                await driver.write_notebook(workspace.notebook_path, notebook)
+            except ExecutionLeaseLostError:
+                raise
+            except Exception as exc:
+                last_error = exc
+                if attempt < 3:
+                    await asyncio.sleep(0.1 * (2 ** (attempt - 1)))
+                    continue
+            else:
+                await self._record_notebook_projection(
+                    lease,
+                    status="SUCCEEDED",
+                    attempt_count=attempt,
+                )
+                return True
+            break
+        await self._record_notebook_projection(
+            lease,
+            status="FAILED",
+            attempt_count=3,
+            error_message=(
+                _safe_error(last_error)
+                if last_error is not None
+                else "Notebook projection failed."
+            ),
+        )
+        logger.warning(
+            "Notebook projection failed after bounded retries",
+            extra={"execution_id": str(lease.execution_id)},
+        )
+        return False
+
+    async def _record_notebook_projection(
+        self,
+        lease: ExecutionLease,
+        *,
+        status: NotebookProjectionStatus,
+        attempt_count: int,
+        error_message: str | None = None,
+    ) -> None:
+        async with self._session_factory() as session, session.begin():
+            execution, _attempt = await require_active_lease(session, lease)
+            execution.notebook_projection_status = status
+            execution.notebook_projection_attempt_count += attempt_count
+            execution.notebook_projection_error = error_message
+            execution.notebook_projected_at = (
+                utc_now() if status == "SUCCEEDED" else None
+            )
+            execution.updated_at = utc_now()
+
+    async def _register_notebook_if_projected(
+        self,
+        *,
+        driver: RuntimeDriver,
+        workspace: ExecutionWorkspace,
+        lease: ExecutionLease,
+        sequence: int,
+    ) -> None:
+        async with self._session_factory() as session:
+            projection_status = await session.scalar(
+                select(ExecutionORM.notebook_projection_status).where(
+                    ExecutionORM.id == lease.execution_id
+                )
+            )
+        if projection_status != "SUCCEEDED":
+            return
+        try:
+            await self._artifacts.register_notebook(
+                driver=driver,
+                workspace=workspace,
+                lease=lease,
+                sequence=sequence,
+            )
+        except ExecutionLeaseLostError:
+            raise
+        except Exception:
+            logger.warning(
+                "Projected notebook Artifact registration failed",
+                exc_info=True,
+                extra={"execution_id": str(lease.execution_id)},
+            )
 
     async def _complete_multi_operation(
         self,
@@ -2144,6 +2168,13 @@ class ExecutionWorker:
             if step is None:
                 raise ValueError(f"Execution Step {sequence} was not found.")
             step.status = StepStatus.RUNNING
+            step.output_summary = empty_output_summary()
+            step.result_execution_attempt_id = None
+            step.result_manifest_path = None
+            step.result_manifest_checksum_sha256 = None
+            step.result_fencing_token = None
+            step.result_representation_count = 0
+            step.result_total_size_bytes = 0
             step.started_at = now
             step.updated_at = now
             history = await session.scalar(
@@ -2164,7 +2195,7 @@ class ExecutionWorker:
                         tool_name=step.tool_name,
                         input_parameters=step.input_parameters,
                         status=StepStatus.RUNNING,
-                        outputs=[],
+                        output_summary=empty_output_summary(),
                         created_by_type=step.updated_by_type
                         or step.created_by_type,
                         created_by=step.updated_by or step.created_by,
@@ -2179,7 +2210,12 @@ class ExecutionWorker:
                 history.started_at = now
                 history.finished_at = None
                 history.error_message = None
-                history.outputs = []
+                history.output_summary = empty_output_summary()
+                history.result_manifest_path = None
+                history.result_manifest_checksum_sha256 = None
+                history.result_fencing_token = None
+                history.result_representation_count = 0
+                history.result_total_size_bytes = 0
             if step.operation_id is None:
                 raise ValueError(
                     f"Execution Step {sequence} has no Operation."
@@ -2202,8 +2238,7 @@ class ExecutionWorker:
         self,
         lease: ExecutionLease,
         sequence: int,
-        outputs: list[dict[str, Any]],
-        execution_count: int | None,
+        stored_result: StepResultDescriptor,
     ) -> None:
         now = utc_now()
         async with self._session_factory() as session, session.begin():
@@ -2218,8 +2253,11 @@ class ExecutionWorker:
                 raise ValueError(
                     f"Execution Step {sequence} or its Operation was not found."
                 )
+            output_summary = stored_result.output_summary
             step.status = StepStatus.SUCCEEDED
-            step.outputs = outputs
+            step.output_summary = output_summary
+            step.result_execution_attempt_id = lease.attempt_id
+            self._assign_step_result(step, stored_result)
             step.finished_at = now
             step.updated_at = now
             await session.execute(
@@ -2231,7 +2269,20 @@ class ExecutionWorker:
                 )
                 .values(
                     status=StepStatus.SUCCEEDED,
-                    outputs=outputs,
+                    output_summary=output_summary,
+                    result_manifest_path=(
+                        stored_result.reference.relative_path
+                    ),
+                    result_manifest_checksum_sha256=(
+                        stored_result.reference.checksum_sha256
+                    ),
+                    result_fencing_token=(
+                        stored_result.reference.fencing_token
+                    ),
+                    result_representation_count=(
+                        stored_result.representation_count
+                    ),
+                    result_total_size_bytes=(stored_result.total_size_bytes),
                     finished_at=now,
                 )
             )
@@ -2251,11 +2302,20 @@ class ExecutionWorker:
                         "scope": "STEP",
                         "operation_id": str(step.operation_id),
                         "step_id": str(step.id),
+                        "storage": "SHARED_PV",
+                        "relative_path": (
+                            stored_result.reference.relative_path
+                        ),
+                        "checksum_sha256": (
+                            stored_result.reference.checksum_sha256
+                        ),
+                        "execution_attempt_id": str(lease.attempt_id),
+                        "fencing_token": (
+                            stored_result.reference.fencing_token
+                        ),
                     },
-                    "output_summary": summarize_outputs(outputs).model_dump(
-                        mode="json"
-                    ),
-                    "execution_count": execution_count,
+                    "output_summary": output_summary,
+                    "execution_count": stored_result.execution_count,
                 },
             )
 
@@ -2263,7 +2323,7 @@ class ExecutionWorker:
         self,
         lease: ExecutionLease,
         sequence: int,
-        outputs: list[dict[str, Any]],
+        stored_result: StepResultDescriptor,
         error_message: str,
     ) -> None:
         now = utc_now()
@@ -2280,8 +2340,11 @@ class ExecutionWorker:
                     f"Execution Step {sequence} or its Operation was not found."
                 )
             safe_error = error_message[:2000]
+            output_summary = stored_result.output_summary
             step.status = StepStatus.FAILED
-            step.outputs = outputs
+            step.output_summary = output_summary
+            step.result_execution_attempt_id = lease.attempt_id
+            self._assign_step_result(step, stored_result)
             step.error_message = safe_error
             step.finished_at = now
             step.updated_at = now
@@ -2294,7 +2357,20 @@ class ExecutionWorker:
                 )
                 .values(
                     status=StepStatus.FAILED,
-                    outputs=outputs,
+                    output_summary=output_summary,
+                    result_manifest_path=(
+                        stored_result.reference.relative_path
+                    ),
+                    result_manifest_checksum_sha256=(
+                        stored_result.reference.checksum_sha256
+                    ),
+                    result_fencing_token=(
+                        stored_result.reference.fencing_token
+                    ),
+                    result_representation_count=(
+                        stored_result.representation_count
+                    ),
+                    result_total_size_bytes=(stored_result.total_size_bytes),
                     error_message=safe_error,
                     finished_at=now,
                 )
@@ -2315,13 +2391,35 @@ class ExecutionWorker:
                         "scope": "STEP",
                         "operation_id": str(step.operation_id),
                         "step_id": str(step.id),
+                        "storage": "SHARED_PV",
+                        "relative_path": (
+                            stored_result.reference.relative_path
+                        ),
+                        "checksum_sha256": (
+                            stored_result.reference.checksum_sha256
+                        ),
+                        "execution_attempt_id": str(lease.attempt_id),
+                        "fencing_token": (
+                            stored_result.reference.fencing_token
+                        ),
                     },
-                    "output_summary": summarize_outputs(outputs).model_dump(
-                        mode="json"
-                    ),
+                    "output_summary": output_summary,
                     "error_message": safe_error,
                 },
             )
+
+    @staticmethod
+    def _assign_step_result(
+        step: ExecutionStepORM,
+        stored_result: StepResultDescriptor,
+    ) -> None:
+        step.result_manifest_path = stored_result.reference.relative_path
+        step.result_manifest_checksum_sha256 = (
+            stored_result.reference.checksum_sha256
+        )
+        step.result_fencing_token = stored_result.reference.fencing_token
+        step.result_representation_count = stored_result.representation_count
+        step.result_total_size_bytes = stored_result.total_size_bytes
 
     async def _execute_runtime_step(
         self,
@@ -2331,8 +2429,8 @@ class ExecutionWorker:
         execution_id: UUID,
         sequence: int,
         *,
-        output_journal_identity: RuntimeOutputJournalIdentity | None = None,
-        output_journal_lease: ExecutionLease | None = None,
+        result_identity: StepResultIdentity,
+        source_reference: ExecutionSourceReference,
     ) -> Any:
         async with self._session_factory() as session:
             row = (
@@ -2367,12 +2465,12 @@ class ExecutionWorker:
                     "Operation", float(row.operation_timeout_seconds)
                 )
             timeouts.append((remaining, "Operation"))
-        execution_call = self._execute_with_output_journal(
+        execution_call = self._execute_with_result_store(
             driver,
             runtime_session_id,
             code,
-            output_journal_identity,
-            output_journal_lease,
+            result_identity,
+            source_reference,
         )
         if not timeouts:
             return await execution_call
@@ -2381,469 +2479,128 @@ class ExecutionWorker:
             async with asyncio.timeout(timeout_seconds):
                 return await execution_call
         except TimeoutError as exc:
-            raise RuntimeExecutionTimeoutError(scope, timeout_seconds) from exc
+            stored = await self._result_store.abort_step_result(
+                result_identity,
+                reason=(
+                    f"{scope} timeout expired after "
+                    f"{timeout_seconds:.3f} seconds."
+                ),
+            )
+            raise StoredRuntimeExecutionTimeoutError(
+                scope, timeout_seconds, stored
+            ) from exc
 
-    async def _execute_with_output_journal(
+    async def _execute_with_result_store(
         self,
         driver: RuntimeDriver,
         runtime_session_id: str,
         code: str,
-        identity: RuntimeOutputJournalIdentity | None,
-        lease: ExecutionLease | None = None,
-    ) -> Any:
-        if (
-            identity is None
-            or not isinstance(driver, RuntimeOutputJournal)
-            or not isinstance(driver, RuntimeStreamingExecutor)
-        ):
-            return await driver.execute(runtime_session_id, code)
-
-        descriptor = await driver.output_journal_begin(identity, code)
-        if (
-            descriptor.state != "OPEN"
-            or descriptor.committed_offset != 0
-            or descriptor.output_count != 0
-            or descriptor.representation_count != 0
-            or descriptor.total_bytes != 0
-        ):
-            raise RuntimeDriverError(
-                "Runtime Output Journal did not begin from an empty OPEN state."
-            )
-        if lease is not None:
-            try:
-                await self._record_output_journal_started(
-                    lease, identity, descriptor
-                )
-            except Exception:
-                await self._abort_output_journal(
-                    driver,
-                    identity,
-                    descriptor.journal_id,
-                    "PostgreSQL output projection could not be initialized.",
-                )
-                raise
-        committed_offset = descriptor.committed_offset
+        identity: StepResultIdentity,
+        source_reference: ExecutionSourceReference,
+    ) -> StepResultDescriptor:
+        await self._result_store.begin_step_result(identity, source_reference)
+        committed_offset = 0
 
         async def append_output(record: RuntimeOutputRecord) -> None:
             nonlocal committed_offset
-            result = await driver.output_journal_append(
+            result = await self._result_store.append_step_outputs(
                 identity,
-                journal_id=descriptor.journal_id,
                 expected_offset=committed_offset,
                 batch_id=uuid4(),
                 records=(record,),
             )
             expected_committed_offset = committed_offset + 1
-            if (
-                result.journal_id != descriptor.journal_id
-                or result.state != "OPEN"
-                or result.committed_offset != expected_committed_offset
-            ):
+            if result.committed_offset != expected_committed_offset:
                 raise RuntimeDriverError(
-                    "Runtime Output Journal append acknowledgement is invalid."
+                    "Shared result append acknowledgement is invalid."
                 )
-            if lease is not None:
-                await self._record_output_append(lease, identity, result)
             committed_offset = result.committed_offset
 
+        streaming = isinstance(driver, RuntimeStreamingExecutor)
         try:
-            execution_result = await driver.execute_streaming(
-                runtime_session_id,
-                code,
-                append_output,
-            )
-        except RuntimeExecutionError:
-            await self._finalize_output_journal(
-                driver,
+            if streaming:
+                execution_result = await driver.execute_streaming(
+                    runtime_session_id,
+                    code,
+                    append_output,
+                )
+            else:
+                execution_result = await driver.execute(
+                    runtime_session_id, code
+                )
+                for output in execution_result.outputs:
+                    await append_output(_output_record(output))
+        except RuntimeExecutionError as exc:
+            if not streaming:
+                for output in exc.outputs:
+                    await append_output(_output_record(output))
+            stored = await self._result_store.finalize_step_result(
                 identity,
-                descriptor.journal_id,
-                committed_offset,
-                lease,
+                execution_count=None,
+                error_message=str(exc),
             )
-            raise
+            raise StoredRuntimeExecutionError(
+                str(exc), exc.outputs, stored
+            ) from exc
         except asyncio.CancelledError:
-            await self._abort_output_journal(
-                driver,
+            await self._result_store.abort_step_result(
                 identity,
-                descriptor.journal_id,
-                "Runtime execution was cancelled before output delivery completed.",
-                lease,
+                reason=(
+                    "Runtime execution was cancelled before output delivery "
+                    "completed."
+                ),
             )
             raise
         except Exception as exc:
-            await self._abort_output_journal(
-                driver,
+            await self._result_store.abort_step_result(
                 identity,
-                descriptor.journal_id,
-                f"{type(exc).__name__}: output delivery did not complete.",
-                lease,
+                reason=(
+                    f"{type(exc).__name__}: output delivery did not complete."
+                ),
             )
             raise
-        await self._finalize_output_journal(
-            driver,
+        stored = await self._result_store.finalize_step_result(
             identity,
-            descriptor.journal_id,
-            committed_offset,
-            lease,
+            execution_count=execution_result.execution_count,
         )
-        return execution_result
+        return stored
 
     @staticmethod
-    def _output_journal_identity(
+    def _step_result_identity(
         step: ExecutionStep,
         lease: ExecutionLease,
-        runtime_target_id: UUID,
-        workspace_path: str,
-        runtime_session_id: str,
-    ) -> RuntimeOutputJournalIdentity:
+    ) -> StepResultIdentity:
         if step.operation_id is None:
             raise ValueError(
                 f"Execution Step {step.sequence} has no Operation."
             )
-        return RuntimeOutputJournalIdentity(
-            workspace_path=workspace_path,
+        return StepResultIdentity(
             execution_id=lease.execution_id,
             operation_id=step.operation_id,
             step_id=step.id,
             sequence=step.sequence,
             execution_attempt_id=lease.attempt_id,
             fencing_token=lease.fencing_token,
-            runtime_target_id=runtime_target_id,
-            runtime_session_id=runtime_session_id,
         )
-
-    async def _finalize_output_journal(
-        self,
-        driver: RuntimeOutputJournal,
-        identity: RuntimeOutputJournalIdentity,
-        journal_id: UUID,
-        committed_offset: int,
-        lease: ExecutionLease | None = None,
-    ) -> None:
-        finalized = await driver.output_journal_finalize(
-            identity, journal_id=journal_id
-        )
-        if (
-            finalized.journal_id != journal_id
-            or finalized.state != "FINALIZED"
-            or finalized.committed_offset != committed_offset
-        ):
-            raise RuntimeDriverError(
-                "Runtime Output Journal finalization acknowledgement is invalid."
-            )
-        if lease is not None:
-            await self._record_output_journal_terminal(
-                lease, finalized, abort_reason=None
-            )
-
-    async def _abort_output_journal(
-        self,
-        driver: RuntimeOutputJournal,
-        identity: RuntimeOutputJournalIdentity,
-        journal_id: UUID,
-        reason: str,
-        lease: ExecutionLease | None = None,
-    ) -> None:
-        try:
-            aborted = await driver.output_journal_abort(
-                identity,
-                journal_id=journal_id,
-                reason=reason[:2000],
-            )
-            if aborted.journal_id != journal_id or aborted.state != "ABORTED":
-                raise RuntimeDriverError(
-                    "Runtime Output Journal abort acknowledgement is invalid."
-                )
-            if lease is not None:
-                await self._record_output_journal_terminal(
-                    lease, aborted, abort_reason=reason[:2000]
-                )
-        except Exception:
-            logger.warning(
-                "Runtime Output Journal abort failed",
-                exc_info=True,
-                extra={"execution_id": str(identity.execution_id)},
-            )
-
-    async def _record_output_journal_started(
-        self,
-        lease: ExecutionLease,
-        identity: RuntimeOutputJournalIdentity,
-        descriptor: RuntimeOutputJournalDescriptor,
-    ) -> None:
-        async with self._session_factory() as session, session.begin():
-            await require_active_lease(session, lease)
-            step = await session.get(ExecutionStepORM, identity.step_id)
-            history = await session.scalar(
-                select(ExecutionStepAttemptORM).where(
-                    ExecutionStepAttemptORM.execution_attempt_id
-                    == identity.execution_attempt_id,
-                    ExecutionStepAttemptORM.execution_step_id
-                    == identity.step_id,
-                )
-            )
-            if step is None or history is None:
-                raise RuntimeDriverError(
-                    "Runtime Output Journal has no active Step history."
-                )
-            existing = await session.get(
-                ExecutionOutputJournalORM, descriptor.journal_id
-            )
-            if existing is not None:
-                self._require_output_journal_identity(existing, identity)
-                if (
-                    existing.state != descriptor.state
-                    or existing.committed_offset != descriptor.committed_offset
-                    or existing.output_count != descriptor.output_count
-                    or existing.representation_count
-                    != descriptor.representation_count
-                    or existing.total_bytes != descriptor.total_bytes
-                ):
-                    raise RuntimeDriverError(
-                        "Runtime Output Journal projection state conflicts."
-                    )
-                return
-            actor_type = step.updated_by_type or step.created_by_type
-            actor_id = step.updated_by or step.created_by
-            now = utc_now()
-            session.add(
-                ExecutionOutputJournalORM(
-                    id=descriptor.journal_id,
-                    execution_id=identity.execution_id,
-                    operation_id=identity.operation_id,
-                    execution_step_id=identity.step_id,
-                    execution_attempt_id=identity.execution_attempt_id,
-                    execution_step_attempt_id=history.id,
-                    runtime_target_id=identity.runtime_target_id,
-                    runtime_session_id=identity.runtime_session_id,
-                    workspace_path=identity.workspace_path,
-                    sequence=identity.sequence,
-                    fencing_token=identity.fencing_token,
-                    state=descriptor.state,
-                    committed_offset=descriptor.committed_offset,
-                    output_count=descriptor.output_count,
-                    representation_count=descriptor.representation_count,
-                    total_bytes=descriptor.total_bytes,
-                    checksum_sha256=descriptor.checksum_sha256,
-                    created_by_type=actor_type,
-                    created_by=actor_id,
-                    updated_by_type=actor_type,
-                    updated_by=actor_id,
-                    created_at=now,
-                    updated_at=now,
-                )
-            )
-
-    async def _record_output_append(
-        self,
-        lease: ExecutionLease,
-        identity: RuntimeOutputJournalIdentity,
-        result: RuntimeOutputAppendResult,
-    ) -> None:
-        async with self._session_factory() as session, session.begin():
-            await require_active_lease(session, lease)
-            journal = await session.scalar(
-                select(ExecutionOutputJournalORM)
-                .where(ExecutionOutputJournalORM.id == result.journal_id)
-                .with_for_update()
-            )
-            if journal is None:
-                raise RuntimeDriverError(
-                    "Runtime Output Journal projection was not initialized."
-                )
-            self._require_output_journal_identity(journal, identity)
-            if journal.state != "OPEN":
-                raise RuntimeDriverError(
-                    "A terminal Runtime Output Journal cannot accept metadata."
-                )
-            if result.output_count != len(result.outputs):
-                raise RuntimeDriverError(
-                    "Runtime Output Journal batch count is inconsistent."
-                )
-            previous_offset = result.committed_offset - len(result.outputs)
-            if [output.ordinal for output in result.outputs] != list(
-                range(previous_offset, result.committed_offset)
-            ):
-                raise RuntimeDriverError(
-                    "Runtime Output Journal ordinals are not contiguous."
-                )
-            representation_count = sum(
-                len(output.representations) for output in result.outputs
-            )
-            total_bytes = sum(
-                representation.size_bytes
-                for output in result.outputs
-                for representation in output.representations
-            )
-            if (
-                representation_count != result.representation_count
-                or total_bytes != result.total_bytes
-            ):
-                raise RuntimeDriverError(
-                    "Runtime Output Journal representation totals are "
-                    "inconsistent."
-                )
-            if journal.committed_offset == result.committed_offset:
-                existing_ids = set(
-                    await session.scalars(
-                        select(ExecutionOutputORM.id).where(
-                            ExecutionOutputORM.id.in_(
-                                output.output_id for output in result.outputs
-                            )
-                        )
-                    )
-                )
-                if existing_ids == {
-                    output.output_id for output in result.outputs
-                }:
-                    return
-            if journal.committed_offset != previous_offset:
-                raise RuntimeDriverError(
-                    "Runtime Output Journal projection offset is inconsistent."
-                )
-            actor_type = journal.updated_by_type or journal.created_by_type
-            actor_id = journal.updated_by or journal.created_by
-            for output in result.outputs:
-                session.add(
-                    ExecutionOutputORM(
-                        id=output.output_id,
-                        journal_id=result.journal_id,
-                        batch_id=result.batch_id,
-                        execution_id=identity.execution_id,
-                        operation_id=identity.operation_id,
-                        execution_step_id=identity.step_id,
-                        execution_attempt_id=identity.execution_attempt_id,
-                        sequence=identity.sequence,
-                        ordinal=output.ordinal,
-                        kind=output.kind,
-                        stream_name=output.stream_name,
-                        execution_count=output.execution_count,
-                        output_metadata=output.metadata,
-                        created_by_type=actor_type,
-                        created_by=actor_id,
-                        updated_by_type=actor_type,
-                        updated_by=actor_id,
-                        created_at=output.created_at,
-                        updated_at=output.created_at,
-                    )
-                )
-                session.add_all(
-                    [
-                        ExecutionOutputRepresentationORM(
-                            id=representation.representation_id,
-                            output_id=output.output_id,
-                            media_type=representation.media_type,
-                            size_bytes=representation.size_bytes,
-                            checksum_sha256=(representation.checksum_sha256),
-                            complete=representation.complete,
-                            content_ref=representation.content_ref,
-                            representation_metadata=representation.metadata,
-                            created_by_type=actor_type,
-                            created_by=actor_id,
-                            updated_by_type=actor_type,
-                            updated_by=actor_id,
-                            created_at=output.created_at,
-                            updated_at=output.created_at,
-                        )
-                        for representation in output.representations
-                    ]
-                )
-            journal.committed_offset = result.committed_offset
-            journal.output_count = result.committed_offset
-            journal.representation_count += result.representation_count
-            journal.total_bytes += result.total_bytes
-            journal.updated_at = utc_now()
-
-    async def _record_output_journal_terminal(
-        self,
-        lease: ExecutionLease,
-        descriptor: RuntimeOutputJournalDescriptor,
-        *,
-        abort_reason: str | None,
-    ) -> None:
-        allowed_statuses = (
-            (ExecutionStatus.RUNNING, ExecutionStatus.CANCEL_REQUESTED)
-            if descriptor.state == "ABORTED"
-            else (ExecutionStatus.RUNNING,)
-        )
-        async with self._session_factory() as session, session.begin():
-            await require_active_lease(
-                session, lease, allowed_statuses=allowed_statuses
-            )
-            journal = await session.scalar(
-                select(ExecutionOutputJournalORM)
-                .where(ExecutionOutputJournalORM.id == descriptor.journal_id)
-                .with_for_update()
-            )
-            if journal is None:
-                raise RuntimeDriverError(
-                    "Runtime Output Journal projection was not found."
-                )
-            if journal.state == descriptor.state:
-                if (
-                    journal.committed_offset != descriptor.committed_offset
-                    or journal.output_count != descriptor.output_count
-                    or journal.representation_count
-                    != descriptor.representation_count
-                    or journal.total_bytes != descriptor.total_bytes
-                    or journal.checksum_sha256 != descriptor.checksum_sha256
-                ):
-                    raise RuntimeDriverError(
-                        "Runtime Output Journal terminal replay conflicts."
-                    )
-                return
-            if journal.state != "OPEN":
-                raise RuntimeDriverError(
-                    "Runtime Output Journal terminal state conflicts."
-                )
-            if (
-                journal.committed_offset != descriptor.committed_offset
-                or journal.output_count != descriptor.output_count
-                or journal.representation_count
-                != descriptor.representation_count
-                or journal.total_bytes != descriptor.total_bytes
-            ):
-                raise RuntimeDriverError(
-                    "Runtime Output Journal terminal totals are inconsistent."
-                )
-            now = utc_now()
-            journal.state = descriptor.state
-            journal.checksum_sha256 = descriptor.checksum_sha256
-            journal.abort_reason = abort_reason
-            journal.completed_at = now
-            journal.updated_at = now
 
     @staticmethod
-    def _require_output_journal_identity(
-        journal: ExecutionOutputJournalORM,
-        identity: RuntimeOutputJournalIdentity,
-    ) -> None:
-        actual = (
-            journal.execution_id,
-            journal.operation_id,
-            journal.execution_step_id,
-            journal.sequence,
-            journal.execution_attempt_id,
-            journal.fencing_token,
-            journal.runtime_target_id,
-            journal.runtime_session_id,
-            journal.workspace_path,
-        )
-        expected = (
-            identity.execution_id,
-            identity.operation_id,
-            identity.step_id,
-            identity.sequence,
-            identity.execution_attempt_id,
-            identity.fencing_token,
-            identity.runtime_target_id,
-            identity.runtime_session_id,
-            identity.workspace_path,
-        )
-        if actual != expected:
+    def _step_source_reference(
+        step: ExecutionStep,
+    ) -> ExecutionSourceReference:
+        if (
+            step.source_snapshot_path is None
+            or step.source_size_bytes is None
+            or not step.source_sha256
+        ):
             raise RuntimeDriverError(
-                "Runtime Output Journal projection identity conflicts."
+                f"Execution Step {step.sequence} has no immutable source "
+                "snapshot."
             )
+        return ExecutionSourceReference(
+            relative_path=step.source_snapshot_path,
+            checksum_sha256=step.source_sha256,
+            size_bytes=step.source_size_bytes,
+        )
 
     async def _resolve_runtime_timeout(
         self,
@@ -4361,6 +4118,117 @@ def _valid_uuid_or_empty(value: str | None) -> str:
         return str(UUID(value))
     except ValueError:
         return ""
+
+
+def _output_record(output: dict[str, Any]) -> RuntimeOutputRecord:
+    output_type = str(output.get("output_type", ""))
+    if output_type == "stream":
+        return RuntimeOutputRecord(
+            kind="STREAM",
+            stream_name=str(output.get("name", "stdout")),
+            representations=(
+                RuntimeOutputRepresentation(
+                    media_type="text/plain",
+                    encoding="UTF8",
+                    content=str(output.get("text", "")),
+                ),
+            ),
+        )
+    if output_type in {"display_data", "execute_result"}:
+        data = output.get("data", {})
+        if not isinstance(data, dict):
+            raise RuntimeDriverError("Runtime display output is invalid.")
+        representations = tuple(
+            _output_representation(str(media_type), value)
+            for media_type, value in data.items()
+        )
+        if not representations:
+            representations = (
+                RuntimeOutputRepresentation(
+                    media_type="application/json",
+                    encoding="UTF8",
+                    content="{}",
+                ),
+            )
+        metadata = output.get("metadata", {})
+        if not isinstance(metadata, dict):
+            raise RuntimeDriverError("Runtime output metadata is invalid.")
+        execution_count = output.get("execution_count")
+        return RuntimeOutputRecord(
+            kind=("RESULT" if output_type == "execute_result" else "DISPLAY"),
+            execution_count=(
+                int(execution_count) if execution_count is not None else None
+            ),
+            representations=representations,
+            metadata=metadata,
+        )
+    if output_type == "error":
+        traceback = output.get("traceback", [])
+        if not isinstance(traceback, list):
+            traceback = [str(traceback)]
+        return RuntimeOutputRecord(
+            kind="ERROR",
+            representations=(
+                RuntimeOutputRepresentation(
+                    media_type="text/plain",
+                    encoding="UTF8",
+                    content="\n".join(str(line) for line in traceback),
+                ),
+            ),
+            metadata={
+                "ename": str(output.get("ename", "Error")),
+                "evalue": str(output.get("evalue", "")),
+            },
+        )
+    raise RuntimeDriverError(
+        f"Unsupported Runtime output type: {output_type!r}."
+    )
+
+
+def _output_representation(
+    media_type: str, value: Any
+) -> RuntimeOutputRepresentation:
+    normalized = media_type.lower().strip()
+    if normalized.startswith("image/"):
+        if not isinstance(value, str):
+            raise RuntimeDriverError(
+                "Runtime image output must be base64 text."
+            )
+        try:
+            base64.b64decode(value, validate=True)
+        except ValueError as exc:
+            raise RuntimeDriverError(
+                "Runtime image output is invalid."
+            ) from exc
+        return RuntimeOutputRepresentation(
+            media_type=normalized,
+            encoding="BASE64",
+            content=value,
+        )
+    content = (
+        value
+        if isinstance(value, str)
+        else json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+    )
+    return RuntimeOutputRepresentation(
+        media_type=normalized,
+        encoding="UTF8",
+        content=content,
+    )
+
+
+def _required_text(value: str | None, field: str) -> str:
+    if value is None or not value:
+        raise RuntimeDriverError(f"Execution Step has no immutable {field}.")
+    return value
+
+
+def _required_int(value: int | None, field: str) -> int:
+    if value is None or value < 0:
+        raise RuntimeDriverError(
+            f"Execution Step has no valid immutable {field}."
+        )
+    return value
 
 
 def _failure_policy(

@@ -1,6 +1,6 @@
 """Runtime driver contracts shared by the application and infrastructure layers."""
 
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Protocol, runtime_checkable
@@ -53,77 +53,6 @@ class RuntimeOutputRecord:
 
 
 @dataclass(frozen=True, slots=True)
-class RuntimeOutputJournalIdentity:
-    workspace_path: str
-    execution_id: UUID
-    operation_id: UUID
-    step_id: UUID
-    sequence: int
-    execution_attempt_id: UUID
-    fencing_token: int
-    runtime_target_id: UUID
-    runtime_session_id: str
-
-
-@dataclass(frozen=True, slots=True)
-class RuntimeOutputJournalDescriptor:
-    journal_id: UUID
-    state: str
-    committed_offset: int
-    output_count: int
-    representation_count: int
-    total_bytes: int
-    checksum_sha256: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class RuntimeOutputRepresentationDescriptor:
-    representation_id: UUID
-    media_type: str
-    size_bytes: int
-    checksum_sha256: str
-    complete: bool
-    content_ref: str
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass(frozen=True, slots=True)
-class RuntimeOutputDescriptor:
-    output_id: UUID
-    ordinal: int
-    kind: str
-    stream_name: str | None
-    execution_count: int | None
-    representations: tuple[RuntimeOutputRepresentationDescriptor, ...]
-    metadata: dict[str, Any]
-    created_at: datetime
-
-
-@dataclass(frozen=True, slots=True)
-class RuntimeOutputAppendResult:
-    journal_id: UUID
-    state: str
-    batch_id: UUID
-    committed_offset: int
-    output_count: int
-    representation_count: int
-    total_bytes: int
-    replayed: bool
-    outputs: tuple[RuntimeOutputDescriptor, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class RuntimeOutputContentChunk:
-    content: bytes
-    media_type: str
-    size_bytes: int
-    checksum_sha256: str
-    complete: bool
-    start: int
-    end_exclusive: int
-
-
-@dataclass(frozen=True, slots=True)
 class RuntimeNotebookSourceCell:
     sequence: int
     operation_id: UUID
@@ -136,21 +65,6 @@ class RuntimeNotebookPreparationResult:
     notebook_path: str
     prepared_cell_count: int
     total_cell_count: int
-
-
-@dataclass(frozen=True, slots=True)
-class RuntimeNotebookCell:
-    sequence: int
-    execution_count: int | None
-    journal_id: UUID
-    journal: RuntimeOutputJournalIdentity
-
-
-@dataclass(frozen=True, slots=True)
-class RuntimeNotebookMaterializationResult:
-    notebook_path: str
-    cell_count: int
-    output_count: int
 
 
 RuntimeOutputHandler = Callable[[RuntimeOutputRecord], Awaitable[None]]
@@ -167,67 +81,6 @@ class RuntimeStreamingExecutor(Protocol):
 
 
 @runtime_checkable
-class RuntimeOutputJournal(Protocol):
-    async def output_journal_begin(
-        self, identity: RuntimeOutputJournalIdentity, source: str
-    ) -> RuntimeOutputJournalDescriptor: ...
-
-    async def output_journal_append(
-        self,
-        identity: RuntimeOutputJournalIdentity,
-        *,
-        journal_id: UUID,
-        expected_offset: int,
-        batch_id: UUID,
-        records: tuple[RuntimeOutputRecord, ...],
-    ) -> RuntimeOutputAppendResult: ...
-
-    async def output_journal_finalize(
-        self,
-        identity: RuntimeOutputJournalIdentity,
-        *,
-        journal_id: UUID,
-    ) -> RuntimeOutputJournalDescriptor: ...
-
-    async def output_journal_abort(
-        self,
-        identity: RuntimeOutputJournalIdentity,
-        *,
-        journal_id: UUID,
-        reason: str,
-    ) -> RuntimeOutputJournalDescriptor: ...
-
-
-@runtime_checkable
-class RuntimeOutputContentReader(Protocol):
-    async def output_journal_read(
-        self,
-        identity: RuntimeOutputJournalIdentity,
-        *,
-        journal_id: UUID,
-        output_id: UUID,
-        representation_id: UUID,
-        start: int,
-        end_exclusive: int,
-    ) -> RuntimeOutputContentChunk: ...
-
-    def output_journal_stream(
-        self,
-        identity: RuntimeOutputJournalIdentity,
-        *,
-        journal_id: UUID,
-        output_id: UUID,
-        representation_id: UUID,
-        start: int,
-        end_exclusive: int,
-        expected_media_type: str,
-        expected_size_bytes: int,
-        expected_checksum_sha256: str,
-        expected_complete: bool,
-    ) -> AsyncIterator[bytes]: ...
-
-
-@runtime_checkable
 class RuntimeNotebookPreparer(Protocol):
     async def prepare_notebook(
         self,
@@ -236,16 +89,6 @@ class RuntimeNotebookPreparer(Protocol):
         runtime_profile: str,
         cells: tuple[RuntimeNotebookSourceCell, ...],
     ) -> RuntimeNotebookPreparationResult: ...
-
-
-@runtime_checkable
-class RuntimeNotebookMaterializer(Protocol):
-    async def materialize_notebook(
-        self,
-        workspace_path: str,
-        runtime_profile: str,
-        cells: tuple[RuntimeNotebookCell, ...],
-    ) -> RuntimeNotebookMaterializationResult: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -377,35 +220,3 @@ class RuntimeStorageAccess(Protocol):
         path: str,
         content: str,
     ) -> RuntimeFileMetadata: ...
-
-
-class RuntimeOutputContentAccess(Protocol):
-    async def read_output_content(
-        self,
-        runtime_type: RuntimeType,
-        preferred_target_id: UUID | None,
-        identity: RuntimeOutputJournalIdentity,
-        *,
-        journal_id: UUID,
-        output_id: UUID,
-        representation_id: UUID,
-        start: int,
-        end_exclusive: int,
-    ) -> RuntimeOutputContentChunk: ...
-
-    def stream_output_content(
-        self,
-        runtime_type: RuntimeType,
-        preferred_target_id: UUID | None,
-        identity: RuntimeOutputJournalIdentity,
-        *,
-        journal_id: UUID,
-        output_id: UUID,
-        representation_id: UUID,
-        start: int,
-        end_exclusive: int,
-        expected_media_type: str,
-        expected_size_bytes: int,
-        expected_checksum_sha256: str,
-        expected_complete: bool,
-    ) -> AsyncIterator[bytes]: ...

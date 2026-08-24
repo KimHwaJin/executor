@@ -25,7 +25,10 @@ from executor_service.domain.enums import (
     StepStatus,
     TriggerType,
 )
-from executor_service.domain.models import ExecutionStep
+from executor_service.domain.models import (
+    ExecutionStep,
+    NotebookProjectionStatus,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,6 +76,10 @@ class ExecutionDetailView:
     cancellation_reason: str | None
     workspace_path: str | None
     notebook_path: str | None
+    notebook_projection_status: NotebookProjectionStatus
+    notebook_projection_attempt_count: int
+    notebook_projection_error: str | None
+    notebook_projected_at: datetime | None
     failure_type: FailureType | None
     error_message: str | None
     retry_strategy: RetryStrategy
@@ -97,6 +104,7 @@ class ExecutionDetailView:
 @dataclass(frozen=True, slots=True)
 class ExecutionStepAttemptView:
     id: UUID
+    execution_id: UUID
     execution_attempt_id: UUID
     execution_step_id: UUID
     sequence: int
@@ -104,7 +112,12 @@ class ExecutionStepAttemptView:
     tool_name: str | None
     input_parameters: dict[str, Any]
     status: StepStatus
-    outputs: list[dict[str, Any]]
+    output_summary: dict[str, Any]
+    result_manifest_path: str | None
+    result_manifest_checksum_sha256: str | None
+    result_fencing_token: int | None
+    result_representation_count: int
+    result_total_size_bytes: int
     error_message: str | None
     created_by_type: ActorType | None
     created_by: str | None
@@ -215,51 +228,6 @@ class ExecutionArtifactView:
     updated_at: datetime
 
 
-@dataclass(frozen=True, slots=True)
-class ExecutionOutputRepresentationView:
-    id: UUID
-    media_type: str
-    size_bytes: int
-    checksum_sha256: str
-    complete: bool
-    content_ref: str
-    metadata: dict[str, Any]
-    created_by_type: ActorType | None
-    created_by: str | None
-    updated_by_type: ActorType | None
-    updated_by: str | None
-    created_at: datetime
-    updated_at: datetime
-
-
-@dataclass(frozen=True, slots=True)
-class ExecutionOutputView:
-    id: UUID
-    journal_id: UUID
-    batch_id: UUID
-    execution_id: UUID
-    operation_id: UUID
-    execution_step_id: UUID
-    execution_attempt_id: UUID
-    runtime_target_id: UUID
-    runtime_session_id: str
-    journal_state: str
-    fencing_token: int
-    sequence: int
-    ordinal: int
-    kind: str
-    stream_name: str | None
-    execution_count: int | None
-    metadata: dict[str, Any]
-    representations: tuple[ExecutionOutputRepresentationView, ...]
-    created_by_type: ActorType | None
-    created_by: str | None
-    updated_by_type: ActorType | None
-    updated_by: str | None
-    created_at: datetime
-    updated_at: datetime
-
-
 class ExecutionQueryService(Protocol):
     async def executions(
         self,
@@ -342,18 +310,3 @@ class ExecutionQueryService(Protocol):
     ) -> Page[ExecutionArtifactView]: ...
 
     async def artifact(self, artifact_id: UUID) -> ExecutionArtifactView: ...
-
-    async def outputs(
-        self,
-        execution_id: UUID,
-        *,
-        operation_id: UUID | None = None,
-        step_id: UUID | None = None,
-        attempt_id: UUID | None = None,
-        cursor: str | None = None,
-        limit: int = 200,
-    ) -> Page[ExecutionOutputView]: ...
-
-    async def output(
-        self, execution_id: UUID, output_id: UUID
-    ) -> ExecutionOutputView: ...

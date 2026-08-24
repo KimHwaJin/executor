@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import mimetypes
+import os
 import re
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -30,8 +33,6 @@ class RuntimeStorage:
         workspace = self._resolve(workspace_path)
         for relative in (
             "notebooks",
-            "notebooks/.ipynb_checkpoints",
-            "outputs",
             "reports",
             *(f"artifacts/{name}" for name in ARTIFACT_DIRECTORIES),
         ):
@@ -65,6 +66,106 @@ class RuntimeStorage:
             "manifest_size": manifest.stat().st_size
             if manifest.is_file()
             else 0,
+        }
+
+    def prepare_notebook(
+        self,
+        *,
+        workspace_path: str,
+        execution_id: str,
+        runtime_profile: str,
+        cells: object,
+    ) -> dict[str, Any]:
+        workspace = self._resolve(workspace_path)
+        if not isinstance(cells, list) or not cells:
+            raise StoragePathError("Notebook cells must be a non-empty array.")
+        notebook_cells: list[dict[str, Any]] = []
+        for item in cells:
+            if not isinstance(item, dict):
+                raise StoragePathError("Notebook cell must be an object.")
+            sequence = item.get("sequence")
+            operation_id = item.get("operation_id")
+            step_id = item.get("step_id")
+            source = item.get("source")
+            if (
+                type(sequence) is not int
+                or sequence < 0
+                or not isinstance(operation_id, str)
+                or not operation_id
+                or not isinstance(step_id, str)
+                or not step_id
+                or not isinstance(source, str)
+                or not source.strip()
+            ):
+                raise StoragePathError("Notebook cell contract is invalid.")
+            notebook_cells.append(
+                {
+                    "cell_type": "code",
+                    "execution_count": None,
+                    "id": hashlib.sha256(
+                        f"{execution_id}:{step_id}".encode()
+                    ).hexdigest()[:16],
+                    "metadata": {
+                        "executor": {
+                            "operation_id": operation_id,
+                            "sequence": sequence,
+                            "step_id": step_id,
+                        }
+                    },
+                    "outputs": [],
+                    "source": source,
+                }
+            )
+        notebook_cells.sort(
+            key=lambda value: value["metadata"]["executor"]["sequence"]
+        )
+        notebook = {
+            "cells": notebook_cells,
+            "metadata": {
+                "executor": {"execution_id": execution_id},
+                "kernelspec": {
+                    "display_name": runtime_profile,
+                    "language": "python",
+                    "name": runtime_profile,
+                },
+                "language_info": {"name": "python"},
+            },
+            "nbformat": 4,
+            "nbformat_minor": 5,
+        }
+        notebook_path = self._ensure_within(
+            workspace / "notebooks/execution.ipynb"
+        )
+        notebook_path.parent.mkdir(parents=True, exist_ok=True)
+        _atomic_json_write(notebook_path, notebook)
+        return {
+            "notebook_path": notebook_path.relative_to(self._root).as_posix(),
+            "prepared_cell_count": len(notebook_cells),
+            "total_cell_count": len(notebook_cells),
+        }
+
+    def project_notebook(
+        self, *, notebook_path: str, notebook: object
+    ) -> dict[str, Any]:
+        path = self._resolve(notebook_path)
+        if path.name != "execution.ipynb" or path.parent.name != "notebooks":
+            raise StoragePathError(
+                "Notebook projection path must target notebooks/execution.ipynb."
+            )
+        if not isinstance(notebook, dict):
+            raise StoragePathError("Notebook projection must be an object.")
+        cells = notebook.get("cells")
+        if (
+            not isinstance(cells, list)
+            or notebook.get("nbformat") != 4
+            or not isinstance(notebook.get("metadata"), dict)
+        ):
+            raise StoragePathError("Notebook projection contract is invalid.")
+        _atomic_json_write(path, notebook)
+        return {
+            "notebook_path": path.relative_to(self._root).as_posix(),
+            "cell_count": len(cells),
+            "checksum_sha256": _sha256(path),
         }
 
     def file_metadata(self, raw_path: str) -> dict[str, Any]:
@@ -124,3 +225,20 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _atomic_json_write(path: Path, value: dict[str, Any]) -> None:
+    body = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode(
+        "utf-8"
+    )
+    with tempfile.NamedTemporaryFile(
+        mode="wb", dir=path.parent, prefix=f".{path.name}.", delete=False
+    ) as handle:
+        temporary = Path(handle.name)
+        handle.write(body)
+        handle.flush()
+        os.fsync(handle.fileno())
+    try:
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)

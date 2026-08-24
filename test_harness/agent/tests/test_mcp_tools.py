@@ -1,6 +1,7 @@
 """Executor MCP Tool allowlist and policy wrapper tests."""
 
 import json
+from pathlib import Path
 
 import pytest
 from mcp.types import CallToolResult, TextContent
@@ -29,6 +30,7 @@ def settings() -> AgentSettings:
         executor_redis_url="redis://redis/0",
         executor_event_stream="executor.events",
         executor_consumer_group_prefix="agent",
+        executor_shared_storage_root=Path("/shared"),
         execution_timeout_seconds=120,
         natural_language_execution_enabled=True,
         default_user_id="user-1",

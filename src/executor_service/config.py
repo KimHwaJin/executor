@@ -68,13 +68,9 @@ class Settings(BaseSettings):
     runtime_session_count_max_age_seconds: float = Field(default=45, gt=0)
     runtime_resource_max_age_seconds: float = Field(default=45, gt=0)
     runtime_memory_admission_limit: float = Field(default=0.9, gt=0, le=1)
-    input_host_root: Path = Path("./input_dir")
+    shared_storage_root: Path = Path("./shared_dir")
     execution_inline_spec_max_bytes: int = Field(default=262144, ge=1)
     execution_file_spec_max_bytes: int = Field(default=52428800, ge=1)
-    output_content_chunk_bytes: int = Field(
-        default=1048576, ge=4096, le=16777216
-    )
-    mcp_output_inline_max_bytes: int = Field(default=65536, ge=1, le=1048576)
     execution_consumer_group: str = "executor-workers"
     execution_consumer_name: str = ""
     execution_pending_claim_interval_seconds: float = Field(default=5, gt=0)
@@ -163,6 +159,10 @@ class Settings(BaseSettings):
             if separator and key.strip():
                 headers[key.strip()] = value.strip()
         return headers
+
+    @property
+    def request_storage_root(self) -> Path:
+        return self.shared_storage_root / "requests"
 
 
 @lru_cache

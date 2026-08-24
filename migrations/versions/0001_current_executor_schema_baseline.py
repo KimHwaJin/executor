@@ -279,6 +279,11 @@ def upgrade() -> None:
         sa.Column("last_health_error", sa.String(length=500), nullable=True),
         sa.Column("active_session_count", sa.Integer(), nullable=True),
         sa.Column(
+            "session_count_observed_at",
+            sa.DateTime(timezone=True),
+            nullable=True,
+        ),
+        sa.Column(
             "resource_observed_at", sa.DateTime(timezone=True), nullable=True
         ),
         sa.Column(
@@ -350,6 +355,10 @@ def upgrade() -> None:
         sa.CheckConstraint(
             "max_concurrent_executions > 0",
             name=op.f("ck_runtime_targets_positive_max_concurrency"),
+        ),
+        sa.CheckConstraint(
+            "active_session_count IS NULL OR active_session_count >= 0",
+            name=op.f("ck_runtime_targets_non_negative_active_session_count"),
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_runtime_targets")),
         sa.UniqueConstraint("name", name=op.f("uq_runtime_targets_name")),
@@ -447,6 +456,22 @@ def upgrade() -> None:
         sa.Column("runtime_session_id", sa.String(length=255), nullable=True),
         sa.Column("workspace_path", sa.Text(), nullable=True),
         sa.Column("notebook_path", sa.Text(), nullable=True),
+        sa.Column(
+            "notebook_projection_status",
+            sa.String(length=16),
+            nullable=False,
+        ),
+        sa.Column(
+            "notebook_projection_attempt_count",
+            sa.Integer(),
+            nullable=False,
+        ),
+        sa.Column("notebook_projection_error", sa.Text(), nullable=True),
+        sa.Column(
+            "notebook_projected_at",
+            sa.DateTime(timezone=True),
+            nullable=True,
+        ),
         sa.Column("error_message", sa.Text(), nullable=True),
         sa.Column(
             "failure_type",
@@ -473,6 +498,18 @@ def upgrade() -> None:
             "lease_expires_at", sa.DateTime(timezone=True), nullable=True
         ),
         sa.Column("heartbeat_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column(
+            "fencing_token",
+            sa.BigInteger(),
+            server_default=sa.text("0"),
+            nullable=False,
+        ),
+        sa.Column(
+            "runtime_abort_status",
+            sa.String(length=32),
+            server_default="NOT_REQUIRED",
+            nullable=False,
+        ),
         sa.Column(
             "retry_strategy",
             sa.Enum(
@@ -610,6 +647,27 @@ def upgrade() -> None:
             name=op.f("ck_executions_non_negative_retry_count"),
         ),
         sa.CheckConstraint(
+            "fencing_token >= 0",
+            name=op.f("ck_executions_non_negative_fencing_token"),
+        ),
+        sa.CheckConstraint(
+            "runtime_abort_status IN ('NOT_REQUIRED', 'PENDING', "
+            "'IDLE_CONFIRMED', 'SESSION_DELETED', 'SESSION_MISSING', "
+            "'FAILED')",
+            name=op.f("ck_executions_valid_runtime_abort_status"),
+        ),
+        sa.CheckConstraint(
+            "notebook_projection_attempt_count >= 0",
+            name=op.f(
+                "ck_executions_non_negative_notebook_projection_attempt_count"
+            ),
+        ),
+        sa.CheckConstraint(
+            "notebook_projection_status IN "
+            "('NOT_STARTED', 'PENDING', 'SUCCEEDED', 'FAILED')",
+            name=op.f("ck_executions_valid_notebook_projection_status"),
+        ),
+        sa.CheckConstraint(
             "retry_from_sequence IS NULL OR retry_from_sequence >= 0",
             name=op.f("ck_executions_non_negative_retry_from_sequence"),
         ),
@@ -739,6 +797,18 @@ def upgrade() -> None:
             "lease_expires_at", sa.DateTime(timezone=True), nullable=True
         ),
         sa.Column("heartbeat_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column(
+            "fencing_token",
+            sa.BigInteger(),
+            server_default=sa.text("0"),
+            nullable=False,
+        ),
+        sa.Column(
+            "runtime_abort_status",
+            sa.String(length=32),
+            server_default="NOT_REQUIRED",
+            nullable=False,
+        ),
         sa.Column("error_message", sa.Text(), nullable=True),
         sa.Column(
             "failure_type",
@@ -856,6 +926,16 @@ def upgrade() -> None:
         sa.CheckConstraint(
             "attempt_number > 0",
             name=op.f("ck_execution_attempts_positive_attempt_number"),
+        ),
+        sa.CheckConstraint(
+            "fencing_token >= 0",
+            name=op.f("ck_execution_attempts_non_negative_fencing_token"),
+        ),
+        sa.CheckConstraint(
+            "runtime_abort_status IN ('NOT_REQUIRED', 'PENDING', "
+            "'IDLE_CONFIRMED', 'SESSION_DELETED', 'SESSION_MISSING', "
+            "'FAILED')",
+            name=op.f("ck_execution_attempts_valid_runtime_abort_status"),
         ),
         sa.ForeignKeyConstraint(
             ["execution_id"],
@@ -1054,7 +1134,6 @@ def upgrade() -> None:
         sa.Column("execution_id", sa.Uuid(), nullable=False),
         sa.Column("operation_id", sa.Uuid(), nullable=False),
         sa.Column("sequence", sa.Integer(), nullable=False),
-        sa.Column("code", sa.Text(), nullable=False),
         sa.Column(
             "source_type",
             sa.Enum(
@@ -1068,6 +1147,8 @@ def upgrade() -> None:
         ),
         sa.Column("source_path", sa.Text(), nullable=True),
         sa.Column("source_sha256", sa.String(length=64), nullable=False),
+        sa.Column("source_snapshot_path", sa.Text(), nullable=False),
+        sa.Column("source_size_bytes", sa.BigInteger(), nullable=False),
         sa.Column("code_hash", sa.String(length=64), nullable=True),
         sa.Column("step_timeout_seconds", sa.Integer(), nullable=True),
         sa.Column("skill_name", sa.String(length=255), nullable=True),
@@ -1088,7 +1169,19 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("input_parameters", sa.JSON(), nullable=False),
-        sa.Column("outputs", sa.JSON(), nullable=False),
+        sa.Column("output_summary", sa.JSON(), nullable=False),
+        sa.Column("result_execution_attempt_id", sa.Uuid(), nullable=True),
+        sa.Column("result_manifest_path", sa.Text(), nullable=True),
+        sa.Column(
+            "result_manifest_checksum_sha256",
+            sa.String(length=64),
+            nullable=True,
+        ),
+        sa.Column("result_fencing_token", sa.BigInteger(), nullable=True),
+        sa.Column(
+            "result_representation_count", sa.BigInteger(), nullable=False
+        ),
+        sa.Column("result_total_size_bytes", sa.BigInteger(), nullable=False),
         sa.Column("error_message", sa.Text(), nullable=True),
         sa.Column(
             "created_by_type",
@@ -1168,6 +1261,12 @@ def upgrade() -> None:
             name=op.f("fk_execution_steps_operation_id_execution_operations"),
             ondelete="CASCADE",
         ),
+        sa.ForeignKeyConstraint(
+            ["result_execution_attempt_id"],
+            ["execution_attempts.id"],
+            name="fk_execution_steps_result_execution_attempt_id",
+            ondelete="SET NULL",
+        ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_execution_steps")),
         sa.UniqueConstraint(
             "execution_id",
@@ -1212,7 +1311,18 @@ def upgrade() -> None:
             ),
             nullable=False,
         ),
-        sa.Column("outputs", sa.JSON(), nullable=False),
+        sa.Column("output_summary", sa.JSON(), nullable=False),
+        sa.Column("result_manifest_path", sa.Text(), nullable=True),
+        sa.Column(
+            "result_manifest_checksum_sha256",
+            sa.String(length=64),
+            nullable=True,
+        ),
+        sa.Column("result_fencing_token", sa.BigInteger(), nullable=True),
+        sa.Column(
+            "result_representation_count", sa.BigInteger(), nullable=False
+        ),
+        sa.Column("result_total_size_bytes", sa.BigInteger(), nullable=False),
         sa.Column("error_message", sa.Text(), nullable=True),
         sa.Column(
             "created_by_type",

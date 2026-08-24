@@ -87,16 +87,15 @@ spec:
               cpu: "2"
               memory: 2Gi
           volumeMounts:
-            # Agent writes PATH sources; Executor only reads them.
-            - name: input
-              mountPath: /workspace/input
-              readOnly: true
+            # Agent and Executor share requests and immutable execution results.
+            - name: shared-storage
+              mountPath: /workspace/shared
             - name: tmp
               mountPath: /tmp
       volumes:
-        - name: input
+        - name: shared-storage
           persistentVolumeClaim:
-            # This existing claim must be mounted read-write by the Agent.
-            claimName: executor-input-pvc
+            # This RWX claim must also be mounted by the Agent.
+            claimName: executor-shared-pvc
         - name: tmp
           emptyDir: {}

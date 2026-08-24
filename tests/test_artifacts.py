@@ -129,7 +129,6 @@ async def _seed_attempt(
                 tool_name="write_outputs",
                 input_parameters={},
                 status=StepStatus.RUNNING,
-                outputs=[],
                 started_at=now,
             )
         )

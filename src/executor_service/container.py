@@ -10,9 +10,6 @@ from executor_service.application.execution_results import (
 from executor_service.application.notebook_queries import (
     ExecutionNotebookQueryService,
 )
-from executor_service.application.output_contents import (
-    ExecutionOutputContentService,
-)
 from executor_service.application.services import ExecutionService
 from executor_service.config import Settings
 from executor_service.domain.enums import RuntimeType
@@ -32,6 +29,9 @@ from executor_service.infrastructure.materialized_artifacts import (
     MaterializedArtifactService,
 )
 from executor_service.infrastructure.outbox import OutboxPublisher
+from executor_service.infrastructure.result_storage import (
+    FilesystemExecutionResultStore,
+)
 from executor_service.infrastructure.runtime_drivers import (
     ConfiguredRuntimeDriverFactory,
 )
@@ -44,7 +44,7 @@ from executor_service.infrastructure.runtime_storage import (
 from executor_service.infrastructure.worker import ExecutionWorker
 from executor_service.tracing import TracingManager
 
-EXPECTED_SCHEMA_REVISION = "0005"
+EXPECTED_SCHEMA_REVISION = "0001"
 
 
 class ApplicationContainer:
@@ -63,9 +63,13 @@ class ApplicationContainer:
         self.redis: Redis = Redis.from_url(
             settings.redis_dsn, decode_responses=True
         )
+        self.result_store = FilesystemExecutionResultStore(
+            settings.shared_storage_root
+        )
         self.execution_service = ExecutionService(
             lambda: SQLAlchemyUnitOfWork(self.session_factory),
             {RuntimeType.JUPYTER: settings.runtime_allowed_profiles},
+            self.result_store,
         )
         self.execution_queries = SQLAlchemyExecutionQueryService(
             self.session_factory
@@ -74,7 +78,7 @@ class ApplicationContainer:
             self.execution_queries
         )
         self.execution_spec_resolver = ExecutionSpecResolver(
-            settings.input_host_root,
+            settings.request_storage_root,
             inline_max_bytes=settings.execution_inline_spec_max_bytes,
             file_max_bytes=settings.execution_file_spec_max_bytes,
         )
@@ -90,15 +94,11 @@ class ApplicationContainer:
         self.notebook_queries = ExecutionNotebookQueryService(
             self.execution_queries, self.runtime_storage
         )
-        self.output_contents = ExecutionOutputContentService(
-            self.execution_queries,
-            self.runtime_storage,
-        )
         self.artifact_manager = ExecutionArtifactManager(self.session_factory)
         self.materialized_artifacts = MaterializedArtifactService(
             self.session_factory,
             self.runtime_storage,
-            settings.input_host_root,
+            settings.request_storage_root,
             max_bytes=settings.execution_file_spec_max_bytes,
         )
         self.outbox_publisher = OutboxPublisher(
@@ -117,6 +117,7 @@ class ApplicationContainer:
             registry=self.runtime_registry,
             driver_factory=self.runtime_driver_factory,
             artifact_manager=self.artifact_manager,
+            result_store=self.result_store,
             tracing=self.tracing,
         )
 

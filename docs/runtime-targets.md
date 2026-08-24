@@ -197,7 +197,7 @@ endpoint, token, target name, or pool on the Executor process:
 RUNTIME_ENABLED=true
 RUNTIME_ALLOWED_PROFILES=basic,ml
 RUNTIME_DEFAULT_MAX_CONCURRENT_EXECUTIONS=1
-INPUT_HOST_ROOT=C:/absolute/path/to/executor/input_dir
+LOCAL_TEST_SHARED_STORAGE_ROOT=C:/absolute/path/to/executor/shared_dir
 ```
 
 Use the equivalent absolute POSIX path on Linux or macOS. Jupyter must use the custom image or have

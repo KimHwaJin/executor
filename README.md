@@ -16,8 +16,6 @@ MULTI Operations through a Runtime Driver. Jupyter REST/WebSocket is the first i
   `execution_attempt_get`, `execution_attempt_step_list`,
   `execution_notebook_read`, `execution_notebook_cell_read`,
   `execution_event_list`,
-  `execution_output_list`, `execution_output_get`,
-  `execution_output_content_get`,
   `execution_artifact_list`, `execution_artifact_get`
 - Runtime Target tools: `runtime_target_upsert`, `runtime_target_list`,
   `runtime_target_get`, `runtime_target_probe`, `runtime_target_disable`,
@@ -36,10 +34,9 @@ MULTI Operations through a Runtime Driver. Jupyter REST/WebSocket is the first i
 - Operation wait/total runtime deadlines, retained-session audits, and orphan cleanup
 - Immutable per-Attempt Step history and an end-to-end execution event trace
 - Automatic and Manifest-based Artifact registration with checksum and lineage
-- Runtime-owned `.ipynb` output and execution-scoped artifacts on Jupyter shared storage; Executor
-  retains only paths, metadata, and checksums
-- Fenced Runtime Output Journals with normalized PostgreSQL metadata and
-  cursor-paginated REST/MCP output descriptors
+- Runtime-owned `.ipynb` output and execution-scoped artifacts on Jupyter shared storage
+- Fenced immutable source and Step-result files on the Agent/Executor shared volume; PostgreSQL
+  retains authoritative state, bounded summaries, and canonical relative references
 - W3C trace-context propagation across HTTP/MCP, PostgreSQL Outbox, Redis Streams, Worker,
   and Jupyter operations with optional OTLP export to Arize Phoenix
 - `/healthz` and `/readyz` operational endpoints
@@ -104,8 +101,8 @@ uv run executor-service
 
 To build and run the Executor application together with PostgreSQL, Redis, and Jupyter, use the
 full Compose stack instead. The one-shot `migrate` service upgrades the schema before `executor`
-starts. Executor mounts `./input_dir` read-only for Agent-authored PATH Step `.py` files; only the
-Jupyter fleet mounts `./test_harness/jupyter/workspace` at `/workspace/pv`.
+starts. Agent and Executor share `./shared_dir`; the Jupyter fleet separately mounts
+`./test_harness/jupyter/workspace` at `/workspace/pv`.
 
 ```bash
 cp .env.example .env
@@ -126,7 +123,7 @@ SINGLE_JUPYTER_ENDPOINT=http://jupyter:8888 \
 ```
 
 Stop the stack with `docker compose down`. Named PostgreSQL and Redis volumes, and the bind-mounted
-`input_dir` and Jupyter-owned `test_harness/jupyter/workspace`, are retained unless explicitly
+`shared_dir` and Jupyter-owned `test_harness/jupyter/workspace`, are retained unless explicitly
 removed.
 
 For MCP calls from another machine, append the Executor host or IP (including `:*` when any port
@@ -236,16 +233,11 @@ disruptive process and dependency failure scenarios. Detailed commands, safety b
 report locations are documented in
 [Executor Resilience Testing](docs/executor-resilience-testing.md).
 
-Large-output threshold evidence is collected separately with
-`uv run python scripts/t35_output_measurement.py`. Its default smoke preset is bounded; the full
-text/image/concurrency matrix requires `--preset full --confirm-full`. The journal-backed target
-architecture is documented in [Runtime Output Journal](docs/runtime-output-journal.md).
-
-Jupyter Steps now write each received IOPub output to a fenced Runtime-owned Output Journal before
-continuing delivery. Complete success and Tool-error output finalize the journal; cancellation,
-timeout, and transport interruption abort it without deleting committed evidence. The existing
-full-output PostgreSQL and notebook path remains active during this transition, so this milestone
-adds durable intermediate output but does not yet remove the compatibility memory/DB duplication.
+The authoritative output architecture is documented in
+[Shared execution result storage](docs/shared-result-storage.md). Jupyter IOPub output is streamed
+directly into a fenced partial directory on the Agent/Executor shared volume and atomically sealed
+before PostgreSQL and Redis publish its canonical reference. PostgreSQL and Redis never retain
+complete text, image, or binary bodies.
 
 The scripts that start their own Executor processes require the Compose `executor` service to be
 stopped first; unique Redis Stream names do not isolate PostgreSQL queue reconciliation. Those

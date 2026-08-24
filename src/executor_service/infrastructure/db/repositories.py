@@ -224,15 +224,28 @@ class SQLAlchemyExecutionRepository:
                 .where(ExecutionStepORM.id == step.id)
                 .values(
                     status=step.status,
-                    code=step.code,
                     source_type=step.source_type,
                     source_path=step.source_path,
                     source_sha256=step.source_sha256,
+                    source_snapshot_path=step.source_snapshot_path,
+                    source_size_bytes=step.source_size_bytes,
                     code_hash=step.code_hash,
                     step_timeout_seconds=step.step_timeout_seconds,
                     updated_by_type=step.updated_by_type,
                     updated_by=step.updated_by,
-                    outputs=step.outputs,
+                    output_summary=step.output_summary,
+                    result_execution_attempt_id=(
+                        step.result_execution_attempt_id
+                    ),
+                    result_manifest_path=step.result_manifest_path,
+                    result_manifest_checksum_sha256=(
+                        step.result_manifest_checksum_sha256
+                    ),
+                    result_fencing_token=step.result_fencing_token,
+                    result_representation_count=(
+                        step.result_representation_count
+                    ),
+                    result_total_size_bytes=(step.result_total_size_bytes),
                     error_message=step.error_message,
                     updated_at=step.updated_at,
                     started_at=step.started_at,

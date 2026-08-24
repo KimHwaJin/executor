@@ -20,3 +20,5 @@ test-results/
 .DS_Store
 test_harness/jupyter/workspace/**
 !test_harness/jupyter/workspace/.gitkeep
+shared_dir/**
+!shared_dir/.gitkeep

@@ -56,7 +56,7 @@ class RecordingRedis:
 def _settings(tmp_path: Path) -> Settings:
     return Settings(
         tracing_enabled=True,
-        input_host_root=tmp_path,
+        shared_storage_root=tmp_path,
         runtime_enabled=False,
         execution_lease_seconds=30,
         execution_heartbeat_seconds=5,

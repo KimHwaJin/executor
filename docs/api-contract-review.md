@@ -369,7 +369,20 @@ Draft shape:
   },
   "result": {
     "status": "SUCCEEDED",
-    "outputs": [],
+    "output_summary": {
+      "output_count": 0,
+      "output_types": {},
+      "stream_names": [],
+      "mime_types": [],
+      "has_image": false,
+      "image_count": 0,
+      "has_error": false
+    },
+    "result_ref": {
+      "execution_id": "...",
+      "step_id": "20f8a8d3-1f57-4ff8-9a9d-5bf58e7f30fb",
+      "attempt_id": "..."
+    },
     "error_message": null
   },
   "lifecycle": {
@@ -498,7 +511,20 @@ Draft shape:
   },
   "result": {
     "status": "SUCCEEDED",
-    "outputs": [],
+    "output_summary": {
+      "output_count": 0,
+      "output_types": {},
+      "stream_names": [],
+      "mime_types": [],
+      "has_image": false,
+      "image_count": 0,
+      "has_error": false
+    },
+    "result_ref": {
+      "execution_id": "...",
+      "step_id": "20f8a8d3-1f57-4ff8-9a9d-5bf58e7f30fb",
+      "attempt_id": "..."
+    },
     "error_message": null
   },
   "lifecycle": {

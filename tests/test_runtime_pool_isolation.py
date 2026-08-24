@@ -206,7 +206,7 @@ def _worker(
 ) -> tuple[ExecutionWorker, Redis]:
     settings = Settings(
         runtime_enabled=False,
-        input_host_root=tmp_path,
+        shared_storage_root=tmp_path,
         execution_consumer_name=consumer,
     )
     session_factory = create_session_factory(engine)

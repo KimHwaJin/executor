@@ -11,6 +11,8 @@ from execution_spec_payload import execution_request, inline_spec
 from local_test_support import (
     env_float,
     env_int,
+    execution_step_outputs,
+    execution_stream_text,
     executor_mcp_url,
     register_local_runtime_targets,
     required_tool_result,
@@ -115,25 +117,17 @@ def _workload_code(workload_type: str, run_id: str, index: int) -> str:
     raise ValueError(f"Unsupported mixed workload type: {workload_type}")
 
 
-def _all_outputs(result: dict[str, Any]) -> list[dict[str, Any]]:
-    return [
-        output
-        for operation in result["operations"]
-        for step in operation["steps"]
-        for output in step["result"]["outputs"]
-    ]
-
-
-def _validate_outputs(
-    result: dict[str, Any], workload_type: str, run_id: str, index: int
+async def _validate_outputs(
+    client: Client,
+    execution_id: str,
+    result: dict[str, Any],
+    workload_type: str,
+    run_id: str,
+    index: int,
 ) -> dict[str, Any]:
-    outputs = _all_outputs(result)
+    outputs = await execution_step_outputs(client, execution_id)
     marker = f"MIXED_{workload_type}:{run_id}:{index}"
-    stream_text = "".join(
-        output.get("text", "")
-        for output in outputs
-        if output.get("output_type") == "stream"
-    )
+    stream_text = await execution_stream_text(client, execution_id)
     if marker not in stream_text:
         raise RuntimeError(
             f"{workload_type} result is missing stream marker {marker!r}."
@@ -145,9 +139,10 @@ def _validate_outputs(
             for media_type in (
                 output.get("data", {}).keys()
                 if isinstance(output.get("data"), dict)
-                else []
+                else (
+                    ["text/plain"] if output["output_type"] == "stream" else []
+                )
             )
-            if isinstance(media_type, str)
         }
     )
     if workload_type == "TABLE" and "text/html" not in mime_types:
@@ -159,17 +154,17 @@ def _validate_outputs(
             f"JSON result is missing application/json output: {mime_types}"
         )
     if workload_type == "IMAGE":
-        encoded_images = [
+        image_representations = [
             output["data"]["image/png"]
             for output in outputs
             if isinstance(output.get("data"), dict)
             and "image/png" in output["data"]
         ]
-        if not encoded_images:
+        if not image_representations:
             raise RuntimeError(
                 f"IMAGE result is missing image/png output: {mime_types}"
             )
-        image = base64.b64decode(encoded_images[0], validate=True)
+        image = base64.b64decode(image_representations[0], validate=True)
         if not image.startswith(b"\x89PNG\r\n\x1a\n"):
             raise RuntimeError(
                 "IMAGE result does not contain a valid PNG signature."
@@ -345,8 +340,13 @@ async def main() -> None:
             result = await required_tool_result(
                 client, "execution_result_get", {"execution_id": execution_id}
             )
-            result_summaries[execution_id] = _validate_outputs(
-                result, timing.workload_type, run_id, index
+            result_summaries[execution_id] = await _validate_outputs(
+                client,
+                execution_id,
+                result,
+                timing.workload_type,
+                run_id,
+                index,
             )
 
         probes = await asyncio.gather(
