@@ -41,7 +41,9 @@ async def main() -> None:
         )
         execution_id = submitted.structured_content["execution_id"]
         for _ in range(100):
-            current = await client.call_tool("execution_get", {"execution_id": execution_id})
+            current = await client.call_tool(
+                "execution_get", {"execution_id": execution_id}
+            )
             if current.structured_content["state"]["status"] == "RUNNING":
                 break
             await asyncio.sleep(0.1)
@@ -59,16 +61,23 @@ async def main() -> None:
                 }
             },
         )
-        if cancelled.structured_content["state"]["status"] != "CANCEL_REQUESTED":
+        if (
+            cancelled.structured_content["state"]["status"]
+            != "CANCEL_REQUESTED"
+        ):
             raise RuntimeError("Cancellation request was not recorded.")
         for _ in range(100):
-            current = await client.call_tool("execution_get", {"execution_id": execution_id})
+            current = await client.call_tool(
+                "execution_get", {"execution_id": execution_id}
+            )
             if current.structured_content["state"]["status"] == "CANCELLED":
                 print("execution_id:", execution_id)
                 print("status: CANCELLED")
                 return
             await asyncio.sleep(0.1)
-        raise RuntimeError(f"Execution was not cancelled: {current.structured_content}")
+        raise RuntimeError(
+            f"Execution was not cancelled: {current.structured_content}"
+        )
 
 
 if __name__ == "__main__":

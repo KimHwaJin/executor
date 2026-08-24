@@ -23,7 +23,11 @@ def test_comma_separated_lists_load_from_dotenv(tmp_path: Path) -> None:
 
     settings = Settings(_env_file=dotenv)
 
-    assert settings.mcp_allowed_hosts == ("localhost:*", "127.0.0.1:*", "testserver")
+    assert settings.mcp_allowed_hosts == (
+        "localhost:*",
+        "127.0.0.1:*",
+        "testserver",
+    )
     assert settings.mcp_allowed_origins == (
         "http://localhost:*",
         "http://127.0.0.1:*",

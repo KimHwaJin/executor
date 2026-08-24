@@ -11,7 +11,10 @@ import httpx
 from execution_spec_payload import execution_request, inline_spec
 from mcp import Client
 from redis.asyncio import Redis
-from resilience_common import cleanup_streams, require_exclusive_executor_control
+from resilience_common import (
+    cleanup_streams,
+    require_exclusive_executor_control,
+)
 
 PRIMARY_CONSUMER = "multi-smoke-primary"
 SECONDARY_CONSUMER = "multi-smoke-secondary"
@@ -75,7 +78,9 @@ async def _wait_ready(port: int) -> None:
 
 
 async def _execution(client: Client, execution_id: str) -> dict[str, Any]:
-    result = await client.call_tool("execution_get", {"execution_id": execution_id})
+    result = await client.call_tool(
+        "execution_get", {"execution_id": execution_id}
+    )
     if result.is_error:
         raise RuntimeError(str(result.content))
     return result.structured_content
@@ -100,7 +105,9 @@ async def _wait_for(
 
 
 async def _attempts(client: Client, execution_id: str) -> list[dict[str, Any]]:
-    result = await client.call_tool("execution_attempt_list", {"execution_id": execution_id})
+    result = await client.call_tool(
+        "execution_attempt_list", {"execution_id": execution_id}
+    )
     if result.is_error:
         raise RuntimeError(str(result.content))
     details = []
@@ -118,7 +125,9 @@ async def _attempts(client: Client, execution_id: str) -> list[dict[str, Any]]:
     return details
 
 
-async def _wait_for_recovered_failure(client: Client, execution_id: str) -> dict[str, Any]:
+async def _wait_for_recovered_failure(
+    client: Client, execution_id: str
+) -> dict[str, Any]:
     for _ in range(300):
         state = await _execution(client, execution_id)
         if (
@@ -127,7 +136,9 @@ async def _wait_for_recovered_failure(client: Client, execution_id: str) -> dict
         ):
             return state
         await asyncio.sleep(0.2)
-    raise RuntimeError(f"Execution {execution_id} did not finish crash cleanup.")
+    raise RuntimeError(
+        f"Execution {execution_id} did not finish crash cleanup."
+    )
 
 
 async def main() -> None:
@@ -170,7 +181,12 @@ async def main() -> None:
                         actor={"type": "USER", "id": "multi-executor-user"},
                         runtime_profile="basic",
                         spec=inline_spec(
-                            [{"tool_name": "multi_executor_failover", "code": code}],
+                            [
+                                {
+                                    "tool_name": "multi_executor_failover",
+                                    "code": code,
+                                }
+                            ],
                         ),
                         context={
                             "user_id": "multi-executor-user",
@@ -192,8 +208,13 @@ async def main() -> None:
             )
             initial_kernel = str(running["runtime"]["session_id"])
             first_attempts = await _attempts(client, execution_id)
-            if len(first_attempts) != 1 or first_attempts[0]["lease"]["owner"] != PRIMARY_CONSUMER:
-                raise RuntimeError(f"Primary did not own the first Attempt: {first_attempts}")
+            if (
+                len(first_attempts) != 1
+                or first_attempts[0]["lease"]["owner"] != PRIMARY_CONSUMER
+            ):
+                raise RuntimeError(
+                    f"Primary did not own the first Attempt: {first_attempts}"
+                )
 
         secondary = await _start_executor(
             port=secondary_port,
@@ -210,10 +231,13 @@ async def main() -> None:
             if (
                 failed["failure"]["type"] != "LEASE_EXPIRED"
                 or failed["retry"]["strategy"] != "FROM_START"
-                or failed["recovery"]["runtime_session_cleanup_status"] != "SUCCEEDED"
+                or failed["recovery"]["runtime_session_cleanup_status"]
+                != "SUCCEEDED"
                 or failed["runtime"]["session_id"] is not None
             ):
-                raise RuntimeError(f"Crash recovery was not classified safely: {failed}")
+                raise RuntimeError(
+                    f"Crash recovery was not classified safely: {failed}"
+                )
 
             retry = await client.call_tool(
                 "execution_retry",
@@ -225,8 +249,13 @@ async def main() -> None:
                     }
                 },
             )
-            if retry.is_error or retry.structured_content["state"]["status"] != "QUEUED":
-                raise RuntimeError(f"Failover retry was not queued: {retry.content}")
+            if (
+                retry.is_error
+                or retry.structured_content["state"]["status"] != "QUEUED"
+            ):
+                raise RuntimeError(
+                    f"Failover retry was not queued: {retry.content}"
+                )
             succeeded = await _wait_for(
                 client,
                 execution_id,
@@ -238,8 +267,10 @@ async def main() -> None:
                 or len(attempts) != 2
                 or [item["lease"]["owner"] for item in attempts]
                 != [PRIMARY_CONSUMER, SECONDARY_CONSUMER]
-                or [item["state"]["status"] for item in attempts] != ["FAILED", "SUCCEEDED"]
-                or attempts[0]["runtime"]["session_id"] == attempts[1]["runtime"]["session_id"]
+                or [item["state"]["status"] for item in attempts]
+                != ["FAILED", "SUCCEEDED"]
+                or attempts[0]["runtime"]["session_id"]
+                == attempts[1]["runtime"]["session_id"]
             ):
                 raise RuntimeError(
                     f"Secondary did not complete exactly one retry: {succeeded}, {attempts}"
@@ -254,8 +285,14 @@ async def main() -> None:
                 failed["recovery"]["runtime_session_cleanup_status"],
             )
             print("initial_kernel:", initial_kernel)
-            print("attempt_owners:", [item["lease"]["owner"] for item in attempts])
-            print("attempt_statuses:", [item["state"]["status"] for item in attempts])
+            print(
+                "attempt_owners:",
+                [item["lease"]["owner"] for item in attempts],
+            )
+            print(
+                "attempt_statuses:",
+                [item["state"]["status"] for item in attempts],
+            )
             print("final_status:", succeeded["state"]["status"])
     finally:
         await _stop_executor(primary)

@@ -11,7 +11,9 @@ from execution_spec_payload import execution_request
 from mcp import Client
 
 
-async def _required(client: Client, tool: str, arguments: dict[str, Any]) -> dict[str, Any]:
+async def _required(
+    client: Client, tool: str, arguments: dict[str, Any]
+) -> dict[str, Any]:
     result = await client.call_tool(tool, arguments)
     if result.is_error or result.structured_content is None:
         raise RuntimeError(f"{tool} failed: {result.content}")
@@ -20,15 +22,23 @@ async def _required(client: Client, tool: str, arguments: dict[str, Any]) -> dic
 
 async def _wait_terminal(client: Client, execution_id: str) -> dict[str, Any]:
     for _ in range(300):
-        execution = await _required(client, "execution_get", {"execution_id": execution_id})
-        if execution["state"]["status"] in {"SUCCEEDED", "FAILED", "CANCELLED"}:
+        execution = await _required(
+            client, "execution_get", {"execution_id": execution_id}
+        )
+        if execution["state"]["status"] in {
+            "SUCCEEDED",
+            "FAILED",
+            "CANCELLED",
+        }:
             return execution
         await asyncio.sleep(0.2)
     raise RuntimeError(f"Execution {execution_id} did not finish.")
 
 
 def _publish_input(unique: str) -> tuple[Path, Path, Path, bytes]:
-    input_root = Path(os.getenv("EXECUTOR_INPUT_HOST_ROOT", "input_dir")).resolve()
+    input_root = Path(
+        os.getenv("EXECUTOR_INPUT_HOST_ROOT", "input_dir")
+    ).resolve()
     relative_path = Path("smoke") / unique / "step-0.py"
     source_path = input_root / relative_path
     temporary_path = source_path.with_suffix(".tmp")
@@ -61,7 +71,9 @@ async def main() -> None:
     )
 
     try:
-        async with Client(os.getenv("EXECUTOR_MCP_URL", "http://127.0.0.1:8000/mcp")) as client:
+        async with Client(
+            os.getenv("EXECUTOR_MCP_URL", "http://127.0.0.1:8000/mcp")
+        ) as client:
             submitted = await _required(
                 client,
                 "execution_submit",
@@ -81,7 +93,9 @@ async def main() -> None:
                                         "source": {
                                             "type": "PATH",
                                             "path": relative_path.as_posix(),
-                                            "sha256": hashlib.sha256(content).hexdigest(),
+                                            "sha256": hashlib.sha256(
+                                                content
+                                            ).hexdigest(),
                                         },
                                     },
                                     "lineage": {
@@ -109,23 +123,37 @@ async def main() -> None:
             notebook = await _required(
                 client,
                 "execution_notebook_read",
-                {"execution_id": execution_id, "response_format": "detailed", "limit": 0},
+                {
+                    "execution_id": execution_id,
+                    "response_format": "detailed",
+                    "limit": 0,
+                },
             )
             artifacts = await _required(
-                client, "execution_artifact_list", {"execution_id": execution_id, "limit": 100}
+                client,
+                "execution_artifact_list",
+                {"execution_id": execution_id, "limit": 100},
             )
         source_exists = await asyncio.to_thread(source_path.is_file)
-        notebooks = await asyncio.to_thread(lambda: list(input_root.rglob("*.ipynb")))
+        notebooks = await asyncio.to_thread(
+            lambda: list(input_root.rglob("*.ipynb"))
+        )
         if not source_exists:
-            raise RuntimeError("Executor modified the immutable PATH input file.")
+            raise RuntimeError(
+                "Executor modified the immutable PATH input file."
+            )
         if notebooks:
-            raise RuntimeError("A Runtime notebook leaked into Agent/Executor input storage.")
+            raise RuntimeError(
+                "A Runtime notebook leaked into Agent/Executor input storage."
+            )
         names = {item["name"] for item in artifacts["items"]}
         if notebook["page"]["total_count"] != 1 or not {
             "execution.ipynb",
             "path-source.txt",
         }.issubset(names):
-            raise RuntimeError("Runtime outputs were not materialized on Jupyter storage.")
+            raise RuntimeError(
+                "Runtime outputs were not materialized on Jupyter storage."
+            )
     finally:
         await asyncio.to_thread(_cleanup_input, source_path)
 

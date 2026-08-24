@@ -34,8 +34,12 @@ class Settings(BaseSettings):
     redis_url: SecretStr = SecretStr("redis://localhost:6379/0")
     redis_work_stream: str = Field(default="executor.work", min_length=1)
     redis_event_stream: str = Field(default="executor.events", min_length=1)
-    redis_work_dead_letter_stream: str = Field(default="executor.work.dlq", min_length=1)
-    redis_event_dead_letter_stream: str = Field(default="executor.events.dlq", min_length=1)
+    redis_work_dead_letter_stream: str = Field(
+        default="executor.work.dlq", min_length=1
+    )
+    redis_event_dead_letter_stream: str = Field(
+        default="executor.events.dlq", min_length=1
+    )
     outbox_poll_interval_seconds: float = Field(default=0.5, gt=0)
     outbox_batch_size: int = Field(default=100, ge=1, le=1000)
 
@@ -52,8 +56,13 @@ class Settings(BaseSettings):
     jupyter_storage_timeout_seconds: float = Field(default=300, gt=0)
     runtime_enabled: bool = True
     # Base64-encoded 32-byte Fernet key. Replace in every non-local environment.
-    runtime_credential_key: SecretStr = SecretStr("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
-    runtime_allowed_profiles: Annotated[tuple[str, ...], NoDecode] = ("basic", "ml")
+    runtime_credential_key: SecretStr = SecretStr(
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+    )
+    runtime_allowed_profiles: Annotated[tuple[str, ...], NoDecode] = (
+        "basic",
+        "ml",
+    )
     runtime_default_max_concurrent_executions: int = Field(default=2, ge=1)
     runtime_health_poll_interval_seconds: float = Field(default=15, gt=0)
     runtime_resource_max_age_seconds: float = Field(default=45, gt=0)
@@ -89,7 +98,9 @@ class Settings(BaseSettings):
     @classmethod
     def parse_allowed_hosts(cls, value: object) -> object:
         if isinstance(value, str):
-            return tuple(item.strip() for item in value.split(",") if item.strip())
+            return tuple(
+                item.strip() for item in value.split(",") if item.strip()
+            )
         return value
 
     @model_validator(mode="after")
@@ -101,17 +112,27 @@ class Settings(BaseSettings):
             self.redis_event_dead_letter_stream,
         }
         if len(stream_names) != 4:
-            raise ValueError("Redis work, event, and dead-letter Stream names must be distinct.")
+            raise ValueError(
+                "Redis work, event, and dead-letter Stream names must be distinct."
+            )
         if not self.runtime_allowed_profiles:
-            raise ValueError("RUNTIME_ALLOWED_PROFILES must contain at least one profile.")
-        if len(self.runtime_allowed_profiles) != len(set(self.runtime_allowed_profiles)):
-            raise ValueError("RUNTIME_ALLOWED_PROFILES must not contain duplicates.")
+            raise ValueError(
+                "RUNTIME_ALLOWED_PROFILES must contain at least one profile."
+            )
+        if len(self.runtime_allowed_profiles) != len(
+            set(self.runtime_allowed_profiles)
+        ):
+            raise ValueError(
+                "RUNTIME_ALLOWED_PROFILES must not contain duplicates."
+            )
         if (
             self.app_env.lower() != "local"
             and self.runtime_credential_encryption_key
             == "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
         ):
-            raise ValueError("RUNTIME_CREDENTIAL_KEY must be replaced outside local environments.")
+            raise ValueError(
+                "RUNTIME_CREDENTIAL_KEY must be replaced outside local environments."
+            )
         return self
 
     @property

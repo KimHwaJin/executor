@@ -59,6 +59,13 @@ project. Its E2E scenario checkpoints after MCP submission, resumes the same Lan
 an Agent-owned Redis consumer group, and verifies Executor state plus Runtime-owned Jupyter output.
 Their dependencies and generated data do not enter the Executor service package.
 
+Quality gates are documented in [docs/quality-gates.md](docs/quality-gates.md).
+Run the platform-independent static and unit gate with:
+
+```bash
+uv run python scripts/quality_gate.py
+```
+
 ## Deferred decisions
 
 Return-value materialization, reusable Asset promotion, and user-versus-project Asset visibility
@@ -69,6 +76,10 @@ before implementing or changing any deferred behavior.
 Cross-service architecture proposals and accepted decisions are tracked separately in
 [Architecture Decisions](docs/architecture-decisions.md). A `PROPOSED` ADR is a discussion baseline,
 not authorization to implement its undecided details.
+
+Confirmed hardening work that must be completed before production is tracked in
+[Production Readiness](docs/production-readiness.md). These items are implementation requirements,
+not deferred product decisions.
 
 ## Local setup
 
@@ -204,8 +215,22 @@ ALLOW_DOCKER_JUPYTER_OUTAGE_TEST=1 uv run python scripts/jupyter_server_outage_s
 uv run python scripts/phoenix_trace_smoke.py
 ```
 
-The resilience scenarios and their safety boundaries are documented in
+For repeatable local load and long-running validation, start the four-server fleet with explicit
+test resource limits, run the preflight, and use the quick suite:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.test.yml \
+  --profile multi-jupyter --profile batch-jupyter up -d --build --wait
+uv run python scripts/local_test_preflight.py
+uv run python scripts/local_validation_suite.py
+```
+
+The quick suite covers consolidated mixed text/table/JSON/image/Artifact results and a configurable
+Jupyter soak. `--full` adds lifecycle and 30-execution load tests; `--include-faults` opts into
+disruptive process and dependency failure scenarios. Detailed commands, safety boundaries, and
+report locations are documented in
 [Executor Resilience Testing](docs/executor-resilience-testing.md).
+
 The scripts that start their own Executor processes require the Compose `executor` service to be
 stopped first; unique Redis Stream names do not isolate PostgreSQL queue reconciliation. Those
 scripts fail fast with the required command instead of allowing another Worker to claim their rows.

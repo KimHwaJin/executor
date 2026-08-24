@@ -208,7 +208,9 @@ class CancelledPayload(StatusPayload):
 
 
 class CleanupCompletedPayload(CleanupPayload):
-    runtime_session_cleanup_status: Literal[RuntimeSessionCleanupStatus.SUCCEEDED]
+    runtime_session_cleanup_status: Literal[
+        RuntimeSessionCleanupStatus.SUCCEEDED
+    ]
 
 
 class CleanupFailedPayload(CleanupPayload):
@@ -297,16 +299,24 @@ class ExecutionStreamEnvelope(BaseModel):
 
     @model_validator(mode="after")
     def validate_payload_contract(self) -> Self:
-        normalized = validate_execution_event_payload(self.event_type, self.payload)
+        normalized = validate_execution_event_payload(
+            self.event_type, self.payload
+        )
         if normalized["schema_version"] != self.schema_version:
-            raise ValueError("Stream and payload schema_version values must match.")
+            raise ValueError(
+                "Stream and payload schema_version values must match."
+            )
         if normalized["execution_id"] != str(self.aggregate_id):
-            raise ValueError("Stream aggregate_id must match payload execution_id.")
+            raise ValueError(
+                "Stream aggregate_id must match payload execution_id."
+            )
         self.payload = normalized
         return self
 
     @classmethod
-    def from_redis_fields(cls, fields: dict[str, str]) -> "ExecutionStreamEnvelope":
+    def from_redis_fields(
+        cls, fields: dict[str, str]
+    ) -> "ExecutionStreamEnvelope":
         """Parse one decoded Redis Stream field mapping."""
 
         try:
@@ -318,14 +328,18 @@ class ExecutionStreamEnvelope(BaseModel):
         return cls.model_validate({**fields, "payload": payload})
 
 
-def validate_execution_event_payload(event_type: str, payload: dict[str, Any]) -> dict[str, Any]:
+def validate_execution_event_payload(
+    event_type: str, payload: dict[str, Any]
+) -> dict[str, Any]:
     """Validate and JSON-normalize one known Executor event payload."""
 
     model = EVENT_PAYLOAD_MODELS.get(event_type)
     if model is None:
         raise ValueError(f"Unsupported Executor event type: {event_type}")
     versioned = {"schema_version": EXECUTION_EVENT_SCHEMA_VERSION, **payload}
-    return model.model_validate(versioned).model_dump(mode="json", exclude_unset=True)
+    return model.model_validate(versioned).model_dump(
+        mode="json", exclude_unset=True
+    )
 
 
 def build_execution_event(
@@ -345,7 +359,9 @@ def build_execution_event(
         {"execution_id": str(execution_id), **payload},
     )
     if normalized["execution_id"] != str(execution_id):
-        raise ValueError("Event payload execution_id must match the aggregate execution_id.")
+        raise ValueError(
+            "Event payload execution_id must match the aggregate execution_id."
+        )
     return OutboxEvent(
         aggregate_type="Execution",
         aggregate_id=execution_id,

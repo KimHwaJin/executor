@@ -28,14 +28,18 @@ BASIC_REQUIREMENTS = HARNESS_ROOT / "environments/basic/requirements.txt"
 ML_REQUIREMENTS = HARNESS_ROOT / "environments/ml/requirements.txt"
 EXTENSION_ROOT = HARNESS_ROOT / "extension"
 SERVER_CONFIG = HARNESS_ROOT / "jupyter_server_config.py"
-EXTENSION_CONFIG = {"ServerApp": {"jpserver_extensions": {"executor_resource_extension": True}}}
+EXTENSION_CONFIG = {
+    "ServerApp": {"jpserver_extensions": {"executor_resource_extension": True}}
+}
 
 
 class NativeJupyterError(RuntimeError):
     """A safe, user-actionable native Jupyter setup or verification error."""
 
 
-def environment_python(environment: Path, *, windows: bool | None = None) -> Path:
+def environment_python(
+    environment: Path, *, windows: bool | None = None
+) -> Path:
     is_windows = os.name == "nt" if windows is None else windows
     return environment / ("Scripts/python.exe" if is_windows else "bin/python")
 
@@ -43,7 +47,8 @@ def environment_python(environment: Path, *, windows: bool | None = None) -> Pat
 def extension_config_path(server_environment: Path) -> Path:
     # Jupyter's sys.prefix config layout is identical on Windows and POSIX.
     return (
-        server_environment / "etc/jupyter/jupyter_server_config.d/executor_resource_extension.json"
+        server_environment
+        / "etc/jupyter/jupyter_server_config.d/executor_resource_extension.json"
     )
 
 
@@ -67,13 +72,17 @@ def detect_linux_cgroup_root(
     return None
 
 
-def _run(command: list[str], *, environment: dict[str, str] | None = None) -> None:
+def _run(
+    command: list[str], *, environment: dict[str, str] | None = None
+) -> None:
     display = " ".join(_display_argument(argument) for argument in command)
     print(f"+ {display}", flush=True)
     try:
         subprocess.run(command, check=True, env=environment)
     except FileNotFoundError as exc:
-        raise NativeJupyterError(f"Command was not found: {command[0]}") from exc
+        raise NativeJupyterError(
+            f"Command was not found: {command[0]}"
+        ) from exc
     except subprocess.CalledProcessError as exc:
         raise NativeJupyterError(
             f"Command failed with exit code {exc.returncode}: {command[0]}"
@@ -142,7 +151,11 @@ def setup(args: argparse.Namespace) -> None:
             environment=setup_environment,
         )
 
-    for name, version in (("server", "3.12"), ("basic", "3.11"), ("ml", "3.12")):
+    for name, version in (
+        ("server", "3.12"),
+        ("basic", "3.11"),
+        ("ml", "3.12"),
+    ):
         _run(
             [
                 uv,
@@ -219,12 +232,16 @@ def setup(args: argparse.Namespace) -> None:
         ]
     )
 
-    default_kernelspec = environments["server"] / "share/jupyter/kernels/python3"
+    default_kernelspec = (
+        environments["server"] / "share/jupyter/kernels/python3"
+    )
     if default_kernelspec.exists():
         shutil.rmtree(default_kernelspec)
     config_path = extension_config_path(environments["server"])
     config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(json.dumps(EXTENSION_CONFIG, indent=2) + "\n", encoding="utf-8")
+    config_path.write_text(
+        json.dumps(EXTENSION_CONFIG, indent=2) + "\n", encoding="utf-8"
+    )
     _verify_local_install(environments)
     print(f"Native Jupyter environments are ready under: {install_root}")
 
@@ -248,7 +265,9 @@ def _verify_local_install(environments: dict[str, Path]) -> None:
         )
         actual = tuple(json.loads(result.stdout))
         if actual != version:
-            raise NativeJupyterError(f"{name} requires Python {version}, found {actual}.")
+            raise NativeJupyterError(
+                f"{name} requires Python {version}, found {actual}."
+            )
 
     server_python = environment_python(environments["server"])
     _run(
@@ -271,7 +290,9 @@ def run_server(args: argparse.Namespace, extra_arguments: list[str]) -> None:
     environments = _environment_roots(install_root)
     server_python = environment_python(environments["server"])
     if not server_python.is_file():
-        raise NativeJupyterError("Native Jupyter is not installed. Run the setup command first.")
+        raise NativeJupyterError(
+            "Native Jupyter is not installed. Run the setup command first."
+        )
 
     token = args.token or os.getenv("JUPYTER_TOKEN", "")
     if not token:
@@ -288,7 +309,10 @@ def run_server(args: argparse.Namespace, extra_arguments: list[str]) -> None:
         environment["EXECUTOR_RESOURCE_CPU_CORES"] = str(args.cpu_cores)
     if args.memory_bytes is not None:
         environment["EXECUTOR_RESOURCE_MEMORY_BYTES"] = str(args.memory_bytes)
-    if "EXECUTOR_RESOURCE_CGROUP_ROOT" not in environment and sys.platform.startswith("linux"):
+    if (
+        "EXECUTOR_RESOURCE_CGROUP_ROOT" not in environment
+        and sys.platform.startswith("linux")
+    ):
         detected = detect_linux_cgroup_root()
         if detected is not None:
             environment["EXECUTOR_RESOURCE_CGROUP_ROOT"] = str(detected)
@@ -315,18 +339,24 @@ def verify(args: argparse.Namespace) -> None:
     endpoint = args.endpoint.rstrip("/")
     token = args.token or os.getenv("JUPYTER_TOKEN", "")
     if not token:
-        raise NativeJupyterError("JUPYTER_TOKEN or --token is required for verification.")
+        raise NativeJupyterError(
+            "JUPYTER_TOKEN or --token is required for verification."
+        )
 
     status = _json_request(endpoint, token, "GET", "/api/status")
     kernelspecs = _json_request(endpoint, token, "GET", "/api/kernelspecs")
-    resources = _json_request(endpoint, token, "GET", "/executor/resource-status")
+    resources = _json_request(
+        endpoint, token, "GET", "/executor/resource-status"
+    )
     advertised = set(kernelspecs.get("kernelspecs", {}))
     if advertised != {"basic", "ml"}:
         raise NativeJupyterError(
             f"Expected exactly basic and ml kernelspecs, found: {sorted(advertised)}"
         )
     if resources.get("schema_version") != "1.0":
-        raise NativeJupyterError("Executor resource endpoint returned an unsupported schema.")
+        raise NativeJupyterError(
+            "Executor resource endpoint returned an unsupported schema."
+        )
 
     started_kernels: list[str] = []
     try:
@@ -340,12 +370,16 @@ def verify(args: argparse.Namespace) -> None:
             )
             kernel_id = kernel.get("id")
             if not isinstance(kernel_id, str) or not kernel_id:
-                raise NativeJupyterError(f"Jupyter did not return a kernel ID for {profile}.")
+                raise NativeJupyterError(
+                    f"Jupyter did not return a kernel ID for {profile}."
+                )
             started_kernels.append(kernel_id)
             _ensure_kernel_available(endpoint, token, kernel_id, profile)
     finally:
         for kernel_id in started_kernels:
-            _request_no_content(endpoint, token, "DELETE", f"/api/kernels/{kernel_id}")
+            _request_no_content(
+                endpoint, token, "DELETE", f"/api/kernels/{kernel_id}"
+            )
 
     workspace = f"native-verification/{uuid4()}"
     prepared = _json_request(
@@ -399,17 +433,27 @@ def _json_request(
         with urlopen(request, timeout=30) as response:
             result = json.loads(response.read())
     except HTTPError as exc:
-        raise NativeJupyterError(f"Jupyter returned HTTP {exc.code} for {path}.") from exc
+        raise NativeJupyterError(
+            f"Jupyter returned HTTP {exc.code} for {path}."
+        ) from exc
     except URLError as exc:
-        raise NativeJupyterError(f"Jupyter is unreachable at {endpoint}.") from exc
+        raise NativeJupyterError(
+            f"Jupyter is unreachable at {endpoint}."
+        ) from exc
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise NativeJupyterError(f"Jupyter returned invalid JSON for {path}.") from exc
+        raise NativeJupyterError(
+            f"Jupyter returned invalid JSON for {path}."
+        ) from exc
     if not isinstance(result, dict):
-        raise NativeJupyterError(f"Jupyter returned a non-object response for {path}.")
+        raise NativeJupyterError(
+            f"Jupyter returned a non-object response for {path}."
+        )
     return result
 
 
-def _request_no_content(endpoint: str, token: str, method: str, path: str) -> None:
+def _request_no_content(
+    endpoint: str, token: str, method: str, path: str
+) -> None:
     request = Request(
         f"{endpoint}{path}",
         method=method,
@@ -419,9 +463,13 @@ def _request_no_content(endpoint: str, token: str, method: str, path: str) -> No
         with urlopen(request, timeout=30):
             return
     except HTTPError as exc:
-        raise NativeJupyterError(f"Jupyter returned HTTP {exc.code} for {path}.") from exc
+        raise NativeJupyterError(
+            f"Jupyter returned HTTP {exc.code} for {path}."
+        ) from exc
     except URLError as exc:
-        raise NativeJupyterError(f"Jupyter is unreachable at {endpoint}.") from exc
+        raise NativeJupyterError(
+            f"Jupyter is unreachable at {endpoint}."
+        ) from exc
 
 
 def _ensure_kernel_available(
@@ -439,9 +487,13 @@ def _ensure_kernel_available(
     """
     deadline = time.monotonic() + observation_seconds
     while time.monotonic() < deadline:
-        kernel = _json_request(endpoint, token, "GET", f"/api/kernels/{kernel_id}")
+        kernel = _json_request(
+            endpoint, token, "GET", f"/api/kernels/{kernel_id}"
+        )
         if kernel.get("id") != kernel_id:
-            raise NativeJupyterError(f"Jupyter returned an invalid kernel record for {profile}.")
+            raise NativeJupyterError(
+                f"Jupyter returned an invalid kernel record for {profile}."
+            )
         time.sleep(0.25)
 
 
@@ -450,8 +502,12 @@ def parser() -> argparse.ArgumentParser:
     root.set_defaults(action=None)
     subcommands = root.add_subparsers(dest="action", required=True)
 
-    setup_parser = subcommands.add_parser("setup", help="Install server/basic/ml environments.")
-    setup_parser.add_argument("--install-root", default=str(DEFAULT_INSTALL_ROOT))
+    setup_parser = subcommands.add_parser(
+        "setup", help="Install server/basic/ml environments."
+    )
+    setup_parser.add_argument(
+        "--install-root", default=str(DEFAULT_INSTALL_ROOT)
+    )
     setup_parser.add_argument(
         "--python-311",
         help="Existing Python 3.11 executable; skips its uv-managed Python download.",
@@ -465,19 +521,27 @@ def parser() -> argparse.ArgumentParser:
         help="PEP 503 package index used as uv's only default index (for example, Nexus).",
     )
 
-    run_parser = subcommands.add_parser("run", help="Run the native JupyterLab server.")
+    run_parser = subcommands.add_parser(
+        "run", help="Run the native JupyterLab server."
+    )
     run_parser.add_argument("--install-root", default=str(DEFAULT_INSTALL_ROOT))
     run_parser.add_argument("--root-dir", default=str(DEFAULT_CONTENTS_ROOT))
     run_parser.add_argument("--host", default="127.0.0.1")
     run_parser.add_argument("--port", type=int, default=8888)
     run_parser.add_argument("--base-url", default="/")
-    run_parser.add_argument("--token", help="Prefer the JUPYTER_TOKEN environment variable.")
+    run_parser.add_argument(
+        "--token", help="Prefer the JUPYTER_TOKEN environment variable."
+    )
     run_parser.add_argument("--cpu-cores", type=float)
     run_parser.add_argument("--memory-bytes", type=int)
 
-    verify_parser = subcommands.add_parser("verify", help="Verify a running Jupyter target.")
+    verify_parser = subcommands.add_parser(
+        "verify", help="Verify a running Jupyter target."
+    )
     verify_parser.add_argument("--endpoint", default="http://127.0.0.1:8888")
-    verify_parser.add_argument("--token", help="Prefer the JUPYTER_TOKEN environment variable.")
+    verify_parser.add_argument(
+        "--token", help="Prefer the JUPYTER_TOKEN environment variable."
+    )
     return root
 
 
@@ -494,7 +558,9 @@ def main() -> None:
             run_server(arguments, extra)
         elif arguments.action == "verify":
             if extra:
-                raise NativeJupyterError(f"Unexpected verify arguments: {extra}")
+                raise NativeJupyterError(
+                    f"Unexpected verify arguments: {extra}"
+                )
             verify(arguments)
     except NativeJupyterError as exc:
         print(f"error: {exc}", file=sys.stderr)

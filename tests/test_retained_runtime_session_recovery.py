@@ -39,7 +39,9 @@ from executor_service.infrastructure.db.models import (
     RuntimeTargetORM,
 )
 from executor_service.infrastructure.db.session import create_session_factory
-from executor_service.infrastructure.runtime_registry import RuntimeTargetRegistry
+from executor_service.infrastructure.runtime_registry import (
+    RuntimeTargetRegistry,
+)
 from executor_service.infrastructure.worker import ExecutionWorker
 from tests.runtime_credentials import runtime_credential_fields
 
@@ -84,7 +86,9 @@ async def _prepare_retained_retry(
     async with session_factory() as session, session.begin():
         target = RuntimeTargetORM(
             name=f"retained-target-{key}",
-            connection_config={"endpoint": "http://retained-jupyter.invalid:8888"},
+            connection_config={
+                "endpoint": "http://retained-jupyter.invalid:8888"
+            },
             **runtime_credential_fields(),
             pool=RuntimePool.INTERACTIVE,
             status=target_status,
@@ -159,7 +163,9 @@ async def _prepare_retained_retry(
             await session.execute(
                 update(ExecutionORM)
                 .where(ExecutionORM.id == submitted.id)
-                .values(retained_runtime_session_until=utc_now() + retention_delta)
+                .values(
+                    retained_runtime_session_until=utc_now() + retention_delta
+                )
             )
     async with session_factory() as session:
         execution = await session.get(ExecutionORM, submitted.id)
@@ -169,7 +175,9 @@ async def _prepare_retained_retry(
         return execution, persisted_target
 
 
-def _worker(engine: AsyncEngine, tmp_path: Path) -> tuple[ExecutionWorker, Redis]:
+def _worker(
+    engine: AsyncEngine, tmp_path: Path
+) -> tuple[ExecutionWorker, Redis]:
     settings = Settings(runtime_enabled=False, input_host_root=tmp_path)
     session_factory = create_session_factory(engine)
     redis = Redis.from_url("redis://127.0.0.1:6379/15", decode_responses=True)
@@ -208,7 +216,10 @@ async def test_offline_retained_retry_waits_then_claims_the_same_target_and_sess
             assert waiting.status == ExecutionStatus.QUEUED
             assert waiting.retry_strategy == RetryStrategy.FROM_FAILED_STEP
             assert waiting.runtime_target_id == target.id
-            assert waiting.runtime_session_id == "retained-session-offline-recovery"
+            assert (
+                waiting.runtime_session_id
+                == "retained-session-offline-recovery"
+            )
             attempt_count = len(
                 list(
                     await session.scalars(
@@ -231,8 +242,13 @@ async def test_offline_retained_retry_waits_then_claims_the_same_target_and_sess
         assert claimed is not None
         claimed_execution, claimed_target, _attempt_id = claimed
         assert claimed_target.id == target.id
-        assert claimed_execution.runtime_session_id == "retained-session-offline-recovery"
-        assert claimed_execution.retry_strategy == RetryStrategy.FROM_FAILED_STEP
+        assert (
+            claimed_execution.runtime_session_id
+            == "retained-session-offline-recovery"
+        )
+        assert (
+            claimed_execution.retry_strategy == RetryStrategy.FROM_FAILED_STEP
+        )
     finally:
         await redis.aclose()
 
@@ -265,7 +281,9 @@ async def test_disabled_retained_target_requires_an_explicit_from_start_retry(
         assert failed.retry_strategy == RetryStrategy.FROM_START
         assert failed.retry_from_sequence == 0
         assert failed.runtime_target_id == target.id
-        operation = await session.get(ExecutionOperationORM, execution.active_operation_id)
+        operation = await session.get(
+            ExecutionOperationORM, execution.active_operation_id
+        )
         assert operation is not None
         assert operation.status == OperationStatus.FAILED
         event = await session.scalar(
@@ -299,7 +317,10 @@ async def test_draining_target_allows_its_retained_runtime_session_to_finish(
     claimed_execution, claimed_target, _attempt_id = claimed
     assert claimed_target.id == target.id
     assert claimed_target.status == RuntimeTargetStatus.DRAINING
-    assert claimed_execution.runtime_session_id == "retained-session-draining-target"
+    assert (
+        claimed_execution.runtime_session_id
+        == "retained-session-draining-target"
+    )
     assert claimed_execution.retry_strategy == RetryStrategy.FROM_FAILED_STEP
 
 
@@ -331,7 +352,9 @@ class UnavailableKernelGateway:
         pass
 
 
-def _patch_runtime_driver(monkeypatch: pytest.MonkeyPatch, driver_type: type[Any]) -> None:
+def _patch_runtime_driver(
+    monkeypatch: pytest.MonkeyPatch, driver_type: type[Any]
+) -> None:
     monkeypatch.setattr(
         "executor_service.infrastructure.runtime_drivers.JupyterRuntimeDriver",
         driver_type,
@@ -379,7 +402,9 @@ async def test_preflight_connection_failure_defers_the_retained_retry(
         assert deferred.retry_strategy != RetryStrategy.NOT_RETRYABLE
         assert deferred.retry_strategy == RetryStrategy.FROM_FAILED_STEP
         assert deferred.runtime_target_id == target.id
-        assert deferred.runtime_session_id == "retained-session-preflight-outage"
+        assert (
+            deferred.runtime_session_id == "retained-session-preflight-outage"
+        )
         assert deferred.retained_runtime_session_until is not None
         assert persisted_target is not None
         assert persisted_target.status == RuntimeTargetStatus.OFFLINE
@@ -387,12 +412,16 @@ async def test_preflight_connection_failure_defers_the_retained_retry(
         assert attempts[-1].status == AttemptStatus.FAILED
         assert attempts[-1].failure_type == FailureType.RUNTIME_UNAVAILABLE
         assert attempts[-1].retry_strategy == RetryStrategy.FROM_FAILED_STEP
-        operation = await session.get(ExecutionOperationORM, execution.active_operation_id)
+        operation = await session.get(
+            ExecutionOperationORM, execution.active_operation_id
+        )
         assert operation is not None
         assert operation.status == OperationStatus.QUEUED
         assert operation.execution_attempt_id is None
         assert event is not None
-        assert event.payload["reason"] == "retained_target_temporarily_unavailable"
+        assert (
+            event.payload["reason"] == "retained_target_temporarily_unavailable"
+        )
 
 
 async def test_missing_retained_runtime_session_fails_without_running_on_another_target(
@@ -478,7 +507,9 @@ async def test_queued_retained_retry_expires_without_switching_targets(
         assert expired.retry_strategy == RetryStrategy.NOT_RETRYABLE
         assert expired.runtime_session_id is None
         assert CleanupGateway.deleted == ["retained-session-expired-queued"]
-        operation = await session.get(ExecutionOperationORM, execution.active_operation_id)
+        operation = await session.get(
+            ExecutionOperationORM, execution.active_operation_id
+        )
         assert operation is not None
         assert operation.status == OperationStatus.FAILED
         event = await session.scalar(

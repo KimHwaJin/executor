@@ -5,19 +5,32 @@ from typing import Protocol, Self
 from uuid import UUID
 
 from executor_service.domain.enums import ActorType
-from executor_service.domain.models import Execution, ExecutionOperation, ExecutionStep, OutboxEvent
+from executor_service.domain.models import (
+    Execution,
+    ExecutionOperation,
+    ExecutionStep,
+    OutboxEvent,
+)
 
 
 class ExecutionRepository(Protocol):
     async def add(self, execution: Execution) -> None: ...
 
-    async def get(self, execution_id: UUID, *, for_update: bool = False) -> Execution | None: ...
+    async def get(
+        self, execution_id: UUID, *, for_update: bool = False
+    ) -> Execution | None: ...
 
-    async def get_by_submit_key(self, idempotency_key: str) -> Execution | None: ...
+    async def get_by_submit_key(
+        self, idempotency_key: str
+    ) -> Execution | None: ...
 
-    async def get_by_cancel_key(self, idempotency_key: str) -> Execution | None: ...
+    async def get_by_cancel_key(
+        self, idempotency_key: str
+    ) -> Execution | None: ...
 
-    async def get_by_retry_key(self, idempotency_key: str) -> Execution | None: ...
+    async def get_by_retry_key(
+        self, idempotency_key: str
+    ) -> Execution | None: ...
 
     async def add_retry_receipt(
         self, execution_id: UUID, idempotency_key: str, from_sequence: int
@@ -35,13 +48,17 @@ class ExecutionRepository(Protocol):
         result: dict[str, object],
     ) -> None: ...
 
-    async def add_step(self, execution_id: UUID, step: ExecutionStep) -> None: ...
+    async def add_step(
+        self, execution_id: UUID, step: ExecutionStep
+    ) -> None: ...
 
     async def add_operation(self, operation: ExecutionOperation) -> None: ...
 
     async def next_operation_number(self, execution_id: UUID) -> int: ...
 
-    async def get_operation_id_by_key(self, idempotency_key: str) -> UUID | None: ...
+    async def get_operation_id_by_key(
+        self, idempotency_key: str
+    ) -> UUID | None: ...
 
     async def requeue_operation_for_retry(
         self,

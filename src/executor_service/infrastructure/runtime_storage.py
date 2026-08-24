@@ -7,10 +7,17 @@ from sqlalchemy import case, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from executor_service.domain.enums import RuntimeTargetStatus, RuntimeType
-from executor_service.domain.runtime import RuntimeDriverError, RuntimeFileMetadata
+from executor_service.domain.runtime import (
+    RuntimeDriverError,
+    RuntimeFileMetadata,
+)
 from executor_service.infrastructure.db.models import RuntimeTargetORM
-from executor_service.infrastructure.runtime_drivers import ConfiguredRuntimeDriverFactory
-from executor_service.infrastructure.runtime_registry import RuntimeTargetRegistry
+from executor_service.infrastructure.runtime_drivers import (
+    ConfiguredRuntimeDriverFactory,
+)
+from executor_service.infrastructure.runtime_registry import (
+    RuntimeTargetRegistry,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +43,9 @@ class FleetRuntimeStorageAccess:
     ) -> dict[str, object]:
         targets = await self._candidates(runtime_type, preferred_target_id)
         if not targets:
-            raise RuntimeDriverError("No healthy Runtime Target can access shared storage.")
+            raise RuntimeDriverError(
+                "No healthy Runtime Target can access shared storage."
+            )
         last_error: Exception | None = None
         for target in targets:
             credential = self._registry.resolve_credential(
@@ -68,7 +77,9 @@ class FleetRuntimeStorageAccess:
     ) -> None:
         targets = await self._candidates(runtime_type, preferred_target_id)
         if not targets:
-            raise RuntimeDriverError("No healthy Runtime Target can access shared storage.")
+            raise RuntimeDriverError(
+                "No healthy Runtime Target can access shared storage."
+            )
         last_error: Exception | None = None
         for target in targets:
             credential = self._registry.resolve_credential(
@@ -101,7 +112,9 @@ class FleetRuntimeStorageAccess:
     ) -> RuntimeFileMetadata:
         targets = await self._candidates(runtime_type, preferred_target_id)
         if not targets:
-            raise RuntimeDriverError("No healthy Runtime Target can access shared storage.")
+            raise RuntimeDriverError(
+                "No healthy Runtime Target can access shared storage."
+            )
         last_error: Exception | None = None
         for target in targets:
             credential = self._registry.resolve_credential(
@@ -128,7 +141,9 @@ class FleetRuntimeStorageAccess:
     async def _candidates(
         self, runtime_type: RuntimeType, preferred_target_id: UUID | None
     ) -> list[RuntimeTargetORM]:
-        preferred = case((RuntimeTargetORM.id == preferred_target_id, 0), else_=1)
+        preferred = case(
+            (RuntimeTargetORM.id == preferred_target_id, 0), else_=1
+        )
         async with self._session_factory() as session:
             return list(
                 await session.scalars(
@@ -137,7 +152,10 @@ class FleetRuntimeStorageAccess:
                         RuntimeTargetORM.runtime_type == runtime_type,
                         RuntimeTargetORM.enabled.is_(True),
                         RuntimeTargetORM.status.in_(
-                            [RuntimeTargetStatus.ACTIVE, RuntimeTargetStatus.DRAINING]
+                            [
+                                RuntimeTargetStatus.ACTIVE,
+                                RuntimeTargetStatus.DRAINING,
+                            ]
                         ),
                     )
                     .order_by(preferred, RuntimeTargetORM.name)

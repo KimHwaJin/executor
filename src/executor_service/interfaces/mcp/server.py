@@ -18,8 +18,12 @@ from executor_service.application.commands import (
     RetryExecutionCommand,
     StepSpec,
 )
-from executor_service.application.execution_queries import ExecutionQueryService
-from executor_service.application.execution_results import ExecutionResultQueryService
+from executor_service.application.execution_queries import (
+    ExecutionQueryService,
+)
+from executor_service.application.execution_results import (
+    ExecutionResultQueryService,
+)
 from executor_service.application.notebook_queries import (
     ExecutionNotebookQueryService,
     NotebookCellView,
@@ -40,7 +44,9 @@ from executor_service.domain.enums import (
 )
 from executor_service.domain.errors import DomainError, ErrorCode
 from executor_service.execution_specs import ExecutionSpecResolver
-from executor_service.infrastructure.materialized_artifacts import MaterializedArtifactService
+from executor_service.infrastructure.materialized_artifacts import (
+    MaterializedArtifactService,
+)
 from executor_service.interfaces.contracts import (
     ExecutionArtifactPageResponse,
     ExecutionArtifactResponse,
@@ -84,8 +90,12 @@ def _public_tool_error(exc: Exception) -> ToolError:
         return exc
     if isinstance(exc, DomainError):
         return ToolError(f"[{exc.code}] {exc}")
-    logging.getLogger(__name__).exception("Unhandled MCP Tool error", exc_info=exc)
-    return ToolError(f"[{ErrorCode.INTERNAL_ERROR}] An internal error occurred.")
+    logging.getLogger(__name__).exception(
+        "Unhandled MCP Tool error", exc_info=exc
+    )
+    return ToolError(
+        f"[{ErrorCode.INTERNAL_ERROR}] An internal error occurred."
+    )
 
 
 async def _trace_call[T](
@@ -125,13 +135,17 @@ def build_mcp_server(
             "Reusing idempotency_key with the same request returns the original execution."
         )
     )
-    async def execution_submit(request: ExecutionSubmitRequest) -> ExecutionCommandResponse:
+    async def execution_submit(
+        request: ExecutionSubmitRequest,
+    ) -> ExecutionCommandResponse:
         try:
             if execution_spec_resolver is None:
                 raise ToolError(
                     f"[{ErrorCode.INTERNAL_ERROR}] ExecutionSpec resolver is not configured."
                 )
-            resolved = await execution_spec_resolver.resolve(request.operation.spec)
+            resolved = await execution_spec_resolver.resolve(
+                request.operation.spec
+            )
             if resolved.spec.steps[0].sequence != 0:
                 raise ToolError(
                     f"[{ErrorCode.INVALID_EXECUTION_SPEC}] Execution submit requires an "
@@ -148,7 +162,9 @@ def build_mcp_server(
             result.execution, operation_id=result.operation_id
         )
 
-    @server.tool(description="Get the PostgreSQL-backed current execution state.")
+    @server.tool(
+        description="Get the PostgreSQL-backed current execution state."
+    )
     async def execution_get(execution_id: UUID) -> ExecutionResponse:
         try:
             execution = await _trace_call(
@@ -171,7 +187,9 @@ def build_mcp_server(
             "A successful call transitions a non-terminal execution to CANCEL_REQUESTED."
         )
     )
-    async def execution_cancel(request: ExecutionCancelRequest) -> ExecutionCommandResponse:
+    async def execution_cancel(
+        request: ExecutionCancelRequest,
+    ) -> ExecutionCommandResponse:
         try:
             execution = await _trace_call(
                 tracing,
@@ -197,7 +215,9 @@ def build_mcp_server(
             "The call queues a new attempt and returns immediately."
         )
     )
-    async def execution_retry(request: ExecutionRetryRequest) -> ExecutionCommandResponse:
+    async def execution_retry(
+        request: ExecutionRetryRequest,
+    ) -> ExecutionCommandResponse:
         try:
             result = await _trace_call(
                 tracing,
@@ -266,8 +286,12 @@ def build_mcp_server(
                 ),
                 {
                     "executor.execution.id": str(request.execution_id),
-                    "executor.operation.first_sequence": source_steps[0].sequence,
-                    "executor.operation.last_sequence": source_steps[-1].sequence,
+                    "executor.operation.first_sequence": source_steps[
+                        0
+                    ].sequence,
+                    "executor.operation.last_sequence": source_steps[
+                        -1
+                    ].sequence,
                 },
             )
         except Exception as exc:
@@ -277,9 +301,13 @@ def build_mcp_server(
         )
 
     @server.tool(
-        description=("Finalize a waiting MULTI execution and release its retained Runtime session.")
+        description=(
+            "Finalize a waiting MULTI execution and release its retained Runtime session."
+        )
     )
-    async def execution_finalize(request: ExecutionFinalizeRequest) -> ExecutionCommandResponse:
+    async def execution_finalize(
+        request: ExecutionFinalizeRequest,
+    ) -> ExecutionCommandResponse:
         try:
             execution = await _trace_call(
                 tracing,
@@ -376,7 +404,9 @@ def build_mcp_server(
                     "Attempts, Step Attempts, and Artifacts."
                 )
             )
-            async def execution_result_get(execution_id: UUID) -> ExecutionResultResponse:
+            async def execution_result_get(
+                execution_id: UUID,
+            ) -> ExecutionResultResponse:
                 try:
                     bundle = await execution_results.execution(execution_id)
                 except Exception as exc:
@@ -394,7 +424,9 @@ def build_mcp_server(
                 operation_id: UUID,
             ) -> ExecutionOperationResultResponse:
                 try:
-                    bundle = await execution_results.operation(execution_id, operation_id)
+                    bundle = await execution_results.operation(
+                        execution_id, operation_id
+                    )
                 except Exception as exc:
                     raise _public_tool_error(exc) from exc
                 return ExecutionOperationResultResponse.from_bundle(bundle)
@@ -462,23 +494,31 @@ def build_mcp_server(
             limit: StandardLimit = 100,
         ) -> ExecutionOperationPageResponse:
             try:
-                page = await execution_queries.operations(execution_id, cursor=cursor, limit=limit)
+                page = await execution_queries.operations(
+                    execution_id, cursor=cursor, limit=limit
+                )
             except Exception as exc:
                 raise _public_tool_error(exc) from exc
             return ExecutionOperationPageResponse.from_page(page)
 
-        @server.tool(description="Get one execution Operation result and Step range.")
+        @server.tool(
+            description="Get one execution Operation result and Step range."
+        )
         async def execution_operation_get(
             execution_id: UUID,
             operation_id: UUID,
         ) -> ExecutionOperationResponse:
             try:
-                view = await execution_queries.operation(execution_id, operation_id)
+                view = await execution_queries.operation(
+                    execution_id, operation_id
+                )
             except Exception as exc:
                 raise _public_tool_error(exc) from exc
             return ExecutionOperationResponse.from_view(view)
 
-        @server.tool(description="List current Step results belonging to one Operation.")
+        @server.tool(
+            description="List current Step results belonging to one Operation."
+        )
         async def execution_operation_step_list(
             execution_id: UUID,
             operation_id: UUID,
@@ -494,7 +534,9 @@ def build_mcp_server(
             return ExecutionStepPageResponse.from_page(page, execution_id)
 
         @server.tool(
-            description=("List immutable execution Attempt summaries with outcome and Step count.")
+            description=(
+                "List immutable execution Attempt summaries with outcome and Step count."
+            )
         )
         async def execution_attempt_list(
             execution_id: UUID,
@@ -511,7 +553,9 @@ def build_mcp_server(
                 raise _public_tool_error(exc) from exc
             return ExecutionAttemptPageResponse.from_page(page)
 
-        @server.tool(description="Get one immutable execution Attempt in detail.")
+        @server.tool(
+            description="Get one immutable execution Attempt in detail."
+        )
         async def execution_attempt_get(
             execution_id: UUID,
             attempt_id: UUID,
@@ -523,7 +567,9 @@ def build_mcp_server(
             return ExecutionAttemptDetailResponse.from_view(view)
 
         @server.tool(
-            description=("List immutable Step results for one Attempt using an opaque cursor.")
+            description=(
+                "List immutable Step results for one Attempt using an opaque cursor."
+            )
         )
         async def execution_attempt_step_list(
             execution_id: UUID,
@@ -584,8 +630,12 @@ def build_mcp_server(
                 raise _public_tool_error(exc) from exc
             return ExecutionArtifactPageResponse.from_page(page)
 
-        @server.tool(description="Get one Execution Artifact and its direct lineage references.")
-        async def execution_artifact_get(artifact_id: UUID) -> ExecutionArtifactResponse:
+        @server.tool(
+            description="Get one Execution Artifact and its direct lineage references."
+        )
+        async def execution_artifact_get(
+            artifact_id: UUID,
+        ) -> ExecutionArtifactResponse:
             try:
                 view = await execution_queries.artifact(artifact_id)
             except Exception as exc:
@@ -612,7 +662,9 @@ def build_mcp_server(
                         runtime_type=request.runtime_type,
                         connection_config=request.connection_config,
                         credential=(
-                            request.credential.get_secret_value() if request.credential else None
+                            request.credential.get_secret_value()
+                            if request.credential
+                            else None
                         ),
                         pool=request.pool,
                         actor_type=request.actor.type,
@@ -624,7 +676,9 @@ def build_mcp_server(
                 raise _public_tool_error(exc) from exc
             return RuntimeTargetResponse.from_view(view)
 
-        @server.tool(description="List registered Runtime Targets and current capacity state.")
+        @server.tool(
+            description="List registered Runtime Targets and current capacity state."
+        )
         async def runtime_target_list(
             pool: RuntimePool | None = None,
             runtime_type: RuntimeType | None = None,
@@ -710,7 +764,9 @@ def build_mcp_server(
                     SetRuntimeTargetStateCommand(
                         idempotency_key=request.idempotency_key,
                         target_id=request.target_id,
-                        desired_state=RuntimeTargetStatus(request.desired_state),
+                        desired_state=RuntimeTargetStatus(
+                            request.desired_state
+                        ),
                         actor_type=request.actor.type,
                         actor_id=request.actor.id,
                     )
@@ -722,7 +778,9 @@ def build_mcp_server(
     return server
 
 
-def _notebook_cell_content(view: NotebookCellView) -> list[TextContent | ImageContent]:
+def _notebook_cell_content(
+    view: NotebookCellView,
+) -> list[TextContent | ImageContent]:
     header = {
         "index": view.index,
         "id": view.id,
@@ -736,21 +794,39 @@ def _notebook_cell_content(view: NotebookCellView) -> list[TextContent | ImageCo
     ]
     for output in view.outputs:
         if output.get("output_type") == "stream":
-            content.append(TextContent(type="text", text=str(output.get("text", ""))))
+            content.append(
+                TextContent(type="text", text=str(output.get("text", "")))
+            )
             continue
         if output.get("output_type") == "error":
-            content.append(TextContent(type="text", text=json.dumps(output, ensure_ascii=False)))
+            content.append(
+                TextContent(
+                    type="text", text=json.dumps(output, ensure_ascii=False)
+                )
+            )
             continue
         data = output.get("data")
         if not isinstance(data, dict):
-            content.append(TextContent(type="text", text=json.dumps(output, ensure_ascii=False)))
+            content.append(
+                TextContent(
+                    type="text", text=json.dumps(output, ensure_ascii=False)
+                )
+            )
             continue
         for mime_type, value in data.items():
-            if mime_type in {"image/png", "image/jpeg"} and isinstance(value, str):
-                content.append(ImageContent(type="image", data=value, mime_type=mime_type))
+            if mime_type in {"image/png", "image/jpeg"} and isinstance(
+                value, str
+            ):
+                content.append(
+                    ImageContent(type="image", data=value, mime_type=mime_type)
+                )
             else:
                 rendered = (
-                    value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+                    value
+                    if isinstance(value, str)
+                    else json.dumps(value, ensure_ascii=False)
                 )
-                content.append(TextContent(type="text", text=f"[{mime_type}]\n{rendered}"))
+                content.append(
+                    TextContent(type="text", text=f"[{mime_type}]\n{rendered}")
+                )
     return content

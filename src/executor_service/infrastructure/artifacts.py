@@ -12,7 +12,11 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from executor_service.domain.enums import ArtifactStatus, ArtifactStorageType, ArtifactType
+from executor_service.domain.enums import (
+    ArtifactStatus,
+    ArtifactStorageType,
+    ArtifactType,
+)
 from executor_service.domain.errors import ArtifactRegistrationError
 from executor_service.domain.runtime import (
     RuntimeFileMetadata,
@@ -69,7 +73,9 @@ class ArtifactManifestEntry(BaseModel):
     description: str | None = Field(default=None, max_length=4000)
     media_type: str | None = Field(default=None, max_length=255)
     size_bytes: int | None = Field(default=None, ge=0)
-    checksum_sha256: str | None = Field(default=None, pattern=r"^[a-fA-F0-9]{64}$")
+    checksum_sha256: str | None = Field(
+        default=None, pattern=r"^[a-fA-F0-9]{64}$"
+    )
     parent_artifact_id: UUID | None = None
     external_parent_asset_id: str | None = Field(default=None, max_length=255)
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -84,12 +90,16 @@ class ArtifactManifestEntry(BaseModel):
         if self.storage_type == ArtifactStorageType.S3 and (
             self.size_bytes is None or self.checksum_sha256 is None
         ):
-            raise ValueError("S3 Artifact requires size_bytes and checksum_sha256.")
+            raise ValueError(
+                "S3 Artifact requires size_bytes and checksum_sha256."
+            )
         return self
 
 
 class ExecutionArtifactManager:
-    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+    def __init__(
+        self, session_factory: async_sessionmaker[AsyncSession]
+    ) -> None:
         self._session_factory = session_factory
 
     async def snapshot(
@@ -133,7 +143,10 @@ class ExecutionArtifactManager:
             metadata={},
         )
         return await self._persist(
-            [descriptor], execution_id=execution_id, attempt_id=attempt_id, sequence=sequence
+            [descriptor],
+            execution_id=execution_id,
+            attempt_id=attempt_id,
+            sequence=sequence,
         )
 
     async def _discover(
@@ -143,10 +156,16 @@ class ExecutionArtifactManager:
         before: RuntimeStorageSnapshot,
         status: ArtifactStatus,
     ) -> list[ArtifactDescriptor]:
-        manifest = await driver.read_manifest(workspace.runtime_relative_path, before.manifest_size)
-        manifest_descriptors = await self._manifest_descriptors(driver, workspace, manifest, status)
+        manifest = await driver.read_manifest(
+            workspace.runtime_relative_path, before.manifest_size
+        )
+        manifest_descriptors = await self._manifest_descriptors(
+            driver, workspace, manifest, status
+        )
         manifest_uris = {descriptor.uri for descriptor in manifest_descriptors}
-        current = await driver.artifact_snapshot(workspace.runtime_relative_path)
+        current = await driver.artifact_snapshot(
+            workspace.runtime_relative_path
+        )
         previous = {state.path: state for state in before.files}
         automatic: list[ArtifactDescriptor] = []
         for state in current.files:
@@ -176,14 +195,18 @@ class ExecutionArtifactManager:
         try:
             lines = content.decode("utf-8").splitlines()
         except UnicodeDecodeError as exc:
-            raise ArtifactRegistrationError("Artifact manifest must be UTF-8.") from exc
+            raise ArtifactRegistrationError(
+                "Artifact manifest must be UTF-8."
+            ) from exc
         descriptors: list[ArtifactDescriptor] = []
         for line_number, raw in enumerate(lines, start=1):
             if not raw.strip():
                 continue
             try:
                 entry = ArtifactManifestEntry.model_validate_json(raw)
-                descriptors.append(await self._from_manifest(driver, workspace, entry, status))
+                descriptors.append(
+                    await self._from_manifest(driver, workspace, entry, status)
+                )
             except Exception as exc:
                 raise ArtifactRegistrationError(
                     f"Invalid Artifact manifest entry near appended line {line_number}."
@@ -200,7 +223,9 @@ class ExecutionArtifactManager:
         if entry.storage_type == ArtifactStorageType.PV:
             if entry.path is None:
                 raise ArtifactRegistrationError("PV manifest path is missing.")
-            metadata = await driver.file_metadata(_manifest_runtime_path(entry.path, workspace))
+            metadata = await driver.file_metadata(
+                _manifest_runtime_path(entry.path, workspace)
+            )
             return _runtime_file_descriptor(
                 metadata,
                 entry.artifact_type,
@@ -219,16 +244,22 @@ class ExecutionArtifactManager:
             artifact_type=entry.artifact_type,
             storage_type=ArtifactStorageType.S3,
             status=status,
-            name=entry.name or PurePosixPath(urlsplit(entry.uri).path).name or "s3-artifact",
+            name=entry.name
+            or PurePosixPath(urlsplit(entry.uri).path).name
+            or "s3-artifact",
             description=entry.description,
             uri=entry.uri,
             relative_path=None,
             media_type=entry.media_type,
             size_bytes=entry.size_bytes,
-            checksum_sha256=(entry.checksum_sha256.lower() if entry.checksum_sha256 else None),
+            checksum_sha256=(
+                entry.checksum_sha256.lower() if entry.checksum_sha256 else None
+            ),
             parent_artifact_id=entry.parent_artifact_id,
             external_parent_asset_id=entry.external_parent_asset_id,
-            metadata=_redact({**entry.metadata, "verification": "manifest-declared"}),
+            metadata=_redact(
+                {**entry.metadata, "verification": "manifest-declared"}
+            ),
         )
 
     async def _persist(
@@ -290,9 +321,11 @@ class ExecutionArtifactManager:
                     checksum_sha256=descriptor.checksum_sha256,
                     artifact_metadata=descriptor.metadata,
                     identity_hash=identity_hash,
-                    created_by_type=step.updated_by_type or step.created_by_type,
+                    created_by_type=step.updated_by_type
+                    or step.created_by_type,
                     created_by=step.updated_by or step.created_by,
-                    updated_by_type=step.updated_by_type or step.created_by_type,
+                    updated_by_type=step.updated_by_type
+                    or step.created_by_type,
                     updated_by=step.updated_by or step.created_by,
                 )
                 session.add(row)
@@ -368,7 +401,9 @@ def _manifest_runtime_path(raw: str, workspace: ExecutionWorkspace) -> str:
     if path.is_absolute() or (path.parts and path.parts[0] == "users"):
         return raw
     if not path.parts or any(part in {"", ".", ".."} for part in path.parts):
-        raise ArtifactRegistrationError("PV manifest path contains an unsafe segment.")
+        raise ArtifactRegistrationError(
+            "PV manifest path contains an unsafe segment."
+        )
     return f"{workspace.runtime_relative_path}/{path.as_posix()}"
 
 
@@ -392,10 +427,18 @@ def _identity_hash(
 
 def _validate_s3_uri(uri: str) -> None:
     parsed = urlsplit(uri)
-    if parsed.scheme != "s3" or not parsed.netloc or not parsed.path.lstrip("/"):
-        raise ArtifactRegistrationError("S3 Artifact uri must be s3://bucket/key.")
+    if (
+        parsed.scheme != "s3"
+        or not parsed.netloc
+        or not parsed.path.lstrip("/")
+    ):
+        raise ArtifactRegistrationError(
+            "S3 Artifact uri must be s3://bucket/key."
+        )
     if parsed.username or parsed.password or parsed.query or parsed.fragment:
-        raise ArtifactRegistrationError("S3 Artifact uri must not contain credentials or query.")
+        raise ArtifactRegistrationError(
+            "S3 Artifact uri must not contain credentials or query."
+        )
 
 
 def _redact(value: Any) -> Any:
@@ -411,4 +454,7 @@ def _redact(value: Any) -> Any:
 
 def _is_secret_key(key: str) -> bool:
     normalized = key.lower()
-    return any(marker in normalized for marker in ("token", "secret", "password", "credential"))
+    return any(
+        marker in normalized
+        for marker in ("token", "secret", "password", "credential")
+    )

@@ -25,7 +25,10 @@ from executor_service.application.execution_results import (
     ExecutionResultBundle,
     OperationResultBundle,
 )
-from executor_service.application.notebook_queries import NotebookCellView, NotebookView
+from executor_service.application.notebook_queries import (
+    NotebookCellView,
+    NotebookView,
+)
 from executor_service.application.pagination import Page
 from executor_service.application.runtime_targets import (
     RuntimePoolView,
@@ -53,7 +56,10 @@ from executor_service.domain.enums import (
     TriggerType,
 )
 from executor_service.domain.models import Execution, ExecutionStep
-from executor_service.execution_specs import ExecutionSpec, ResolvedExecutionSpec
+from executor_service.execution_specs import (
+    ExecutionSpec,
+    ResolvedExecutionSpec,
+)
 from executor_service.result_summaries import OutputSummary
 
 
@@ -86,7 +92,9 @@ class PathArtifactSource(ContractModel):
     sha256: str = Field(pattern=r"^[0-9a-fA-F]{64}$")
 
 
-ArtifactSource = Annotated[InlineArtifactSource | PathArtifactSource, Field(discriminator="type")]
+ArtifactSource = Annotated[
+    InlineArtifactSource | PathArtifactSource, Field(discriminator="type")
+]
 
 
 class ExecutionArtifactMaterializeRequest(ContractModel):
@@ -101,9 +109,13 @@ class ExecutionArtifactMaterializeRequest(ContractModel):
     actor: ActorInput
 
     @model_validator(mode="after")
-    def validate_notebook_append(self) -> "ExecutionArtifactMaterializeRequest":
+    def validate_notebook_append(
+        self,
+    ) -> "ExecutionArtifactMaterializeRequest":
         if self.append_to_notebook and self.type != ArtifactType.REPORT:
-            raise ValueError("append_to_notebook is supported only for REPORT Artifacts.")
+            raise ValueError(
+                "append_to_notebook is supported only for REPORT Artifacts."
+            )
         return self
 
     def to_command(self, execution_id: UUID) -> MaterializeArtifactCommand:
@@ -113,11 +125,19 @@ class ExecutionArtifactMaterializeRequest(ContractModel):
             artifact_type=self.type,
             source_type=self.source.type,
             source_content=(
-                self.source.content if isinstance(self.source, InlineArtifactSource) else None
+                self.source.content
+                if isinstance(self.source, InlineArtifactSource)
+                else None
             ),
-            source_path=(self.source.path if isinstance(self.source, PathArtifactSource) else None),
+            source_path=(
+                self.source.path
+                if isinstance(self.source, PathArtifactSource)
+                else None
+            ),
             source_sha256=(
-                self.source.sha256 if isinstance(self.source, PathArtifactSource) else None
+                self.source.sha256
+                if isinstance(self.source, PathArtifactSource)
+                else None
             ),
             name=self.name,
             description=self.description,
@@ -142,7 +162,9 @@ class NotebookCellResponse(ContractModel):
 
     @classmethod
     def from_view(cls, view: NotebookCellView) -> "NotebookCellResponse":
-        return cls(**{field: getattr(view, field) for field in cls.model_fields})
+        return cls(
+            **{field: getattr(view, field) for field in cls.model_fields}
+        )
 
 
 class NotebookPage(ContractModel):
@@ -183,7 +205,10 @@ class ExecutionNotebookCellResponse(ContractModel):
     def from_view(
         cls, execution_id: UUID, view: NotebookCellView
     ) -> "ExecutionNotebookCellResponse":
-        return cls(execution_id=execution_id, cell=NotebookCellResponse.from_view(view))
+        return cls(
+            execution_id=execution_id,
+            cell=NotebookCellResponse.from_view(view),
+        )
 
 
 class ExecutionContext(ContractModel):
@@ -198,7 +223,9 @@ class ExecutionContext(ContractModel):
         if self.session_id is not None and self.project_id is None:
             raise ValueError("context.session_id requires context.project_id.")
         if self.project_id == "unscoped" or self.session_id == "unscoped":
-            raise ValueError("'unscoped' is reserved for Executor workspace paths.")
+            raise ValueError(
+                "'unscoped' is reserved for Executor workspace paths."
+            )
         return self
 
 
@@ -210,9 +237,13 @@ class ExecutionLifecycleInput(ContractModel):
     def validate_wait_timeout(self) -> "ExecutionLifecycleInput":
         if self.operation_mode == OperationMode.MULTI:
             if self.operation_wait_timeout_seconds is None:
-                raise ValueError("MULTI lifecycle requires operation_wait_timeout_seconds.")
+                raise ValueError(
+                    "MULTI lifecycle requires operation_wait_timeout_seconds."
+                )
         elif self.operation_wait_timeout_seconds is not None:
-            raise ValueError("SINGLE lifecycle does not accept operation_wait_timeout_seconds.")
+            raise ValueError(
+                "SINGLE lifecycle does not accept operation_wait_timeout_seconds."
+            )
         return self
 
 
@@ -241,7 +272,9 @@ class ExecutionSubmitRequest(ContractModel):
     operation: ExecutionOperationInput
     metadata: dict[str, Any] = Field(default_factory=dict)
 
-    def to_command(self, resolved: ResolvedExecutionSpec) -> SubmitExecutionCommand:
+    def to_command(
+        self, resolved: ResolvedExecutionSpec
+    ) -> SubmitExecutionCommand:
         return SubmitExecutionCommand(
             idempotency_key=self.idempotency_key,
             operation_mode=self.lifecycle.operation_mode,
@@ -279,7 +312,9 @@ class ExecutionSubmitRequest(ContractModel):
 
 class RuntimeTargetUpsertRequest(ContractModel):
     idempotency_key: str = Field(min_length=1, max_length=255)
-    name: str = Field(min_length=1, max_length=255, pattern=r"^[a-zA-Z0-9._-]+$")
+    name: str = Field(
+        min_length=1, max_length=255, pattern=r"^[a-zA-Z0-9._-]+$"
+    )
     runtime_type: RuntimeType
     connection_config: dict[str, Any]
     credential: SecretStr | None = None
@@ -291,7 +326,9 @@ class RuntimeTargetUpsertRequest(ContractModel):
     def validate_connection_config(self) -> "RuntimeTargetUpsertRequest":
         if self.runtime_type == RuntimeType.JUPYTER:
             endpoint = self.connection_config.get("endpoint")
-            if set(self.connection_config) != {"endpoint"} or not isinstance(endpoint, str):
+            if set(self.connection_config) != {"endpoint"} or not isinstance(
+                endpoint, str
+            ):
                 raise ValueError(
                     "JUPYTER connection_config must contain only a non-empty endpoint."
                 )
@@ -305,7 +342,9 @@ class RuntimeTargetUpsertRequest(ContractModel):
             name=self.name,
             runtime_type=self.runtime_type,
             connection_config=self.connection_config,
-            credential=(self.credential.get_secret_value() if self.credential else None),
+            credential=(
+                self.credential.get_secret_value() if self.credential else None
+            ),
             pool=self.pool,
             max_concurrent_executions=self.max_concurrent_executions,
             actor_type=self.actor.type,
@@ -398,7 +437,8 @@ class RuntimeTargetResponse(AuditFields):
                 active_session_count=view.active_session_count,
             ),
             health=RuntimeTargetHealth(
-                last_check_at=view.last_health_check_at, last_error=view.last_health_error
+                last_check_at=view.last_health_check_at,
+                last_error=view.last_health_error,
             ),
             resources=RuntimeTargetResources(
                 observed_at=view.resource_observed_at,
@@ -439,9 +479,13 @@ class RuntimeTargetPageResponse(PageResponse):
     items: list[RuntimeTargetResponse]
 
     @classmethod
-    def from_page(cls, page: Page[RuntimeTargetView]) -> "RuntimeTargetPageResponse":
+    def from_page(
+        cls, page: Page[RuntimeTargetView]
+    ) -> "RuntimeTargetPageResponse":
         return cls(
-            items=[RuntimeTargetResponse.from_view(item) for item in page.items],
+            items=[
+                RuntimeTargetResponse.from_view(item) for item in page.items
+            ],
             next_cursor=page.next_cursor,
             has_more=page.next_cursor is not None,
         )
@@ -535,7 +579,9 @@ class ExecutionStepResponse(AuditFields):
     lifecycle: Lifecycle
 
     @classmethod
-    def from_domain(cls, step: ExecutionStep, execution_id: UUID) -> "ExecutionStepResponse":
+    def from_domain(
+        cls, step: ExecutionStep, execution_id: UUID
+    ) -> "ExecutionStepResponse":
         return cls(
             step_id=step.id,
             execution_id=execution_id,
@@ -553,9 +599,13 @@ class ExecutionStepResponse(AuditFields):
                 input_parameters=step.input_parameters,
             ),
             result=StepResult(
-                status=step.status, outputs=step.outputs, error_message=step.error_message
+                status=step.status,
+                outputs=step.outputs,
+                error_message=step.error_message,
             ),
-            lifecycle=Lifecycle(started_at=step.started_at, finished_at=step.finished_at),
+            lifecycle=Lifecycle(
+                started_at=step.started_at, finished_at=step.finished_at
+            ),
             created_by_type=step.created_by_type,
             created_by=step.created_by,
             updated_by_type=step.updated_by_type,
@@ -624,10 +674,17 @@ class ExecutionLifecycleResponse(ContractModel):
     finished_at: datetime | None
 
 
-def _execution_common(execution: Execution | ExecutionDetailView) -> dict[str, Any]:
+def _execution_common(
+    execution: Execution | ExecutionDetailView,
+) -> dict[str, Any]:
     failure = None
-    if execution.failure_type is not None and execution.error_message is not None:
-        failure = FailureResponse(type=execution.failure_type, message=execution.error_message)
+    if (
+        execution.failure_type is not None
+        and execution.error_message is not None
+    ):
+        failure = FailureResponse(
+            type=execution.failure_type, message=execution.error_message
+        )
     return {
         "execution_id": execution.id,
         "lifecycle": ExecutionLifecycleResponse(
@@ -697,7 +754,9 @@ class ExecutionCommandResponse(AuditFields):
                 ExecutionOperationReceipt(
                     operation_id=operation_id,
                     steps=[
-                        ExecutionStepReceipt(sequence=step.sequence, step_id=step.id)
+                        ExecutionStepReceipt(
+                            sequence=step.sequence, step_id=step.id
+                        )
                         for step in execution.steps
                         if step.operation_id == operation_id
                     ],
@@ -732,11 +791,14 @@ class ExecutionResponse(AuditFields):
     lifecycle: ExecutionLifecycleResponse
 
     @classmethod
-    def from_view(cls, execution: ExecutionDetailView | Execution) -> "ExecutionResponse":
+    def from_view(
+        cls, execution: ExecutionDetailView | Execution
+    ) -> "ExecutionResponse":
         return cls(
             **_execution_common(execution),
             workspace=WorkspaceResponse(
-                path=execution.workspace_path, notebook_path=execution.notebook_path
+                path=execution.workspace_path,
+                notebook_path=execution.notebook_path,
             ),
             recovery=RecoveryResponse(
                 count=execution.recovery_count,
@@ -759,7 +821,9 @@ class ExecutionSummaryResponse(AuditFields):
     step_count: int
 
     @classmethod
-    def from_view(cls, execution: ExecutionSummaryView) -> "ExecutionSummaryResponse":
+    def from_view(
+        cls, execution: ExecutionSummaryView
+    ) -> "ExecutionSummaryResponse":
         return cls(
             execution_id=execution.id,
             operation_mode=execution.operation_mode,
@@ -793,9 +857,13 @@ class ExecutionPageResponse(PageResponse):
     items: list[ExecutionSummaryResponse]
 
     @classmethod
-    def from_page(cls, page: Page[ExecutionSummaryView]) -> "ExecutionPageResponse":
+    def from_page(
+        cls, page: Page[ExecutionSummaryView]
+    ) -> "ExecutionPageResponse":
         return cls(
-            items=[ExecutionSummaryResponse.from_view(item) for item in page.items],
+            items=[
+                ExecutionSummaryResponse.from_view(item) for item in page.items
+            ],
             next_cursor=page.next_cursor,
             has_more=page.next_cursor is not None,
         )
@@ -810,7 +878,9 @@ class ExecutionStepAttemptResponse(AuditFields):
     lifecycle: Lifecycle
 
     @classmethod
-    def from_view(cls, view: ExecutionStepAttemptView) -> "ExecutionStepAttemptResponse":
+    def from_view(
+        cls, view: ExecutionStepAttemptView
+    ) -> "ExecutionStepAttemptResponse":
         return cls(
             step_attempt_id=view.id,
             execution_step_id=view.execution_step_id,
@@ -821,9 +891,13 @@ class ExecutionStepAttemptResponse(AuditFields):
                 input_parameters=view.input_parameters,
             ),
             result=StepResult(
-                status=view.status, outputs=view.outputs, error_message=view.error_message
+                status=view.status,
+                outputs=view.outputs,
+                error_message=view.error_message,
             ),
-            lifecycle=Lifecycle(started_at=view.started_at, finished_at=view.finished_at),
+            lifecycle=Lifecycle(
+                started_at=view.started_at, finished_at=view.finished_at
+            ),
             created_by_type=view.created_by_type,
             created_by=view.created_by,
             updated_by_type=view.updated_by_type,
@@ -865,17 +939,23 @@ class ExecutionAttemptResponse(AuditFields):
     step_count: int
 
     @classmethod
-    def from_view(cls, view: ExecutionAttemptView) -> "ExecutionAttemptResponse":
+    def from_view(
+        cls, view: ExecutionAttemptView
+    ) -> "ExecutionAttemptResponse":
         failure = None
         if view.failure_type is not None and view.error_message is not None:
-            failure = FailureResponse(type=view.failure_type, message=view.error_message)
+            failure = FailureResponse(
+                type=view.failure_type, message=view.error_message
+            )
         return cls(
             attempt_id=view.id,
             execution_id=view.execution_id,
             attempt_number=view.attempt_number,
             state=AttemptState(status=view.status),
             failure=failure,
-            lifecycle=Lifecycle(started_at=view.started_at, finished_at=view.finished_at),
+            lifecycle=Lifecycle(
+                started_at=view.started_at, finished_at=view.finished_at
+            ),
             step_count=view.step_count,
             created_by_type=view.created_by_type,
             created_by=view.created_by,
@@ -892,7 +972,9 @@ class ExecutionAttemptDetailResponse(ExecutionAttemptResponse):
     recovery: AttemptRecovery
 
     @classmethod
-    def from_view(cls, view: ExecutionAttemptView) -> "ExecutionAttemptDetailResponse":
+    def from_view(
+        cls, view: ExecutionAttemptView
+    ) -> "ExecutionAttemptDetailResponse":
         summary = ExecutionAttemptResponse.from_view(view)
         return cls(
             **summary.model_dump(),
@@ -922,7 +1004,10 @@ class ExecutionStepPageResponse(PageResponse):
         cls, page: Page[ExecutionStep], execution_id: UUID
     ) -> "ExecutionStepPageResponse":
         return cls(
-            items=[ExecutionStepResponse.from_domain(item, execution_id) for item in page.items],
+            items=[
+                ExecutionStepResponse.from_domain(item, execution_id)
+                for item in page.items
+            ],
             next_cursor=page.next_cursor,
             has_more=page.next_cursor is not None,
         )
@@ -932,9 +1017,13 @@ class ExecutionAttemptPageResponse(PageResponse):
     items: list[ExecutionAttemptResponse]
 
     @classmethod
-    def from_page(cls, page: Page[ExecutionAttemptView]) -> "ExecutionAttemptPageResponse":
+    def from_page(
+        cls, page: Page[ExecutionAttemptView]
+    ) -> "ExecutionAttemptPageResponse":
         return cls(
-            items=[ExecutionAttemptResponse.from_view(item) for item in page.items],
+            items=[
+                ExecutionAttemptResponse.from_view(item) for item in page.items
+            ],
             next_cursor=page.next_cursor,
             has_more=page.next_cursor is not None,
         )
@@ -964,7 +1053,9 @@ class ExecutionOperationResponse(AuditFields):
     step_count: int
 
     @classmethod
-    def from_view(cls, view: ExecutionOperationView) -> "ExecutionOperationResponse":
+    def from_view(
+        cls, view: ExecutionOperationView
+    ) -> "ExecutionOperationResponse":
         return cls(
             operation_id=view.id,
             execution_id=view.execution_id,
@@ -976,8 +1067,12 @@ class ExecutionOperationResponse(AuditFields):
             operation_timeout_seconds=view.operation_timeout_seconds,
             metadata=view.metadata,
             execution_attempt_id=view.execution_attempt_id,
-            result=OperationResult(status=view.status, error_message=view.error_message),
-            lifecycle=Lifecycle(started_at=view.started_at, finished_at=view.finished_at),
+            result=OperationResult(
+                status=view.status, error_message=view.error_message
+            ),
+            lifecycle=Lifecycle(
+                started_at=view.started_at, finished_at=view.finished_at
+            ),
             step_count=view.step_count,
             created_by_type=view.created_by_type,
             created_by=view.created_by,
@@ -992,9 +1087,14 @@ class ExecutionOperationPageResponse(PageResponse):
     items: list[ExecutionOperationResponse]
 
     @classmethod
-    def from_page(cls, page: Page[ExecutionOperationView]) -> "ExecutionOperationPageResponse":
+    def from_page(
+        cls, page: Page[ExecutionOperationView]
+    ) -> "ExecutionOperationPageResponse":
         return cls(
-            items=[ExecutionOperationResponse.from_view(item) for item in page.items],
+            items=[
+                ExecutionOperationResponse.from_view(item)
+                for item in page.items
+            ],
             next_cursor=page.next_cursor,
             has_more=page.next_cursor is not None,
         )
@@ -1004,9 +1104,14 @@ class ExecutionStepAttemptPageResponse(PageResponse):
     items: list[ExecutionStepAttemptResponse]
 
     @classmethod
-    def from_page(cls, page: Page[ExecutionStepAttemptView]) -> "ExecutionStepAttemptPageResponse":
+    def from_page(
+        cls, page: Page[ExecutionStepAttemptView]
+    ) -> "ExecutionStepAttemptPageResponse":
         return cls(
-            items=[ExecutionStepAttemptResponse.from_view(item) for item in page.items],
+            items=[
+                ExecutionStepAttemptResponse.from_view(item)
+                for item in page.items
+            ],
             next_cursor=page.next_cursor,
             has_more=page.next_cursor is not None,
         )
@@ -1052,9 +1157,13 @@ class ExecutionEventPageResponse(PageResponse):
     items: list[ExecutionEventResponse]
 
     @classmethod
-    def from_page(cls, page: Page[ExecutionEventView]) -> "ExecutionEventPageResponse":
+    def from_page(
+        cls, page: Page[ExecutionEventView]
+    ) -> "ExecutionEventPageResponse":
         return cls(
-            items=[ExecutionEventResponse.from_view(item) for item in page.items],
+            items=[
+                ExecutionEventResponse.from_view(item) for item in page.items
+            ],
             next_cursor=page.next_cursor,
             has_more=page.next_cursor is not None,
         )
@@ -1093,7 +1202,9 @@ class ExecutionArtifactResponse(AuditFields):
     metadata: dict[str, Any]
 
     @classmethod
-    def from_view(cls, view: ExecutionArtifactView) -> "ExecutionArtifactResponse":
+    def from_view(
+        cls, view: ExecutionArtifactView
+    ) -> "ExecutionArtifactResponse":
         return cls(
             artifact_id=view.id,
             name=view.name,
@@ -1143,7 +1254,9 @@ class ExecutionArtifactSummaryResponse(AuditFields):
     storage: ArtifactStorageSummary
 
     @classmethod
-    def from_view(cls, view: ExecutionArtifactView) -> "ExecutionArtifactSummaryResponse":
+    def from_view(
+        cls, view: ExecutionArtifactView
+    ) -> "ExecutionArtifactSummaryResponse":
         return cls(
             artifact_id=view.id,
             name=view.name,
@@ -1173,9 +1286,14 @@ class ExecutionArtifactPageResponse(PageResponse):
     items: list[ExecutionArtifactSummaryResponse]
 
     @classmethod
-    def from_page(cls, page: Page[ExecutionArtifactView]) -> "ExecutionArtifactPageResponse":
+    def from_page(
+        cls, page: Page[ExecutionArtifactView]
+    ) -> "ExecutionArtifactPageResponse":
         return cls(
-            items=[ExecutionArtifactSummaryResponse.from_view(item) for item in page.items],
+            items=[
+                ExecutionArtifactSummaryResponse.from_view(item)
+                for item in page.items
+            ],
             next_cursor=page.next_cursor,
             has_more=page.next_cursor is not None,
         )
@@ -1186,11 +1304,15 @@ class ExecutionOperationResultResponse(ContractModel):
     steps: list[ExecutionStepResponse]
 
     @classmethod
-    def from_bundle(cls, bundle: OperationResultBundle) -> "ExecutionOperationResultResponse":
+    def from_bundle(
+        cls, bundle: OperationResultBundle
+    ) -> "ExecutionOperationResultResponse":
         return cls(
             operation=ExecutionOperationResponse.from_view(bundle.operation),
             steps=[
-                ExecutionStepResponse.from_domain(step, bundle.operation.execution_id)
+                ExecutionStepResponse.from_domain(
+                    step, bundle.operation.execution_id
+                )
                 for step in bundle.steps
             ],
         )
@@ -1201,10 +1323,15 @@ class ExecutionAttemptResultResponse(ContractModel):
     steps: list[ExecutionStepAttemptResponse]
 
     @classmethod
-    def from_bundle(cls, bundle: AttemptResultBundle) -> "ExecutionAttemptResultResponse":
+    def from_bundle(
+        cls, bundle: AttemptResultBundle
+    ) -> "ExecutionAttemptResultResponse":
         return cls(
             attempt=ExecutionAttemptDetailResponse.from_view(bundle.attempt),
-            steps=[ExecutionStepAttemptResponse.from_view(step) for step in bundle.steps],
+            steps=[
+                ExecutionStepAttemptResponse.from_view(step)
+                for step in bundle.steps
+            ],
         )
 
 
@@ -1215,7 +1342,9 @@ class ExecutionResultResponse(ContractModel):
     artifacts: list[ExecutionArtifactResponse]
 
     @classmethod
-    def from_bundle(cls, bundle: ExecutionResultBundle) -> "ExecutionResultResponse":
+    def from_bundle(
+        cls, bundle: ExecutionResultBundle
+    ) -> "ExecutionResultResponse":
         return cls(
             execution=ExecutionResponse.from_view(bundle.execution),
             operations=[
@@ -1223,9 +1352,11 @@ class ExecutionResultResponse(ContractModel):
                 for operation in bundle.operations
             ],
             attempts=[
-                ExecutionAttemptResultResponse.from_bundle(attempt) for attempt in bundle.attempts
+                ExecutionAttemptResultResponse.from_bundle(attempt)
+                for attempt in bundle.attempts
             ],
             artifacts=[
-                ExecutionArtifactResponse.from_view(artifact) for artifact in bundle.artifacts
+                ExecutionArtifactResponse.from_view(artifact)
+                for artifact in bundle.artifacts
             ],
         )

@@ -9,7 +9,9 @@ from execution_spec_payload import execution_request, inline_spec
 from mcp import Client
 
 
-async def _required(client: Client, tool: str, arguments: dict[str, Any]) -> dict[str, Any]:
+async def _required(
+    client: Client, tool: str, arguments: dict[str, Any]
+) -> dict[str, Any]:
     result = await client.call_tool(tool, arguments)
     if result.is_error or result.structured_content is None:
         raise RuntimeError(f"{tool} failed: {result.content}")
@@ -18,8 +20,14 @@ async def _required(client: Client, tool: str, arguments: dict[str, Any]) -> dic
 
 async def _wait_terminal(client: Client, execution_id: str) -> dict[str, Any]:
     for _ in range(300):
-        execution = await _required(client, "execution_get", {"execution_id": execution_id})
-        if execution["state"]["status"] in {"SUCCEEDED", "FAILED", "CANCELLED"}:
+        execution = await _required(
+            client, "execution_get", {"execution_id": execution_id}
+        )
+        if execution["state"]["status"] in {
+            "SUCCEEDED",
+            "FAILED",
+            "CANCELLED",
+        }:
             return execution
         await asyncio.sleep(0.2)
     raise RuntimeError(f"Execution {execution_id} did not finish.")
@@ -28,11 +36,15 @@ async def _wait_terminal(client: Client, execution_id: str) -> dict[str, Any]:
 async def main() -> None:
     unique = uuid4().hex
     mcp_url = os.getenv("EXECUTOR_MCP_URL", "http://127.0.0.1:8000/mcp")
-    primary_endpoint = os.getenv("SHARED_STORAGE_PRIMARY_ENDPOINT", "http://jupyter:8888")
+    primary_endpoint = os.getenv(
+        "SHARED_STORAGE_PRIMARY_ENDPOINT", "http://jupyter:8888"
+    )
     secondary_endpoint = os.getenv(
         "SHARED_STORAGE_SECONDARY_ENDPOINT", "http://jupyter-secondary:8888"
     )
-    secondary_token = os.getenv("JUPYTER_SECONDARY_TOKEN", "change-me-secondary-local-only")
+    secondary_token = os.getenv(
+        "JUPYTER_SECONDARY_TOKEN", "change-me-secondary-local-only"
+    )
     operator = {"type": "USER", "id": "shared-storage-operator"}
 
     async with Client(mcp_url) as client:
@@ -52,7 +64,9 @@ async def main() -> None:
             }
             if credential is not None:
                 request["credential"] = credential
-            target = await _required(client, "runtime_target_upsert", {"request": request})
+            target = await _required(
+                client, "runtime_target_upsert", {"request": request}
+            )
             if target["state"]["status"] != "ACTIVE":
                 raise RuntimeError(f"Runtime Target is not ACTIVE: {target}")
             targets.append(target)
@@ -112,8 +126,12 @@ async def main() -> None:
                     "limit": 0,
                 },
             )
-            if notebook["page"]["total_count"] != 1 or "42" not in str(notebook["cells"]):
-                raise RuntimeError(f"Fallback notebook content is invalid: {notebook}")
+            if notebook["page"]["total_count"] != 1 or "42" not in str(
+                notebook["cells"]
+            ):
+                raise RuntimeError(
+                    f"Fallback notebook content is invalid: {notebook}"
+                )
         finally:
             await _required(
                 client,

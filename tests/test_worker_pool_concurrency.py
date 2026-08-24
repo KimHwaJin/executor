@@ -25,7 +25,9 @@ from executor_service.domain.runtime import RuntimeExecutionResult
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.models import RuntimeTargetORM
 from executor_service.infrastructure.db.session import create_session_factory
-from executor_service.infrastructure.runtime_registry import RuntimeTargetRegistry
+from executor_service.infrastructure.runtime_registry import (
+    RuntimeTargetRegistry,
+)
 from executor_service.infrastructure.worker import ExecutionWorker
 from tests.runtime_credentials import runtime_credential_fields
 from tests.runtime_storage_fake import InMemoryRuntimeStorage
@@ -38,7 +40,11 @@ class ControlledJupyterGateway(InMemoryRuntimeStorage):
     blocked_started = 0
 
     def __init__(self, endpoint: str, *_args: Any, **_kwargs: Any) -> None:
-        self.pool = RuntimePool.BATCH if "batch" in endpoint else RuntimePool.INTERACTIVE
+        self.pool = (
+            RuntimePool.BATCH
+            if "batch" in endpoint
+            else RuntimePool.INTERACTIVE
+        )
 
     @classmethod
     def configure(cls, blocked_pool: RuntimePool) -> None:
@@ -51,7 +57,9 @@ class ControlledJupyterGateway(InMemoryRuntimeStorage):
     async def start_session(self, _runtime_profile: str, _path: str) -> str:
         return f"kernel-{uuid4().hex}"
 
-    async def execute(self, _runtime_session_id: str, _code: str) -> RuntimeExecutionResult:
+    async def execute(
+        self, _runtime_session_id: str, _code: str
+    ) -> RuntimeExecutionResult:
         if self.pool == self.blocked_pool:
             type(self).blocked_started += 1
             await self.release.wait()
@@ -81,13 +89,19 @@ def _command(pool: RuntimePool, name: str) -> SubmitExecutionCommand:
     return SubmitExecutionCommand(
         idempotency_key=f"worker-pool-{name}-{uuid4().hex}",
         operation_mode=OperationMode.SINGLE,
-        trigger_type=(TriggerType.BATCH if pool == RuntimePool.BATCH else TriggerType.INTERACTIVE),
+        trigger_type=(
+            TriggerType.BATCH
+            if pool == RuntimePool.BATCH
+            else TriggerType.INTERACTIVE
+        ),
         runtime_profile="basic",
         user_id="worker-pool-user",
         project_id="worker-pool-project",
         session_id=f"worker-pool-session-{name}",
         task_id="test-task",
-        workflow_id=f"worker-pool-workflow-{name}" if pool == RuntimePool.BATCH else None,
+        workflow_id=f"worker-pool-workflow-{name}"
+        if pool == RuntimePool.BATCH
+        else None,
         steps=(
             StepSpec(
                 sequence=0,
@@ -98,7 +112,9 @@ def _command(pool: RuntimePool, name: str) -> SubmitExecutionCommand:
     )
 
 
-def _target(name: str, pool: RuntimePool, *, capacity: int = 10) -> RuntimeTargetORM:
+def _target(
+    name: str, pool: RuntimePool, *, capacity: int = 10
+) -> RuntimeTargetORM:
     return RuntimeTargetORM(
         name=name,
         connection_config={"endpoint": f"http://{name}.invalid:8888"},
@@ -111,7 +127,9 @@ def _target(name: str, pool: RuntimePool, *, capacity: int = 10) -> RuntimeTarge
     )
 
 
-def _worker(engine: AsyncEngine, tmp_path: Path) -> tuple[ExecutionWorker, Redis]:
+def _worker(
+    engine: AsyncEngine, tmp_path: Path
+) -> tuple[ExecutionWorker, Redis]:
     settings = Settings(
         runtime_enabled=False,
         input_host_root=tmp_path,
@@ -164,22 +182,31 @@ async def test_worker_does_not_apply_a_process_local_execution_limit(
         )
     blocked = [
         await execution_service.submit(
-            _command(blocked_pool, f"blocked-{index}-{blocked_pool.value.lower()}")
+            _command(
+                blocked_pool, f"blocked-{index}-{blocked_pool.value.lower()}"
+            )
         )
         for index in range(blocked_count)
     ]
     independent = await execution_service.submit(
-        _command(independent_pool, f"independent-{independent_pool.value.lower()}")
+        _command(
+            independent_pool, f"independent-{independent_pool.value.lower()}"
+        )
     )
     worker, redis = _worker(engine, tmp_path)
     ControlledJupyterGateway.configure(blocked_pool)
     _patch_runtime_driver(monkeypatch)
     blocked_tasks = [
-        asyncio.create_task(worker._run_execution(execution.id)) for execution in blocked
+        asyncio.create_task(worker._run_execution(execution.id))
+        for execution in blocked
     ]
     try:
-        await _wait_until(lambda: ControlledJupyterGateway.blocked_started == blocked_count)
-        independent_task = asyncio.create_task(worker._run_execution(independent.id))
+        await _wait_until(
+            lambda: ControlledJupyterGateway.blocked_started == blocked_count
+        )
+        independent_task = asyncio.create_task(
+            worker._run_execution(independent.id)
+        )
         async with asyncio.timeout(1):
             await ControlledJupyterGateway.independent_finished.wait()
             await independent_task
@@ -199,16 +226,22 @@ async def test_cancel_remains_available_when_batch_runtime_capacity_is_full(
     async with session_factory() as session, session.begin():
         session.add(_target("cancel-batch", RuntimePool.BATCH, capacity=2))
     running = [
-        await execution_service.submit(_command(RuntimePool.BATCH, f"cancel-running-{index}"))
+        await execution_service.submit(
+            _command(RuntimePool.BATCH, f"cancel-running-{index}")
+        )
         for index in range(2)
     ]
-    waiting = await execution_service.submit(_command(RuntimePool.BATCH, "cancel-waiting"))
+    waiting = await execution_service.submit(
+        _command(RuntimePool.BATCH, "cancel-waiting")
+    )
     worker, redis = _worker(engine, tmp_path)
     try:
         assert await worker._claim(running[0].id) is not None
         assert await worker._claim(running[1].id) is not None
         assert await worker._claim(waiting.id) is None
-        assert (await execution_service.get(waiting.id)).status == ExecutionStatus.QUEUED
+        assert (
+            await execution_service.get(waiting.id)
+        ).status == ExecutionStatus.QUEUED
         await execution_service.cancel(
             CancelExecutionCommand(
                 execution_id=waiting.id,
@@ -220,4 +253,6 @@ async def test_cancel_remains_available_when_batch_runtime_capacity_is_full(
     finally:
         await redis.aclose()
 
-    assert (await execution_service.get(waiting.id)).status == ExecutionStatus.CANCELLED
+    assert (
+        await execution_service.get(waiting.id)
+    ).status == ExecutionStatus.CANCELLED

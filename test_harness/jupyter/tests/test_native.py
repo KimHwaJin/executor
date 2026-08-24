@@ -51,9 +51,13 @@ def test_setup_uses_explicit_pythons_and_nexus_index(
     monkeypatch.setattr(
         native,
         "_run",
-        lambda command, *, environment=None: calls.append((command, environment)),
+        lambda command, *, environment=None: calls.append(
+            (command, environment)
+        ),
     )
-    monkeypatch.setattr(native, "_verify_local_install", lambda environments: None)
+    monkeypatch.setattr(
+        native, "_verify_local_install", lambda environments: None
+    )
 
     native.setup(
         Namespace(
@@ -64,18 +68,27 @@ def test_setup_uses_explicit_pythons_and_nexus_index(
         )
     )
 
-    assert not any(command[:3] == ["uv", "python", "install"] for command, _ in calls)
-    venv_commands = [command for command, _ in calls if command[:2] == ["uv", "venv"]]
-    assert [command[command.index("--python") + 1] for command in venv_commands] == [
+    assert not any(
+        command[:3] == ["uv", "python", "install"] for command, _ in calls
+    )
+    venv_commands = [
+        command for command, _ in calls if command[:2] == ["uv", "venv"]
+    ]
+    assert [
+        command[command.index("--python") + 1] for command in venv_commands
+    ] == [
         str(python_312.resolve()),
         str(python_311.resolve()),
         str(python_312.resolve()),
     ]
-    uv_environments = [environment for command, environment in calls if command[0] == "uv"]
+    uv_environments = [
+        environment for command, environment in calls if command[0] == "uv"
+    ]
     assert uv_environments
     assert all(
         environment is not None
-        and environment["UV_DEFAULT_INDEX"] == "https://nexus.example/repository/pypi-group/simple"
+        and environment["UV_DEFAULT_INDEX"]
+        == "https://nexus.example/repository/pypi-group/simple"
         for environment in uv_environments
     )
 
@@ -94,7 +107,9 @@ def test_setup_downloads_only_python_without_explicit_path(
         "_run",
         lambda command, *, environment=None: commands.append(command),
     )
-    monkeypatch.setattr(native, "_verify_local_install", lambda environments: None)
+    monkeypatch.setattr(
+        native, "_verify_local_install", lambda environments: None
+    )
 
     native.setup(
         Namespace(
@@ -109,5 +124,7 @@ def test_setup_downloads_only_python_without_explicit_path(
 
 
 def test_setup_rejects_missing_explicit_python(tmp_path: Path) -> None:
-    with pytest.raises(NativeJupyterError, match=r"Python 3\.11 executable does not exist"):
+    with pytest.raises(
+        NativeJupyterError, match=r"Python 3\.11 executable does not exist"
+    ):
         native._python_selector(str(tmp_path / "missing-python.exe"), "3.11")

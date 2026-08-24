@@ -88,8 +88,12 @@ async def main() -> None:
                 pool="INTERACTIVE",
                 code="import time\ntime.sleep(30)\nprint('long completed')\n",
             )
-            await wait_for_status(client, short_id, {"RUNNING"}, require_kernel=True)
-            await wait_for_status(client, long_id, {"RUNNING"}, require_kernel=True)
+            await wait_for_status(
+                client, short_id, {"RUNNING"}, require_kernel=True
+            )
+            await wait_for_status(
+                client, long_id, {"RUNNING"}, require_kernel=True
+            )
             queued_id = await submit_static(
                 client,
                 unique=unique,
@@ -112,30 +116,46 @@ async def main() -> None:
             await primary.wait()
 
         async with Client(f"http://127.0.0.1:{secondary_port}/mcp") as client:
-            short = await wait_for_status(client, short_id, {"SUCCEEDED", "FAILED"})
-            long = await wait_for_status(client, long_id, {"SUCCEEDED", "FAILED"})
-            queued = await wait_for_status(client, queued_id, {"SUCCEEDED", "FAILED"})
+            short = await wait_for_status(
+                client, short_id, {"SUCCEEDED", "FAILED"}
+            )
+            long = await wait_for_status(
+                client, long_id, {"SUCCEEDED", "FAILED"}
+            )
+            queued = await wait_for_status(
+                client, queued_id, {"SUCCEEDED", "FAILED"}
+            )
             short_attempts = await attempts(client, short_id)
             long_attempts = await attempts(client, long_id)
             queued_attempts = await attempts(client, queued_id)
 
         if short["state"]["status"] != "SUCCEEDED":
-            raise RuntimeError(f"Drain-window execution did not finish: {short}")
+            raise RuntimeError(
+                f"Drain-window execution did not finish: {short}"
+            )
         if (
             long["state"]["status"] != "FAILED"
             or long["failure"]["type"] != "WORKER_SHUTDOWN"
             or long["retry"]["strategy"] != "FROM_START"
             or long["recovery"]["runtime_session_cleanup_status"] != "SUCCEEDED"
         ):
-            raise RuntimeError(f"Drain-timeout execution was not recovered safely: {long}")
+            raise RuntimeError(
+                f"Drain-timeout execution was not recovered safely: {long}"
+            )
         if queued["state"]["status"] != "SUCCEEDED":
             raise RuntimeError(f"Queued execution was not handed off: {queued}")
         if _attempt_owner(short_attempts) != PRIMARY_CONSUMER:
-            raise RuntimeError(f"Short execution owner changed unexpectedly: {short_attempts}")
+            raise RuntimeError(
+                f"Short execution owner changed unexpectedly: {short_attempts}"
+            )
         if _attempt_owner(long_attempts) != PRIMARY_CONSUMER:
-            raise RuntimeError(f"Long execution owner changed unexpectedly: {long_attempts}")
+            raise RuntimeError(
+                f"Long execution owner changed unexpectedly: {long_attempts}"
+            )
         if _attempt_owner(queued_attempts) != SECONDARY_CONSUMER:
-            raise RuntimeError(f"Queued execution was not claimed by secondary: {queued_attempts}")
+            raise RuntimeError(
+                f"Queued execution was not claimed by secondary: {queued_attempts}"
+            )
 
         print("primary_exit_code:", primary.returncode)
         print("short_status:", short["state"]["status"])

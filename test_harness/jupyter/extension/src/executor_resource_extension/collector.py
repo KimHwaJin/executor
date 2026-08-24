@@ -32,8 +32,12 @@ class ResourceCollector:
     @classmethod
     def from_environment(cls) -> ResourceCollector:
         return cls(
-            cgroup_root=Path(os.getenv("EXECUTOR_RESOURCE_CGROUP_ROOT", "/sys/fs/cgroup")),
-            configured_cpu_cores=_optional_positive_float(os.getenv("EXECUTOR_RESOURCE_CPU_CORES")),
+            cgroup_root=Path(
+                os.getenv("EXECUTOR_RESOURCE_CGROUP_ROOT", "/sys/fs/cgroup")
+            ),
+            configured_cpu_cores=_optional_positive_float(
+                os.getenv("EXECUTOR_RESOURCE_CPU_CORES")
+            ),
             configured_memory_bytes=_optional_positive_int(
                 os.getenv("EXECUTOR_RESOURCE_MEMORY_BYTES")
             ),
@@ -42,7 +46,9 @@ class ResourceCollector:
     def collect(self) -> dict[str, Any]:
         with self._lock:
             observed_monotonic = self._monotonic()
-            elapsed = _positive_delta(observed_monotonic, self._previous_observed_at)
+            elapsed = _positive_delta(
+                observed_monotonic, self._previous_observed_at
+            )
             cpu = self._collect_cpu(elapsed)
             memory = self._collect_memory()
             process_count = self._collect_process_count()
@@ -60,8 +66,12 @@ class ResourceCollector:
         errors: list[str] = []
         used_cores: float | None = None
         try:
-            cumulative_seconds = _read_cpu_usage_seconds(self._cgroup_root / "cpu.stat")
-            used_cores = _rate(cumulative_seconds, self._previous_cpu_seconds, elapsed)
+            cumulative_seconds = _read_cpu_usage_seconds(
+                self._cgroup_root / "cpu.stat"
+            )
+            used_cores = _rate(
+                cumulative_seconds, self._previous_cpu_seconds, elapsed
+            )
             self._previous_cpu_seconds = cumulative_seconds
         except (OSError, ValueError) as exc:
             self._previous_cpu_seconds = None
@@ -94,13 +104,17 @@ class ResourceCollector:
         errors: list[str] = []
         used_bytes: int | None = None
         try:
-            used_bytes = _read_positive_int(self._cgroup_root / "memory.current", allow_zero=True)
+            used_bytes = _read_positive_int(
+                self._cgroup_root / "memory.current", allow_zero=True
+            )
         except (OSError, ValueError) as exc:
             errors.append(_safe_error_code("cgroup_memory", exc))
 
         capacity_bytes = self._configured_memory_bytes
         try:
-            cgroup_capacity = _read_memory_capacity(self._cgroup_root / "memory.max")
+            cgroup_capacity = _read_memory_capacity(
+                self._cgroup_root / "memory.max"
+            )
             if cgroup_capacity is not None:
                 capacity_bytes = cgroup_capacity
         except (OSError, ValueError) as exc:
@@ -159,7 +173,11 @@ def _read_positive_int(path: Path, *, allow_zero: bool = False) -> int:
 
 
 def _read_process_count(path: Path) -> int:
-    return sum(1 for line in path.read_text(encoding="utf-8").splitlines() if line.strip())
+    return sum(
+        1
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    )
 
 
 def _optional_positive_float(raw: str | None) -> float | None:
@@ -167,7 +185,9 @@ def _optional_positive_float(raw: str | None) -> float | None:
         return None
     value = float(raw)
     if not math.isfinite(value) or value <= 0:
-        raise ValueError("configured CPU cores must be a positive finite number")
+        raise ValueError(
+            "configured CPU cores must be a positive finite number"
+        )
     return value
 
 
@@ -187,7 +207,9 @@ def _positive_delta(current: float, previous: float | None) -> float | None:
     return delta if delta > 0 else None
 
 
-def _rate(current: float, previous: float | None, elapsed: float | None) -> float | None:
+def _rate(
+    current: float, previous: float | None, elapsed: float | None
+) -> float | None:
     if previous is None or elapsed is None:
         return None
     delta = current - previous
@@ -196,7 +218,9 @@ def _rate(current: float, previous: float | None, elapsed: float | None) -> floa
     return delta / elapsed
 
 
-def _ratio(numerator: float | int | None, denominator: float | int | None) -> float | None:
+def _ratio(
+    numerator: float | int | None, denominator: float | int | None
+) -> float | None:
     if numerator is None or denominator is None or denominator <= 0:
         return None
     return round(float(numerator) / float(denominator), 6)

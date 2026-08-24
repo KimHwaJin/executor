@@ -9,16 +9,22 @@ from executor_service.config import Settings
 from executor_service.infrastructure.db import session as session_module
 
 
-def test_postgresql_engine_uses_bounded_queue_pool(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_postgresql_engine_uses_bounded_queue_pool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     captured: dict[str, Any] = {}
     expected = cast(AsyncEngine, object())
 
-    def fake_create_async_engine(database_url: str, **options: Any) -> AsyncEngine:
+    def fake_create_async_engine(
+        database_url: str, **options: Any
+    ) -> AsyncEngine:
         captured["database_url"] = database_url
         captured.update(options)
         return expected
 
-    monkeypatch.setattr(session_module, "create_async_engine", fake_create_async_engine)
+    monkeypatch.setattr(
+        session_module, "create_async_engine", fake_create_async_engine
+    )
 
     actual = session_module.create_engine(
         "postgresql+psycopg://executor:secret@postgres/executor",
@@ -41,16 +47,22 @@ def test_postgresql_engine_uses_bounded_queue_pool(monkeypatch: pytest.MonkeyPat
     }
 
 
-def test_sqlite_engine_ignores_postgresql_pool_options(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_sqlite_engine_ignores_postgresql_pool_options(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     captured: dict[str, Any] = {}
     expected = cast(AsyncEngine, object())
 
-    def fake_create_async_engine(database_url: str, **options: Any) -> AsyncEngine:
+    def fake_create_async_engine(
+        database_url: str, **options: Any
+    ) -> AsyncEngine:
         captured["database_url"] = database_url
         captured.update(options)
         return expected
 
-    monkeypatch.setattr(session_module, "create_async_engine", fake_create_async_engine)
+    monkeypatch.setattr(
+        session_module, "create_async_engine", fake_create_async_engine
+    )
 
     actual = session_module.create_engine(
         "sqlite+aiosqlite:///:memory:",

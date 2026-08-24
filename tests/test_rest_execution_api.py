@@ -23,7 +23,10 @@ from executor_service.domain.enums import (
     StepStatus,
 )
 from executor_service.domain.models import utc_now
-from executor_service.domain.runtime import RuntimeFileMetadata, RuntimeStorageAccess
+from executor_service.domain.runtime import (
+    RuntimeFileMetadata,
+    RuntimeStorageAccess,
+)
 from executor_service.infrastructure.db.base import Base
 from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
@@ -52,7 +55,9 @@ async def rest_client(
         await connection.run_sync(Base.metadata.create_all)
     app = create_app(container)
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://testserver"
+    ) as client:
         yield client, container
     await container.redis.aclose()
     await container.engine.dispose()
@@ -67,7 +72,11 @@ def _submit_payload(
         "idempotency_key": key,
         "lifecycle": {
             "operation_mode": operation_mode,
-            **({"operation_wait_timeout_seconds": 600} if operation_mode == "MULTI" else {}),
+            **(
+                {"operation_wait_timeout_seconds": 600}
+                if operation_mode == "MULTI"
+                else {}
+            ),
         },
         "trigger": {
             "type": "INTERACTIVE",
@@ -157,7 +166,9 @@ async def test_submit_contract_validates_lifecycle_and_optional_scope(
     response = await client.post("/api/v1/executions", json=single_with_wait)
     assert response.status_code == 422
 
-    multi_without_wait = _submit_payload(key="multi-without-wait", operation_mode="MULTI")
+    multi_without_wait = _submit_payload(
+        key="multi-without-wait", operation_mode="MULTI"
+    )
     multi_without_wait["lifecycle"].pop("operation_wait_timeout_seconds")
     response = await client.post("/api/v1/executions", json=multi_without_wait)
     assert response.status_code == 422
@@ -173,7 +184,9 @@ async def test_submit_contract_validates_lifecycle_and_optional_scope(
 
     session_without_project = _submit_payload(key="session-without-project")
     session_without_project["context"].pop("project_id")
-    response = await client.post("/api/v1/executions", json=session_without_project)
+    response = await client.post(
+        "/api/v1/executions", json=session_without_project
+    )
     assert response.status_code == 422
 
     reserved_scope = _submit_payload(key="reserved-scope")
@@ -189,9 +202,14 @@ async def test_rest_reads_runtime_owned_notebook_and_cell_outputs(
     submitted = await client.post("/api/v1/executions", json=_submit_payload())
     execution_id = submitted.json()["execution_id"]
 
-    unavailable = await client.get(f"/api/v1/executions/{execution_id}/notebook")
+    unavailable = await client.get(
+        f"/api/v1/executions/{execution_id}/notebook"
+    )
     assert unavailable.status_code == 409
-    assert unavailable.json()["error"]["code"] == "EXECUTION_NOTEBOOK_NOT_AVAILABLE"
+    assert (
+        unavailable.json()["error"]["code"]
+        == "EXECUTION_NOTEBOOK_NOT_AVAILABLE"
+    )
 
     relative = f"users/rest-user/{execution_id}/notebooks/execution.ipynb"
     target_id = uuid4()
@@ -204,7 +222,13 @@ async def test_rest_reads_runtime_owned_notebook_and_cell_outputs(
                 "source": "print('first')\nprint('second')",
                 "execution_count": 1,
                 "metadata": {},
-                "outputs": [{"output_type": "stream", "name": "stdout", "text": "first\nsecond\n"}],
+                "outputs": [
+                    {
+                        "output_type": "stream",
+                        "name": "stdout",
+                        "text": "first\nsecond\n",
+                    }
+                ],
             }
         ],
     }
@@ -217,7 +241,8 @@ async def test_rest_reads_runtime_owned_notebook_and_cell_outputs(
         )
 
     brief = await client.get(
-        f"/api/v1/executions/{execution_id}/notebook", params={"response_format": "brief"}
+        f"/api/v1/executions/{execution_id}/notebook",
+        params={"response_format": "brief"},
     )
     assert brief.status_code == 200
     assert brief.json()["cells"][0]["source"] == "print('first')"
@@ -232,11 +257,15 @@ async def test_rest_reads_runtime_owned_notebook_and_cell_outputs(
         "has_error": False,
     }
 
-    cell = await client.get(f"/api/v1/executions/{execution_id}/notebook/cells/0")
+    cell = await client.get(
+        f"/api/v1/executions/{execution_id}/notebook/cells/0"
+    )
     assert cell.status_code == 200
     assert cell.json()["cell"]["outputs"][0]["text"] == "first\nsecond\n"
 
-    missing = await client.get(f"/api/v1/executions/{execution_id}/notebook/cells/3")
+    missing = await client.get(
+        f"/api/v1/executions/{execution_id}/notebook/cells/3"
+    )
     assert missing.status_code == 404
     assert missing.json()["error"]["code"] == "NOTEBOOK_CELL_NOT_FOUND"
 
@@ -306,7 +335,9 @@ async def test_consolidated_result_returns_operation_steps_in_one_call(
             .where(ExecutionStepORM.execution_id == execution_id)
             .values(
                 status=StepStatus.SUCCEEDED,
-                outputs=[{"output_type": "stream", "name": "stdout", "text": "ok\n"}],
+                outputs=[
+                    {"output_type": "stream", "name": "stdout", "text": "ok\n"}
+                ],
             )
         )
 
@@ -317,9 +348,16 @@ async def test_consolidated_result_returns_operation_steps_in_one_call(
 
     assert result.status_code == 200
     assert result.json()["execution"]["state"]["status"] == "SUCCEEDED"
-    assert result.json()["operations"][0]["steps"][0]["result"]["outputs"][0]["text"] == "ok\n"
+    assert (
+        result.json()["operations"][0]["steps"][0]["result"]["outputs"][0][
+            "text"
+        ]
+        == "ok\n"
+    )
     assert operation_result.status_code == 200
-    assert operation_result.json()["operation"]["operation_id"] == str(operation_id)
+    assert operation_result.json()["operation"]["operation_id"] == str(
+        operation_id
+    )
 
 
 async def test_materializes_final_report_below_runtime_reports_directory(
@@ -330,10 +368,10 @@ async def test_materializes_final_report_below_runtime_reports_directory(
         "/api/v1/executions", json=_submit_payload(key="rest-report-submit")
     )
     execution_id = UUID(submitted.json()["execution_id"])
-    workspace = (
-        f"users/rest-user/projects/rest-project/sessions/rest-session/executions/{execution_id}"
+    workspace = f"users/rest-user/projects/rest-project/sessions/rest-session/executions/{execution_id}"
+    storage = _NotebookStorage(
+        {"nbformat": 4, "nbformat_minor": 5, "metadata": {}, "cells": []}
     )
-    storage = _NotebookStorage({"nbformat": 4, "nbformat_minor": 5, "metadata": {}, "cells": []})
     container.materialized_artifacts._runtime_storage = storage
     async with container.session_factory() as session, session.begin():
         await session.execute(
@@ -358,7 +396,10 @@ async def test_materializes_final_report_below_runtime_reports_directory(
     )
 
     assert response.status_code == 201
-    assert response.json()["storage"]["relative_path"] == f"{workspace}/reports/final-report.md"
+    assert (
+        response.json()["storage"]["relative_path"]
+        == f"{workspace}/reports/final-report.md"
+    )
     assert response.json()["storage"]["media_type"] == "text/markdown"
     assert storage.notebook["cells"][-1]["cell_type"] == "markdown"
 
@@ -392,17 +433,23 @@ async def test_single_execution_rest_lifecycle_and_queries(
     assert repeated.json()["execution_id"] == execution_id
 
     fetched = await client.get(f"/api/v1/executions/{execution_id}")
-    history = await client.get("/api/v1/executions", params={"user_id": "rest-user"})
+    history = await client.get(
+        "/api/v1/executions", params={"user_id": "rest-user"}
+    )
     steps = await client.get(f"/api/v1/executions/{execution_id}/steps")
     step_id = steps.json()["items"][0]["step_id"]
-    step = await client.get(f"/api/v1/executions/{execution_id}/steps/{step_id}")
+    step = await client.get(
+        f"/api/v1/executions/{execution_id}/steps/{step_id}"
+    )
     attempts = await client.get(f"/api/v1/executions/{execution_id}/attempts")
     events = await client.get(f"/api/v1/executions/{execution_id}/events")
     artifacts = await client.get(f"/api/v1/executions/{execution_id}/artifacts")
 
     assert fetched.status_code == 200
     assert fetched.json()["runtime"]["type"] == "JUPYTER"
-    assert [item["execution_id"] for item in history.json()["items"]] == [execution_id]
+    assert [item["execution_id"] for item in history.json()["items"]] == [
+        execution_id
+    ]
     assert "runtime" not in history.json()["items"][0]
     assert "steps" not in fetched.json()
     assert history.json()["has_more"] is False
@@ -456,11 +503,16 @@ async def test_execution_history_cursor_pagination_and_invalid_cursor(
     )
     assert second.status_code == 200
     second_body = second.json()
-    returned_ids = {item["execution_id"] for item in first_body["items"] + second_body["items"]}
+    returned_ids = {
+        item["execution_id"]
+        for item in first_body["items"] + second_body["items"]
+    }
     assert returned_ids == submitted_ids
     assert second_body["has_more"] is False
 
-    invalid = await client.get("/api/v1/executions", params={"cursor": "not-a-cursor"})
+    invalid = await client.get(
+        "/api/v1/executions", params={"cursor": "not-a-cursor"}
+    )
     assert invalid.status_code == 422
     assert invalid.json()["error"]["code"] == "INVALID_CURSOR"
 
@@ -523,7 +575,9 @@ async def test_attempt_detail_and_step_attempt_routes(
         )
 
     attempts = await client.get(f"/api/v1/executions/{execution_id}/attempts")
-    detail = await client.get(f"/api/v1/executions/{execution_id}/attempts/{attempt_id}")
+    detail = await client.get(
+        f"/api/v1/executions/{execution_id}/attempts/{attempt_id}"
+    )
     attempt_steps = await client.get(
         f"/api/v1/executions/{execution_id}/attempts/{attempt_id}/steps"
     )
@@ -536,7 +590,9 @@ async def test_attempt_detail_and_step_attempt_routes(
     assert (
         await client.get(f"/api/v1/executions/{uuid4()}/attempts/{attempt_id}")
     ).status_code == 404
-    wrong_parent = await client.get(f"/api/v1/executions/{execution_id}/attempts/{uuid4()}/steps")
+    wrong_parent = await client.get(
+        f"/api/v1/executions/{execution_id}/attempts/{uuid4()}/steps"
+    )
     assert wrong_parent.status_code == 404
     assert wrong_parent.json()["error"]["code"] == "EXECUTION_ATTEMPT_NOT_FOUND"
 
@@ -577,7 +633,10 @@ async def test_multi_operation_create_and_finalize_rest_api(
                         "sequence": 1,
                         "payload": {
                             "type": "PYTHON_EXECUTE",
-                            "source": {"type": "INLINE", "content": "print('next MULTI step')"},
+                            "source": {
+                                "type": "INLINE",
+                                "content": "print('next MULTI step')",
+                            },
                         },
                     },
                     {
@@ -611,7 +670,10 @@ async def test_multi_operation_create_and_finalize_rest_api(
                         "sequence": 1,
                         "payload": {
                             "type": "PYTHON_EXECUTE",
-                            "source": {"type": "INLINE", "content": "print('next MULTI step')"},
+                            "source": {
+                                "type": "INLINE",
+                                "content": "print('next MULTI step')",
+                            },
                         },
                     },
                     {
@@ -631,10 +693,18 @@ async def test_multi_operation_create_and_finalize_rest_api(
     )
     assert continued_repeat.status_code == 202
     assert continued_repeat.json()["operation"] == continued.json()["operation"]
-    continued_steps = await client.get(f"/api/v1/executions/{execution_id}/steps")
-    assert [step["sequence"] for step in continued_steps.json()["items"]] == [0, 1, 2]
+    continued_steps = await client.get(
+        f"/api/v1/executions/{execution_id}/steps"
+    )
+    assert [step["sequence"] for step in continued_steps.json()["items"]] == [
+        0,
+        1,
+        2,
+    ]
     operation_id = continued.json()["operation"]["operation_id"]
-    operation = await client.get(f"/api/v1/executions/{execution_id}/operations/{operation_id}")
+    operation = await client.get(
+        f"/api/v1/executions/{execution_id}/operations/{operation_id}"
+    )
     assert operation.status_code == 200
     assert operation.json()["schema_version"] == "1.0"
     assert operation.json()["sequence_range"] == {"first": 1, "last": 2}
@@ -643,7 +713,10 @@ async def test_multi_operation_create_and_finalize_rest_api(
     operation_steps = await client.get(
         f"/api/v1/executions/{execution_id}/operations/{operation_id}/steps"
     )
-    assert [step["sequence"] for step in operation_steps.json()["items"]] == [1, 2]
+    assert [step["sequence"] for step in operation_steps.json()["items"]] == [
+        1,
+        2,
+    ]
 
     async with container.session_factory() as session, session.begin():
         await session.execute(
@@ -735,7 +808,8 @@ async def test_retry_and_domain_error_mapping(
     assert retried.status_code == 202
     assert retried.json()["state"]["status"] == "QUEUED"
     assert (
-        retried.json()["operation"]["operation_id"] == submitted.json()["operation"]["operation_id"]
+        retried.json()["operation"]["operation_id"]
+        == submitted.json()["operation"]["operation_id"]
     )
     fetched = await client.get(f"/api/v1/executions/{execution_id}")
     assert fetched.json()["retry"]["count"] == 1

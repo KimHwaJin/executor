@@ -13,8 +13,12 @@ from executor_service.domain.enums import (
 from executor_service.domain.runtime import RuntimeDriverError
 from executor_service.infrastructure.db.models import RuntimeTargetORM
 from executor_service.infrastructure.db.session import create_session_factory
-from executor_service.infrastructure.runtime_registry import RuntimeTargetRegistry
-from executor_service.infrastructure.runtime_storage import FleetRuntimeStorageAccess
+from executor_service.infrastructure.runtime_registry import (
+    RuntimeTargetRegistry,
+)
+from executor_service.infrastructure.runtime_storage import (
+    FleetRuntimeStorageAccess,
+)
 from tests.runtime_credentials import runtime_credential_fields
 
 
@@ -39,7 +43,10 @@ class DriverFactory:
         self.drivers: list[ReadDriver] = []
 
     def create(
-        self, runtime_type: RuntimeType, connection_config: dict[str, Any], credential: str
+        self,
+        runtime_type: RuntimeType,
+        connection_config: dict[str, Any],
+        credential: str,
     ) -> ReadDriver:
         assert runtime_type == RuntimeType.JUPYTER
         assert credential == "test-token"
@@ -76,7 +83,9 @@ async def _target(
     return target.id
 
 
-def _access(engine: AsyncEngine, factory: DriverFactory) -> FleetRuntimeStorageAccess:
+def _access(
+    engine: AsyncEngine, factory: DriverFactory
+) -> FleetRuntimeStorageAccess:
     session_factory = create_session_factory(engine)
     settings = Settings()
     registry = RuntimeTargetRegistry(session_factory, settings)
@@ -87,10 +96,16 @@ def _access(engine: AsyncEngine, factory: DriverFactory) -> FleetRuntimeStorageA
     )
 
 
-async def test_runtime_storage_prefers_execution_target(engine: AsyncEngine) -> None:
-    preferred_id = await _target(engine, name="z-preferred", endpoint="http://preferred")
+async def test_runtime_storage_prefers_execution_target(
+    engine: AsyncEngine,
+) -> None:
+    preferred_id = await _target(
+        engine, name="z-preferred", endpoint="http://preferred"
+    )
     await _target(engine, name="a-other", endpoint="http://other")
-    factory = DriverFactory({"http://preferred": {"cells": []}, "http://other": {"cells": [1]}})
+    factory = DriverFactory(
+        {"http://preferred": {"cells": []}, "http://other": {"cells": [1]}}
+    )
 
     result = await _access(engine, factory).read_notebook(
         RuntimeType.JUPYTER, preferred_id, "shared/execution.ipynb"
@@ -101,11 +116,18 @@ async def test_runtime_storage_prefers_execution_target(engine: AsyncEngine) -> 
     assert all(driver.closed for driver in factory.drivers)
 
 
-async def test_runtime_storage_falls_back_to_another_shared_target(engine: AsyncEngine) -> None:
-    preferred_id = await _target(engine, name="a-preferred", endpoint="http://preferred")
+async def test_runtime_storage_falls_back_to_another_shared_target(
+    engine: AsyncEngine,
+) -> None:
+    preferred_id = await _target(
+        engine, name="a-preferred", endpoint="http://preferred"
+    )
     await _target(engine, name="b-fallback", endpoint="http://fallback")
     factory = DriverFactory(
-        {"http://preferred": RuntimeError("offline"), "http://fallback": {"cells": [1]}}
+        {
+            "http://preferred": RuntimeError("offline"),
+            "http://fallback": {"cells": [1]},
+        }
     )
 
     result = await _access(engine, factory).read_notebook(
@@ -117,14 +139,18 @@ async def test_runtime_storage_falls_back_to_another_shared_target(engine: Async
     assert all(driver.closed for driver in factory.drivers)
 
 
-async def test_runtime_storage_excludes_offline_and_disabled_targets(engine: AsyncEngine) -> None:
+async def test_runtime_storage_excludes_offline_and_disabled_targets(
+    engine: AsyncEngine,
+) -> None:
     await _target(
         engine,
         name="offline",
         endpoint="http://offline",
         status=RuntimeTargetStatus.OFFLINE,
     )
-    await _target(engine, name="disabled", endpoint="http://disabled", enabled=False)
+    await _target(
+        engine, name="disabled", endpoint="http://disabled", enabled=False
+    )
     factory = DriverFactory({})
 
     with pytest.raises(RuntimeDriverError, match="No healthy Runtime Target"):
@@ -133,11 +159,16 @@ async def test_runtime_storage_excludes_offline_and_disabled_targets(engine: Asy
         )
 
 
-async def test_runtime_storage_reports_all_target_failures(engine: AsyncEngine) -> None:
+async def test_runtime_storage_reports_all_target_failures(
+    engine: AsyncEngine,
+) -> None:
     await _target(engine, name="first", endpoint="http://first")
     await _target(engine, name="second", endpoint="http://second")
     factory = DriverFactory(
-        {"http://first": RuntimeError("one"), "http://second": RuntimeError("two")}
+        {
+            "http://first": RuntimeError("one"),
+            "http://second": RuntimeError("two"),
+        }
     )
 
     with pytest.raises(RuntimeDriverError, match="All Runtime Targets failed"):

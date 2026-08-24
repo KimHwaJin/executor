@@ -13,8 +13,12 @@ async def main() -> None:
     endpoint = os.getenv("JUPYTER_GATEWAY_ENDPOINT")
     token = os.getenv("JUPYTER_GATEWAY_TOKEN")
     if not endpoint or not token:
-        raise RuntimeError("JUPYTER_GATEWAY_ENDPOINT and JUPYTER_GATEWAY_TOKEN are required.")
-    relative_path = "users/smoke/projects/smoke/sessions/smoke/executions/gateway-smoke"
+        raise RuntimeError(
+            "JUPYTER_GATEWAY_ENDPOINT and JUPYTER_GATEWAY_TOKEN are required."
+        )
+    relative_path = (
+        "users/smoke/projects/smoke/sessions/smoke/executions/gateway-smoke"
+    )
     gateway = JupyterRuntimeDriver(
         endpoint,
         token,
@@ -34,7 +38,9 @@ async def main() -> None:
             "ml": (3, 12, ["sklearn", "xgboost", "lightgbm"]),
         }
         for profile, (major, minor, imports) in probes.items():
-            runtime_session_id = await gateway.start_session(profile, relative_path)
+            runtime_session_id = await gateway.start_session(
+                profile, relative_path
+            )
             runtime_session_ids.append(runtime_session_id)
             code = (
                 "import importlib, json, sys\n"
@@ -45,13 +51,17 @@ async def main() -> None:
             )
             result = await gateway.execute(runtime_session_id, code)
             stream_outputs = [
-                output["text"] for output in result.outputs if output.get("output_type") == "stream"
+                output["text"]
+                for output in result.outputs
+                if output.get("output_type") == "stream"
             ]
             if not stream_outputs:
                 raise RuntimeError(f"{profile} did not return a stream output.")
             payload = json.loads("".join(stream_outputs))
             if payload["version"] != [major, minor]:
-                raise RuntimeError(f"{profile} uses unexpected Python: {payload['version']}")
+                raise RuntimeError(
+                    f"{profile} uses unexpected Python: {payload['version']}"
+                )
             print(profile, payload)
     finally:
         for runtime_session_id in runtime_session_ids:

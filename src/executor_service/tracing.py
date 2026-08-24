@@ -8,7 +8,9 @@ from typing import Any
 
 from opentelemetry import propagate, trace
 from opentelemetry.context import Context
-from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+    OTLPSpanExporter,
+)
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExporter
@@ -63,7 +65,9 @@ class TracingManager:
     ) -> None:
         self._provider: TracerProvider | None = None
         if not settings.tracing_enabled and span_exporter is None:
-            self.tracer = trace.NoOpTracerProvider().get_tracer(INSTRUMENTATION_NAME)
+            self.tracer = trace.NoOpTracerProvider().get_tracer(
+                INSTRUMENTATION_NAME
+            )
             return
         resource = Resource.create(
             {
@@ -118,7 +122,9 @@ class TracingManager:
     async def force_flush(self, timeout_millis: int = 5000) -> bool:
         if self._provider is None:
             return True
-        return await asyncio.to_thread(self._provider.force_flush, timeout_millis)
+        return await asyncio.to_thread(
+            self._provider.force_flush, timeout_millis
+        )
 
 
 def capture_trace_carrier() -> TraceCarrier:
@@ -152,7 +158,9 @@ def _safe_attributes(attributes: Mapping[str, Any]) -> dict[str, Any]:
         elif isinstance(value, (list, tuple)) and all(
             isinstance(item, (bool, int, float, str)) for item in value
         ):
-            safe[key] = [item[:255] if isinstance(item, str) else item for item in value]
+            safe[key] = [
+                item[:255] if isinstance(item, str) else item for item in value
+            ]
     return safe
 
 
@@ -163,7 +171,9 @@ class TraceContextMiddleware:
         self._app = app
         self._tracing = tracing
 
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+    async def __call__(
+        self, scope: Scope, receive: Receive, send: Send
+    ) -> None:
         if scope.get("type") != "http":
             await self._app(scope, receive, send)
             return
@@ -183,7 +193,9 @@ class TraceContextMiddleware:
 
             async def traced_send(message: Message) -> None:
                 if message.get("type") == "http.response.start":
-                    span.set_attribute("http.response.status_code", message.get("status", 0))
+                    span.set_attribute(
+                        "http.response.status_code", message.get("status", 0)
+                    )
                 await send(message)
 
             await self._app(scope, receive, traced_send)

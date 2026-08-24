@@ -53,12 +53,16 @@ def _open_state_database(path: Path) -> sqlite3.Connection:
     return connection
 
 
-def _apply_once(connection: sqlite3.Connection, event: ExecutionStreamEnvelope) -> bool:
+def _apply_once(
+    connection: sqlite3.Connection, event: ExecutionStreamEnvelope
+) -> bool:
     """Persist Agent state and its deduplication key atomically."""
 
     event_id = str(event.event_id)
     execution_id = str(event.aggregate_id)
-    payload_json = json.dumps(event.payload, separators=(",", ":"), sort_keys=True)
+    payload_json = json.dumps(
+        event.payload, separators=(",", ":"), sort_keys=True
+    )
     try:
         with connection:
             connection.execute(
@@ -92,7 +96,9 @@ def _apply_once(connection: sqlite3.Connection, event: ExecutionStreamEnvelope) 
     return True
 
 
-async def _ensure_group(redis: Redis, stream: str, group: str, start_id: str) -> None:
+async def _ensure_group(
+    redis: Redis, stream: str, group: str, start_id: str
+) -> None:
     try:
         await redis.xgroup_create(stream, group, id=start_id, mkstream=True)
     except ResponseError as exc:
@@ -131,11 +137,18 @@ async def main() -> None:
     group = os.getenv("AGENT_EVENT_CONSUMER_GROUP", "agent-execution-events")
     group_start_id = os.getenv("AGENT_EVENT_GROUP_START_ID", "$")
     consumer = os.getenv(
-        "AGENT_EVENT_CONSUMER_NAME", f"agent-example-{socket.gethostname()}-{os.getpid()}"
+        "AGENT_EVENT_CONSUMER_NAME",
+        f"agent-example-{socket.gethostname()}-{os.getpid()}",
     )
-    state_path = Path(os.getenv("AGENT_EVENT_STATE_DB", ".agent-event-consumer.db"))
-    pending_idle_milliseconds = int(os.getenv("AGENT_EVENT_PENDING_IDLE_MILLISECONDS", "30000"))
-    stop_after_terminal = os.getenv("AGENT_EVENT_STOP_AFTER_TERMINAL", "false").lower() in {
+    state_path = Path(
+        os.getenv("AGENT_EVENT_STATE_DB", ".agent-event-consumer.db")
+    )
+    pending_idle_milliseconds = int(
+        os.getenv("AGENT_EVENT_PENDING_IDLE_MILLISECONDS", "30000")
+    )
+    stop_after_terminal = os.getenv(
+        "AGENT_EVENT_STOP_AFTER_TERMINAL", "false"
+    ).lower() in {
         "1",
         "true",
         "yes",

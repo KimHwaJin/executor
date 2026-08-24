@@ -38,7 +38,9 @@ class ExecutionResultQueryService:
     def __init__(self, queries: ExecutionQueryService) -> None:
         self._queries = queries
 
-    async def operation(self, execution_id: UUID, operation_id: UUID) -> OperationResultBundle:
+    async def operation(
+        self, execution_id: UUID, operation_id: UUID
+    ) -> OperationResultBundle:
         operation = await self._queries.operation(execution_id, operation_id)
         steps = await self._all_operation_steps(execution_id, operation_id)
         return OperationResultBundle(operation=operation, steps=tuple(steps))
@@ -50,7 +52,11 @@ class ExecutionResultQueryService:
             operations.append(
                 OperationResultBundle(
                     operation=operation,
-                    steps=tuple(await self._all_operation_steps(execution_id, operation.id)),
+                    steps=tuple(
+                        await self._all_operation_steps(
+                            execution_id, operation.id
+                        )
+                    ),
                 )
             )
         attempts = []
@@ -58,7 +64,9 @@ class ExecutionResultQueryService:
             attempts.append(
                 AttemptResultBundle(
                     attempt=attempt,
-                    steps=tuple(await self._all_attempt_steps(execution_id, attempt.id)),
+                    steps=tuple(
+                        await self._all_attempt_steps(execution_id, attempt.id)
+                    ),
                 )
             )
         return ExecutionResultBundle(
@@ -68,11 +76,15 @@ class ExecutionResultQueryService:
             artifacts=tuple(await self._all_artifacts(execution_id)),
         )
 
-    async def _all_operations(self, execution_id: UUID) -> list[ExecutionOperationView]:
+    async def _all_operations(
+        self, execution_id: UUID
+    ) -> list[ExecutionOperationView]:
         items: list[ExecutionOperationView] = []
         cursor = None
         while True:
-            page = await self._queries.operations(execution_id, cursor=cursor, limit=200)
+            page = await self._queries.operations(
+                execution_id, cursor=cursor, limit=200
+            )
             items.extend(page.items)
             cursor = page.next_cursor
             if cursor is None:
@@ -92,11 +104,15 @@ class ExecutionResultQueryService:
             if cursor is None:
                 return items
 
-    async def _all_attempts(self, execution_id: UUID) -> list[ExecutionAttemptView]:
+    async def _all_attempts(
+        self, execution_id: UUID
+    ) -> list[ExecutionAttemptView]:
         items: list[ExecutionAttemptView] = []
         cursor = None
         while True:
-            page = await self._queries.attempts(execution_id, cursor=cursor, limit=200)
+            page = await self._queries.attempts(
+                execution_id, cursor=cursor, limit=200
+            )
             items.extend(page.items)
             cursor = page.next_cursor
             if cursor is None:
@@ -116,11 +132,15 @@ class ExecutionResultQueryService:
             if cursor is None:
                 return items
 
-    async def _all_artifacts(self, execution_id: UUID) -> list[ExecutionArtifactView]:
+    async def _all_artifacts(
+        self, execution_id: UUID
+    ) -> list[ExecutionArtifactView]:
         items: list[ExecutionArtifactView] = []
         cursor = None
         while True:
-            page = await self._queries.artifacts(execution_id, cursor=cursor, limit=1000)
+            page = await self._queries.artifacts(
+                execution_id, cursor=cursor, limit=1000
+            )
             items.extend(page.items)
             cursor = page.next_cursor
             if cursor is None:

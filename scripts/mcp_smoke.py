@@ -38,7 +38,9 @@ async def main() -> None:
         execution_id = submitted.structured_content["execution_id"]
         print("submitted:", submitted.structured_content)
 
-        fetched = await client.call_tool("execution_get", {"execution_id": execution_id})
+        fetched = await client.call_tool(
+            "execution_get", {"execution_id": execution_id}
+        )
         print("fetched:", fetched.structured_content)
 
         cancelled = await client.call_tool(

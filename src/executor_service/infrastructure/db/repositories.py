@@ -35,7 +35,9 @@ class SQLAlchemyExecutionRepository:
     async def add(self, execution: Execution) -> None:
         self._session.add(ExecutionORM.from_domain(execution))
 
-    async def get(self, execution_id: UUID, *, for_update: bool = False) -> Execution | None:
+    async def get(
+        self, execution_id: UUID, *, for_update: bool = False
+    ) -> Execution | None:
         statement = (
             select(ExecutionORM)
             .where(ExecutionORM.id == execution_id)
@@ -65,7 +67,10 @@ class SQLAlchemyExecutionRepository:
     async def get_by_retry_key(self, idempotency_key: str) -> Execution | None:
         row = await self._session.scalar(
             select(ExecutionORM)
-            .join(ExecutionRetryORM, ExecutionRetryORM.execution_id == ExecutionORM.id)
+            .join(
+                ExecutionRetryORM,
+                ExecutionRetryORM.execution_id == ExecutionORM.id,
+            )
             .where(ExecutionRetryORM.idempotency_key == idempotency_key)
             .options(selectinload(ExecutionORM.steps))
         )
@@ -86,11 +91,17 @@ class SQLAlchemyExecutionRepository:
         self, idempotency_key: str
     ) -> tuple[str, str, dict[str, object]] | None:
         receipt = await self._session.scalar(
-            select(CommandReceiptORM).where(CommandReceiptORM.idempotency_key == idempotency_key)
+            select(CommandReceiptORM).where(
+                CommandReceiptORM.idempotency_key == idempotency_key
+            )
         )
         if receipt is None:
             return None
-        return receipt.command_type, receipt.request_fingerprint, receipt.result
+        return (
+            receipt.command_type,
+            receipt.request_fingerprint,
+            receipt.result,
+        )
 
     async def add_command_receipt(
         self,
@@ -124,7 +135,9 @@ class SQLAlchemyExecutionRepository:
         )
         return (current or 0) + 1
 
-    async def get_operation_id_by_key(self, idempotency_key: str) -> UUID | None:
+    async def get_operation_id_by_key(
+        self, idempotency_key: str
+    ) -> UUID | None:
         return await self._session.scalar(
             select(ExecutionOperationORM.id).where(
                 ExecutionOperationORM.idempotency_key == idempotency_key
@@ -156,13 +169,18 @@ class SQLAlchemyExecutionRepository:
             )
         )
         if getattr(result, "rowcount", None) != 1:
-            raise PersistenceConflictError("Active Operation is not retryable from FAILED.")
+            raise PersistenceConflictError(
+                "Active Operation is not retryable from FAILED."
+            )
 
     async def save(self, execution: Execution) -> None:
         previous_version = execution.version - 1
         result = await self._session.execute(
             update(ExecutionORM)
-            .where(ExecutionORM.id == execution.id, ExecutionORM.version == previous_version)
+            .where(
+                ExecutionORM.id == execution.id,
+                ExecutionORM.version == previous_version,
+            )
             .values(
                 status=execution.status,
                 cancel_idempotency_key=execution.cancel_idempotency_key,
@@ -193,7 +211,9 @@ class SQLAlchemyExecutionRepository:
             )
         )
         if getattr(result, "rowcount", None) != 1:
-            raise PersistenceConflictError("Execution was concurrently modified.")
+            raise PersistenceConflictError(
+                "Execution was concurrently modified."
+            )
         for step in execution.steps:
             await self._session.execute(
                 update(ExecutionStepORM)
@@ -226,7 +246,9 @@ class SQLAlchemyOutboxRepository:
 
 
 class SQLAlchemyUnitOfWork:
-    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+    def __init__(
+        self, session_factory: async_sessionmaker[AsyncSession]
+    ) -> None:
         self._session_factory = session_factory
         self._session: AsyncSession | None = None
 
@@ -255,7 +277,9 @@ class SQLAlchemyUnitOfWork:
             await self._session.commit()
         except IntegrityError as exc:
             await self._session.rollback()
-            raise PersistenceConflictError("A persistence constraint was violated.") from exc
+            raise PersistenceConflictError(
+                "A persistence constraint was violated."
+            ) from exc
 
     async def rollback(self) -> None:
         if self._session is not None:

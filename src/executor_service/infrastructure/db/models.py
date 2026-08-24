@@ -55,7 +55,13 @@ from executor_service.infrastructure.db.base import Base
 
 
 def enum_type(enum_class: type[PythonEnum], name: str) -> Enum:
-    return Enum(enum_class, name=name, native_enum=False, create_constraint=False, length=32)
+    return Enum(
+        enum_class,
+        name=name,
+        native_enum=False,
+        create_constraint=False,
+        length=32,
+    )
 
 
 def audit_actor_constraints() -> tuple[CheckConstraint, ...]:
@@ -88,17 +94,30 @@ class ExecutionORM(Base):
             "'FINALIZING', 'CANCEL_REQUESTED', 'CANCELLED', 'SUCCEEDED', 'FAILED')",
             name="valid_execution_status",
         ),
-        CheckConstraint("operation_mode IN ('SINGLE', 'MULTI')", name="valid_operation_mode"),
+        CheckConstraint(
+            "operation_mode IN ('SINGLE', 'MULTI')",
+            name="valid_operation_mode",
+        ),
         CheckConstraint(
             "(operation_mode = 'SINGLE' AND operation_wait_timeout_seconds IS NULL) OR "
             "(operation_mode = 'MULTI' AND operation_wait_timeout_seconds >= 30)",
             name="valid_operation_wait_timeout",
         ),
-        CheckConstraint("trigger_type IN ('INTERACTIVE', 'BATCH')", name="valid_trigger_type"),
-        CheckConstraint("runtime_pool IN ('INTERACTIVE', 'BATCH')", name="valid_runtime_pool"),
-        CheckConstraint("runtime_type IN ('JUPYTER')", name="valid_runtime_type"),
+        CheckConstraint(
+            "trigger_type IN ('INTERACTIVE', 'BATCH')",
+            name="valid_trigger_type",
+        ),
+        CheckConstraint(
+            "runtime_pool IN ('INTERACTIVE', 'BATCH')",
+            name="valid_runtime_pool",
+        ),
+        CheckConstraint(
+            "runtime_type IN ('JUPYTER')", name="valid_runtime_type"
+        ),
         CheckConstraint("retry_count >= 0", name="non_negative_retry_count"),
-        CheckConstraint("recovery_count >= 0", name="non_negative_recovery_count"),
+        CheckConstraint(
+            "recovery_count >= 0", name="non_negative_recovery_count"
+        ),
         CheckConstraint(
             "failure_type IS NULL OR failure_type IN ('TOOL_ERROR', "
             "'INFRASTRUCTURE_ERROR', 'WORKER_SHUTDOWN', 'RUNTIME_UNAVAILABLE', "
@@ -127,9 +146,21 @@ class ExecutionORM(Base):
             "created_at",
             "id",
         ),
-        Index("ix_executions_project_created_cursor", "project_id", "created_at", "id"),
-        Index("ix_executions_session_created_cursor", "session_id", "created_at", "id"),
-        Index("ix_executions_task_created_cursor", "task_id", "created_at", "id"),
+        Index(
+            "ix_executions_project_created_cursor",
+            "project_id",
+            "created_at",
+            "id",
+        ),
+        Index(
+            "ix_executions_session_created_cursor",
+            "session_id",
+            "created_at",
+            "id",
+        ),
+        Index(
+            "ix_executions_task_created_cursor", "task_id", "created_at", "id"
+        ),
         Index("ix_executions_lease", "status", "lease_expires_at"),
         Index(
             "ix_executions_retained_session_cleanup",
@@ -139,8 +170,12 @@ class ExecutionORM(Base):
         ),
     )
 
-    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
-    idempotency_key: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
+    idempotency_key: Mapped[str] = mapped_column(
+        String(255), unique=True, nullable=False
+    )
     request_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
     cancel_idempotency_key: Mapped[str | None] = mapped_column(
         String(255), unique=True, nullable=True
@@ -157,7 +192,9 @@ class ExecutionORM(Base):
         enum_type(TriggerType, "trigger_type"), nullable=False
     )
     runtime_type: Mapped[RuntimeType] = mapped_column(
-        enum_type(RuntimeType, "runtime_type"), nullable=False, default=RuntimeType.JUPYTER
+        enum_type(RuntimeType, "runtime_type"),
+        nullable=False,
+        default=RuntimeType.JUPYTER,
     )
     runtime_pool: Mapped[RuntimePool] = mapped_column(
         enum_type(RuntimePool, "runtime_pool"), nullable=False
@@ -166,16 +203,23 @@ class ExecutionORM(Base):
     user_id: Mapped[str] = mapped_column(String(255), nullable=False)
     project_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     session_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    task_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    task_id: Mapped[str] = mapped_column(
+        String(255), nullable=False, index=True
+    )
     workflow_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     execution_metadata: Mapped[dict[str, Any]] = mapped_column(
         "metadata", JSON, nullable=False, default=dict
     )
     cancellation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     runtime_target_id: Mapped[UUID | None] = mapped_column(
-        Uuid(as_uuid=True), ForeignKey("runtime_targets.id"), nullable=True, index=True
+        Uuid(as_uuid=True),
+        ForeignKey("runtime_targets.id"),
+        nullable=True,
+        index=True,
     )
-    runtime_session_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    runtime_session_id: Mapped[str | None] = mapped_column(
+        String(255), nullable=True
+    )
     workspace_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     notebook_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -183,23 +227,37 @@ class ExecutionORM(Base):
         enum_type(FailureType, "failure_type"), nullable=True
     )
     lease_owner: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    heartbeat_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
     retry_strategy: Mapped[RetryStrategy] = mapped_column(
         enum_type(RetryStrategy, "retry_strategy"),
         nullable=False,
         default=RetryStrategy.NOT_RETRYABLE,
     )
     retry_from_sequence: Mapped[int | None] = mapped_column(Integer)
-    retained_runtime_session_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    recovery_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    runtime_session_cleanup_status: Mapped[RuntimeSessionCleanupStatus] = mapped_column(
-        enum_type(RuntimeSessionCleanupStatus, "runtime_session_cleanup_status"),
-        nullable=False,
-        default=RuntimeSessionCleanupStatus.NOT_REQUIRED,
+    retained_runtime_session_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
     )
-    finalization_requested: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    recovery_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
+    )
+    runtime_session_cleanup_status: Mapped[RuntimeSessionCleanupStatus] = (
+        mapped_column(
+            enum_type(
+                RuntimeSessionCleanupStatus, "runtime_session_cleanup_status"
+            ),
+            nullable=False,
+            default=RuntimeSessionCleanupStatus.NOT_REQUIRED,
+        )
+    )
+    finalization_requested: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
     active_operation_id: Mapped[UUID | None] = mapped_column(
         Uuid(as_uuid=True), nullable=True, index=True
     )
@@ -226,10 +284,17 @@ class ExecutionORM(Base):
         DateTime(timezone=True), nullable=False, default=utc_now
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
     )
-    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     steps: Mapped[list["ExecutionStepORM"]] = relationship(
         back_populates="execution",
@@ -289,7 +354,9 @@ class ExecutionORM(Base):
             updated_at=execution.updated_at,
             started_at=execution.started_at,
             finished_at=execution.finished_at,
-            steps=[ExecutionStepORM.from_domain(step) for step in execution.steps],
+            steps=[
+                ExecutionStepORM.from_domain(step) for step in execution.steps
+            ],
         )
 
     def to_domain(self) -> Execution:
@@ -350,7 +417,11 @@ class ExecutionStepORM(Base):
     __tablename__ = "execution_steps"
     __table_args__ = (
         *audit_actor_constraints(),
-        UniqueConstraint("execution_id", "sequence", name="uq_execution_steps_execution_sequence"),
+        UniqueConstraint(
+            "execution_id",
+            "sequence",
+            name="uq_execution_steps_execution_sequence",
+        ),
         CheckConstraint("sequence >= 0", name="non_negative_sequence"),
         CheckConstraint(
             "step_timeout_seconds IS NULL OR step_timeout_seconds >= 1",
@@ -360,7 +431,9 @@ class ExecutionStepORM(Base):
             "status IN ('PENDING', 'RUNNING', 'SUCCEEDED', 'FAILED', 'SKIPPED', 'CANCELLED')",
             name="valid_step_status",
         ),
-        CheckConstraint("source_type IN ('INLINE', 'PATH')", name="valid_source_type"),
+        CheckConstraint(
+            "source_type IN ('INLINE', 'PATH')", name="valid_source_type"
+        ),
         CheckConstraint(
             "(source_type = 'INLINE' AND source_path IS NULL) OR "
             "(source_type = 'PATH' AND source_path IS NOT NULL)",
@@ -368,7 +441,9 @@ class ExecutionStepORM(Base):
         ),
     )
 
-    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
     execution_id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey("executions.id", ondelete="CASCADE"),
@@ -393,10 +468,16 @@ class ExecutionStepORM(Base):
     skill_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     tool_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     status: Mapped[StepStatus] = mapped_column(
-        enum_type(StepStatus, "step_status"), nullable=False, default=StepStatus.PENDING
+        enum_type(StepStatus, "step_status"),
+        nullable=False,
+        default=StepStatus.PENDING,
     )
-    input_parameters: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
-    outputs: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)
+    input_parameters: Mapped[dict[str, Any]] = mapped_column(
+        JSON, nullable=False, default=dict
+    )
+    outputs: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON, nullable=False, default=list
+    )
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by_type: Mapped[ActorType | None] = mapped_column(
         enum_type(ActorType, "actor_type"), nullable=True
@@ -410,10 +491,15 @@ class ExecutionStepORM(Base):
         DateTime(timezone=True), nullable=False, default=utc_now
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
     )
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
 
     execution: Mapped[ExecutionORM] = relationship(back_populates="steps")
 
@@ -479,11 +565,24 @@ class ExecutionOperationORM(Base):
     __tablename__ = "execution_operations"
     __table_args__ = (
         *audit_actor_constraints(),
-        UniqueConstraint("execution_id", "operation_number", name="uq_operations_execution_number"),
-        CheckConstraint("operation_number > 0", name="positive_operation_number"),
-        CheckConstraint("schema_version = '1.0'", name="supported_schema_version"),
-        CheckConstraint("first_sequence >= 0", name="non_negative_first_sequence"),
-        CheckConstraint("last_sequence >= first_sequence", name="valid_operation_sequence_range"),
+        UniqueConstraint(
+            "execution_id",
+            "operation_number",
+            name="uq_operations_execution_number",
+        ),
+        CheckConstraint(
+            "operation_number > 0", name="positive_operation_number"
+        ),
+        CheckConstraint(
+            "schema_version = '1.0'", name="supported_schema_version"
+        ),
+        CheckConstraint(
+            "first_sequence >= 0", name="non_negative_first_sequence"
+        ),
+        CheckConstraint(
+            "last_sequence >= first_sequence",
+            name="valid_operation_sequence_range",
+        ),
         CheckConstraint(
             "operation_timeout_seconds IS NULL OR operation_timeout_seconds >= 1",
             name="valid_operation_timeout",
@@ -492,28 +591,42 @@ class ExecutionOperationORM(Base):
             "status IN ('QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED', 'CANCELLED')",
             name="valid_operation_status",
         ),
-        Index("ix_execution_operations_execution_number", "execution_id", "operation_number"),
+        Index(
+            "ix_execution_operations_execution_number",
+            "execution_id",
+            "operation_number",
+        ),
     )
 
-    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
     execution_id: Mapped[UUID] = mapped_column(
-        Uuid(as_uuid=True), ForeignKey("executions.id", ondelete="CASCADE"), nullable=False
+        Uuid(as_uuid=True),
+        ForeignKey("executions.id", ondelete="CASCADE"),
+        nullable=False,
     )
     operation_number: Mapped[int] = mapped_column(Integer, nullable=False)
-    schema_version: Mapped[str] = mapped_column(String(16), nullable=False, default="1.0")
+    schema_version: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="1.0"
+    )
     first_sequence: Mapped[int] = mapped_column(Integer, nullable=False)
     last_sequence: Mapped[int] = mapped_column(Integer, nullable=False)
     operation_timeout_seconds: Mapped[int | None] = mapped_column(Integer)
     operation_metadata: Mapped[dict[str, Any]] = mapped_column(
         "metadata", JSON, nullable=False, default=dict
     )
-    idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    idempotency_key: Mapped[str] = mapped_column(
+        String(255), nullable=False, unique=True
+    )
     request_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[OperationStatus] = mapped_column(
         enum_type(OperationStatus, "operation_status"), nullable=False
     )
     execution_attempt_id: Mapped[UUID | None] = mapped_column(
-        Uuid(as_uuid=True), ForeignKey("execution_attempts.id", use_alter=True), nullable=True
+        Uuid(as_uuid=True),
+        ForeignKey("execution_attempts.id", use_alter=True),
+        nullable=True,
     )
     error_message: Mapped[str | None] = mapped_column(Text)
     created_by_type: Mapped[ActorType | None] = mapped_column(
@@ -528,13 +641,20 @@ class ExecutionOperationORM(Base):
         DateTime(timezone=True), nullable=False, default=utc_now
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
     )
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
 
     @classmethod
-    def from_domain(cls, operation: ExecutionOperation) -> "ExecutionOperationORM":
+    def from_domain(
+        cls, operation: ExecutionOperation
+    ) -> "ExecutionOperationORM":
         return cls(
             id=operation.id,
             execution_id=operation.execution_id,
@@ -565,38 +685,59 @@ class RuntimeTargetORM(Base):
     __table_args__ = (
         *audit_actor_constraints(),
         CheckConstraint(
-            "status IN ('ACTIVE', 'DRAINING', 'OFFLINE')", name="valid_runtime_target_status"
+            "status IN ('ACTIVE', 'DRAINING', 'OFFLINE')",
+            name="valid_runtime_target_status",
         ),
-        CheckConstraint("runtime_type IN ('JUPYTER')", name="valid_runtime_type"),
-        CheckConstraint("max_concurrent_executions > 0", name="positive_max_concurrency"),
+        CheckConstraint(
+            "runtime_type IN ('JUPYTER')", name="valid_runtime_type"
+        ),
+        CheckConstraint(
+            "max_concurrent_executions > 0", name="positive_max_concurrency"
+        ),
         Index("ix_runtime_targets_pool_status", "pool", "enabled", "status"),
         Index("ix_runtime_targets_created_cursor", "created_at", "id"),
     )
 
-    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
     name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     runtime_type: Mapped[RuntimeType] = mapped_column(
         enum_type(RuntimeType, "runtime_target_type"),
         nullable=False,
         default=RuntimeType.JUPYTER,
     )
-    connection_config: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    connection_config: Mapped[dict[str, Any]] = mapped_column(
+        JSON, nullable=False
+    )
     credential_ref: Mapped[str] = mapped_column(String(255), nullable=False)
-    credential_ciphertext: Mapped[str | None] = mapped_column(Text, nullable=True)
+    credential_ciphertext: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )
     pool: Mapped[RuntimePool] = mapped_column(
         enum_type(RuntimePool, "runtime_target_pool"), nullable=False
     )
     status: Mapped[RuntimeTargetStatus] = mapped_column(
         enum_type(RuntimeTargetStatus, "runtime_target_status"), nullable=False
     )
-    max_concurrent_executions: Mapped[int] = mapped_column(Integer, nullable=False)
-    supported_profiles: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    max_concurrent_executions: Mapped[int] = mapped_column(
+        Integer, nullable=False
+    )
+    supported_profiles: Mapped[list[str]] = mapped_column(
+        JSON, nullable=False, default=list
+    )
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    last_health_check_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_health_check_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
     last_health_error: Mapped[str | None] = mapped_column(String(500))
     active_session_count: Mapped[int | None] = mapped_column(Integer)
-    resource_observed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    resource_last_check_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resource_observed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    resource_last_check_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
     resource_last_error: Mapped[str | None] = mapped_column(String(500))
     resource_source: Mapped[str | None] = mapped_column(String(64))
     resource_estimated: Mapped[bool | None] = mapped_column(Boolean)
@@ -607,7 +748,9 @@ class RuntimeTargetORM(Base):
     memory_used_bytes: Mapped[int | None] = mapped_column(BigInteger)
     memory_capacity_bytes: Mapped[int | None] = mapped_column(BigInteger)
     memory_utilization: Mapped[float | None] = mapped_column(Float)
-    resource_errors: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    resource_errors: Mapped[list[str]] = mapped_column(
+        JSON, nullable=False, default=list
+    )
     created_by_type: Mapped[ActorType | None] = mapped_column(
         enum_type(ActorType, "actor_type"), nullable=True
     )
@@ -616,7 +759,9 @@ class RuntimeTargetORM(Base):
         enum_type(ActorType, "actor_type"), nullable=True
     )
     updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, onupdate=utc_now
     )
@@ -629,20 +774,30 @@ class RuntimeTargetPurgeORM(Base):
     __table_args__ = (
         *audit_actor_constraints(),
         CheckConstraint("pool IN ('INTERACTIVE', 'BATCH')", name="valid_pool"),
-        CheckConstraint("runtime_type IN ('JUPYTER')", name="valid_runtime_type"),
+        CheckConstraint(
+            "runtime_type IN ('JUPYTER')", name="valid_runtime_type"
+        ),
     )
 
-    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
-    target_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False, unique=True)
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
+    target_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), nullable=False, unique=True
+    )
     target_name: Mapped[str] = mapped_column(String(255), nullable=False)
     runtime_type: Mapped[RuntimeType] = mapped_column(
         enum_type(RuntimeType, "runtime_target_purge_type"), nullable=False
     )
-    connection_config: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    connection_config: Mapped[dict[str, Any]] = mapped_column(
+        JSON, nullable=False
+    )
     pool: Mapped[RuntimePool] = mapped_column(
         enum_type(RuntimePool, "runtime_target_purge_pool"), nullable=False
     )
-    idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    idempotency_key: Mapped[str] = mapped_column(
+        String(255), nullable=False, unique=True
+    )
     request_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
     created_by_type: Mapped[ActorType | None] = mapped_column(
         enum_type(ActorType, "actor_type"), nullable=True
@@ -656,7 +811,10 @@ class RuntimeTargetPurgeORM(Base):
         DateTime(timezone=True), nullable=False, default=utc_now
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
     )
 
 
@@ -665,8 +823,12 @@ class CommandReceiptORM(Base):
 
     __tablename__ = "command_receipts"
 
-    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
-    idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
+    idempotency_key: Mapped[str] = mapped_column(
+        String(255), nullable=False, unique=True
+    )
     command_type: Mapped[str] = mapped_column(String(128), nullable=False)
     request_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
     result: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
@@ -677,16 +839,24 @@ class CommandReceiptORM(Base):
 
 class ExecutionRetryORM(Base):
     __tablename__ = "execution_retries"
-    __table_args__ = (CheckConstraint("from_sequence >= 0", name="non_negative_from_sequence"),)
+    __table_args__ = (
+        CheckConstraint(
+            "from_sequence >= 0", name="non_negative_from_sequence"
+        ),
+    )
 
-    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
     execution_id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey("executions.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    idempotency_key: Mapped[str] = mapped_column(
+        String(255), nullable=False, unique=True
+    )
     from_sequence: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utc_now
@@ -698,14 +868,18 @@ class ExecutionAttemptORM(Base):
     __table_args__ = (
         *audit_actor_constraints(),
         UniqueConstraint(
-            "execution_id", "attempt_number", name="uq_execution_attempts_execution_attempt"
+            "execution_id",
+            "attempt_number",
+            name="uq_execution_attempts_execution_attempt",
         ),
         CheckConstraint("attempt_number > 0", name="positive_attempt_number"),
         CheckConstraint(
             "status IN ('RUNNING', 'WAITING', 'SUCCEEDED', 'FAILED', 'CANCELLED')",
             name="valid_attempt_status",
         ),
-        CheckConstraint("runtime_type IN ('JUPYTER')", name="valid_attempt_runtime_type"),
+        CheckConstraint(
+            "runtime_type IN ('JUPYTER')", name="valid_attempt_runtime_type"
+        ),
         CheckConstraint(
             "failure_type IS NULL OR failure_type IN ('TOOL_ERROR', "
             "'INFRASTRUCTURE_ERROR', 'WORKER_SHUTDOWN', 'RUNTIME_UNAVAILABLE', "
@@ -723,12 +897,20 @@ class ExecutionAttemptORM(Base):
             name="valid_runtime_session_cleanup_status",
         ),
         Index("ix_execution_attempts_lease", "status", "lease_expires_at"),
-        Index("ix_execution_attempts_target_status", "runtime_target_id", "status"),
+        Index(
+            "ix_execution_attempts_target_status",
+            "runtime_target_id",
+            "status",
+        ),
     )
 
-    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
     execution_id: Mapped[UUID] = mapped_column(
-        Uuid(as_uuid=True), ForeignKey("executions.id", ondelete="CASCADE"), nullable=False
+        Uuid(as_uuid=True),
+        ForeignKey("executions.id", ondelete="CASCADE"),
+        nullable=False,
     )
     attempt_number: Mapped[int] = mapped_column(Integer, nullable=False)
     runtime_type: Mapped[RuntimeType] = mapped_column(
@@ -736,7 +918,9 @@ class ExecutionAttemptORM(Base):
         nullable=False,
         default=RuntimeType.JUPYTER,
     )
-    runtime_profile: Mapped[str] = mapped_column(String(128), nullable=False, default="basic")
+    runtime_profile: Mapped[str] = mapped_column(
+        String(128), nullable=False, default="basic"
+    )
     runtime_target_id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("runtime_targets.id"), nullable=False
     )
@@ -748,7 +932,9 @@ class ExecutionAttemptORM(Base):
     lease_expires_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    heartbeat_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    heartbeat_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
     error_message: Mapped[str | None] = mapped_column(Text)
     failure_type: Mapped[FailureType | None] = mapped_column(
         enum_type(FailureType, "attempt_failure_type")
@@ -758,10 +944,15 @@ class ExecutionAttemptORM(Base):
         nullable=False,
         default=RetryStrategy.NOT_RETRYABLE,
     )
-    runtime_session_cleanup_status: Mapped[RuntimeSessionCleanupStatus] = mapped_column(
-        enum_type(RuntimeSessionCleanupStatus, "attempt_runtime_session_cleanup_status"),
-        nullable=False,
-        default=RuntimeSessionCleanupStatus.NOT_REQUIRED,
+    runtime_session_cleanup_status: Mapped[RuntimeSessionCleanupStatus] = (
+        mapped_column(
+            enum_type(
+                RuntimeSessionCleanupStatus,
+                "attempt_runtime_session_cleanup_status",
+            ),
+            nullable=False,
+            default=RuntimeSessionCleanupStatus.NOT_REQUIRED,
+        )
     )
     created_by_type: Mapped[ActorType | None] = mapped_column(
         enum_type(ActorType, "actor_type"), nullable=True
@@ -775,10 +966,17 @@ class ExecutionAttemptORM(Base):
         DateTime(timezone=True), nullable=False, default=utc_now
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
     )
-    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
 
 
 class ExecutionStepAttemptORM(Base):
@@ -797,10 +995,14 @@ class ExecutionStepAttemptORM(Base):
             "status IN ('PENDING', 'RUNNING', 'SUCCEEDED', 'FAILED', 'SKIPPED', 'CANCELLED')",
             name="valid_step_attempt_status",
         ),
-        Index("ix_step_attempts_execution_sequence", "execution_id", "sequence"),
+        Index(
+            "ix_step_attempts_execution_sequence", "execution_id", "sequence"
+        ),
     )
 
-    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
     execution_id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey("executions.id", ondelete="CASCADE"),
@@ -820,11 +1022,15 @@ class ExecutionStepAttemptORM(Base):
     sequence: Mapped[int] = mapped_column(Integer, nullable=False)
     skill_name: Mapped[str | None] = mapped_column(String(255))
     tool_name: Mapped[str | None] = mapped_column(String(255))
-    input_parameters: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    input_parameters: Mapped[dict[str, Any]] = mapped_column(
+        JSON, nullable=False, default=dict
+    )
     status: Mapped[StepStatus] = mapped_column(
         enum_type(StepStatus, "step_attempt_status"), nullable=False
     )
-    outputs: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)
+    outputs: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON, nullable=False, default=list
+    )
     error_message: Mapped[str | None] = mapped_column(Text)
     created_by_type: Mapped[ActorType | None] = mapped_column(
         enum_type(ActorType, "actor_type"), nullable=True
@@ -838,10 +1044,17 @@ class ExecutionStepAttemptORM(Base):
         DateTime(timezone=True), nullable=False, default=utc_now
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
     )
-    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
 
 
 class ExecutionArtifactORM(Base):
@@ -855,12 +1068,16 @@ class ExecutionArtifactORM(Base):
             "'METRIC', 'LOG', 'OTHER')",
             name="valid_artifact_type",
         ),
-        CheckConstraint("storage_type IN ('PV', 'S3')", name="valid_artifact_storage_type"),
+        CheckConstraint(
+            "storage_type IN ('PV', 'S3')", name="valid_artifact_storage_type"
+        ),
         CheckConstraint(
             "status IN ('AVAILABLE', 'INCOMPLETE', 'DELETED')",
             name="valid_artifact_status",
         ),
-        CheckConstraint("size_bytes IS NULL OR size_bytes >= 0", name="non_negative_size"),
+        CheckConstraint(
+            "size_bytes IS NULL OR size_bytes >= 0", name="non_negative_size"
+        ),
         Index(
             "ix_execution_artifacts_execution_created",
             "execution_id",
@@ -870,7 +1087,9 @@ class ExecutionArtifactORM(Base):
         Index("ix_execution_artifacts_step", "execution_step_id", "created_at"),
     )
 
-    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
     execution_id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey("executions.id", ondelete="CASCADE"),
@@ -890,7 +1109,8 @@ class ExecutionArtifactORM(Base):
         ForeignKey("execution_step_attempts.id", ondelete="SET NULL"),
     )
     parent_artifact_id: Mapped[UUID | None] = mapped_column(
-        Uuid(as_uuid=True), ForeignKey("execution_artifacts.id", ondelete="SET NULL")
+        Uuid(as_uuid=True),
+        ForeignKey("execution_artifacts.id", ondelete="SET NULL"),
     )
     external_parent_asset_id: Mapped[str | None] = mapped_column(String(255))
     artifact_type: Mapped[ArtifactType] = mapped_column(
@@ -912,7 +1132,9 @@ class ExecutionArtifactORM(Base):
     artifact_metadata: Mapped[dict[str, Any]] = mapped_column(
         "metadata", JSON, nullable=False, default=dict
     )
-    identity_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    identity_hash: Mapped[str] = mapped_column(
+        String(64), nullable=False, unique=True
+    )
     created_by_type: Mapped[ActorType | None] = mapped_column(
         enum_type(ActorType, "actor_type"), nullable=True
     )
@@ -925,7 +1147,10 @@ class ExecutionArtifactORM(Base):
         DateTime(timezone=True), nullable=False, default=utc_now
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
     )
 
 
@@ -933,8 +1158,13 @@ class OutboxEventORM(Base):
     __tablename__ = "outbox_events"
     __table_args__ = (
         *audit_actor_constraints(),
-        CheckConstraint("status IN ('PENDING', 'PUBLISHED')", name="valid_outbox_status"),
-        CheckConstraint("destination IN ('WORK', 'EVENTS')", name="valid_outbox_destination"),
+        CheckConstraint(
+            "status IN ('PENDING', 'PUBLISHED')", name="valid_outbox_status"
+        ),
+        CheckConstraint(
+            "destination IN ('WORK', 'EVENTS')",
+            name="valid_outbox_destination",
+        ),
         Index("ix_outbox_pending", "status", "available_at", "created_at"),
         Index(
             "ix_outbox_execution_cursor",
@@ -945,9 +1175,13 @@ class OutboxEventORM(Base):
         ),
     )
 
-    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
     aggregate_type: Mapped[str] = mapped_column(String(128), nullable=False)
-    aggregate_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False, index=True)
+    aggregate_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), nullable=False, index=True
+    )
     event_type: Mapped[str] = mapped_column(String(255), nullable=False)
     destination: Mapped[OutboxDestination] = mapped_column(
         enum_type(OutboxDestination, "outbox_destination"), nullable=False
@@ -966,13 +1200,21 @@ class OutboxEventORM(Base):
     status: Mapped[OutboxStatus] = mapped_column(
         enum_type(OutboxStatus, "outbox_status"), nullable=False
     )
-    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    attempt_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
+    )
+    available_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, onupdate=utc_now
     )
-    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    published_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     last_error: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     @classmethod

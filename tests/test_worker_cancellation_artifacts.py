@@ -25,9 +25,14 @@ from executor_service.domain.enums import (
     TriggerType,
 )
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
-from executor_service.infrastructure.db.models import ExecutionArtifactORM, RuntimeTargetORM
+from executor_service.infrastructure.db.models import (
+    ExecutionArtifactORM,
+    RuntimeTargetORM,
+)
 from executor_service.infrastructure.db.session import create_session_factory
-from executor_service.infrastructure.runtime_registry import RuntimeTargetRegistry
+from executor_service.infrastructure.runtime_registry import (
+    RuntimeTargetRegistry,
+)
 from executor_service.infrastructure.worker import ExecutionWorker
 from tests.runtime_credentials import runtime_credential_fields
 from tests.runtime_storage_fake import InMemoryRuntimeStorage
@@ -49,7 +54,9 @@ class FileWritingBlockedDriver(InMemoryRuntimeStorage):
         return "cancel-artifact-kernel"
 
     async def execute(self, _runtime_session_id: str, _code: str) -> Any:
-        type(self).put_runtime_file(f"{self.workspace}/artifacts/other/cancelled.txt", b"partial")
+        type(self).put_runtime_file(
+            f"{self.workspace}/artifacts/other/cancelled.txt", b"partial"
+        )
         type(self).started.set()
         await asyncio.Event().wait()
 
@@ -96,7 +103,9 @@ async def test_cancelled_cell_registers_partial_file_as_incomplete_artifact(
             project_id="cancel-artifact-project",
             session_id="cancel-artifact-session",
             task_id="cancel-artifact-task",
-            operation_wait_timeout_seconds=(3600 if mode == OperationMode.MULTI else None),
+            operation_wait_timeout_seconds=(
+                3600 if mode == OperationMode.MULTI else None
+            ),
             steps=(
                 StepSpec(
                     sequence=0,
@@ -122,7 +131,9 @@ async def test_cancelled_cell_registers_partial_file_as_incomplete_artifact(
     )
     task = asyncio.create_task(worker._run_execution(execution.id))
     try:
-        await asyncio.wait_for(FileWritingBlockedDriver.started.wait(), timeout=1)
+        await asyncio.wait_for(
+            FileWritingBlockedDriver.started.wait(), timeout=1
+        )
         await execution_service.cancel(
             CancelExecutionCommand(
                 execution_id=execution.id,

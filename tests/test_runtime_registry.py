@@ -17,11 +17,15 @@ from executor_service.domain.errors import (
 )
 from executor_service.infrastructure.db.models import RuntimeTargetORM
 from executor_service.infrastructure.db.session import create_session_factory
-from executor_service.infrastructure.runtime_registry import RuntimeTargetRegistry
+from executor_service.infrastructure.runtime_registry import (
+    RuntimeTargetRegistry,
+)
 
 
 @pytest.mark.asyncio
-async def test_registry_starts_without_a_runtime_target(engine: AsyncEngine) -> None:
+async def test_registry_starts_without_a_runtime_target(
+    engine: AsyncEngine,
+) -> None:
     registry = RuntimeTargetRegistry(create_session_factory(engine), Settings())
 
     page = await registry.list()
@@ -67,14 +71,21 @@ async def test_registry_encrypts_credentials_and_disables_idempotently(
         assert row.credential_ciphertext is not None
         assert credential not in row.credential_ciphertext
         assert (
-            registry.resolve_credential(row.credential_ref, row.credential_ciphertext) == credential
+            registry.resolve_credential(
+                row.credential_ref, row.credential_ciphertext
+            )
+            == credential
         )
 
     disabled = await registry.disable(
-        DisableRuntimeTargetCommand(idempotency_key="disable-secondary", target_id=created.id)
+        DisableRuntimeTargetCommand(
+            idempotency_key="disable-secondary", target_id=created.id
+        )
     )
     repeated_disable = await registry.disable(
-        DisableRuntimeTargetCommand(idempotency_key="disable-secondary", target_id=created.id)
+        DisableRuntimeTargetCommand(
+            idempotency_key="disable-secondary", target_id=created.id
+        )
     )
     assert not disabled.enabled
     assert repeated_disable.id == disabled.id

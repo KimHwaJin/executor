@@ -7,7 +7,15 @@ from pathlib import Path
 from typing import Any
 
 SAFE_SEGMENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$")
-ARTIFACT_DIRECTORIES = ("datasets", "plots", "models", "metrics", "reports", "logs", "other")
+ARTIFACT_DIRECTORIES = (
+    "datasets",
+    "plots",
+    "models",
+    "metrics",
+    "reports",
+    "logs",
+    "other",
+)
 
 
 class StoragePathError(ValueError):
@@ -53,7 +61,9 @@ class RuntimeStorage:
                 )
         return {
             "files": files,
-            "manifest_size": manifest.stat().st_size if manifest.is_file() else 0,
+            "manifest_size": manifest.stat().st_size
+            if manifest.is_file()
+            else 0,
         }
 
     def file_metadata(self, raw_path: str) -> dict[str, Any]:
@@ -101,7 +111,9 @@ class RuntimeStorage:
         try:
             path.relative_to(self._root)
         except ValueError as exc:
-            raise StoragePathError("Path escapes the Jupyter root directory.") from exc
+            raise StoragePathError(
+                "Path escapes the Jupyter root directory."
+            ) from exc
         return path
 
 

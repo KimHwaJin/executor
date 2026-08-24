@@ -51,7 +51,9 @@ class RuntimeTargetMutationRequest(HTTPModel):
     idempotency_key: str = Field(min_length=1, max_length=255)
     actor: ActorInput
 
-    def to_disable_command(self, target_id: UUID) -> DisableRuntimeTargetCommand:
+    def to_disable_command(
+        self, target_id: UUID
+    ) -> DisableRuntimeTargetCommand:
         return DisableRuntimeTargetCommand(
             idempotency_key=self.idempotency_key,
             target_id=target_id,
@@ -89,7 +91,9 @@ class RuntimeTargetPurgeResponse(AuditFields):
     name: str
 
     @classmethod
-    def from_view(cls, view: RuntimeTargetPurgeView) -> "RuntimeTargetPurgeResponse":
+    def from_view(
+        cls, view: RuntimeTargetPurgeView
+    ) -> "RuntimeTargetPurgeResponse":
         return cls(
             target_id=view.target_id,
             name=view.name,

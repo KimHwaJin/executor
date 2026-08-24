@@ -6,7 +6,10 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from executor_service.application.commands import StepSpec, SubmitExecutionCommand
+from executor_service.application.commands import (
+    StepSpec,
+    SubmitExecutionCommand,
+)
 from executor_service.application.services import ExecutionService
 from executor_service.domain.enums import (
     ArtifactStatus,
@@ -30,7 +33,9 @@ from executor_service.infrastructure.db.models import (
     RuntimeTargetORM,
 )
 from executor_service.infrastructure.db.session import create_session_factory
-from executor_service.infrastructure.execution_queries import SQLAlchemyExecutionQueryService
+from executor_service.infrastructure.execution_queries import (
+    SQLAlchemyExecutionQueryService,
+)
 from executor_service.infrastructure.workspace import WorkspaceManager
 from executor_service.interfaces.contracts import (
     ExecutionArtifactPageResponse,
@@ -120,19 +125,28 @@ async def test_artifact_discovery_manifest_lineage_and_idempotency(
     engine: AsyncEngine,
 ) -> None:
     execution = await execution_service.submit(_command())
-    _, attempt_id = await _seed_attempt(engine, execution.id, execution.steps[0].id)
+    _, attempt_id = await _seed_attempt(
+        engine, execution.id, execution.steps[0].id
+    )
     workspace = WorkspaceManager().plan(execution)
     manager = ExecutionArtifactManager(create_session_factory(engine))
     driver = InMemoryRuntimeStorage()
     driver.reset_storage()
     before = await manager.snapshot(driver, workspace)
 
-    driver.put_runtime_file(f"{workspace.artifacts_path}/datasets/result.csv", b"value\n1\n")
     driver.put_runtime_file(
-        f"{workspace.artifacts_path}/plots/directory-wins.csv", b"not,a,dataset\n"
+        f"{workspace.artifacts_path}/datasets/result.csv", b"value\n1\n"
     )
-    driver.put_runtime_file(f"{workspace.artifacts_path}/reports/summary.md", b"# Result\n")
-    processed_path = "users/artifact-user/datasets/processed/asset-1/data.parquet"
+    driver.put_runtime_file(
+        f"{workspace.artifacts_path}/plots/directory-wins.csv",
+        b"not,a,dataset\n",
+    )
+    driver.put_runtime_file(
+        f"{workspace.artifacts_path}/reports/summary.md", b"# Result\n"
+    )
+    processed_path = (
+        "users/artifact-user/datasets/processed/asset-1/data.parquet"
+    )
     driver.put_runtime_file(processed_path, b"processed-data")
     entries = [
         {
@@ -194,15 +208,21 @@ async def test_artifact_discovery_manifest_lineage_and_idempotency(
         ArtifactType.MODEL,
     }
     directory_classified = next(
-        artifact for artifact in artifacts if artifact.name == "directory-wins.csv"
+        artifact
+        for artifact in artifacts
+        if artifact.name == "directory-wins.csv"
     )
     assert directory_classified.artifact_type == ArtifactType.PLOT
     processed_artifact = next(
-        artifact for artifact in artifacts if artifact.name == "processed-daily-data"
+        artifact
+        for artifact in artifacts
+        if artifact.name == "processed-daily-data"
     )
     artifact_page = ExecutionArtifactPageResponse.from_page(artifacts)
     artifact_summary = next(
-        item for item in artifact_page.items if item.name == "processed-daily-data"
+        item
+        for item in artifact_page.items
+        if item.name == "processed-daily-data"
     )
     artifact_detail = ExecutionArtifactResponse.from_view(processed_artifact)
     assert artifact_summary.storage.size_bytes == len(b"processed-data")
@@ -219,11 +239,18 @@ async def test_artifact_discovery_manifest_lineage_and_idempotency(
     }
     assert processed_artifact.checksum_sha256 is not None
     relative_artifact = next(
-        artifact for artifact in artifacts if artifact.name == "workspace-relative-summary"
+        artifact
+        for artifact in artifacts
+        if artifact.name == "workspace-relative-summary"
     )
-    assert relative_artifact.relative_path == f"{workspace.artifacts_path}/reports/summary.md"
+    assert (
+        relative_artifact.relative_path
+        == f"{workspace.artifacts_path}/reports/summary.md"
+    )
     async with create_session_factory(engine)() as session:
-        artifact_rows = await session.scalar(select(func.count(ExecutionArtifactORM.id)))
+        artifact_rows = await session.scalar(
+            select(func.count(ExecutionArtifactORM.id))
+        )
         artifact_events = await session.scalar(
             select(func.count(OutboxEventORM.id)).where(
                 OutboxEventORM.event_type == "execution.artifact_registered"
@@ -238,7 +265,9 @@ async def test_manifest_rejects_path_outside_pv(
     engine: AsyncEngine,
 ) -> None:
     execution = await execution_service.submit(_command())
-    _, attempt_id = await _seed_attempt(engine, execution.id, execution.steps[0].id)
+    _, attempt_id = await _seed_attempt(
+        engine, execution.id, execution.steps[0].id
+    )
     workspace = WorkspaceManager().plan(execution)
     manager = ExecutionArtifactManager(create_session_factory(engine))
     driver = InMemoryRuntimeStorage()
@@ -258,7 +287,9 @@ async def test_manifest_rejects_path_outside_pv(
         ).encode(),
     )
 
-    with pytest.raises(ArtifactRegistrationError, match="Invalid Artifact manifest"):
+    with pytest.raises(
+        ArtifactRegistrationError, match="Invalid Artifact manifest"
+    ):
         await manager.discover_and_register(
             driver=driver,
             workspace=workspace,

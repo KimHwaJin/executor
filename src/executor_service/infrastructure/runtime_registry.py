@@ -13,7 +13,11 @@ from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from executor_service.application.pagination import Page, decode_time_cursor, encode_time_cursor
+from executor_service.application.pagination import (
+    Page,
+    decode_time_cursor,
+    encode_time_cursor,
+)
 from executor_service.application.runtime_targets import (
     DisableRuntimeTargetCommand,
     PurgeRuntimeTargetCommand,
@@ -48,20 +52,26 @@ from executor_service.infrastructure.db.models import (
     RuntimeTargetORM,
     RuntimeTargetPurgeORM,
 )
-from executor_service.infrastructure.runtime_drivers import ConfiguredRuntimeDriverFactory
+from executor_service.infrastructure.runtime_drivers import (
+    ConfiguredRuntimeDriverFactory,
+)
 
 logger = logging.getLogger(__name__)
 
 
 class RuntimeTargetRegistry:
     def __init__(
-        self, session_factory: async_sessionmaker[AsyncSession], settings: Settings
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        settings: Settings,
     ) -> None:
         self._session_factory = session_factory
         self._settings = settings
         self._driver_factory = ConfiguredRuntimeDriverFactory(settings)
         try:
-            self._fernet = Fernet(settings.runtime_credential_encryption_key.encode("ascii"))
+            self._fernet = Fernet(
+                settings.runtime_credential_encryption_key.encode("ascii")
+            )
         except (ValueError, UnicodeEncodeError) as exc:
             raise RuntimeTargetConfigurationError(
                 "RUNTIME_CREDENTIAL_KEY must be a valid Fernet key."
@@ -84,7 +94,9 @@ class RuntimeTargetRegistry:
             await asyncio.gather(self._monitor_task, return_exceptions=True)
             self._monitor_task = None
 
-    async def upsert(self, command: UpsertRuntimeTargetCommand) -> RuntimeTargetView:
+    async def upsert(
+        self, command: UpsertRuntimeTargetCommand
+    ) -> RuntimeTargetView:
         connection_config = _normalize_connection_config(
             command.runtime_type, command.connection_config
         )
@@ -96,13 +108,18 @@ class RuntimeTargetRegistry:
                 "credential_sha256": _secret_hash(command.credential),
                 "pool": command.pool.value,
                 "max_concurrent_executions": command.max_concurrent_executions,
-                "actor_type": command.actor_type.value if command.actor_type else None,
+                "actor_type": command.actor_type.value
+                if command.actor_type
+                else None,
                 "actor_id": command.actor_id,
             }
         )
         async with self._session_factory() as session, session.begin():
             repeated_id = await self._repeated_result(
-                session, command.idempotency_key, "runtime_target.upsert", fingerprint
+                session,
+                command.idempotency_key,
+                "runtime_target.upsert",
+                fingerprint,
             )
             if repeated_id is not None:
                 target = await self._required_target(session, repeated_id)
@@ -149,10 +166,14 @@ class RuntimeTargetRegistry:
                 target.pool = command.pool
                 target.enabled = True
                 if command.max_concurrent_executions is not None:
-                    target.max_concurrent_executions = command.max_concurrent_executions
+                    target.max_concurrent_executions = (
+                        command.max_concurrent_executions
+                    )
                 if command.credential is not None:
                     target.credential_ref = "encrypted:database"
-                    target.credential_ciphertext = self._encrypt(command.credential)
+                    target.credential_ciphertext = self._encrypt(
+                        command.credential
+                    )
                 target.updated_at = utc_now()
                 if command.actor_type is not None:
                     target.updated_by_type = command.actor_type
@@ -165,7 +186,9 @@ class RuntimeTargetRegistry:
                 target.id,
             )
             target_id = target.id
-        return await self.probe(target_id, actor_type=command.actor_type, actor_id=command.actor_id)
+        return await self.probe(
+            target_id, actor_type=command.actor_type, actor_id=command.actor_id
+        )
 
     async def list(
         self,
@@ -182,13 +205,19 @@ class RuntimeTargetRegistry:
             if pool is not None:
                 statement = statement.where(RuntimeTargetORM.pool == pool)
             if runtime_type is not None:
-                statement = statement.where(RuntimeTargetORM.runtime_type == runtime_type)
+                statement = statement.where(
+                    RuntimeTargetORM.runtime_type == runtime_type
+                )
             if status is not None:
                 statement = statement.where(RuntimeTargetORM.status == status)
             if enabled is not None:
-                statement = statement.where(RuntimeTargetORM.enabled.is_(enabled))
+                statement = statement.where(
+                    RuntimeTargetORM.enabled.is_(enabled)
+                )
             if cursor is not None:
-                created_at, item_id = decode_time_cursor(cursor, "runtime_targets")
+                created_at, item_id = decode_time_cursor(
+                    cursor, "runtime_targets"
+                )
                 statement = statement.where(
                     or_(
                         RuntimeTargetORM.created_at > created_at,
@@ -198,14 +227,20 @@ class RuntimeTargetRegistry:
                         ),
                     )
                 )
-            statement = statement.order_by(RuntimeTargetORM.created_at, RuntimeTargetORM.id).limit(
-                limit + 1
-            )
+            statement = statement.order_by(
+                RuntimeTargetORM.created_at, RuntimeTargetORM.id
+            ).limit(limit + 1)
             targets = list(await session.scalars(statement))
             page_targets = targets[:limit]
-            views = [await self._to_view(session, target) for target in page_targets]
+            views = [
+                await self._to_view(session, target) for target in page_targets
+            ]
         next_cursor = (
-            encode_time_cursor("runtime_targets", page_targets[-1].created_at, page_targets[-1].id)
+            encode_time_cursor(
+                "runtime_targets",
+                page_targets[-1].created_at,
+                page_targets[-1].id,
+            )
             if len(targets) > limit and page_targets
             else None
         )
@@ -215,7 +250,9 @@ class RuntimeTargetRegistry:
         async with self._session_factory() as session:
             targets = list(
                 await session.scalars(
-                    select(RuntimeTargetORM).order_by(RuntimeTargetORM.created_at)
+                    select(RuntimeTargetORM).order_by(
+                        RuntimeTargetORM.created_at
+                    )
                 )
             )
             views = [await self._to_view(session, target) for target in targets]
@@ -228,7 +265,9 @@ class RuntimeTargetRegistry:
                     for view in views
                     if view.runtime_type == runtime_type and view.pool == pool
                 ]
-                summaries.append(self._pool_summary(runtime_type, pool, pool_views))
+                summaries.append(
+                    self._pool_summary(runtime_type, pool, pool_views)
+                )
         return summaries
 
     @staticmethod
@@ -238,7 +277,11 @@ class RuntimeTargetRegistry:
         pool_views: Sequence[RuntimeTargetView],
     ) -> RuntimePoolView:
         enabled_views = [view for view in pool_views if view.enabled]
-        active_views = [view for view in enabled_views if view.status == RuntimeTargetStatus.ACTIVE]
+        active_views = [
+            view
+            for view in enabled_views
+            if view.status == RuntimeTargetStatus.ACTIVE
+        ]
         health_checks = [
             view.last_health_check_at
             for view in pool_views
@@ -251,15 +294,25 @@ class RuntimeTargetRegistry:
             enabled_target_count=len(enabled_views),
             active_target_count=len(active_views),
             draining_target_count=sum(
-                view.status == RuntimeTargetStatus.DRAINING for view in pool_views
+                view.status == RuntimeTargetStatus.DRAINING
+                for view in pool_views
             ),
             offline_target_count=sum(
-                view.status == RuntimeTargetStatus.OFFLINE for view in pool_views
+                view.status == RuntimeTargetStatus.OFFLINE
+                for view in pool_views
             ),
-            configured_capacity=sum(view.max_concurrent_executions for view in enabled_views),
-            schedulable_capacity=sum(view.max_concurrent_executions for view in active_views),
-            active_execution_count=sum(view.active_execution_count for view in pool_views),
-            available_capacity=sum(view.available_capacity for view in active_views),
+            configured_capacity=sum(
+                view.max_concurrent_executions for view in enabled_views
+            ),
+            schedulable_capacity=sum(
+                view.max_concurrent_executions for view in active_views
+            ),
+            active_execution_count=sum(
+                view.active_execution_count for view in pool_views
+            ),
+            available_capacity=sum(
+                view.available_capacity for view in active_views
+            ),
             last_health_check_at=max(health_checks) if health_checks else None,
         )
 
@@ -297,7 +350,11 @@ class RuntimeTargetRegistry:
             status = await driver.status()
             reported_profiles = await driver.supported_profiles()
             allowed_profiles = set(self._settings.runtime_allowed_profiles)
-            profiles = [profile for profile in reported_profiles if profile in allowed_profiles]
+            profiles = [
+                profile
+                for profile in reported_profiles
+                if profile in allowed_profiles
+            ]
             if not profiles:
                 raise RuntimeTargetConfigurationError(
                     "Runtime Target supports none of RUNTIME_ALLOWED_PROFILES."
@@ -313,7 +370,9 @@ class RuntimeTargetRegistry:
             except Exception as exc:
                 resource_error = f"Resource probe failed ({type(exc).__name__})"
         else:
-            resource_error = "Resource probe skipped because health probe failed."
+            resource_error = (
+                "Resource probe skipped because health probe failed."
+            )
         await driver.close()
 
         async with self._session_factory() as session, session.begin():
@@ -341,31 +400,44 @@ class RuntimeTargetRegistry:
                     target.cpu_capacity_cores = _as_float(resource.cpu.capacity)
                     target.cpu_utilization = resource.cpu.utilization
                     target.memory_used_bytes = _as_int(resource.memory.used)
-                    target.memory_capacity_bytes = _as_int(resource.memory.capacity)
+                    target.memory_capacity_bytes = _as_int(
+                        resource.memory.capacity
+                    )
                     target.memory_utilization = resource.memory.utilization
-                    target.resource_errors = list(resource.cpu.errors + resource.memory.errors)
+                    target.resource_errors = list(
+                        resource.cpu.errors + resource.memory.errors
+                    )
                 target.updated_at = utc_now()
                 if actor_type is not None:
                     target.updated_by_type = actor_type
                     target.updated_by = actor_id
             return await self._to_view(session, target)
 
-    async def disable(self, command: DisableRuntimeTargetCommand) -> RuntimeTargetView:
+    async def disable(
+        self, command: DisableRuntimeTargetCommand
+    ) -> RuntimeTargetView:
         fingerprint = _fingerprint(
             {
                 "target_id": str(command.target_id),
-                "actor_type": command.actor_type.value if command.actor_type else None,
+                "actor_type": command.actor_type.value
+                if command.actor_type
+                else None,
                 "actor_id": command.actor_id,
             }
         )
         async with self._session_factory() as session, session.begin():
             repeated_id = await self._repeated_result(
-                session, command.idempotency_key, "runtime_target.disable", fingerprint
+                session,
+                command.idempotency_key,
+                "runtime_target.disable",
+                fingerprint,
             )
             if repeated_id is not None:
                 target = await self._required_target(session, repeated_id)
                 return await self._to_view(session, target)
-            target = await self._required_target(session, command.target_id, lock=True)
+            target = await self._required_target(
+                session, command.target_id, lock=True
+            )
             target.enabled = False
             target.status = RuntimeTargetStatus.OFFLINE
             target.updated_at = utc_now()
@@ -381,7 +453,9 @@ class RuntimeTargetRegistry:
             )
             return await self._to_view(session, target)
 
-    async def set_state(self, command: SetRuntimeTargetStateCommand) -> RuntimeTargetView:
+    async def set_state(
+        self, command: SetRuntimeTargetStateCommand
+    ) -> RuntimeTargetView:
         if command.desired_state not in {
             RuntimeTargetStatus.ACTIVE,
             RuntimeTargetStatus.DRAINING,
@@ -393,7 +467,9 @@ class RuntimeTargetRegistry:
             {
                 "target_id": str(command.target_id),
                 "desired_state": command.desired_state.value,
-                "actor_type": command.actor_type.value if command.actor_type else None,
+                "actor_type": command.actor_type.value
+                if command.actor_type
+                else None,
                 "actor_id": command.actor_id,
             }
         )
@@ -407,7 +483,9 @@ class RuntimeTargetRegistry:
             if repeated_id is not None:
                 target = await self._required_target(session, repeated_id)
                 return await self._to_view(session, target)
-            target = await self._required_target(session, command.target_id, lock=True)
+            target = await self._required_target(
+                session, command.target_id, lock=True
+            )
             target.enabled = True
             # OFFLINE lets probe promote a healthy target to ACTIVE. A DRAINING probe
             # intentionally preserves DRAINING so health checks never undo operator intent.
@@ -436,12 +514,16 @@ class RuntimeTargetRegistry:
             )
         return await self.get(target_id)
 
-    async def purge(self, command: PurgeRuntimeTargetCommand) -> RuntimeTargetPurgeView:
+    async def purge(
+        self, command: PurgeRuntimeTargetCommand
+    ) -> RuntimeTargetPurgeView:
         fingerprint = _fingerprint(
             {
                 "target_id": str(command.target_id),
                 "confirmation_name": command.confirmation_name,
-                "actor_type": command.actor_type.value if command.actor_type else None,
+                "actor_type": command.actor_type.value
+                if command.actor_type
+                else None,
                 "actor_id": command.actor_id,
             }
         )
@@ -470,7 +552,9 @@ class RuntimeTargetRegistry:
                     )
                 return self._purge_view(tombstone)
 
-            target = await self._required_target(session, command.target_id, lock=True)
+            target = await self._required_target(
+                session, command.target_id, lock=True
+            )
             if command.confirmation_name != target.name:
                 raise RuntimeTargetPurgeConflictError(
                     "confirmation_name does not match the registered target name."
@@ -520,21 +604,29 @@ class RuntimeTargetRegistry:
             await session.flush()
             return self._purge_view(tombstone)
 
-    def resolve_credential(self, credential_ref: str, credential_ciphertext: str | None) -> str:
+    def resolve_credential(
+        self, credential_ref: str, credential_ciphertext: str | None
+    ) -> str:
         if credential_ref == "encrypted:database" and credential_ciphertext:
             try:
-                return self._fernet.decrypt(credential_ciphertext.encode("ascii")).decode()
+                return self._fernet.decrypt(
+                    credential_ciphertext.encode("ascii")
+                ).decode()
             except (InvalidToken, UnicodeDecodeError) as exc:
                 raise RuntimeTargetConfigurationError(
                     "Stored Runtime Target credential cannot be decrypted."
                 ) from exc
-        raise RuntimeTargetConfigurationError("Unsupported Runtime Target credential reference.")
+        raise RuntimeTargetConfigurationError(
+            "Unsupported Runtime Target credential reference."
+        )
 
     def _encrypt(self, credential: str) -> str:
         return self._fernet.encrypt(credential.encode()).decode("ascii")
 
     @staticmethod
-    def _purge_view(tombstone: RuntimeTargetPurgeORM) -> RuntimeTargetPurgeView:
+    def _purge_view(
+        tombstone: RuntimeTargetPurgeORM,
+    ) -> RuntimeTargetPurgeView:
         created_at = tombstone.created_at
         updated_at = tombstone.updated_at
         if created_at.tzinfo is None:
@@ -561,7 +653,9 @@ class RuntimeTargetRegistry:
                 async with self._session_factory() as session:
                     target_ids = list(
                         await session.scalars(
-                            select(RuntimeTargetORM.id).where(RuntimeTargetORM.enabled.is_(True))
+                            select(RuntimeTargetORM.id).where(
+                                RuntimeTargetORM.enabled.is_(True)
+                            )
                         )
                     )
                 for target_id in target_ids:
@@ -576,30 +670,42 @@ class RuntimeTargetRegistry:
                 raise
             except Exception:
                 logger.exception("Runtime fleet health monitor failed")
-            await asyncio.sleep(self._settings.runtime_health_poll_interval_seconds)
+            await asyncio.sleep(
+                self._settings.runtime_health_poll_interval_seconds
+            )
 
     async def _required_target(
         self, session: AsyncSession, target_id: UUID, *, lock: bool = False
     ) -> RuntimeTargetORM:
-        statement = select(RuntimeTargetORM).where(RuntimeTargetORM.id == target_id)
+        statement = select(RuntimeTargetORM).where(
+            RuntimeTargetORM.id == target_id
+        )
         if lock:
             statement = statement.with_for_update()
         target = await session.scalar(statement)
         if target is None:
-            raise RuntimeTargetNotFoundError(f"Runtime Target {target_id} was not found.")
+            raise RuntimeTargetNotFoundError(
+                f"Runtime Target {target_id} was not found."
+            )
         return target
 
-    async def _to_view(self, session: AsyncSession, target: RuntimeTargetORM) -> RuntimeTargetView:
+    async def _to_view(
+        self, session: AsyncSession, target: RuntimeTargetORM
+    ) -> RuntimeTargetView:
         active = await session.scalar(
             select(func.count(ExecutionAttemptORM.id)).where(
                 ExecutionAttemptORM.runtime_target_id == target.id,
-                ExecutionAttemptORM.status.in_([AttemptStatus.RUNNING, AttemptStatus.WAITING]),
+                ExecutionAttemptORM.status.in_(
+                    [AttemptStatus.RUNNING, AttemptStatus.WAITING]
+                ),
             )
         )
         retained = await session.scalar(
             select(func.count(ExecutionORM.id)).where(
                 ExecutionORM.runtime_target_id == target.id,
-                ExecutionORM.status.in_([ExecutionStatus.FAILED, ExecutionStatus.QUEUED]),
+                ExecutionORM.status.in_(
+                    [ExecutionStatus.FAILED, ExecutionStatus.QUEUED]
+                ),
                 ExecutionORM.retry_strategy == RetryStrategy.FROM_FAILED_STEP,
                 ExecutionORM.retained_runtime_session_until > utc_now(),
             )
@@ -610,8 +716,16 @@ class RuntimeTargetRegistry:
         if resource_fresh:
             pressure_components = [
                 active_execution_count / target.max_concurrent_executions,
-                *([target.cpu_utilization] if target.cpu_utilization is not None else []),
-                *([target.memory_utilization] if target.memory_utilization is not None else []),
+                *(
+                    [target.cpu_utilization]
+                    if target.cpu_utilization is not None
+                    else []
+                ),
+                *(
+                    [target.memory_utilization]
+                    if target.memory_utilization is not None
+                    else []
+                ),
             ]
             resource_pressure_score = max(pressure_components)
         return RuntimeTargetView(
@@ -671,11 +785,16 @@ class RuntimeTargetRegistry:
         fingerprint: str,
     ) -> UUID | None:
         receipt = await session.scalar(
-            select(CommandReceiptORM).where(CommandReceiptORM.idempotency_key == idempotency_key)
+            select(CommandReceiptORM).where(
+                CommandReceiptORM.idempotency_key == idempotency_key
+            )
         )
         if receipt is None:
             return None
-        if receipt.command_type != command_type or receipt.request_fingerprint != fingerprint:
+        if (
+            receipt.command_type != command_type
+            or receipt.request_fingerprint != fingerprint
+        ):
             raise IdempotencyConflictError(
                 "idempotency_key was already used with a different command."
             )
@@ -719,7 +838,9 @@ def _normalize_connection_config(
                 "JUPYTER connection_config must contain only an http(s) endpoint."
             )
         return {"endpoint": endpoint.rstrip("/")}
-    raise RuntimeTargetConfigurationError(f"Unsupported runtime_type: {runtime_type.value}")
+    raise RuntimeTargetConfigurationError(
+        f"Unsupported runtime_type: {runtime_type.value}"
+    )
 
 
 def _secret_hash(secret: str | None) -> str | None:
@@ -729,7 +850,11 @@ def _secret_hash(secret: str | None) -> str | None:
 
 
 def _resource_source(resource: RuntimeResourceObservation) -> str | None:
-    sources = {source for source in (resource.cpu.source, resource.memory.source) if source}
+    sources = {
+        source
+        for source in (resource.cpu.source, resource.memory.source)
+        if source
+    }
     return ",".join(sorted(sources)) or None
 
 

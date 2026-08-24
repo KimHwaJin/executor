@@ -77,7 +77,9 @@ async def main() -> None:
                 )
                 plan = "\n".join(str(row[0]) for row in result)
                 if check.expected_index not in plan:
-                    raise RuntimeError(f"{check.name} did not use {check.expected_index}:\n{plan}")
+                    raise RuntimeError(
+                        f"{check.name} did not use {check.expected_index}:\n{plan}"
+                    )
                 print(f"PASS {check.name}: {check.expected_index}")
     finally:
         await engine.dispose()

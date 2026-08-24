@@ -13,10 +13,15 @@ from executor_service.application.commands import (
     RetryExecutionCommand,
     StepSpec,
 )
-from executor_service.application.notebook_queries import NotebookResponseFormat
+from executor_service.application.notebook_queries import (
+    NotebookResponseFormat,
+)
 from executor_service.container import ApplicationContainer
 from executor_service.domain.enums import ExecutionStatus
-from executor_service.domain.errors import ExecutionNotFoundError, InvalidExecutionSpecError
+from executor_service.domain.errors import (
+    ExecutionNotFoundError,
+    InvalidExecutionSpecError,
+)
 from executor_service.interfaces.contracts import (
     ExecutionArtifactMaterializeRequest,
     ExecutionArtifactPageResponse,
@@ -56,8 +61,14 @@ NotebookLimit = Annotated[int, Query(ge=0, le=200)]
 NotebookStartIndex = Annotated[int, Query(ge=0)]
 
 DOMAIN_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
-    404: {"model": ErrorResponse, "description": "Execution or Artifact not found"},
-    409: {"model": ErrorResponse, "description": "State, version, or idempotency conflict"},
+    404: {
+        "model": ErrorResponse,
+        "description": "Execution or Artifact not found",
+    },
+    409: {
+        "model": ErrorResponse,
+        "description": "State, version, or idempotency conflict",
+    },
     422: {"model": ErrorResponse, "description": "Invalid ExecutionSpec"},
 }
 
@@ -102,7 +113,9 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
         )
         execution = result.execution
         response.headers["Location"] = f"/api/v1/executions/{execution.id}"
-        return ExecutionCommandResponse.from_domain(execution, operation_id=result.operation_id)
+        return ExecutionCommandResponse.from_domain(
+            execution, operation_id=result.operation_id
+        )
 
     @router.get(
         "/executions",
@@ -114,7 +127,9 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
         project_id: str | None = None,
         session_id: str | None = None,
         task_id: str | None = None,
-        execution_status: Annotated[ExecutionStatus | None, Query(alias="status")] = None,
+        execution_status: Annotated[
+            ExecutionStatus | None, Query(alias="status")
+        ] = None,
         cursor: Cursor = None,
         limit: ExecutionLimit = 100,
     ) -> ExecutionPageResponse:
@@ -150,7 +165,9 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
         responses=DOMAIN_ERROR_RESPONSES,
         summary="Get the consolidated execution result for Agent reporting",
     )
-    async def get_execution_result(execution_id: UUID) -> ExecutionResultResponse:
+    async def get_execution_result(
+        execution_id: UUID,
+    ) -> ExecutionResultResponse:
         bundle = await _trace_call(
             tracing,
             "executor.http.execution_result_get",
@@ -245,7 +262,9 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
             ),
             {"executor.execution.id": str(execution_id)},
         )
-        response.headers["Location"] = f"/api/v1/executions/{result.execution.id}"
+        response.headers["Location"] = (
+            f"/api/v1/executions/{result.execution.id}"
+        )
         return ExecutionCommandResponse.from_domain(
             result.execution, operation_id=result.operation_id
         )
@@ -258,7 +277,9 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
         summary="Append the next Operation to a MULTI execution",
     )
     async def create_operation(
-        execution_id: UUID, request: ExecutionOperationCreateRequest, response: Response
+        execution_id: UUID,
+        request: ExecutionOperationCreateRequest,
+        response: Response,
     ) -> ExecutionCommandResponse:
         resolved = await resolver.resolve(request.spec)
         source_steps = resolved.steps
@@ -299,7 +320,9 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
         )
         execution = result.execution
         response.headers["Location"] = f"/api/v1/executions/{execution.id}"
-        return ExecutionCommandResponse.from_domain(execution, operation_id=result.operation_id)
+        return ExecutionCommandResponse.from_domain(
+            execution, operation_id=result.operation_id
+        )
 
     @router.post(
         "/executions/{execution_id}/finalize",
@@ -309,7 +332,9 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
         summary="Finalize a waiting MULTI execution",
     )
     async def finalize_execution(
-        execution_id: UUID, request: ExecutionFinalizeRequest, response: Response
+        execution_id: UUID,
+        request: ExecutionFinalizeRequest,
+        response: Response,
     ) -> ExecutionCommandResponse:
         execution = await _trace_call(
             tracing,
@@ -339,7 +364,9 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
         cursor: Cursor = None,
         limit: ExecutionLimit = 100,
     ) -> ExecutionStepPageResponse:
-        page = await execution_queries.steps(execution_id, cursor=cursor, limit=limit)
+        page = await execution_queries.steps(
+            execution_id, cursor=cursor, limit=limit
+        )
         return ExecutionStepPageResponse.from_page(page, execution_id)
 
     @router.get(
@@ -348,9 +375,13 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
         responses=DOMAIN_ERROR_RESPONSES,
         summary="Get one current execution Step",
     )
-    async def get_execution_step(execution_id: UUID, step_id: UUID) -> ExecutionStepResponse:
+    async def get_execution_step(
+        execution_id: UUID, step_id: UUID
+    ) -> ExecutionStepResponse:
         execution = await execution_service.get(execution_id)
-        step = next((item for item in execution.steps if item.id == step_id), None)
+        step = next(
+            (item for item in execution.steps if item.id == step_id), None
+        )
         if step is None:
             raise ExecutionNotFoundError(
                 f"Execution Step {step_id} was not found in Execution {execution_id}."
@@ -368,7 +399,9 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
         cursor: Cursor = None,
         limit: ExecutionLimit = 100,
     ) -> ExecutionOperationPageResponse:
-        page = await execution_queries.operations(execution_id, cursor=cursor, limit=limit)
+        page = await execution_queries.operations(
+            execution_id, cursor=cursor, limit=limit
+        )
         return ExecutionOperationPageResponse.from_page(page)
 
     @router.get(
@@ -423,7 +456,9 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
         cursor: Cursor = None,
         limit: AttemptLimit = 100,
     ) -> ExecutionAttemptPageResponse:
-        page = await execution_queries.attempts(execution_id, cursor=cursor, limit=limit)
+        page = await execution_queries.attempts(
+            execution_id, cursor=cursor, limit=limit
+        )
         return ExecutionAttemptPageResponse.from_page(page)
 
     @router.get(
@@ -469,7 +504,9 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
         cursor: Cursor = None,
         limit: EventLimit = 200,
     ) -> ExecutionEventPageResponse:
-        page = await execution_queries.events(execution_id, cursor=cursor, limit=limit)
+        page = await execution_queries.events(
+            execution_id, cursor=cursor, limit=limit
+        )
         return ExecutionEventPageResponse.from_page(page)
 
     @router.get(
@@ -483,7 +520,9 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
         cursor: Cursor = None,
         limit: ArtifactLimit = 500,
     ) -> ExecutionArtifactPageResponse:
-        page = await execution_queries.artifacts(execution_id, cursor=cursor, limit=limit)
+        page = await execution_queries.artifacts(
+            execution_id, cursor=cursor, limit=limit
+        )
         return ExecutionArtifactPageResponse.from_page(page)
 
     @router.post(
@@ -511,7 +550,9 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
         responses=DOMAIN_ERROR_RESPONSES,
         summary="Get one execution Artifact and lineage references",
     )
-    async def get_execution_artifact(artifact_id: UUID) -> ExecutionArtifactResponse:
+    async def get_execution_artifact(
+        artifact_id: UUID,
+    ) -> ExecutionArtifactResponse:
         view = await execution_queries.artifact(artifact_id)
         return ExecutionArtifactResponse.from_view(view)
 

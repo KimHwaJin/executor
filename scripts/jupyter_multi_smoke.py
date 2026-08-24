@@ -59,13 +59,17 @@ async def main() -> None:
                     StepSpec(
                         sequence=0,
                         code=first_code,
-                        source_sha256=hashlib.sha256(first_code.encode()).hexdigest(),
+                        source_sha256=hashlib.sha256(
+                            first_code.encode()
+                        ).hexdigest(),
                         tool_name="initialize_value",
                     ),
                 ),
             )
         )
-        first = await _wait_for(container, submitted.id, ExecutionStatus.WAITING_FOR_OPERATION)
+        first = await _wait_for(
+            container, submitted.id, ExecutionStatus.WAITING_FOR_OPERATION
+        )
         runtime_session_id = first.runtime_session_id
         if runtime_session_id is None:
             raise RuntimeError("Multi execution did not retain a kernel.")
@@ -87,7 +91,9 @@ async def main() -> None:
                 ),
             )
         )
-        second = await _wait_for(container, second.id, ExecutionStatus.WAITING_FOR_OPERATION)
+        second = await _wait_for(
+            container, second.id, ExecutionStatus.WAITING_FOR_OPERATION
+        )
         if second.runtime_session_id != runtime_session_id:
             raise RuntimeError("Multi execution changed kernels between cells.")
 
@@ -108,9 +114,13 @@ async def main() -> None:
                 ),
             )
         )
-        failed = await _wait_for(container, failed.id, ExecutionStatus.WAITING_FOR_OPERATION)
+        failed = await _wait_for(
+            container, failed.id, ExecutionStatus.WAITING_FOR_OPERATION
+        )
         if failed.steps[-1].status != StepStatus.FAILED:
-            raise RuntimeError("Cell error did not return to multi waiting state.")
+            raise RuntimeError(
+                "Cell error did not return to multi waiting state."
+            )
 
         corrected = await container.execution_service.create_operation(
             CreateOperationCommand(
@@ -129,7 +139,9 @@ async def main() -> None:
                 ),
             )
         )
-        corrected = await _wait_for(container, corrected.id, ExecutionStatus.WAITING_FOR_OPERATION)
+        corrected = await _wait_for(
+            container, corrected.id, ExecutionStatus.WAITING_FOR_OPERATION
+        )
         finishing = await container.execution_service.finalize_execution(
             FinalizeExecutionCommand(
                 execution_id=submitted.id,
@@ -137,27 +149,42 @@ async def main() -> None:
                 expected_version=corrected.version,
             )
         )
-        finished = await _wait_for(container, finishing.id, ExecutionStatus.SUCCEEDED)
+        finished = await _wait_for(
+            container, finishing.id, ExecutionStatus.SUCCEEDED
+        )
         attempts = await container.execution_queries.attempts(submitted.id)
         events = await container.execution_queries.events(submitted.id)
         if finished.notebook_path is None:
-            raise RuntimeError("Multi execution did not persist a notebook path.")
+            raise RuntimeError(
+                "Multi execution did not persist a notebook path."
+            )
         notebook_data = await container.runtime_storage.read_notebook(
-            finished.runtime_type, finished.runtime_target_id, finished.notebook_path
+            finished.runtime_type,
+            finished.runtime_target_id,
+            finished.notebook_path,
         )
         notebook_text = json.dumps(notebook_data)
         event_types = {event.event_type for event in events}
         cells = notebook_data.get("cells")
         if len(attempts) != 1 or not isinstance(cells, list) or len(cells) != 4:
-            raise RuntimeError("Multi Attempt or notebook history is incomplete.")
-        if not all(marker in notebook_text for marker in ("42", "84", "planned multi failure")):
-            raise RuntimeError("Multi notebook does not prove same-kernel state continuity.")
+            raise RuntimeError(
+                "Multi Attempt or notebook history is incomplete."
+            )
+        if not all(
+            marker in notebook_text
+            for marker in ("42", "84", "planned multi failure")
+        ):
+            raise RuntimeError(
+                "Multi notebook does not prove same-kernel state continuity."
+            )
         if not {
             "execution.operation_succeeded",
             "execution.operation_failed",
             "execution.succeeded",
         }.issubset(event_types):
-            raise RuntimeError(f"Multi Outbox event history is incomplete: {event_types}")
+            raise RuntimeError(
+                f"Multi Outbox event history is incomplete: {event_types}"
+            )
         if finished.runtime_session_id is not None:
             raise RuntimeError("Finished multi execution retained its kernel.")
 

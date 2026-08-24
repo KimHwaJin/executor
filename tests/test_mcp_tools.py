@@ -17,10 +17,17 @@ from executor_service.domain.enums import (
     RetryStrategy,
 )
 from executor_service.execution_specs import ExecutionSpecResolver
-from executor_service.infrastructure.db.models import ExecutionOperationORM, ExecutionORM
+from executor_service.infrastructure.db.models import (
+    ExecutionOperationORM,
+    ExecutionORM,
+)
 from executor_service.infrastructure.db.session import create_session_factory
-from executor_service.infrastructure.execution_queries import SQLAlchemyExecutionQueryService
-from executor_service.infrastructure.runtime_registry import RuntimeTargetRegistry
+from executor_service.infrastructure.execution_queries import (
+    SQLAlchemyExecutionQueryService,
+)
+from executor_service.infrastructure.runtime_registry import (
+    RuntimeTargetRegistry,
+)
 from executor_service.interfaces.mcp.server import build_mcp_server
 
 SUBMIT_ARGUMENTS: dict[str, Any] = {
@@ -40,7 +47,10 @@ SUBMIT_ARGUMENTS: dict[str, Any] = {
                         "sequence": 0,
                         "payload": {
                             "type": "PYTHON_EXECUTE",
-                            "source": {"type": "INLINE", "content": "print('hello')"},
+                            "source": {
+                                "type": "INLINE",
+                                "content": "print('hello')",
+                            },
                         },
                         "lineage": {
                             "skill_name": "data_load",
@@ -98,7 +108,9 @@ async def test_mcp_client_can_list_and_call_execution_tools(
             "updated_at",
         }
 
-        fetched = await client.call_tool("execution_get", {"execution_id": execution_id})
+        fetched = await client.call_tool(
+            "execution_get", {"execution_id": execution_id}
+        )
         assert not fetched.is_error
         assert fetched.structured_content["execution_id"] == execution_id
         assert fetched.structured_content["runtime"]["type"] == "JUPYTER"
@@ -117,7 +129,10 @@ async def test_mcp_client_can_list_and_call_execution_tools(
             },
         )
         assert not cancelled.is_error
-        assert cancelled.structured_content["state"]["status"] == "CANCEL_REQUESTED"
+        assert (
+            cancelled.structured_content["state"]["status"]
+            == "CANCEL_REQUESTED"
+        )
 
 
 async def test_mcp_client_can_query_execution_history_resources(
@@ -151,8 +166,12 @@ async def test_mcp_client_can_query_execution_history_resources(
         submitted = await client.call_tool("execution_submit", SUBMIT_ARGUMENTS)
         execution_id = submitted.structured_content["execution_id"]
         operation_id = submitted.structured_content["operation"]["operation_id"]
-        attempts = await client.call_tool("execution_attempt_list", {"execution_id": execution_id})
-        events = await client.call_tool("execution_event_list", {"execution_id": execution_id})
+        attempts = await client.call_tool(
+            "execution_attempt_list", {"execution_id": execution_id}
+        )
+        events = await client.call_tool(
+            "execution_event_list", {"execution_id": execution_id}
+        )
         operations = await client.call_tool(
             "execution_operation_list", {"execution_id": execution_id}
         )
@@ -166,9 +185,18 @@ async def test_mcp_client_can_query_execution_history_resources(
         )
 
         assert attempts.structured_content["items"] == []
-        assert events.structured_content["items"][0]["event_type"] == "execution.submitted"
-        assert operations.structured_content["items"][0]["operation_id"] == operation_id
-        assert operation.structured_content["sequence_range"] == {"first": 0, "last": 0}
+        assert (
+            events.structured_content["items"][0]["event_type"]
+            == "execution.submitted"
+        )
+        assert (
+            operations.structured_content["items"][0]["operation_id"]
+            == operation_id
+        )
+        assert operation.structured_content["sequence_range"] == {
+            "first": 0,
+            "last": 0,
+        }
         assert operation_steps.structured_content["items"][0]["sequence"] == 0
 
 
@@ -199,7 +227,9 @@ async def test_mcp_execution_list_uses_opaque_next_cursor(
         cursor = first.structured_content["next_cursor"]
         assert cursor
 
-        second = await client.call_tool("execution_list", {"limit": 1, "cursor": cursor})
+        second = await client.call_tool(
+            "execution_list", {"limit": 1, "cursor": cursor}
+        )
         assert not second.is_error
         returned_ids = {
             first.structured_content["items"][0]["execution_id"],
@@ -223,7 +253,9 @@ async def test_mcp_list_rejects_limit_outside_declared_contract(
 
     async with Client(target) as client:
         too_small = await client.call_tool("execution_list", {"limit": 0})
-        too_large = await client.call_tool("execution_event_list", {"limit": 501})
+        too_large = await client.call_tool(
+            "execution_event_list", {"limit": 501}
+        )
 
     assert too_small.is_error
     assert too_large.is_error
@@ -240,7 +272,8 @@ async def test_mcp_domain_errors_expose_stable_public_code(
 
     async with Client(target) as client:
         missing = await client.call_tool(
-            "execution_get", {"execution_id": "00000000-0000-0000-0000-000000000001"}
+            "execution_get",
+            {"execution_id": "00000000-0000-0000-0000-000000000001"},
         )
 
     assert missing.is_error
@@ -341,7 +374,9 @@ async def test_execution_submit_reads_path_spec_and_derives_batch_pool(
 
     assert not submitted.is_error
     assert submitted.structured_content["created_by"] == "batch-1"
-    execution = await execution_service.get(UUID(submitted.structured_content["execution_id"]))
+    execution = await execution_service.get(
+        UUID(submitted.structured_content["execution_id"])
+    )
     assert execution.runtime_pool.value == "BATCH"
     assert execution.steps[0].source_path == "plans/batch-step.py"
     assert execution.user_id == "user-1"
@@ -388,7 +423,10 @@ async def test_multi_continue_accepts_next_inline_execution_spec(
                                 "sequence": 1,
                                 "payload": {
                                     "type": "PYTHON_EXECUTE",
-                                    "source": {"type": "INLINE", "content": "print('next')"},
+                                    "source": {
+                                        "type": "INLINE",
+                                        "content": "print('next')",
+                                    },
                                 },
                             },
                             {
@@ -428,7 +466,9 @@ async def test_mcp_retry_returns_the_requeued_operation_id(
     async with Client(target) as client:
         submitted = await client.call_tool("execution_submit", arguments)
         execution_id = UUID(submitted.structured_content["execution_id"])
-        operation_id = UUID(submitted.structured_content["operation"]["operation_id"])
+        operation_id = UUID(
+            submitted.structured_content["operation"]["operation_id"]
+        )
         session_factory = create_session_factory(engine)
         async with session_factory() as session, session.begin():
             await session.execute(
@@ -457,5 +497,7 @@ async def test_mcp_retry_returns_the_requeued_operation_id(
         )
 
     assert not retried.is_error
-    assert retried.structured_content["operation"]["operation_id"] == str(operation_id)
+    assert retried.structured_content["operation"]["operation_id"] == str(
+        operation_id
+    )
     assert retried.structured_content["state"]["status"] == "QUEUED"

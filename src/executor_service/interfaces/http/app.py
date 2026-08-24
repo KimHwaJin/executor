@@ -31,7 +31,9 @@ from executor_service.domain.errors import (
     UnsupportedRuntimeProfileError,
 )
 from executor_service.interfaces.http.executions import build_execution_router
-from executor_service.interfaces.http.runtime_targets import build_runtime_target_router
+from executor_service.interfaces.http.runtime_targets import (
+    build_runtime_target_router,
+)
 from executor_service.interfaces.mcp.server import build_mcp_server
 from executor_service.tracing import TraceContextMiddleware
 
@@ -109,7 +111,9 @@ def create_app(container: ApplicationContainer) -> FastAPI:
         )
 
     @app.exception_handler(DomainError)
-    async def domain_error_handler(_request: Request, exc: DomainError) -> JSONResponse:
+    async def domain_error_handler(
+        _request: Request, exc: DomainError
+    ) -> JSONResponse:
         if isinstance(
             exc,
             (
@@ -126,7 +130,11 @@ def create_app(container: ApplicationContainer) -> FastAPI:
             http_status = status.HTTP_409_CONFLICT
         elif isinstance(
             exc,
-            (InvalidCursorError, InvalidExecutionSpecError, UnsupportedRuntimeProfileError),
+            (
+                InvalidCursorError,
+                InvalidExecutionSpecError,
+                UnsupportedRuntimeProfileError,
+            ),
         ):
             http_status = status.HTTP_422_UNPROCESSABLE_CONTENT
         elif isinstance(
@@ -155,8 +163,12 @@ def create_app(container: ApplicationContainer) -> FastAPI:
         )
 
     @app.exception_handler(Exception)
-    async def unexpected_error_handler(_request: Request, exc: Exception) -> JSONResponse:
-        logging.getLogger(__name__).exception("Unhandled request error", exc_info=exc)
+    async def unexpected_error_handler(
+        _request: Request, exc: Exception
+    ) -> JSONResponse:
+        logging.getLogger(__name__).exception(
+            "Unhandled request error", exc_info=exc
+        )
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={

@@ -228,20 +228,36 @@ class ExecutionQueryService(Protocol):
     async def execution(self, execution_id: UUID) -> ExecutionDetailView: ...
 
     async def steps(
-        self, execution_id: UUID, *, cursor: str | None = None, limit: int = 100
+        self,
+        execution_id: UUID,
+        *,
+        cursor: str | None = None,
+        limit: int = 100,
     ) -> Page[ExecutionStep]: ...
 
     async def attempts(
-        self, execution_id: UUID, *, cursor: str | None = None, limit: int = 100
+        self,
+        execution_id: UUID,
+        *,
+        cursor: str | None = None,
+        limit: int = 100,
     ) -> Page[ExecutionAttemptView]: ...
 
-    async def attempt(self, execution_id: UUID, attempt_id: UUID) -> ExecutionAttemptView: ...
+    async def attempt(
+        self, execution_id: UUID, attempt_id: UUID
+    ) -> ExecutionAttemptView: ...
 
     async def operations(
-        self, execution_id: UUID, *, cursor: str | None = None, limit: int = 100
+        self,
+        execution_id: UUID,
+        *,
+        cursor: str | None = None,
+        limit: int = 100,
     ) -> Page[ExecutionOperationView]: ...
 
-    async def operation(self, execution_id: UUID, operation_id: UUID) -> ExecutionOperationView: ...
+    async def operation(
+        self, execution_id: UUID, operation_id: UUID
+    ) -> ExecutionOperationView: ...
 
     async def operation_steps(
         self,
@@ -262,11 +278,19 @@ class ExecutionQueryService(Protocol):
     ) -> Page[ExecutionStepAttemptView]: ...
 
     async def events(
-        self, execution_id: UUID, *, cursor: str | None = None, limit: int = 200
+        self,
+        execution_id: UUID,
+        *,
+        cursor: str | None = None,
+        limit: int = 200,
     ) -> Page[ExecutionEventView]: ...
 
     async def artifacts(
-        self, execution_id: UUID, *, cursor: str | None = None, limit: int = 500
+        self,
+        execution_id: UUID,
+        *,
+        cursor: str | None = None,
+        limit: int = 500,
     ) -> Page[ExecutionArtifactView]: ...
 
     async def artifact(self, artifact_id: UUID) -> ExecutionArtifactView: ...

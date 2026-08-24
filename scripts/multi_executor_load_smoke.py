@@ -52,7 +52,9 @@ async def main() -> None:
     unique = uuid4().hex
     execution_count = int(os.getenv("RESILIENCE_EXECUTION_COUNT", "30"))
     if not 20 <= execution_count <= 60:
-        raise ValueError("RESILIENCE_EXECUTION_COUNT must be between 20 and 60.")
+        raise ValueError(
+            "RESILIENCE_EXECUTION_COUNT must be between 20 and 60."
+        )
     cell_sleep_seconds = float(os.getenv("RESILIENCE_CELL_SLEEP_SECONDS", "1"))
     primary_port = available_port("LOAD_SMOKE_PRIMARY_PORT")
     secondary_port = available_port("LOAD_SMOKE_SECONDARY_PORT")
@@ -128,10 +130,13 @@ async def main() -> None:
             ]
             server_ids = {str(item["target_id"]) for item in registered}
             server_pools = {
-                str(item["target_id"]): str(item["runtime"]["pool"]) for item in registered
+                str(item["target_id"]): str(item["runtime"]["pool"])
+                for item in registered
             }
             capacities = {
-                str(item["target_id"]): int(item["capacity"]["max_concurrent_executions"])
+                str(item["target_id"]): int(
+                    item["capacity"]["max_concurrent_executions"]
+                )
                 for item in registered
             }
             execution_ids: list[str] = []
@@ -158,11 +163,16 @@ async def main() -> None:
             final_states: dict[str, dict[str, Any]] = {}
             for _ in range(600):
                 states = await asyncio.gather(
-                    *(execution(client, execution_id) for execution_id in execution_ids)
+                    *(
+                        execution(client, execution_id)
+                        for execution_id in execution_ids
+                    )
                 )
                 final_states = {
                     execution_id: state
-                    for execution_id, state in zip(execution_ids, states, strict=True)
+                    for execution_id, state in zip(
+                        execution_ids, states, strict=True
+                    )
                 }
                 queued_observed = queued_observed or any(
                     state["state"]["status"] == "QUEUED" for state in states
@@ -178,11 +188,16 @@ async def main() -> None:
                             f"Jupyter capacity exceeded for {server['name']}: "
                             f"active={active}, capacity={capacities[server_id]}"
                         )
-                if all(state["state"]["status"] in TERMINAL_STATUSES for state in states):
+                if all(
+                    state["state"]["status"] in TERMINAL_STATUSES
+                    for state in states
+                ):
                     break
                 await asyncio.sleep(0.2)
             else:
-                raise RuntimeError("Concurrent executions did not finish in time.")
+                raise RuntimeError(
+                    "Concurrent executions did not finish in time."
+                )
 
             failed = {
                 execution_id: state
@@ -195,31 +210,48 @@ async def main() -> None:
                 execution_id: {
                     "expected_pool": expected_pools[execution_id],
                     "actual_target_id": state["runtime"]["target_id"],
-                    "actual_pool": server_pools.get(str(state["runtime"]["target_id"])),
+                    "actual_pool": server_pools.get(
+                        str(state["runtime"]["target_id"])
+                    ),
                 }
                 for execution_id, state in final_states.items()
                 if server_pools.get(str(state["runtime"]["target_id"]))
                 != expected_pools[execution_id]
             }
             if pool_mismatches:
-                raise RuntimeError(f"Runtime pool isolation failed: {pool_mismatches}")
+                raise RuntimeError(
+                    f"Runtime pool isolation failed: {pool_mismatches}"
+                )
             all_attempts = await asyncio.gather(
-                *(attempts(client, execution_id) for execution_id in execution_ids)
+                *(
+                    attempts(client, execution_id)
+                    for execution_id in execution_ids
+                )
             )
             duplicate_attempts = [
                 execution_id
-                for execution_id, rows in zip(execution_ids, all_attempts, strict=True)
+                for execution_id, rows in zip(
+                    execution_ids, all_attempts, strict=True
+                )
                 if len(rows) != 1 or rows[0]["state"]["status"] != "SUCCEEDED"
             ]
             if duplicate_attempts:
-                raise RuntimeError(f"Unexpected Attempt history: {duplicate_attempts}")
+                raise RuntimeError(
+                    f"Unexpected Attempt history: {duplicate_attempts}"
+                )
             owners = {str(rows[0]["lease"]["owner"]) for rows in all_attempts}
             if owners != {PRIMARY_CONSUMER, SECONDARY_CONSUMER}:
-                raise RuntimeError(f"Both Executor processes were not used: {owners}")
+                raise RuntimeError(
+                    f"Both Executor processes were not used: {owners}"
+                )
             if not queued_observed:
-                raise RuntimeError("Load test never observed capacity-backed QUEUED work.")
+                raise RuntimeError(
+                    "Load test never observed capacity-backed QUEUED work."
+                )
 
-            probes = await asyncio.gather(*(_probe(client, server_id) for server_id in server_ids))
+            probes = await asyncio.gather(
+                *(_probe(client, server_id) for server_id in server_ids)
+            )
             leaked = [
                 server
                 for server in probes
@@ -227,7 +259,9 @@ async def main() -> None:
                 or server["capacity"]["active_session_count"] != 0
             ]
             if leaked:
-                raise RuntimeError(f"Active Attempt or kernel remained after load: {leaked}")
+                raise RuntimeError(
+                    f"Active Attempt or kernel remained after load: {leaked}"
+                )
 
         print("execution_count:", execution_count)
         print("successful_count:", len(final_states))

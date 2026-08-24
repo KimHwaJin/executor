@@ -73,9 +73,13 @@ class MaterializedArtifactService:
                 "Execution Artifacts authored after execution require SUCCEEDED state."
             )
         if execution.workspace_path is None:
-            raise ArtifactRegistrationError("Execution workspace is not available.")
+            raise ArtifactRegistrationError(
+                "Execution workspace is not available."
+            )
         name = _artifact_name(command)
-        target_path = _target_path(execution.workspace_path, command.artifact_type, name)
+        target_path = _target_path(
+            execution.workspace_path, command.artifact_type, name
+        )
         file = await self._runtime_storage.write_text(
             execution.runtime_type,
             execution.runtime_target_id,
@@ -83,9 +87,13 @@ class MaterializedArtifactService:
             content,
         )
         if command.append_to_notebook:
-            await self._append_notebook(execution, command.idempotency_key, content)
+            await self._append_notebook(
+                execution, command.idempotency_key, content
+            )
 
-        artifact_id = UUID(bytes=hashlib.sha256(fingerprint.encode()).digest()[:16])
+        artifact_id = UUID(
+            bytes=hashlib.sha256(fingerprint.encode()).digest()[:16]
+        )
         identity_hash = hashlib.sha256(
             f"{command.execution_id}:{target_path}:{file.checksum_sha256}".encode()
         ).hexdigest()
@@ -166,34 +174,56 @@ class MaterializedArtifactService:
                 )
         return artifact_id
 
-    async def _receipt(self, idempotency_key: str, fingerprint: str) -> UUID | None:
+    async def _receipt(
+        self, idempotency_key: str, fingerprint: str
+    ) -> UUID | None:
         async with self._session_factory() as session:
             receipt = await session.scalar(
                 select(CommandReceiptORM).where(
                     CommandReceiptORM.idempotency_key == idempotency_key
                 )
             )
-            return _validate_receipt(receipt, fingerprint) if receipt is not None else None
+            return (
+                _validate_receipt(receipt, fingerprint)
+                if receipt is not None
+                else None
+            )
 
     async def _execution(self, execution_id: UUID) -> ExecutionORM:
         async with self._session_factory() as session:
             execution = await session.get(ExecutionORM, execution_id)
             if execution is None:
-                raise ExecutionNotFoundError(f"Execution {execution_id} was not found.")
+                raise ExecutionNotFoundError(
+                    f"Execution {execution_id} was not found."
+                )
             session.expunge(execution)
             return execution
 
-    async def _resolve_content(self, command: MaterializeArtifactCommand) -> str:
+    async def _resolve_content(
+        self, command: MaterializeArtifactCommand
+    ) -> str:
         if command.source_type == CodeSourceType.INLINE:
-            if command.source_content is None or command.source_path is not None:
-                raise ArtifactRegistrationError("INLINE Artifact source requires content only.")
+            if (
+                command.source_content is None
+                or command.source_path is not None
+            ):
+                raise ArtifactRegistrationError(
+                    "INLINE Artifact source requires content only."
+                )
             content = command.source_content
         else:
-            if command.source_path is None or command.source_content is not None:
-                raise ArtifactRegistrationError("PATH Artifact source requires path only.")
+            if (
+                command.source_path is None
+                or command.source_content is not None
+            ):
+                raise ArtifactRegistrationError(
+                    "PATH Artifact source requires path only."
+                )
             path = Path(command.source_path)
             if path.is_absolute():
-                raise ArtifactRegistrationError("Artifact input path must be relative.")
+                raise ArtifactRegistrationError(
+                    "Artifact input path must be relative."
+                )
             resolved = (self._input_root / path).resolve()
             try:
                 resolved.relative_to(self._input_root)
@@ -202,25 +232,39 @@ class MaterializedArtifactService:
                     "Artifact input path escapes the input root."
                 ) from exc
             if not resolved.is_file():
-                raise ArtifactRegistrationError("Artifact input file was not found.")
+                raise ArtifactRegistrationError(
+                    "Artifact input file was not found."
+                )
             raw = await asyncio.to_thread(resolved.read_bytes)
-            if command.source_sha256 is not None and not _same_hash(raw, command.source_sha256):
-                raise ArtifactRegistrationError("Artifact input SHA-256 does not match.")
+            if command.source_sha256 is not None and not _same_hash(
+                raw, command.source_sha256
+            ):
+                raise ArtifactRegistrationError(
+                    "Artifact input SHA-256 does not match."
+                )
             try:
                 content = raw.decode("utf-8")
             except UnicodeDecodeError as exc:
-                raise ArtifactRegistrationError("Artifact input must be UTF-8 text.") from exc
+                raise ArtifactRegistrationError(
+                    "Artifact input must be UTF-8 text."
+                ) from exc
         if not content.strip():
-            raise ArtifactRegistrationError("Artifact content must not be blank.")
+            raise ArtifactRegistrationError(
+                "Artifact content must not be blank."
+            )
         if len(content.encode()) > self._max_bytes:
-            raise ArtifactRegistrationError("Artifact content exceeds the configured size limit.")
+            raise ArtifactRegistrationError(
+                "Artifact content exceeds the configured size limit."
+            )
         return content
 
     async def _append_notebook(
         self, execution: ExecutionORM, idempotency_key: str, content: str
     ) -> None:
         if execution.notebook_path is None:
-            raise ArtifactRegistrationError("Execution notebook is not available.")
+            raise ArtifactRegistrationError(
+                "Execution notebook is not available."
+            )
         notebook = await self._runtime_storage.read_notebook(
             execution.runtime_type,
             execution.runtime_target_id,
@@ -228,7 +272,8 @@ class MaterializedArtifactService:
         )
         document = nbformat.from_dict(notebook)
         if not any(
-            cell.get("metadata", {}).get("executor", {}).get("idempotency_key") == idempotency_key
+            cell.get("metadata", {}).get("executor", {}).get("idempotency_key")
+            == idempotency_key
             for cell in document.cells
         ):
             document.cells.append(
@@ -249,7 +294,9 @@ def _fingerprint(command: MaterializeArtifactCommand) -> str:
     payload = asdict(command)
     payload.pop("idempotency_key")
     return hashlib.sha256(
-        json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode()
+        json.dumps(
+            payload, sort_keys=True, separators=(",", ":"), default=str
+        ).encode()
     ).hexdigest()
 
 
@@ -258,7 +305,9 @@ def _validate_receipt(receipt: CommandReceiptORM, fingerprint: str) -> UUID:
         receipt.command_type != "execution_artifact_materialize"
         or receipt.request_fingerprint != fingerprint
     ):
-        raise IdempotencyConflictError("idempotency_key was already used with a different command.")
+        raise IdempotencyConflictError(
+            "idempotency_key was already used with a different command."
+        )
     value = receipt.result.get("artifact_id")
     if not isinstance(value, str):
         raise ArtifactRegistrationError("Artifact receipt is invalid.")
@@ -267,12 +316,19 @@ def _validate_receipt(receipt: CommandReceiptORM, fingerprint: str) -> UUID:
 
 def _artifact_name(command: MaterializeArtifactCommand) -> str:
     default_name = (
-        "final-report.md" if command.artifact_type == ArtifactType.REPORT else "artifact.txt"
+        "final-report.md"
+        if command.artifact_type == ArtifactType.REPORT
+        else "artifact.txt"
     )
     name = command.name or default_name
     if not SAFE_NAME.fullmatch(name):
-        raise ArtifactRegistrationError("Artifact name contains unsafe characters.")
-    if command.artifact_type == ArtifactType.REPORT and not name.lower().endswith(".md"):
+        raise ArtifactRegistrationError(
+            "Artifact name contains unsafe characters."
+        )
+    if (
+        command.artifact_type == ArtifactType.REPORT
+        and not name.lower().endswith(".md")
+    ):
         name += ".md"
     return name
 
@@ -285,7 +341,9 @@ def _target_path(workspace: str, artifact_type: ArtifactType, name: str) -> str:
     return (root / "artifacts" / directory / name).as_posix()
 
 
-def _media_type(command: MaterializeArtifactCommand, runtime_media_type: str | None) -> str:
+def _media_type(
+    command: MaterializeArtifactCommand, runtime_media_type: str | None
+) -> str:
     if command.media_type is not None:
         return command.media_type
     if command.artifact_type == ArtifactType.REPORT:

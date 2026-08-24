@@ -4,7 +4,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from executor_resource_extension.storage import RuntimeStorage, StoragePathError
+from executor_resource_extension.storage import (
+    RuntimeStorage,
+    StoragePathError,
+)
 
 
 class RuntimeStorageTests(unittest.TestCase):
@@ -14,7 +17,9 @@ class RuntimeStorageTests(unittest.TestCase):
             storage = RuntimeStorage(root)
             workspace = "users/u1/projects/p1/sessions/s1/executions/e1"
             prepared = storage.prepare_workspace(workspace)
-            checkpoint_directory = root / workspace / "notebooks/.ipynb_checkpoints"
+            checkpoint_directory = (
+                root / workspace / "notebooks/.ipynb_checkpoints"
+            )
             reports_directory = root / workspace / "reports"
             plot = root / workspace / "artifacts/plots/chart.png"
             plot.write_bytes(b"plot")
@@ -23,13 +28,20 @@ class RuntimeStorageTests(unittest.TestCase):
             metadata = storage.file_metadata(plot.as_posix())
             checkpoint_directory_exists = checkpoint_directory.is_dir()
             reports_directory_exists = reports_directory.is_dir()
-            legacy_checkpoint_directory_exists = (root / workspace / "checkpoints").exists()
+            legacy_checkpoint_directory_exists = (
+                root / workspace / "checkpoints"
+            ).exists()
 
-        self.assertEqual(prepared["notebook_path"], f"{workspace}/notebooks/execution.ipynb")
+        self.assertEqual(
+            prepared["notebook_path"], f"{workspace}/notebooks/execution.ipynb"
+        )
         self.assertTrue(checkpoint_directory_exists)
         self.assertTrue(reports_directory_exists)
         self.assertFalse(legacy_checkpoint_directory_exists)
-        self.assertEqual(snapshot["files"][0]["path"], f"{workspace}/artifacts/plots/chart.png")
+        self.assertEqual(
+            snapshot["files"][0]["path"],
+            f"{workspace}/artifacts/plots/chart.png",
+        )
         self.assertEqual(metadata["size_bytes"], 4)
         self.assertEqual(
             metadata["checksum_sha256"],

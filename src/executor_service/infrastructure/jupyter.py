@@ -49,11 +49,15 @@ class JupyterRuntimeDriver:
         try:
             payload = response.json()
             active_session_count = payload.get("kernels")
-            if active_session_count is not None and not isinstance(active_session_count, int):
+            if active_session_count is not None and not isinstance(
+                active_session_count, int
+            ):
                 raise TypeError("kernels must be an integer")
             return {"active_session_count": active_session_count}
         except (TypeError, ValueError) as exc:
-            raise RuntimeDriverError("Jupyter status response is invalid.") from exc
+            raise RuntimeDriverError(
+                "Jupyter status response is invalid."
+            ) from exc
 
     async def supported_profiles(self) -> list[str]:
         response = await self._request("GET", "/api/kernelspecs")
@@ -65,20 +69,28 @@ class JupyterRuntimeDriver:
             payload = response.json()
             if payload.get("schema_version") != "1.0":
                 raise ValueError("unsupported resource schema version")
-            observed_at = datetime.fromisoformat(str(payload["observed_at"]).replace("Z", "+00:00"))
+            observed_at = datetime.fromisoformat(
+                str(payload["observed_at"]).replace("Z", "+00:00")
+            )
             if observed_at.tzinfo is None:
                 raise ValueError("observed_at must include a timezone")
             cpu = _resource_metric(
-                payload["cpu"], used_key="used_cores", capacity_key="capacity_cores"
+                payload["cpu"],
+                used_key="used_cores",
+                capacity_key="capacity_cores",
             )
             memory = _resource_metric(
-                payload["memory"], used_key="used_bytes", capacity_key="capacity_bytes"
+                payload["memory"],
+                used_key="used_bytes",
+                capacity_key="capacity_bytes",
             )
             process_count = payload.get("process_count")
             if process_count is not None and not isinstance(process_count, int):
                 raise TypeError("process_count must be an integer")
         except (KeyError, TypeError, ValueError) as exc:
-            raise RuntimeDriverError("Jupyter resource response is invalid.") from exc
+            raise RuntimeDriverError(
+                "Jupyter resource response is invalid."
+            ) from exc
         return RuntimeResourceObservation(
             observed_at=observed_at,
             process_count=process_count,
@@ -96,11 +108,15 @@ class JupyterRuntimeDriver:
 
     async def interrupt_session(self, session_id: str) -> None:
         await self._request(
-            "POST", f"/api/kernels/{session_id}/interrupt", allowed_statuses={204, 404}
+            "POST",
+            f"/api/kernels/{session_id}/interrupt",
+            allowed_statuses={204, 404},
         )
 
     async def delete_session(self, session_id: str) -> None:
-        await self._request("DELETE", f"/api/kernels/{session_id}", allowed_statuses={204, 404})
+        await self._request(
+            "DELETE", f"/api/kernels/{session_id}", allowed_statuses={204, 404}
+        )
 
     async def session_exists(self, session_id: str) -> bool:
         response = await self._request(
@@ -108,7 +124,9 @@ class JupyterRuntimeDriver:
         )
         return response.status_code == 200
 
-    async def execute(self, session_id: str, code: str) -> RuntimeExecutionResult:
+    async def execute(
+        self, session_id: str, code: str
+    ) -> RuntimeExecutionResult:
         websocket_session_id = str(uuid4())
         message_id = str(uuid4())
         uri = self._channels_uri(session_id, websocket_session_id)
@@ -170,11 +188,15 @@ class JupyterRuntimeDriver:
                             if output["output_type"] == "error":
                                 error_message = _error_summary(output)
         except (OSError, TimeoutError, WebSocketException) as exc:
-            raise RuntimeDriverError("Jupyter kernel channel became unavailable.") from exc
+            raise RuntimeDriverError(
+                "Jupyter kernel channel became unavailable."
+            ) from exc
 
         if error_message is not None:
             raise RuntimeExecutionError(error_message, outputs)
-        return RuntimeExecutionResult(outputs=outputs, execution_count=execution_count)
+        return RuntimeExecutionResult(
+            outputs=outputs, execution_count=execution_count
+        )
 
     async def prepare_workspace(self, workspace_path: str) -> None:
         await self._request(
@@ -184,7 +206,9 @@ class JupyterRuntimeDriver:
             timeout=self._storage_timeout,
         )
 
-    async def artifact_snapshot(self, workspace_path: str) -> RuntimeStorageSnapshot:
+    async def artifact_snapshot(
+        self, workspace_path: str
+    ) -> RuntimeStorageSnapshot:
         response = await self._request(
             "POST",
             "/executor/storage/artifacts/snapshot",
@@ -203,7 +227,9 @@ class JupyterRuntimeDriver:
             )
             manifest_size = int(payload["manifest_size"])
         except (KeyError, TypeError, ValueError) as exc:
-            raise RuntimeDriverError("Jupyter Artifact snapshot response is invalid.") from exc
+            raise RuntimeDriverError(
+                "Jupyter Artifact snapshot response is invalid."
+            ) from exc
         return RuntimeStorageSnapshot(files=files, manifest_size=manifest_size)
 
     async def file_metadata(self, path: str) -> RuntimeFileMetadata:
@@ -224,12 +250,16 @@ class JupyterRuntimeDriver:
                 size_bytes=int(payload["size_bytes"]),
                 modified_ns=int(payload["modified_ns"]),
                 media_type=(
-                    str(payload["media_type"]) if payload.get("media_type") is not None else None
+                    str(payload["media_type"])
+                    if payload.get("media_type") is not None
+                    else None
                 ),
                 checksum_sha256=checksum,
             )
         except (KeyError, TypeError, ValueError) as exc:
-            raise RuntimeDriverError("Jupyter file metadata response is invalid.") from exc
+            raise RuntimeDriverError(
+                "Jupyter file metadata response is invalid."
+            ) from exc
 
     async def read_manifest(self, workspace_path: str, start: int) -> bytes:
         response = await self._request(
@@ -245,7 +275,9 @@ class JupyterRuntimeDriver:
                 raise TypeError("content must be text")
             return content.encode("utf-8")
         except (KeyError, TypeError, ValueError) as exc:
-            raise RuntimeDriverError("Jupyter manifest response is invalid.") from exc
+            raise RuntimeDriverError(
+                "Jupyter manifest response is invalid."
+            ) from exc
 
     async def write_notebook(self, path: str, notebook: dict[str, Any]) -> None:
         await self._request(
@@ -263,11 +295,15 @@ class JupyterRuntimeDriver:
         try:
             payload = response.json()
             content = payload.get("content")
-            if payload.get("type") != "notebook" or not isinstance(content, dict):
+            if payload.get("type") != "notebook" or not isinstance(
+                content, dict
+            ):
                 raise TypeError("content is not a notebook")
             return content
         except (TypeError, ValueError) as exc:
-            raise RuntimeDriverError("Jupyter Notebook response is invalid.") from exc
+            raise RuntimeDriverError(
+                "Jupyter Notebook response is invalid."
+            ) from exc
 
     async def write_text(self, path: str, content: str) -> None:
         await self._request(
@@ -286,7 +322,10 @@ class JupyterRuntimeDriver:
     ) -> httpx.Response:
         try:
             response = await self._client.request(method, path, **kwargs)
-            if allowed_statuses is None or response.status_code not in allowed_statuses:
+            if (
+                allowed_statuses is None
+                or response.status_code not in allowed_statuses
+            ):
                 response.raise_for_status()
             return response
         except httpx.HTTPStatusError as exc:
@@ -340,7 +379,9 @@ def _deserialize_v1(raw: str | bytes) -> tuple[str, dict[str, Any]]:
     ]
     channel = raw[offsets[0] : offsets[1]].decode()
     parts = [raw[offsets[index] : offsets[index + 1]] for index in range(1, 5)]
-    header, parent_header, metadata, content = (json.loads(part) for part in parts)
+    header, parent_header, metadata, content = (
+        json.loads(part) for part in parts
+    )
     return channel, {
         "header": header,
         "parent_header": parent_header,
@@ -349,9 +390,15 @@ def _deserialize_v1(raw: str | bytes) -> tuple[str, dict[str, Any]]:
     }
 
 
-def _as_notebook_output(msg_type: str | None, content: dict[str, Any]) -> dict[str, Any] | None:
+def _as_notebook_output(
+    msg_type: str | None, content: dict[str, Any]
+) -> dict[str, Any] | None:
     if msg_type == "stream":
-        return {"output_type": "stream", "name": content["name"], "text": content["text"]}
+        return {
+            "output_type": "stream",
+            "name": content["name"],
+            "text": content["text"],
+        }
     if msg_type in {"display_data", "execute_result"}:
         output = {
             "output_type": msg_type,
@@ -379,12 +426,20 @@ def _error_summary(content: dict[str, Any]) -> str:
 
 def _contents_path(path: str) -> str:
     pure = PurePosixPath(path)
-    if pure.is_absolute() or not pure.parts or any(part in {"", ".", ".."} for part in pure.parts):
-        raise RuntimeDriverError("Runtime storage path must be a safe relative path.")
+    if (
+        pure.is_absolute()
+        or not pure.parts
+        or any(part in {"", ".", ".."} for part in pure.parts)
+    ):
+        raise RuntimeDriverError(
+            "Runtime storage path must be a safe relative path."
+        )
     return "/".join(quote(part, safe="") for part in pure.parts)
 
 
-def _resource_metric(payload: object, *, used_key: str, capacity_key: str) -> RuntimeResourceMetric:
+def _resource_metric(
+    payload: object, *, used_key: str, capacity_key: str
+) -> RuntimeResourceMetric:
     if not isinstance(payload, dict):
         raise TypeError("resource metric must be an object")
     used = payload.get(used_key)
@@ -397,13 +452,19 @@ def _resource_metric(payload: object, *, used_key: str, capacity_key: str) -> Ru
     if utilization is not None and not isinstance(utilization, (int, float)):
         raise TypeError("utilization must be numeric")
     errors = payload.get("errors", [])
-    if not isinstance(errors, list) or not all(isinstance(error, str) for error in errors):
+    if not isinstance(errors, list) or not all(
+        isinstance(error, str) for error in errors
+    ):
         raise TypeError("errors must be a string array")
     return RuntimeResourceMetric(
         used=used,
         capacity=capacity,
         utilization=float(utilization) if utilization is not None else None,
-        source=str(payload["source"]) if payload.get("source") is not None else None,
-        estimated=payload.get("estimated") if isinstance(payload.get("estimated"), bool) else None,
+        source=str(payload["source"])
+        if payload.get("source") is not None
+        else None,
+        estimated=payload.get("estimated")
+        if isinstance(payload.get("estimated"), bool)
+        else None,
         errors=tuple(errors),
     )

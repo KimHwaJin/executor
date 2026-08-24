@@ -25,9 +25,13 @@ async def main() -> None:
     await require_exclusive_executor_control()
     unique = uuid4().hex
     port = available_port("REDIS_OUTAGE_SMOKE_PORT")
-    pause_milliseconds = int(os.getenv("REDIS_OUTAGE_PAUSE_MILLISECONDS", "8000"))
+    pause_milliseconds = int(
+        os.getenv("REDIS_OUTAGE_PAUSE_MILLISECONDS", "8000")
+    )
     if pause_milliseconds < 5000:
-        raise ValueError("REDIS_OUTAGE_PAUSE_MILLISECONDS must be at least 5000.")
+        raise ValueError(
+            "REDIS_OUTAGE_PAUSE_MILLISECONDS must be at least 5000."
+        )
     work_stream = f"executor.work.redis-outage-smoke.{unique}"
     event_stream = f"{work_stream}.events"
     group = f"executor-redis-outage-smoke-{unique}"
@@ -79,7 +83,9 @@ async def main() -> None:
             )
             completed_at = monotonic()
             if succeeded["state"]["status"] != "SUCCEEDED":
-                raise RuntimeError(f"Execution failed during Redis outage: {succeeded}")
+                raise RuntimeError(
+                    f"Execution failed during Redis outage: {succeeded}"
+                )
             if completed_at >= pause_deadline:
                 raise RuntimeError(
                     "Execution did not complete until after Redis resumed; "
@@ -91,16 +97,21 @@ async def main() -> None:
             for _ in range(100):
                 timeline = await events(client, execution_id)
                 if timeline and all(
-                    event["delivery"]["status"] == "PUBLISHED" for event in timeline
+                    event["delivery"]["status"] == "PUBLISHED"
+                    for event in timeline
                 ):
                     break
                 await asyncio.sleep(0.1)
             else:
-                raise RuntimeError(f"Outbox did not recover after Redis resumed: {timeline}")
+                raise RuntimeError(
+                    f"Outbox did not recover after Redis resumed: {timeline}"
+                )
             work_entries = await redis.xrange(work_stream)
             event_entries = await redis.xrange(event_stream)
             if not work_entries:
-                raise RuntimeError("Recovered Outbox did not publish to the work Stream.")
+                raise RuntimeError(
+                    "Recovered Outbox did not publish to the work Stream."
+                )
             postgres_event_ids = {str(event["event_id"]) for event in timeline}
             redis_event_ids = {
                 fields["event_id"]
@@ -123,7 +134,9 @@ async def main() -> None:
         print("event_stream_entry_count:", len(redis_event_ids))
     finally:
         if pause_started is not None:
-            remaining_pause = pause_milliseconds / 1000 - (monotonic() - pause_started)
+            remaining_pause = pause_milliseconds / 1000 - (
+                monotonic() - pause_started
+            )
             if remaining_pause > 0:
                 await asyncio.sleep(remaining_pause + 0.1)
         await stop_executor(process)

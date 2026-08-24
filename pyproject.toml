@@ -51,14 +51,16 @@ testpaths = [
 ]
 markers = [
     "postgres: requires a disposable local PostgreSQL database",
+    "redis: requires a local Redis server",
 ]
 
 [tool.ruff]
-line-length = 100
+line-length = 79
 target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "ASYNC", "RUF"]
+ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
 "migrations/versions/*.py" = ["E501"]

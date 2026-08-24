@@ -34,7 +34,9 @@ class PathStepSource(ExecutionSpecModel):
     sha256: str = Field(pattern=r"^[0-9a-fA-F]{64}$")
 
 
-StepSource = Annotated[InlineStepSource | PathStepSource, Field(discriminator="type")]
+StepSource = Annotated[
+    InlineStepSource | PathStepSource, Field(discriminator="type")
+]
 
 
 class PythonExecutePayload(ExecutionSpecModel):
@@ -61,7 +63,9 @@ class ExecutionSpec(ExecutionSpecModel):
         sequences = [step.sequence for step in self.steps]
         expected = list(range(sequences[0], sequences[0] + len(sequences)))
         if sequences != expected:
-            raise ValueError("Step sequence values must be contiguous and ordered.")
+            raise ValueError(
+                "Step sequence values must be contiguous and ordered."
+            )
         return self
 
 
@@ -97,10 +101,14 @@ class ExecutionSpecResolver:
         self._file_max_bytes = file_max_bytes
 
     async def resolve(self, spec: ExecutionSpec) -> ResolvedExecutionSpec:
-        resolved = tuple([await self._resolve_step(step) for step in spec.steps])
+        resolved = tuple(
+            [await self._resolve_step(step) for step in spec.steps]
+        )
         return ResolvedExecutionSpec(spec=spec, steps=resolved)
 
-    async def _resolve_step(self, step: ExecutionStepInput) -> ResolvedExecutionStep:
+    async def _resolve_step(
+        self, step: ExecutionStepInput
+    ) -> ResolvedExecutionStep:
         source = step.payload.source
         if isinstance(source, InlineStepSource):
             content = source.content
@@ -119,7 +127,9 @@ class ExecutionSpecResolver:
         else:  # pragma: no cover
             raise InvalidExecutionSpecError("Unsupported Step source type.")
         if not content.strip():
-            raise InvalidExecutionSpecError("Python Step source must not be blank.")
+            raise InvalidExecutionSpecError(
+                "Python Step source must not be blank."
+            )
         lineage = step.lineage
         return ResolvedExecutionStep(
             sequence=step.sequence,
@@ -136,7 +146,9 @@ class ExecutionSpecResolver:
     def _read_path(self, source: PathStepSource) -> tuple[str, str]:
         candidate = Path(source.path)
         if candidate.is_absolute():
-            raise InvalidExecutionSpecError("PATH Step source must be relative to the input root.")
+            raise InvalidExecutionSpecError(
+                "PATH Step source must be relative to the input root."
+            )
         try:
             resolved = (self._input_root / candidate).resolve()
             resolved.relative_to(self._input_root)
@@ -145,9 +157,13 @@ class ExecutionSpecResolver:
                 "PATH Step source resolves outside the input root."
             ) from exc
         if resolved.suffix.lower() != ".py":
-            raise InvalidExecutionSpecError("PATH Python Step source must use a .py file.")
+            raise InvalidExecutionSpecError(
+                "PATH Python Step source must use a .py file."
+            )
         if not resolved.is_file():
-            raise InvalidExecutionSpecError("PATH Python Step source does not exist.")
+            raise InvalidExecutionSpecError(
+                "PATH Python Step source does not exist."
+            )
         if resolved.stat().st_size > self._file_max_bytes:
             raise InvalidExecutionSpecError(
                 "PATH Python Step source exceeds the configured file size limit."
@@ -156,8 +172,12 @@ class ExecutionSpecResolver:
             encoded = resolved.read_bytes()
             content = encoded.decode("utf-8")
         except UnicodeDecodeError as exc:
-            raise InvalidExecutionSpecError("PATH Python Step source must be UTF-8.") from exc
+            raise InvalidExecutionSpecError(
+                "PATH Python Step source must be UTF-8."
+            ) from exc
         checksum = hashlib.sha256(encoded).hexdigest()
         if not hmac.compare_digest(checksum, source.sha256.lower()):
-            raise InvalidExecutionSpecError("Python Step source SHA-256 does not match the file.")
+            raise InvalidExecutionSpecError(
+                "Python Step source SHA-256 does not match the file."
+            )
         return content, checksum

@@ -9,7 +9,10 @@ from redis.typing import EncodableT, FieldT
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from executor_service.application.commands import StepSpec, SubmitExecutionCommand
+from executor_service.application.commands import (
+    StepSpec,
+    SubmitExecutionCommand,
+)
 from executor_service.application.services import ExecutionService
 from executor_service.config import Settings
 from executor_service.domain.enums import (
@@ -34,7 +37,9 @@ class RecordingRedis:
         self.messages: dict[str, dict[str, Any]] = {}
 
     async def xadd(self, stream: str, fields: dict[FieldT, EncodableT]) -> str:
-        self.messages[stream] = {str(key): value for key, value in fields.items()}
+        self.messages[stream] = {
+            str(key): value for key, value in fields.items()
+        }
         return "1-0"
 
 
@@ -156,7 +161,8 @@ async def test_postgres_outbox_and_redis_stream_share_the_same_v2_payload(
 
     assert await publisher.publish_batch() == 2
     fields = {
-        key: str(value) for key, value in recording_redis.messages["event-contract-v2"].items()
+        key: str(value)
+        for key, value in recording_redis.messages["event-contract-v2"].items()
     }
     envelope = ExecutionStreamEnvelope.from_redis_fields(fields)
 
@@ -181,7 +187,11 @@ async def test_publisher_upgrades_a_valid_pre_v1_pending_payload(
             )
         )
         assert row is not None
-        row.payload = {key: value for key, value in row.payload.items() if key != "schema_version"}
+        row.payload = {
+            key: value
+            for key, value in row.payload.items()
+            if key != "schema_version"
+        }
 
     recording_redis = RecordingRedis()
     publisher = OutboxPublisher(
@@ -204,7 +214,10 @@ async def test_publisher_upgrades_a_valid_pre_v1_pending_payload(
         )
     assert upgraded is not None
     assert upgraded.payload["schema_version"] == "2.0"
-    assert recording_redis.messages["event-contract-v1-upgrade"]["schema_version"] == "2.0"
+    assert (
+        recording_redis.messages["event-contract-v1-upgrade"]["schema_version"]
+        == "2.0"
+    )
 
 
 def test_stream_envelope_rejects_version_or_aggregate_mismatch() -> None:

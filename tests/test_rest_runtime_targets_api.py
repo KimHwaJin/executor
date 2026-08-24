@@ -10,9 +10,15 @@ from sqlalchemy import select, update
 
 from executor_service.config import Settings
 from executor_service.container import ApplicationContainer
-from executor_service.domain.runtime import RuntimeResourceMetric, RuntimeResourceObservation
+from executor_service.domain.runtime import (
+    RuntimeResourceMetric,
+    RuntimeResourceObservation,
+)
 from executor_service.infrastructure.db.base import Base
-from executor_service.infrastructure.db.models import ExecutionORM, RuntimeTargetPurgeORM
+from executor_service.infrastructure.db.models import (
+    ExecutionORM,
+    RuntimeTargetPurgeORM,
+)
 from executor_service.interfaces.http.app import create_app
 
 
@@ -69,7 +75,9 @@ async def fleet_client(
         await connection.run_sync(Base.metadata.create_all)
     app = create_app(container)
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://testserver"
+    ) as client:
         yield client, container
     await container.redis.aclose()
     await container.engine.dispose()
@@ -117,7 +125,10 @@ def _execution_payload() -> dict[str, Any]:
                         "sequence": 0,
                         "payload": {
                             "type": "PYTHON_EXECUTE",
-                            "source": {"type": "INLINE", "content": "print('history')"},
+                            "source": {
+                                "type": "INLINE",
+                                "content": "print('history')",
+                            },
                         },
                     }
                 ],
@@ -168,7 +179,9 @@ async def test_resource_only_probe_failure_keeps_target_active_and_marks_data_st
     fleet_client: tuple[httpx.AsyncClient, ApplicationContainer],
 ) -> None:
     client, _ = fleet_client
-    created = await client.post("/api/v1/runtime-targets", json=_upsert_payload(20))
+    created = await client.post(
+        "/api/v1/runtime-targets", json=_upsert_payload(20)
+    )
     target_id = created.json()["target_id"]
     HealthyGateway.fail_resource_probe = True
     try:
@@ -182,7 +195,10 @@ async def test_resource_only_probe_failure_keeps_target_active_and_marks_data_st
     assert probed.status_code == 200
     assert probed.json()["state"]["status"] == "ACTIVE"
     assert probed.json()["resources"]["fresh"] is False
-    assert probed.json()["resources"]["last_error"] == "Resource probe failed (RuntimeError)"
+    assert (
+        probed.json()["resources"]["last_error"]
+        == "Resource probe failed (RuntimeError)"
+    )
     assert probed.json()["resources"]["memory"]["utilization"] == 0.25
 
 
@@ -194,7 +210,9 @@ async def test_fleet_list_filters_cursor_capacity_and_state_controls(
     for index in range(3):
         response = await client.post(
             "/api/v1/runtime-targets",
-            json=_upsert_payload(index, pool="BATCH" if index == 2 else "INTERACTIVE"),
+            json=_upsert_payload(
+                index, pool="BATCH" if index == 2 else "INTERACTIVE"
+            ),
         )
         target_ids.append(response.json()["target_id"])
 
@@ -213,16 +231,24 @@ async def test_fleet_list_filters_cursor_capacity_and_state_controls(
         "/api/v1/runtime-targets",
         params={"pool": "BATCH", "status": "ACTIVE", "enabled": True},
     )
-    assert [item["target_id"] for item in batch.json()["items"]] == [target_ids[2]]
+    assert [item["target_id"] for item in batch.json()["items"]] == [
+        target_ids[2]
+    ]
 
     pools = await client.get("/api/v1/runtime-pools")
     summaries = {
-        (item["runtime"]["type"], item["runtime"]["pool"]): item for item in pools.json()["items"]
+        (item["runtime"]["type"], item["runtime"]["pool"]): item
+        for item in pools.json()["items"]
     }
     assert summaries[("JUPYTER", "INTERACTIVE")]["targets"]["total"] == 2
     assert summaries[("JUPYTER", "INTERACTIVE")]["capacity"]["configured"] == 5
     assert summaries[("JUPYTER", "INTERACTIVE")]["capacity"]["available"] == 5
-    assert summaries[("JUPYTER", "INTERACTIVE")]["state"]["accepting_new_executions"] is True
+    assert (
+        summaries[("JUPYTER", "INTERACTIVE")]["state"][
+            "accepting_new_executions"
+        ]
+        is True
+    )
     assert summaries[("JUPYTER", "BATCH")]["targets"]["total"] == 1
 
     target_id = target_ids[0]
@@ -246,15 +272,21 @@ async def test_fleet_list_filters_cursor_capacity_and_state_controls(
     )
     assert disabled.json()["state"]["status"] == "OFFLINE"
     assert disabled.json()["state"]["enabled"] is False
-    filtered = await client.get("/api/v1/runtime-targets", params={"enabled": False})
-    assert [item["target_id"] for item in filtered.json()["items"]] == [target_id]
+    filtered = await client.get(
+        "/api/v1/runtime-targets", params={"enabled": False}
+    )
+    assert [item["target_id"] for item in filtered.json()["items"]] == [
+        target_id
+    ]
 
 
 async def test_hard_purge_requires_disable_confirmation_and_keeps_tombstone(
     fleet_client: tuple[httpx.AsyncClient, ApplicationContainer],
 ) -> None:
     client, container = fleet_client
-    created = await client.post("/api/v1/runtime-targets", json=_upsert_payload(10))
+    created = await client.post(
+        "/api/v1/runtime-targets", json=_upsert_payload(10)
+    )
     target_id = created.json()["target_id"]
     purge_payload = {
         **_mutation_payload("fleet-purge-10"),
@@ -265,7 +297,9 @@ async def test_hard_purge_requires_disable_confirmation_and_keeps_tombstone(
         f"/api/v1/runtime-targets/{target_id}/purge", json=purge_payload
     )
     assert active_purge.status_code == 409
-    assert active_purge.json()["error"]["code"] == "RUNTIME_TARGET_PURGE_CONFLICT"
+    assert (
+        active_purge.json()["error"]["code"] == "RUNTIME_TARGET_PURGE_CONFLICT"
+    )
 
     await client.post(
         f"/api/v1/runtime-targets/{target_id}/disable",
@@ -277,8 +311,12 @@ async def test_hard_purge_requires_disable_confirmation_and_keeps_tombstone(
     )
     assert wrong_name.status_code == 409
 
-    purged = await client.post(f"/api/v1/runtime-targets/{target_id}/purge", json=purge_payload)
-    repeated = await client.post(f"/api/v1/runtime-targets/{target_id}/purge", json=purge_payload)
+    purged = await client.post(
+        f"/api/v1/runtime-targets/{target_id}/purge", json=purge_payload
+    )
+    repeated = await client.post(
+        f"/api/v1/runtime-targets/{target_id}/purge", json=purge_payload
+    )
     assert purged.status_code == 200
     assert repeated.json() == purged.json()
     assert purged.json()["created_by_type"] == "USER"
@@ -287,11 +325,15 @@ async def test_hard_purge_requires_disable_confirmation_and_keeps_tombstone(
     assert purged.json()["updated_by"] == "fleet-admin"
     assert purged.json()["created_at"] is not None
     assert purged.json()["updated_at"] is not None
-    assert (await client.get(f"/api/v1/runtime-targets/{target_id}")).status_code == 404
+    assert (
+        await client.get(f"/api/v1/runtime-targets/{target_id}")
+    ).status_code == 404
 
     async with container.session_factory() as session:
         tombstone = await session.scalar(
-            select(RuntimeTargetPurgeORM).where(RuntimeTargetPurgeORM.target_id == UUID(target_id))
+            select(RuntimeTargetPurgeORM).where(
+                RuntimeTargetPurgeORM.target_id == UUID(target_id)
+            )
         )
         assert tombstone is not None
         assert tombstone.target_name == "fleet-target-10"
@@ -302,9 +344,13 @@ async def test_server_referenced_by_execution_history_cannot_be_purged(
     fleet_client: tuple[httpx.AsyncClient, ApplicationContainer],
 ) -> None:
     client, container = fleet_client
-    created = await client.post("/api/v1/runtime-targets", json=_upsert_payload(30))
+    created = await client.post(
+        "/api/v1/runtime-targets", json=_upsert_payload(30)
+    )
     target_id = UUID(created.json()["target_id"])
-    execution = await client.post("/api/v1/executions", json=_execution_payload())
+    execution = await client.post(
+        "/api/v1/executions", json=_execution_payload()
+    )
     execution_id = UUID(execution.json()["execution_id"])
     async with container.session_factory() as session, session.begin():
         await session.execute(

@@ -87,7 +87,9 @@ _EXECUTION_DETAIL_COLUMNS = (
 
 
 class SQLAlchemyExecutionQueryService:
-    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+    def __init__(
+        self, session_factory: async_sessionmaker[AsyncSession]
+    ) -> None:
         self._session_factory = session_factory
 
     async def executions(
@@ -107,7 +109,9 @@ class SQLAlchemyExecutionQueryService:
             .correlate(ExecutionORM)
             .scalar_subquery()
         )
-        statement = select(ExecutionORM, step_count.label("step_count")).options(
+        statement = select(
+            ExecutionORM, step_count.label("step_count")
+        ).options(
             load_only(*_EXECUTION_SUMMARY_COLUMNS),
             noload(ExecutionORM.steps),
         )
@@ -139,12 +143,16 @@ class SQLAlchemyExecutionQueryService:
             rows = list((await session.execute(statement)).all())
         page_rows = rows[:limit]
         next_cursor = (
-            encode_time_cursor("executions", page_rows[-1][0].created_at, page_rows[-1][0].id)
+            encode_time_cursor(
+                "executions", page_rows[-1][0].created_at, page_rows[-1][0].id
+            )
             if len(rows) > limit and page_rows
             else None
         )
         return Page(
-            items=[_execution_summary_view(row, count) for row, count in page_rows],
+            items=[
+                _execution_summary_view(row, count) for row, count in page_rows
+            ],
             next_cursor=next_cursor,
         )
 
@@ -159,11 +167,17 @@ class SQLAlchemyExecutionQueryService:
                 )
             )
         if row is None:
-            raise ExecutionNotFoundError(f"Execution {execution_id} was not found.")
+            raise ExecutionNotFoundError(
+                f"Execution {execution_id} was not found."
+            )
         return _execution_detail_view(row)
 
     async def steps(
-        self, execution_id: UUID, *, cursor: str | None = None, limit: int = 100
+        self,
+        execution_id: UUID,
+        *,
+        cursor: str | None = None,
+        limit: int = 100,
     ) -> Page[ExecutionStep]:
         async with self._session_factory() as session:
             await self._require_execution(session, execution_id)
@@ -172,10 +186,14 @@ class SQLAlchemyExecutionQueryService:
             )
             if cursor is not None:
                 sequence = decode_integer_cursor(cursor, "execution_steps")
-                statement = statement.where(ExecutionStepORM.sequence > sequence)
+                statement = statement.where(
+                    ExecutionStepORM.sequence > sequence
+                )
             rows = list(
                 await session.scalars(
-                    statement.order_by(ExecutionStepORM.sequence).limit(limit + 1)
+                    statement.order_by(ExecutionStepORM.sequence).limit(
+                        limit + 1
+                    )
                 )
             )
         page_rows = rows[:limit]
@@ -184,10 +202,17 @@ class SQLAlchemyExecutionQueryService:
             if len(rows) > limit and page_rows
             else None
         )
-        return Page(items=[row.to_domain() for row in page_rows], next_cursor=next_cursor)
+        return Page(
+            items=[row.to_domain() for row in page_rows],
+            next_cursor=next_cursor,
+        )
 
     async def attempts(
-        self, execution_id: UUID, *, cursor: str | None = None, limit: int = 100
+        self,
+        execution_id: UUID,
+        *,
+        cursor: str | None = None,
+        limit: int = 100,
     ) -> Page[ExecutionAttemptView]:
         async with self._session_factory() as session:
             await self._require_execution(session, execution_id)
@@ -195,24 +220,39 @@ class SQLAlchemyExecutionQueryService:
                 ExecutionAttemptORM.execution_id == execution_id
             )
             if cursor is not None:
-                attempt_number = decode_integer_cursor(cursor, "execution_attempts")
-                statement = statement.where(ExecutionAttemptORM.attempt_number > attempt_number)
+                attempt_number = decode_integer_cursor(
+                    cursor, "execution_attempts"
+                )
+                statement = statement.where(
+                    ExecutionAttemptORM.attempt_number > attempt_number
+                )
             attempts = list(
                 await session.scalars(
-                    statement.order_by(ExecutionAttemptORM.attempt_number).limit(limit + 1)
+                    statement.order_by(
+                        ExecutionAttemptORM.attempt_number
+                    ).limit(limit + 1)
                 )
             )
             page_attempts = attempts[:limit]
-            step_counts = await self._step_counts(session, [row.id for row in page_attempts])
-        items = [_attempt_view(row, step_counts.get(row.id, 0)) for row in page_attempts]
+            step_counts = await self._step_counts(
+                session, [row.id for row in page_attempts]
+            )
+        items = [
+            _attempt_view(row, step_counts.get(row.id, 0))
+            for row in page_attempts
+        ]
         next_cursor = (
-            encode_integer_cursor("execution_attempts", page_attempts[-1].attempt_number)
+            encode_integer_cursor(
+                "execution_attempts", page_attempts[-1].attempt_number
+            )
             if len(attempts) > limit and page_attempts
             else None
         )
         return Page(items=items, next_cursor=next_cursor)
 
-    async def attempt(self, execution_id: UUID, attempt_id: UUID) -> ExecutionAttemptView:
+    async def attempt(
+        self, execution_id: UUID, attempt_id: UUID
+    ) -> ExecutionAttemptView:
         async with self._session_factory() as session:
             await self._require_execution(session, execution_id)
             row = await session.scalar(
@@ -233,7 +273,11 @@ class SQLAlchemyExecutionQueryService:
         return _attempt_view(row, step_count or 0)
 
     async def operations(
-        self, execution_id: UUID, *, cursor: str | None = None, limit: int = 100
+        self,
+        execution_id: UUID,
+        *,
+        cursor: str | None = None,
+        limit: int = 100,
     ) -> Page[ExecutionOperationView]:
         async with self._session_factory() as session:
             await self._require_execution(session, execution_id)
@@ -241,24 +285,35 @@ class SQLAlchemyExecutionQueryService:
                 ExecutionOperationORM.execution_id == execution_id
             )
             if cursor is not None:
-                operation_number = decode_integer_cursor(cursor, "execution_operations")
+                operation_number = decode_integer_cursor(
+                    cursor, "execution_operations"
+                )
                 statement = statement.where(
                     ExecutionOperationORM.operation_number > operation_number
                 )
             rows = list(
                 await session.scalars(
-                    statement.order_by(ExecutionOperationORM.operation_number).limit(limit + 1)
+                    statement.order_by(
+                        ExecutionOperationORM.operation_number
+                    ).limit(limit + 1)
                 )
             )
         page_rows = rows[:limit]
         next_cursor = (
-            encode_integer_cursor("execution_operations", page_rows[-1].operation_number)
+            encode_integer_cursor(
+                "execution_operations", page_rows[-1].operation_number
+            )
             if len(rows) > limit and page_rows
             else None
         )
-        return Page(items=[_operation_view(row) for row in page_rows], next_cursor=next_cursor)
+        return Page(
+            items=[_operation_view(row) for row in page_rows],
+            next_cursor=next_cursor,
+        )
 
-    async def operation(self, execution_id: UUID, operation_id: UUID) -> ExecutionOperationView:
+    async def operation(
+        self, execution_id: UUID, operation_id: UUID
+    ) -> ExecutionOperationView:
         async with self._session_factory() as session:
             await self._require_execution(session, execution_id)
             row = await session.scalar(
@@ -288,20 +343,31 @@ class SQLAlchemyExecutionQueryService:
                 ExecutionStepORM.operation_id == operation_id,
             )
             if cursor is not None:
-                sequence = decode_integer_cursor(cursor, "execution_operation_steps")
-                statement = statement.where(ExecutionStepORM.sequence > sequence)
+                sequence = decode_integer_cursor(
+                    cursor, "execution_operation_steps"
+                )
+                statement = statement.where(
+                    ExecutionStepORM.sequence > sequence
+                )
             rows = list(
                 await session.scalars(
-                    statement.order_by(ExecutionStepORM.sequence).limit(limit + 1)
+                    statement.order_by(ExecutionStepORM.sequence).limit(
+                        limit + 1
+                    )
                 )
             )
         page_rows = rows[:limit]
         next_cursor = (
-            encode_integer_cursor("execution_operation_steps", page_rows[-1].sequence)
+            encode_integer_cursor(
+                "execution_operation_steps", page_rows[-1].sequence
+            )
             if len(rows) > limit and page_rows
             else None
         )
-        return Page(items=[row.to_domain() for row in page_rows], next_cursor=next_cursor)
+        return Page(
+            items=[row.to_domain() for row in page_rows],
+            next_cursor=next_cursor,
+        )
 
     async def attempt_steps(
         self,
@@ -317,16 +383,24 @@ class SQLAlchemyExecutionQueryService:
                 ExecutionStepAttemptORM.execution_attempt_id == attempt_id
             )
             if cursor is not None:
-                sequence = decode_integer_cursor(cursor, "execution_step_attempts")
-                statement = statement.where(ExecutionStepAttemptORM.sequence > sequence)
+                sequence = decode_integer_cursor(
+                    cursor, "execution_step_attempts"
+                )
+                statement = statement.where(
+                    ExecutionStepAttemptORM.sequence > sequence
+                )
             rows = list(
                 await session.scalars(
-                    statement.order_by(ExecutionStepAttemptORM.sequence).limit(limit + 1)
+                    statement.order_by(ExecutionStepAttemptORM.sequence).limit(
+                        limit + 1
+                    )
                 )
             )
         page_rows = rows[:limit]
         next_cursor = (
-            encode_integer_cursor("execution_step_attempts", page_rows[-1].sequence)
+            encode_integer_cursor(
+                "execution_step_attempts", page_rows[-1].sequence
+            )
             if len(rows) > limit and page_rows
             else None
         )
@@ -336,7 +410,11 @@ class SQLAlchemyExecutionQueryService:
         )
 
     async def events(
-        self, execution_id: UUID, *, cursor: str | None = None, limit: int = 200
+        self,
+        execution_id: UUID,
+        *,
+        cursor: str | None = None,
+        limit: int = 200,
     ) -> Page[ExecutionEventView]:
         async with self._session_factory() as session:
             await self._require_execution(session, execution_id)
@@ -346,7 +424,9 @@ class SQLAlchemyExecutionQueryService:
                 OutboxEventORM.destination == OutboxDestination.EVENTS,
             )
             if cursor is not None:
-                created_at, item_id = decode_time_cursor(cursor, "execution_events")
+                created_at, item_id = decode_time_cursor(
+                    cursor, "execution_events"
+                )
                 statement = statement.where(
                     or_(
                         OutboxEventORM.created_at > created_at,
@@ -358,9 +438,9 @@ class SQLAlchemyExecutionQueryService:
                 )
             rows = list(
                 await session.scalars(
-                    statement.order_by(OutboxEventORM.created_at, OutboxEventORM.id).limit(
-                        limit + 1
-                    )
+                    statement.order_by(
+                        OutboxEventORM.created_at, OutboxEventORM.id
+                    ).limit(limit + 1)
                 )
             )
         page_rows = rows[:limit]
@@ -384,14 +464,20 @@ class SQLAlchemyExecutionQueryService:
             for row in page_rows
         ]
         next_cursor = (
-            encode_time_cursor("execution_events", page_rows[-1].created_at, page_rows[-1].id)
+            encode_time_cursor(
+                "execution_events", page_rows[-1].created_at, page_rows[-1].id
+            )
             if len(rows) > limit and page_rows
             else None
         )
         return Page(items=items, next_cursor=next_cursor)
 
     async def artifacts(
-        self, execution_id: UUID, *, cursor: str | None = None, limit: int = 500
+        self,
+        execution_id: UUID,
+        *,
+        cursor: str | None = None,
+        limit: int = 500,
     ) -> Page[ExecutionArtifactView]:
         async with self._session_factory() as session:
             await self._require_execution(session, execution_id)
@@ -399,7 +485,9 @@ class SQLAlchemyExecutionQueryService:
                 ExecutionArtifactORM.execution_id == execution_id
             )
             if cursor is not None:
-                created_at, item_id = decode_time_cursor(cursor, "execution_artifacts")
+                created_at, item_id = decode_time_cursor(
+                    cursor, "execution_artifacts"
+                )
                 statement = statement.where(
                     or_(
                         ExecutionArtifactORM.created_at > created_at,
@@ -412,13 +500,18 @@ class SQLAlchemyExecutionQueryService:
             rows = list(
                 await session.scalars(
                     statement.order_by(
-                        ExecutionArtifactORM.created_at, ExecutionArtifactORM.id
+                        ExecutionArtifactORM.created_at,
+                        ExecutionArtifactORM.id,
                     ).limit(limit + 1)
                 )
             )
         page_rows = rows[:limit]
         next_cursor = (
-            encode_time_cursor("execution_artifacts", page_rows[-1].created_at, page_rows[-1].id)
+            encode_time_cursor(
+                "execution_artifacts",
+                page_rows[-1].created_at,
+                page_rows[-1].id,
+            )
             if len(rows) > limit and page_rows
             else None
         )
@@ -431,20 +524,30 @@ class SQLAlchemyExecutionQueryService:
         async with self._session_factory() as session:
             row = await session.get(ExecutionArtifactORM, artifact_id)
         if row is None:
-            raise ExecutionArtifactNotFoundError(f"Execution Artifact {artifact_id} was not found.")
+            raise ExecutionArtifactNotFoundError(
+                f"Execution Artifact {artifact_id} was not found."
+            )
         return _artifact_view(row)
 
     @staticmethod
-    async def _require_execution(session: AsyncSession, execution_id: UUID) -> None:
+    async def _require_execution(
+        session: AsyncSession, execution_id: UUID
+    ) -> None:
         exists = await session.scalar(
             select(ExecutionORM.id).where(ExecutionORM.id == execution_id)
         )
         if exists is None:
-            raise ExecutionNotFoundError(f"Execution {execution_id} was not found.")
+            raise ExecutionNotFoundError(
+                f"Execution {execution_id} was not found."
+            )
 
     @staticmethod
-    async def _require_attempt(session: AsyncSession, execution_id: UUID, attempt_id: UUID) -> None:
-        await SQLAlchemyExecutionQueryService._require_execution(session, execution_id)
+    async def _require_attempt(
+        session: AsyncSession, execution_id: UUID, attempt_id: UUID
+    ) -> None:
+        await SQLAlchemyExecutionQueryService._require_execution(
+            session, execution_id
+        )
         exists = await session.scalar(
             select(ExecutionAttemptORM.id).where(
                 ExecutionAttemptORM.id == attempt_id,
@@ -460,7 +563,9 @@ class SQLAlchemyExecutionQueryService:
     async def _require_operation(
         session: AsyncSession, execution_id: UUID, operation_id: UUID
     ) -> None:
-        await SQLAlchemyExecutionQueryService._require_execution(session, execution_id)
+        await SQLAlchemyExecutionQueryService._require_execution(
+            session, execution_id
+        )
         exists = await session.scalar(
             select(ExecutionOperationORM.id).where(
                 ExecutionOperationORM.id == operation_id,
@@ -473,7 +578,9 @@ class SQLAlchemyExecutionQueryService:
             )
 
     @staticmethod
-    async def _step_counts(session: AsyncSession, attempt_ids: list[UUID]) -> dict[UUID, int]:
+    async def _step_counts(
+        session: AsyncSession, attempt_ids: list[UUID]
+    ) -> dict[UUID, int]:
         if not attempt_ids:
             return {}
         rows = await session.execute(
@@ -481,7 +588,9 @@ class SQLAlchemyExecutionQueryService:
                 ExecutionStepAttemptORM.execution_attempt_id,
                 func.count(ExecutionStepAttemptORM.id),
             )
-            .where(ExecutionStepAttemptORM.execution_attempt_id.in_(attempt_ids))
+            .where(
+                ExecutionStepAttemptORM.execution_attempt_id.in_(attempt_ids)
+            )
             .group_by(ExecutionStepAttemptORM.execution_attempt_id)
         )
         return {attempt_id: count for attempt_id, count in rows}
@@ -498,7 +607,9 @@ def _redact(value: Any) -> Any:
     return value
 
 
-def _execution_summary_view(row: ExecutionORM, step_count: int) -> ExecutionSummaryView:
+def _execution_summary_view(
+    row: ExecutionORM, step_count: int
+) -> ExecutionSummaryView:
     return ExecutionSummaryView(
         id=row.id,
         operation_mode=row.operation_mode,
@@ -567,7 +678,10 @@ def _execution_detail_view(row: ExecutionORM) -> ExecutionDetailView:
 
 def _is_secret_key(key: str) -> bool:
     normalized = key.lower()
-    return any(marker in normalized for marker in ("token", "secret", "password", "credential"))
+    return any(
+        marker in normalized
+        for marker in ("token", "secret", "password", "credential")
+    )
 
 
 def _artifact_view(row: ExecutionArtifactORM) -> ExecutionArtifactView:
@@ -599,7 +713,9 @@ def _artifact_view(row: ExecutionArtifactORM) -> ExecutionArtifactView:
     )
 
 
-def _attempt_view(row: ExecutionAttemptORM, step_count: int) -> ExecutionAttemptView:
+def _attempt_view(
+    row: ExecutionAttemptORM, step_count: int
+) -> ExecutionAttemptView:
     return ExecutionAttemptView(
         id=row.id,
         execution_id=row.execution_id,
@@ -653,7 +769,9 @@ def _operation_view(row: ExecutionOperationORM) -> ExecutionOperationView:
     )
 
 
-def _step_attempt_view(row: ExecutionStepAttemptORM) -> ExecutionStepAttemptView:
+def _step_attempt_view(
+    row: ExecutionStepAttemptORM,
+) -> ExecutionStepAttemptView:
     return ExecutionStepAttemptView(
         id=row.id,
         execution_attempt_id=row.execution_attempt_id,

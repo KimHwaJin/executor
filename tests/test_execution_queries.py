@@ -4,7 +4,10 @@ from uuid import uuid4
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from executor_service.application.commands import StepSpec, SubmitExecutionCommand
+from executor_service.application.commands import (
+    StepSpec,
+    SubmitExecutionCommand,
+)
 from executor_service.application.services import ExecutionService
 from executor_service.domain.enums import (
     AttemptStatus,
@@ -26,7 +29,9 @@ from executor_service.infrastructure.db.models import (
     RuntimeTargetORM,
 )
 from executor_service.infrastructure.db.session import create_session_factory
-from executor_service.infrastructure.execution_queries import SQLAlchemyExecutionQueryService
+from executor_service.infrastructure.execution_queries import (
+    SQLAlchemyExecutionQueryService,
+)
 from tests.runtime_credentials import runtime_credential_fields
 
 
@@ -115,7 +120,10 @@ async def test_query_service_returns_attempt_step_and_redacted_events(
                     aggregate_type="Execution",
                     aggregate_id=execution.id,
                     event_type="execution.test_secret",
-                    payload={"token": "must-not-leak", "nested": {"password": "hidden"}},
+                    payload={
+                        "token": "must-not-leak",
+                        "nested": {"password": "hidden"},
+                    },
                 )
             )
         )
@@ -136,7 +144,9 @@ async def test_query_service_returns_attempt_step_and_redacted_events(
     assert attempt.step_count == 1
     assert attempt_steps[0].tool_name == "load_data"
     assert attempt_steps[0].outputs == [{"output_type": "error"}]
-    secret_event = next(event for event in events if event.event_type == "execution.test_secret")
+    secret_event = next(
+        event for event in events if event.event_type == "execution.test_secret"
+    )
     assert secret_event.payload == {
         "token": "[REDACTED]",
         "nested": {"password": "[REDACTED]"},
@@ -162,17 +172,29 @@ async def test_execution_reads_do_not_load_source_code_or_step_rows(
 
     event.listen(engine.sync_engine, "before_cursor_execute", capture_statement)
     try:
-        queries = SQLAlchemyExecutionQueryService(create_session_factory(engine))
+        queries = SQLAlchemyExecutionQueryService(
+            create_session_factory(engine)
+        )
         page = await queries.executions(user_id=execution.user_id)
         detail = await queries.execution(execution.id)
     finally:
-        event.remove(engine.sync_engine, "before_cursor_execute", capture_statement)
+        event.remove(
+            engine.sync_engine, "before_cursor_execute", capture_statement
+        )
 
     assert page[0].step_count == 1
     assert detail.id == execution.id
     normalized = [" ".join(statement.split()) for statement in statements]
     assert len(normalized) == 2
-    assert all("execution_steps.code" not in statement for statement in normalized)
-    execution_selects = [statement for statement in normalized if " from executions " in statement]
+    assert all(
+        "execution_steps.code" not in statement for statement in normalized
+    )
+    execution_selects = [
+        statement
+        for statement in normalized
+        if " from executions " in statement
+    ]
     assert execution_selects
-    assert all("executions.code," not in statement for statement in execution_selects)
+    assert all(
+        "executions.code," not in statement for statement in execution_selects
+    )

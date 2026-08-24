@@ -48,7 +48,9 @@ from executor_service.infrastructure.db.models import (
     RuntimeTargetORM,
 )
 from executor_service.infrastructure.db.session import create_session_factory
-from executor_service.infrastructure.runtime_registry import RuntimeTargetRegistry
+from executor_service.infrastructure.runtime_registry import (
+    RuntimeTargetRegistry,
+)
 from executor_service.infrastructure.worker import ExecutionWorker
 from tests.runtime_credentials import runtime_credential_fields
 from tests.runtime_storage_fake import InMemoryRuntimeStorage
@@ -120,7 +122,9 @@ class RecordingMultiDriver(InMemoryRuntimeStorage):
         del session_id
         return True
 
-    async def execute(self, session_id: str, code: str) -> RuntimeExecutionResult:
+    async def execute(
+        self, session_id: str, code: str
+    ) -> RuntimeExecutionResult:
         del session_id
         self.executed.append(code)
         if code == self.fail_code:
@@ -136,19 +140,29 @@ class RecordingMultiDriver(InMemoryRuntimeStorage):
                 ],
             )
         return RuntimeExecutionResult(
-            outputs=[{"output_type": "stream", "name": "stdout", "text": f"{code}\n"}],
+            outputs=[
+                {
+                    "output_type": "stream",
+                    "name": "stdout",
+                    "text": f"{code}\n",
+                }
+            ],
             execution_count=len(self.executed),
         )
 
 
 class SlowExecutionDriver(RecordingMultiDriver):
-    async def execute(self, session_id: str, code: str) -> RuntimeExecutionResult:
+    async def execute(
+        self, session_id: str, code: str
+    ) -> RuntimeExecutionResult:
         del session_id, code
         await asyncio.sleep(2)
         return RuntimeExecutionResult(outputs=[], execution_count=1)
 
 
-def _patch_runtime_driver(monkeypatch: pytest.MonkeyPatch, driver_type: type[Any]) -> None:
+def _patch_runtime_driver(
+    monkeypatch: pytest.MonkeyPatch, driver_type: type[Any]
+) -> None:
     monkeypatch.setattr(
         "executor_service.infrastructure.runtime_drivers.JupyterRuntimeDriver",
         driver_type,
@@ -195,7 +209,11 @@ async def _make_waiting(
             connection_config={"endpoint": "http://fake-jupyter"},
             **runtime_credential_fields(),
             pool=RuntimePool.INTERACTIVE,
-            status=(RuntimeTargetStatus.ACTIVE if server_enabled else RuntimeTargetStatus.OFFLINE),
+            status=(
+                RuntimeTargetStatus.ACTIVE
+                if server_enabled
+                else RuntimeTargetStatus.OFFLINE
+            ),
             max_concurrent_executions=2,
             supported_profiles=["basic"],
             enabled=server_enabled,
@@ -238,10 +256,14 @@ async def _make_waiting(
                 runtime_session_id=attempt.runtime_session_id,
                 started_at=now - timedelta(minutes=1),
                 operation_wait_expires_at=(
-                    now - timedelta(seconds=1) if wait_expired else now + timedelta(hours=1)
+                    now - timedelta(seconds=1)
+                    if wait_expired
+                    else now + timedelta(hours=1)
                 ),
                 execution_expires_at=(
-                    now - timedelta(seconds=1) if execution_expired else now + timedelta(days=1)
+                    now - timedelta(seconds=1)
+                    if execution_expired
+                    else now + timedelta(days=1)
                 ),
                 version=2,
             )
@@ -254,7 +276,9 @@ async def _make_waiting(
     return execution, attempt
 
 
-def _worker(engine: AsyncEngine, tmp_path: Path) -> tuple[ExecutionWorker, Redis]:
+def _worker(
+    engine: AsyncEngine, tmp_path: Path
+) -> tuple[ExecutionWorker, Redis]:
     settings = Settings(
         runtime_enabled=False,
         input_host_root=tmp_path,
@@ -398,7 +422,9 @@ async def test_multi_operation_executes_submitted_steps_until_boundary(
 
     async with session_factory() as session:
         row = await session.get(ExecutionORM, execution.id)
-        operation = await session.get(ExecutionOperationORM, execution.active_operation_id)
+        operation = await session.get(
+            ExecutionOperationORM, execution.active_operation_id
+        )
         steps = list(
             await session.scalars(
                 select(ExecutionStepORM)
@@ -434,16 +460,22 @@ async def test_multi_operation_executes_submitted_steps_until_boundary(
             )
         )
     assert row is not None and operation is not None
-    assert row.status == ExecutionStatus.WAITING_FOR_OPERATION, row.error_message
+    assert row.status == ExecutionStatus.WAITING_FOR_OPERATION, (
+        row.error_message
+    )
     assert operation.status == expected_status
     assert [step.status for step in steps] == expected_steps
     assert RecordingMultiDriver.executed == (
-        ["first", "raise expected", "third"] if fail_code is None else ["first", "raise expected"]
+        ["first", "raise expected", "third"]
+        if fail_code is None
+        else ["first", "raise expected"]
     )
     notebook_path = next(iter(RecordingMultiDriver.notebooks))
     notebook = RecordingMultiDriver.notebooks[notebook_path]
     assert [cell["source"] for cell in notebook["cells"]] == (
-        ["first", "raise expected", "third"] if fail_code is None else ["first", "raise expected"]
+        ["first", "raise expected", "third"]
+        if fail_code is None
+        else ["first", "raise expected"]
     )
     assert [cell["execution_count"] for cell in notebook["cells"]] == (
         [1, 2, 3] if fail_code is None else [1, 2]
@@ -478,7 +510,9 @@ async def test_expired_multi_wait_fails_and_cleans_kernel_once(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    execution, _ = await _make_waiting(execution_service, engine, "wait-timeout", wait_expired=True)
+    execution, _ = await _make_waiting(
+        execution_service, engine, "wait-timeout", wait_expired=True
+    )
     _patch_runtime_driver(monkeypatch, FakeJupyterGateway)
     worker, redis = _worker(engine, tmp_path)
     try:
@@ -491,7 +525,9 @@ async def test_expired_multi_wait_fails_and_cleans_kernel_once(
     async with session_factory() as session:
         row = await session.get(ExecutionORM, execution.id)
         attempt = await session.scalar(
-            select(ExecutionAttemptORM).where(ExecutionAttemptORM.execution_id == execution.id)
+            select(ExecutionAttemptORM).where(
+                ExecutionAttemptORM.execution_id == execution.id
+            )
         )
         failed_events = await session.scalar(
             select(func.count(OutboxEventORM.id)).where(
@@ -503,7 +539,10 @@ async def test_expired_multi_wait_fails_and_cleans_kernel_once(
     assert row.status == ExecutionStatus.FAILED
     assert row.failure_type == FailureType.OPERATION_WAIT_TIMEOUT
     assert row.runtime_session_id is None
-    assert row.runtime_session_cleanup_status == RuntimeSessionCleanupStatus.SUCCEEDED
+    assert (
+        row.runtime_session_cleanup_status
+        == RuntimeSessionCleanupStatus.SUCCEEDED
+    )
     assert attempt.status == AttemptStatus.FAILED
     assert failed_events == 1
     assert FakeJupyterGateway.deleted == ["kernel-wait-timeout"]
@@ -544,7 +583,10 @@ async def test_restart_audit_detects_missing_kernel_without_cleanup(
     assert row.status == ExecutionStatus.FAILED
     assert row.failure_type == FailureType.RUNTIME_SESSION_LOST
     assert row.runtime_session_id is None
-    assert row.runtime_session_cleanup_status == RuntimeSessionCleanupStatus.NOT_REQUIRED
+    assert (
+        row.runtime_session_cleanup_status
+        == RuntimeSessionCleanupStatus.NOT_REQUIRED
+    )
     assert FakeJupyterGateway.deleted == []
 
 
@@ -569,7 +611,10 @@ async def test_disabled_target_fails_waiting_execution(
     assert row is not None
     assert row.status == ExecutionStatus.FAILED
     assert row.failure_type == FailureType.RUNTIME_UNAVAILABLE
-    assert row.runtime_session_cleanup_status == RuntimeSessionCleanupStatus.SUCCEEDED
+    assert (
+        row.runtime_session_cleanup_status
+        == RuntimeSessionCleanupStatus.SUCCEEDED
+    )
 
 
 async def test_execution_deadline_precedes_step_wait_deadline(
@@ -605,7 +650,9 @@ async def test_running_execution_deadline_requests_cancel_and_reclaims_kernel(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    execution, _ = await _make_waiting(execution_service, engine, "running-timeout")
+    execution, _ = await _make_waiting(
+        execution_service, engine, "running-timeout"
+    )
     now = utc_now()
     session_factory = create_session_factory(engine)
     async with session_factory() as session, session.begin():

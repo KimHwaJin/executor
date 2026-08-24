@@ -14,7 +14,9 @@ async def test_health_endpoint() -> None:
     app = create_app(container)
     transport = httpx.ASGITransport(app=app)
 
-    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://testserver"
+    ) as client:
         health = await client.get("/healthz")
         worker = await client.get("/workerz")
         removed_metrics = await client.get("/metrics")

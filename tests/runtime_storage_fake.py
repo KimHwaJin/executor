@@ -31,16 +31,22 @@ class InMemoryRuntimeStorage:
     async def prepare_workspace(self, workspace_path: str) -> None:
         del workspace_path
 
-    async def artifact_snapshot(self, workspace_path: str) -> RuntimeStorageSnapshot:
+    async def artifact_snapshot(
+        self, workspace_path: str
+    ) -> RuntimeStorageSnapshot:
         prefix = f"{workspace_path}/artifacts/"
         manifest = f"{prefix}manifest.jsonl"
         files = tuple(
-            RuntimeFileState(path=path, size_bytes=len(content), modified_ns=modified)
+            RuntimeFileState(
+                path=path, size_bytes=len(content), modified_ns=modified
+            )
             for path, (content, modified) in sorted(type(self).files.items())
             if path.startswith(prefix) and path != manifest
         )
         manifest_content = type(self).files.get(manifest, (b"", 0))[0]
-        return RuntimeStorageSnapshot(files=files, manifest_size=len(manifest_content))
+        return RuntimeStorageSnapshot(
+            files=files, manifest_size=len(manifest_content)
+        )
 
     async def file_metadata(self, path: str) -> RuntimeFileMetadata:
         content, modified = type(self).files[path]
@@ -54,7 +60,9 @@ class InMemoryRuntimeStorage:
         )
 
     async def read_manifest(self, workspace_path: str, start: int) -> bytes:
-        content = type(self).files.get(f"{workspace_path}/artifacts/manifest.jsonl", (b"", 0))[0]
+        content = type(self).files.get(
+            f"{workspace_path}/artifacts/manifest.jsonl", (b"", 0)
+        )[0]
         return content[start:] if start <= len(content) else content
 
     async def write_notebook(self, path: str, notebook: dict[str, Any]) -> None:
@@ -63,3 +71,6 @@ class InMemoryRuntimeStorage:
 
     async def read_notebook(self, path: str) -> dict[str, Any]:
         return type(self).notebooks[path]
+
+    async def write_text(self, path: str, content: str) -> None:
+        type(self).put_runtime_file(path, content.encode())

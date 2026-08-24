@@ -97,13 +97,18 @@ class RuntimeTargetView:
 
     @property
     def drain_complete(self) -> bool:
-        return self.status == RuntimeTargetStatus.DRAINING and self.active_execution_count == 0
+        return (
+            self.status == RuntimeTargetStatus.DRAINING
+            and self.active_execution_count == 0
+        )
 
     @property
     def available_capacity(self) -> int:
         if not self.accepting_new_executions:
             return 0
-        return max(0, self.max_concurrent_executions - self.active_execution_count)
+        return max(
+            0, self.max_concurrent_executions - self.active_execution_count
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,7 +151,9 @@ class RuntimeTargetPurgeView:
 
 
 class RuntimeTargetManager(Protocol):
-    async def upsert(self, command: UpsertRuntimeTargetCommand) -> RuntimeTargetView: ...
+    async def upsert(
+        self, command: UpsertRuntimeTargetCommand
+    ) -> RuntimeTargetView: ...
 
     async def list(
         self,
@@ -171,8 +178,14 @@ class RuntimeTargetManager(Protocol):
         actor_id: str | None = None,
     ) -> RuntimeTargetView: ...
 
-    async def disable(self, command: DisableRuntimeTargetCommand) -> RuntimeTargetView: ...
+    async def disable(
+        self, command: DisableRuntimeTargetCommand
+    ) -> RuntimeTargetView: ...
 
-    async def set_state(self, command: SetRuntimeTargetStateCommand) -> RuntimeTargetView: ...
+    async def set_state(
+        self, command: SetRuntimeTargetStateCommand
+    ) -> RuntimeTargetView: ...
 
-    async def purge(self, command: PurgeRuntimeTargetCommand) -> RuntimeTargetPurgeView: ...
+    async def purge(
+        self, command: PurgeRuntimeTargetCommand
+    ) -> RuntimeTargetPurgeView: ...

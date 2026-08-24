@@ -3,23 +3,35 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from jupyter_server.base.handlers import APIHandler  # ty: ignore[unresolved-import]
+from jupyter_server.base.handlers import (  # ty: ignore[unresolved-import]
+    APIHandler,
+)
 from tornado import web  # ty: ignore[unresolved-import]
 
 from executor_resource_extension.collector import ResourceCollector
-from executor_resource_extension.storage import RuntimeStorage, StoragePathError
+from executor_resource_extension.storage import (
+    RuntimeStorage,
+    StoragePathError,
+)
 
 
 class ResourceStatusHandler(APIHandler):
     @web.authenticated
     def get(self) -> None:
-        collector: ResourceCollector = self.settings["executor_resource_collector"]
+        collector: ResourceCollector = self.settings[
+            "executor_resource_collector"
+        ]
         self.set_header("Cache-Control", "no-store")
         self.finish(collector.collect())
 
     def write_error(self, status_code: int, **kwargs: Any) -> None:
         self.set_header("Content-Type", "application/json")
-        self.finish({"status": status_code, "message": "Resource status collection failed."})
+        self.finish(
+            {
+                "status": status_code,
+                "message": "Resource status collection failed.",
+            }
+        )
 
 
 class StorageHandler(APIHandler):
@@ -34,10 +46,14 @@ class StorageHandler(APIHandler):
         return payload
 
     def write_storage_error(self, exc: Exception) -> None:
-        if isinstance(exc, (StoragePathError, KeyError, TypeError, UnicodeDecodeError)):
+        if isinstance(
+            exc, (StoragePathError, KeyError, TypeError, UnicodeDecodeError)
+        ):
             raise web.HTTPError(422, reason=str(exc)) from exc
         if isinstance(exc, FileNotFoundError):
-            raise web.HTTPError(404, reason="Runtime storage path was not found.") from exc
+            raise web.HTTPError(
+                404, reason="Runtime storage path was not found."
+            ) from exc
         raise exc
 
 
@@ -46,7 +62,8 @@ class WorkspacePrepareHandler(StorageHandler):
     async def post(self) -> None:
         try:
             result = await asyncio.to_thread(
-                self.storage.prepare_workspace, str(self.payload()["workspace_path"])
+                self.storage.prepare_workspace,
+                str(self.payload()["workspace_path"]),
             )
         except Exception as exc:
             self.write_storage_error(exc)

@@ -50,9 +50,13 @@ class WorkStreamEnvelope(BaseModel):
     def validate_payload_contract(self) -> "WorkStreamEnvelope":
         normalized = validate_work_payload(self.message_type, self.payload)
         if normalized["schema_version"] != self.schema_version:
-            raise ValueError("Stream and payload schema_version values must match.")
+            raise ValueError(
+                "Stream and payload schema_version values must match."
+            )
         if normalized["execution_id"] != str(self.aggregate_id):
-            raise ValueError("Stream aggregate_id must match payload execution_id.")
+            raise ValueError(
+                "Stream aggregate_id must match payload execution_id."
+            )
         self.payload = normalized
         return self
 
@@ -67,12 +71,18 @@ class WorkStreamEnvelope(BaseModel):
         return cls.model_validate({**fields, "payload": payload})
 
 
-def validate_work_payload(message_type: str, payload: dict[str, Any]) -> dict[str, Any]:
+def validate_work_payload(
+    message_type: str, payload: dict[str, Any]
+) -> dict[str, Any]:
     model = WORK_PAYLOAD_MODELS.get(message_type)
     if model is None:
-        raise ValueError(f"Unsupported Executor work message type: {message_type}")
+        raise ValueError(
+            f"Unsupported Executor work message type: {message_type}"
+        )
     versioned = {"schema_version": WORK_MESSAGE_SCHEMA_VERSION, **payload}
-    return model.model_validate(versioned).model_dump(mode="json", exclude_unset=True)
+    return model.model_validate(versioned).model_dump(
+        mode="json", exclude_unset=True
+    )
 
 
 def build_work_message(
@@ -89,7 +99,11 @@ def build_work_message(
         message_type,
         {
             "execution_id": str(execution_id),
-            **({"operation_id": str(operation_id)} if operation_id is not None else {}),
+            **(
+                {"operation_id": str(operation_id)}
+                if operation_id is not None
+                else {}
+            ),
         },
     )
     return OutboxEvent(
