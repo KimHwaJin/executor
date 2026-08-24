@@ -23,6 +23,8 @@ from executor_service.domain.runtime import (
     RuntimeFileState,
     RuntimeNotebookCell,
     RuntimeNotebookMaterializationResult,
+    RuntimeNotebookPreparationResult,
+    RuntimeNotebookSourceCell,
     RuntimeOutputAppendResult,
     RuntimeOutputDescriptor,
     RuntimeOutputHandler,
@@ -426,6 +428,54 @@ class JupyterRuntimeDriver:
         ):
             raise RuntimeDriverError(
                 "Jupyter notebook materialization acknowledgement is invalid."
+            )
+        return result
+
+    async def prepare_notebook(
+        self,
+        workspace_path: str,
+        execution_id: UUID,
+        runtime_profile: str,
+        cells: tuple[RuntimeNotebookSourceCell, ...],
+    ) -> RuntimeNotebookPreparationResult:
+        response = await self._request(
+            "POST",
+            "/executor/storage/notebooks/prepare",
+            json={
+                "workspace_path": workspace_path,
+                "execution_id": str(execution_id),
+                "runtime_profile": runtime_profile,
+                "cells": [
+                    {
+                        "sequence": cell.sequence,
+                        "operation_id": str(cell.operation_id),
+                        "step_id": str(cell.step_id),
+                        "source": cell.source,
+                    }
+                    for cell in cells
+                ],
+            },
+            timeout=self._storage_timeout,
+        )
+        try:
+            payload = response.json()
+            result = RuntimeNotebookPreparationResult(
+                notebook_path=str(payload["notebook_path"]),
+                prepared_cell_count=int(payload["prepared_cell_count"]),
+                total_cell_count=int(payload["total_cell_count"]),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise RuntimeDriverError(
+                "Jupyter notebook preparation response is invalid."
+            ) from exc
+        if (
+            result.notebook_path
+            != f"{workspace_path}/notebooks/execution.ipynb"
+            or result.prepared_cell_count != len(cells)
+            or result.total_cell_count < result.prepared_cell_count
+        ):
+            raise RuntimeDriverError(
+                "Jupyter notebook preparation acknowledgement is invalid."
             )
         return result
 

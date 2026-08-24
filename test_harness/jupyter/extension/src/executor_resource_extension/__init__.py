@@ -17,6 +17,7 @@ def _load_jupyter_server_extension(server_app: Any) -> None:
         ArtifactSnapshotHandler,
         FileMetadataHandler,
         ManifestReadHandler,
+        NotebookPrepareHandler,
         OutputJournalAbortHandler,
         OutputJournalAppendHandler,
         OutputJournalBeginHandler,
@@ -71,6 +72,12 @@ def _load_jupyter_server_extension(server_app: Any) -> None:
                     base_url, "executor", "storage", "manifests", "read"
                 ),
                 ManifestReadHandler,
+            ),
+            (
+                url_path_join(
+                    base_url, "executor", "storage", "notebooks", "prepare"
+                ),
+                NotebookPrepareHandler,
             ),
             (
                 url_path_join(

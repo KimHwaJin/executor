@@ -113,6 +113,21 @@ class RuntimeOutputAppendResult:
 
 
 @dataclass(frozen=True, slots=True)
+class RuntimeNotebookSourceCell:
+    sequence: int
+    operation_id: UUID
+    step_id: UUID
+    source: str
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeNotebookPreparationResult:
+    notebook_path: str
+    prepared_cell_count: int
+    total_cell_count: int
+
+
+@dataclass(frozen=True, slots=True)
 class RuntimeNotebookCell:
     sequence: int
     execution_count: int | None
@@ -170,6 +185,17 @@ class RuntimeOutputJournal(Protocol):
         journal_id: UUID,
         reason: str,
     ) -> RuntimeOutputJournalDescriptor: ...
+
+
+@runtime_checkable
+class RuntimeNotebookPreparer(Protocol):
+    async def prepare_notebook(
+        self,
+        workspace_path: str,
+        execution_id: UUID,
+        runtime_profile: str,
+        cells: tuple[RuntimeNotebookSourceCell, ...],
+    ) -> RuntimeNotebookPreparationResult: ...
 
 
 @runtime_checkable

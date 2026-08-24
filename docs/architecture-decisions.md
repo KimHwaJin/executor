@@ -15,6 +15,14 @@ All Jupyter targets must mount the same shared Jupyter volume. This is an operat
 contract; Executor does not discover or compare PV/PVC identities. A retained in-memory retry stays
 on its original target/session, while storage-only reads may use another healthy compatible target.
 
+Execution notebooks use a notebook-first Runtime projection. The Jupyter
+extension writes accepted Step sources as stable code cells before Kernel
+execution and later applies terminal Output Journals to those same cells.
+NbModelClient, YDoc, and RTC are not runtime dependencies; live synchronization
+with an already open JupyterLab document is deferred unless collaborative
+editing becomes an explicit requirement. Output Journals remain the durable
+recovery source and PostgreSQL remains the authoritative fenced execution state.
+
 ```text
 Agent + Executor input volume
 └── requests/.../step-N.py

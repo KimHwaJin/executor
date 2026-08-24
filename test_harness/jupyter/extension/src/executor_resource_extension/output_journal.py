@@ -280,6 +280,106 @@ class OutputJournalStorage:
             _atomic_json_write(directory / "journal.json", state)
             return self._journal_view(state)
 
+    def prepare_notebook(
+        self,
+        *,
+        workspace_path: str,
+        execution_id: str,
+        runtime_profile: str,
+        cells: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        normalized_execution_id = _uuid_string(execution_id, "execution_id")
+        profile = _runtime_profile(runtime_profile)
+        if not isinstance(cells, list) or not cells:
+            raise OutputJournalError("cells must not be empty.")
+        workspace = self._resolve_workspace(workspace_path, must_exist=True)
+        notebook_path = workspace / "notebooks" / "execution.ipynb"
+        prepared: list[dict[str, Any]] = []
+        requested_sequences: set[int] = set()
+        requested_steps: set[str] = set()
+        for value in cells:
+            if not isinstance(value, dict):
+                raise OutputJournalError(
+                    "Each prepared notebook cell must be an object."
+                )
+            try:
+                sequence = int(value["sequence"])
+                operation_id = _uuid_string(
+                    value["operation_id"], "operation_id"
+                )
+                step_id = _uuid_string(value["step_id"], "step_id")
+                source = value["source"]
+            except (KeyError, TypeError, ValueError) as exc:
+                raise OutputJournalError(
+                    "Notebook preparation input is invalid."
+                ) from exc
+            if sequence < 0 or sequence in requested_sequences:
+                raise OutputJournalError(
+                    "Prepared cell sequences must be unique and non-negative."
+                )
+            if step_id in requested_steps:
+                raise OutputJournalError(
+                    "Prepared cell step IDs must be unique."
+                )
+            if not isinstance(source, str) or not source.strip():
+                raise OutputJournalError(
+                    "Prepared notebook cell source must not be blank."
+                )
+            prepared.append(
+                {
+                    "cell_id": _notebook_cell_id(
+                        normalized_execution_id, step_id
+                    ),
+                    "execution_id": normalized_execution_id,
+                    "operation_id": operation_id,
+                    "step_id": step_id,
+                    "sequence": sequence,
+                    "source": source,
+                }
+            )
+            requested_sequences.add(sequence)
+            requested_steps.add(step_id)
+
+        notebook_path.parent.mkdir(parents=True, exist_ok=True)
+        lock = self._lock_for(notebook_path)
+        with lock:
+            notebook = _load_or_create_notebook(
+                notebook_path,
+                workspace_path=workspace_path,
+                execution_id=normalized_execution_id,
+                runtime_profile=profile,
+            )
+            notebook_cells = notebook["cells"]
+            existing_by_id = {
+                str(cell.get("id")): cell for cell in notebook_cells
+            }
+            existing_sequences = {
+                int(metadata["sequence"]): str(cell.get("id"))
+                for cell in notebook_cells
+                if isinstance(cell, dict)
+                and (metadata := _executor_cell_metadata(cell)) is not None
+                and type(metadata.get("sequence")) is int
+            }
+            for value in prepared:
+                cell_id = value["cell_id"]
+                conflicting_id = existing_sequences.get(value["sequence"])
+                if conflicting_id is not None and conflicting_id != cell_id:
+                    raise OutputJournalConflictError(
+                        "Notebook sequence belongs to another Step."
+                    )
+                existing = existing_by_id.get(cell_id)
+                if existing is None:
+                    notebook_cells.append(_prepared_notebook_cell(value))
+                    continue
+                _require_prepared_notebook_cell(existing, value)
+            notebook_cells.sort(key=_notebook_cell_sort_key)
+            _atomic_json_write(notebook_path, notebook)
+        return {
+            "notebook_path": notebook_path.relative_to(self._root).as_posix(),
+            "prepared_cell_count": len(prepared),
+            "total_cell_count": len(notebook["cells"]),
+        }
+
     def materialize_notebook(
         self,
         *,
@@ -287,11 +387,7 @@ class OutputJournalStorage:
         runtime_profile: str,
         cells: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        profile = runtime_profile.strip()
-        if not 1 <= len(profile) <= 128:
-            raise OutputJournalError(
-                "runtime_profile must contain 1 to 128 characters."
-            )
+        profile = _runtime_profile(runtime_profile)
         if not isinstance(cells, list) or not cells:
             raise OutputJournalError("cells must not be empty.")
         workspace = self._resolve_workspace(workspace_path, must_exist=True)
@@ -360,46 +456,71 @@ class OutputJournalStorage:
                 )
             materialized_cells.append(
                 {
-                    "cell_type": "code",
                     "execution_count": execution_count,
-                    "id": uuid5(
-                        NAMESPACE_URL,
-                        f"{identity.execution_id}:cell:{identity.step_id}",
-                    ).hex[:16],
-                    "metadata": {
-                        "executor": {
-                            "sequence": sequence,
-                            "journal_id": journal_id,
-                            "journal_state": state["state"],
-                            "fencing_token": identity.fencing_token,
-                        }
-                    },
+                    "id": _notebook_cell_id(
+                        identity.execution_id, identity.step_id
+                    ),
+                    "execution_id": identity.execution_id,
+                    "operation_id": identity.operation_id,
+                    "step_id": identity.step_id,
+                    "sequence": sequence,
+                    "journal_id": journal_id,
+                    "journal_state": state["state"],
+                    "fencing_token": identity.fencing_token,
                     "outputs": notebook_outputs,
                     "source": source,
                 }
             )
             output_count += len(notebook_outputs)
             seen_sequences.add(sequence)
-        materialized_cells.sort(
-            key=lambda value: int(value["metadata"]["executor"]["sequence"])
-        )
-        notebook = {
-            "cells": materialized_cells,
-            "metadata": {
-                "executor": {"workspace": workspace_path},
-                "kernelspec": {
-                    "display_name": profile,
-                    "language": "python",
-                    "name": profile,
-                },
-                "language_info": {"name": "python"},
-            },
-            "nbformat": 4,
-            "nbformat_minor": 5,
-        }
-        notebook_path.parent.mkdir(parents=True, exist_ok=True)
         lock = self._lock_for(notebook_path)
         with lock:
+            notebook = _load_prepared_notebook(
+                notebook_path,
+                workspace_path=workspace_path,
+                runtime_profile=profile,
+            )
+            notebook_cells = {
+                str(cell.get("id")): cell for cell in notebook["cells"]
+            }
+            for value in materialized_cells:
+                cell = notebook_cells.get(value["id"])
+                if cell is None:
+                    raise OutputJournalConflictError(
+                        "Output Journal has no prepared notebook cell."
+                    )
+                _require_materialized_notebook_cell(cell, value)
+                metadata = _executor_cell_metadata(cell)
+                if metadata is None:
+                    raise OutputJournalConflictError(
+                        "Prepared notebook cell metadata is unavailable."
+                    )
+                current_fencing_token = metadata.get("fencing_token")
+                if (
+                    type(current_fencing_token) is int
+                    and current_fencing_token > value["fencing_token"]
+                ):
+                    raise OutputJournalConflictError(
+                        "A stale Output Journal cannot replace a newer notebook cell."
+                    )
+                if current_fencing_token == value[
+                    "fencing_token"
+                ] and metadata.get("journal_id") not in {
+                    None,
+                    value["journal_id"],
+                }:
+                    raise OutputJournalConflictError(
+                        "A fencing token cannot identify multiple notebook Journals."
+                    )
+                metadata.update(
+                    {
+                        "journal_id": value["journal_id"],
+                        "journal_state": value["journal_state"],
+                        "fencing_token": value["fencing_token"],
+                    }
+                )
+                cell["execution_count"] = value["execution_count"]
+                cell["outputs"] = value["outputs"]
             _atomic_json_write(notebook_path, notebook)
         return {
             "notebook_path": notebook_path.relative_to(self._root).as_posix(),
@@ -830,6 +951,172 @@ class OutputJournalStorage:
             ],
             "replayed": replayed,
         }
+
+
+def _runtime_profile(value: str) -> str:
+    profile = value.strip()
+    if not 1 <= len(profile) <= 128:
+        raise OutputJournalError(
+            "runtime_profile must contain 1 to 128 characters."
+        )
+    return profile
+
+
+def _notebook_cell_id(execution_id: str, step_id: str) -> str:
+    return uuid5(NAMESPACE_URL, f"{execution_id}:cell:{step_id}").hex[:16]
+
+
+def _prepared_notebook_cell(value: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "cell_type": "code",
+        "execution_count": None,
+        "id": value["cell_id"],
+        "metadata": {
+            "executor": {
+                "execution_id": value["execution_id"],
+                "operation_id": value["operation_id"],
+                "step_id": value["step_id"],
+                "sequence": value["sequence"],
+            }
+        },
+        "outputs": [],
+        "source": value["source"],
+    }
+
+
+def _executor_cell_metadata(
+    cell: dict[str, Any],
+) -> dict[str, Any] | None:
+    metadata = cell.get("metadata")
+    if not isinstance(metadata, dict):
+        return None
+    value = metadata.get("executor")
+    return value if isinstance(value, dict) else None
+
+
+def _require_prepared_notebook_cell(
+    cell: dict[str, Any], value: dict[str, Any]
+) -> None:
+    metadata = _executor_cell_metadata(cell)
+    if (
+        cell.get("cell_type") != "code"
+        or cell.get("source") != value["source"]
+        or metadata is None
+        or any(
+            metadata.get(key) != value[key]
+            for key in (
+                "execution_id",
+                "operation_id",
+                "step_id",
+                "sequence",
+            )
+        )
+    ):
+        raise OutputJournalConflictError(
+            "Prepared notebook cell conflicts with its Execution Step."
+        )
+
+
+def _require_materialized_notebook_cell(
+    cell: dict[str, Any], value: dict[str, Any]
+) -> None:
+    metadata = _executor_cell_metadata(cell)
+    if (
+        cell.get("cell_type") != "code"
+        or cell.get("source") != value["source"]
+        or metadata is None
+        or any(
+            str(metadata.get(key)) != str(value[key])
+            for key in (
+                "execution_id",
+                "operation_id",
+                "step_id",
+                "sequence",
+            )
+        )
+    ):
+        raise OutputJournalConflictError(
+            "Output Journal conflicts with its prepared notebook cell."
+        )
+
+
+def _notebook_cell_sort_key(cell: dict[str, Any]) -> tuple[int, int]:
+    metadata = _executor_cell_metadata(cell)
+    sequence = metadata.get("sequence") if metadata is not None else None
+    if type(sequence) is int and sequence >= 0:
+        return 0, sequence
+    return 1, 0
+
+
+def _load_or_create_notebook(
+    path: Path,
+    *,
+    workspace_path: str,
+    execution_id: str,
+    runtime_profile: str,
+) -> dict[str, Any]:
+    if not path.exists():
+        return {
+            "cells": [],
+            "metadata": {
+                "executor": {
+                    "workspace": workspace_path,
+                    "execution_id": execution_id,
+                },
+                "kernelspec": {
+                    "display_name": runtime_profile,
+                    "language": "python",
+                    "name": runtime_profile,
+                },
+                "language_info": {"name": "python"},
+            },
+            "nbformat": 4,
+            "nbformat_minor": 5,
+        }
+    notebook = _load_prepared_notebook(
+        path,
+        workspace_path=workspace_path,
+        runtime_profile=runtime_profile,
+    )
+    metadata = notebook["metadata"]["executor"]
+    if metadata.get("execution_id") != execution_id:
+        raise OutputJournalConflictError(
+            "Notebook belongs to another Execution."
+        )
+    return notebook
+
+
+def _load_prepared_notebook(
+    path: Path, *, workspace_path: str, runtime_profile: str
+) -> dict[str, Any]:
+    if not path.is_file():
+        raise OutputJournalConflictError(
+            "Prepared execution notebook was not found."
+        )
+    notebook = _read_json(path)
+    metadata = notebook.get("metadata")
+    cells = notebook.get("cells")
+    if (
+        notebook.get("nbformat") != 4
+        or not isinstance(metadata, dict)
+        or not isinstance(cells, list)
+        or not all(isinstance(cell, dict) for cell in cells)
+    ):
+        raise OutputJournalConflictError(
+            "Prepared execution notebook is invalid."
+        )
+    executor_metadata = metadata.get("executor")
+    kernelspec = metadata.get("kernelspec")
+    if (
+        not isinstance(executor_metadata, dict)
+        or executor_metadata.get("workspace") != workspace_path
+        or not isinstance(kernelspec, dict)
+        or kernelspec.get("name") != runtime_profile
+    ):
+        raise OutputJournalConflictError(
+            "Prepared execution notebook metadata does not match."
+        )
+    return notebook
 
 
 def _uuid_string(value: str, name: str) -> str:

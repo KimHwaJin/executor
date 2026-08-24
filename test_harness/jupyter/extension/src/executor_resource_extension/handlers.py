@@ -139,6 +139,24 @@ class ManifestReadHandler(StorageHandler):
         self.finish(result)
 
 
+class NotebookPrepareHandler(StorageHandler):
+    @web.authenticated
+    async def post(self) -> None:
+        try:
+            payload = self.payload()
+            result = await asyncio.to_thread(
+                self.output_journals.prepare_notebook,
+                workspace_path=str(payload["workspace_path"]),
+                execution_id=str(payload["execution_id"]),
+                runtime_profile=str(payload["runtime_profile"]),
+                cells=payload["cells"],
+            )
+        except Exception as exc:
+            self.write_storage_error(exc)
+            return
+        self.finish(result)
+
+
 class OutputJournalBeginHandler(StorageHandler):
     @web.authenticated
     async def post(self) -> None:

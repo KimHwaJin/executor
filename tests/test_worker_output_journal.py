@@ -12,6 +12,8 @@ from executor_service.domain.runtime import (
     RuntimeExecutionResult,
     RuntimeNotebookCell,
     RuntimeNotebookMaterializationResult,
+    RuntimeNotebookPreparationResult,
+    RuntimeNotebookSourceCell,
     RuntimeOutputAppendResult,
     RuntimeOutputDescriptor,
     RuntimeOutputHandler,
@@ -240,6 +242,29 @@ class RecordingNotebookMaterializer:
         raise AssertionError("journal materialization must avoid Contents API")
 
 
+class RecordingNotebookPreparer:
+    def __init__(self) -> None:
+        self.calls: list[
+            tuple[str, UUID, str, tuple[RuntimeNotebookSourceCell, ...]]
+        ] = []
+
+    async def prepare_notebook(
+        self,
+        workspace_path: str,
+        execution_id: UUID,
+        runtime_profile: str,
+        cells: tuple[RuntimeNotebookSourceCell, ...],
+    ) -> RuntimeNotebookPreparationResult:
+        self.calls.append(
+            (workspace_path, execution_id, runtime_profile, cells)
+        )
+        return RuntimeNotebookPreparationResult(
+            notebook_path=f"{workspace_path}/notebooks/execution.ipynb",
+            prepared_cell_count=len(cells),
+            total_cell_count=len(cells),
+        )
+
+
 def _worker() -> ExecutionWorker:
     return ExecutionWorker.__new__(ExecutionWorker)
 
@@ -290,6 +315,60 @@ async def test_worker_prefers_runtime_journal_notebook_materialization(
     )
 
     assert driver.calls == [(workspace_path, "basic", (cell,))]
+
+
+async def test_worker_prepares_notebook_cells_before_runtime_execution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    worker = _worker()
+    driver = RecordingNotebookPreparer()
+    identity = _identity()
+
+    async def assert_active_lease(
+        _worker: ExecutionWorker, _lease: object
+    ) -> None:
+        return None
+
+    async def trace_runtime(
+        _worker: ExecutionWorker,
+        _name: str,
+        operation: Any,
+        **_attributes: object,
+    ) -> Any:
+        return await operation
+
+    monkeypatch.setattr(
+        ExecutionWorker, "_assert_active_lease", assert_active_lease
+    )
+    monkeypatch.setattr(ExecutionWorker, "_trace_runtime", trace_runtime)
+    workspace = SimpleNamespace(
+        runtime_relative_path=identity.workspace_path,
+        notebook_path=(f"{identity.workspace_path}/notebooks/execution.ipynb"),
+    )
+    step = SimpleNamespace(
+        sequence=0,
+        operation_id=identity.operation_id,
+        id=identity.step_id,
+        code="print('prepared')",
+    )
+
+    await worker._prepare_execution_notebook(
+        cast(Any, driver),
+        cast(Any, object()),
+        identity.execution_id,
+        "basic",
+        cast(Any, workspace),
+        cast(Any, [step]),
+        identity.runtime_target_id,
+    )
+
+    assert len(driver.calls) == 1
+    assert driver.calls[0][:3] == (
+        identity.workspace_path,
+        identity.execution_id,
+        "basic",
+    )
+    assert driver.calls[0][3][0].source == "print('prepared')"
 
 
 async def test_worker_journals_each_output_and_finalizes_success() -> None:

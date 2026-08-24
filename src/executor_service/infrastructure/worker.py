@@ -43,6 +43,8 @@ from executor_service.domain.runtime import (
     RuntimeExecutionTimeoutError,
     RuntimeNotebookCell,
     RuntimeNotebookMaterializer,
+    RuntimeNotebookPreparer,
+    RuntimeNotebookSourceCell,
     RuntimeOutputAppendResult,
     RuntimeOutputJournal,
     RuntimeOutputJournalDescriptor,
@@ -647,6 +649,15 @@ class ExecutionWorker:
                 )
                 cells = self._workspace.load_cells(execution)
                 await self._ensure_steps(lease, len(cells))
+                await self._prepare_execution_notebook(
+                    driver,
+                    lease,
+                    execution.id,
+                    execution.runtime_profile,
+                    workspace,
+                    execution.steps,
+                    target.id,
+                )
                 start_sequence = execution.retry_from_sequence if resume else 0
                 if not resume:
                     runtime_session_id = await self._trace_runtime(
@@ -1518,6 +1529,15 @@ class ExecutionWorker:
             ]
             if not pending_steps:
                 raise ValueError("Queued MULTI Operation has no pending Step.")
+            await self._prepare_execution_notebook(
+                driver,
+                lease,
+                execution.id,
+                execution.runtime_profile,
+                workspace,
+                pending_steps,
+                target.id,
+            )
             for pending in pending_steps:
                 if not pending.code:
                     raise ValueError(
@@ -1787,8 +1807,8 @@ class ExecutionWorker:
         ]
         cells = [step.code or "" for step in executed_steps]
         outputs = [step.outputs for step in executed_steps]
-        # MULTI Steps execute exactly once, sequentially, on one retained session. SKIPPED
-        # planned Steps never become notebook cells, so kernel history is the executed-cell order.
+        # Compatibility output counts follow the executed-cell order. The
+        # notebook-first Runtime path retains prepared but unexecuted cells.
         execution_counts: list[int | None] = list(
             range(1, len(executed_steps) + 1)
         )
@@ -1801,6 +1821,50 @@ class ExecutionWorker:
             outputs,
             execution_counts,
         )
+
+    async def _prepare_execution_notebook(
+        self,
+        driver: RuntimeDriver,
+        lease: ExecutionLease,
+        execution_id: UUID,
+        runtime_profile: str,
+        workspace: ExecutionWorkspace,
+        steps: list[ExecutionStep],
+        runtime_target_id: UUID,
+    ) -> None:
+        if not isinstance(driver, RuntimeNotebookPreparer):
+            return
+        source_cells: list[RuntimeNotebookSourceCell] = []
+        for step in sorted(steps, key=lambda value: value.sequence):
+            if step.operation_id is None:
+                raise ValueError("Execution Step has no owning Operation.")
+            source_cells.append(
+                RuntimeNotebookSourceCell(
+                    sequence=step.sequence,
+                    operation_id=step.operation_id,
+                    step_id=step.id,
+                    source=step.code,
+                )
+            )
+        cells = tuple(source_cells)
+        if not cells:
+            return
+        await self._assert_active_lease(lease)
+        result = await self._trace_runtime(
+            "executor.runtime.notebook.prepare",
+            driver.prepare_notebook(
+                workspace.runtime_relative_path,
+                execution_id,
+                runtime_profile,
+                cells,
+            ),
+            execution_id=execution_id,
+            target_id=runtime_target_id,
+        )
+        if result.notebook_path != workspace.notebook_path:
+            raise RuntimeDriverError(
+                "Runtime prepared an unexpected notebook path."
+            )
 
     async def _write_execution_notebook(
         self,

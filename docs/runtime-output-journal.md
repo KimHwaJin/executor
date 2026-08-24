@@ -135,7 +135,19 @@ Jupyter mapping is deterministic:
 committed. `truncated_in_preview=true` only describes the bounded preview; it never claims the
 referenced original is truncated.
 
-## Finalization and notebook materialization
+## Notebook-first execution and Journal materialization
+
+Before code execution, the Runtime adapter prepares normal code cells in
+`execution.ipynb`. Each managed cell has a stable ID derived from the Execution
+and Step IDs plus Executor metadata for Operation, Step, and sequence. SINGLE
+prepares the accepted initial Operation; MULTI appends each accepted Operation
+before its first Step runs. Preparation is idempotent and conflicting source or
+lineage is rejected.
+
+This implementation intentionally does not use NbModelClient, YDoc, or Jupyter
+RTC. The authenticated Jupyter extension owns atomic notebook persistence. A
+notebook already open in JupyterLab may require reload; real-time collaborative
+projection is a separate optional capability, not an execution dependency.
 
 When a Step reaches idle or fails:
 
@@ -144,9 +156,10 @@ When a Step reaches idle or fails:
    immutable journal reference.
 3. Executor verifies the current lease fence and stores only that descriptor and bounded preview.
 4. Executor publishes the existing Step result event with `output_summary` and `result_ref`.
-5. For a successful execution, Runtime materializes `execution.ipynb` from code sources and
-   finalized journals using a streaming temporary-file writer and atomic rename. It does not ask
-   Executor to load every prior output again.
+5. Runtime reads the terminal Journal and applies its outputs to the already
+   prepared cell using a temporary-file writer and atomic rename. Prepared but
+   unexecuted cells remain in the notebook. A lower fencing token cannot replace
+   a newer cell result, and Executor never loads every prior output again.
 
 The notebook remains a normal, complete `.ipynb` file. The journal is an internal durability and
 incremental-access structure, not a replacement format visible to users.
@@ -209,5 +222,6 @@ failure while keeping already committed journal metadata observable.
 4. Add PostgreSQL output metadata and shared REST/MCP reference contracts.
    (implemented additively; legacy Step output JSON remains until slice 5)
 5. Add streaming content reads and notebook materialization from journals.
-   (notebook materialization implemented; content reads remain pending)
+   (notebook-first preparation and fenced Journal materialization implemented;
+   content reads remain pending)
 6. Re-run T35, choose production thresholds, and record before/after evidence.

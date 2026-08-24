@@ -88,6 +88,7 @@ calls.
 
 The extension also exposes authenticated internal Output Journal operations:
 
+- `POST /executor/storage/notebooks/prepare`
 - `POST /executor/storage/output-journals/begin`
 - `POST /executor/storage/output-journals/append`
 - `POST /executor/storage/output-journals/finalize`
@@ -102,12 +103,15 @@ with changed records or a non-current offset returns HTTP 409. Output bodies are
 bodies or physical paths. All operations require the same Jupyter token as the standard Contents
 API, and the workspace must first be created through `workspaces/prepare`.
 
-`begin` stores the exact Step source once as `source.py`. After terminal
-Journals are selected by Executor fencing metadata, `materialize-notebook`
-reconstructs complete Jupyter outputs from their native content files and
-atomically replaces `<workspace>/notebooks/execution.ipynb`. The request carries
-only ordered Journal identities and execution counts, not accumulated source or
-output bodies.
+`notebooks/prepare` atomically creates or appends stable, Executor-managed code
+cells before their Operation executes. It is intentionally implemented without
+NbModelClient, YDoc, or RTC, so an already open JupyterLab document may require
+reload. `begin` also stores the exact Step source once as `source.py`. After
+terminal Journals are selected by Executor fencing metadata,
+`materialize-notebook` reconstructs complete Jupyter outputs from their native
+content files and updates the matching prepared cells without removing pending
+cells. The request carries only ordered Journal identities and execution counts,
+not accumulated source or output bodies.
 
 ## Verification
 
