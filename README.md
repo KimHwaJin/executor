@@ -232,6 +232,11 @@ disruptive process and dependency failure scenarios. Detailed commands, safety b
 report locations are documented in
 [Executor Resilience Testing](docs/executor-resilience-testing.md).
 
+Large-output threshold evidence is collected separately with
+`uv run python scripts/t35_output_measurement.py`. Its default smoke preset is bounded; the full
+text/image/concurrency matrix requires `--preset full --confirm-full`. The journal-backed target
+architecture is documented in [Runtime Output Journal](docs/runtime-output-journal.md).
+
 The scripts that start their own Executor processes require the Compose `executor` service to be
 stopped first; unique Redis Stream names do not isolate PostgreSQL queue reconciliation. Those
 scripts fail fast with the required command instead of allowing another Worker to claim their rows.

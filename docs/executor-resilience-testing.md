@@ -173,6 +173,40 @@ each consolidated `execution_result_get` exactly once, validates MIME payloads a
 records submit/queue/total latency percentiles, enforces Runtime capacity, and requires zero leaked
 reservations or kernels. Use `MIXED_LOAD_EXECUTION_COUNT` for 7-30 executions.
 
+### T35 large-output measurement
+
+Run the bounded smoke preset first:
+
+```bash
+uv run python scripts/t35_output_measurement.py
+```
+
+It measures one 1 MiB non-compressible text execution and one 1 MiB PNG execution. The report is
+checkpointed under
+`test-results/t35-output-measurement-<run-id>.json` and includes Executor RSS, Runtime memory,
+PostgreSQL growth, notebook size, and consolidated result retrieval size and latency.
+
+The complete evidence matrix is intentionally expensive:
+
+```bash
+uv run python scripts/t35_output_measurement.py --preset full --confirm-full
+```
+
+It covers non-compressible text sizes 1, 5, 10, 25, 50, and 100 MiB; PNG sizes 1, 10, 25, and
+50 MiB; and active concurrency 1, 5, 10, and 20. The payloads avoid making PostgreSQL growth look
+artificially small through repeated-character compression. The script does not change Runtime
+Target capacity. Configure an isolated local fleet with enough aggregate capacity before the run.
+By default it fails if the requested concurrency exceeds that capacity;
+`--allow-queued-concurrency` explicitly changes the meaning to queued-submission load. Restrict
+targets with comma-separated `T35_RUNTIME_TARGET_IDS`.
+
+Executor process RSS is read from `/proc/1/status` through Docker exec and the script
+auto-discovers the Compose `executor` service. Set
+`T35_EXECUTOR_CONTAINER` for another local container, or use `--allow-missing-executor-rss` only
+when an external sampler provides equivalent evidence. A non-loopback Executor is rejected unless
+`T35_ALLOW_REMOTE=true` is set for an isolated non-production test stack. Override the host-side
+database connection with `T35_DATABASE_URL` when needed.
+
 ### Long-running Jupyter soak
 
 ```bash
