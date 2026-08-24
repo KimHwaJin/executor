@@ -230,6 +230,45 @@ class OutputJournalAbortHandler(StorageHandler):
         self.finish(result)
 
 
+class OutputJournalReadHandler(StorageHandler):
+    @web.authenticated
+    async def post(self) -> None:
+        try:
+            payload = self.payload()
+            identity = self.journal_identity(payload)
+            result = await asyncio.to_thread(
+                self.output_journals.read,
+                identity,
+                journal_id=str(payload["journal_id"]),
+                output_id=str(payload["output_id"]),
+                representation_id=str(payload["representation_id"]),
+                start=int(payload["start"]),
+                end_exclusive=int(payload["end_exclusive"]),
+            )
+        except Exception as exc:
+            self.write_storage_error(exc)
+            return
+        self.set_header("Content-Type", result.media_type)
+        self.set_header("Content-Length", len(result.body))
+        self.set_header("Accept-Ranges", "bytes")
+        self.set_header("X-Content-Size", result.size_bytes)
+        self.set_header("X-Checksum-SHA256", result.checksum_sha256)
+        self.set_header(
+            "X-Content-Complete", "true" if result.complete else "false"
+        )
+        self.set_header("X-Content-Start", result.start)
+        self.set_header("X-Content-End-Exclusive", result.end_exclusive)
+        if result.start != 0 or result.end_exclusive != result.size_bytes:
+            self.set_status(206)
+            self.set_header(
+                "Content-Range",
+                "bytes "
+                f"{result.start}-{result.end_exclusive - 1}/"
+                f"{result.size_bytes}",
+            )
+        self.finish(result.body, set_content_type=result.media_type)
+
+
 class OutputJournalMaterializeNotebookHandler(StorageHandler):
     @web.authenticated
     async def post(self) -> None:

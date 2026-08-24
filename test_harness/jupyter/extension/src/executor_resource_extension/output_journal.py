@@ -122,6 +122,17 @@ class JournalIdentity:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class OutputRepresentationContent:
+    body: bytes
+    media_type: str
+    size_bytes: int
+    checksum_sha256: str
+    complete: bool
+    start: int
+    end_exclusive: int
+
+
 class OutputJournalStorage:
     def __init__(self, root_dir: str | Path) -> None:
         self._root = Path(root_dir).resolve()
@@ -300,6 +311,75 @@ class OutputJournalStorage:
             _append_json_line(directory / JOURNAL_FILE_NAME, terminal)
             state, _, _ = self._load_journal(directory)
             return self._journal_view(state)
+
+    def read(
+        self,
+        identity: JournalIdentity,
+        *,
+        journal_id: str,
+        output_id: str,
+        representation_id: str,
+        start: int,
+        end_exclusive: int,
+    ) -> OutputRepresentationContent:
+        normalized_output_id = _uuid_string(output_id, "output_id")
+        normalized_representation_id = _uuid_string(
+            representation_id, "representation_id"
+        )
+        try:
+            directory = self._journal_directory(identity, must_exist=True)
+        except FileNotFoundError as exc:
+            raise OutputJournalNotFoundError(
+                "Output Journal was not found."
+            ) from exc
+        state, batches, _ = self._load_journal(directory)
+        self._require_journal(state, identity, journal_id)
+        output = next(
+            (
+                value
+                for batch in batches
+                for value in batch["outputs"]
+                if value.get("output_id") == normalized_output_id
+            ),
+            None,
+        )
+        if output is None:
+            raise OutputJournalNotFoundError(
+                "Output was not found in its Output Journal."
+            )
+        representations = output.get("representations")
+        if not isinstance(representations, list):
+            raise OutputJournalConflictError(
+                "Output Journal representations are invalid."
+            )
+        representation = next(
+            (
+                value
+                for value in representations
+                if value.get("representation_id")
+                == normalized_representation_id
+            ),
+            None,
+        )
+        if representation is None:
+            raise OutputJournalNotFoundError(
+                "Output representation was not found in its Output."
+            )
+        body = self._representation_body(directory, representation)
+        size_bytes = len(body)
+        if start < 0 or end_exclusive < start or end_exclusive > size_bytes:
+            raise OutputJournalError(
+                "Requested content byte range is invalid."
+            )
+        return OutputRepresentationContent(
+            body=body[start:end_exclusive],
+            media_type=str(representation["media_type"]),
+            size_bytes=size_bytes,
+            checksum_sha256=str(representation["checksum_sha256"]),
+            complete=bool(representation.get("complete", False)),
+            start=start,
+            end_exclusive=end_exclusive,
+        )
 
     def prepare_notebook(
         self,
@@ -629,8 +709,33 @@ class OutputJournalStorage:
     def _representation_value(
         self, directory: Path, representation: dict[str, Any]
     ) -> Any:
+        body = self._representation_body(directory, representation)
         try:
             media_type = str(representation["media_type"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise OutputJournalConflictError(
+                "Output representation metadata is invalid."
+            ) from exc
+        encoding = str(representation.get("encoding", ""))
+        if encoding == "BASE64":
+            return base64.b64encode(body).decode("ascii")
+        try:
+            text = body.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise OutputJournalConflictError(
+                "Non-binary output representation is not UTF-8."
+            ) from exc
+        if media_type == "application/json" or media_type.endswith("+json"):
+            try:
+                return json.loads(text)
+            except json.JSONDecodeError:
+                return text
+        return text
+
+    def _representation_body(
+        self, directory: Path, representation: dict[str, Any]
+    ) -> bytes:
+        try:
             size_bytes = int(representation["size_bytes"])
             checksum = str(representation["checksum_sha256"])
         except (KeyError, TypeError, ValueError) as exc:
@@ -640,6 +745,10 @@ class OutputJournalStorage:
         storage_path = representation.get("storage_path")
         inline_content = representation.get("inline_content")
         encoding = str(representation.get("encoding", ""))
+        if encoding not in CONTENT_ENCODINGS:
+            raise OutputJournalConflictError(
+                "Output representation encoding is invalid."
+            )
         if storage_path is not None:
             path = (self._root / str(storage_path)).resolve(strict=True)
             self._ensure_within_root(path)
@@ -669,20 +778,7 @@ class OutputJournalStorage:
             raise OutputJournalConflictError(
                 "Output representation content does not match metadata."
             )
-        if encoding == "BASE64":
-            return base64.b64encode(body).decode("ascii")
-        try:
-            text = body.decode("utf-8")
-        except UnicodeDecodeError as exc:
-            raise OutputJournalConflictError(
-                "Non-binary output representation is not UTF-8."
-            ) from exc
-        if media_type == "application/json" or media_type.endswith("+json"):
-            try:
-                return json.loads(text)
-            except json.JSONDecodeError:
-                return text
-        return text
+        return body
 
     def _persist_records(
         self,

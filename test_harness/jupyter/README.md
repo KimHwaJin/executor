@@ -93,6 +93,7 @@ The extension also exposes authenticated internal Output Journal operations:
 - `POST /executor/storage/output-journals/append`
 - `POST /executor/storage/output-journals/finalize`
 - `POST /executor/storage/output-journals/abort`
+- `POST /executor/storage/output-journals/read`
 - `POST /executor/storage/output-journals/materialize-notebook`
 
 These are Runtime-driver endpoints, not public Agent APIs. They durably store complete Step output
@@ -104,6 +105,13 @@ one append-only `journal.jsonl` per Step Attempt. Text and structured output sta
 `journal://` references rather than echoing bodies or physical paths. All operations require the
 same Jupyter token as the standard Contents API, and the workspace must first be created through
 `workspaces/prepare`.
+
+`read` is an internal binary response operation. Its JSON request carries the
+full fenced Journal identity plus Journal, Output, Representation, and
+start/end-exclusive byte offsets. The extension returns only that byte range
+with native `Content-Type`, total size, checksum, completeness, and range
+headers after validating the persisted body. Agents call Executor's public
+REST/MCP contracts and never call this endpoint or receive the Jupyter token.
 
 `notebooks/prepare` atomically creates or appends stable, Executor-managed code
 cells before their Operation executes. It is intentionally implemented without

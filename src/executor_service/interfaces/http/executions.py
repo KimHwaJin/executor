@@ -1,10 +1,19 @@
 """Versioned REST facade for Executor execution lifecycle and history queries."""
 
-from collections.abc import Awaitable
+from collections.abc import AsyncIterator, Awaitable
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Path, Query, Response, status
+from fastapi import (
+    APIRouter,
+    Header,
+    HTTPException,
+    Path,
+    Query,
+    Response,
+    status,
+)
+from fastapi.responses import StreamingResponse
 
 from executor_service.application.commands import (
     CancelExecutionCommand,
@@ -84,6 +93,52 @@ async def _trace_call[T](
 ) -> T:
     with tracing.span(name, attributes=attributes):
         return await operation
+
+
+def _content_range(value: str | None, size_bytes: int) -> tuple[int, int, int]:
+    if value is None:
+        return 0, size_bytes, status.HTTP_200_OK
+    if not value.startswith("bytes=") or "," in value or size_bytes == 0:
+        raise HTTPException(
+            status.HTTP_416_RANGE_NOT_SATISFIABLE,
+            headers={"Content-Range": f"bytes */{size_bytes}"},
+        )
+    raw_start, separator, raw_end = value[6:].partition("-")
+    if not separator:
+        raise HTTPException(
+            status.HTTP_416_RANGE_NOT_SATISFIABLE,
+            headers={"Content-Range": f"bytes */{size_bytes}"},
+        )
+    try:
+        if not raw_start:
+            suffix = int(raw_end)
+            if suffix <= 0:
+                raise ValueError
+            start = max(size_bytes - suffix, 0)
+            end_exclusive = size_bytes
+        else:
+            start = int(raw_start)
+            if start < 0 or start >= size_bytes:
+                raise ValueError
+            end_inclusive = int(raw_end) if raw_end else size_bytes - 1
+            if end_inclusive < start:
+                raise ValueError
+            end_exclusive = min(end_inclusive + 1, size_bytes)
+    except ValueError as exc:
+        raise HTTPException(
+            status.HTTP_416_RANGE_NOT_SATISFIABLE,
+            headers={"Content-Range": f"bytes */{size_bytes}"},
+        ) from exc
+    return start, end_exclusive, status.HTTP_206_PARTIAL_CONTENT
+
+
+async def _prepend_chunk(
+    first: bytes | None, remaining: AsyncIterator[bytes]
+) -> AsyncIterator[bytes]:
+    if first is not None:
+        yield first
+    async for chunk in remaining:
+        yield chunk
 
 
 def build_execution_router(container: ApplicationContainer) -> APIRouter:
@@ -547,6 +602,55 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
     ) -> ExecutionOutputResponse:
         view = await execution_queries.output(execution_id, output_id)
         return ExecutionOutputResponse.from_view(view)
+
+    @router.get(
+        "/executions/{execution_id}/outputs/{output_id}/representations/"
+        "{representation_id}/content",
+        response_class=StreamingResponse,
+        responses={
+            **DOMAIN_ERROR_RESPONSES,
+            206: {"description": "Partial representation content"},
+            416: {"description": "Requested byte range is not satisfiable"},
+        },
+        summary="Stream one Runtime output representation",
+    )
+    async def get_execution_output_content(
+        execution_id: UUID,
+        output_id: UUID,
+        representation_id: UUID,
+        range_header: Annotated[
+            str | None, Header(alias="Range", max_length=256)
+        ] = None,
+    ) -> StreamingResponse:
+        descriptor = await container.output_contents.describe(
+            execution_id, output_id, representation_id
+        )
+        start, end_exclusive, response_status = _content_range(
+            range_header, descriptor.size_bytes
+        )
+        headers = {
+            "Accept-Ranges": "bytes",
+            "Content-Length": str(end_exclusive - start),
+            "ETag": f'"sha256:{descriptor.checksum_sha256}"',
+            "X-Checksum-SHA256": descriptor.checksum_sha256,
+        }
+        if response_status == status.HTTP_206_PARTIAL_CONTENT:
+            headers["Content-Range"] = (
+                f"bytes {start}-{end_exclusive - 1}/{descriptor.size_bytes}"
+            )
+        stream = container.output_contents.stream(
+            descriptor, start, end_exclusive
+        )
+        try:
+            first_chunk = await anext(stream)
+        except StopAsyncIteration:
+            first_chunk = None
+        return StreamingResponse(
+            _prepend_chunk(first_chunk, stream),
+            status_code=response_status,
+            media_type=descriptor.media_type,
+            headers=headers,
+        )
 
     @router.get(
         "/executions/{execution_id}/artifacts",

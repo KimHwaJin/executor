@@ -1,7 +1,8 @@
 import hashlib
 from copy import deepcopy
 from pathlib import Path
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, cast
 from uuid import UUID
 
 from mcp import Client
@@ -71,6 +72,31 @@ SUBMIT_ARGUMENTS: dict[str, Any] = {
 }
 
 
+class _OutputContentService:
+    async def describe(
+        self,
+        execution_id: UUID,
+        output_id: UUID,
+        representation_id: UUID,
+    ) -> SimpleNamespace:
+        return SimpleNamespace(
+            execution_id=execution_id,
+            output_id=output_id,
+            representation_id=representation_id,
+            media_type="text/plain",
+            size_bytes=12,
+            checksum_sha256="a" * 64,
+            complete=True,
+        )
+
+    async def read_inline_text(
+        self, descriptor: Any, *, max_bytes: int
+    ) -> str:
+        del descriptor
+        assert max_bytes == 1024
+        return "complete text"
+
+
 async def test_mcp_client_can_list_and_call_execution_tools(
     execution_service: ExecutionService,
     tmp_path: Path,
@@ -135,6 +161,47 @@ async def test_mcp_client_can_list_and_call_execution_tools(
             cancelled.structured_content["state"]["status"]
             == "CANCEL_REQUESTED"
         )
+
+
+async def test_mcp_output_content_inlines_small_text(
+    execution_service: ExecutionService,
+) -> None:
+    target = build_mcp_server(
+        execution_service,
+        execution_queries=cast(Any, SimpleNamespace()),
+        output_contents=cast(Any, _OutputContentService()),
+        output_inline_max_bytes=1024,
+    )
+    execution_id = "11111111-1111-4111-8111-111111111111"
+    output_id = "77777777-7777-4777-8777-777777777777"
+    representation_id = "88888888-8888-4888-8888-888888888888"
+
+    async with Client(target) as client:
+        result = await client.call_tool(
+            "execution_output_content_get",
+            {
+                "execution_id": execution_id,
+                "output_id": output_id,
+                "representation_id": representation_id,
+            },
+        )
+
+    assert not result.is_error
+    assert result.structured_content == {
+        "execution_id": execution_id,
+        "output_id": output_id,
+        "representation_id": representation_id,
+        "media_type": "text/plain",
+        "size_bytes": 12,
+        "checksum_sha256": "a" * 64,
+        "complete": True,
+        "delivery": "INLINE",
+        "content": "complete text",
+        "content_url": (
+            f"/api/v1/executions/{execution_id}/outputs/{output_id}/"
+            f"representations/{representation_id}/content"
+        ),
+    }
 
 
 async def test_mcp_client_can_query_execution_history_resources(

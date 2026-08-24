@@ -13,6 +13,7 @@ from executor_resource_extension.output_journal import (
     JournalIdentity,
     OutputJournalConflictError,
     OutputJournalError,
+    OutputJournalNotFoundError,
     OutputJournalStorage,
 )
 from executor_resource_extension.storage import RuntimeStorage
@@ -129,6 +130,80 @@ class OutputJournalStorageTests(unittest.TestCase):
         self.assertFalse(list(output_root.rglob("*.bin")))
         self.assertFalse(list(output_root.rglob("source.py")))
         self.assertFalse(list(output_root.rglob("batches")))
+
+    def test_reads_text_and_image_representations_by_identity_and_range(
+        self,
+    ) -> None:
+        begun = self.storage.begin(self.identity, "display(value)")
+        appended = self.storage.append(
+            self.identity,
+            journal_id=begun["journal_id"],
+            expected_offset=0,
+            batch_id=str(uuid4()),
+            records=_records(),
+        )
+        text_output, image_output = appended["outputs"]
+        text_representation = text_output["representations"][0]
+        image_representation = image_output["representations"][0]
+
+        text = self.storage.read(
+            self.identity,
+            journal_id=begun["journal_id"],
+            output_id=text_output["output_id"],
+            representation_id=text_representation["representation_id"],
+            start=9,
+            end_exclusive=13,
+        )
+        image = self.storage.read(
+            self.identity,
+            journal_id=begun["journal_id"],
+            output_id=image_output["output_id"],
+            representation_id=image_representation["representation_id"],
+            start=0,
+            end_exclusive=9,
+        )
+
+        self.assertEqual(text.body, b"text")
+        self.assertEqual(text.size_bytes, 20)
+        self.assertEqual(text.media_type, "text/plain")
+        self.assertEqual(image.body, b"png-bytes")
+        self.assertEqual(image.media_type, "image/png")
+
+    def test_read_rejects_cross_output_representation_and_stale_fence(
+        self,
+    ) -> None:
+        begun = self.storage.begin(self.identity, "display(value)")
+        appended = self.storage.append(
+            self.identity,
+            journal_id=begun["journal_id"],
+            expected_offset=0,
+            batch_id=str(uuid4()),
+            records=_records(),
+        )
+        first, second = appended["outputs"]
+
+        with self.assertRaises(OutputJournalNotFoundError):
+            self.storage.read(
+                self.identity,
+                journal_id=begun["journal_id"],
+                output_id=first["output_id"],
+                representation_id=second["representations"][0][
+                    "representation_id"
+                ],
+                start=0,
+                end_exclusive=1,
+            )
+        with self.assertRaises(OutputJournalNotFoundError):
+            self.storage.read(
+                _identity(self.workspace, fencing_token=8),
+                journal_id=begun["journal_id"],
+                output_id=first["output_id"],
+                representation_id=first["representations"][0][
+                    "representation_id"
+                ],
+                start=0,
+                end_exclusive=1,
+            )
 
     def test_replaying_batch_is_idempotent_and_conflicting_body_fails(
         self,

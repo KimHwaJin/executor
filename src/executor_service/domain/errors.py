@@ -13,6 +13,9 @@ class ErrorCode(StrEnum):
     NOTEBOOK_READ_ERROR = "NOTEBOOK_READ_ERROR"
     ARTIFACT_NOT_FOUND = "ARTIFACT_NOT_FOUND"
     EXECUTION_OUTPUT_NOT_FOUND = "EXECUTION_OUTPUT_NOT_FOUND"
+    EXECUTION_OUTPUT_CONTENT_UNAVAILABLE = (
+        "EXECUTION_OUTPUT_CONTENT_UNAVAILABLE"
+    )
     RUNTIME_TARGET_NOT_FOUND = "RUNTIME_TARGET_NOT_FOUND"
     INVALID_EXECUTION_SPEC = "INVALID_EXECUTION_SPEC"
     INVALID_CURSOR = "INVALID_CURSOR"
@@ -105,6 +108,10 @@ class ExecutionArtifactNotFoundError(DomainError):
 
 class ExecutionOutputNotFoundError(DomainError):
     code = ErrorCode.EXECUTION_OUTPUT_NOT_FOUND
+
+
+class ExecutionOutputContentUnavailableError(DomainError):
+    code = ErrorCode.EXECUTION_OUTPUT_CONTENT_UNAVAILABLE
 
 
 class ArtifactRegistrationError(DomainError):

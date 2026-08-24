@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 import json
 import os
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+import httpx
 from execution_spec_payload import execution_request, inline_spec
 from mcp import Client
 
@@ -188,6 +190,76 @@ async def main() -> None:
         )
         execution_id = str(submitted["execution_id"])
         terminal = await _wait_terminal(client, execution_id)
+        outputs = await _required(
+            client,
+            "execution_output_list",
+            {"execution_id": execution_id, "limit": 200},
+        )
+        representations = [
+            (output["output_id"], output["kind"], representation)
+            for output in outputs["items"]
+            for representation in output["representations"]
+        ]
+        text_output_id, _, text_representation = next(
+            value
+            for value in representations
+            if value[1] == "STREAM"
+            and value[2]["media_type"] == "text/plain"
+            and value[2]["size_bytes"] > 0
+        )
+        image_output_id, _, image_representation = next(
+            value
+            for value in representations
+            if value[2]["media_type"] == "image/png"
+        )
+        text_content = await _required(
+            client,
+            "execution_output_content_get",
+            {
+                "execution_id": execution_id,
+                "output_id": text_output_id,
+                "representation_id": text_representation["representation_id"],
+            },
+        )
+        image_content = await _required(
+            client,
+            "execution_output_content_get",
+            {
+                "execution_id": execution_id,
+                "output_id": image_output_id,
+                "representation_id": image_representation["representation_id"],
+            },
+        )
+
+    if text_content["delivery"] != "INLINE" or "Yield improved" not in str(
+        text_content["content"]
+    ):
+        raise RuntimeError(f"MCP text delivery is invalid: {text_content}")
+    if image_content["delivery"] != "HTTP" or image_content["content"]:
+        raise RuntimeError(f"MCP image delivery is invalid: {image_content}")
+    async with httpx.AsyncClient(
+        base_url=os.getenv("EXECUTOR_HTTP_URL", "http://127.0.0.1:8000")
+    ) as http:
+        image_response = await http.get(image_content["content_url"])
+        range_response = await http.get(
+            image_content["content_url"], headers={"Range": "bytes=0-63"}
+        )
+    image_response.raise_for_status()
+    range_response.raise_for_status()
+    if image_response.headers.get("content-type") != "image/png":
+        raise RuntimeError("REST content did not preserve image/png.")
+    if (
+        hashlib.sha256(image_response.content).hexdigest()
+        != image_representation["checksum_sha256"]
+    ):
+        raise RuntimeError("REST image checksum does not match metadata.")
+    if (
+        range_response.status_code != 206
+        or range_response.content != image_response.content[:64]
+        or range_response.headers.get("content-range")
+        != f"bytes 0-63/{len(image_response.content)}"
+    ):
+        raise RuntimeError("REST image Range response is invalid.")
 
     if terminal["state"]["status"] != "SUCCEEDED":
         raise RuntimeError(f"Journal E2E Execution failed: {terminal}")
@@ -197,11 +269,19 @@ async def main() -> None:
         str(workspace["path"]),
         str(workspace["notebook_path"]),
     )
+    if image.read_bytes() != image_response.content:
+        raise RuntimeError(
+            "Public REST image differs from the native Runtime file."
+        )
     print("execution_id:", execution_id)
     print("journal:", journal)
     print("image:", image)
     print("artifact:", artifact)
     print("notebook:", workspace["notebook_path"])
+    print("mcp_text_delivery:", text_content["delivery"])
+    print("mcp_image_delivery:", image_content["delivery"])
+    print("rest_image_bytes:", len(image_response.content))
+    print("rest_range:", range_response.headers["content-range"])
 
 
 if __name__ == "__main__":

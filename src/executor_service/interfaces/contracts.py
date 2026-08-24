@@ -1435,6 +1435,19 @@ class ExecutionOutputPageResponse(PageResponse):
         )
 
 
+class ExecutionOutputContentResponse(ContractModel):
+    execution_id: UUID
+    output_id: UUID
+    representation_id: UUID
+    media_type: str
+    size_bytes: int
+    checksum_sha256: str
+    complete: bool
+    delivery: Literal["INLINE", "HTTP"]
+    content: str | None = None
+    content_url: str
+
+
 class ExecutionOperationResultResponse(ContractModel):
     operation: ExecutionOperationResponse
     steps: list[ExecutionStepResponse]
