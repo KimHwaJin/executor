@@ -155,7 +155,7 @@ old Worker from persisting state after timeout ownership changes.
 ## PR-003: Reconcile durable reservations with observed Runtime sessions
 
 - Priority: P1
-- Status: PLANNED
+- Status: IMPLEMENTED
 - Area: Runtime admission, orphan session detection, cleanup recovery, Runtime Target API
 - Public API impact: additive response fields only
 - Request impact: none
@@ -180,6 +180,26 @@ live sessions.
 Using only a live Runtime count is also unsafe: two Workers can observe the same free slot, and a
 claimed Execution consumes capacity before its Runtime session becomes visible. External Runtime
 HTTP calls must not be placed inside the Target row-lock transaction.
+
+### Implementation
+
+- A shared admission module counts distinct durable reservations from active Attempts, retained
+  retries, and unresolved cleanup sessions. Runtime Target views and Worker claims use the same
+  query rather than maintaining a counter.
+- Alembic revision `0004` stores `session_count_observed_at` separately from health and resource
+  timestamps. Successful probes replace the observation; failed probes preserve it and mark it
+  stale through health state.
+- Fresh observations use `max(active_execution_count, active_session_count)` for admission.
+  Stale or unavailable observations fall back to DB reservations without representing the last
+  Runtime count as zero.
+- Target selection locks the DB row, calculates persisted admission usage, and creates the Attempt
+  in the same transaction. Runtime HTTP calls remain outside this transaction.
+- Runtime Target REST and MCP responses expose DB reservation, observed session, effective usage,
+  freshness, remaining capacity, and capacity-blocked state. A fresh excess Runtime count emits an
+  operational warning without deleting or quarantining an unowned session.
+- The Worker maintenance loop claims stale cleanup `PENDING`/`FAILED` rows with `SKIP LOCKED`,
+  retries session deletion outside the transaction, and releases the reservation only after the
+  confirmed result is committed.
 
 ### Required design
 
@@ -206,7 +226,7 @@ Keep the two sources visible instead of overwriting one with the other:
 - `active_execution_count`: PostgreSQL reservations owned by Executor.
 - `active_session_count`: latest session count observed from the Runtime.
 - `admission_used_count`: effective count used by scheduling.
-- `available_count`: non-negative remaining configured capacity.
+- `available_capacity`: non-negative remaining configured capacity.
 - `admission_blocked`: whether capacity currently rejects new work.
 - `session_count_observed_at` and `session_count_fresh`: observation time and freshness.
 

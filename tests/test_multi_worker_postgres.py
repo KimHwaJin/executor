@@ -140,7 +140,9 @@ def _command(name: str) -> SubmitExecutionCommand:
     )
 
 
-def _server(*, capacity: int) -> RuntimeTargetORM:
+def _server(
+    *, capacity: int, active_session_count: int | None = None
+) -> RuntimeTargetORM:
     return RuntimeTargetORM(
         name=f"postgres-race-target-{uuid4().hex}",
         connection_config={"endpoint": "http://127.0.0.1:9"},
@@ -150,6 +152,10 @@ def _server(*, capacity: int) -> RuntimeTargetORM:
         max_concurrent_executions=capacity,
         supported_profiles=["basic"],
         enabled=True,
+        active_session_count=active_session_count,
+        session_count_observed_at=(
+            utc_now() if active_session_count is not None else None
+        ),
     )
 
 
@@ -387,6 +393,40 @@ async def test_concurrent_workers_never_oversubscribe_jupyter_capacity(
         )
     assert running_count == 2
     assert queued_count == 10
+
+
+async def test_concurrent_workers_respect_fresh_observed_session_capacity(
+    postgres_engine: AsyncEngine,
+    tmp_path: Path,
+) -> None:
+    service = _service(postgres_engine)
+    session_factory = create_session_factory(postgres_engine)
+    target = _server(capacity=2, active_session_count=2)
+    async with session_factory() as session, session.begin():
+        session.add(target)
+    executions = [
+        await service.submit(_command(f"observed-full-{index}"))
+        for index in range(8)
+    ]
+    workers, redis_clients = _workers(postgres_engine, tmp_path, count=6)
+    try:
+        claims = await asyncio.gather(
+            *(
+                workers[index % len(workers)]._claim(execution.id)
+                for index, execution in enumerate(executions)
+            )
+        )
+    finally:
+        await _close_redis(redis_clients)
+
+    assert all(claim is None for claim in claims)
+    async with session_factory() as session:
+        attempt_count = await session.scalar(
+            select(func.count(ExecutionAttemptORM.id)).where(
+                ExecutionAttemptORM.runtime_target_id == target.id
+            )
+        )
+    assert attempt_count == 0
 
 
 async def test_cancel_and_claim_race_has_one_consistent_terminal_result(

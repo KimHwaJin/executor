@@ -372,8 +372,12 @@ class RuntimeTargetState(ContractModel):
 class RuntimeTargetCapacity(ContractModel):
     max_concurrent_executions: int
     active_execution_count: int
-    available_capacity: int
     active_session_count: int | None
+    admission_used_count: int
+    available_capacity: int
+    admission_blocked: bool
+    session_count_observed_at: datetime | None
+    session_count_fresh: bool
 
 
 class RuntimeTargetHealth(ContractModel):
@@ -436,8 +440,12 @@ class RuntimeTargetResponse(AuditFields):
             capacity=RuntimeTargetCapacity(
                 max_concurrent_executions=view.max_concurrent_executions,
                 active_execution_count=view.active_execution_count,
-                available_capacity=view.available_capacity,
                 active_session_count=view.active_session_count,
+                admission_used_count=view.admission_used_count,
+                available_capacity=view.available_capacity,
+                admission_blocked=view.admission_blocked,
+                session_count_observed_at=view.session_count_observed_at,
+                session_count_fresh=view.session_count_fresh,
             ),
             health=RuntimeTargetHealth(
                 last_check_at=view.last_health_check_at,

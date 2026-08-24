@@ -411,13 +411,21 @@ The background health monitor repeats the probe at
 `OFFLINE`; a resource-only failure leaves it `ACTIVE` with stale resource data. Fresh targets are
 ranked by slot, CPU, and memory pressure, with the memory admission threshold configured by
 `RUNTIME_MEMORY_ADMISSION_LIMIT`. If all resource observations exceed
-`RUNTIME_RESOURCE_MAX_AGE_SECONDS`, scheduling falls back to least reserved slot ratio. Meanwhile,
+`RUNTIME_RESOURCE_MAX_AGE_SECONDS`, scheduling falls back to the least effective admission-usage
+ratio. Meanwhile,
 `runtime_target_disable` performs a durable disable so historical execution foreign keys
 remain valid. `runtime_target_list` reports capacity, active executions, observed sessions,
 supported profiles, and the latest health result. The scheduler selects within the requested
 `INTERACTIVE` or `BATCH` pool and skips full, disabled, unhealthy, or incompatible targets.
 Only profiles listed in `RUNTIME_ALLOWED_PROFILES` are advertised and schedulable, even if a
 Runtime Driver reports additional environments.
+
+Capacity admission uses `max(active_execution_count, active_session_count)` while the persisted
+session observation is fresh. The DB count includes running/waiting Attempts, retained retries,
+and cleanup `PENDING`/`FAILED` sessions. Failed probes retain the last observed count but mark it
+stale; stale observations are not treated as zero and scheduling falls back to DB reservations.
+Runtime Target responses expose the two counts, their effective `admission_used_count`, freshness,
+availability, and capacity-blocked state.
 
 `INTERACTIVE` and `BATCH` are strict scheduling partitions. A BATCH Execution is never assigned to
 an INTERACTIVE target, even if it has free capacity, and DRAINING/OFFLINE targets are not fallback

@@ -1,4 +1,6 @@
+from datetime import timedelta
 from pathlib import Path
+from typing import Any, ClassVar
 from uuid import uuid4
 
 from redis.asyncio import Redis
@@ -15,7 +17,9 @@ from executor_service.domain.enums import (
     AttemptStatus,
     ExecutionStatus,
     OperationMode,
+    RetryStrategy,
     RuntimePool,
+    RuntimeSessionCleanupStatus,
     RuntimeTargetStatus,
     TriggerType,
 )
@@ -32,6 +36,19 @@ from executor_service.infrastructure.runtime_registry import (
 )
 from executor_service.infrastructure.worker import ExecutionWorker
 from tests.runtime_credentials import runtime_credential_fields
+
+
+class CleanupDriver:
+    deleted: ClassVar[list[str]] = []
+
+    def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+        pass
+
+    async def delete_session(self, session_id: str) -> None:
+        self.deleted.append(session_id)
+
+    async def close(self) -> None:
+        pass
 
 
 def _command(pool: RuntimePool, name: str) -> SubmitExecutionCommand:
@@ -70,6 +87,7 @@ def _target(
     profiles: list[str] | None = None,
     cpu_utilization: float | None = None,
     memory_utilization: float | None = None,
+    active_session_count: int | None = None,
 ) -> RuntimeTargetORM:
     has_resource = (
         cpu_utilization is not None or memory_utilization is not None
@@ -83,10 +101,103 @@ def _target(
         max_concurrent_executions=capacity,
         supported_profiles=["basic"] if profiles is None else profiles,
         enabled=True,
+        active_session_count=active_session_count,
+        session_count_observed_at=(
+            utc_now() if active_session_count is not None else None
+        ),
         resource_observed_at=utc_now() if has_resource else None,
         resource_last_check_at=utc_now() if has_resource else None,
         cpu_utilization=cpu_utilization,
         memory_utilization=memory_utilization,
+    )
+
+
+async def test_fresh_observed_session_count_blocks_admission(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+    tmp_path: Path,
+) -> None:
+    session_factory = create_session_factory(engine)
+    async with session_factory() as session, session.begin():
+        session.add(
+            _target(
+                "observed-full",
+                RuntimePool.INTERACTIVE,
+                capacity=1,
+                active_session_count=1,
+            )
+        )
+    execution = await execution_service.submit(
+        _command(RuntimePool.INTERACTIVE, "observed-capacity")
+    )
+    worker, redis = _worker(engine, tmp_path, "observed-worker")
+    try:
+        assert await worker._claim(execution.id) is None
+    finally:
+        await redis.aclose()
+
+
+async def test_cleanup_failed_session_reserves_until_maintenance_succeeds(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    abandoned = await execution_service.submit(
+        _command(RuntimePool.INTERACTIVE, "abandoned-cleanup")
+    )
+    queued = await execution_service.submit(
+        _command(RuntimePool.INTERACTIVE, "after-cleanup")
+    )
+    session_factory = create_session_factory(engine)
+    async with session_factory() as session, session.begin():
+        target = _target(
+            "cleanup-capacity", RuntimePool.INTERACTIVE, capacity=1
+        )
+        session.add(target)
+        await session.flush()
+        await session.execute(
+            update(ExecutionORM)
+            .where(ExecutionORM.id == abandoned.id)
+            .values(
+                status=ExecutionStatus.FAILED,
+                runtime_target_id=target.id,
+                runtime_session_id="orphan-cleanup-session",
+                retry_strategy=RetryStrategy.FROM_START,
+                runtime_session_cleanup_status=(
+                    RuntimeSessionCleanupStatus.FAILED
+                ),
+                updated_at=utc_now() - timedelta(minutes=5),
+            )
+        )
+
+    CleanupDriver.deleted = []
+    monkeypatch.setattr(
+        "executor_service.infrastructure.runtime_drivers.JupyterRuntimeDriver",
+        CleanupDriver,
+    )
+    worker, redis = _worker(engine, tmp_path, "cleanup-worker")
+    try:
+        assert await worker._claim(queued.id) is None
+        view = await worker._registry.get(target.id)
+        assert view.active_execution_count == 1
+        assert view.admission_used_count == 1
+        assert view.admission_blocked is True
+
+        await worker._retry_unresolved_runtime_session_cleanup()
+        claim = await worker._claim(queued.id)
+    finally:
+        await redis.aclose()
+
+    assert CleanupDriver.deleted == ["orphan-cleanup-session"]
+    assert claim is not None
+    async with session_factory() as session:
+        cleaned = await session.get(ExecutionORM, abandoned.id)
+    assert cleaned is not None
+    assert cleaned.runtime_session_id is None
+    assert (
+        cleaned.runtime_session_cleanup_status
+        == RuntimeSessionCleanupStatus.SUCCEEDED
     )
 
 

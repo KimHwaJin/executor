@@ -344,6 +344,16 @@ async def test_mcp_runtime_target_disable_uses_shared_contract(
         "accepting_new_executions": False,
         "drain_complete": False,
     }
+    assert disabled.structured_content["capacity"] == {
+        "max_concurrent_executions": 2,
+        "active_execution_count": 0,
+        "active_session_count": None,
+        "admission_used_count": 0,
+        "available_capacity": 0,
+        "admission_blocked": False,
+        "session_count_observed_at": None,
+        "session_count_fresh": False,
+    }
     assert "credential" not in disabled.structured_content
 
 

@@ -246,3 +246,17 @@ def test_stream_envelope_rejects_version_or_aggregate_mismatch() -> None:
     fields["schema_version"] = "1.0"
     with pytest.raises(ValidationError):
         ExecutionStreamEnvelope.from_redis_fields(fields)
+
+
+def test_cleanup_completed_event_accepts_cancelled_execution() -> None:
+    event = build_execution_event(
+        execution_id=uuid4(),
+        event_type="execution.runtime_session_cleanup_completed",
+        payload={
+            "status": "CANCELLED",
+            "runtime_session_cleanup_status": "SUCCEEDED",
+        },
+    )
+
+    assert event.payload["status"] == "CANCELLED"
+    assert event.payload["runtime_session_cleanup_status"] == "SUCCEEDED"

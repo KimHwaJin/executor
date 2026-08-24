@@ -58,6 +58,10 @@ from executor_service.infrastructure.execution_leases import (
     ExecutionLeaseLostError,
     require_active_lease,
 )
+from executor_service.infrastructure.runtime_admission import (
+    admission_used_count,
+    count_runtime_reservations,
+)
 from executor_service.infrastructure.runtime_drivers import (
     ConfiguredRuntimeDriverFactory,
 )
@@ -473,6 +477,7 @@ class ExecutionWorker:
         while not self._stop_event.is_set():
             try:
                 await self._cleanup_expired_retained_runtime_sessions()
+                await self._retry_unresolved_runtime_session_cleanup()
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -1342,28 +1347,17 @@ class ExecutionWorker:
         for target in targets:
             if execution.runtime_profile not in target.supported_profiles:
                 continue
-            running = await session.scalar(
-                select(func.count(ExecutionAttemptORM.id)).where(
-                    ExecutionAttemptORM.runtime_target_id == target.id,
-                    ExecutionAttemptORM.status.in_(
-                        [AttemptStatus.RUNNING, AttemptStatus.WAITING]
-                    ),
-                )
+            reserved = await count_runtime_reservations(
+                session, target.id, now
             )
-            retained = await session.scalar(
-                select(func.count(ExecutionORM.id)).where(
-                    ExecutionORM.runtime_target_id == target.id,
-                    ExecutionORM.status.in_(
-                        [ExecutionStatus.FAILED, ExecutionStatus.QUEUED]
-                    ),
-                    ExecutionORM.retry_strategy
-                    == RetryStrategy.FROM_FAILED_STEP,
-                    ExecutionORM.retained_runtime_session_until > now,
-                )
+            effective_usage = admission_used_count(
+                target,
+                reserved,
+                now,
+                self._settings.runtime_session_count_max_age_seconds,
             )
-            reserved = (running or 0) + (retained or 0)
-            if reserved < target.max_concurrent_executions:
-                candidates.append((target, reserved))
+            if effective_usage < target.max_concurrent_executions:
+                candidates.append((target, effective_usage))
         if not candidates:
             return None
 
@@ -3254,7 +3248,12 @@ class ExecutionWorker:
                 select(ExecutionORM)
                 .where(
                     ExecutionORM.id == execution_id,
-                    ExecutionORM.status == ExecutionStatus.FAILED,
+                    ExecutionORM.status.in_(
+                        [
+                            ExecutionStatus.FAILED,
+                            ExecutionStatus.CANCELLED,
+                        ]
+                    ),
                     ExecutionORM.runtime_session_id == runtime_session_id,
                 )
                 .with_for_update()
@@ -3305,7 +3304,7 @@ class ExecutionWorker:
                         == RuntimeSessionCleanupStatus.SUCCEEDED
                         else "execution.runtime_abort_failed"
                     ),
-                    ExecutionStatus.FAILED,
+                    execution.status,
                     {
                         "execution_attempt_id": str(attempt_id),
                         "failure_type": (
@@ -3336,8 +3335,88 @@ class ExecutionWorker:
                     if cleanup_status == RuntimeSessionCleanupStatus.SUCCEEDED
                     else "execution.runtime_session_cleanup_failed"
                 ),
-                ExecutionStatus.FAILED,
+                execution.status,
                 {"runtime_session_cleanup_status": cleanup_status.value},
+            )
+
+    async def _retry_unresolved_runtime_session_cleanup(self) -> None:
+        now = utc_now()
+        retry_before = now - timedelta(
+            seconds=self._settings.runtime_cleanup_retry_interval_seconds
+        )
+        cleanup_targets: list[tuple[UUID, UUID | None, UUID | None, str]] = []
+        async with self._session_factory() as session, session.begin():
+            executions = list(
+                await session.scalars(
+                    select(ExecutionORM)
+                    .where(
+                        ExecutionORM.status.in_(
+                            [
+                                ExecutionStatus.FAILED,
+                                ExecutionStatus.CANCELLED,
+                            ]
+                        ),
+                        ExecutionORM.runtime_session_id.is_not(None),
+                        ExecutionORM.runtime_session_cleanup_status.in_(
+                            [
+                                RuntimeSessionCleanupStatus.PENDING,
+                                RuntimeSessionCleanupStatus.FAILED,
+                            ]
+                        ),
+                        ExecutionORM.updated_at <= retry_before,
+                    )
+                    .order_by(ExecutionORM.updated_at)
+                    .limit(20)
+                    .with_for_update(skip_locked=True)
+                )
+            )
+            for execution in executions:
+                runtime_session_id = execution.runtime_session_id
+                if runtime_session_id is None:
+                    continue
+                attempt_id = await session.scalar(
+                    select(ExecutionAttemptORM.id)
+                    .where(ExecutionAttemptORM.execution_id == execution.id)
+                    .order_by(ExecutionAttemptORM.attempt_number.desc())
+                    .limit(1)
+                )
+                execution.runtime_session_cleanup_status = (
+                    RuntimeSessionCleanupStatus.PENDING
+                )
+                execution.updated_at = now
+                execution.version += 1
+                if attempt_id is not None:
+                    await session.execute(
+                        update(ExecutionAttemptORM)
+                        .where(ExecutionAttemptORM.id == attempt_id)
+                        .values(
+                            runtime_session_cleanup_status=(
+                                RuntimeSessionCleanupStatus.PENDING
+                            )
+                        )
+                    )
+                cleanup_targets.append(
+                    (
+                        execution.id,
+                        attempt_id,
+                        execution.runtime_target_id,
+                        runtime_session_id,
+                    )
+                )
+        for execution_id, attempt_id, target_id, session_id in cleanup_targets:
+            if target_id is None:
+                await self._record_cleanup_result(
+                    execution_id,
+                    attempt_id,
+                    session_id,
+                    RuntimeSessionCleanupStatus.FAILED,
+                )
+                continue
+            await self._cleanup_abandoned_session(
+                execution_id,
+                attempt_id,
+                target_id,
+                session_id,
             )
 
     async def _cleanup_expired_retained_runtime_sessions(self) -> None:

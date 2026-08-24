@@ -77,12 +77,17 @@ async def test_status_reads_active_session_count_from_jupyter() -> None:
     assert requested_paths == ["/api/status"]
 
 
-async def test_status_rejects_invalid_active_session_count() -> None:
+@pytest.mark.parametrize("invalid_count", ["invalid", -1, True, None])
+async def test_status_rejects_invalid_active_session_count(
+    invalid_count: object,
+) -> None:
     driver = JupyterRuntimeDriver("http://jupyter.invalid", "secret")
     await driver._client.aclose()
     driver._client = httpx.AsyncClient(
         transport=httpx.MockTransport(
-            lambda _request: httpx.Response(200, json={"kernels": "invalid"})
+            lambda _request: httpx.Response(
+                200, json={"kernels": invalid_count}
+            )
         ),
         base_url="http://jupyter.invalid",
     )

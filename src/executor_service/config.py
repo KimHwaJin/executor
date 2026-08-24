@@ -65,6 +65,7 @@ class Settings(BaseSettings):
     )
     runtime_default_max_concurrent_executions: int = Field(default=2, ge=1)
     runtime_health_poll_interval_seconds: float = Field(default=15, gt=0)
+    runtime_session_count_max_age_seconds: float = Field(default=45, gt=0)
     runtime_resource_max_age_seconds: float = Field(default=45, gt=0)
     runtime_memory_admission_limit: float = Field(default=0.9, gt=0, le=1)
     input_host_root: Path = Path("./input_dir")
@@ -80,6 +81,7 @@ class Settings(BaseSettings):
     execution_drain_timeout_seconds: float = Field(default=30, ge=0)
     execution_shutdown_cleanup_seconds: float = Field(default=20, gt=0)
     runtime_abort_timeout_seconds: float = Field(default=15, gt=0)
+    runtime_cleanup_retry_interval_seconds: float = Field(default=60, gt=0)
     failed_session_retention_seconds: int = Field(default=3600, ge=60)
     execution_max_runtime_seconds: int = Field(default=432000, ge=60)
     tracing_enabled: bool = False

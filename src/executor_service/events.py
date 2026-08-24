@@ -199,7 +199,7 @@ class ArtifactFailedPayload(StatusPayload):
 
 
 class CleanupPayload(StatusPayload):
-    status: Literal[ExecutionStatus.FAILED]
+    status: Literal[ExecutionStatus.FAILED, ExecutionStatus.CANCELLED]
     runtime_session_cleanup_status: RuntimeSessionCleanupStatus
 
 
