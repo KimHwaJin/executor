@@ -249,7 +249,7 @@ refreshes it from the Runtime before returning.
 ## PR-004: Preserve full Runtime output without unbounded Executor buffering
 
 - Priority: P1
-- Status: DESIGN_REQUIRED
+- Status: MEASUREMENT_READY
 - Area: Runtime output collection, notebook persistence, PostgreSQL result storage, Agent access
 - Public API impact: additive output metadata, references, and bounded content access
 - Request impact: none required for normal execution submission
@@ -264,6 +264,19 @@ refreshes it from the Runtime before returning.
   directly; large results remain accessible through paginated or chunked result references.
 - Distinguish semantic results such as metrics and compact tables from large visual/data output and
   repetitive diagnostic logs.
+
+### Implementation preparation
+
+- `scripts/t35_output_measurement.py` implements the required text, image, and concurrency matrix,
+  with a small default smoke preset and explicit confirmation for the resource-intensive full run.
+- Each scenario records Executor container RSS, actively probed Runtime memory, PostgreSQL database
+  and table growth, Runtime-owned notebook size, result API response bytes and latency, and Agent
+  retrieval call count. It checkpoints the JSON report after every completed scenario.
+- The harness never changes Runtime Target capacity. It fails when requested active concurrency
+  exceeds configured capacity unless the operator explicitly chooses a queued-load measurement.
+- The Runtime-neutral journal, fencing, storage, metadata, finalization, and public-read contract is
+  recorded in [Runtime Output Journal](runtime-output-journal.md). No production output threshold
+  is selected before T35 baseline evidence exists.
 
 ### Problem
 
