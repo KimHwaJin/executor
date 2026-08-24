@@ -5,7 +5,10 @@ from redis.asyncio import Redis
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from executor_service.application.commands import StepSpec, SubmitExecutionCommand
+from executor_service.application.commands import (
+    StepSpec,
+    SubmitExecutionCommand,
+)
 from executor_service.application.services import ExecutionService
 from executor_service.config import Settings
 from executor_service.domain.enums import (
@@ -33,7 +36,9 @@ from executor_service.infrastructure.db.models import (
     RuntimeTargetORM,
 )
 from executor_service.infrastructure.db.session import create_session_factory
-from executor_service.infrastructure.runtime_registry import RuntimeTargetRegistry
+from executor_service.infrastructure.runtime_registry import (
+    RuntimeTargetRegistry,
+)
 from executor_service.infrastructure.worker import ExecutionWorker
 from tests.runtime_credentials import runtime_credential_fields
 
@@ -120,7 +125,10 @@ async def test_expired_lease_is_failed_once_and_can_restart_from_zero(
         await session.execute(
             update(ExecutionStepORM)
             .where(ExecutionStepORM.id == execution.steps[0].id)
-            .values(status=StepStatus.RUNNING, started_at=now - timedelta(minutes=2))
+            .values(
+                status=StepStatus.RUNNING,
+                started_at=now - timedelta(minutes=2),
+            )
         )
         await session.execute(
             update(ExecutionOperationORM)
@@ -156,7 +164,9 @@ async def test_expired_lease_is_failed_once_and_can_restart_from_zero(
     async with session_factory() as session:
         recovered = await session.get(ExecutionORM, execution.id)
         recovered_attempt = await session.scalar(
-            select(ExecutionAttemptORM).where(ExecutionAttemptORM.execution_id == execution.id)
+            select(ExecutionAttemptORM).where(
+                ExecutionAttemptORM.execution_id == execution.id
+            )
         )
         recovered_operation = await session.get(
             ExecutionOperationORM, execution.active_operation_id
@@ -181,7 +191,10 @@ async def test_expired_lease_is_failed_once_and_can_restart_from_zero(
     assert recovered.retry_strategy == RetryStrategy.FROM_START
     assert recovered.retry_from_sequence == 0
     assert recovered.recovery_count == 1
-    assert recovered.runtime_session_cleanup_status == RuntimeSessionCleanupStatus.NOT_REQUIRED
+    assert (
+        recovered.runtime_session_cleanup_status
+        == RuntimeSessionCleanupStatus.NOT_REQUIRED
+    )
     assert recovered_attempt is not None
     assert recovered_attempt.status == AttemptStatus.FAILED
     assert recovered_attempt.failure_type == FailureType.LEASE_EXPIRED

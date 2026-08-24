@@ -15,6 +15,7 @@ deploy/kubernetes/secret.yaml
 .ruff_cache/
 .coverage
 htmlcov/
+test-results/
 *.db
 .DS_Store
 test_harness/jupyter/workspace/**

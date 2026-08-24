@@ -95,10 +95,13 @@ async def main() -> None:
             failed.failure_type != FailureType.WORKER_SHUTDOWN
             or failed.retry_strategy != RetryStrategy.FROM_START
             or failed.retry_from_sequence != 0
-            or failed.runtime_session_cleanup_status != RuntimeSessionCleanupStatus.SUCCEEDED
+            or failed.runtime_session_cleanup_status
+            != RuntimeSessionCleanupStatus.SUCCEEDED
             or failed.runtime_session_id is not None
         ):
-            raise RuntimeError(f"Worker shutdown was not classified safely: {failed}")
+            raise RuntimeError(
+                f"Worker shutdown was not classified safely: {failed}"
+            )
 
         await second.execution_service.retry(
             RetryExecutionCommand(
@@ -118,14 +121,20 @@ async def main() -> None:
             len(attempts) != 2
             or attempts[0].failure_type != FailureType.WORKER_SHUTDOWN
             or attempts[0].retry_strategy != RetryStrategy.FROM_START
-            or attempts[0].runtime_session_cleanup_status != RuntimeSessionCleanupStatus.SUCCEEDED
+            or attempts[0].runtime_session_cleanup_status
+            != RuntimeSessionCleanupStatus.SUCCEEDED
         ):
-            raise RuntimeError(f"Recovery Attempt history is incomplete: {attempts}")
+            raise RuntimeError(
+                f"Recovery Attempt history is incomplete: {attempts}"
+            )
         print("execution_id:", submitted.id)
         print("initial_kernel:", original_kernel)
         print("failure_type:", failed.failure_type.value)
         print("retry_strategy:", failed.retry_strategy.value)
-        print("runtime_session_cleanup_status:", failed.runtime_session_cleanup_status.value)
+        print(
+            "runtime_session_cleanup_status:",
+            failed.runtime_session_cleanup_status.value,
+        )
         print("retry_status:", succeeded.status.value)
         print("attempts:", len(attempts))
     finally:

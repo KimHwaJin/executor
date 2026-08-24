@@ -7,6 +7,7 @@ from typing import Any
 from uuid import uuid4
 
 from execution_spec_payload import execution_request, inline_spec
+from local_test_support import local_runtime_specs
 from mcp import Client
 
 
@@ -27,17 +28,24 @@ async def _wait_for_terminal(
         execution = await _required_tool_result(
             client, "execution_get", {"execution_id": execution_id}
         )
-        if execution["state"]["status"] in {"SUCCEEDED", "FAILED", "CANCELLED"}:
+        if execution["state"]["status"] in {
+            "SUCCEEDED",
+            "FAILED",
+            "CANCELLED",
+        }:
             return execution
         await asyncio.sleep(0.5)
-    raise RuntimeError(f"Execution {execution_id} did not finish within {timeout_seconds} seconds.")
+    raise RuntimeError(
+        f"Execution {execution_id} did not finish within {timeout_seconds} seconds."
+    )
 
 
 async def main() -> None:
     mcp_url = os.getenv("EXECUTOR_MCP_URL", "http://127.0.0.1:8000/mcp")
-    server_name = os.getenv("SINGLE_JUPYTER_NAME", "single-jupyter-smoke")
-    endpoint = os.getenv("SINGLE_JUPYTER_ENDPOINT", "http://127.0.0.1:8888")
-    token = os.getenv("SINGLE_JUPYTER_TOKEN", "change-me-local-only")
+    runtime_spec = local_runtime_specs()[0]
+    server_name = os.getenv("SINGLE_JUPYTER_NAME", runtime_spec.name)
+    endpoint = os.getenv("SINGLE_JUPYTER_ENDPOINT", runtime_spec.endpoint)
+    token = os.getenv("SINGLE_JUPYTER_TOKEN", runtime_spec.token)
     kernel_name = os.getenv("SINGLE_JUPYTER_KERNEL", "basic")
     timeout_seconds = float(os.getenv("SINGLE_JUPYTER_TIMEOUT_SECONDS", "120"))
     unique = uuid4().hex
@@ -60,7 +68,9 @@ async def main() -> None:
             },
         )
         if server["state"]["status"] != "ACTIVE":
-            raise RuntimeError(f"Jupyter server is not ACTIVE: {server['health']['last_error']}")
+            raise RuntimeError(
+                f"Jupyter server is not ACTIVE: {server['health']['last_error']}"
+            )
         if kernel_name not in server["runtime"]["supported_profiles"]:
             raise RuntimeError(
                 f"Kernel {kernel_name!r} is unavailable: {server['runtime']['supported_profiles']}"
@@ -106,12 +116,16 @@ async def main() -> None:
             },
         )
         execution_id = str(submitted["execution_id"])
-        terminal = await _wait_for_terminal(client, execution_id, timeout_seconds)
+        terminal = await _wait_for_terminal(
+            client, execution_id, timeout_seconds
+        )
         if terminal["state"]["status"] != "SUCCEEDED":
             raise RuntimeError(f"Execution did not succeed: {terminal}")
         assigned_target_id = terminal["runtime"]["target_id"]
         if not assigned_target_id:
-            raise RuntimeError("Execution has no assigned Jupyter Runtime Target.")
+            raise RuntimeError(
+                "Execution has no assigned Jupyter Runtime Target."
+            )
         steps_page = await _required_tool_result(
             client,
             "execution_step_list",
@@ -127,15 +141,23 @@ async def main() -> None:
         artifact_names = {item["name"] for item in artifacts_page["items"]}
         required_artifacts = {"single-jupyter-smoke.txt", "execution.ipynb"}
         if not required_artifacts.issubset(artifact_names):
-            raise RuntimeError(f"Expected Artifacts were not registered: {artifact_names}")
+            raise RuntimeError(
+                f"Expected Artifacts were not registered: {artifact_names}"
+            )
 
         notebook = await _required_tool_result(
             client,
             "execution_notebook_read",
-            {"execution_id": execution_id, "response_format": "detailed", "limit": 0},
+            {
+                "execution_id": execution_id,
+                "response_format": "detailed",
+                "limit": 0,
+            },
         )
         if len(notebook["cells"]) != 2:
-            raise RuntimeError("Expected Runtime-owned Notebook cells were not readable.")
+            raise RuntimeError(
+                "Expected Runtime-owned Notebook cells were not readable."
+            )
 
     print("probed_runtime_target_id:", server["target_id"])
     print("assigned_runtime_target_id:", assigned_target_id)

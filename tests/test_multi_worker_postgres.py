@@ -44,15 +44,26 @@ from executor_service.infrastructure.db.models import (
     OutboxEventORM,
     RuntimeTargetORM,
 )
-from executor_service.infrastructure.db.repositories import SQLAlchemyUnitOfWork
-from executor_service.infrastructure.db.session import create_engine, create_session_factory
+from executor_service.infrastructure.db.repositories import (
+    SQLAlchemyUnitOfWork,
+)
+from executor_service.infrastructure.db.session import (
+    create_engine,
+    create_session_factory,
+)
 from executor_service.infrastructure.outbox import OutboxPublisher
-from executor_service.infrastructure.runtime_registry import RuntimeTargetRegistry
+from executor_service.infrastructure.runtime_registry import (
+    RuntimeTargetRegistry,
+)
 from executor_service.infrastructure.worker import ExecutionWorker
 from executor_service.tracing import TracingManager
 from tests.runtime_credentials import runtime_credential_fields
 
 pytestmark = pytest.mark.postgres
+
+
+def _redis_test_url() -> str:
+    return os.getenv("EXECUTOR_REDIS_TEST_URL", "redis://127.0.0.1:6379/15")
 
 
 def _upgrade_and_check_baseline(database_url: str) -> None:
@@ -96,7 +107,9 @@ async def postgres_engine() -> AsyncIterator[AsyncEngine]:
                 ),
                 {"database_name": database_name},
             )
-            await connection.execute(text(f'DROP DATABASE IF EXISTS "{database_name}"'))
+            await connection.execute(
+                text(f'DROP DATABASE IF EXISTS "{database_name}"')
+            )
         await admin_engine.dispose()
 
 
@@ -148,7 +161,7 @@ def _workers(
     workers: list[ExecutionWorker] = []
     redis_clients: list[Redis] = []
     for index in range(count):
-        redis = Redis.from_url("redis://127.0.0.1:6379/15", decode_responses=True)
+        redis = Redis.from_url(_redis_test_url(), decode_responses=True)
         settings = Settings(
             runtime_enabled=False,
             input_host_root=tmp_path / f"worker-{index}",
@@ -182,7 +195,9 @@ async def test_concurrent_workers_create_exactly_one_attempt_for_an_execution(
     execution = await service.submit(_command("single-claim"))
     workers, redis_clients = _workers(postgres_engine, tmp_path, count=8)
     try:
-        claims = await asyncio.gather(*(worker._claim(execution.id) for worker in workers))
+        claims = await asyncio.gather(
+            *(worker._claim(execution.id) for worker in workers)
+        )
     finally:
         await _close_redis(redis_clients)
 
@@ -208,7 +223,9 @@ async def test_concurrent_workers_create_one_attempt_for_a_requeued_operation(
     async with session_factory() as session, session.begin():
         persisted = await session.get(ExecutionORM, execution.id)
         assert persisted is not None
-        operation = await session.get(ExecutionOperationORM, persisted.active_operation_id)
+        operation = await session.get(
+            ExecutionOperationORM, persisted.active_operation_id
+        )
         assert operation is not None
         persisted.status = ExecutionStatus.FAILED
         persisted.retry_strategy = RetryStrategy.FROM_START
@@ -225,7 +242,9 @@ async def test_concurrent_workers_create_one_attempt_for_a_requeued_operation(
 
     workers, redis_clients = _workers(postgres_engine, tmp_path, count=8)
     try:
-        claims = await asyncio.gather(*(worker._claim(execution.id) for worker in workers))
+        claims = await asyncio.gather(
+            *(worker._claim(execution.id) for worker in workers)
+        )
     finally:
         await _close_redis(redis_clients)
 
@@ -233,7 +252,9 @@ async def test_concurrent_workers_create_one_attempt_for_a_requeued_operation(
     async with session_factory() as session:
         attempts = list(
             await session.scalars(
-                select(ExecutionAttemptORM).where(ExecutionAttemptORM.execution_id == execution.id)
+                select(ExecutionAttemptORM).where(
+                    ExecutionAttemptORM.execution_id == execution.id
+                )
             )
         )
         operation = await session.get(ExecutionOperationORM, retry.operation_id)
@@ -260,7 +281,9 @@ async def test_concurrent_workers_never_oversubscribe_jupyter_capacity(
             async with session_factory() as session:
                 queued_ids = list(
                     await session.scalars(
-                        select(ExecutionORM.id).where(ExecutionORM.status == ExecutionStatus.QUEUED)
+                        select(ExecutionORM.id).where(
+                            ExecutionORM.status == ExecutionStatus.QUEUED
+                        )
                     )
                 )
             if not queued_ids:
@@ -282,7 +305,9 @@ async def test_concurrent_workers_never_oversubscribe_jupyter_capacity(
             )
         )
         queued_count = await session.scalar(
-            select(func.count(ExecutionORM.id)).where(ExecutionORM.status == ExecutionStatus.QUEUED)
+            select(func.count(ExecutionORM.id)).where(
+                ExecutionORM.status == ExecutionStatus.QUEUED
+            )
         )
     assert running_count == 2
     assert queued_count == 10
@@ -297,7 +322,9 @@ async def test_cancel_and_claim_race_has_one_consistent_terminal_result(
     async with session_factory() as session, session.begin():
         session.add(_server(capacity=20))
     workers, redis_clients = _workers(postgres_engine, tmp_path, count=6)
-    executions = [await service.submit(_command(f"cancel-{index}")) for index in range(12)]
+    executions = [
+        await service.submit(_command(f"cancel-{index}")) for index in range(12)
+    ]
     try:
         await asyncio.gather(
             *(
@@ -328,7 +355,9 @@ async def test_cancel_and_claim_race_has_one_consistent_terminal_result(
         statuses = list(
             await session.scalars(
                 select(ExecutionORM.status).where(
-                    ExecutionORM.id.in_([execution.id for execution in executions])
+                    ExecutionORM.id.in_(
+                        [execution.id for execution in executions]
+                    )
                 )
             )
         )
@@ -356,7 +385,8 @@ async def test_concurrent_outbox_publishers_emit_one_stream_message(
         redis_event_stream=event_stream,
     )
     redis_clients = [
-        Redis.from_url("redis://127.0.0.1:6379/15", decode_responses=True) for _ in range(2)
+        Redis.from_url(_redis_test_url(), decode_responses=True)
+        for _ in range(2)
     ]
     publishers = [
         OutboxPublisher(
@@ -373,7 +403,9 @@ async def test_concurrent_outbox_publishers_emit_one_stream_message(
     messages: list[tuple[str, dict[str, str]]] = []
     event_messages: list[tuple[str, dict[str, str]]] = []
     try:
-        published = await asyncio.gather(*(publisher.publish_batch() for publisher in publishers))
+        published = await asyncio.gather(
+            *(publisher.publish_batch() for publisher in publishers)
+        )
         messages = await redis_clients[0].xrange(stream)
         event_messages = await redis_clients[0].xrange(event_stream)
     finally:

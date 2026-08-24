@@ -6,7 +6,9 @@ from collections.abc import Coroutine
 from typing import Any
 
 
-def run_async[T](coroutine: Coroutine[Any, Any, T], *, platform: str | None = None) -> T:
+def run_async[T](
+    coroutine: Coroutine[Any, Any, T], *, platform: str | None = None
+) -> T:
     """Run a coroutine on a psycopg-compatible loop, including native Windows."""
     current_platform = sys.platform if platform is None else platform
     if current_platform == "win32":

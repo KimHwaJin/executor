@@ -28,7 +28,11 @@ from executor_service.domain.errors import (
     PersistenceConflictError,
     UnsupportedRuntimeProfileError,
 )
-from executor_service.domain.models import Execution, ExecutionOperation, ExecutionStep
+from executor_service.domain.models import (
+    Execution,
+    ExecutionOperation,
+    ExecutionStep,
+)
 from executor_service.domain.ports import UnitOfWork
 from executor_service.events import build_execution_event
 from executor_service.tracing import capture_trace_carrier
@@ -51,7 +55,8 @@ class ExecutionService:
     ) -> None:
         self._uow_factory = uow_factory
         self._runtime_profiles = {
-            runtime_type: tuple(profiles) for runtime_type, profiles in runtime_profiles.items()
+            runtime_type: tuple(profiles)
+            for runtime_type, profiles in runtime_profiles.items()
         }
 
     @property
@@ -64,7 +69,9 @@ class ExecutionService:
     async def submit(self, command: SubmitExecutionCommand) -> Execution:
         return (await self.submit_result(command)).execution
 
-    async def submit_result(self, command: SubmitExecutionCommand) -> ExecutionCommandResult:
+    async def submit_result(
+        self, command: SubmitExecutionCommand
+    ) -> ExecutionCommandResult:
         _validate_submit(command)
         allowed_profiles = self._runtime_profiles.get(command.runtime_type, ())
         if command.runtime_profile not in allowed_profiles:
@@ -76,7 +83,9 @@ class ExecutionService:
         trace_carrier = capture_trace_carrier()
         try:
             async with self._uow_factory() as uow:
-                existing = await uow.executions.get_by_submit_key(command.idempotency_key)
+                existing = await uow.executions.get_by_submit_key(
+                    command.idempotency_key
+                )
                 if existing is not None:
                     _ensure_same_fingerprint(existing, fingerprint)
                     operation_id = await uow.executions.get_operation_id_by_key(
@@ -157,7 +166,10 @@ class ExecutionService:
                             "idempotency_key": command.idempotency_key,
                             "operation_id": str(operation.id),
                             "steps": [
-                                {"sequence": step.sequence, "step_id": str(step.id)}
+                                {
+                                    "sequence": step.sequence,
+                                    "step_id": str(step.id),
+                                }
                                 for step in execution.steps
                                 if step.operation_id == operation.id
                             ],
@@ -183,50 +195,73 @@ class ExecutionService:
                     )
                 )
                 await uow.commit()
-                return ExecutionCommandResult(execution=execution, operation_id=operation.id)
+                return ExecutionCommandResult(
+                    execution=execution, operation_id=operation.id
+                )
         except PersistenceConflictError:
             # A concurrent request may have committed the same key after our first lookup.
             async with self._uow_factory() as uow:
-                existing = await uow.executions.get_by_submit_key(command.idempotency_key)
+                existing = await uow.executions.get_by_submit_key(
+                    command.idempotency_key
+                )
                 if existing is None:
                     raise
                 _ensure_same_fingerprint(existing, fingerprint)
-                operation_id = await uow.executions.get_operation_id_by_key(command.idempotency_key)
+                operation_id = await uow.executions.get_operation_id_by_key(
+                    command.idempotency_key
+                )
                 return ExecutionCommandResult(
                     execution=existing,
                     operation_id=_required_operation_id(operation_id),
                 )
 
-    async def create_operation(self, command: CreateOperationCommand) -> Execution:
+    async def create_operation(
+        self, command: CreateOperationCommand
+    ) -> Execution:
         return (await self.create_operation_result(command)).execution
 
     async def create_operation_result(
         self, command: CreateOperationCommand
     ) -> ExecutionCommandResult:
         if command.spec_schema_version != "1.0":
-            raise InvalidStateTransitionError("Only ExecutionSpec schema_version 1.0 is supported.")
+            raise InvalidStateTransitionError(
+                "Only ExecutionSpec schema_version 1.0 is supported."
+            )
         fingerprint = _fingerprint(command)
         command_type = "execution_operation_create"
         try:
             async with self._uow_factory() as uow:
-                repeated = await uow.executions.get_command_receipt(command.idempotency_key)
+                repeated = await uow.executions.get_command_receipt(
+                    command.idempotency_key
+                )
                 if repeated is not None:
                     _ensure_same_receipt(repeated, command_type, fingerprint)
-                    execution = await _required_execution(uow, command.execution_id)
+                    execution = await _required_execution(
+                        uow, command.execution_id
+                    )
                     return ExecutionCommandResult(
                         execution=execution,
                         operation_id=_operation_id_from_receipt(repeated),
                     )
 
-                execution = await uow.executions.get(command.execution_id, for_update=True)
+                execution = await uow.executions.get(
+                    command.execution_id, for_update=True
+                )
                 if execution is None:
-                    raise ExecutionNotFoundError(f"Execution {command.execution_id} was not found.")
+                    raise ExecutionNotFoundError(
+                        f"Execution {command.execution_id} was not found."
+                    )
                 if not command.steps:
-                    raise InvalidStateTransitionError("An Operation requires at least one Step.")
+                    raise InvalidStateTransitionError(
+                        "An Operation requires at least one Step."
+                    )
                 expected_sequence = len(execution.steps)
                 sequences = [step.sequence for step in command.steps]
                 expected_sequences = list(
-                    range(expected_sequence, expected_sequence + len(command.steps))
+                    range(
+                        expected_sequence,
+                        expected_sequence + len(command.steps),
+                    )
                 )
                 if sequences != expected_sequences:
                     raise InvalidStateTransitionError(
@@ -234,13 +269,17 @@ class ExecutionService:
                         f"{expected_sequence}."
                     )
                 if any(not step.code.strip() for step in command.steps):
-                    raise InvalidStateTransitionError("Operation Step code must not be empty.")
+                    raise InvalidStateTransitionError(
+                        "Operation Step code must not be empty."
+                    )
                 execution.request_operation(command.expected_version)
                 _apply_actor(execution, command.actor_type, command.actor_id)
                 _apply_current_trace(execution)
                 operation = ExecutionOperation(
                     execution_id=execution.id,
-                    operation_number=await uow.executions.next_operation_number(execution.id),
+                    operation_number=await uow.executions.next_operation_number(
+                        execution.id
+                    ),
                     first_sequence=command.steps[0].sequence,
                     last_sequence=command.steps[-1].sequence,
                     operation_timeout_seconds=command.operation_timeout_seconds,
@@ -297,7 +336,10 @@ class ExecutionService:
                             "idempotency_key": command.idempotency_key,
                             "operation_id": str(operation.id),
                             "steps": [
-                                {"sequence": step.sequence, "step_id": str(step.id)}
+                                {
+                                    "sequence": step.sequence,
+                                    "step_id": str(step.id),
+                                }
                                 for step in steps
                             ],
                             "status": execution.status.value,
@@ -323,13 +365,19 @@ class ExecutionService:
                     )
                 )
                 await uow.commit()
-                return ExecutionCommandResult(execution=execution, operation_id=operation.id)
+                return ExecutionCommandResult(
+                    execution=execution, operation_id=operation.id
+                )
         except PersistenceConflictError as exc:
             async with self._uow_factory() as uow:
-                repeated = await uow.executions.get_command_receipt(command.idempotency_key)
+                repeated = await uow.executions.get_command_receipt(
+                    command.idempotency_key
+                )
                 if repeated is not None:
                     _ensure_same_receipt(repeated, command_type, fingerprint)
-                    execution = await _required_execution(uow, command.execution_id)
+                    execution = await _required_execution(
+                        uow, command.execution_id
+                    )
                     return ExecutionCommandResult(
                         execution=execution,
                         operation_id=_operation_id_from_receipt(repeated),
@@ -338,18 +386,26 @@ class ExecutionService:
                 "The command conflicted with another state change."
             ) from exc
 
-    async def finalize_execution(self, command: FinalizeExecutionCommand) -> Execution:
+    async def finalize_execution(
+        self, command: FinalizeExecutionCommand
+    ) -> Execution:
         fingerprint = _fingerprint(command)
         command_type = "execution_finalize"
         try:
             async with self._uow_factory() as uow:
-                repeated = await uow.executions.get_command_receipt(command.idempotency_key)
+                repeated = await uow.executions.get_command_receipt(
+                    command.idempotency_key
+                )
                 if repeated is not None:
                     _ensure_same_receipt(repeated, command_type, fingerprint)
                     return await _required_execution(uow, command.execution_id)
-                execution = await uow.executions.get(command.execution_id, for_update=True)
+                execution = await uow.executions.get(
+                    command.execution_id, for_update=True
+                )
                 if execution is None:
-                    raise ExecutionNotFoundError(f"Execution {command.execution_id} was not found.")
+                    raise ExecutionNotFoundError(
+                        f"Execution {command.execution_id} was not found."
+                    )
                 execution.request_finalization(command.expected_version)
                 _apply_actor(execution, command.actor_type, command.actor_id)
                 _apply_current_trace(execution)
@@ -417,13 +473,17 @@ class ExecutionService:
         async with self._uow_factory() as uow:
             execution = await uow.executions.get(execution_id)
             if execution is None:
-                raise ExecutionNotFoundError(f"Execution {execution_id} was not found.")
+                raise ExecutionNotFoundError(
+                    f"Execution {execution_id} was not found."
+                )
             return execution
 
     async def cancel(self, command: CancelExecutionCommand) -> Execution:
         try:
             async with self._uow_factory() as uow:
-                key_owner = await uow.executions.get_by_cancel_key(command.idempotency_key)
+                key_owner = await uow.executions.get_by_cancel_key(
+                    command.idempotency_key
+                )
                 if key_owner is not None:
                     if key_owner.id != command.execution_id:
                         raise IdempotencyConflictError(
@@ -431,13 +491,19 @@ class ExecutionService:
                         )
                     return key_owner
 
-                execution = await uow.executions.get(command.execution_id, for_update=True)
+                execution = await uow.executions.get(
+                    command.execution_id, for_update=True
+                )
                 if execution is None:
-                    raise ExecutionNotFoundError(f"Execution {command.execution_id} was not found.")
+                    raise ExecutionNotFoundError(
+                        f"Execution {command.execution_id} was not found."
+                    )
                 if execution.status == ExecutionStatus.CANCEL_REQUESTED:
                     return execution
 
-                execution.request_cancel(command.idempotency_key, command.reason)
+                execution.request_cancel(
+                    command.idempotency_key, command.reason
+                )
                 _apply_actor(execution, command.actor_type, command.actor_id)
                 _apply_current_trace(execution)
                 await uow.executions.save(execution)
@@ -469,8 +535,13 @@ class ExecutionService:
                 return execution
         except PersistenceConflictError as exc:
             async with self._uow_factory() as uow:
-                key_owner = await uow.executions.get_by_cancel_key(command.idempotency_key)
-                if key_owner is not None and key_owner.id == command.execution_id:
+                key_owner = await uow.executions.get_by_cancel_key(
+                    command.idempotency_key
+                )
+                if (
+                    key_owner is not None
+                    and key_owner.id == command.execution_id
+                ):
                     return key_owner
             raise IdempotencyConflictError(
                 "The cancel request conflicted with another state change."
@@ -479,10 +550,14 @@ class ExecutionService:
     async def retry(self, command: RetryExecutionCommand) -> Execution:
         return (await self.retry_result(command)).execution
 
-    async def retry_result(self, command: RetryExecutionCommand) -> ExecutionCommandResult:
+    async def retry_result(
+        self, command: RetryExecutionCommand
+    ) -> ExecutionCommandResult:
         try:
             async with self._uow_factory() as uow:
-                key_owner = await uow.executions.get_by_retry_key(command.idempotency_key)
+                key_owner = await uow.executions.get_by_retry_key(
+                    command.idempotency_key
+                )
                 if key_owner is not None:
                     if key_owner.id != command.execution_id:
                         raise IdempotencyConflictError(
@@ -490,21 +565,31 @@ class ExecutionService:
                         )
                     return ExecutionCommandResult(
                         execution=key_owner,
-                        operation_id=_required_operation_id(key_owner.active_operation_id),
+                        operation_id=_required_operation_id(
+                            key_owner.active_operation_id
+                        ),
                     )
 
-                execution = await uow.executions.get(command.execution_id, for_update=True)
+                execution = await uow.executions.get(
+                    command.execution_id, for_update=True
+                )
                 if execution is None:
-                    raise ExecutionNotFoundError(f"Execution {command.execution_id} was not found.")
+                    raise ExecutionNotFoundError(
+                        f"Execution {command.execution_id} was not found."
+                    )
                 execution.request_retry()
-                operation_id = _required_operation_id(execution.active_operation_id)
+                operation_id = _required_operation_id(
+                    execution.active_operation_id
+                )
                 _apply_actor(execution, command.actor_type, command.actor_id)
                 for step in execution.steps:
                     if (
                         execution.retry_from_sequence is not None
                         and step.sequence >= execution.retry_from_sequence
                     ):
-                        _apply_step_actor(step, command.actor_type, command.actor_id)
+                        _apply_step_actor(
+                            step, command.actor_type, command.actor_id
+                        )
                 _apply_current_trace(execution)
                 if execution.retry_from_sequence is None:
                     raise RuntimeError("Retry sequence unexpectedly missing.")
@@ -560,11 +645,18 @@ class ExecutionService:
                 )
         except PersistenceConflictError as exc:
             async with self._uow_factory() as uow:
-                key_owner = await uow.executions.get_by_retry_key(command.idempotency_key)
-                if key_owner is not None and key_owner.id == command.execution_id:
+                key_owner = await uow.executions.get_by_retry_key(
+                    command.idempotency_key
+                )
+                if (
+                    key_owner is not None
+                    and key_owner.id == command.execution_id
+                ):
                     return ExecutionCommandResult(
                         execution=key_owner,
-                        operation_id=_required_operation_id(key_owner.active_operation_id),
+                        operation_id=_required_operation_id(
+                            key_owner.active_operation_id
+                        ),
                     )
             raise IdempotencyConflictError(
                 "The retry request conflicted with another state change."
@@ -572,11 +664,15 @@ class ExecutionService:
 
 
 def _fingerprint(
-    command: SubmitExecutionCommand | CreateOperationCommand | FinalizeExecutionCommand,
+    command: SubmitExecutionCommand
+    | CreateOperationCommand
+    | FinalizeExecutionCommand,
 ) -> str:
     payload = asdict(command)
     payload.pop("idempotency_key")
-    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode()
+    encoded = json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), default=str
+    ).encode()
     return hashlib.sha256(encoded).hexdigest()
 
 
@@ -589,7 +685,9 @@ def _ensure_same_fingerprint(execution: Execution, fingerprint: str) -> None:
 
 def _validate_submit(command: SubmitExecutionCommand) -> None:
     if command.spec_schema_version != "1.0":
-        raise InvalidStateTransitionError("Only ExecutionSpec schema_version 1.0 is supported.")
+        raise InvalidStateTransitionError(
+            "Only ExecutionSpec schema_version 1.0 is supported."
+        )
     _validate_actor(command.actor_type, command.actor_id)
     if (
         command.actor_type is not None
@@ -602,24 +700,35 @@ def _validate_submit(command: SubmitExecutionCommand) -> None:
         and command.trigger_type == TriggerType.INTERACTIVE
         and command.actor_type not in {ActorType.AGENT, ActorType.USER}
     ):
-        raise InvalidStateTransitionError("INTERACTIVE submit requires AGENT or USER actor.")
-    if command.actor_type == ActorType.USER and command.actor_id != command.user_id:
+        raise InvalidStateTransitionError(
+            "INTERACTIVE submit requires AGENT or USER actor."
+        )
+    if (
+        command.actor_type == ActorType.USER
+        and command.actor_id != command.user_id
+    ):
         raise InvalidStateTransitionError(
             "INTERACTIVE submit requires actor.id to match context.user_id."
         )
     if command.session_id is not None and command.project_id is None:
         raise InvalidStateTransitionError("session_id requires project_id.")
     if command.project_id == "unscoped" or command.session_id == "unscoped":
-        raise InvalidStateTransitionError("'unscoped' is reserved for workspace paths.")
+        raise InvalidStateTransitionError(
+            "'unscoped' is reserved for workspace paths."
+        )
     if not command.steps:
-        raise InvalidStateTransitionError("ExecutionSpec must contain at least one step.")
+        raise InvalidStateTransitionError(
+            "ExecutionSpec must contain at least one step."
+        )
     sequences = [step.sequence for step in command.steps]
     if sequences != list(range(len(command.steps))):
         raise InvalidStateTransitionError(
             "ExecutionSpec step sequences must be contiguous and start at 0."
         )
     if any(not step.code.strip() for step in command.steps):
-        raise InvalidStateTransitionError("ExecutionSpec step code must not be blank.")
+        raise InvalidStateTransitionError(
+            "ExecutionSpec step code must not be blank."
+        )
     if command.operation_mode == OperationMode.SINGLE:
         if command.operation_wait_timeout_seconds is not None:
             raise InvalidStateTransitionError(
@@ -627,7 +736,9 @@ def _validate_submit(command: SubmitExecutionCommand) -> None:
             )
         return
     if command.trigger_type != TriggerType.INTERACTIVE:
-        raise InvalidStateTransitionError("MULTI execution requires INTERACTIVE trigger_type.")
+        raise InvalidStateTransitionError(
+            "MULTI execution requires INTERACTIVE trigger_type."
+        )
     if command.operation_wait_timeout_seconds is None:
         raise InvalidStateTransitionError(
             "MULTI execution requires operation_wait_timeout_seconds."
@@ -635,38 +746,54 @@ def _validate_submit(command: SubmitExecutionCommand) -> None:
 
 
 def _code_hash(code: str | None) -> str | None:
-    return hashlib.sha256(code.encode()).hexdigest() if code is not None else None
+    return (
+        hashlib.sha256(code.encode()).hexdigest() if code is not None else None
+    )
 
 
 def _ensure_same_receipt(
-    receipt: tuple[str, str, dict[str, object]], command_type: str, fingerprint: str
+    receipt: tuple[str, str, dict[str, object]],
+    command_type: str,
+    fingerprint: str,
 ) -> None:
     receipt_type, receipt_fingerprint, _ = receipt
     if receipt_type != command_type or receipt_fingerprint != fingerprint:
-        raise IdempotencyConflictError("idempotency_key was already used with a different command.")
+        raise IdempotencyConflictError(
+            "idempotency_key was already used with a different command."
+        )
 
 
 def _required_operation_id(operation_id: UUID | None) -> UUID:
     if operation_id is None:
-        raise PersistenceConflictError("Accepted command has no persisted Operation.")
+        raise PersistenceConflictError(
+            "Accepted command has no persisted Operation."
+        )
     return operation_id
 
 
-def _operation_id_from_receipt(receipt: tuple[str, str, dict[str, object]]) -> UUID:
+def _operation_id_from_receipt(
+    receipt: tuple[str, str, dict[str, object]],
+) -> UUID:
     value = receipt[2].get("operation_id")
     if not isinstance(value, str):
-        raise PersistenceConflictError("Accepted continue command has no Operation receipt.")
+        raise PersistenceConflictError(
+            "Accepted continue command has no Operation receipt."
+        )
     return UUID(value)
 
 
 def _validate_actor(actor_type: ActorType | None, actor_id: str | None) -> None:
     if (actor_type is None) != (actor_id is None):
-        raise InvalidStateTransitionError("actor_type and actor_id must be provided together.")
+        raise InvalidStateTransitionError(
+            "actor_type and actor_id must be provided together."
+        )
     if actor_id is not None and not actor_id.strip():
         raise InvalidStateTransitionError("actor_id must not be blank.")
 
 
-def _apply_actor(execution: Execution, actor_type: ActorType | None, actor_id: str | None) -> None:
+def _apply_actor(
+    execution: Execution, actor_type: ActorType | None, actor_id: str | None
+) -> None:
     _validate_actor(actor_type, actor_id)
     if actor_type is None:
         return

@@ -45,7 +45,9 @@ def execution_request(
 ) -> dict[str, Any]:
     lifecycle: dict[str, Any] = {"operation_mode": operation_mode}
     if operation_wait_timeout_seconds is not None:
-        lifecycle["operation_wait_timeout_seconds"] = operation_wait_timeout_seconds
+        lifecycle["operation_wait_timeout_seconds"] = (
+            operation_wait_timeout_seconds
+        )
     operation: dict[str, Any] = {"spec": spec}
     if operation_timeout_seconds is not None:
         operation["operation_timeout_seconds"] = operation_timeout_seconds

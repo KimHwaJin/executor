@@ -10,7 +10,9 @@ from mcp import Client
 
 async def _wait(client: Client, execution_id: str) -> dict[str, Any]:
     for _ in range(200):
-        result = await client.call_tool("execution_get", {"execution_id": execution_id})
+        result = await client.call_tool(
+            "execution_get", {"execution_id": execution_id}
+        )
         state = result.structured_content
         if state["state"]["status"] in {"SUCCEEDED", "FAILED", "CANCELLED"}:
             return state
@@ -21,7 +23,9 @@ async def _wait(client: Client, execution_id: str) -> dict[str, Any]:
 async def main() -> None:
     unique = str(uuid4())
     user_id = "artifact-smoke-user"
-    processed_relative = f"users/{user_id}/datasets/processed/{unique}/processed.csv"
+    processed_relative = (
+        f"users/{user_id}/datasets/processed/{unique}/processed.csv"
+    )
     write_files_code = (
         "from pathlib import Path\n"
         "Path('artifacts/plots/plot.png').write_bytes(b'fake-png')\n"
@@ -94,14 +98,24 @@ async def main() -> None:
         if terminal["state"]["status"] != "SUCCEEDED":
             raise RuntimeError(f"Artifact execution failed: {terminal}")
 
-        listed = await client.call_tool("execution_artifact_list", {"execution_id": execution_id})
+        listed = await client.call_tool(
+            "execution_artifact_list", {"execution_id": execution_id}
+        )
         artifacts = listed.structured_content["items"]
         if len(artifacts) != 5:
             raise RuntimeError(f"Expected five Artifacts: {artifacts}")
         artifact_types = {item["type"] for item in artifacts}
-        if artifact_types != {"PLOT", "REPORT", "DATASET", "MODEL", "NOTEBOOK"}:
+        if artifact_types != {
+            "PLOT",
+            "REPORT",
+            "DATASET",
+            "MODEL",
+            "NOTEBOOK",
+        }:
             raise RuntimeError(f"Unexpected Artifact types: {artifact_types}")
-        processed_artifact = next(item for item in artifacts if item["name"] == "processed-data")
+        processed_artifact = next(
+            item for item in artifacts if item["name"] == "processed-data"
+        )
         fetched = await client.call_tool(
             "execution_artifact_get",
             {"artifact_id": processed_artifact["artifact_id"]},
@@ -110,16 +124,22 @@ async def main() -> None:
         if processed_detail["artifact_id"] != processed_artifact["artifact_id"]:
             raise RuntimeError("Artifact detail lookup returned the wrong row.")
         if (
-            processed_detail["lineage"]["external_parent_asset_id"] != "raw-daily-data"
+            processed_detail["lineage"]["external_parent_asset_id"]
+            != "raw-daily-data"
             or processed_detail["metadata"]["token"] != "[REDACTED]"
         ):
-            raise RuntimeError(f"Lineage or redaction failed: {processed_detail}")
+            raise RuntimeError(
+                f"Lineage or redaction failed: {processed_detail}"
+            )
     if processed_detail["storage"]["size_bytes"] <= 0:
         raise RuntimeError("Expected Runtime-computed processed data metadata.")
     print("execution_id:", execution_id)
     print("artifact_count:", len(artifacts))
     print("artifact_types:", sorted(artifact_types))
-    print("lineage_parent:", processed_detail["lineage"]["external_parent_asset_id"])
+    print(
+        "lineage_parent:",
+        processed_detail["lineage"]["external_parent_asset_id"],
+    )
 
 
 if __name__ == "__main__":

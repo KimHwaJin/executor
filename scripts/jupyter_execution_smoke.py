@@ -52,9 +52,15 @@ async def main() -> None:
         execution_id = submitted.structured_content["execution_id"]
         terminal = None
         for _ in range(150):
-            result = await client.call_tool("execution_get", {"execution_id": execution_id})
+            result = await client.call_tool(
+                "execution_get", {"execution_id": execution_id}
+            )
             terminal = result.structured_content
-            if terminal["state"]["status"] in {"SUCCEEDED", "FAILED", "CANCELLED"}:
+            if terminal["state"]["status"] in {
+                "SUCCEEDED",
+                "FAILED",
+                "CANCELLED",
+            }:
                 break
             await asyncio.sleep(0.2)
         if terminal is None or terminal["state"]["status"] != "SUCCEEDED":
@@ -68,17 +74,26 @@ async def main() -> None:
 
         notebook = await client.call_tool(
             "execution_notebook_read",
-            {"execution_id": execution_id, "response_format": "detailed", "limit": 0},
+            {
+                "execution_id": execution_id,
+                "response_format": "detailed",
+                "limit": 0,
+            },
         )
         if notebook.is_error or len(notebook.structured_content["cells"]) != 2:
-            raise RuntimeError("Expected Runtime-owned Notebook was not readable.")
+            raise RuntimeError(
+                "Expected Runtime-owned Notebook was not readable."
+            )
         artifacts = await client.call_tool(
-            "execution_artifact_list", {"execution_id": execution_id, "limit": 100}
+            "execution_artifact_list",
+            {"execution_id": execution_id, "limit": 100},
         )
         if not {"result.txt", "execution.ipynb"}.issubset(
             {item["name"] for item in artifacts.structured_content["items"]}
         ):
-            raise RuntimeError("Expected Runtime-owned Artifact metadata was not registered.")
+            raise RuntimeError(
+                "Expected Runtime-owned Artifact metadata was not registered."
+            )
         print("execution_id:", execution_id)
         print("status:", terminal["state"]["status"])
         print("notebook_path:", terminal["workspace"]["notebook_path"])

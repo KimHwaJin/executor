@@ -7,9 +7,31 @@ tests cannot cover.
 ## Prerequisites
 
 ```bash
-docker compose --profile multi-jupyter --profile batch-jupyter up -d --wait
+docker compose -f docker-compose.yml -f docker-compose.test.yml \
+  --profile multi-jupyter --profile batch-jupyter up -d --wait
 uv run alembic upgrade head
 ```
+
+The optional `docker-compose.test.yml` overlay gives each Jupyter container an explicit two-CPU,
+4 GiB cgroup boundary and raises Executor's maximum runtime to seven days. Override
+`LOCAL_TEST_JUPYTER_CPUS`, `LOCAL_TEST_JUPYTER_MEMORY`, or
+`EXECUTION_MAX_RUNTIME_SECONDS` when the local machine needs different limits. Set
+`LOCAL_TEST_COMPOSE_FILES` to the platform path-separated pair
+`docker-compose.yml:docker-compose.test.yml` (use `;` on Windows) when the suite must stop and
+restart services with the same overlay.
+
+### Local topology preflight
+
+```bash
+uv run python scripts/local_test_preflight.py
+```
+
+The preflight validates `/healthz`, `/readyz`, `/workerz`, the current Alembic head, PostgreSQL,
+Redis, required MCP Tools, and all four local Runtime Targets. It also restores the Compose-internal
+Jupyter endpoints after a real-process resilience test temporarily registered host endpoints.
+Set `LOCAL_TEST_EXECUTOR_TOPOLOGY=native` when Executor itself runs on the host. Disable optional
+fleet requirements with `LOCAL_TEST_INCLUDE_BATCH=false` or
+`LOCAL_TEST_INCLUDE_SECONDARY=false`.
 
 The scripts select free loopback ports automatically. Set `DRAIN_SMOKE_PRIMARY_PORT`,
 `DRAIN_SMOKE_SECONDARY_PORT`, `LOAD_SMOKE_PRIMARY_PORT`, `LOAD_SMOKE_SECONDARY_PORT`,
@@ -137,6 +159,63 @@ active kernels after completion.
 
 Use `RESILIENCE_EXECUTION_COUNT` for 20-60 executions and
 `RESILIENCE_CELL_SLEEP_SECONDS` to adjust overlap duration.
+
+### Mixed output load
+
+```bash
+uv run python scripts/mixed_output_load_smoke.py
+```
+
+This submits 14 executions by default across two one-capacity INTERACTIVE targets and alternates
+the `basic` and `ml` profiles. Workloads cover bounded long text, HTML tables, JSON MIME output,
+PNG output, a Runtime Artifact, CPU work, and temporary memory allocation. The scenario fetches
+each consolidated `execution_result_get` exactly once, validates MIME payloads and PNG integrity,
+records submit/queue/total latency percentiles, enforces Runtime capacity, and requires zero leaked
+reservations or kernels. Use `MIXED_LOAD_EXECUTION_COUNT` for 7-30 executions.
+
+### Long-running Jupyter soak
+
+```bash
+SOAK_DURATION_SECONDS=300 \
+SOAK_OUTPUT_INTERVAL_SECONDS=60 \
+  uv run python scripts/jupyter_long_running_soak.py
+```
+
+The soak submits one bounded SINGLE Step, emits low-frequency application heartbeats, records
+Execution and Attempt lease samples, and validates the consolidated result, Runtime-owned
+Notebook, JSON log Artifact, published Outbox events, Redis Stream delivery, terminal-event
+uniqueness, reservation release, and kernel cleanup. Step, Operation, and client deadlines are
+derived from the requested duration with safety margins. Recommended gates are five minutes,
+30 minutes, two hours, and then 24 hours. On macOS, wrap overnight runs with `caffeinate -i`.
+
+Reports are written under ignored `test-results/` paths. Change the directory with
+`LOCAL_TEST_RESULTS_DIR`.
+
+### Local validation suite
+
+Quick correctness, mixed output, and five-minute soak:
+
+```bash
+uv run python scripts/local_validation_suite.py
+```
+
+Add lifecycle and 30-execution load scenarios:
+
+```bash
+LOCAL_TEST_COMPOSE_FILES="docker-compose.yml:docker-compose.test.yml" \
+  uv run python scripts/local_validation_suite.py --full
+```
+
+Fault injection is explicit because it stops local Executor, Redis, or Jupyter processes:
+
+```bash
+LOCAL_TEST_COMPOSE_FILES="docker-compose.yml:docker-compose.test.yml" \
+  uv run python scripts/local_validation_suite.py --full --include-faults
+```
+
+The suite captures one log per phase plus `summary.json`. It always restarts the Compose Executor
+and restores Compose-internal Runtime Target endpoints after real-process scenarios, including when
+a phase fails.
 
 ### Redis pause and Outbox recovery
 

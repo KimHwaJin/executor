@@ -29,7 +29,9 @@ def upgrade() -> None:
         sa.Column("result", sa.JSON(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_command_receipts")),
-        sa.UniqueConstraint("idempotency_key", name=op.f("uq_command_receipts_idempotency_key")),
+        sa.UniqueConstraint(
+            "idempotency_key", name=op.f("uq_command_receipts_idempotency_key")
+        ),
     )
     op.create_table(
         "outbox_events",
@@ -39,19 +41,39 @@ def upgrade() -> None:
         sa.Column("event_type", sa.String(length=255), nullable=False),
         sa.Column(
             "destination",
-            sa.Enum("WORK", "EVENTS", name="outbox_destination", native_enum=False, length=32),
+            sa.Enum(
+                "WORK",
+                "EVENTS",
+                name="outbox_destination",
+                native_enum=False,
+                length=32,
+            ),
             nullable=False,
         ),
         sa.Column("payload", sa.JSON(), nullable=False),
         sa.Column(
             "created_by_type",
-            sa.Enum("AGENT", "USER", "BATCH", name="actor_type", native_enum=False, length=32),
+            sa.Enum(
+                "AGENT",
+                "USER",
+                "BATCH",
+                name="actor_type",
+                native_enum=False,
+                length=32,
+            ),
             nullable=True,
         ),
         sa.Column("created_by", sa.String(length=255), nullable=True),
         sa.Column(
             "updated_by_type",
-            sa.Enum("AGENT", "USER", "BATCH", name="actor_type", native_enum=False, length=32),
+            sa.Enum(
+                "AGENT",
+                "USER",
+                "BATCH",
+                name="actor_type",
+                native_enum=False,
+                length=32,
+            ),
             nullable=True,
         ),
         sa.Column("updated_by", sa.String(length=255), nullable=True),
@@ -59,7 +81,13 @@ def upgrade() -> None:
         sa.Column("tracestate", sa.Text(), nullable=True),
         sa.Column(
             "status",
-            sa.Enum("PENDING", "PUBLISHED", name="outbox_status", native_enum=False, length=32),
+            sa.Enum(
+                "PENDING",
+                "PUBLISHED",
+                name="outbox_status",
+                native_enum=False,
+                length=32,
+            ),
             nullable=False,
         ),
         sa.Column("attempt_count", sa.Integer(), nullable=False),
@@ -77,7 +105,8 @@ def upgrade() -> None:
             name=op.f("ck_outbox_events_valid_outbox_destination"),
         ),
         sa.CheckConstraint(
-            "status IN ('PENDING', 'PUBLISHED')", name=op.f("ck_outbox_events_valid_outbox_status")
+            "status IN ('PENDING', 'PUBLISHED')",
+            name=op.f("ck_outbox_events_valid_outbox_status"),
         ),
         sa.CheckConstraint(
             "updated_by_type IS NULL OR updated_by_type IN ('AGENT', 'USER', 'BATCH')",
@@ -94,7 +123,10 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id", name=op.f("pk_outbox_events")),
     )
     op.create_index(
-        op.f("ix_outbox_events_aggregate_id"), "outbox_events", ["aggregate_id"], unique=False
+        op.f("ix_outbox_events_aggregate_id"),
+        "outbox_events",
+        ["aggregate_id"],
+        unique=False,
     )
     op.create_index(
         "ix_outbox_execution_cursor",
@@ -103,7 +135,10 @@ def upgrade() -> None:
         unique=False,
     )
     op.create_index(
-        "ix_outbox_pending", "outbox_events", ["status", "available_at", "created_at"], unique=False
+        "ix_outbox_pending",
+        "outbox_events",
+        ["status", "available_at", "created_at"],
+        unique=False,
     )
     op.create_table(
         "runtime_target_purges",
@@ -112,7 +147,12 @@ def upgrade() -> None:
         sa.Column("target_name", sa.String(length=255), nullable=False),
         sa.Column(
             "runtime_type",
-            sa.Enum("JUPYTER", name="runtime_target_purge_type", native_enum=False, length=32),
+            sa.Enum(
+                "JUPYTER",
+                name="runtime_target_purge_type",
+                native_enum=False,
+                length=32,
+            ),
             nullable=False,
         ),
         sa.Column("connection_config", sa.JSON(), nullable=False),
@@ -131,13 +171,27 @@ def upgrade() -> None:
         sa.Column("request_fingerprint", sa.String(length=64), nullable=False),
         sa.Column(
             "created_by_type",
-            sa.Enum("AGENT", "USER", "BATCH", name="actor_type", native_enum=False, length=32),
+            sa.Enum(
+                "AGENT",
+                "USER",
+                "BATCH",
+                name="actor_type",
+                native_enum=False,
+                length=32,
+            ),
             nullable=True,
         ),
         sa.Column("created_by", sa.String(length=255), nullable=True),
         sa.Column(
             "updated_by_type",
-            sa.Enum("AGENT", "USER", "BATCH", name="actor_type", native_enum=False, length=32),
+            sa.Enum(
+                "AGENT",
+                "USER",
+                "BATCH",
+                name="actor_type",
+                native_enum=False,
+                length=32,
+            ),
             nullable=True,
         ),
         sa.Column("updated_by", sa.String(length=255), nullable=True),
@@ -148,10 +202,12 @@ def upgrade() -> None:
             name=op.f("ck_runtime_target_purges_valid_created_by_type"),
         ),
         sa.CheckConstraint(
-            "pool IN ('INTERACTIVE', 'BATCH')", name=op.f("ck_runtime_target_purges_valid_pool")
+            "pool IN ('INTERACTIVE', 'BATCH')",
+            name=op.f("ck_runtime_target_purges_valid_pool"),
         ),
         sa.CheckConstraint(
-            "runtime_type IN ('JUPYTER')", name=op.f("ck_runtime_target_purges_valid_runtime_type")
+            "runtime_type IN ('JUPYTER')",
+            name=op.f("ck_runtime_target_purges_valid_runtime_type"),
         ),
         sa.CheckConstraint(
             "updated_by_type IS NULL OR updated_by_type IN ('AGENT', 'USER', 'BATCH')",
@@ -167,9 +223,12 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_runtime_target_purges")),
         sa.UniqueConstraint(
-            "idempotency_key", name=op.f("uq_runtime_target_purges_idempotency_key")
+            "idempotency_key",
+            name=op.f("uq_runtime_target_purges_idempotency_key"),
         ),
-        sa.UniqueConstraint("target_id", name=op.f("uq_runtime_target_purges_target_id")),
+        sa.UniqueConstraint(
+            "target_id", name=op.f("uq_runtime_target_purges_target_id")
+        ),
     )
     op.create_table(
         "runtime_targets",
@@ -177,7 +236,12 @@ def upgrade() -> None:
         sa.Column("name", sa.String(length=255), nullable=False),
         sa.Column(
             "runtime_type",
-            sa.Enum("JUPYTER", name="runtime_target_type", native_enum=False, length=32),
+            sa.Enum(
+                "JUPYTER",
+                name="runtime_target_type",
+                native_enum=False,
+                length=32,
+            ),
             nullable=False,
         ),
         sa.Column("connection_config", sa.JSON(), nullable=False),
@@ -186,7 +250,11 @@ def upgrade() -> None:
         sa.Column(
             "pool",
             sa.Enum(
-                "INTERACTIVE", "BATCH", name="runtime_target_pool", native_enum=False, length=32
+                "INTERACTIVE",
+                "BATCH",
+                name="runtime_target_pool",
+                native_enum=False,
+                length=32,
             ),
             nullable=False,
         ),
@@ -205,11 +273,17 @@ def upgrade() -> None:
         sa.Column("max_concurrent_executions", sa.Integer(), nullable=False),
         sa.Column("supported_profiles", sa.JSON(), nullable=False),
         sa.Column("enabled", sa.Boolean(), nullable=False),
-        sa.Column("last_health_check_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column(
+            "last_health_check_at", sa.DateTime(timezone=True), nullable=True
+        ),
         sa.Column("last_health_error", sa.String(length=500), nullable=True),
         sa.Column("active_session_count", sa.Integer(), nullable=True),
-        sa.Column("resource_observed_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("resource_last_check_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column(
+            "resource_observed_at", sa.DateTime(timezone=True), nullable=True
+        ),
+        sa.Column(
+            "resource_last_check_at", sa.DateTime(timezone=True), nullable=True
+        ),
         sa.Column("resource_last_error", sa.String(length=500), nullable=True),
         sa.Column("resource_source", sa.String(length=64), nullable=True),
         sa.Column("resource_estimated", sa.Boolean(), nullable=True),
@@ -223,13 +297,27 @@ def upgrade() -> None:
         sa.Column("resource_errors", sa.JSON(), nullable=False),
         sa.Column(
             "created_by_type",
-            sa.Enum("AGENT", "USER", "BATCH", name="actor_type", native_enum=False, length=32),
+            sa.Enum(
+                "AGENT",
+                "USER",
+                "BATCH",
+                name="actor_type",
+                native_enum=False,
+                length=32,
+            ),
             nullable=True,
         ),
         sa.Column("created_by", sa.String(length=255), nullable=True),
         sa.Column(
             "updated_by_type",
-            sa.Enum("AGENT", "USER", "BATCH", name="actor_type", native_enum=False, length=32),
+            sa.Enum(
+                "AGENT",
+                "USER",
+                "BATCH",
+                name="actor_type",
+                native_enum=False,
+                length=32,
+            ),
             nullable=True,
         ),
         sa.Column("updated_by", sa.String(length=255), nullable=True),
@@ -240,7 +328,8 @@ def upgrade() -> None:
             name=op.f("ck_runtime_targets_valid_created_by_type"),
         ),
         sa.CheckConstraint(
-            "runtime_type IN ('JUPYTER')", name=op.f("ck_runtime_targets_valid_runtime_type")
+            "runtime_type IN ('JUPYTER')",
+            name=op.f("ck_runtime_targets_valid_runtime_type"),
         ),
         sa.CheckConstraint(
             "status IN ('ACTIVE', 'DRAINING', 'OFFLINE')",
@@ -266,7 +355,10 @@ def upgrade() -> None:
         sa.UniqueConstraint("name", name=op.f("uq_runtime_targets_name")),
     )
     op.create_index(
-        "ix_runtime_targets_created_cursor", "runtime_targets", ["created_at", "id"], unique=False
+        "ix_runtime_targets_created_cursor",
+        "runtime_targets",
+        ["created_at", "id"],
+        unique=False,
     )
     op.create_index(
         "ix_runtime_targets_pool_status",
@@ -279,7 +371,9 @@ def upgrade() -> None:
         sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column("idempotency_key", sa.String(length=255), nullable=False),
         sa.Column("request_fingerprint", sa.String(length=64), nullable=False),
-        sa.Column("cancel_idempotency_key", sa.String(length=255), nullable=True),
+        sa.Column(
+            "cancel_idempotency_key", sa.String(length=255), nullable=True
+        ),
         sa.Column(
             "status",
             sa.Enum(
@@ -300,23 +394,45 @@ def upgrade() -> None:
         ),
         sa.Column(
             "operation_mode",
-            sa.Enum("SINGLE", "MULTI", name="operation_mode", native_enum=False, length=32),
+            sa.Enum(
+                "SINGLE",
+                "MULTI",
+                name="operation_mode",
+                native_enum=False,
+                length=32,
+            ),
             nullable=False,
         ),
-        sa.Column("operation_wait_timeout_seconds", sa.Integer(), nullable=True),
+        sa.Column(
+            "operation_wait_timeout_seconds", sa.Integer(), nullable=True
+        ),
         sa.Column(
             "trigger_type",
-            sa.Enum("INTERACTIVE", "BATCH", name="trigger_type", native_enum=False, length=32),
+            sa.Enum(
+                "INTERACTIVE",
+                "BATCH",
+                name="trigger_type",
+                native_enum=False,
+                length=32,
+            ),
             nullable=False,
         ),
         sa.Column(
             "runtime_type",
-            sa.Enum("JUPYTER", name="runtime_type", native_enum=False, length=32),
+            sa.Enum(
+                "JUPYTER", name="runtime_type", native_enum=False, length=32
+            ),
             nullable=False,
         ),
         sa.Column(
             "runtime_pool",
-            sa.Enum("INTERACTIVE", "BATCH", name="runtime_pool", native_enum=False, length=32),
+            sa.Enum(
+                "INTERACTIVE",
+                "BATCH",
+                name="runtime_pool",
+                native_enum=False,
+                length=32,
+            ),
             nullable=False,
         ),
         sa.Column("runtime_profile", sa.String(length=128), nullable=False),
@@ -353,7 +469,9 @@ def upgrade() -> None:
             nullable=True,
         ),
         sa.Column("lease_owner", sa.String(length=255), nullable=True),
-        sa.Column("lease_expires_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column(
+            "lease_expires_at", sa.DateTime(timezone=True), nullable=True
+        ),
         sa.Column("heartbeat_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column(
             "retry_strategy",
@@ -368,7 +486,11 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("retry_from_sequence", sa.Integer(), nullable=True),
-        sa.Column("retained_runtime_session_until", sa.DateTime(timezone=True), nullable=True),
+        sa.Column(
+            "retained_runtime_session_until",
+            sa.DateTime(timezone=True),
+            nullable=True,
+        ),
         sa.Column("retry_count", sa.Integer(), nullable=False),
         sa.Column("recovery_count", sa.Integer(), nullable=False),
         sa.Column(
@@ -386,20 +508,40 @@ def upgrade() -> None:
         ),
         sa.Column("finalization_requested", sa.Boolean(), nullable=False),
         sa.Column("active_operation_id", sa.Uuid(), nullable=True),
-        sa.Column("operation_wait_expires_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("execution_expires_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column(
+            "operation_wait_expires_at",
+            sa.DateTime(timezone=True),
+            nullable=True,
+        ),
+        sa.Column(
+            "execution_expires_at", sa.DateTime(timezone=True), nullable=True
+        ),
         sa.Column("traceparent", sa.String(length=512), nullable=True),
         sa.Column("tracestate", sa.Text(), nullable=True),
         sa.Column("version", sa.Integer(), nullable=False),
         sa.Column(
             "created_by_type",
-            sa.Enum("AGENT", "USER", "BATCH", name="actor_type", native_enum=False, length=32),
+            sa.Enum(
+                "AGENT",
+                "USER",
+                "BATCH",
+                name="actor_type",
+                native_enum=False,
+                length=32,
+            ),
             nullable=True,
         ),
         sa.Column("created_by", sa.String(length=255), nullable=True),
         sa.Column(
             "updated_by_type",
-            sa.Enum("AGENT", "USER", "BATCH", name="actor_type", native_enum=False, length=32),
+            sa.Enum(
+                "AGENT",
+                "USER",
+                "BATCH",
+                name="actor_type",
+                native_enum=False,
+                length=32,
+            ),
             nullable=True,
         ),
         sa.Column("updated_by", sa.String(length=255), nullable=True),
@@ -420,7 +562,8 @@ def upgrade() -> None:
             name=op.f("ck_executions_valid_failure_type"),
         ),
         sa.CheckConstraint(
-            "operation_mode IN ('SINGLE', 'MULTI')", name=op.f("ck_executions_valid_operation_mode")
+            "operation_mode IN ('SINGLE', 'MULTI')",
+            name=op.f("ck_executions_valid_operation_mode"),
         ),
         sa.CheckConstraint(
             "retry_strategy IN ('NOT_RETRYABLE', 'FROM_FAILED_STEP', 'FROM_START')",
@@ -435,7 +578,8 @@ def upgrade() -> None:
             name=op.f("ck_executions_valid_runtime_session_cleanup_status"),
         ),
         sa.CheckConstraint(
-            "runtime_type IN ('JUPYTER')", name=op.f("ck_executions_valid_runtime_type")
+            "runtime_type IN ('JUPYTER')",
+            name=op.f("ck_executions_valid_runtime_type"),
         ),
         sa.CheckConstraint(
             "status IN ('QUEUED', 'DISPATCHED', 'RUNNING', 'WAITING_FOR_OPERATION', 'FINALIZING', 'CANCEL_REQUESTED', 'CANCELLED', 'SUCCEEDED', 'FAILED')",
@@ -458,9 +602,13 @@ def upgrade() -> None:
             name=op.f("ck_executions_complete_updated_by"),
         ),
         sa.CheckConstraint(
-            "recovery_count >= 0", name=op.f("ck_executions_non_negative_recovery_count")
+            "recovery_count >= 0",
+            name=op.f("ck_executions_non_negative_recovery_count"),
         ),
-        sa.CheckConstraint("retry_count >= 0", name=op.f("ck_executions_non_negative_retry_count")),
+        sa.CheckConstraint(
+            "retry_count >= 0",
+            name=op.f("ck_executions_non_negative_retry_count"),
+        ),
         sa.CheckConstraint(
             "retry_from_sequence IS NULL OR retry_from_sequence >= 0",
             name=op.f("ck_executions_non_negative_retry_from_sequence"),
@@ -472,9 +620,12 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_executions")),
         sa.UniqueConstraint(
-            "cancel_idempotency_key", name=op.f("uq_executions_cancel_idempotency_key")
+            "cancel_idempotency_key",
+            name=op.f("uq_executions_cancel_idempotency_key"),
         ),
-        sa.UniqueConstraint("idempotency_key", name=op.f("uq_executions_idempotency_key")),
+        sa.UniqueConstraint(
+            "idempotency_key", name=op.f("uq_executions_idempotency_key")
+        ),
     )
     op.create_index(
         op.f("ix_executions_active_operation_id"),
@@ -483,7 +634,10 @@ def upgrade() -> None:
         unique=False,
     )
     op.create_index(
-        "ix_executions_created_cursor", "executions", ["created_at", "id"], unique=False
+        "ix_executions_created_cursor",
+        "executions",
+        ["created_at", "id"],
+        unique=False,
     )
     op.create_index(
         op.f("ix_executions_execution_expires_at"),
@@ -492,7 +646,10 @@ def upgrade() -> None:
         unique=False,
     )
     op.create_index(
-        "ix_executions_lease", "executions", ["status", "lease_expires_at"], unique=False
+        "ix_executions_lease",
+        "executions",
+        ["status", "lease_expires_at"],
+        unique=False,
     )
     op.create_index(
         op.f("ix_executions_operation_wait_expires_at"),
@@ -513,7 +670,10 @@ def upgrade() -> None:
         unique=False,
     )
     op.create_index(
-        op.f("ix_executions_runtime_target_id"), "executions", ["runtime_target_id"], unique=False
+        op.f("ix_executions_runtime_target_id"),
+        "executions",
+        ["runtime_target_id"],
+        unique=False,
     )
     op.create_index(
         "ix_executions_session_created_cursor",
@@ -533,7 +693,9 @@ def upgrade() -> None:
         ["task_id", "created_at", "id"],
         unique=False,
     )
-    op.create_index(op.f("ix_executions_task_id"), "executions", ["task_id"], unique=False)
+    op.create_index(
+        op.f("ix_executions_task_id"), "executions", ["task_id"], unique=False
+    )
     op.create_index(
         "ix_executions_user_created_cursor",
         "executions",
@@ -547,7 +709,12 @@ def upgrade() -> None:
         sa.Column("attempt_number", sa.Integer(), nullable=False),
         sa.Column(
             "runtime_type",
-            sa.Enum("JUPYTER", name="attempt_runtime_type", native_enum=False, length=32),
+            sa.Enum(
+                "JUPYTER",
+                name="attempt_runtime_type",
+                native_enum=False,
+                length=32,
+            ),
             nullable=False,
         ),
         sa.Column("runtime_profile", sa.String(length=128), nullable=False),
@@ -568,7 +735,9 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("lease_owner", sa.String(length=255), nullable=True),
-        sa.Column("lease_expires_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column(
+            "lease_expires_at", sa.DateTime(timezone=True), nullable=True
+        ),
         sa.Column("heartbeat_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("error_message", sa.Text(), nullable=True),
         sa.Column(
@@ -618,13 +787,27 @@ def upgrade() -> None:
         ),
         sa.Column(
             "created_by_type",
-            sa.Enum("AGENT", "USER", "BATCH", name="actor_type", native_enum=False, length=32),
+            sa.Enum(
+                "AGENT",
+                "USER",
+                "BATCH",
+                name="actor_type",
+                native_enum=False,
+                length=32,
+            ),
             nullable=True,
         ),
         sa.Column("created_by", sa.String(length=255), nullable=True),
         sa.Column(
             "updated_by_type",
-            sa.Enum("AGENT", "USER", "BATCH", name="actor_type", native_enum=False, length=32),
+            sa.Enum(
+                "AGENT",
+                "USER",
+                "BATCH",
+                name="actor_type",
+                native_enum=False,
+                length=32,
+            ),
             nullable=True,
         ),
         sa.Column("updated_by", sa.String(length=255), nullable=True),
@@ -646,7 +829,9 @@ def upgrade() -> None:
         ),
         sa.CheckConstraint(
             "runtime_session_cleanup_status IN ('NOT_REQUIRED', 'PENDING', 'SUCCEEDED', 'FAILED')",
-            name=op.f("ck_execution_attempts_valid_runtime_session_cleanup_status"),
+            name=op.f(
+                "ck_execution_attempts_valid_runtime_session_cleanup_status"
+            ),
         ),
         sa.CheckConstraint(
             "runtime_type IN ('JUPYTER')",
@@ -669,7 +854,8 @@ def upgrade() -> None:
             name=op.f("ck_execution_attempts_complete_updated_by"),
         ),
         sa.CheckConstraint(
-            "attempt_number > 0", name=op.f("ck_execution_attempts_positive_attempt_number")
+            "attempt_number > 0",
+            name=op.f("ck_execution_attempts_positive_attempt_number"),
         ),
         sa.ForeignKeyConstraint(
             ["execution_id"],
@@ -680,11 +866,15 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(
             ["runtime_target_id"],
             ["runtime_targets.id"],
-            name=op.f("fk_execution_attempts_runtime_target_id_runtime_targets"),
+            name=op.f(
+                "fk_execution_attempts_runtime_target_id_runtime_targets"
+            ),
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_execution_attempts")),
         sa.UniqueConstraint(
-            "execution_id", "attempt_number", name="uq_execution_attempts_execution_attempt"
+            "execution_id",
+            "attempt_number",
+            name="uq_execution_attempts_execution_attempt",
         ),
     )
     op.create_index(
@@ -729,13 +919,27 @@ def upgrade() -> None:
         sa.Column("error_message", sa.Text(), nullable=True),
         sa.Column(
             "created_by_type",
-            sa.Enum("AGENT", "USER", "BATCH", name="actor_type", native_enum=False, length=32),
+            sa.Enum(
+                "AGENT",
+                "USER",
+                "BATCH",
+                name="actor_type",
+                native_enum=False,
+                length=32,
+            ),
             nullable=True,
         ),
         sa.Column("created_by", sa.String(length=255), nullable=True),
         sa.Column(
             "updated_by_type",
-            sa.Enum("AGENT", "USER", "BATCH", name="actor_type", native_enum=False, length=32),
+            sa.Enum(
+                "AGENT",
+                "USER",
+                "BATCH",
+                name="actor_type",
+                native_enum=False,
+                length=32,
+            ),
             nullable=True,
         ),
         sa.Column("updated_by", sa.String(length=255), nullable=True),
@@ -764,14 +968,16 @@ def upgrade() -> None:
             name=op.f("ck_execution_operations_complete_updated_by"),
         ),
         sa.CheckConstraint(
-            "first_sequence >= 0", name=op.f("ck_execution_operations_non_negative_first_sequence")
+            "first_sequence >= 0",
+            name=op.f("ck_execution_operations_non_negative_first_sequence"),
         ),
         sa.CheckConstraint(
             "last_sequence >= first_sequence",
             name=op.f("ck_execution_operations_valid_operation_sequence_range"),
         ),
         sa.CheckConstraint(
-            "operation_number > 0", name=op.f("ck_execution_operations_positive_operation_number")
+            "operation_number > 0",
+            name=op.f("ck_execution_operations_positive_operation_number"),
         ),
         sa.CheckConstraint(
             "schema_version = '1.0'",
@@ -784,7 +990,9 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(
             ["execution_attempt_id"],
             ["execution_attempts.id"],
-            name=op.f("fk_execution_operations_execution_attempt_id_execution_attempts"),
+            name=op.f(
+                "fk_execution_operations_execution_attempt_id_execution_attempts"
+            ),
         ),
         sa.ForeignKeyConstraint(
             ["execution_id"],
@@ -794,10 +1002,13 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_execution_operations")),
         sa.UniqueConstraint(
-            "execution_id", "operation_number", name="uq_operations_execution_number"
+            "execution_id",
+            "operation_number",
+            name="uq_operations_execution_number",
         ),
         sa.UniqueConstraint(
-            "idempotency_key", name=op.f("uq_execution_operations_idempotency_key")
+            "idempotency_key",
+            name=op.f("uq_execution_operations_idempotency_key"),
         ),
     )
     op.create_index(
@@ -814,7 +1025,8 @@ def upgrade() -> None:
         sa.Column("from_sequence", sa.Integer(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.CheckConstraint(
-            "from_sequence >= 0", name=op.f("ck_execution_retries_non_negative_from_sequence")
+            "from_sequence >= 0",
+            name=op.f("ck_execution_retries_non_negative_from_sequence"),
         ),
         sa.ForeignKeyConstraint(
             ["execution_id"],
@@ -823,7 +1035,10 @@ def upgrade() -> None:
             ondelete="CASCADE",
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_execution_retries")),
-        sa.UniqueConstraint("idempotency_key", name=op.f("uq_execution_retries_idempotency_key")),
+        sa.UniqueConstraint(
+            "idempotency_key",
+            name=op.f("uq_execution_retries_idempotency_key"),
+        ),
     )
     op.create_index(
         op.f("ix_execution_retries_execution_id"),
@@ -840,7 +1055,13 @@ def upgrade() -> None:
         sa.Column("code", sa.Text(), nullable=False),
         sa.Column(
             "source_type",
-            sa.Enum("INLINE", "PATH", name="step_source_type", native_enum=False, length=32),
+            sa.Enum(
+                "INLINE",
+                "PATH",
+                name="step_source_type",
+                native_enum=False,
+                length=32,
+            ),
             nullable=False,
         ),
         sa.Column("source_path", sa.Text(), nullable=True),
@@ -869,13 +1090,27 @@ def upgrade() -> None:
         sa.Column("error_message", sa.Text(), nullable=True),
         sa.Column(
             "created_by_type",
-            sa.Enum("AGENT", "USER", "BATCH", name="actor_type", native_enum=False, length=32),
+            sa.Enum(
+                "AGENT",
+                "USER",
+                "BATCH",
+                name="actor_type",
+                native_enum=False,
+                length=32,
+            ),
             nullable=True,
         ),
         sa.Column("created_by", sa.String(length=255), nullable=True),
         sa.Column(
             "updated_by_type",
-            sa.Enum("AGENT", "USER", "BATCH", name="actor_type", native_enum=False, length=32),
+            sa.Enum(
+                "AGENT",
+                "USER",
+                "BATCH",
+                name="actor_type",
+                native_enum=False,
+                length=32,
+            ),
             nullable=True,
         ),
         sa.Column("updated_by", sa.String(length=255), nullable=True),
@@ -911,7 +1146,10 @@ def upgrade() -> None:
             "(updated_by_type IS NULL) = (updated_by IS NULL)",
             name=op.f("ck_execution_steps_complete_updated_by"),
         ),
-        sa.CheckConstraint("sequence >= 0", name=op.f("ck_execution_steps_non_negative_sequence")),
+        sa.CheckConstraint(
+            "sequence >= 0",
+            name=op.f("ck_execution_steps_non_negative_sequence"),
+        ),
         sa.CheckConstraint(
             "step_timeout_seconds IS NULL OR step_timeout_seconds >= 1",
             name=op.f("ck_execution_steps_valid_step_timeout"),
@@ -930,14 +1168,22 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_execution_steps")),
         sa.UniqueConstraint(
-            "execution_id", "sequence", name="uq_execution_steps_execution_sequence"
+            "execution_id",
+            "sequence",
+            name="uq_execution_steps_execution_sequence",
         ),
     )
     op.create_index(
-        op.f("ix_execution_steps_execution_id"), "execution_steps", ["execution_id"], unique=False
+        op.f("ix_execution_steps_execution_id"),
+        "execution_steps",
+        ["execution_id"],
+        unique=False,
     )
     op.create_index(
-        op.f("ix_execution_steps_operation_id"), "execution_steps", ["operation_id"], unique=False
+        op.f("ix_execution_steps_operation_id"),
+        "execution_steps",
+        ["operation_id"],
+        unique=False,
     )
     op.create_table(
         "execution_step_attempts",
@@ -968,13 +1214,27 @@ def upgrade() -> None:
         sa.Column("error_message", sa.Text(), nullable=True),
         sa.Column(
             "created_by_type",
-            sa.Enum("AGENT", "USER", "BATCH", name="actor_type", native_enum=False, length=32),
+            sa.Enum(
+                "AGENT",
+                "USER",
+                "BATCH",
+                name="actor_type",
+                native_enum=False,
+                length=32,
+            ),
             nullable=True,
         ),
         sa.Column("created_by", sa.String(length=255), nullable=True),
         sa.Column(
             "updated_by_type",
-            sa.Enum("AGENT", "USER", "BATCH", name="actor_type", native_enum=False, length=32),
+            sa.Enum(
+                "AGENT",
+                "USER",
+                "BATCH",
+                name="actor_type",
+                native_enum=False,
+                length=32,
+            ),
             nullable=True,
         ),
         sa.Column("updated_by", sa.String(length=255), nullable=True),
@@ -1003,12 +1263,15 @@ def upgrade() -> None:
             name=op.f("ck_execution_step_attempts_complete_updated_by"),
         ),
         sa.CheckConstraint(
-            "sequence >= 0", name=op.f("ck_execution_step_attempts_non_negative_sequence")
+            "sequence >= 0",
+            name=op.f("ck_execution_step_attempts_non_negative_sequence"),
         ),
         sa.ForeignKeyConstraint(
             ["execution_attempt_id"],
             ["execution_attempts.id"],
-            name=op.f("fk_execution_step_attempts_execution_attempt_id_execution_attempts"),
+            name=op.f(
+                "fk_execution_step_attempts_execution_attempt_id_execution_attempts"
+            ),
             ondelete="CASCADE",
         ),
         sa.ForeignKeyConstraint(
@@ -1020,12 +1283,16 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(
             ["execution_step_id"],
             ["execution_steps.id"],
-            name=op.f("fk_execution_step_attempts_execution_step_id_execution_steps"),
+            name=op.f(
+                "fk_execution_step_attempts_execution_step_id_execution_steps"
+            ),
             ondelete="CASCADE",
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_execution_step_attempts")),
         sa.UniqueConstraint(
-            "execution_attempt_id", "sequence", name="uq_execution_step_attempts_attempt_sequence"
+            "execution_attempt_id",
+            "sequence",
+            name="uq_execution_step_attempts_attempt_sequence",
         ),
     )
     op.create_index(
@@ -1048,7 +1315,9 @@ def upgrade() -> None:
         sa.Column("execution_step_id", sa.Uuid(), nullable=True),
         sa.Column("execution_step_attempt_id", sa.Uuid(), nullable=True),
         sa.Column("parent_artifact_id", sa.Uuid(), nullable=True),
-        sa.Column("external_parent_asset_id", sa.String(length=255), nullable=True),
+        sa.Column(
+            "external_parent_asset_id", sa.String(length=255), nullable=True
+        ),
         sa.Column(
             "artifact_type",
             sa.Enum(
@@ -1068,7 +1337,13 @@ def upgrade() -> None:
         ),
         sa.Column(
             "storage_type",
-            sa.Enum("PV", "S3", name="artifact_storage_type", native_enum=False, length=32),
+            sa.Enum(
+                "PV",
+                "S3",
+                name="artifact_storage_type",
+                native_enum=False,
+                length=32,
+            ),
             nullable=False,
         ),
         sa.Column(
@@ -1094,13 +1369,27 @@ def upgrade() -> None:
         sa.Column("identity_hash", sa.String(length=64), nullable=False),
         sa.Column(
             "created_by_type",
-            sa.Enum("AGENT", "USER", "BATCH", name="actor_type", native_enum=False, length=32),
+            sa.Enum(
+                "AGENT",
+                "USER",
+                "BATCH",
+                name="actor_type",
+                native_enum=False,
+                length=32,
+            ),
             nullable=True,
         ),
         sa.Column("created_by", sa.String(length=255), nullable=True),
         sa.Column(
             "updated_by_type",
-            sa.Enum("AGENT", "USER", "BATCH", name="actor_type", native_enum=False, length=32),
+            sa.Enum(
+                "AGENT",
+                "USER",
+                "BATCH",
+                name="actor_type",
+                native_enum=False,
+                length=32,
+            ),
             nullable=True,
         ),
         sa.Column("updated_by", sa.String(length=255), nullable=True),
@@ -1141,7 +1430,9 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(
             ["execution_attempt_id"],
             ["execution_attempts.id"],
-            name=op.f("fk_execution_artifacts_execution_attempt_id_execution_attempts"),
+            name=op.f(
+                "fk_execution_artifacts_execution_attempt_id_execution_attempts"
+            ),
             ondelete="CASCADE",
         ),
         sa.ForeignKeyConstraint(
@@ -1153,23 +1444,31 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(
             ["execution_step_attempt_id"],
             ["execution_step_attempts.id"],
-            name=op.f("fk_execution_artifacts_execution_step_attempt_id_execution_step_attempts"),
+            name=op.f(
+                "fk_execution_artifacts_execution_step_attempt_id_execution_step_attempts"
+            ),
             ondelete="SET NULL",
         ),
         sa.ForeignKeyConstraint(
             ["execution_step_id"],
             ["execution_steps.id"],
-            name=op.f("fk_execution_artifacts_execution_step_id_execution_steps"),
+            name=op.f(
+                "fk_execution_artifacts_execution_step_id_execution_steps"
+            ),
             ondelete="SET NULL",
         ),
         sa.ForeignKeyConstraint(
             ["parent_artifact_id"],
             ["execution_artifacts.id"],
-            name=op.f("fk_execution_artifacts_parent_artifact_id_execution_artifacts"),
+            name=op.f(
+                "fk_execution_artifacts_parent_artifact_id_execution_artifacts"
+            ),
             ondelete="SET NULL",
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_execution_artifacts")),
-        sa.UniqueConstraint("identity_hash", name=op.f("uq_execution_artifacts_identity_hash")),
+        sa.UniqueConstraint(
+            "identity_hash", name=op.f("uq_execution_artifacts_identity_hash")
+        ),
     )
     op.create_index(
         "ix_execution_artifacts_execution_created",
@@ -1186,45 +1485,88 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index("ix_execution_artifacts_step", table_name="execution_artifacts")
-    op.drop_index("ix_execution_artifacts_execution_created", table_name="execution_artifacts")
+    op.drop_index(
+        "ix_execution_artifacts_step", table_name="execution_artifacts"
+    )
+    op.drop_index(
+        "ix_execution_artifacts_execution_created",
+        table_name="execution_artifacts",
+    )
     op.drop_table("execution_artifacts")
-    op.drop_index("ix_step_attempts_execution_sequence", table_name="execution_step_attempts")
+    op.drop_index(
+        "ix_step_attempts_execution_sequence",
+        table_name="execution_step_attempts",
+    )
     op.drop_index(
         op.f("ix_execution_step_attempts_execution_attempt_id"),
         table_name="execution_step_attempts",
     )
     op.drop_table("execution_step_attempts")
-    op.drop_index(op.f("ix_execution_steps_operation_id"), table_name="execution_steps")
-    op.drop_index(op.f("ix_execution_steps_execution_id"), table_name="execution_steps")
+    op.drop_index(
+        op.f("ix_execution_steps_operation_id"), table_name="execution_steps"
+    )
+    op.drop_index(
+        op.f("ix_execution_steps_execution_id"), table_name="execution_steps"
+    )
     op.drop_table("execution_steps")
-    op.drop_index(op.f("ix_execution_retries_execution_id"), table_name="execution_retries")
+    op.drop_index(
+        op.f("ix_execution_retries_execution_id"),
+        table_name="execution_retries",
+    )
     op.drop_table("execution_retries")
-    op.drop_index("ix_execution_operations_execution_number", table_name="execution_operations")
+    op.drop_index(
+        "ix_execution_operations_execution_number",
+        table_name="execution_operations",
+    )
     op.drop_table("execution_operations")
-    op.drop_index("ix_execution_attempts_target_status", table_name="execution_attempts")
-    op.drop_index("ix_execution_attempts_lease", table_name="execution_attempts")
+    op.drop_index(
+        "ix_execution_attempts_target_status", table_name="execution_attempts"
+    )
+    op.drop_index(
+        "ix_execution_attempts_lease", table_name="execution_attempts"
+    )
     op.drop_table("execution_attempts")
     op.drop_index("ix_executions_user_created_cursor", table_name="executions")
     op.drop_index(op.f("ix_executions_task_id"), table_name="executions")
     op.drop_index("ix_executions_task_created_cursor", table_name="executions")
     op.drop_index("ix_executions_status_created_at", table_name="executions")
-    op.drop_index("ix_executions_session_created_cursor", table_name="executions")
-    op.drop_index(op.f("ix_executions_runtime_target_id"), table_name="executions")
-    op.drop_index("ix_executions_retained_session_cleanup", table_name="executions")
-    op.drop_index("ix_executions_project_created_cursor", table_name="executions")
-    op.drop_index(op.f("ix_executions_operation_wait_expires_at"), table_name="executions")
+    op.drop_index(
+        "ix_executions_session_created_cursor", table_name="executions"
+    )
+    op.drop_index(
+        op.f("ix_executions_runtime_target_id"), table_name="executions"
+    )
+    op.drop_index(
+        "ix_executions_retained_session_cleanup", table_name="executions"
+    )
+    op.drop_index(
+        "ix_executions_project_created_cursor", table_name="executions"
+    )
+    op.drop_index(
+        op.f("ix_executions_operation_wait_expires_at"),
+        table_name="executions",
+    )
     op.drop_index("ix_executions_lease", table_name="executions")
-    op.drop_index(op.f("ix_executions_execution_expires_at"), table_name="executions")
+    op.drop_index(
+        op.f("ix_executions_execution_expires_at"), table_name="executions"
+    )
     op.drop_index("ix_executions_created_cursor", table_name="executions")
-    op.drop_index(op.f("ix_executions_active_operation_id"), table_name="executions")
+    op.drop_index(
+        op.f("ix_executions_active_operation_id"), table_name="executions"
+    )
     op.drop_table("executions")
-    op.drop_index("ix_runtime_targets_pool_status", table_name="runtime_targets")
-    op.drop_index("ix_runtime_targets_created_cursor", table_name="runtime_targets")
+    op.drop_index(
+        "ix_runtime_targets_pool_status", table_name="runtime_targets"
+    )
+    op.drop_index(
+        "ix_runtime_targets_created_cursor", table_name="runtime_targets"
+    )
     op.drop_table("runtime_targets")
     op.drop_table("runtime_target_purges")
     op.drop_index("ix_outbox_pending", table_name="outbox_events")
     op.drop_index("ix_outbox_execution_cursor", table_name="outbox_events")
-    op.drop_index(op.f("ix_outbox_events_aggregate_id"), table_name="outbox_events")
+    op.drop_index(
+        op.f("ix_outbox_events_aggregate_id"), table_name="outbox_events"
+    )
     op.drop_table("outbox_events")
     op.drop_table("command_receipts")

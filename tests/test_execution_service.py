@@ -42,7 +42,9 @@ from executor_service.infrastructure.db.models import (
 from executor_service.infrastructure.db.session import create_session_factory
 
 
-def submit_command(idempotency_key: str = "submit-1") -> SubmitExecutionCommand:
+def submit_command(
+    idempotency_key: str = "submit-1",
+) -> SubmitExecutionCommand:
     return SubmitExecutionCommand(
         idempotency_key=idempotency_key,
         operation_mode=OperationMode.SINGLE,
@@ -63,7 +65,9 @@ def submit_command(idempotency_key: str = "submit-1") -> SubmitExecutionCommand:
     )
 
 
-def multi_submit_command(idempotency_key: str = "multi-submit-1") -> SubmitExecutionCommand:
+def multi_submit_command(
+    idempotency_key: str = "multi-submit-1",
+) -> SubmitExecutionCommand:
     code = "value = 40"
     return replace(
         submit_command(idempotency_key),
@@ -85,11 +89,16 @@ async def test_submit_rejects_unconfigured_runtime_profile(
 ) -> None:
     with pytest.raises(UnsupportedRuntimeProfileError):
         await execution_service.submit(
-            replace(submit_command("unsupported-profile"), runtime_profile="unknown")
+            replace(
+                submit_command("unsupported-profile"),
+                runtime_profile="unknown",
+            )
         )
 
 
-async def test_submit_get_cancel_and_idempotency(execution_service: ExecutionService) -> None:
+async def test_submit_get_cancel_and_idempotency(
+    execution_service: ExecutionService,
+) -> None:
     submitted = await execution_service.submit(submit_command())
     duplicate = await execution_service.submit(submit_command())
 
@@ -169,7 +178,9 @@ async def test_batch_submit_allows_actor_to_differ_from_owning_user(
     assert submitted.created_by == "schedule-1"
 
 
-async def test_unknown_execution_is_not_found(execution_service: ExecutionService) -> None:
+async def test_unknown_execution_is_not_found(
+    execution_service: ExecutionService,
+) -> None:
     with pytest.raises(ExecutionNotFoundError, match="was not found"):
         await execution_service.get(uuid4())
 
@@ -237,7 +248,9 @@ async def test_multi_continue_rejects_stale_version(
     execution_service: ExecutionService,
     engine: AsyncEngine,
 ) -> None:
-    execution = await execution_service.submit(multi_submit_command("multi-stale"))
+    execution = await execution_service.submit(
+        multi_submit_command("multi-stale")
+    )
     session_factory = create_session_factory(engine)
     async with session_factory() as session, session.begin():
         await session.execute(
@@ -319,7 +332,9 @@ async def test_retry_resets_failed_and_later_steps_idempotently(
             .values(status=OperationStatus.FAILED, finished_at=now)
         )
 
-    command = RetryExecutionCommand(execution_id=execution.id, idempotency_key="retry-command")
+    command = RetryExecutionCommand(
+        execution_id=execution.id, idempotency_key="retry-command"
+    )
     retried = await execution_service.retry(command)
     repeated = await execution_service.retry(command)
 
@@ -334,7 +349,9 @@ async def test_retry_resets_failed_and_later_steps_idempotently(
     assert repeated.retry_count == 1
     assert retried.active_operation_id == execution.active_operation_id
     async with session_factory() as session:
-        operation = await session.get(ExecutionOperationORM, execution.active_operation_id)
+        operation = await session.get(
+            ExecutionOperationORM, execution.active_operation_id
+        )
     assert operation is not None
     assert operation.status == OperationStatus.QUEUED
     assert operation.execution_attempt_id is None
@@ -399,7 +416,10 @@ async def test_infrastructure_retry_starts_from_zero_with_a_new_kernel(
     assert retried.retry_from_sequence == 0
     assert retried.runtime_session_id is None
     assert retried.runtime_target_id is None
-    assert retried.runtime_session_cleanup_status == RuntimeSessionCleanupStatus.NOT_REQUIRED
+    assert (
+        retried.runtime_session_cleanup_status
+        == RuntimeSessionCleanupStatus.NOT_REQUIRED
+    )
     assert [step.status for step in retried.steps] == [
         StepStatus.PENDING,
         StepStatus.PENDING,
@@ -410,7 +430,9 @@ async def test_infrastructure_retry_waits_for_abandoned_runtime_session_cleanup(
     execution_service: ExecutionService,
     engine: AsyncEngine,
 ) -> None:
-    execution = await execution_service.submit(submit_command("cleanup-pending-retry-submit"))
+    execution = await execution_service.submit(
+        submit_command("cleanup-pending-retry-submit")
+    )
     now = utc_now()
     session_factory = create_session_factory(engine)
     async with session_factory() as session, session.begin():
@@ -439,7 +461,10 @@ async def test_infrastructure_retry_waits_for_abandoned_runtime_session_cleanup(
 
     unchanged = await execution_service.get(execution.id)
     assert unchanged.status == ExecutionStatus.FAILED
-    assert unchanged.runtime_session_cleanup_status == RuntimeSessionCleanupStatus.PENDING
+    assert (
+        unchanged.runtime_session_cleanup_status
+        == RuntimeSessionCleanupStatus.PENDING
+    )
 
 
 async def test_multi_execution_rejects_explicit_retry(

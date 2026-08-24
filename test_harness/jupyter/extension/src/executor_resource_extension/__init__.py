@@ -22,8 +22,12 @@ def _jupyter_server_extension_points() -> list[dict[str, str]]:
 def _load_jupyter_server_extension(server_app: Any) -> None:
     web_app = server_app.web_app
     base_url = web_app.settings.get("base_url", "/")
-    web_app.settings["executor_resource_collector"] = ResourceCollector.from_environment()
-    web_app.settings["executor_runtime_storage"] = RuntimeStorage(server_app.root_dir)
+    web_app.settings["executor_resource_collector"] = (
+        ResourceCollector.from_environment()
+    )
+    web_app.settings["executor_runtime_storage"] = RuntimeStorage(
+        server_app.root_dir
+    )
     web_app.add_handlers(
         ".*$",
         [
@@ -32,19 +36,27 @@ def _load_jupyter_server_extension(server_app: Any) -> None:
                 ResourceStatusHandler,
             ),
             (
-                url_path_join(base_url, "executor", "storage", "workspaces", "prepare"),
+                url_path_join(
+                    base_url, "executor", "storage", "workspaces", "prepare"
+                ),
                 WorkspacePrepareHandler,
             ),
             (
-                url_path_join(base_url, "executor", "storage", "artifacts", "snapshot"),
+                url_path_join(
+                    base_url, "executor", "storage", "artifacts", "snapshot"
+                ),
                 ArtifactSnapshotHandler,
             ),
             (
-                url_path_join(base_url, "executor", "storage", "files", "metadata"),
+                url_path_join(
+                    base_url, "executor", "storage", "files", "metadata"
+                ),
                 FileMetadataHandler,
             ),
             (
-                url_path_join(base_url, "executor", "storage", "manifests", "read"),
+                url_path_join(
+                    base_url, "executor", "storage", "manifests", "read"
+                ),
                 ManifestReadHandler,
             ),
         ],

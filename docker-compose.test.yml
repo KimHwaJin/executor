@@ -1,0 +1,20 @@
+services:
+  executor:
+    environment:
+      EXECUTION_MAX_RUNTIME_SECONDS: ${EXECUTION_MAX_RUNTIME_SECONDS:-604800}
+
+  jupyter:
+    cpus: ${LOCAL_TEST_JUPYTER_CPUS:-2.0}
+    mem_limit: ${LOCAL_TEST_JUPYTER_MEMORY:-4g}
+
+  jupyter-secondary:
+    cpus: ${LOCAL_TEST_JUPYTER_CPUS:-2.0}
+    mem_limit: ${LOCAL_TEST_JUPYTER_MEMORY:-4g}
+
+  jupyter-batch-primary:
+    cpus: ${LOCAL_TEST_JUPYTER_CPUS:-2.0}
+    mem_limit: ${LOCAL_TEST_JUPYTER_MEMORY:-4g}
+
+  jupyter-batch-secondary:
+    cpus: ${LOCAL_TEST_JUPYTER_CPUS:-2.0}
+    mem_limit: ${LOCAL_TEST_JUPYTER_MEMORY:-4g}

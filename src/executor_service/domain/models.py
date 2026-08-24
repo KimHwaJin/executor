@@ -129,7 +129,9 @@ class Execution:
     def request_retry(self) -> None:
         now = utc_now()
         if self.status != ExecutionStatus.FAILED:
-            raise InvalidStateTransitionError(f"Execution {self.id} must be FAILED before retry.")
+            raise InvalidStateTransitionError(
+                f"Execution {self.id} must be FAILED before retry."
+            )
         if self.operation_mode != OperationMode.SINGLE:
             raise InvalidStateTransitionError(
                 "Only SINGLE executions support explicit retry; MULTI Tool failures require "
@@ -154,7 +156,10 @@ class Execution:
                 f"Execution {self.id} has no resumable retained Runtime session."
             )
         if self.retry_strategy == RetryStrategy.FROM_START:
-            if self.runtime_session_cleanup_status == RuntimeSessionCleanupStatus.PENDING:
+            if (
+                self.runtime_session_cleanup_status
+                == RuntimeSessionCleanupStatus.PENDING
+            ):
                 raise InvalidStateTransitionError(
                     f"Execution {self.id} is still cleaning up its abandoned Runtime session."
                 )
@@ -162,9 +167,13 @@ class Execution:
             self.runtime_session_id = None
             self.runtime_target_id = None
             self.retained_runtime_session_until = None
-            self.runtime_session_cleanup_status = RuntimeSessionCleanupStatus.NOT_REQUIRED
+            self.runtime_session_cleanup_status = (
+                RuntimeSessionCleanupStatus.NOT_REQUIRED
+            )
         if self.retry_from_sequence is None:
-            raise InvalidStateTransitionError(f"Execution {self.id} has no retry start sequence.")
+            raise InvalidStateTransitionError(
+                f"Execution {self.id} has no retry start sequence."
+            )
         self.status = ExecutionStatus.QUEUED
         self.error_message = None
         self.finished_at = None
@@ -186,7 +195,9 @@ class Execution:
 
     def request_operation(self, expected_version: int) -> None:
         if self.operation_mode != OperationMode.MULTI:
-            raise InvalidStateTransitionError("Only MULTI executions accept another Operation.")
+            raise InvalidStateTransitionError(
+                "Only MULTI executions accept another Operation."
+            )
         if self.status != ExecutionStatus.WAITING_FOR_OPERATION:
             raise InvalidStateTransitionError(
                 f"Execution {self.id} must be WAITING_FOR_OPERATION before adding an Operation."
@@ -203,7 +214,9 @@ class Execution:
 
     def request_finalization(self, expected_version: int) -> None:
         if self.operation_mode != OperationMode.MULTI:
-            raise InvalidStateTransitionError("Only MULTI executions can be finalized.")
+            raise InvalidStateTransitionError(
+                "Only MULTI executions can be finalized."
+            )
         if self.status != ExecutionStatus.WAITING_FOR_OPERATION:
             raise InvalidStateTransitionError(
                 f"Execution {self.id} must be WAITING_FOR_OPERATION before finalization."

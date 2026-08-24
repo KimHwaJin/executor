@@ -7,7 +7,10 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import func, select, update
 
-from executor_service.application.commands import StepSpec, SubmitExecutionCommand
+from executor_service.application.commands import (
+    StepSpec,
+    SubmitExecutionCommand,
+)
 from executor_service.config import get_settings
 from executor_service.container import ApplicationContainer
 from executor_service.domain.enums import (
@@ -68,9 +71,16 @@ async def main() -> None:
                 ),
             )
         )
-        waiting = await _wait_for(container, submitted.id, ExecutionStatus.WAITING_FOR_OPERATION)
-        if waiting.runtime_session_id is None or waiting.runtime_target_id is None:
-            raise RuntimeError("Multi execution did not retain its assigned kernel.")
+        waiting = await _wait_for(
+            container, submitted.id, ExecutionStatus.WAITING_FOR_OPERATION
+        )
+        if (
+            waiting.runtime_session_id is None
+            or waiting.runtime_target_id is None
+        ):
+            raise RuntimeError(
+                "Multi execution did not retain its assigned kernel."
+            )
         retained_runtime_session = waiting.runtime_session_id
         server_id = waiting.runtime_target_id
 
@@ -78,10 +88,14 @@ async def main() -> None:
             await session.execute(
                 update(ExecutionORM)
                 .where(ExecutionORM.id == submitted.id)
-                .values(operation_wait_expires_at=utc_now() - timedelta(seconds=1))
+                .values(
+                    operation_wait_expires_at=utc_now() - timedelta(seconds=1)
+                )
             )
         await container.execution_worker._audit_multi_lifecycle()
-        failed = await _wait_for(container, submitted.id, ExecutionStatus.FAILED)
+        failed = await _wait_for(
+            container, submitted.id, ExecutionStatus.FAILED
+        )
         await container.execution_worker._audit_multi_lifecycle()
 
         async with container.session_factory() as session:
@@ -96,7 +110,9 @@ async def main() -> None:
             raise RuntimeError("Assigned Jupyter server history was lost.")
         endpoint = server.connection_config.get("endpoint")
         if not isinstance(endpoint, str):
-            raise RuntimeError("Assigned Jupyter Runtime Target has no endpoint.")
+            raise RuntimeError(
+                "Assigned Jupyter Runtime Target has no endpoint."
+            )
         gateway = JupyterRuntimeDriver(
             endpoint,
             container.runtime_registry.resolve_credential(
@@ -105,22 +121,30 @@ async def main() -> None:
             container.settings.jupyter_request_timeout_seconds,
         )
         try:
-            session_exists = await gateway.session_exists(retained_runtime_session)
+            session_exists = await gateway.session_exists(
+                retained_runtime_session
+            )
         finally:
             await gateway.close()
         if (
             failed.failure_type != FailureType.OPERATION_WAIT_TIMEOUT
-            or failed.runtime_session_cleanup_status != RuntimeSessionCleanupStatus.SUCCEEDED
+            or failed.runtime_session_cleanup_status
+            != RuntimeSessionCleanupStatus.SUCCEEDED
             or failed.runtime_session_id is not None
             or session_exists
             or failed_events != 1
         ):
-            raise RuntimeError(f"Multi lifecycle cleanup is incomplete: {failed}")
+            raise RuntimeError(
+                f"Multi lifecycle cleanup is incomplete: {failed}"
+            )
 
         print("execution_id:", submitted.id)
         print("retained_runtime_session:", retained_runtime_session)
         print("failure_type:", failed.failure_type.value)
-        print("runtime_session_cleanup_status:", failed.runtime_session_cleanup_status.value)
+        print(
+            "runtime_session_cleanup_status:",
+            failed.runtime_session_cleanup_status.value,
+        )
         print("failed_events:", failed_events)
         print("session_exists_after_cleanup:", session_exists)
     finally:

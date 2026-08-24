@@ -50,7 +50,9 @@ class OutboxPublisher:
 
     def start(self) -> None:
         if self._task is None:
-            self._task = asyncio.create_task(self._run(), name="outbox-publisher")
+            self._task = asyncio.create_task(
+                self._run(), name="outbox-publisher"
+            )
 
     async def stop(self) -> None:
         self._stop_event.set()
@@ -69,7 +71,8 @@ class OutboxPublisher:
             if published == 0:
                 try:
                     await asyncio.wait_for(
-                        self._stop_event.wait(), timeout=self._poll_interval_seconds
+                        self._stop_event.wait(),
+                        timeout=self._poll_interval_seconds,
                     )
                 except TimeoutError:
                     pass
@@ -93,11 +96,15 @@ class OutboxPublisher:
             for event in events:
                 try:
                     if event.destination == OutboxDestination.WORK:
-                        payload = validate_work_payload(event.event_type, event.payload)
+                        payload = validate_work_payload(
+                            event.event_type, event.payload
+                        )
                         id_field = "message_id"
                         type_field = "message_type"
                     else:
-                        payload = validate_execution_event_payload(event.event_type, event.payload)
+                        payload = validate_execution_event_payload(
+                            event.event_type, event.payload
+                        )
                         id_field = "event_id"
                         type_field = "event_type"
                     if payload != event.payload:
@@ -128,14 +135,18 @@ class OutboxPublisher:
                             "aggregate_type": event.aggregate_type,
                             "aggregate_id": str(event.aggregate_id),
                             "occurred_at": event.created_at.isoformat(),
-                            "payload": json.dumps(payload, separators=(",", ":")),
+                            "payload": json.dumps(
+                                payload, separators=(",", ":")
+                            ),
                         }
                         carrier = capture_trace_carrier()
                         if carrier.traceparent:
                             fields["traceparent"] = carrier.traceparent
                         if carrier.tracestate:
                             fields["tracestate"] = carrier.tracestate
-                        await self._redis.xadd(self._stream_names[event.destination], fields)
+                        await self._redis.xadd(
+                            self._stream_names[event.destination], fields
+                        )
                     event.status = OutboxStatus.PUBLISHED
                     event.published_at = utc_now()
                     event.last_error = None
@@ -143,8 +154,15 @@ class OutboxPublisher:
                 except Exception as exc:
                     event.attempt_count += 1
                     delay_seconds = min(2 ** min(event.attempt_count, 6), 60)
-                    event.available_at = utc_now() + timedelta(seconds=delay_seconds)
-                    event.last_error = f"{type(exc).__name__}: Redis publish failed"
-                    logger.warning("Outbox publish failed", extra={"event_id": str(event.id)})
+                    event.available_at = utc_now() + timedelta(
+                        seconds=delay_seconds
+                    )
+                    event.last_error = (
+                        f"{type(exc).__name__}: Redis publish failed"
+                    )
+                    logger.warning(
+                        "Outbox publish failed",
+                        extra={"event_id": str(event.id)},
+                    )
             await session.flush()
             return published

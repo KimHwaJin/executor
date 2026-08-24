@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 from collections.abc import AsyncIterator, Coroutine
 from pathlib import Path
 from typing import Any, cast
@@ -12,7 +13,10 @@ from redis.typing import EncodableT, FieldT
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from executor_service.application.commands import StepSpec, SubmitExecutionCommand
+from executor_service.application.commands import (
+    StepSpec,
+    SubmitExecutionCommand,
+)
 from executor_service.application.services import ExecutionService
 from executor_service.config import Settings
 from executor_service.domain.enums import (
@@ -23,25 +27,41 @@ from executor_service.domain.enums import (
     TriggerType,
 )
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
-from executor_service.infrastructure.db.models import ExecutionAttemptORM, RuntimeTargetORM
+from executor_service.infrastructure.db.models import (
+    ExecutionAttemptORM,
+    RuntimeTargetORM,
+)
 from executor_service.infrastructure.db.session import create_session_factory
-from executor_service.infrastructure.runtime_registry import RuntimeTargetRegistry
+from executor_service.infrastructure.runtime_registry import (
+    RuntimeTargetRegistry,
+)
 from executor_service.infrastructure.worker import ExecutionWorker
 from tests.runtime_credentials import runtime_credential_fields
+
+pytestmark = pytest.mark.redis
 
 
 def test_dead_letter_stream_must_be_separate() -> None:
     with pytest.raises(ValueError, match="must be distinct"):
-        Settings(redis_work_stream="same-stream", redis_event_stream="same-stream")
+        Settings(
+            redis_work_stream="same-stream", redis_event_stream="same-stream"
+        )
 
 
 @pytest_asyncio.fixture
 async def redis_client() -> AsyncIterator[Redis]:
-    client = Redis.from_url("redis://127.0.0.1:6379/15", decode_responses=True)
+    redis_url = os.getenv(
+        "EXECUTOR_REDIS_TEST_URL", "redis://127.0.0.1:6379/15"
+    )
+    client = Redis.from_url(redis_url, decode_responses=True)
     try:
         await client.ping()
-    except Exception:
+    except Exception as exc:
         await client.aclose()
+        if os.getenv("EXECUTOR_REQUIRE_REDIS_TESTS") == "1":
+            raise RuntimeError(
+                f"Required Redis integration server is unavailable: {exc}"
+            ) from exc
         pytest.skip()
     try:
         yield client
@@ -160,7 +180,9 @@ async def test_stale_pending_message_is_reclaimed_and_acked_once(
     monkeypatch.setattr(worker, "_dispatch", record_dispatch)
     try:
         await redis_client.xgroup_create(stream, group, id="0", mkstream=True)
-        await redis_client.xadd(stream, _redis_fields(_work_fields(execution_id)))
+        await redis_client.xadd(
+            stream, _redis_fields(_work_fields(execution_id))
+        )
         delivered = await redis_client.xreadgroup(
             groupname=group,
             consumername="dead-worker",
@@ -173,7 +195,9 @@ async def test_stale_pending_message_is_reclaimed_and_acked_once(
         assert await worker._recover_pending_messages() == 1
         assert await worker._recover_pending_messages() == 0
         assert dispatched == [execution_id]
-        assert await redis_client.xpending_range(stream, group, "-", "+", 10) == []
+        assert (
+            await redis_client.xpending_range(stream, group, "-", "+", 10) == []
+        )
     finally:
         await redis_client.delete(stream, dlq_stream)
 
@@ -183,7 +207,10 @@ async def test_stale_pending_message_is_reclaimed_and_acked_once(
     [
         ({"message_id": "not-a-uuid"}, "invalid_message_id"),
         ({"aggregate_type": "UnknownAggregate"}, "unsupported_aggregate_type"),
-        ({"message_type": "TOP-SECRET-event-family"}, "unsupported_message_type"),
+        (
+            {"message_type": "TOP-SECRET-event-family"},
+            "unsupported_message_type",
+        ),
         ({"schema_version": "2.0"}, "unsupported_schema_version"),
         ({"payload": "not-json"}, "invalid_work_message_contract"),
     ],
@@ -221,7 +248,9 @@ async def test_invalid_message_is_safely_dead_lettered(
         assert delivered
         await worker._process_stream_message(message_id, fields)
 
-        assert await redis_client.xpending_range(stream, group, "-", "+", 10) == []
+        assert (
+            await redis_client.xpending_range(stream, group, "-", "+", 10) == []
+        )
         dead_letters = await redis_client.xrange(dlq_stream)
         assert len(dead_letters) == 1
         _, dead_letter = dead_letters[0]

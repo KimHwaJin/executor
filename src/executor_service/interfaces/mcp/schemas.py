@@ -67,7 +67,9 @@ class ExecutionFinalizeRequest(MCPModel):
     actor: ActorInput
 
 
-class ExecutionArtifactMaterializeToolRequest(ExecutionArtifactMaterializeRequest):
+class ExecutionArtifactMaterializeToolRequest(
+    ExecutionArtifactMaterializeRequest
+):
     execution_id: UUID
 
 

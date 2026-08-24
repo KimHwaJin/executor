@@ -19,7 +19,10 @@ from sqlalchemy import select
 
 from executor_service.config import get_settings
 from executor_service.domain.enums import OutboxDestination
-from executor_service.events import EXECUTION_EVENT_SCHEMA_VERSION, ExecutionStreamEnvelope
+from executor_service.events import (
+    EXECUTION_EVENT_SCHEMA_VERSION,
+    ExecutionStreamEnvelope,
+)
 from executor_service.infrastructure.db.models import (
     ExecutionArtifactORM,
     ExecutionAttemptORM,
@@ -28,7 +31,10 @@ from executor_service.infrastructure.db.models import (
     ExecutionStepORM,
     OutboxEventORM,
 )
-from executor_service.infrastructure.db.session import create_engine, create_session_factory
+from executor_service.infrastructure.db.session import (
+    create_engine,
+    create_session_factory,
+)
 
 Transport = Literal["REST", "MCP"]
 TERMINAL_STATUSES = {"SUCCEEDED", "FAILED", "CANCELLED"}
@@ -64,7 +70,9 @@ def _enum_value(value: object) -> str:
     return str(getattr(value, "value", value))
 
 
-async def _mcp_result(client: Client, tool: str, arguments: dict[str, Any]) -> dict[str, Any]:
+async def _mcp_result(
+    client: Client, tool: str, arguments: dict[str, Any]
+) -> dict[str, Any]:
     result = await client.call_tool(tool, arguments)
     if result.is_error or result.structured_content is None:
         raise RuntimeError(f"{tool} failed: {result.content}")
@@ -83,7 +91,9 @@ async def _rest_json(
     return response.json()
 
 
-def _submission_payload(unique: str, transport: Transport, runtime_profile: str) -> dict[str, Any]:
+def _submission_payload(
+    unique: str, transport: Transport, runtime_profile: str
+) -> dict[str, Any]:
     label = transport.lower()
     user_id = f"single-observability-{label}-user"
     return execution_request(
@@ -133,7 +143,9 @@ async def _execution_get(
     rest: httpx.AsyncClient,
 ) -> dict[str, Any]:
     if transport == "MCP":
-        return await _mcp_result(mcp, "execution_get", {"execution_id": execution_id})
+        return await _mcp_result(
+            mcp, "execution_get", {"execution_id": execution_id}
+        )
     return await _rest_json(rest, "GET", f"/executions/{execution_id}")
 
 
@@ -154,7 +166,10 @@ async def _history_page(
         page = await _mcp_result(
             mcp,
             tool,
-            {"execution_id": execution_id, "limit": 500 if kind != "attempts" else 100},
+            {
+                "execution_id": execution_id,
+                "limit": 500 if kind != "attempts" else 100,
+            },
         )
     else:
         page = await _rest_json(
@@ -163,7 +178,9 @@ async def _history_page(
             f"/executions/{execution_id}/{kind}?limit={500 if kind != 'attempts' else 100}",
         )
     if page["has_more"] or page["next_cursor"] is not None:
-        raise RuntimeError(f"Unexpected pagination for observability {kind}: {page}")
+        raise RuntimeError(
+            f"Unexpected pagination for observability {kind}: {page}"
+        )
     return page["items"]
 
 
@@ -181,7 +198,9 @@ async def _execution_steps(
             {"execution_id": execution_id, "limit": 100},
         )
     else:
-        page = await _rest_json(rest, "GET", f"/executions/{execution_id}/steps?limit=100")
+        page = await _rest_json(
+            rest, "GET", f"/executions/{execution_id}/steps?limit=100"
+        )
     return page["items"]
 
 
@@ -199,7 +218,9 @@ async def _attempt_detail(
             "execution_attempt_get",
             {"execution_id": execution_id, "attempt_id": attempt_id},
         )
-    return await _rest_json(rest, "GET", f"/executions/{execution_id}/attempts/{attempt_id}")
+    return await _rest_json(
+        rest, "GET", f"/executions/{execution_id}/attempts/{attempt_id}"
+    )
 
 
 async def _attempt_steps(
@@ -214,7 +235,11 @@ async def _attempt_steps(
         page = await _mcp_result(
             mcp,
             "execution_attempt_step_list",
-            {"execution_id": execution_id, "attempt_id": attempt_id, "limit": 100},
+            {
+                "execution_id": execution_id,
+                "attempt_id": attempt_id,
+                "limit": 100,
+            },
         )
     else:
         page = await _rest_json(
@@ -236,21 +261,29 @@ async def _wait_for_terminal(
     deadline = monotonic() + timeout_seconds
     observed = ["QUEUED"]
     while monotonic() < deadline:
-        execution = await _execution_get(transport, execution_id, mcp=mcp, rest=rest)
+        execution = await _execution_get(
+            transport, execution_id, mcp=mcp, rest=rest
+        )
         status = execution["state"]["status"]
         if status != observed[-1]:
             observed.append(status)
         if status in TERMINAL_STATUSES:
             return execution, tuple(observed)
         await asyncio.sleep(0.1)
-    raise RuntimeError(f"Execution {execution_id} did not finish within {timeout_seconds}s.")
+    raise RuntimeError(
+        f"Execution {execution_id} did not finish within {timeout_seconds}s."
+    )
 
 
-async def _database_snapshot(session_factory: Any, execution_id: UUID) -> DatabaseSnapshot:
+async def _database_snapshot(
+    session_factory: Any, execution_id: UUID
+) -> DatabaseSnapshot:
     async with session_factory() as session:
         execution = await session.get(ExecutionORM, execution_id)
         if execution is None:
-            raise RuntimeError(f"Execution {execution_id} is absent from PostgreSQL.")
+            raise RuntimeError(
+                f"Execution {execution_id} is absent from PostgreSQL."
+            )
         steps = list(
             await session.scalars(
                 select(ExecutionStepORM)
@@ -276,7 +309,9 @@ async def _database_snapshot(session_factory: Any, execution_id: UUID) -> Databa
             await session.scalars(
                 select(ExecutionArtifactORM)
                 .where(ExecutionArtifactORM.execution_id == execution_id)
-                .order_by(ExecutionArtifactORM.created_at, ExecutionArtifactORM.id)
+                .order_by(
+                    ExecutionArtifactORM.created_at, ExecutionArtifactORM.id
+                )
             )
         )
         events = list(
@@ -294,12 +329,16 @@ async def _database_snapshot(session_factory: Any, execution_id: UUID) -> Databa
         execution_status=_enum_value(execution.status),
         step_statuses=tuple(_enum_value(row.status) for row in steps),
         attempt_statuses=tuple(_enum_value(row.status) for row in attempts),
-        step_attempt_statuses=tuple(_enum_value(row.status) for row in step_attempts),
+        step_attempt_statuses=tuple(
+            _enum_value(row.status) for row in step_attempts
+        ),
         artifact_names=tuple(row.name for row in artifacts),
         outbox_event_ids=frozenset(str(row.id) for row in events),
         outbox_event_types=tuple(row.event_type for row in events),
         outbox_statuses=tuple(_enum_value(row.status) for row in events),
-        outbox_schema_versions=tuple(row.payload.get("schema_version") for row in events),
+        outbox_schema_versions=tuple(
+            row.payload.get("schema_version") for row in events
+        ),
     )
 
 
@@ -309,11 +348,15 @@ async def _wait_for_published_snapshot(
     deadline = monotonic() + timeout_seconds
     snapshot = await _database_snapshot(session_factory, execution_id)
     while monotonic() < deadline:
-        if snapshot.outbox_statuses and set(snapshot.outbox_statuses) == {"PUBLISHED"}:
+        if snapshot.outbox_statuses and set(snapshot.outbox_statuses) == {
+            "PUBLISHED"
+        }:
             return snapshot
         await asyncio.sleep(0.1)
         snapshot = await _database_snapshot(session_factory, execution_id)
-    raise RuntimeError(f"Outbox events were not all PUBLISHED: {snapshot.outbox_statuses}")
+    raise RuntimeError(
+        f"Outbox events were not all PUBLISHED: {snapshot.outbox_statuses}"
+    )
 
 
 async def _redis_events(
@@ -324,25 +367,43 @@ async def _redis_events(
     scan_limit: int,
 ) -> list[dict[str, str]]:
     rows = await redis.xrevrange(stream, count=scan_limit)
-    return [fields for _, fields in rows if fields.get("aggregate_id") == execution_id]
+    return [
+        fields
+        for _, fields in rows
+        if fields.get("aggregate_id") == execution_id
+    ]
 
 
 def _assert_database(snapshot: DatabaseSnapshot) -> None:
     if snapshot.execution_status != "SUCCEEDED":
-        raise RuntimeError(f"PostgreSQL Execution status is {snapshot.execution_status}.")
+        raise RuntimeError(
+            f"PostgreSQL Execution status is {snapshot.execution_status}."
+        )
     if snapshot.step_statuses != ("SUCCEEDED", "SUCCEEDED"):
-        raise RuntimeError(f"Unexpected PostgreSQL Step states: {snapshot.step_statuses}")
+        raise RuntimeError(
+            f"Unexpected PostgreSQL Step states: {snapshot.step_statuses}"
+        )
     if snapshot.attempt_statuses != ("SUCCEEDED",):
-        raise RuntimeError(f"Expected exactly one successful Attempt: {snapshot.attempt_statuses}")
+        raise RuntimeError(
+            f"Expected exactly one successful Attempt: {snapshot.attempt_statuses}"
+        )
     if snapshot.step_attempt_statuses != ("SUCCEEDED", "SUCCEEDED"):
         raise RuntimeError(
             f"Unexpected PostgreSQL Step Attempt states: {snapshot.step_attempt_statuses}"
         )
-    required_events = {"execution.submitted", "execution.started", "execution.succeeded"}
+    required_events = {
+        "execution.submitted",
+        "execution.started",
+        "execution.succeeded",
+    }
     if not required_events.issubset(snapshot.outbox_event_types):
-        raise RuntimeError(f"Required Outbox events are missing: {snapshot.outbox_event_types}")
+        raise RuntimeError(
+            f"Required Outbox events are missing: {snapshot.outbox_event_types}"
+        )
     if set(snapshot.outbox_schema_versions) != {EXECUTION_EVENT_SCHEMA_VERSION}:
-        raise RuntimeError(f"Unexpected Outbox schema versions: {snapshot.outbox_schema_versions}")
+        raise RuntimeError(
+            f"Unexpected Outbox schema versions: {snapshot.outbox_schema_versions}"
+        )
 
 
 async def _run_case(
@@ -360,7 +421,9 @@ async def _run_case(
 ) -> CaseResult:
     payload = _submission_payload(unique, transport, runtime_profile)
     if transport == "MCP":
-        submitted = await _mcp_result(mcp, "execution_submit", {"request": payload})
+        submitted = await _mcp_result(
+            mcp, "execution_submit", {"request": payload}
+        )
     else:
         submitted = await _rest_json(rest, "POST", "/executions", json=payload)
     if submitted["state"]["status"] != "QUEUED":
@@ -377,32 +440,55 @@ async def _run_case(
     if terminal["state"]["status"] != "SUCCEEDED":
         raise RuntimeError(f"Execution did not succeed: {terminal}")
     if "RUNNING" not in observed_states:
-        raise RuntimeError(f"Execution RUNNING state was not observed: {observed_states}")
-    current_steps = await _execution_steps(transport, execution_id, mcp=mcp, rest=rest)
+        raise RuntimeError(
+            f"Execution RUNNING state was not observed: {observed_states}"
+        )
+    current_steps = await _execution_steps(
+        transport, execution_id, mcp=mcp, rest=rest
+    )
     if [step["result"]["status"] for step in current_steps] != [
         "SUCCEEDED",
         "SUCCEEDED",
     ]:
-        raise RuntimeError(f"Current Step results are not successful: {current_steps}")
+        raise RuntimeError(
+            f"Current Step results are not successful: {current_steps}"
+        )
 
-    attempts = await _history_page(transport, execution_id, "attempts", mcp=mcp, rest=rest)
+    attempts = await _history_page(
+        transport, execution_id, "attempts", mcp=mcp, rest=rest
+    )
     if len(attempts) != 1 or attempts[0]["state"]["status"] != "SUCCEEDED":
-        raise RuntimeError(f"Expected exactly one successful Attempt: {attempts}")
+        raise RuntimeError(
+            f"Expected exactly one successful Attempt: {attempts}"
+        )
     attempt_id = str(attempts[0]["attempt_id"])
-    attempt = await _attempt_detail(transport, execution_id, attempt_id, mcp=mcp, rest=rest)
-    attempt_steps = await _attempt_steps(transport, execution_id, attempt_id, mcp=mcp, rest=rest)
+    attempt = await _attempt_detail(
+        transport, execution_id, attempt_id, mcp=mcp, rest=rest
+    )
+    attempt_steps = await _attempt_steps(
+        transport, execution_id, attempt_id, mcp=mcp, rest=rest
+    )
     if [step["result"]["status"] for step in attempt_steps] != [
         "SUCCEEDED",
         "SUCCEEDED",
     ]:
-        raise RuntimeError(f"Attempt Step history is incomplete: {attempt_steps}")
+        raise RuntimeError(
+            f"Attempt Step history is incomplete: {attempt_steps}"
+        )
     runtime_session_id = attempt["runtime"]["session_id"]
     if not runtime_session_id or terminal["runtime"]["session_id"] is not None:
-        raise RuntimeError("Runtime session history or terminal cleanup state is invalid.")
+        raise RuntimeError(
+            "Runtime session history or terminal cleanup state is invalid."
+        )
 
-    artifacts = await _history_page(transport, execution_id, "artifacts", mcp=mcp, rest=rest)
+    artifacts = await _history_page(
+        transport, execution_id, "artifacts", mcp=mcp, rest=rest
+    )
     artifact_names = tuple(sorted(item["name"] for item in artifacts))
-    required_artifacts = {f"{transport.lower()}-observability.txt", "execution.ipynb"}
+    required_artifacts = {
+        f"{transport.lower()}-observability.txt",
+        "execution.ipynb",
+    }
     if not required_artifacts.issubset(artifact_names):
         raise RuntimeError(f"Required Artifacts are missing: {artifact_names}")
 
@@ -410,7 +496,9 @@ async def _run_case(
         session_factory, UUID(execution_id), timeout_seconds
     )
     _assert_database(snapshot)
-    events = await _history_page(transport, execution_id, "events", mcp=mcp, rest=rest)
+    events = await _history_page(
+        transport, execution_id, "events", mcp=mcp, rest=rest
+    )
     if set(snapshot.artifact_names) != set(artifact_names):
         raise RuntimeError(
             "Artifact API and PostgreSQL differ: "
@@ -420,9 +508,13 @@ async def _run_case(
     if event_ids != snapshot.outbox_event_ids:
         raise RuntimeError("Event API and PostgreSQL Outbox event IDs differ.")
     if any(item["delivery"]["status"] != "PUBLISHED" for item in events):
-        raise RuntimeError(f"Event API still reports an unpublished event: {events}")
+        raise RuntimeError(
+            f"Event API still reports an unpublished event: {events}"
+        )
 
-    redis_rows = await _redis_events(redis, stream, execution_id, scan_limit=scan_limit)
+    redis_rows = await _redis_events(
+        redis, stream, execution_id, scan_limit=scan_limit
+    )
     redis_event_ids = {row["event_id"] for row in redis_rows}
     if redis_event_ids != snapshot.outbox_event_ids:
         missing = snapshot.outbox_event_ids - redis_event_ids
@@ -430,8 +522,13 @@ async def _run_case(
         raise RuntimeError(
             f"Redis Stream and Outbox differ: missing={missing}, unexpected={unexpected}"
         )
-    envelopes = [ExecutionStreamEnvelope.from_redis_fields(row) for row in redis_rows]
-    if any(envelope.schema_version != EXECUTION_EVENT_SCHEMA_VERSION for envelope in envelopes):
+    envelopes = [
+        ExecutionStreamEnvelope.from_redis_fields(row) for row in redis_rows
+    ]
+    if any(
+        envelope.schema_version != EXECUTION_EVENT_SCHEMA_VERSION
+        for envelope in envelopes
+    ):
         raise RuntimeError("Redis Stream contains a non-v2 Execution event.")
 
     notebook_path = terminal["workspace"]["notebook_path"]
@@ -458,14 +555,19 @@ async def _run_case(
     )
 
 
-async def _probe_target(mcp: Client, target_id: str, unique: str) -> dict[str, Any]:
+async def _probe_target(
+    mcp: Client, target_id: str, unique: str
+) -> dict[str, Any]:
     return await _mcp_result(
         mcp,
         "runtime_target_probe",
         {
             "request": {
                 "target_id": target_id,
-                "actor": {"type": "USER", "id": f"single-observability-{unique}"},
+                "actor": {
+                    "type": "USER",
+                    "id": f"single-observability-{unique}",
+                },
             }
         },
     )
@@ -486,7 +588,9 @@ async def main() -> None:
     try:
         async with (
             Client(mcp_url) as mcp,
-            httpx.AsyncClient(base_url=f"{rest_url.rstrip('/')}/", timeout=30) as rest,
+            httpx.AsyncClient(
+                base_url=f"{rest_url.rstrip('/')}/", timeout=30
+            ) as rest,
         ):
             results = []
             for transport in ("REST", "MCP"):
@@ -506,7 +610,10 @@ async def main() -> None:
                 )
 
             target_ids = {result.target_id for result in results}
-            probes = [await _probe_target(mcp, target_id, unique) for target_id in target_ids]
+            probes = [
+                await _probe_target(mcp, target_id, unique)
+                for target_id in target_ids
+            ]
             leaked_targets = [
                 probe
                 for probe in probes
@@ -514,7 +621,9 @@ async def main() -> None:
                 or probe["capacity"]["active_session_count"] != 0
             ]
             if leaked_targets:
-                raise RuntimeError(f"Execution or Runtime session leaked: {leaked_targets}")
+                raise RuntimeError(
+                    f"Execution or Runtime session leaked: {leaked_targets}"
+                )
 
         for result in results:
             print(f"[{result.transport}]")

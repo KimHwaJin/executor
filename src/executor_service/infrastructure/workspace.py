@@ -49,9 +49,14 @@ class WorkspaceManager:
         )
 
     def load_cells(self, execution: Execution) -> list[str]:
-        cells = [step.code for step in sorted(execution.steps, key=lambda step: step.sequence)]
+        cells = [
+            step.code
+            for step in sorted(execution.steps, key=lambda step: step.sequence)
+        ]
         if not cells or any(not code.strip() for code in cells):
-            raise WorkspacePathError("ExecutionSpec contains no executable steps.")
+            raise WorkspacePathError(
+                "ExecutionSpec contains no executable steps."
+            )
         return cells
 
     def notebook_document(
@@ -77,12 +82,16 @@ class WorkspaceManager:
                 execution_count=execution_counts[index],
                 outputs=[nbformat.from_dict(output) for output in output_list],
             )
-            for index, (code, output_list) in enumerate(zip(cells, outputs, strict=True))
+            for index, (code, output_list) in enumerate(
+                zip(cells, outputs, strict=True)
+            )
         ]
         return notebook
 
 
 def _segment(value: str, label: str) -> str:
     if not SAFE_SEGMENT.fullmatch(value):
-        raise WorkspacePathError(f"{label} contains characters that are unsafe for a Runtime path.")
+        raise WorkspacePathError(
+            f"{label} contains characters that are unsafe for a Runtime path."
+        )
     return value

@@ -50,16 +50,26 @@ from executor_service.infrastructure.db.models import (
     OutboxEventORM,
     RuntimeTargetORM,
 )
-from executor_service.infrastructure.runtime_drivers import ConfiguredRuntimeDriverFactory
-from executor_service.infrastructure.runtime_registry import RuntimeTargetRegistry
-from executor_service.infrastructure.workspace import ExecutionWorkspace, WorkspaceManager
+from executor_service.infrastructure.runtime_drivers import (
+    ConfiguredRuntimeDriverFactory,
+)
+from executor_service.infrastructure.runtime_registry import (
+    RuntimeTargetRegistry,
+)
+from executor_service.infrastructure.workspace import (
+    ExecutionWorkspace,
+    WorkspaceManager,
+)
 from executor_service.result_summaries import summarize_outputs
 from executor_service.tracing import (
     TracingManager,
     capture_trace_carrier,
     extract_trace_context,
 )
-from executor_service.work_messages import WORK_MESSAGE_SCHEMA_VERSION, WorkStreamEnvelope
+from executor_service.work_messages import (
+    WORK_MESSAGE_SCHEMA_VERSION,
+    WorkStreamEnvelope,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +103,9 @@ class ExecutionWorker:
         self._redis = redis
         self._settings = settings
         self._registry = registry
-        self._driver_factory = driver_factory or ConfiguredRuntimeDriverFactory(settings)
+        self._driver_factory = driver_factory or ConfiguredRuntimeDriverFactory(
+            settings
+        )
         self._artifacts = artifact_manager
         self._tracing = tracing or TracingManager(settings)
         self._workspace = WorkspaceManager()
@@ -142,7 +154,11 @@ class ExecutionWorker:
         return "STARTING"
 
     async def start(self) -> None:
-        if not self._settings.runtime_enabled or self._admission_loops or self._maintenance_loops:
+        if (
+            not self._settings.runtime_enabled
+            or self._admission_loops
+            or self._maintenance_loops
+        ):
             return
         await self._ensure_consumer_group()
         self._stop_event.clear()
@@ -150,15 +166,21 @@ class ExecutionWorker:
         self._draining = False
         self._accepting_work = True
         self._admission_loops = [
-            asyncio.create_task(self._stream_loop(), name="execution-stream-consumer"),
+            asyncio.create_task(
+                self._stream_loop(), name="execution-stream-consumer"
+            ),
             asyncio.create_task(
                 self._pending_recovery_loop(),
                 name="execution-pending-recovery",
             ),
-            asyncio.create_task(self._reconcile_loop(), name="execution-reconciler"),
+            asyncio.create_task(
+                self._reconcile_loop(), name="execution-reconciler"
+            ),
         ]
         self._maintenance_loops = [
-            asyncio.create_task(self._lease_recovery_loop(), name="execution-lease-recovery"),
+            asyncio.create_task(
+                self._lease_recovery_loop(), name="execution-lease-recovery"
+            ),
             asyncio.create_task(
                 self._retained_runtime_session_cleanup_loop(),
                 name="retained-session-cleanup",
@@ -186,7 +208,9 @@ class ExecutionWorker:
         await self.begin_drain()
         if self._jobs:
             try:
-                async with asyncio.timeout(self._settings.execution_drain_timeout_seconds):
+                async with asyncio.timeout(
+                    self._settings.execution_drain_timeout_seconds
+                ):
                     await self._jobs_idle.wait()
             except TimeoutError:
                 logger.warning(
@@ -328,8 +352,12 @@ class ExecutionWorker:
                 {
                     "source_stream": self._settings.redis_work_stream,
                     "source_message_id": message_id,
-                    "message_id": _valid_uuid_or_empty(fields.get("message_id")),
-                    "aggregate_id": _valid_uuid_or_empty(fields.get("aggregate_id")),
+                    "message_id": _valid_uuid_or_empty(
+                        fields.get("message_id")
+                    ),
+                    "aggregate_id": _valid_uuid_or_empty(
+                        fields.get("aggregate_id")
+                    ),
                     "reason": reason,
                     "dead_lettered_at": utc_now().isoformat(),
                 },
@@ -404,7 +432,9 @@ class ExecutionWorker:
                                 replace=True,
                             )
                         else:
-                            self._dispatch(execution_id, self._run_execution(execution_id))
+                            self._dispatch(
+                                execution_id, self._run_execution(execution_id)
+                            )
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -455,19 +485,27 @@ class ExecutionWorker:
         if current is not None and not current.done():
             if replace:
                 current.cancel()
-                task = asyncio.create_task(coroutine, name=f"cancel-{execution_id}")
+                task = asyncio.create_task(
+                    coroutine, name=f"cancel-{execution_id}"
+                )
                 self._jobs[execution_id] = task
                 self._jobs_idle.clear()
-                task.add_done_callback(lambda done: self._remove_job_if_current(execution_id, done))
+                task.add_done_callback(
+                    lambda done: self._remove_job_if_current(execution_id, done)
+                )
             else:
                 coroutine.close()
             return
         task = asyncio.create_task(coroutine, name=f"execution-{execution_id}")
         self._jobs[execution_id] = task
         self._jobs_idle.clear()
-        task.add_done_callback(lambda done: self._remove_job_if_current(execution_id, done))
+        task.add_done_callback(
+            lambda done: self._remove_job_if_current(execution_id, done)
+        )
 
-    def _remove_job_if_current(self, execution_id: UUID, task: asyncio.Task[None]) -> None:
+    def _remove_job_if_current(
+        self, execution_id: UUID, task: asyncio.Task[None]
+    ) -> None:
         if self._jobs.get(execution_id) is task:
             self._jobs.pop(execution_id, None)
             if not self._jobs:
@@ -490,7 +528,9 @@ class ExecutionWorker:
     async def _execution_pool(self, execution_id: UUID) -> RuntimePool | None:
         async with self._session_factory() as session:
             return await session.scalar(
-                select(ExecutionORM.runtime_pool).where(ExecutionORM.id == execution_id)
+                select(ExecutionORM.runtime_pool).where(
+                    ExecutionORM.id == execution_id
+                )
             )
 
     @asynccontextmanager
@@ -516,7 +556,9 @@ class ExecutionWorker:
         with self._tracing.span(name, attributes=attributes):
             return await operation
 
-    async def _run_execution_impl(self, execution_id: UUID, pool: RuntimePool) -> None:
+    async def _run_execution_impl(
+        self, execution_id: UUID, pool: RuntimePool
+    ) -> None:
         async with self._pool_activity(pool):
             claimed = await self._claim(execution_id)
             if claimed is None:
@@ -532,7 +574,8 @@ class ExecutionWorker:
             try:
                 resume = (
                     execution.retry_count > 0
-                    and execution.retry_strategy == RetryStrategy.FROM_FAILED_STEP
+                    and execution.retry_strategy
+                    == RetryStrategy.FROM_FAILED_STEP
                     and execution.retry_from_sequence is not None
                     and execution.runtime_session_id is not None
                 )
@@ -571,13 +614,16 @@ class ExecutionWorker:
                     runtime_session_id = await self._trace_runtime(
                         "executor.runtime.session.start",
                         driver.start_session(
-                            execution.runtime_profile, workspace.runtime_relative_path
+                            execution.runtime_profile,
+                            workspace.runtime_relative_path,
                         ),
                         execution_id=execution.id,
                         target_id=target.id,
                     )
                 if runtime_session_id is None:
-                    raise RuntimeError("Runtime session ID was not established.")
+                    raise RuntimeError(
+                        "Runtime session ID was not established."
+                    )
                 await self._record_runtime_session(
                     execution.id,
                     attempt_id,
@@ -590,12 +636,16 @@ class ExecutionWorker:
                     name=f"heartbeat-{execution.id}",
                 )
                 all_outputs: list[list[dict[str, object]]] = [
-                    step.outputs for step in execution.steps if step.sequence < start_sequence
+                    step.outputs
+                    for step in execution.steps
+                    if step.sequence < start_sequence
                 ]
                 execution_counts: list[int | None] = [None] * len(all_outputs)
                 for sequence in range(start_sequence, len(cells)):
                     code = cells[sequence]
-                    artifact_snapshot = await self._artifacts.snapshot(driver, workspace)
+                    artifact_snapshot = await self._artifacts.snapshot(
+                        driver, workspace
+                    )
                     await self._step_started(execution.id, attempt_id, sequence)
                     try:
                         result = await self._trace_runtime(
@@ -772,10 +822,14 @@ class ExecutionWorker:
                     and runtime_session_id is not None
                     and failed_sequence is not None
                 )
-                failure_type, retry_strategy = _failure_policy(exc, retain_session)
+                failure_type, retry_strategy = _failure_policy(
+                    exc, retain_session
+                )
                 cleanup_status = RuntimeSessionCleanupStatus.NOT_REQUIRED
                 if runtime_session_id is not None and not retain_session:
-                    cleanup_status = await _best_effort_session_stop(driver, runtime_session_id)
+                    cleanup_status = await _best_effort_session_stop(
+                        driver, runtime_session_id
+                    )
                 await self._finalize(
                     execution.id,
                     attempt_id,
@@ -793,9 +847,13 @@ class ExecutionWorker:
                     await asyncio.gather(heartbeat, return_exceptions=True)
                 await driver.close()
 
-    async def _claim(self, execution_id: UUID) -> tuple[Any, RuntimeTargetORM, UUID] | None:
+    async def _claim(
+        self, execution_id: UUID
+    ) -> tuple[Any, RuntimeTargetORM, UUID] | None:
         now = utc_now()
-        lease_expires = now + timedelta(seconds=self._settings.execution_lease_seconds)
+        lease_expires = now + timedelta(
+            seconds=self._settings.execution_lease_seconds
+        )
         async with self._session_factory() as session, session.begin():
             execution_row = await session.scalar(
                 select(ExecutionORM)
@@ -816,7 +874,8 @@ class ExecutionWorker:
                 operation = await session.scalar(
                     select(ExecutionOperationORM)
                     .where(
-                        ExecutionOperationORM.id == execution_row.active_operation_id,
+                        ExecutionOperationORM.id
+                        == execution_row.active_operation_id,
                         ExecutionOperationORM.execution_id == execution_id,
                         ExecutionOperationORM.status == OperationStatus.QUEUED,
                     )
@@ -824,7 +883,10 @@ class ExecutionWorker:
                 )
                 if operation is None:
                     return None
-            elif not execution_row.finalization_requested and execution_row.retry_count == 0:
+            elif (
+                not execution_row.finalization_requested
+                and execution_row.retry_count == 0
+            ):
                 return None
             if (
                 execution_row.operation_mode == OperationMode.MULTI
@@ -841,7 +903,9 @@ class ExecutionWorker:
                 )
                 target = await session.scalar(
                     select(RuntimeTargetORM)
-                    .where(RuntimeTargetORM.id == execution_row.runtime_target_id)
+                    .where(
+                        RuntimeTargetORM.id == execution_row.runtime_target_id
+                    )
                     .with_for_update()
                 )
                 if (
@@ -851,9 +915,12 @@ class ExecutionWorker:
                     or target.status == RuntimeTargetStatus.OFFLINE
                     or target.runtime_type != execution_row.runtime_type
                     or target.pool != execution_row.runtime_pool
-                    or waiting_attempt.runtime_type != execution_row.runtime_type
-                    or waiting_attempt.runtime_profile != execution_row.runtime_profile
-                    or execution_row.runtime_profile not in target.supported_profiles
+                    or waiting_attempt.runtime_type
+                    != execution_row.runtime_type
+                    or waiting_attempt.runtime_profile
+                    != execution_row.runtime_profile
+                    or execution_row.runtime_profile
+                    not in target.supported_profiles
                 ):
                     return None
                 waiting_attempt.status = AttemptStatus.RUNNING
@@ -864,9 +931,13 @@ class ExecutionWorker:
                 execution_row.lease_owner = self._consumer_name
                 execution_row.lease_expires_at = lease_expires
                 execution_row.heartbeat_at = now
-                execution_row.execution_expires_at = execution_row.execution_expires_at or (
-                    execution_row.started_at or now
-                ) + timedelta(seconds=self._settings.execution_max_runtime_seconds)
+                execution_row.execution_expires_at = (
+                    execution_row.execution_expires_at
+                    or (execution_row.started_at or now)
+                    + timedelta(
+                        seconds=self._settings.execution_max_runtime_seconds
+                    )
+                )
                 execution_row.updated_at = now
                 execution_row.version += 1
                 if operation is not None:
@@ -883,7 +954,8 @@ class ExecutionWorker:
                 return execution_row.to_domain(), target, waiting_attempt.id
             is_resume = (
                 execution_row.retry_count > 0
-                and execution_row.retry_strategy == RetryStrategy.FROM_FAILED_STEP
+                and execution_row.retry_strategy
+                == RetryStrategy.FROM_FAILED_STEP
                 and execution_row.retry_from_sequence is not None
                 and execution_row.runtime_session_id is not None
                 and execution_row.runtime_target_id is not None
@@ -891,13 +963,16 @@ class ExecutionWorker:
             if is_resume:
                 if (
                     execution_row.retained_runtime_session_until is None
-                    or _as_utc(execution_row.retained_runtime_session_until) <= now
+                    or _as_utc(execution_row.retained_runtime_session_until)
+                    <= now
                 ):
                     # The retained-session cleanup loop owns expiry finalization and cleanup.
                     return None
                 target = await session.scalar(
                     select(RuntimeTargetORM)
-                    .where(RuntimeTargetORM.id == execution_row.runtime_target_id)
+                    .where(
+                        RuntimeTargetORM.id == execution_row.runtime_target_id
+                    )
                     .with_for_update()
                 )
                 if (
@@ -905,7 +980,8 @@ class ExecutionWorker:
                     or not target.enabled
                     or target.runtime_type != execution_row.runtime_type
                     or target.pool != execution_row.runtime_pool
-                    or execution_row.runtime_profile not in target.supported_profiles
+                    or execution_row.runtime_profile
+                    not in target.supported_profiles
                 ):
                     await self._fail_unavailable_retained_retry(
                         session,
@@ -944,13 +1020,17 @@ class ExecutionWorker:
                     lease_expires_at=lease_expires,
                     heartbeat_at=now,
                     created_by_type=(
-                        execution_row.updated_by_type or execution_row.created_by_type
+                        execution_row.updated_by_type
+                        or execution_row.created_by_type
                     ),
-                    created_by=execution_row.updated_by or execution_row.created_by,
+                    created_by=execution_row.updated_by
+                    or execution_row.created_by,
                     updated_by_type=(
-                        execution_row.updated_by_type or execution_row.created_by_type
+                        execution_row.updated_by_type
+                        or execution_row.created_by_type
                     ),
-                    updated_by=execution_row.updated_by or execution_row.created_by,
+                    updated_by=execution_row.updated_by
+                    or execution_row.created_by,
                     started_at=now,
                 )
             )
@@ -968,16 +1048,26 @@ class ExecutionWorker:
             execution_row.started_at = started_at
             execution_row.execution_expires_at = (
                 execution_row.execution_expires_at
-                or started_at + timedelta(seconds=self._settings.execution_max_runtime_seconds)
+                or started_at
+                + timedelta(
+                    seconds=self._settings.execution_max_runtime_seconds
+                )
             )
             execution_row.error_message = None
             execution_row.failure_type = None
             if not is_resume:
                 execution_row.retained_runtime_session_until = None
-            execution_row.runtime_session_cleanup_status = RuntimeSessionCleanupStatus.NOT_REQUIRED
+            execution_row.runtime_session_cleanup_status = (
+                RuntimeSessionCleanupStatus.NOT_REQUIRED
+            )
             execution_row.updated_at = now
             execution_row.version += 1
-            await _add_outbox(session, execution_id, "execution.started", ExecutionStatus.RUNNING)
+            await _add_outbox(
+                session,
+                execution_id,
+                "execution.started",
+                ExecutionStatus.RUNNING,
+            )
             return execution_row.to_domain(), target, attempt_id
 
     async def _defer_retained_retry(
@@ -990,7 +1080,9 @@ class ExecutionWorker:
         now = utc_now()
         async with self._session_factory() as session, session.begin():
             execution = await session.scalar(
-                select(ExecutionORM).where(ExecutionORM.id == execution_id).with_for_update()
+                select(ExecutionORM)
+                .where(ExecutionORM.id == execution_id)
+                .with_for_update()
             )
             attempt = await session.scalar(
                 select(ExecutionAttemptORM)
@@ -998,7 +1090,9 @@ class ExecutionWorker:
                 .with_for_update()
             )
             target = await session.scalar(
-                select(RuntimeTargetORM).where(RuntimeTargetORM.id == target_id).with_for_update()
+                select(RuntimeTargetORM)
+                .where(RuntimeTargetORM.id == target_id)
+                .with_for_update()
             )
             if (
                 execution is None
@@ -1009,9 +1103,7 @@ class ExecutionWorker:
             ):
                 return
             execution.status = ExecutionStatus.QUEUED
-            execution.error_message = (
-                "The retained Runtime Target is temporarily unavailable; waiting for recovery."
-            )
+            execution.error_message = "The retained Runtime Target is temporarily unavailable; waiting for recovery."
             execution.failure_type = FailureType.TOOL_ERROR
             execution.lease_owner = None
             execution.lease_expires_at = None
@@ -1024,13 +1116,16 @@ class ExecutionWorker:
             attempt.error_message = execution.error_message
             attempt.failure_type = FailureType.RUNTIME_UNAVAILABLE
             attempt.retry_strategy = RetryStrategy.FROM_FAILED_STEP
-            attempt.runtime_session_cleanup_status = RuntimeSessionCleanupStatus.NOT_REQUIRED
+            attempt.runtime_session_cleanup_status = (
+                RuntimeSessionCleanupStatus.NOT_REQUIRED
+            )
             attempt.finished_at = now
             if execution.active_operation_id is not None:
                 await session.execute(
                     update(ExecutionOperationORM)
                     .where(
-                        ExecutionOperationORM.id == execution.active_operation_id,
+                        ExecutionOperationORM.id
+                        == execution.active_operation_id,
                         ExecutionOperationORM.status == OperationStatus.RUNNING,
                     )
                     .values(
@@ -1078,7 +1173,9 @@ class ExecutionWorker:
         execution.retry_strategy = RetryStrategy.FROM_START
         execution.retry_from_sequence = 0
         execution.retained_runtime_session_until = None
-        execution.runtime_session_cleanup_status = RuntimeSessionCleanupStatus.FAILED
+        execution.runtime_session_cleanup_status = (
+            RuntimeSessionCleanupStatus.FAILED
+        )
         execution.version += 1
         await session.execute(
             update(ExecutionStepORM)
@@ -1132,14 +1229,19 @@ class ExecutionWorker:
             running = await session.scalar(
                 select(func.count(ExecutionAttemptORM.id)).where(
                     ExecutionAttemptORM.runtime_target_id == target.id,
-                    ExecutionAttemptORM.status.in_([AttemptStatus.RUNNING, AttemptStatus.WAITING]),
+                    ExecutionAttemptORM.status.in_(
+                        [AttemptStatus.RUNNING, AttemptStatus.WAITING]
+                    ),
                 )
             )
             retained = await session.scalar(
                 select(func.count(ExecutionORM.id)).where(
                     ExecutionORM.runtime_target_id == target.id,
-                    ExecutionORM.status.in_([ExecutionStatus.FAILED, ExecutionStatus.QUEUED]),
-                    ExecutionORM.retry_strategy == RetryStrategy.FROM_FAILED_STEP,
+                    ExecutionORM.status.in_(
+                        [ExecutionStatus.FAILED, ExecutionStatus.QUEUED]
+                    ),
+                    ExecutionORM.retry_strategy
+                    == RetryStrategy.FROM_FAILED_STEP,
                     ExecutionORM.retained_runtime_session_until > now,
                 )
             )
@@ -1159,7 +1261,8 @@ class ExecutionWorker:
                 candidate
                 for candidate in fresh_candidates
                 if candidate[0].memory_utilization is None
-                or candidate[0].memory_utilization < self._settings.runtime_memory_admission_limit
+                or candidate[0].memory_utilization
+                < self._settings.runtime_memory_admission_limit
             ]
             if not admitted:
                 return None
@@ -1174,7 +1277,9 @@ class ExecutionWorker:
             ),
         )[0]
 
-    def _has_fresh_resource_observation(self, target: RuntimeTargetORM, now: datetime) -> bool:
+    def _has_fresh_resource_observation(
+        self, target: RuntimeTargetORM, now: datetime
+    ) -> bool:
         observed_at = target.resource_observed_at
         if observed_at is None or target.resource_last_error is not None:
             return False
@@ -1195,12 +1300,17 @@ class ExecutionWorker:
             reserved / target.max_concurrent_executions,
             *(
                 value
-                for value in (target.cpu_utilization, target.memory_utilization)
+                for value in (
+                    target.cpu_utilization,
+                    target.memory_utilization,
+                )
                 if value is not None
             ),
         )
         memory = (
-            target.memory_utilization if target.memory_utilization is not None else float("inf")
+            target.memory_utilization
+            if target.memory_utilization is not None
+            else float("inf")
         )
         return pressure, memory, reserved, target.name
 
@@ -1222,7 +1332,8 @@ class ExecutionWorker:
                 runtime_session_id = await self._trace_runtime(
                     "executor.runtime.session.start",
                     driver.start_session(
-                        execution.runtime_profile, workspace.runtime_relative_path
+                        execution.runtime_profile,
+                        workspace.runtime_relative_path,
                     ),
                     execution_id=execution.id,
                     target_id=target.id,
@@ -1239,7 +1350,9 @@ class ExecutionWorker:
                 name=f"heartbeat-{execution.id}",
             )
             if execution.finalization_requested:
-                last_sequence = max((step.sequence for step in execution.steps), default=0)
+                last_sequence = max(
+                    (step.sequence for step in execution.steps), default=0
+                )
                 await self._artifacts.register_notebook(
                     driver=driver,
                     workspace=workspace,
@@ -1263,19 +1376,28 @@ class ExecutionWorker:
 
             operation_id = execution.active_operation_id
             if operation_id is None:
-                raise ValueError("Queued MULTI execution has no active Operation.")
+                raise ValueError(
+                    "Queued MULTI execution has no active Operation."
+                )
             pending_steps = [
                 step
                 for step in execution.steps
-                if step.operation_id == operation_id and step.status == StepStatus.PENDING
+                if step.operation_id == operation_id
+                and step.status == StepStatus.PENDING
             ]
             if not pending_steps:
                 raise ValueError("Queued MULTI Operation has no pending Step.")
             for pending in pending_steps:
                 if not pending.code:
-                    raise ValueError("Queued MULTI Operation contains a blank Step payload.")
-                artifact_snapshot = await self._artifacts.snapshot(driver, workspace)
-                await self._step_started(execution.id, attempt_id, pending.sequence)
+                    raise ValueError(
+                        "Queued MULTI Operation contains a blank Step payload."
+                    )
+                artifact_snapshot = await self._artifacts.snapshot(
+                    driver, workspace
+                )
+                await self._step_started(
+                    execution.id, attempt_id, pending.sequence
+                )
                 try:
                     result = await self._trace_runtime(
                         "executor.runtime.code.execute",
@@ -1303,18 +1425,28 @@ class ExecutionWorker:
                         )
                     except Exception as artifact_exc:
                         await self._record_artifact_failure(
-                            execution.id, attempt_id, pending.sequence, artifact_exc
+                            execution.id,
+                            attempt_id,
+                            pending.sequence,
+                            artifact_exc,
                         )
                     raise
                 except RuntimeExecutionError as exc:
                     await self._step_failed(
-                        execution.id, attempt_id, pending.sequence, exc.outputs, str(exc)
+                        execution.id,
+                        attempt_id,
+                        pending.sequence,
+                        exc.outputs,
+                        str(exc),
                     )
                     await self._skip_operation_steps_after(
                         execution.id, operation_id, pending.sequence
                     )
                     await self._write_multi_notebook(
-                        driver, execution.id, execution.runtime_profile, workspace
+                        driver,
+                        execution.id,
+                        execution.runtime_profile,
+                        workspace,
                     )
                     try:
                         await self._artifacts.discover_and_register(
@@ -1328,7 +1460,10 @@ class ExecutionWorker:
                         )
                     except Exception as artifact_exc:
                         await self._record_artifact_failure(
-                            execution.id, attempt_id, pending.sequence, artifact_exc
+                            execution.id,
+                            attempt_id,
+                            pending.sequence,
+                            artifact_exc,
                         )
                     await self._complete_multi_operation(
                         execution.id,
@@ -1361,7 +1496,10 @@ class ExecutionWorker:
                     )
                 except Exception as artifact_exc:
                     await self._record_artifact_failure(
-                        execution.id, attempt_id, pending.sequence, artifact_exc
+                        execution.id,
+                        attempt_id,
+                        pending.sequence,
+                        artifact_exc,
                     )
                     raise
             await self._complete_multi_operation(
@@ -1377,7 +1515,9 @@ class ExecutionWorker:
                 raise
             cleanup_status = RuntimeSessionCleanupStatus.NOT_REQUIRED
             if runtime_session_id is not None:
-                cleanup_status = await _best_effort_session_stop(driver, runtime_session_id)
+                cleanup_status = await _best_effort_session_stop(
+                    driver, runtime_session_id
+                )
             await self._finalize(
                 execution.id,
                 attempt_id,
@@ -1391,7 +1531,9 @@ class ExecutionWorker:
         except Exception as exc:
             cleanup_status = RuntimeSessionCleanupStatus.NOT_REQUIRED
             if runtime_session_id is not None:
-                cleanup_status = await _best_effort_session_stop(driver, runtime_session_id)
+                cleanup_status = await _best_effort_session_stop(
+                    driver, runtime_session_id
+                )
             await self._finalize(
                 execution.id,
                 attempt_id,
@@ -1410,9 +1552,14 @@ class ExecutionWorker:
     async def _cancellation_job_owns_terminal(self, execution_id: UUID) -> bool:
         async with self._session_factory() as session:
             status = await session.scalar(
-                select(ExecutionORM.status).where(ExecutionORM.id == execution_id)
+                select(ExecutionORM.status).where(
+                    ExecutionORM.id == execution_id
+                )
             )
-        return status in {ExecutionStatus.CANCEL_REQUESTED, ExecutionStatus.CANCELLED}
+        return status in {
+            ExecutionStatus.CANCEL_REQUESTED,
+            ExecutionStatus.CANCELLED,
+        }
 
     async def _write_multi_notebook(
         self,
@@ -1430,13 +1577,17 @@ class ExecutionWorker:
                 )
             )
         executed_steps = [
-            step for step in steps if step.status in {StepStatus.SUCCEEDED, StepStatus.FAILED}
+            step
+            for step in steps
+            if step.status in {StepStatus.SUCCEEDED, StepStatus.FAILED}
         ]
         cells = [step.code or "" for step in executed_steps]
         outputs = [step.outputs for step in executed_steps]
         # MULTI Steps execute exactly once, sequentially, on one retained session. SKIPPED
         # planned Steps never become notebook cells, so kernel history is the executed-cell order.
-        execution_counts: list[int | None] = list(range(1, len(executed_steps) + 1))
+        execution_counts: list[int | None] = list(
+            range(1, len(executed_steps) + 1)
+        )
         await driver.write_notebook(
             workspace.notebook_path,
             self._workspace.notebook_document(
@@ -1457,7 +1608,9 @@ class ExecutionWorker:
         now = utc_now()
         async with self._session_factory() as session, session.begin():
             execution = await session.scalar(
-                select(ExecutionORM).where(ExecutionORM.id == execution_id).with_for_update()
+                select(ExecutionORM)
+                .where(ExecutionORM.id == execution_id)
+                .with_for_update()
             )
             if execution is None or execution.status != ExecutionStatus.RUNNING:
                 return
@@ -1477,8 +1630,12 @@ class ExecutionWorker:
             execution.updated_at = now
             execution.finalization_requested = False
             if execution.operation_wait_timeout_seconds is None:
-                raise ValueError("MULTI execution has no Operation wait timeout.")
-            wait_deadline = now + timedelta(seconds=execution.operation_wait_timeout_seconds)
+                raise ValueError(
+                    "MULTI execution has no Operation wait timeout."
+                )
+            wait_deadline = now + timedelta(
+                seconds=execution.operation_wait_timeout_seconds
+            )
             execution.operation_wait_expires_at = min(
                 wait_deadline,
                 (
@@ -1489,7 +1646,9 @@ class ExecutionWorker:
             )
             execution.version += 1
             operation.status = operation_status
-            operation.error_message = error_message[:2000] if error_message else None
+            operation.error_message = (
+                error_message[:2000] if error_message else None
+            )
             operation.finished_at = now
             operation.updated_at = now
             await session.execute(
@@ -1512,7 +1671,11 @@ class ExecutionWorker:
                     "operation_status": operation_status.value,
                     "first_sequence": operation.first_sequence,
                     "last_sequence": operation.last_sequence,
-                    **({"failed_sequence": failed_sequence} if failed_sequence is not None else {}),
+                    **(
+                        {"failed_sequence": failed_sequence}
+                        if failed_sequence is not None
+                        else {}
+                    ),
                     "version": execution.version,
                     **(
                         {"error_message": error_message or "Operation failed."}
@@ -1546,7 +1709,9 @@ class ExecutionWorker:
                     ExecutionStepORM.sequence > failed_sequence,
                     ExecutionStepORM.status == StepStatus.PENDING,
                 )
-                .values(status=StepStatus.SKIPPED, finished_at=now, updated_at=now)
+                .values(
+                    status=StepStatus.SKIPPED, finished_at=now, updated_at=now
+                )
             )
 
     async def _ensure_steps(self, execution_id: UUID, cell_count: int) -> None:
@@ -1588,7 +1753,9 @@ class ExecutionWorker:
                 .values(runtime_session_id=runtime_session_id)
             )
 
-    async def _step_started(self, execution_id: UUID, attempt_id: UUID, sequence: int) -> None:
+    async def _step_started(
+        self, execution_id: UUID, attempt_id: UUID, sequence: int
+    ) -> None:
         now = utc_now()
         async with self._session_factory() as session, session.begin():
             step = await session.scalar(
@@ -1620,9 +1787,11 @@ class ExecutionWorker:
                         input_parameters=step.input_parameters,
                         status=StepStatus.RUNNING,
                         outputs=[],
-                        created_by_type=step.updated_by_type or step.created_by_type,
+                        created_by_type=step.updated_by_type
+                        or step.created_by_type,
                         created_by=step.updated_by or step.created_by,
-                        updated_by_type=step.updated_by_type or step.created_by_type,
+                        updated_by_type=step.updated_by_type
+                        or step.created_by_type,
                         updated_by=step.updated_by or step.created_by,
                         started_at=now,
                     )
@@ -1666,7 +1835,9 @@ class ExecutionWorker:
                 )
             )
             if step is None or step.operation_id is None:
-                raise ValueError(f"Execution Step {sequence} or its Operation was not found.")
+                raise ValueError(
+                    f"Execution Step {sequence} or its Operation was not found."
+                )
             step.status = StepStatus.SUCCEEDED
             step.outputs = outputs
             step.finished_at = now
@@ -1700,7 +1871,9 @@ class ExecutionWorker:
                         "operation_id": str(step.operation_id),
                         "step_id": str(step.id),
                     },
-                    "output_summary": summarize_outputs(outputs).model_dump(mode="json"),
+                    "output_summary": summarize_outputs(outputs).model_dump(
+                        mode="json"
+                    ),
                     "execution_count": execution_count,
                 },
             )
@@ -1722,7 +1895,9 @@ class ExecutionWorker:
                 )
             )
             if step is None or step.operation_id is None:
-                raise ValueError(f"Execution Step {sequence} or its Operation was not found.")
+                raise ValueError(
+                    f"Execution Step {sequence} or its Operation was not found."
+                )
             safe_error = error_message[:2000]
             step.status = StepStatus.FAILED
             step.outputs = outputs
@@ -1759,7 +1934,9 @@ class ExecutionWorker:
                         "operation_id": str(step.operation_id),
                         "step_id": str(step.id),
                     },
-                    "output_summary": summarize_outputs(outputs).model_dump(mode="json"),
+                    "output_summary": summarize_outputs(outputs).model_dump(
+                        mode="json"
+                    ),
                     "error_message": safe_error,
                 },
             )
@@ -1782,7 +1959,8 @@ class ExecutionWorker:
                     )
                     .join(
                         ExecutionOperationORM,
-                        ExecutionOperationORM.id == ExecutionStepORM.operation_id,
+                        ExecutionOperationORM.id
+                        == ExecutionStepORM.operation_id,
                     )
                     .where(
                         ExecutionStepORM.execution_id == execution_id,
@@ -1795,7 +1973,10 @@ class ExecutionWorker:
             timeouts.append((float(row.step_timeout_seconds), "Step"))
         if row.operation_timeout_seconds is not None:
             started_at = _as_utc(row.started_at or utc_now())
-            remaining = row.operation_timeout_seconds - (utc_now() - started_at).total_seconds()
+            remaining = (
+                row.operation_timeout_seconds
+                - (utc_now() - started_at).total_seconds()
+            )
             if remaining <= 0:
                 raise RuntimeExecutionTimeoutError(
                     "Operation", float(row.operation_timeout_seconds)
@@ -1814,7 +1995,9 @@ class ExecutionWorker:
         while True:
             await asyncio.sleep(self._settings.execution_heartbeat_seconds)
             now = utc_now()
-            lease = now + timedelta(seconds=self._settings.execution_lease_seconds)
+            lease = now + timedelta(
+                seconds=self._settings.execution_lease_seconds
+            )
             async with self._session_factory() as session, session.begin():
                 await session.execute(
                     update(ExecutionORM)
@@ -1822,7 +2005,11 @@ class ExecutionWorker:
                         ExecutionORM.id == execution_id,
                         ExecutionORM.status == ExecutionStatus.RUNNING,
                     )
-                    .values(heartbeat_at=now, lease_expires_at=lease, updated_at=now)
+                    .values(
+                        heartbeat_at=now,
+                        lease_expires_at=lease,
+                        updated_at=now,
+                    )
                 )
                 await session.execute(
                     update(ExecutionAttemptORM)
@@ -1878,7 +2065,9 @@ class ExecutionWorker:
         now = utc_now()
         async with self._session_factory() as session, session.begin():
             execution = await session.scalar(
-                select(ExecutionORM).where(ExecutionORM.id == execution_id).with_for_update()
+                select(ExecutionORM)
+                .where(ExecutionORM.id == execution_id)
+                .with_for_update()
             )
             if (
                 execution is None
@@ -1890,7 +2079,9 @@ class ExecutionWorker:
             attempt_status = AttemptStatus(status.value)
             is_failed = status == ExecutionStatus.FAILED
             effective_failure_type = failure_type if is_failed else None
-            effective_retry_strategy = retry_strategy if is_failed else RetryStrategy.NOT_RETRYABLE
+            effective_retry_strategy = (
+                retry_strategy if is_failed else RetryStrategy.NOT_RETRYABLE
+            )
             execution.status = status
             execution.error_message = error_message if is_failed else None
             execution.failure_type = effective_failure_type
@@ -1906,14 +2097,20 @@ class ExecutionWorker:
             elif effective_retry_strategy == RetryStrategy.FROM_START:
                 execution.retry_from_sequence = 0
             execution.retained_runtime_session_until = (
-                now + timedelta(seconds=self._settings.failed_session_retention_seconds)
+                now
+                + timedelta(
+                    seconds=self._settings.failed_session_retention_seconds
+                )
                 if is_failed and retain_session
                 else None
             )
-            execution.runtime_session_cleanup_status = runtime_session_cleanup_status
+            execution.runtime_session_cleanup_status = (
+                runtime_session_cleanup_status
+            )
             if (
                 not retain_session
-                and runtime_session_cleanup_status == RuntimeSessionCleanupStatus.SUCCEEDED
+                and runtime_session_cleanup_status
+                == RuntimeSessionCleanupStatus.SUCCEEDED
             ):
                 execution.runtime_session_id = None
             execution.version += 1
@@ -1933,7 +2130,8 @@ class ExecutionWorker:
                 operation_update = await session.execute(
                     update(ExecutionOperationORM)
                     .where(
-                        ExecutionOperationORM.id == execution.active_operation_id,
+                        ExecutionOperationORM.id
+                        == execution.active_operation_id,
                         ExecutionOperationORM.status.in_(
                             [OperationStatus.QUEUED, OperationStatus.RUNNING]
                         ),
@@ -1952,10 +2150,16 @@ class ExecutionWorker:
                 )
                 operation = await session.scalar(
                     select(ExecutionOperationORM)
-                    .where(ExecutionOperationORM.id == execution.active_operation_id)
+                    .where(
+                        ExecutionOperationORM.id
+                        == execution.active_operation_id
+                    )
                     .execution_options(populate_existing=True)
                 )
-                if operation is not None and getattr(operation_update, "rowcount", None) == 1:
+                if (
+                    operation is not None
+                    and getattr(operation_update, "rowcount", None) == 1
+                ):
                     operation_payload: dict[str, object] = {
                         "execution_attempt_id": str(attempt_id),
                         "operation_id": str(operation.id),
@@ -1969,8 +2173,12 @@ class ExecutionWorker:
                         "version": execution.version,
                     }
                     if status == ExecutionStatus.FAILED:
-                        operation_payload["failed_sequence"] = retry_from_sequence
-                        operation_payload["error_message"] = error_message or "Operation failed."
+                        operation_payload["failed_sequence"] = (
+                            retry_from_sequence
+                        )
+                        operation_payload["error_message"] = (
+                            error_message or "Operation failed."
+                        )
                     await _add_outbox(
                         session,
                         execution_id,
@@ -2002,12 +2210,17 @@ class ExecutionWorker:
                         ExecutionStepORM.execution_id == execution_id,
                         ExecutionStepORM.status == StepStatus.PENDING,
                     )
-                    .values(status=StepStatus.SKIPPED, finished_at=now, updated_at=now)
+                    .values(
+                        status=StepStatus.SKIPPED,
+                        finished_at=now,
+                        updated_at=now,
+                    )
                 )
                 await session.execute(
                     update(ExecutionStepAttemptORM)
                     .where(
-                        ExecutionStepAttemptORM.execution_attempt_id == attempt_id,
+                        ExecutionStepAttemptORM.execution_attempt_id
+                        == attempt_id,
                         ExecutionStepAttemptORM.status == StepStatus.RUNNING,
                     )
                     .values(
@@ -2023,7 +2236,9 @@ class ExecutionWorker:
                 status,
                 {
                     "failure_type": (
-                        effective_failure_type.value if effective_failure_type else None
+                        effective_failure_type.value
+                        if effective_failure_type
+                        else None
                     ),
                     "retry_strategy": effective_retry_strategy.value,
                     "retry_from_sequence": execution.retry_from_sequence,
@@ -2037,15 +2252,22 @@ class ExecutionWorker:
         cleanup_status = RuntimeSessionCleanupStatus.NOT_REQUIRED
         async with self._session_factory() as session:
             execution = await session.get(ExecutionORM, execution_id)
-            if execution is None or execution.status != ExecutionStatus.CANCEL_REQUESTED:
+            if (
+                execution is None
+                or execution.status != ExecutionStatus.CANCEL_REQUESTED
+            ):
                 return
             runtime_session_id = execution.runtime_session_id
             if execution.runtime_target_id is not None:
-                target = await session.get(RuntimeTargetORM, execution.runtime_target_id)
+                target = await session.get(
+                    RuntimeTargetORM, execution.runtime_target_id
+                )
         if target is not None and runtime_session_id is not None:
             driver = self._create_driver(target)
             try:
-                cleanup_status = await _best_effort_session_stop(driver, runtime_session_id)
+                cleanup_status = await _best_effort_session_stop(
+                    driver, runtime_session_id
+                )
             finally:
                 await driver.close()
         elif runtime_session_id is not None:
@@ -2053,9 +2275,14 @@ class ExecutionWorker:
         now = utc_now()
         async with self._session_factory() as session, session.begin():
             execution = await session.scalar(
-                select(ExecutionORM).where(ExecutionORM.id == execution_id).with_for_update()
+                select(ExecutionORM)
+                .where(ExecutionORM.id == execution_id)
+                .with_for_update()
             )
-            if execution is None or execution.status != ExecutionStatus.CANCEL_REQUESTED:
+            if (
+                execution is None
+                or execution.status != ExecutionStatus.CANCEL_REQUESTED
+            ):
                 return
             execution.status = ExecutionStatus.CANCELLED
             execution.finished_at = now
@@ -2075,7 +2302,9 @@ class ExecutionWorker:
                 update(ExecutionAttemptORM)
                 .where(
                     ExecutionAttemptORM.execution_id == execution_id,
-                    ExecutionAttemptORM.status.in_([AttemptStatus.RUNNING, AttemptStatus.WAITING]),
+                    ExecutionAttemptORM.status.in_(
+                        [AttemptStatus.RUNNING, AttemptStatus.WAITING]
+                    ),
                 )
                 .values(
                     status=AttemptStatus.CANCELLED,
@@ -2089,9 +2318,15 @@ class ExecutionWorker:
                 update(ExecutionStepORM)
                 .where(
                     ExecutionStepORM.execution_id == execution_id,
-                    ExecutionStepORM.status.in_([StepStatus.PENDING, StepStatus.RUNNING]),
+                    ExecutionStepORM.status.in_(
+                        [StepStatus.PENDING, StepStatus.RUNNING]
+                    ),
                 )
-                .values(status=StepStatus.CANCELLED, finished_at=now, updated_at=now)
+                .values(
+                    status=StepStatus.CANCELLED,
+                    finished_at=now,
+                    updated_at=now,
+                )
             )
             await session.execute(
                 update(ExecutionOperationORM)
@@ -2101,7 +2336,11 @@ class ExecutionWorker:
                         [OperationStatus.QUEUED, OperationStatus.RUNNING]
                     ),
                 )
-                .values(status=OperationStatus.CANCELLED, finished_at=now, updated_at=now)
+                .values(
+                    status=OperationStatus.CANCELLED,
+                    finished_at=now,
+                    updated_at=now,
+                )
             )
             await session.execute(
                 update(ExecutionStepAttemptORM)
@@ -2132,7 +2371,8 @@ class ExecutionWorker:
                     )
                     .where(
                         ExecutionORM.operation_mode == OperationMode.MULTI,
-                        ExecutionORM.status == ExecutionStatus.WAITING_FOR_OPERATION,
+                        ExecutionORM.status
+                        == ExecutionStatus.WAITING_FOR_OPERATION,
                     )
                     .order_by(ExecutionORM.updated_at)
                     .limit(200)
@@ -2179,7 +2419,9 @@ class ExecutionWorker:
                 continue
             driver = self._create_driver(target)
             try:
-                session_exists = await driver.session_exists(execution.runtime_session_id)
+                session_exists = await driver.session_exists(
+                    execution.runtime_session_id
+                )
             except RuntimeDriverError:
                 # OFFLINE can be temporary. The persisted deadlines remain the terminal guard.
                 continue
@@ -2201,7 +2443,9 @@ class ExecutionWorker:
                 await session.scalars(
                     select(ExecutionORM)
                     .where(
-                        ExecutionORM.status.in_([ExecutionStatus.QUEUED, ExecutionStatus.RUNNING]),
+                        ExecutionORM.status.in_(
+                            [ExecutionStatus.QUEUED, ExecutionStatus.RUNNING]
+                        ),
                         ExecutionORM.execution_expires_at.is_not(None),
                         ExecutionORM.execution_expires_at <= now,
                     )
@@ -2210,7 +2454,9 @@ class ExecutionWorker:
             )
             for execution in expired:
                 execution.status = ExecutionStatus.CANCEL_REQUESTED
-                execution.cancellation_reason = "Execution exceeded its maximum runtime."
+                execution.cancellation_reason = (
+                    "Execution exceeded its maximum runtime."
+                )
                 execution.operation_wait_expires_at = None
                 execution.updated_at = now
                 execution.version += 1
@@ -2240,7 +2486,9 @@ class ExecutionWorker:
         cleanup_target: tuple[UUID, UUID | None, UUID, str] | None = None
         async with self._session_factory() as session, session.begin():
             execution = await session.scalar(
-                select(ExecutionORM).where(ExecutionORM.id == execution_id).with_for_update()
+                select(ExecutionORM)
+                .where(ExecutionORM.id == execution_id)
+                .with_for_update()
             )
             if (
                 execution is None
@@ -2292,8 +2540,13 @@ class ExecutionWorker:
                 attempt.runtime_session_cleanup_status = cleanup_status
                 attempt.finished_at = now
             if cleanup_required:
-                if execution.runtime_target_id is None or expected_runtime_session_id is None:
-                    raise RuntimeError("Retained Runtime cleanup target unexpectedly missing.")
+                if (
+                    execution.runtime_target_id is None
+                    or expected_runtime_session_id is None
+                ):
+                    raise RuntimeError(
+                        "Retained Runtime cleanup target unexpectedly missing."
+                    )
                 cleanup_target = (
                     execution.id,
                     attempt.id if attempt is not None else None,
@@ -2357,7 +2610,9 @@ class ExecutionWorker:
                         )
                     )
                 execution.status = ExecutionStatus.FAILED
-                execution.error_message = "Worker lease expired; execution requires retry."
+                execution.error_message = (
+                    "Worker lease expired; execution requires retry."
+                )
                 execution.failure_type = FailureType.LEASE_EXPIRED
                 execution.finished_at = now
                 execution.updated_at = now
@@ -2371,7 +2626,8 @@ class ExecutionWorker:
                 execution.recovery_count += 1
                 execution.runtime_session_cleanup_status = (
                     RuntimeSessionCleanupStatus.PENDING
-                    if cleanup_targets and cleanup_targets[-1][0] == execution.id
+                    if cleanup_targets
+                    and cleanup_targets[-1][0] == execution.id
                     else RuntimeSessionCleanupStatus.NOT_REQUIRED
                 )
                 execution.version += 1
@@ -2421,15 +2677,23 @@ class ExecutionWorker:
                         ExecutionStepORM.execution_id == execution.id,
                         ExecutionStepORM.status == StepStatus.PENDING,
                     )
-                    .values(status=StepStatus.SKIPPED, finished_at=now, updated_at=now)
+                    .values(
+                        status=StepStatus.SKIPPED,
+                        finished_at=now,
+                        updated_at=now,
+                    )
                 )
                 if execution.active_operation_id is not None:
                     operation = await session.scalar(
                         select(ExecutionOperationORM)
                         .where(
-                            ExecutionOperationORM.id == execution.active_operation_id,
+                            ExecutionOperationORM.id
+                            == execution.active_operation_id,
                             ExecutionOperationORM.status.in_(
-                                [OperationStatus.QUEUED, OperationStatus.RUNNING]
+                                [
+                                    OperationStatus.QUEUED,
+                                    OperationStatus.RUNNING,
+                                ]
                             ),
                         )
                         .with_for_update()
@@ -2449,7 +2713,8 @@ class ExecutionWorker:
                             {
                                 "execution_attempt_id": (
                                     str(operation.execution_attempt_id)
-                                    if operation.execution_attempt_id is not None
+                                    if operation.execution_attempt_id
+                                    is not None
                                     else None
                                 ),
                                 "operation_id": str(operation.id),
@@ -2476,7 +2741,12 @@ class ExecutionWorker:
                         "recovery_count": execution.recovery_count,
                     },
                 )
-        for execution_id, attempt_id, target_id, runtime_session_id in cleanup_targets:
+        for (
+            execution_id,
+            attempt_id,
+            target_id,
+            runtime_session_id,
+        ) in cleanup_targets:
             await self._cleanup_abandoned_session(
                 execution_id, attempt_id, target_id, runtime_session_id
             )
@@ -2492,7 +2762,10 @@ class ExecutionWorker:
             target = await session.get(RuntimeTargetORM, target_id)
         if target is None:
             await self._record_cleanup_result(
-                execution_id, attempt_id, runtime_session_id, RuntimeSessionCleanupStatus.FAILED
+                execution_id,
+                attempt_id,
+                runtime_session_id,
+                RuntimeSessionCleanupStatus.FAILED,
             )
             return
         driver = self._create_driver(target)
@@ -2530,7 +2803,8 @@ class ExecutionWorker:
                 .values(
                     runtime_session_id=(
                         None
-                        if cleanup_status == RuntimeSessionCleanupStatus.SUCCEEDED
+                        if cleanup_status
+                        == RuntimeSessionCleanupStatus.SUCCEEDED
                         else runtime_session_id
                     ),
                     runtime_session_cleanup_status=cleanup_status,
@@ -2550,7 +2824,8 @@ class ExecutionWorker:
                     execution_id,
                     (
                         "execution.runtime_session_cleanup_completed"
-                        if cleanup_status == RuntimeSessionCleanupStatus.SUCCEEDED
+                        if cleanup_status
+                        == RuntimeSessionCleanupStatus.SUCCEEDED
                         else "execution.runtime_session_cleanup_failed"
                     ),
                     ExecutionStatus.FAILED,
@@ -2568,8 +2843,11 @@ class ExecutionWorker:
                         RuntimeTargetORM.id == ExecutionORM.runtime_target_id,
                     )
                     .where(
-                        ExecutionORM.status.in_([ExecutionStatus.FAILED, ExecutionStatus.QUEUED]),
-                        ExecutionORM.retry_strategy == RetryStrategy.FROM_FAILED_STEP,
+                        ExecutionORM.status.in_(
+                            [ExecutionStatus.FAILED, ExecutionStatus.QUEUED]
+                        ),
+                        ExecutionORM.retry_strategy
+                        == RetryStrategy.FROM_FAILED_STEP,
                         ExecutionORM.retained_runtime_session_until <= now,
                         ExecutionORM.runtime_session_id.is_not(None),
                     )
@@ -2589,13 +2867,19 @@ class ExecutionWorker:
                 )
             finally:
                 await driver.close()
-            async with self._session_factory() as update_session, update_session.begin():
+            async with (
+                self._session_factory() as update_session,
+                update_session.begin(),
+            ):
                 current = await update_session.scalar(
-                    select(ExecutionORM).where(ExecutionORM.id == execution.id).with_for_update()
+                    select(ExecutionORM)
+                    .where(ExecutionORM.id == execution.id)
+                    .with_for_update()
                 )
                 if (
                     current is None
-                    or current.status not in {ExecutionStatus.FAILED, ExecutionStatus.QUEUED}
+                    or current.status
+                    not in {ExecutionStatus.FAILED, ExecutionStatus.QUEUED}
                     or current.retry_strategy != RetryStrategy.FROM_FAILED_STEP
                     or current.retained_runtime_session_until is None
                     or _as_utc(current.retained_runtime_session_until) > now
@@ -2615,7 +2899,11 @@ class ExecutionWorker:
                             ExecutionStepORM.execution_id == current.id,
                             ExecutionStepORM.status == StepStatus.PENDING,
                         )
-                        .values(status=StepStatus.SKIPPED, finished_at=now, updated_at=now)
+                        .values(
+                            status=StepStatus.SKIPPED,
+                            finished_at=now,
+                            updated_at=now,
+                        )
                     )
                 current.retry_strategy = RetryStrategy.NOT_RETRYABLE
                 current.retry_from_sequence = None
@@ -2669,7 +2957,9 @@ class ExecutionWorker:
             select(ExecutionOperationORM)
             .where(
                 ExecutionOperationORM.id == execution.active_operation_id,
-                ExecutionOperationORM.status.in_([OperationStatus.QUEUED, OperationStatus.RUNNING]),
+                ExecutionOperationORM.status.in_(
+                    [OperationStatus.QUEUED, OperationStatus.RUNNING]
+                ),
             )
             .with_for_update()
         )
@@ -2725,7 +3015,10 @@ async def _add_outbox(
     }
     if details:
         payload.update(details)
-    if event_type in {"execution.operation_succeeded", "execution.operation_failed"}:
+    if event_type in {
+        "execution.operation_succeeded",
+        "execution.operation_failed",
+    }:
         operation_id = payload.get("operation_id")
         payload["result_available"] = True
         payload["result_ref"] = {
@@ -2798,15 +3091,21 @@ def _valid_uuid_or_empty(value: str | None) -> str:
         return ""
 
 
-def _failure_policy(exc: Exception, retain_session: bool) -> tuple[FailureType, RetryStrategy]:
+def _failure_policy(
+    exc: Exception, retain_session: bool
+) -> tuple[FailureType, RetryStrategy]:
     if isinstance(exc, RetainedRuntimeSessionLostError):
         return FailureType.RUNTIME_SESSION_LOST, RetryStrategy.FROM_START
     if isinstance(exc, RuntimeExecutionTimeoutError):
         failure_type = (
-            FailureType.STEP_TIMEOUT if exc.scope == "Step" else FailureType.OPERATION_TIMEOUT
+            FailureType.STEP_TIMEOUT
+            if exc.scope == "Step"
+            else FailureType.OPERATION_TIMEOUT
         )
         retry_strategy = (
-            RetryStrategy.FROM_FAILED_STEP if retain_session else RetryStrategy.FROM_START
+            RetryStrategy.FROM_FAILED_STEP
+            if retain_session
+            else RetryStrategy.FROM_START
         )
         return failure_type, retry_strategy
     if isinstance(exc, RuntimeExecutionError) and retain_session:
@@ -2830,7 +3129,8 @@ async def _best_effort_session_stop(
         await driver.delete_session(runtime_session_id)
     except Exception:
         logger.warning(
-            "Runtime session cleanup failed", extra={"runtime_session_id": runtime_session_id}
+            "Runtime session cleanup failed",
+            extra={"runtime_session_id": runtime_session_id},
         )
         return RuntimeSessionCleanupStatus.FAILED
     return RuntimeSessionCleanupStatus.SUCCEEDED

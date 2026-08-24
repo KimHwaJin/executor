@@ -7,7 +7,11 @@ from uuid import UUID
 from fastapi import APIRouter, Query
 
 from executor_service.container import ApplicationContainer
-from executor_service.domain.enums import RuntimePool, RuntimeTargetStatus, RuntimeType
+from executor_service.domain.enums import (
+    RuntimePool,
+    RuntimeTargetStatus,
+    RuntimeType,
+)
 from executor_service.interfaces.contracts import (
     RuntimePoolPageResponse,
     RuntimePoolResponse,
@@ -28,7 +32,10 @@ FleetLimit = Annotated[int, Query(ge=1, le=200)]
 Cursor = Annotated[str | None, Query(max_length=2048)]
 
 FLEET_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
-    400: {"model": ErrorResponse, "description": "Invalid fleet configuration"},
+    400: {
+        "model": ErrorResponse,
+        "description": "Invalid fleet configuration",
+    },
     404: {"model": ErrorResponse, "description": "Runtime Target not found"},
     409: {
         "model": ErrorResponse,
@@ -79,7 +86,9 @@ def build_runtime_target_router(container: ApplicationContainer) -> APIRouter:
     async def list_runtime_targets(
         pool: RuntimePool | None = None,
         runtime_type: RuntimeType | None = None,
-        target_status: Annotated[RuntimeTargetStatus | None, Query(alias="status")] = None,
+        target_status: Annotated[
+            RuntimeTargetStatus | None, Query(alias="status")
+        ] = None,
         enabled: bool | None = None,
         cursor: Cursor = None,
         limit: FleetLimit = 100,
@@ -153,7 +162,11 @@ def build_runtime_target_router(container: ApplicationContainer) -> APIRouter:
         view = await _trace_call(
             tracing,
             "executor.http.runtime_target_drain",
-            registry.set_state(request.to_state_command(target_id, RuntimeTargetStatus.DRAINING)),
+            registry.set_state(
+                request.to_state_command(
+                    target_id, RuntimeTargetStatus.DRAINING
+                )
+            ),
             {"executor.runtime.target.id": str(target_id)},
         )
         return RuntimeTargetResponse.from_view(view)
@@ -170,7 +183,9 @@ def build_runtime_target_router(container: ApplicationContainer) -> APIRouter:
         view = await _trace_call(
             tracing,
             "executor.http.runtime_target_activate",
-            registry.set_state(request.to_state_command(target_id, RuntimeTargetStatus.ACTIVE)),
+            registry.set_state(
+                request.to_state_command(target_id, RuntimeTargetStatus.ACTIVE)
+            ),
             {"executor.runtime.target.id": str(target_id)},
         )
         return RuntimeTargetResponse.from_view(view)

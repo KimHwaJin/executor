@@ -4,17 +4,26 @@ import sqlite3
 from pathlib import Path
 from uuid import uuid4
 
-from executor_service.events import ExecutionStreamEnvelope, build_execution_event
+from executor_service.events import (
+    ExecutionStreamEnvelope,
+    build_execution_event,
+)
 
 EXAMPLE = runpy.run_path(
-    str(Path(__file__).parents[1] / "scripts" / "agent_event_consumer_example.py"),
+    str(
+        Path(__file__).parents[1]
+        / "scripts"
+        / "agent_event_consumer_example.py"
+    ),
     run_name="agent_event_consumer_example_test",
 )
 apply_once = EXAMPLE["_apply_once"]
 open_state_database = EXAMPLE["_open_state_database"]
 
 
-def test_agent_example_applies_one_event_id_exactly_once(tmp_path: Path) -> None:
+def test_agent_example_applies_one_event_id_exactly_once(
+    tmp_path: Path,
+) -> None:
     execution_id = uuid4()
     event = build_execution_event(
         execution_id=execution_id,

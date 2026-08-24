@@ -15,6 +15,7 @@ from executor_service.domain.errors import (
     NotebookCellNotFoundError,
     NotebookReadError,
 )
+from executor_service.domain.runtime import RuntimeFileMetadata
 from executor_service.interfaces.mcp.server import _notebook_cell_content
 from executor_service.result_summaries import summarize_outputs
 
@@ -34,18 +35,49 @@ class NotebookStorage:
         self.calls: list[tuple[RuntimeType, UUID | None, str]] = []
 
     async def read_notebook(
-        self, runtime_type: RuntimeType, preferred_target_id: UUID | None, path: str
+        self,
+        runtime_type: RuntimeType,
+        preferred_target_id: UUID | None,
+        path: str,
     ) -> dict[str, Any]:
         self.calls.append((runtime_type, preferred_target_id, path))
         if isinstance(self.notebook, Exception):
             raise self.notebook
         return self.notebook
 
+    async def write_notebook(
+        self,
+        runtime_type: RuntimeType,
+        preferred_target_id: UUID | None,
+        path: str,
+        notebook: dict[str, Any],
+    ) -> None:
+        del runtime_type, preferred_target_id, path
+        self.notebook = notebook
+
+    async def write_text(
+        self,
+        runtime_type: RuntimeType,
+        preferred_target_id: UUID | None,
+        path: str,
+        content: str,
+    ) -> RuntimeFileMetadata:
+        del runtime_type, preferred_target_id
+        return RuntimeFileMetadata(
+            path=path,
+            name=path.rsplit("/", 1)[-1],
+            size_bytes=len(content.encode()),
+            modified_ns=0,
+            media_type="text/plain",
+            checksum_sha256="0" * 64,
+        )
+
 
 def _service(
     notebook: dict[str, Any] | Exception,
     *,
-    notebook_path: str | None = "users/u/executions/e/notebooks/execution.ipynb",
+    notebook_path: str
+    | None = "users/u/executions/e/notebooks/execution.ipynb",
 ) -> tuple[ExecutionNotebookQueryService, NotebookStorage, UUID, UUID]:
     execution_id = uuid4()
     target_id = uuid4()
@@ -57,7 +89,9 @@ def _service(
     )
     storage = NotebookStorage(notebook)
     return (
-        ExecutionNotebookQueryService(cast(Any, ExecutionLookup(execution)), storage),
+        ExecutionNotebookQueryService(
+            cast(Any, ExecutionLookup(execution)), storage
+        ),
         storage,
         execution_id,
         target_id,
@@ -74,7 +108,9 @@ def _notebook() -> dict[str, Any]:
                 "execution_count": 1,
                 "source": ["value = 40\n", "print(value)"],
                 "metadata": {},
-                "outputs": [{"output_type": "stream", "name": "stdout", "text": "40\n"}],
+                "outputs": [
+                    {"output_type": "stream", "name": "stdout", "text": "40\n"}
+                ],
             },
             {
                 "id": "second",
@@ -130,7 +166,9 @@ async def test_notebook_read_requires_persisted_notebook_path() -> None:
 
 async def test_notebook_indices_and_shape_are_validated() -> None:
     service, _, execution_id, _ = _service(_notebook())
-    malformed, _, malformed_id, _ = _service({"metadata": {}, "cells": "invalid"})
+    malformed, _, malformed_id, _ = _service(
+        {"metadata": {}, "cells": "invalid"}
+    )
 
     with pytest.raises(NotebookCellNotFoundError):
         await service.read_cell(execution_id, -1)
@@ -154,7 +192,11 @@ def test_mcp_notebook_cell_content_preserves_text_and_images() -> None:
             metadata={},
             output_summary=summarize_outputs(
                 [
-                    {"output_type": "stream", "name": "stdout", "text": "ready\n"},
+                    {
+                        "output_type": "stream",
+                        "name": "stdout",
+                        "text": "ready\n",
+                    },
                     {
                         "output_type": "display_data",
                         "data": {
@@ -184,4 +226,6 @@ def test_mcp_notebook_cell_content_preserves_text_and_images() -> None:
     assert "display(value)" in texts
     assert "ready\n" in texts
     assert "[text/plain]\n<Figure size 640x480>" in texts
-    assert [(item.mime_type, item.data) for item in images] == [("image/png", "aW1hZ2UtYnl0ZXM=")]
+    assert [(item.mime_type, item.data) for item in images] == [
+        ("image/png", "aW1hZ2UtYnl0ZXM=")
+    ]

@@ -8,8 +8,13 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from executor_service.application.services import ExecutionService
 from executor_service.domain.enums import RuntimeType
 from executor_service.infrastructure.db.base import Base
-from executor_service.infrastructure.db.repositories import SQLAlchemyUnitOfWork
-from executor_service.infrastructure.db.session import create_engine, create_session_factory
+from executor_service.infrastructure.db.repositories import (
+    SQLAlchemyUnitOfWork,
+)
+from executor_service.infrastructure.db.session import (
+    create_engine,
+    create_session_factory,
+)
 
 
 @pytest_asyncio.fixture

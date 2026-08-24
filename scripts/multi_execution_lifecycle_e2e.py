@@ -18,7 +18,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from executor_service.config import get_settings
 from executor_service.domain.enums import OutboxDestination
-from executor_service.events import EXECUTION_EVENT_SCHEMA_VERSION, ExecutionStreamEnvelope
+from executor_service.events import (
+    EXECUTION_EVENT_SCHEMA_VERSION,
+    ExecutionStreamEnvelope,
+)
 from executor_service.infrastructure.db.models import (
     ExecutionArtifactORM,
     ExecutionAttemptORM,
@@ -28,9 +31,16 @@ from executor_service.infrastructure.db.models import (
     OutboxEventORM,
     RuntimeTargetORM,
 )
-from executor_service.infrastructure.db.session import create_engine, create_session_factory
-from executor_service.infrastructure.runtime_drivers import ConfiguredRuntimeDriverFactory
-from executor_service.infrastructure.runtime_registry import RuntimeTargetRegistry
+from executor_service.infrastructure.db.session import (
+    create_engine,
+    create_session_factory,
+)
+from executor_service.infrastructure.runtime_drivers import (
+    ConfiguredRuntimeDriverFactory,
+)
+from executor_service.infrastructure.runtime_registry import (
+    RuntimeTargetRegistry,
+)
 
 Transport = Literal["MCP", "REST"]
 
@@ -102,7 +112,9 @@ def _single_step_spec(
     }
 
 
-async def _mcp_result(client: Client, tool: str, arguments: dict[str, Any]) -> dict[str, Any]:
+async def _mcp_result(
+    client: Client, tool: str, arguments: dict[str, Any]
+) -> dict[str, Any]:
     result = await client.call_tool(tool, arguments)
     if result.is_error or result.structured_content is None:
         raise RuntimeError(f"{tool} failed: {result.content}")
@@ -129,7 +141,9 @@ async def _execution_get(
     rest: httpx.AsyncClient,
 ) -> dict[str, Any]:
     if transport == "MCP":
-        return await _mcp_result(mcp, "execution_get", {"execution_id": execution_id})
+        return await _mcp_result(
+            mcp, "execution_get", {"execution_id": execution_id}
+        )
     return await _rest_json(rest, "GET", f"/executions/{execution_id}")
 
 
@@ -146,16 +160,21 @@ async def _wait_for_status(
     deadline = monotonic() + timeout_seconds
     observed: list[str] = []
     while monotonic() < deadline:
-        execution = await _execution_get(transport, execution_id, mcp=mcp, rest=rest)
+        execution = await _execution_get(
+            transport, execution_id, mcp=mcp, rest=rest
+        )
         status = execution["state"]["status"]
         if not observed or observed[-1] != status:
             observed.append(status)
         if status in statuses and (
-            not require_runtime_session or execution["runtime"]["session_id"] is not None
+            not require_runtime_session
+            or execution["runtime"]["session_id"] is not None
         ):
             return execution, tuple(observed)
         await asyncio.sleep(0.1)
-    raise RuntimeError(f"Execution {execution_id} did not reach {statuses} before timeout.")
+    raise RuntimeError(
+        f"Execution {execution_id} did not reach {statuses} before timeout."
+    )
 
 
 async def _page(
@@ -204,7 +223,9 @@ async def _attempt_detail(
             "execution_attempt_get",
             {"execution_id": execution_id, "attempt_id": attempt_id},
         )
-    return await _rest_json(rest, "GET", f"/executions/{execution_id}/attempts/{attempt_id}")
+    return await _rest_json(
+        rest, "GET", f"/executions/{execution_id}/attempts/{attempt_id}"
+    )
 
 
 async def _attempt_steps(
@@ -219,7 +240,11 @@ async def _attempt_steps(
         page = await _mcp_result(
             mcp,
             "execution_attempt_step_list",
-            {"execution_id": execution_id, "attempt_id": attempt_id, "limit": 200},
+            {
+                "execution_id": execution_id,
+                "attempt_id": attempt_id,
+                "limit": 200,
+            },
         )
     else:
         page = await _rest_json(
@@ -236,7 +261,9 @@ async def _database_snapshot(
     async with session_factory() as session:
         execution = await session.get(ExecutionORM, execution_id)
         if execution is None:
-            raise RuntimeError(f"Execution {execution_id} is missing from PostgreSQL.")
+            raise RuntimeError(
+                f"Execution {execution_id} is missing from PostgreSQL."
+            )
         steps = tuple(
             await session.scalars(
                 select(ExecutionStepORM)
@@ -262,7 +289,9 @@ async def _database_snapshot(
             await session.scalars(
                 select(ExecutionArtifactORM)
                 .where(ExecutionArtifactORM.execution_id == execution_id)
-                .order_by(ExecutionArtifactORM.created_at, ExecutionArtifactORM.id)
+                .order_by(
+                    ExecutionArtifactORM.created_at, ExecutionArtifactORM.id
+                )
             )
         )
         outbox_events = tuple(
@@ -298,11 +327,14 @@ async def _wait_for_published_snapshot(
     while monotonic() < deadline:
         snapshot = await _database_snapshot(session_factory, execution_id)
         if snapshot.outbox_events and all(
-            _enum_value(event.status) == "PUBLISHED" for event in snapshot.outbox_events
+            _enum_value(event.status) == "PUBLISHED"
+            for event in snapshot.outbox_events
         ):
             return snapshot
         await asyncio.sleep(0.1)
-    raise RuntimeError(f"Outbox for Execution {execution_id} was not fully published.")
+    raise RuntimeError(
+        f"Outbox for Execution {execution_id} was not fully published."
+    )
 
 
 async def _assert_event_delivery(
@@ -316,25 +348,40 @@ async def _assert_event_delivery(
     stream: str,
     scan_limit: int,
 ) -> tuple[str, ...]:
-    api_events = await _page(transport, execution_id, "events", mcp=mcp, rest=rest)
+    api_events = await _page(
+        transport, execution_id, "events", mcp=mcp, rest=rest
+    )
     db_event_ids = {str(event.id) for event in snapshot.outbox_events}
     if {str(event["event_id"]) for event in api_events} != db_event_ids:
-        raise RuntimeError("Public Event history and PostgreSQL Outbox IDs differ.")
+        raise RuntimeError(
+            "Public Event history and PostgreSQL Outbox IDs differ."
+        )
     redis_rows = [
         fields
         for _, fields in await redis.xrevrange(stream, count=scan_limit)
         if fields.get("aggregate_id") == execution_id
     ]
     if {row["event_id"] for row in redis_rows} != db_event_ids:
-        raise RuntimeError("Redis Stream and PostgreSQL Outbox event IDs differ.")
-    envelopes = [ExecutionStreamEnvelope.from_redis_fields(row) for row in redis_rows]
-    if any(envelope.schema_version != EXECUTION_EVENT_SCHEMA_VERSION for envelope in envelopes):
-        raise RuntimeError("Redis Stream contains an unsupported Execution event version.")
+        raise RuntimeError(
+            "Redis Stream and PostgreSQL Outbox event IDs differ."
+        )
+    envelopes = [
+        ExecutionStreamEnvelope.from_redis_fields(row) for row in redis_rows
+    ]
+    if any(
+        envelope.schema_version != EXECUTION_EVENT_SCHEMA_VERSION
+        for envelope in envelopes
+    ):
+        raise RuntimeError(
+            "Redis Stream contains an unsupported Execution event version."
+        )
     if any(
         event.payload.get("schema_version") != EXECUTION_EVENT_SCHEMA_VERSION
         for event in snapshot.outbox_events
     ):
-        raise RuntimeError("PostgreSQL Outbox contains an unsupported Execution event version.")
+        raise RuntimeError(
+            "PostgreSQL Outbox contains an unsupported Execution event version."
+        )
     return tuple(event.event_type for event in snapshot.outbox_events)
 
 
@@ -349,7 +396,9 @@ async def _runtime_session_exists(
         target = await session.get(RuntimeTargetORM, target_id)
     if target is None:
         raise RuntimeError(f"Runtime Target {target_id} is missing.")
-    credential = registry.resolve_credential(target.credential_ref, target.credential_ciphertext)
+    credential = registry.resolve_credential(
+        target.credential_ref, target.credential_ciphertext
+    )
     connection_config = dict(target.connection_config)
     connection_config["endpoint"] = _host_jupyter_endpoint(target)
     driver = ConfiguredRuntimeDriverFactory(settings).create(
@@ -374,7 +423,9 @@ async def _runtime_file_exists(
         target = await session.get(RuntimeTargetORM, target_id)
     if target is None:
         raise RuntimeError(f"Runtime Target {target_id} is missing.")
-    credential = registry.resolve_credential(target.credential_ref, target.credential_ciphertext)
+    credential = registry.resolve_credential(
+        target.credential_ref, target.credential_ciphertext
+    )
     connection_config = dict(target.connection_config)
     connection_config["endpoint"] = _host_jupyter_endpoint(target)
     driver = ConfiguredRuntimeDriverFactory(settings).create(
@@ -401,10 +452,16 @@ async def _assert_waiting_runtime(
     target_id = UUID(str(execution["runtime"]["target_id"]))
     session_id = str(execution["runtime"]["session_id"])
     if expected_target_id is not None and target_id != expected_target_id:
-        raise RuntimeError("MULTI Execution changed Runtime Target between cells.")
+        raise RuntimeError(
+            "MULTI Execution changed Runtime Target between cells."
+        )
     if expected_session_id is not None and session_id != expected_session_id:
-        raise RuntimeError("MULTI Execution changed Runtime session between cells.")
-    if not await _runtime_session_exists(session_factory, target_id, session_id):
+        raise RuntimeError(
+            "MULTI Execution changed Runtime session between cells."
+        )
+    if not await _runtime_session_exists(
+        session_factory, target_id, session_id
+    ):
         raise RuntimeError("MULTI waiting session is missing from Jupyter.")
     return target_id, session_id
 
@@ -493,7 +550,9 @@ async def _run_correction_and_finalization_case(
         },
     )
     if operation_created["state"]["status"] != "QUEUED":
-        raise RuntimeError(f"REST MULTI Operation was not queued: {operation_created}")
+        raise RuntimeError(
+            f"REST MULTI Operation was not queued: {operation_created}"
+        )
     second, second_states = await _wait_for_status(
         "REST",
         execution_id,
@@ -535,7 +594,9 @@ async def _run_correction_and_finalization_case(
         },
     )
     if failed_command["state"]["status"] != "QUEUED":
-        raise RuntimeError(f"MCP MULTI failure step was not queued: {failed_command}")
+        raise RuntimeError(
+            f"MCP MULTI failure step was not queued: {failed_command}"
+        )
     failed, failed_states = await _wait_for_status(
         "MCP",
         execution_id,
@@ -557,7 +618,9 @@ async def _run_correction_and_finalization_case(
         "SUCCEEDED",
         "FAILED",
     ]:
-        raise RuntimeError(f"MULTI failure did not remain append-only: {failed_steps}")
+        raise RuntimeError(
+            f"MULTI failure did not remain append-only: {failed_steps}"
+        )
 
     corrected_command = await _rest_json(
         rest,
@@ -585,7 +648,9 @@ async def _run_correction_and_finalization_case(
         },
     )
     if corrected_command["state"]["status"] != "QUEUED":
-        raise RuntimeError(f"REST corrected step was not queued: {corrected_command}")
+        raise RuntimeError(
+            f"REST corrected step was not queued: {corrected_command}"
+        )
     corrected, corrected_states = await _wait_for_status(
         "REST",
         execution_id,
@@ -615,7 +680,9 @@ async def _run_correction_and_finalization_case(
         },
     )
     if finalization_requested["state"]["status"] != "FINALIZING":
-        raise RuntimeError(f"MCP MULTI finalization was not queued: {finalization_requested}")
+        raise RuntimeError(
+            f"MCP MULTI finalization was not queued: {finalization_requested}"
+        )
     finished, finished_states = await _wait_for_status(
         "MCP",
         execution_id,
@@ -630,9 +697,13 @@ async def _run_correction_and_finalization_case(
         or finished["runtime"]["session_id"] is not None
         or finished["recovery"]["runtime_session_cleanup_status"] != "SUCCEEDED"
     ):
-        raise RuntimeError(f"MULTI finalization did not clean up safely: {finished}")
+        raise RuntimeError(
+            f"MULTI finalization did not clean up safely: {finished}"
+        )
     if await _runtime_session_exists(session_factory, target_id, session_id):
-        raise RuntimeError("Finished MULTI Execution leaked its Jupyter session.")
+        raise RuntimeError(
+            "Finished MULTI Execution leaked its Jupyter session."
+        )
 
     snapshot = await _wait_for_published_snapshot(
         session_factory, UUID(execution_id), timeout_seconds
@@ -643,35 +714,62 @@ async def _run_correction_and_finalization_case(
         or snapshot.runtime_session_id is not None
         or snapshot.cleanup_status != "SUCCEEDED"
         or step_statuses != ("SUCCEEDED", "SUCCEEDED", "FAILED", "SUCCEEDED")
-        or tuple(_enum_value(attempt.status) for attempt in snapshot.attempts) != ("SUCCEEDED",)
+        or tuple(_enum_value(attempt.status) for attempt in snapshot.attempts)
+        != ("SUCCEEDED",)
         or tuple(_enum_value(step.status) for step in snapshot.step_attempts)
         != ("SUCCEEDED", "SUCCEEDED", "FAILED", "SUCCEEDED")
     ):
-        raise RuntimeError(f"PostgreSQL MULTI history is inconsistent: {snapshot}")
+        raise RuntimeError(
+            f"PostgreSQL MULTI history is inconsistent: {snapshot}"
+        )
     attempt = snapshot.attempts[0]
-    if attempt.runtime_target_id != target_id or attempt.runtime_session_id != session_id:
-        raise RuntimeError("MULTI Attempt lost its historical Runtime identity.")
+    if (
+        attempt.runtime_target_id != target_id
+        or attempt.runtime_session_id != session_id
+    ):
+        raise RuntimeError(
+            "MULTI Attempt lost its historical Runtime identity."
+        )
 
     for transport in ("REST", "MCP"):
-        api_steps = await _page(transport, execution_id, "steps", mcp=mcp, rest=rest)
-        api_attempts = await _page(transport, execution_id, "attempts", mcp=mcp, rest=rest)
-        if tuple(step["result"]["status"] for step in api_steps) != step_statuses:
-            raise RuntimeError(f"{transport} Step history differs from PostgreSQL.")
+        api_steps = await _page(
+            transport, execution_id, "steps", mcp=mcp, rest=rest
+        )
+        api_attempts = await _page(
+            transport, execution_id, "attempts", mcp=mcp, rest=rest
+        )
+        if (
+            tuple(step["result"]["status"] for step in api_steps)
+            != step_statuses
+        ):
+            raise RuntimeError(
+                f"{transport} Step history differs from PostgreSQL."
+            )
         if [item["state"]["status"] for item in api_attempts] != ["SUCCEEDED"]:
-            raise RuntimeError(f"{transport} Attempt history differs from PostgreSQL.")
+            raise RuntimeError(
+                f"{transport} Attempt history differs from PostgreSQL."
+            )
         attempt_id = str(api_attempts[0]["attempt_id"])
-        detail = await _attempt_detail(transport, execution_id, attempt_id, mcp=mcp, rest=rest)
-        history = await _attempt_steps(transport, execution_id, attempt_id, mcp=mcp, rest=rest)
+        detail = await _attempt_detail(
+            transport, execution_id, attempt_id, mcp=mcp, rest=rest
+        )
+        history = await _attempt_steps(
+            transport, execution_id, attempt_id, mcp=mcp, rest=rest
+        )
         if (
             detail["runtime"]["session_id"] != session_id
-            or tuple(step["result"]["status"] for step in history) != step_statuses
+            or tuple(step["result"]["status"] for step in history)
+            != step_statuses
         ):
-            raise RuntimeError(f"{transport} immutable Attempt history is inconsistent.")
+            raise RuntimeError(
+                f"{transport} immutable Attempt history is inconsistent."
+            )
 
     named_artifacts = {
         artifact.name: artifact
         for artifact in snapshot.artifacts
-        if artifact.name in {"multi-answer.txt", "multi-failed.txt", "multi-corrected.txt"}
+        if artifact.name
+        in {"multi-answer.txt", "multi-failed.txt", "multi-corrected.txt"}
     }
     expected_artifacts = {
         "multi-answer.txt": ("AVAILABLE", "42"),
@@ -681,8 +779,13 @@ async def _run_correction_and_finalization_case(
     for name, (status, content) in expected_artifacts.items():
         artifact = named_artifacts.get(name)
         if artifact is None or _enum_value(artifact.status) != status:
-            raise RuntimeError(f"MULTI Artifact {name} is missing or has the wrong status.")
-        if artifact.checksum_sha256 != hashlib.sha256(content.encode()).hexdigest():
+            raise RuntimeError(
+                f"MULTI Artifact {name} is missing or has the wrong status."
+            )
+        if (
+            artifact.checksum_sha256
+            != hashlib.sha256(content.encode()).hexdigest()
+        ):
             raise RuntimeError(f"MULTI Artifact {name} has unexpected content.")
     notebook = next(
         (
@@ -697,9 +800,15 @@ async def _run_correction_and_finalization_case(
     notebook_data = await _mcp_result(
         mcp,
         "execution_notebook_read",
-        {"execution_id": execution_id, "response_format": "detailed", "limit": 0},
+        {
+            "execution_id": execution_id,
+            "response_format": "detailed",
+            "limit": 0,
+        },
     )
-    notebook_source = "\n".join(cell["source"] for cell in notebook_data["cells"])
+    notebook_source = "\n".join(
+        cell["source"] for cell in notebook_data["cells"]
+    )
     if notebook_data["page"]["total_count"] != 4 or not all(
         marker in notebook_source
         for marker in (
@@ -709,14 +818,21 @@ async def _run_correction_and_finalization_case(
             "corrected = answer * 2",
         )
     ):
-        raise RuntimeError("MULTI notebook does not preserve correction history.")
+        raise RuntimeError(
+            "MULTI notebook does not preserve correction history."
+        )
     detailed_cells = [
-        await _rest_json(rest, "GET", f"/executions/{execution_id}/notebook/cells/{index}")
+        await _rest_json(
+            rest, "GET", f"/executions/{execution_id}/notebook/cells/{index}"
+        )
         for index in range(4)
     ]
-    detailed_outputs = json.dumps([item["cell"]["outputs"] for item in detailed_cells])
+    detailed_outputs = json.dumps(
+        [item["cell"]["outputs"] for item in detailed_cells]
+    )
     if not all(
-        marker in detailed_outputs for marker in ("40", "42", "planned multi correction", "84")
+        marker in detailed_outputs
+        for marker in ("40", "42", "planned multi correction", "84")
     ):
         raise RuntimeError("MULTI notebook does not preserve cell outputs.")
 
@@ -741,7 +857,9 @@ async def _run_correction_and_finalization_case(
         "execution.artifact_registered",
     }
     if not required_events.issubset(event_types):
-        raise RuntimeError(f"MULTI completion event timeline is incomplete: {event_types}")
+        raise RuntimeError(
+            f"MULTI completion event timeline is incomplete: {event_types}"
+        )
     return CaseResult(
         name="REST/MCP correction -> finalization",
         execution_id=execution_id,
@@ -754,7 +872,8 @@ async def _run_correction_and_finalization_case(
         ),
         step_statuses=step_statuses,
         artifact_statuses=tuple(
-            _enum_value(named_artifacts[name].status) for name in expected_artifacts
+            _enum_value(named_artifacts[name].status)
+            for name in expected_artifacts
         ),
         event_types=event_types,
     )
@@ -826,13 +945,17 @@ async def _run_running_cancel_case(
     runtime_session_id = str(running["runtime"]["session_id"])
     workspace_path = running["workspace"]["path"]
     if not workspace_path:
-        raise RuntimeError("Running MULTI Execution has no Runtime workspace path.")
+        raise RuntimeError(
+            "Running MULTI Execution has no Runtime workspace path."
+        )
     marker_path = f"{workspace_path}/artifacts/other/multi-cancel.txt"
     deadline = monotonic() + timeout_seconds
     marker_poll = asyncio.Event()
     marker_exists = False
     while monotonic() < deadline:
-        marker_exists = await _runtime_file_exists(session_factory, target_id, marker_path)
+        marker_exists = await _runtime_file_exists(
+            session_factory, target_id, marker_path
+        )
         if marker_exists:
             break
         try:
@@ -840,7 +963,9 @@ async def _run_running_cancel_case(
         except TimeoutError:
             pass
     if not marker_exists:
-        raise RuntimeError("MULTI cancellation marker was not written before timeout.")
+        raise RuntimeError(
+            "MULTI cancellation marker was not written before timeout."
+        )
 
     cancel_requested = await _mcp_result(
         mcp,
@@ -855,7 +980,9 @@ async def _run_running_cancel_case(
         },
     )
     if cancel_requested["state"]["status"] != "CANCEL_REQUESTED":
-        raise RuntimeError(f"MCP MULTI cancellation was not accepted: {cancel_requested}")
+        raise RuntimeError(
+            f"MCP MULTI cancellation was not accepted: {cancel_requested}"
+        )
     cancelled, cancelled_states = await _wait_for_status(
         "MCP",
         execution_id,
@@ -865,13 +992,21 @@ async def _run_running_cancel_case(
         timeout_seconds=timeout_seconds,
     )
     if (
-        cancelled["state"]["cancellation_reason"] != "multi running cancellation regression E2E"
+        cancelled["state"]["cancellation_reason"]
+        != "multi running cancellation regression E2E"
         or cancelled["runtime"]["session_id"] is not None
-        or cancelled["recovery"]["runtime_session_cleanup_status"] != "SUCCEEDED"
+        or cancelled["recovery"]["runtime_session_cleanup_status"]
+        != "SUCCEEDED"
     ):
-        raise RuntimeError(f"MULTI cancellation did not clean up safely: {cancelled}")
-    if await _runtime_session_exists(session_factory, target_id, runtime_session_id):
-        raise RuntimeError("Cancelled MULTI Execution leaked its Jupyter session.")
+        raise RuntimeError(
+            f"MULTI cancellation did not clean up safely: {cancelled}"
+        )
+    if await _runtime_session_exists(
+        session_factory, target_id, runtime_session_id
+    ):
+        raise RuntimeError(
+            "Cancelled MULTI Execution leaked its Jupyter session."
+        )
 
     snapshot = await _wait_for_published_snapshot(
         session_factory, UUID(execution_id), timeout_seconds
@@ -882,19 +1017,29 @@ async def _run_running_cancel_case(
         or snapshot.runtime_session_id is not None
         or snapshot.cleanup_status != "SUCCEEDED"
         or step_statuses != ("CANCELLED",)
-        or tuple(_enum_value(attempt.status) for attempt in snapshot.attempts) != ("CANCELLED",)
-        or tuple(_enum_value(step.status) for step in snapshot.step_attempts) != ("CANCELLED",)
+        or tuple(_enum_value(attempt.status) for attempt in snapshot.attempts)
+        != ("CANCELLED",)
+        or tuple(_enum_value(step.status) for step in snapshot.step_attempts)
+        != ("CANCELLED",)
     ):
-        raise RuntimeError(f"PostgreSQL MULTI cancellation is inconsistent: {snapshot}")
+        raise RuntimeError(
+            f"PostgreSQL MULTI cancellation is inconsistent: {snapshot}"
+        )
     attempts = await _page("REST", execution_id, "attempts", mcp=mcp, rest=rest)
     steps = await _page("MCP", execution_id, "steps", mcp=mcp, rest=rest)
     if [item["state"]["status"] for item in attempts] != ["CANCELLED"] or [
         item["result"]["status"] for item in steps
     ] != ["CANCELLED"]:
-        raise RuntimeError("Public MULTI cancellation history differs from PostgreSQL.")
+        raise RuntimeError(
+            "Public MULTI cancellation history differs from PostgreSQL."
+        )
     attempt_id = str(attempts[0]["attempt_id"])
-    detail = await _attempt_detail("REST", execution_id, attempt_id, mcp=mcp, rest=rest)
-    history = await _attempt_steps("MCP", execution_id, attempt_id, mcp=mcp, rest=rest)
+    detail = await _attempt_detail(
+        "REST", execution_id, attempt_id, mcp=mcp, rest=rest
+    )
+    history = await _attempt_steps(
+        "MCP", execution_id, attempt_id, mcp=mcp, rest=rest
+    )
     if (
         detail["runtime"]["session_id"] != runtime_session_id
         or detail["recovery"]["runtime_session_cleanup_status"] != "SUCCEEDED"
@@ -903,14 +1048,28 @@ async def _run_running_cancel_case(
         raise RuntimeError("MULTI cancelled Attempt history is inconsistent.")
 
     cancel_artifacts = [
-        artifact for artifact in snapshot.artifacts if artifact.name == "multi-cancel.txt"
+        artifact
+        for artifact in snapshot.artifacts
+        if artifact.name == "multi-cancel.txt"
     ]
-    if tuple(_enum_value(artifact.status) for artifact in cancel_artifacts) != ("INCOMPLETE",):
-        raise RuntimeError(f"Cancelled MULTI Artifact was not preserved: {cancel_artifacts}")
-    if cancel_artifacts[0].checksum_sha256 != hashlib.sha256(b"started").hexdigest():
+    if tuple(_enum_value(artifact.status) for artifact in cancel_artifacts) != (
+        "INCOMPLETE",
+    ):
+        raise RuntimeError(
+            f"Cancelled MULTI Artifact was not preserved: {cancel_artifacts}"
+        )
+    if (
+        cancel_artifacts[0].checksum_sha256
+        != hashlib.sha256(b"started").hexdigest()
+    ):
         raise RuntimeError("Cancelled MULTI Artifact contains unexpected data.")
-    if any(_enum_value(artifact.artifact_type) == "NOTEBOOK" for artifact in snapshot.artifacts):
-        raise RuntimeError("Cancelled MULTI Execution registered a successful notebook.")
+    if any(
+        _enum_value(artifact.artifact_type) == "NOTEBOOK"
+        for artifact in snapshot.artifacts
+    ):
+        raise RuntimeError(
+            "Cancelled MULTI Execution registered a successful notebook."
+        )
 
     event_types = await _assert_event_delivery(
         "REST",
@@ -930,13 +1089,17 @@ async def _run_running_cancel_case(
         "execution.cancelled",
     }
     if not required_events.issubset(event_types):
-        raise RuntimeError(f"MULTI cancellation event timeline is incomplete: {event_types}")
+        raise RuntimeError(
+            f"MULTI cancellation event timeline is incomplete: {event_types}"
+        )
     return CaseResult(
         name="MCP running cancel",
         execution_id=execution_id,
         statuses=(*running_states, "CANCEL_REQUESTED", *cancelled_states),
         step_statuses=step_statuses,
-        artifact_statuses=tuple(_enum_value(row.status) for row in cancel_artifacts),
+        artifact_statuses=tuple(
+            _enum_value(row.status) for row in cancel_artifacts
+        ),
         event_types=event_types,
     )
 
@@ -962,7 +1125,9 @@ async def main() -> None:
     try:
         async with (
             Client(mcp_url) as mcp,
-            httpx.AsyncClient(base_url=f"{rest_url.rstrip('/')}/", timeout=30) as rest,
+            httpx.AsyncClient(
+                base_url=f"{rest_url.rstrip('/')}/", timeout=30
+            ) as rest,
         ):
             results = [
                 await _run_correction_and_finalization_case(

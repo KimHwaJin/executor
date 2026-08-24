@@ -13,7 +13,9 @@ from executor_service.config import Settings
 from executor_service.container import ApplicationContainer
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.session import create_session_factory
-from executor_service.infrastructure.runtime_registry import RuntimeTargetRegistry
+from executor_service.infrastructure.runtime_registry import (
+    RuntimeTargetRegistry,
+)
 from executor_service.infrastructure.worker import ExecutionWorker
 
 
@@ -25,7 +27,9 @@ class IdleRedis:
         await asyncio.Event().wait()
         return []
 
-    async def xautoclaim(self, *_args: Any, **_kwargs: Any) -> tuple[str, list[Any]]:
+    async def xautoclaim(
+        self, *_args: Any, **_kwargs: Any
+    ) -> tuple[str, list[Any]]:
         return "0-0", []
 
 
@@ -127,8 +131,12 @@ async def test_readiness_fails_as_soon_as_worker_enters_drain(
     )
     container = ApplicationContainer(settings)
     async with container.engine.begin() as connection:
-        await connection.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(32))"))
-        await connection.execute(text("INSERT INTO alembic_version VALUES ('0001')"))
+        await connection.execute(
+            text("CREATE TABLE alembic_version (version_num VARCHAR(32))")
+        )
+        await connection.execute(
+            text("INSERT INTO alembic_version VALUES ('0001')")
+        )
     monkeypatch.setattr(container.redis, "ping", AsyncMock(return_value=True))
     container.execution_worker._stopped = False
     container.execution_worker._accepting_work = True

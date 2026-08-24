@@ -19,7 +19,9 @@ from executor_service.tracing import (
 )
 
 PHOENIX_URL = os.getenv("PHOENIX_URL", "http://127.0.0.1:6006").rstrip("/")
-PROJECT_NAME = os.getenv("PHOENIX_SMOKE_PROJECT", f"executor-service-smoke-{uuid4().hex[:8]}")
+PROJECT_NAME = os.getenv(
+    "PHOENIX_SMOKE_PROJECT", f"executor-service-smoke-{uuid4().hex[:8]}"
+)
 EXPECTED_SPANS = {
     "agent.graph",
     "executor.mcp.execution_submit",
@@ -37,7 +39,9 @@ def _read_json(url: str) -> dict[str, Any]:
 
 def _get_spans() -> list[dict[str, Any]]:
     project = quote(PROJECT_NAME, safe="")
-    payload = _read_json(f"{PHOENIX_URL}/v1/projects/{project}/spans?limit=1000")
+    payload = _read_json(
+        f"{PHOENIX_URL}/v1/projects/{project}/spans?limit=1000"
+    )
     data = payload.get("data", [])
     return data if isinstance(data, list) else []
 
@@ -81,7 +85,9 @@ async def main() -> None:
     while time.monotonic() < deadline:
         try:
             spans = _get_spans()
-        except Exception:  # Phoenix may still be creating the project after ingestion.
+        except (
+            Exception
+        ):  # Phoenix may still be creating the project after ingestion.
             spans = []
         names = {str(span.get("name")) for span in spans}
         if EXPECTED_SPANS <= names:
@@ -92,7 +98,9 @@ async def main() -> None:
     names = {str(span.get("name")) for span in selected}
     missing = EXPECTED_SPANS - names
     if missing:
-        raise RuntimeError(f"Phoenix did not return expected spans: {sorted(missing)}")
+        raise RuntimeError(
+            f"Phoenix did not return expected spans: {sorted(missing)}"
+        )
 
     trace_ids = {
         str(span.get("context", {}).get("trace_id"))
@@ -100,7 +108,9 @@ async def main() -> None:
         if isinstance(span.get("context"), dict)
     }
     if len(trace_ids) != 1:
-        raise RuntimeError(f"Expected one propagated trace, found {len(trace_ids)}")
+        raise RuntimeError(
+            f"Expected one propagated trace, found {len(trace_ids)}"
+        )
 
     print(
         json.dumps(

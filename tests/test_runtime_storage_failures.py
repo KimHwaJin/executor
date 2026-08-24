@@ -8,7 +8,10 @@ from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from executor_service.application.commands import StepSpec, SubmitExecutionCommand
+from executor_service.application.commands import (
+    StepSpec,
+    SubmitExecutionCommand,
+)
 from executor_service.application.services import ExecutionService
 from executor_service.config import Settings
 from executor_service.domain.enums import (
@@ -24,7 +27,10 @@ from executor_service.domain.enums import (
     StepStatus,
     TriggerType,
 )
-from executor_service.domain.runtime import RuntimeDriverError, RuntimeExecutionResult
+from executor_service.domain.runtime import (
+    RuntimeDriverError,
+    RuntimeExecutionResult,
+)
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
@@ -34,7 +40,9 @@ from executor_service.infrastructure.db.models import (
     RuntimeTargetORM,
 )
 from executor_service.infrastructure.db.session import create_session_factory
-from executor_service.infrastructure.runtime_registry import RuntimeTargetRegistry
+from executor_service.infrastructure.runtime_registry import (
+    RuntimeTargetRegistry,
+)
 from executor_service.infrastructure.worker import ExecutionWorker
 from tests.runtime_credentials import runtime_credential_fields
 from tests.runtime_storage_fake import InMemoryRuntimeStorage
@@ -61,9 +69,13 @@ class FailingRuntimeStorageDriver(InMemoryRuntimeStorage):
     async def start_session(self, _runtime_profile: str, _path: str) -> str:
         return "storage-failure-kernel"
 
-    async def execute(self, _runtime_session_id: str, _code: str) -> RuntimeExecutionResult:
+    async def execute(
+        self, _runtime_session_id: str, _code: str
+    ) -> RuntimeExecutionResult:
         return RuntimeExecutionResult(
-            outputs=[{"output_type": "stream", "name": "stdout", "text": "done\n"}],
+            outputs=[
+                {"output_type": "stream", "name": "stdout", "text": "done\n"}
+            ],
             execution_count=1,
         )
 
@@ -88,7 +100,12 @@ class FailingRuntimeStorageDriver(InMemoryRuntimeStorage):
 
 
 @pytest.mark.parametrize(
-    ("failure_point", "expected_step_status", "expected_cleanup", "artifact_event"),
+    (
+        "failure_point",
+        "expected_step_status",
+        "expected_cleanup",
+        "artifact_event",
+    ),
     [
         (
             "prepare_workspace",
@@ -182,15 +199,23 @@ async def test_runtime_storage_failure_finalizes_consistent_state_and_events(
 
     async with session_factory() as session:
         attempt = await session.scalar(
-            select(ExecutionAttemptORM).where(ExecutionAttemptORM.execution_id == execution.id)
+            select(ExecutionAttemptORM).where(
+                ExecutionAttemptORM.execution_id == execution.id
+            )
         )
-        operation = await session.get(ExecutionOperationORM, execution.active_operation_id)
+        operation = await session.get(
+            ExecutionOperationORM, execution.active_operation_id
+        )
         step = await session.scalar(
-            select(ExecutionStepORM).where(ExecutionStepORM.execution_id == execution.id)
+            select(ExecutionStepORM).where(
+                ExecutionStepORM.execution_id == execution.id
+            )
         )
         event_types = list(
             await session.scalars(
-                select(OutboxEventORM.event_type).where(OutboxEventORM.aggregate_id == execution.id)
+                select(OutboxEventORM.event_type).where(
+                    OutboxEventORM.aggregate_id == execution.id
+                )
             )
         )
 

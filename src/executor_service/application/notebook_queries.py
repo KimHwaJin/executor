@@ -5,7 +5,9 @@ from dataclasses import dataclass
 from typing import Any, Literal
 from uuid import UUID
 
-from executor_service.application.execution_queries import ExecutionQueryService
+from executor_service.application.execution_queries import (
+    ExecutionQueryService,
+)
 from executor_service.domain.errors import (
     ExecutionNotebookNotAvailableError,
     NotebookCellNotFoundError,
@@ -43,7 +45,9 @@ class NotebookView:
 
 class ExecutionNotebookQueryService:
     def __init__(
-        self, executions: ExecutionQueryService, runtime_storage: RuntimeStorageAccess
+        self,
+        executions: ExecutionQueryService,
+        runtime_storage: RuntimeStorageAccess,
     ) -> None:
         self._executions = executions
         self._runtime_storage = runtime_storage
@@ -57,7 +61,9 @@ class ExecutionNotebookQueryService:
         limit: int = 20,
     ) -> NotebookView:
         if start_index < 0 or limit < 0:
-            raise NotebookReadError("Notebook pagination values must be non-negative.")
+            raise NotebookReadError(
+                "Notebook pagination values must be non-negative."
+            )
         notebook = await self._load(execution_id)
         cells = _cells(notebook, execution_id)
         end_index = len(cells) if limit == 0 else start_index + limit
@@ -81,10 +87,16 @@ class ExecutionNotebookQueryService:
         )
 
     async def read_cell(
-        self, execution_id: UUID, cell_index: int, *, include_outputs: bool = True
+        self,
+        execution_id: UUID,
+        cell_index: int,
+        *,
+        include_outputs: bool = True,
     ) -> NotebookCellView:
         if cell_index < 0:
-            raise NotebookCellNotFoundError("Notebook cell index must be non-negative.")
+            raise NotebookCellNotFoundError(
+                "Notebook cell index must be non-negative."
+            )
         notebook = await self._load(execution_id)
         cells = _cells(notebook, execution_id)
         if cell_index >= len(cells):
@@ -117,10 +129,16 @@ class ExecutionNotebookQueryService:
         return _object(notebook)
 
 
-def _cells(notebook: dict[str, Any], execution_id: UUID) -> list[dict[str, Any]]:
+def _cells(
+    notebook: dict[str, Any], execution_id: UUID
+) -> list[dict[str, Any]]:
     cells = notebook.get("cells")
-    if not isinstance(cells, list) or not all(isinstance(cell, dict) for cell in cells):
-        raise NotebookReadError(f"Execution {execution_id} notebook content is invalid.")
+    if not isinstance(cells, list) or not all(
+        isinstance(cell, dict) for cell in cells
+    ):
+        raise NotebookReadError(
+            f"Execution {execution_id} notebook content is invalid."
+        )
     return cells
 
 
@@ -136,7 +154,9 @@ def _cell_view(
         source = "".join(str(line) for line in source)
     source = str(source)
     lines = source.splitlines()
-    raw_outputs = cell.get("outputs", []) if cell.get("cell_type") == "code" else []
+    raw_outputs = (
+        cell.get("outputs", []) if cell.get("cell_type") == "code" else []
+    )
     if not isinstance(raw_outputs, list):
         raise NotebookReadError("Notebook cell outputs must be an array.")
     normalized_outputs = _array(raw_outputs)
@@ -145,9 +165,13 @@ def _cell_view(
         id=str(cell["id"]) if cell.get("id") is not None else None,
         type=str(cell.get("cell_type", "raw")),
         execution_count=(
-            int(cell["execution_count"]) if cell.get("execution_count") is not None else None
+            int(cell["execution_count"])
+            if cell.get("execution_count") is not None
+            else None
         ),
-        source=source if response_format == "detailed" else (lines[0] if lines else ""),
+        source=source
+        if response_format == "detailed"
+        else (lines[0] if lines else ""),
         line_count=len(lines),
         metadata=_object(cell.get("metadata", {})),
         output_summary=summarize_outputs(normalized_outputs),
@@ -164,6 +188,8 @@ def _object(value: Any) -> dict[str, Any]:
 
 def _array(value: Any) -> list[dict[str, Any]]:
     detached = json.loads(json.dumps(value))
-    if not isinstance(detached, list) or not all(isinstance(item, dict) for item in detached):
+    if not isinstance(detached, list) or not all(
+        isinstance(item, dict) for item in detached
+    ):
         raise NotebookReadError("Notebook outputs must contain objects.")
     return detached

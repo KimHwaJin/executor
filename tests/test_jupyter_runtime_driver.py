@@ -4,7 +4,10 @@ import httpx
 import pytest
 
 from executor_service.domain.runtime import RuntimeDriverError
-from executor_service.infrastructure.jupyter import JupyterRuntimeDriver, _contents_path
+from executor_service.infrastructure.jupyter import (
+    JupyterRuntimeDriver,
+    _contents_path,
+)
 
 
 def _resource_payload() -> dict[str, Any]:
@@ -61,7 +64,8 @@ async def test_status_reads_active_session_count_from_jupyter() -> None:
     driver = JupyterRuntimeDriver("http://jupyter.invalid", "secret")
     await driver._client.aclose()
     driver._client = httpx.AsyncClient(
-        transport=httpx.MockTransport(handler), base_url="http://jupyter.invalid"
+        transport=httpx.MockTransport(handler),
+        base_url="http://jupyter.invalid",
     )
     try:
         status = await driver.status()
@@ -82,7 +86,9 @@ async def test_status_rejects_invalid_active_session_count() -> None:
         base_url="http://jupyter.invalid",
     )
     try:
-        with pytest.raises(RuntimeDriverError, match="status response is invalid"):
+        with pytest.raises(
+            RuntimeDriverError, match="status response is invalid"
+        ):
             await driver.status()
     finally:
         await driver.close()
@@ -94,7 +100,9 @@ async def test_resource_status_rejects_unknown_schema_version() -> None:
     driver = JupyterRuntimeDriver("http://jupyter.invalid", "secret")
     await driver._client.aclose()
     driver._client = httpx.AsyncClient(
-        transport=httpx.MockTransport(lambda _request: httpx.Response(200, json=payload)),
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(200, json=payload)
+        ),
         base_url="http://jupyter.invalid",
     )
     try:
@@ -136,24 +144,35 @@ async def test_runtime_storage_contract_uses_jupyter_server_apis() -> None:
                 },
             )
         if request.url.path.endswith("/manifests/read"):
-            return httpx.Response(200, json={"start": 0, "end": 3, "content": "{}\n"})
+            return httpx.Response(
+                200, json={"start": 0, "end": 3, "content": "{}\n"}
+            )
         if request.method == "GET" and "/api/contents/" in request.url.path:
-            return httpx.Response(200, json={"type": "notebook", "content": {"cells": []}})
+            return httpx.Response(
+                200, json={"type": "notebook", "content": {"cells": []}}
+            )
         return httpx.Response(200, json={})
 
     driver = JupyterRuntimeDriver("http://jupyter.invalid", "secret")
     await driver._client.aclose()
     driver._client = httpx.AsyncClient(
-        transport=httpx.MockTransport(handler), base_url="http://jupyter.invalid"
+        transport=httpx.MockTransport(handler),
+        base_url="http://jupyter.invalid",
     )
     try:
         await driver.prepare_workspace("users/u/executions/e")
         snapshot = await driver.artifact_snapshot("users/u/executions/e")
         metadata = await driver.file_metadata(snapshot.files[0].path)
         manifest = await driver.read_manifest("users/u/executions/e", 0)
-        await driver.write_notebook("users/u/executions/e/notebooks/execution.ipynb", {"cells": []})
-        await driver.write_text("users/u/executions/e/reports/final-report.md", "# Report")
-        notebook = await driver.read_notebook("users/u/executions/e/notebooks/execution.ipynb")
+        await driver.write_notebook(
+            "users/u/executions/e/notebooks/execution.ipynb", {"cells": []}
+        )
+        await driver.write_text(
+            "users/u/executions/e/reports/final-report.md", "# Report"
+        )
+        notebook = await driver.read_notebook(
+            "users/u/executions/e/notebooks/execution.ipynb"
+        )
     finally:
         await driver.close()
 
@@ -162,10 +181,15 @@ async def test_runtime_storage_contract_uses_jupyter_server_apis() -> None:
     assert manifest == b"{}\n"
     assert notebook == {"cells": []}
     text_request = next(
-        request for request in requests if request.url.path.endswith("/reports/final-report.md")
+        request
+        for request in requests
+        if request.url.path.endswith("/reports/final-report.md")
     )
     assert text_request.method == "PUT"
-    assert text_request.content == b'{"type":"file","format":"text","content":"# Report"}'
+    assert (
+        text_request.content
+        == b'{"type":"file","format":"text","content":"# Report"}'
+    )
     assert requests[0].url.path == "/executor/storage/workspaces/prepare"
     assert requests[-1].url.path.endswith(
         "/api/contents/users/u/executions/e/notebooks/execution.ipynb"
@@ -177,7 +201,9 @@ async def test_request_reports_safe_http_failure_context() -> None:
     await driver._client.aclose()
     driver._client = httpx.AsyncClient(
         transport=httpx.MockTransport(
-            lambda _request: httpx.Response(500, text="sensitive Jupyter response")
+            lambda _request: httpx.Response(
+                500, text="sensitive Jupyter response"
+            )
         ),
         base_url="http://jupyter.invalid",
     )
@@ -222,7 +248,10 @@ async def test_request_reports_safe_transport_failure_context() -> None:
 
 
 def test_contents_path_rejects_absolute_and_parent_paths() -> None:
-    assert _contents_path("users/u/notebooks/a b.ipynb") == "users/u/notebooks/a%20b.ipynb"
+    assert (
+        _contents_path("users/u/notebooks/a b.ipynb")
+        == "users/u/notebooks/a%20b.ipynb"
+    )
     with pytest.raises(RuntimeDriverError):
         _contents_path("../escape.ipynb")
     with pytest.raises(RuntimeDriverError):

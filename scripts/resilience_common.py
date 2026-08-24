@@ -22,9 +22,9 @@ async def require_exclusive_executor_control() -> None:
         "yes",
     }:
         return
-    existing_url = os.getenv("RESILIENCE_EXISTING_EXECUTOR_URL", "http://127.0.0.1:8000").rstrip(
-        "/"
-    )
+    existing_url = os.getenv(
+        "RESILIENCE_EXISTING_EXECUTOR_URL", "http://127.0.0.1:8000"
+    ).rstrip("/")
     if not existing_url:
         return
     try:
@@ -110,9 +110,15 @@ async def stop_executor(
 
 
 async def cleanup_streams(redis: Redis, stream: str) -> None:
-    if os.getenv("RESILIENCE_KEEP_STREAMS", "false").lower() in {"1", "true", "yes"}:
+    if os.getenv("RESILIENCE_KEEP_STREAMS", "false").lower() in {
+        "1",
+        "true",
+        "yes",
+    }:
         return
-    await redis.delete(stream, f"{stream}.dlq", f"{stream}.events", f"{stream}.events.dlq")
+    await redis.delete(
+        stream, f"{stream}.dlq", f"{stream}.events", f"{stream}.events.dlq"
+    )
 
 
 async def wait_ready(port: int, *, attempts: int = 160) -> None:
@@ -132,7 +138,9 @@ async def wait_ready(port: int, *, attempts: int = 160) -> None:
 
 
 async def execution(client: Client, execution_id: str) -> dict[str, Any]:
-    result = await client.call_tool("execution_get", {"execution_id": execution_id})
+    result = await client.call_tool(
+        "execution_get", {"execution_id": execution_id}
+    )
     if result.is_error:
         raise RuntimeError(str(result.content))
     return result.structured_content
@@ -147,11 +155,16 @@ async def attempts(client: Client, execution_id: str) -> list[dict[str, Any]]:
         raise RuntimeError(str(result.content))
     summaries = result.structured_content["items"]
     return await asyncio.gather(
-        *(attempt_detail(client, execution_id, str(summary["attempt_id"])) for summary in summaries)
+        *(
+            attempt_detail(client, execution_id, str(summary["attempt_id"]))
+            for summary in summaries
+        )
     )
 
 
-async def attempt_detail(client: Client, execution_id: str, attempt_id: str) -> dict[str, Any]:
+async def attempt_detail(
+    client: Client, execution_id: str, attempt_id: str
+) -> dict[str, Any]:
     result = await client.call_tool(
         "execution_attempt_get",
         {"execution_id": execution_id, "attempt_id": attempt_id},
@@ -161,7 +174,9 @@ async def attempt_detail(client: Client, execution_id: str, attempt_id: str) -> 
     return result.structured_content
 
 
-async def execution_steps(client: Client, execution_id: str) -> list[dict[str, Any]]:
+async def execution_steps(
+    client: Client, execution_id: str
+) -> list[dict[str, Any]]:
     result = await client.call_tool(
         "execution_step_list",
         {"execution_id": execution_id, "limit": 200},
@@ -171,7 +186,9 @@ async def execution_steps(client: Client, execution_id: str) -> list[dict[str, A
     return result.structured_content["items"]
 
 
-async def attempt_steps(client: Client, execution_id: str, attempt_id: str) -> list[dict[str, Any]]:
+async def attempt_steps(
+    client: Client, execution_id: str, attempt_id: str
+) -> list[dict[str, Any]]:
     result = await client.call_tool(
         "execution_attempt_step_list",
         {"execution_id": execution_id, "attempt_id": attempt_id, "limit": 200},
@@ -227,11 +244,19 @@ async def submit_static(
                 trigger_type="BATCH" if pool == "BATCH" else "INTERACTIVE",
                 actor={
                     "type": "BATCH" if pool == "BATCH" else "USER",
-                    "id": "resilience-batch" if pool == "BATCH" else "resilience-user",
+                    "id": "resilience-batch"
+                    if pool == "BATCH"
+                    else "resilience-user",
                 },
                 runtime_profile="basic",
                 spec=inline_spec(
-                    [{"skill_name": "data_io", "tool_name": name, "code": code}],
+                    [
+                        {
+                            "skill_name": "data_io",
+                            "tool_name": name,
+                            "code": code,
+                        }
+                    ],
                 ),
                 context={
                     "user_id": "resilience-user",
@@ -239,7 +264,9 @@ async def submit_static(
                     "session_id": f"resilience-session-{unique}-{name}",
                     "task_id": f"resilience-task-{unique}-{name}",
                     "workflow_id": (
-                        f"resilience-workflow-{unique}-{name}" if pool == "BATCH" else None
+                        f"resilience-workflow-{unique}-{name}"
+                        if pool == "BATCH"
+                        else None
                     ),
                 },
             )
@@ -271,13 +298,22 @@ async def upsert_runtime_target(
     }
     if token is not None:
         request["credential"] = token
-    result = await client.call_tool("runtime_target_upsert", {"request": request})
-    if result.is_error or result.structured_content["state"]["status"] != "ACTIVE":
-        raise RuntimeError(f"Jupyter registration failed for {name}: {result.content}")
+    result = await client.call_tool(
+        "runtime_target_upsert", {"request": request}
+    )
+    if (
+        result.is_error
+        or result.structured_content["state"]["status"] != "ACTIVE"
+    ):
+        raise RuntimeError(
+            f"Jupyter registration failed for {name}: {result.content}"
+        )
     return result.structured_content
 
 
-async def probe_runtime_target(client: Client, server_id: str) -> dict[str, Any]:
+async def probe_runtime_target(
+    client: Client, server_id: str
+) -> dict[str, Any]:
     result = await client.call_tool(
         "runtime_target_probe",
         {
