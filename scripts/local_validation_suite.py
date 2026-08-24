@@ -28,6 +28,11 @@ def _steps(args: argparse.Namespace) -> list[Step]:
             "single_execution_observability_smoke.py",
             {},
         ),
+        Step(
+            "output-journal-storage",
+            "output_journal_storage_e2e.py",
+            {},
+        ),
     ]
     if args.full:
         common.extend(

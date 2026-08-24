@@ -777,11 +777,10 @@ def _output_representation(
     normalized_media_type = media_type.strip().lower()
     if not normalized_media_type or "/" not in normalized_media_type:
         raise RuntimeDriverError("Jupyter output media type is invalid.")
-    base64_encoded = normalized_media_type in {
-        "image/png",
-        "image/jpeg",
-        "application/pdf",
-    }
+    base64_encoded = normalized_media_type == "application/pdf" or (
+        normalized_media_type.startswith("image/")
+        and normalized_media_type != "image/svg+xml"
+    )
     if base64_encoded:
         if not isinstance(value, str):
             raise RuntimeDriverError(

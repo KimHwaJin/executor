@@ -106,11 +106,29 @@ class OutputJournalStorageTests(unittest.TestCase):
         self.assertNotIn("storage_path", serialized)
         self.assertIn("journal://", serialized)
 
-        content = sorted(
-            path.read_bytes()
-            for path in (self.root / self.workspace / "outputs").rglob("*.bin")
+        output_root = self.root / self.workspace / "outputs"
+        journals = list(output_root.rglob("journal.jsonl"))
+        images = list(output_root.rglob("*.png"))
+        self.assertEqual(len(journals), 1)
+        self.assertEqual(len(images), 1)
+        self.assertEqual(images[0].read_bytes(), b"png-bytes")
+        journal_lines = [
+            json.loads(line)
+            for line in journals[0].read_text(encoding="utf-8").splitlines()
+        ]
+        self.assertEqual(
+            [line["record_type"] for line in journal_lines],
+            ["HEADER", "BATCH"],
         )
-        self.assertEqual(content, [b"complete text output", b"png-bytes"])
+        self.assertEqual(
+            journal_lines[1]["outputs"][0]["representations"][0][
+                "inline_content"
+            ],
+            "complete text output",
+        )
+        self.assertFalse(list(output_root.rglob("*.bin")))
+        self.assertFalse(list(output_root.rglob("source.py")))
+        self.assertFalse(list(output_root.rglob("batches")))
 
     def test_replaying_batch_is_idempotent_and_conflicting_body_fails(
         self,
@@ -156,6 +174,41 @@ class OutputJournalStorageTests(unittest.TestCase):
                     }
                 ],
             )
+
+    def test_stores_image_mime_types_with_native_extensions(self) -> None:
+        begun = self.storage.begin(self.identity, "display(images)")
+        self.storage.append(
+            self.identity,
+            journal_id=begun["journal_id"],
+            expected_offset=0,
+            batch_id=str(uuid4()),
+            records=[
+                {
+                    "kind": "DISPLAY",
+                    "representations": [
+                        {
+                            "media_type": "image/gif",
+                            "encoding": "BASE64",
+                            "content": base64.b64encode(b"GIF89a").decode(),
+                        },
+                        {
+                            "media_type": "image/svg+xml",
+                            "encoding": "UTF8",
+                            "content": "<svg></svg>",
+                        },
+                    ],
+                }
+            ],
+        )
+
+        output_root = self.root / self.workspace / "outputs"
+        self.assertEqual(
+            next(output_root.rglob("*.gif")).read_bytes(), b"GIF89a"
+        )
+        self.assertEqual(
+            next(output_root.rglob("*.svg")).read_text(encoding="utf-8"),
+            "<svg></svg>",
+        )
 
     def test_offset_conflict_and_concurrent_append_allow_one_winner(
         self,
@@ -420,16 +473,15 @@ class OutputJournalStorageTests(unittest.TestCase):
         self.assertEqual(aborted, replay)
         self.assertEqual(aborted["state"], "ABORTED")
         self.assertEqual(aborted["abort_reason"], "worker disconnected")
-        self.assertEqual(
-            len(list((self.root / self.workspace / "outputs").rglob("*.bin"))),
-            2,
-        )
+        output_root = self.root / self.workspace / "outputs"
+        self.assertEqual(len(list(output_root.rglob("journal.jsonl"))), 1)
+        self.assertEqual(len(list(output_root.rglob("*.png"))), 1)
         with self.assertRaises(OutputJournalConflictError):
             self.storage.finalize(
                 self.identity, journal_id=begun["journal_id"]
             )
 
-    def test_repairs_state_after_batch_commit_precedes_state_replace(
+    def test_repairs_incomplete_jsonl_tail_before_next_append(
         self,
     ) -> None:
         begun = self.storage.begin(self.identity, "print('journal')")
@@ -440,20 +492,11 @@ class OutputJournalStorageTests(unittest.TestCase):
             batch_id=str(uuid4()),
             records=_records(),
         )
-        state_path = next(
-            (self.root / self.workspace / "outputs").rglob("journal.json")
+        journal_path = next(
+            (self.root / self.workspace / "outputs").rglob("journal.jsonl")
         )
-        state = json.loads(state_path.read_text(encoding="utf-8"))
-        state.update(
-            {
-                "committed_offset": 0,
-                "batch_count": 0,
-                "output_count": 0,
-                "representation_count": 0,
-                "total_bytes": 0,
-            }
-        )
-        state_path.write_text(json.dumps(state), encoding="utf-8")
+        with journal_path.open("ab") as handle:
+            handle.write(b'{"record_type":"BATCH"')
 
         appended = self.storage.append(
             self.identity,
@@ -464,9 +507,14 @@ class OutputJournalStorageTests(unittest.TestCase):
         )
 
         self.assertEqual(appended["committed_offset"], 3)
-        repaired = json.loads(state_path.read_text(encoding="utf-8"))
-        self.assertEqual(repaired["batch_count"], 2)
-        self.assertEqual(repaired["output_count"], 3)
+        repaired = [
+            json.loads(line)
+            for line in journal_path.read_text(encoding="utf-8").splitlines()
+        ]
+        self.assertEqual(
+            [entry["record_type"] for entry in repaired],
+            ["HEADER", "BATCH", "BATCH"],
+        )
 
     def test_fencing_token_separates_storage_and_identity_mismatch_fails(
         self,
@@ -478,7 +526,7 @@ class OutputJournalStorageTests(unittest.TestCase):
 
         self.assertNotEqual(first["journal_id"], second["journal_id"])
         journal_files = list(
-            (self.root / self.workspace / "outputs").rglob("journal.json")
+            (self.root / self.workspace / "outputs").rglob("journal.jsonl")
         )
         self.assertEqual(len(journal_files), 2)
         with self.assertRaises(OutputJournalConflictError):

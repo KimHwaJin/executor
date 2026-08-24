@@ -605,6 +605,8 @@ def test_output_record_mapping_preserves_jupyter_mime_semantics() -> None:
                 "text/plain": "chart",
                 "application/json": {"score": 0.9},
                 "image/png": "cG5n",
+                "image/gif": "Z2lm",
+                "image/svg+xml": "<svg></svg>",
             },
             "metadata": {"width": 10},
             "transient": {"display_id": "display-1"},
@@ -625,6 +627,8 @@ def test_output_record_mapping_preserves_jupyter_mime_semantics() -> None:
         "UTF8",
         "UTF8",
         "BASE64",
+        "BASE64",
+        "UTF8",
     ]
     assert display.representations[1].content == '{"score":0.9}'
     assert display.metadata["transient"] == {"display_id": "display-1"}
