@@ -84,6 +84,21 @@ mounting Jupyter shared storage. File scans and hashing run in a worker thread s
 Jupyter's server event loop; Executor applies `JUPYTER_STORAGE_TIMEOUT_SECONDS` (default 300) to
 these potentially slower calls.
 
+The extension also exposes authenticated internal Output Journal operations:
+
+- `POST /executor/storage/output-journals/begin`
+- `POST /executor/storage/output-journals/append`
+- `POST /executor/storage/output-journals/finalize`
+- `POST /executor/storage/output-journals/abort`
+
+These are Runtime-driver endpoints, not public Agent APIs. They durably store complete Step output
+under `<workspace>/outputs/<operation>/<step>/<attempt>/<fencing-token>/`. Append uses both a stable
+UUID `batch_id` and `expected_offset`: an identical replay is idempotent, while a reused batch ID
+with changed records or a non-current offset returns HTTP 409. Output bodies are stored in
+`content/`; responses contain checksums and opaque `journal://` references rather than echoing the
+bodies or physical paths. All operations require the same Jupyter token as the standard Contents
+API, and the workspace must first be created through `workspaces/prepare`.
+
 ## Verification
 
 After starting the image, verify the server, kernelspecs, and resource endpoint:

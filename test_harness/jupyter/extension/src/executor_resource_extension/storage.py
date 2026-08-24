@@ -31,6 +31,7 @@ class RuntimeStorage:
         for relative in (
             "notebooks",
             "notebooks/.ipynb_checkpoints",
+            "outputs",
             "reports",
             *(f"artifacts/{name}" for name in ARTIFACT_DIRECTORIES),
         ):
