@@ -271,18 +271,18 @@ also ambiguous and can be expensive.
 ## DD-007: Rebuilding a missing or damaged execution notebook
 
 - Status: DEFERRED
-- Area: Runtime Output Journal, notebook projection, maintenance and reconciliation
+- Area: shared execution results, notebook projection, maintenance and reconciliation
 - Deferred on: 2026-08-24
 - Resume when: an operational requirement or failure test demonstrates that a completed notebook
   must be repaired after its normal materialization has finished
 
 ### Context
 
-Executor-managed notebooks are written atomically by the authenticated Jupyter extension rather
-than through the Jupyter Contents checkpoint flow. PostgreSQL retains authoritative fenced
-Execution metadata, while each Step Attempt retains its source and complete output in
-`journal.jsonl` plus native image files. The empty `notebooks/.ipynb_checkpoints` directory is not
-an Executor recovery dependency.
+Executor-managed notebooks are written through authenticated Jupyter operations rather than the
+Jupyter Contents checkpoint flow. PostgreSQL retains authoritative fenced Execution metadata,
+while each Step Attempt retains its source, terminal manifest, and complete native output files on
+the Agent/Executor shared volume. Executor does not create Jupyter checkpoints; they are not a
+recovery dependency.
 
 The current execution path materializes or updates the notebook when a Step finishes. It does not
 later detect or automatically repair an `execution.ipynb` file that an operator or external process
@@ -290,15 +290,15 @@ deletes, corrupts, or replaces after materialization.
 
 ### Agreed constraints
 
-- Rebuilding means projecting the latest PostgreSQL-authoritative, correctly fenced Step Attempts
-  and their terminal Journals into a notebook; it does not execute code again.
+- Rebuilding means projecting the latest PostgreSQL-authoritative, correctly fenced Step Attempt
+  manifests and files into a notebook; it does not execute code again.
 - Rebuilding must not recreate datasets, models, reports, plots, or other Artifacts and must not
   require a live kernel.
 - The reconstructed notebook covers Executor-managed cells. User-added or manually modified
   JupyterLab cells are not recoverable unless a separate user-edit persistence contract is adopted.
 - A retry or correction selects the latest authoritative Attempt rather than restoring the first
   notebook version or a stale Jupyter checkpoint.
-- Journal retention must not expire content that an approved rebuild policy still promises to
+- Shared result retention must not expire content that an approved rebuild policy still promises to
   recover.
 
 ### Questions still open
@@ -308,7 +308,7 @@ deletes, corrupts, or replaces after materialization.
 - Which conditions trigger repair: missing file, invalid notebook JSON, checksum mismatch, stale
   fencing metadata, missing managed cells, or incomplete output projection.
 - How a running MULTI Execution reconstructs prepared but unexecuted cells alongside terminal
-  Journal output.
+  shared-volume output.
 - Which event, audit, and idempotency records a maintenance rebuild produces.
 
 ### Explicitly excluded until resumed

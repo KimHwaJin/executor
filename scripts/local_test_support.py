@@ -10,8 +10,12 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-import httpx
 from mcp import Client
+
+from executor_service.domain.results import StepResultReference
+from executor_service.infrastructure.result_storage import (
+    FilesystemExecutionResultStore,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,70 +138,48 @@ async def required_tool_result(
     return result.structured_content
 
 
-async def execution_output_items(
+def local_shared_storage_root() -> Path:
+    return Path(
+        os.getenv("LOCAL_TEST_SHARED_STORAGE_ROOT", "shared_dir")
+    ).resolve()
+
+
+async def execution_step_outputs(
     client: Client, execution_id: str
 ) -> list[dict[str, Any]]:
-    """Read every normalized output descriptor without result-body duplication."""
-    items: list[dict[str, Any]] = []
-    cursor: str | None = None
-    while True:
-        page = await required_tool_result(
-            client,
-            "execution_output_list",
-            {
-                "execution_id": execution_id,
-                "cursor": cursor,
-                "limit": 200,
-            },
-        )
-        items.extend(page["items"])
-        cursor = page.get("next_cursor")
-        if cursor is None:
-            return items
-
-
-async def execution_output_content(
-    client: Client,
-    execution_id: str,
-    output_id: str,
-    representation_id: str,
-) -> bytes:
-    """Resolve an MCP-inline or HTTP-streamed output representation."""
-    descriptor = await required_tool_result(
-        client,
-        "execution_output_content_get",
-        {
-            "execution_id": execution_id,
-            "output_id": output_id,
-            "representation_id": representation_id,
-        },
+    """Verify and read every sealed Step output from the shared volume."""
+    result = await required_tool_result(
+        client, "execution_result_get", {"execution_id": execution_id}
     )
-    if descriptor["delivery"] == "INLINE":
-        return (descriptor.get("content") or "").encode("utf-8")
-    async with httpx.AsyncClient(
-        base_url=executor_http_url(), timeout=60
-    ) as http:
-        response = await http.get(descriptor["content_url"])
-        response.raise_for_status()
-        return response.content
+    store = FilesystemExecutionResultStore(local_shared_storage_root())
+    items: list[dict[str, Any]] = []
+    for operation in result["operations"]:
+        for step in operation["steps"]:
+            reference = step["result"].get("result_ref")
+            if reference is None:
+                continue
+            if reference.get("storage") != "SHARED_PV":
+                raise RuntimeError("Execution result is not on SHARED_PV.")
+            items.extend(
+                await store.read_step_outputs(
+                    StepResultReference(
+                        relative_path=reference["relative_path"],
+                        checksum_sha256=reference["checksum_sha256"],
+                        execution_attempt_id=reference["attempt_id"],
+                        fencing_token=reference["fencing_token"],
+                    )
+                )
+            )
+    return items
 
 
 async def execution_stream_text(client: Client, execution_id: str) -> str:
-    """Read ordered stdout/stderr text from normalized output references."""
+    """Read ordered stdout/stderr text from verified shared result files."""
     chunks: list[str] = []
-    for output in await execution_output_items(client, execution_id):
-        if output["kind"] != "STREAM":
+    for output in await execution_step_outputs(client, execution_id):
+        if output["output_type"] != "stream":
             continue
-        for representation in output["representations"]:
-            if representation["media_type"] != "text/plain":
-                continue
-            content = await execution_output_content(
-                client,
-                execution_id,
-                output["output_id"],
-                representation["representation_id"],
-            )
-            chunks.append(content.decode("utf-8"))
+        chunks.append(str(output.get("text", "")))
     return "".join(chunks)
 
 

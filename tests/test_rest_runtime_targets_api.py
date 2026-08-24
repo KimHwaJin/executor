@@ -75,7 +75,7 @@ async def fleet_client(
         database_url="sqlite+aiosqlite:///:memory:",
         redis_url="redis://localhost:6399/15",
         runtime_enabled=False,
-        input_host_root=tmp_path,
+        shared_storage_root=tmp_path,
     )
     container = ApplicationContainer(settings)
     async with container.engine.begin() as connection:

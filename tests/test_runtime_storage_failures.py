@@ -35,6 +35,7 @@ from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
     ExecutionOperationORM,
+    ExecutionORM,
     ExecutionStepORM,
     OutboxEventORM,
     RuntimeTargetORM,
@@ -104,6 +105,7 @@ class FailingRuntimeStorageDriver(InMemoryRuntimeStorage):
 @pytest.mark.parametrize(
     (
         "failure_point",
+        "expected_execution_status",
         "expected_step_status",
         "expected_cleanup",
         "artifact_event",
@@ -111,18 +113,21 @@ class FailingRuntimeStorageDriver(InMemoryRuntimeStorage):
     [
         (
             "prepare_workspace",
+            ExecutionStatus.FAILED,
             StepStatus.SKIPPED,
             RuntimeSessionCleanupStatus.NOT_REQUIRED,
             False,
         ),
         (
             "write_notebook",
+            ExecutionStatus.SUCCEEDED,
             StepStatus.SUCCEEDED,
             RuntimeSessionCleanupStatus.SUCCEEDED,
             False,
         ),
         (
             "artifact_discovery",
+            ExecutionStatus.FAILED,
             StepStatus.SUCCEEDED,
             RuntimeSessionCleanupStatus.SUCCEEDED,
             True,
@@ -135,6 +140,7 @@ async def test_runtime_storage_failure_finalizes_consistent_state_and_events(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     failure_point: str,
+    expected_execution_status: ExecutionStatus,
     expected_step_status: StepStatus,
     expected_cleanup: RuntimeSessionCleanupStatus,
     artifact_event: bool,
@@ -173,7 +179,7 @@ async def test_runtime_storage_failure_finalizes_consistent_state_and_events(
             ),
         )
     )
-    settings = Settings(runtime_enabled=False, input_host_root=tmp_path)
+    settings = Settings(runtime_enabled=False, shared_storage_root=tmp_path)
     redis = Redis.from_url("redis://127.0.0.1:6379/15", decode_responses=True)
     worker = ExecutionWorker(
         session_factory=session_factory,
@@ -192,12 +198,16 @@ async def test_runtime_storage_failure_finalizes_consistent_state_and_events(
     finally:
         await redis.aclose()
 
-    failed = await execution_service.get(execution.id)
-    assert failed.status == ExecutionStatus.FAILED
-    assert failed.failure_type == FailureType.RUNTIME_UNAVAILABLE
-    assert failed.retry_strategy == RetryStrategy.FROM_START
-    assert failed.retry_from_sequence == 0
-    assert failed.runtime_session_cleanup_status == expected_cleanup
+    finished = await execution_service.get(execution.id)
+    assert finished.status == expected_execution_status
+    assert finished.runtime_session_cleanup_status == expected_cleanup
+    if expected_execution_status == ExecutionStatus.FAILED:
+        assert finished.failure_type == FailureType.RUNTIME_UNAVAILABLE
+        assert finished.retry_strategy == RetryStrategy.FROM_START
+        assert finished.retry_from_sequence == 0
+    else:
+        assert finished.failure_type is None
+        assert finished.retry_strategy == RetryStrategy.NOT_RETRYABLE
 
     async with session_factory() as session:
         attempt = await session.scalar(
@@ -205,6 +215,7 @@ async def test_runtime_storage_failure_finalizes_consistent_state_and_events(
                 ExecutionAttemptORM.execution_id == execution.id
             )
         )
+        execution_row = await session.get(ExecutionORM, execution.id)
         operation = await session.get(
             ExecutionOperationORM, execution.active_operation_id
         )
@@ -221,18 +232,28 @@ async def test_runtime_storage_failure_finalizes_consistent_state_and_events(
             )
         )
 
+    assert execution_row is not None
     assert attempt is not None
-    assert attempt.status == AttemptStatus.FAILED
-    assert attempt.failure_type == FailureType.RUNTIME_UNAVAILABLE
-    assert attempt.retry_strategy == RetryStrategy.FROM_START
     assert attempt.runtime_session_cleanup_status == expected_cleanup
     assert operation is not None
-    assert operation.status == OperationStatus.FAILED
     assert operation.execution_attempt_id == attempt.id
     assert step is not None
     assert step.status == expected_step_status
-    assert "execution.operation_failed" in event_types
-    assert "execution.failed" in event_types
+    if expected_execution_status == ExecutionStatus.FAILED:
+        assert attempt.status == AttemptStatus.FAILED
+        assert attempt.failure_type == FailureType.RUNTIME_UNAVAILABLE
+        assert attempt.retry_strategy == RetryStrategy.FROM_START
+        assert operation.status == OperationStatus.FAILED
+        assert "execution.operation_failed" in event_types
+        assert "execution.failed" in event_types
+    else:
+        assert attempt.status == AttemptStatus.SUCCEEDED
+        assert operation.status == OperationStatus.SUCCEEDED
+        assert execution_row.notebook_projection_status == "FAILED"
+        assert execution_row.notebook_projection_attempt_count == 3
+        assert execution_row.notebook_projection_error is not None
+        assert "execution.operation_succeeded" in event_types
+        assert "execution.succeeded" in event_types
     assert ("execution.artifact_failed" in event_types) is artifact_event
     assert bool(FailingRuntimeStorageDriver.deleted_sessions) is (
         expected_cleanup == RuntimeSessionCleanupStatus.SUCCEEDED

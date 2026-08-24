@@ -29,12 +29,15 @@ Execution detail groups information by responsibility: `context`, `runtime`, `wo
 `state`, `failure`, `retry`, `recovery`, `deadlines`, and `lifecycle`. The lifecycle object exposes
 `operation_mode`, `operation_wait_timeout_seconds`, `started_at`, and `finished_at`. Runtime
 assignment fields remain null until the Worker selects a target and opens a session.
+`workspace.notebook_projection` independently reports `NOT_STARTED`, `PENDING`, `SUCCEEDED`, or
+`FAILED`, its attempt count, last safe error, and projection time. A projection failure does not
+change a successful Execution result.
 
 Step detail exposes Executor-owned `step_id`, `sequence`, `code_hash`, per-Step `source` provenance,
 `step_timeout_seconds`, `lineage`, `result`, lifecycle timestamps, and audit fields. `result`
-contains a bounded `output_summary` and, after success or failure, a `result_ref` containing the
-arguments needed by `execution_output_list` (`execution_id`, `step_id`, and authoritative
-`attempt_id`). It never duplicates full Runtime output bodies. Operation
+contains a bounded `output_summary` and, after success or failure, a canonical `SHARED_PV`
+`result_ref` with a safe relative manifest path, checksum, authoritative Attempt, and fencing
+token. It never duplicates full output bodies. Operation
 detail exposes accepted `schema_version` (currently always `1.0`), its sequence range,
 `operation_timeout_seconds`, metadata, result, and audit fields.
 
@@ -42,9 +45,9 @@ detail exposes accepted `schema_version` (currently always `1.0`), its sequence 
 every Operation with its current Step results, immutable Attempts with Step Attempts, and full
 Artifact metadata in one call. The Operation-scoped equivalents return one Operation and its Steps.
 These are the authoritative state and lineage reads after Redis signals
-`result_available=true`. Agents use each Step's `result_ref` with the paginated
-output APIs and retrieve only the representations needed for reasoning or a
-report.
+`result_available=true`. The Agent resolves each Step's reference below its configured shared
+root, verifies the manifest and declared file checksums, and reads only those representations
+needed for reasoning or a report.
 
 ```json
 {
@@ -59,9 +62,13 @@ report.
     "has_error": false
   },
   "result_ref": {
+    "storage": "SHARED_PV",
     "execution_id": "...",
     "step_id": "...",
-    "attempt_id": "..."
+    "attempt_id": "...",
+    "fencing_token": 3,
+    "relative_path": "executions/.../manifest.json",
+    "checksum_sha256": "hex"
   },
   "error_message": null
 }

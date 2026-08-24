@@ -109,29 +109,20 @@ session, and reaches a terminal state. The Jupyter driver writes the final noteb
 All list endpoints use opaque cursor pagination. Clients must return `next_cursor` unchanged.
 OpenAPI is available at `/openapi.json`, Swagger UI at `/docs`, and ReDoc at `/redoc`.
 
+Execution detail exposes notebook projection separately under `workspace.notebook_projection`.
+The state begins as `NOT_STARTED`, becomes `PENDING` only while a projection is attempted, and
+finishes as `SUCCEEDED` or `FAILED`. Code execution and its shared-volume result remain successful
+even when this user-facing notebook projection fails.
+
 ## Result retrieval and report materialization
 
 Redis events are wake-up notifications. Step events contain `output_summary`,
 `result_available=true`, and a `result_ref`, but never full text or image payloads. After an
 Operation or terminal event, the Agent calls the matching consolidated result endpoint once. Step
-results return the same bounded summary plus a transport-neutral `result_ref`; the reference
-values can be passed directly to REST query parameters or MCP `execution_output_list`.
-
-`GET /executions/{execution_id}/outputs` exposes ordered output descriptors
-without loading complete Runtime-owned bodies. Optional `operation_id`,
-`step_id`, and `attempt_id` filters narrow the result. Each representation
-contains its MIME type, byte size, checksum, completeness, and an opaque
-`content_ref`; clients must not parse the reference. Native content retrieval
-uses `GET /executions/{execution_id}/outputs/{output_id}/representations/
-{representation_id}/content`. The response preserves the native media type,
-returns `Content-Length`, `ETag`, `X-Checksum-SHA256`, and `Accept-Ranges`, and
-supports one standard `Range: bytes=...` value. Invalid or multiple ranges
-return `416` with `Content-Range: bytes */<total>`.
-
-MCP `execution_output_content_get` inlines only UTF-8 textual
-representations no larger than `MCP_OUTPUT_INLINE_MAX_BYTES`. Images, binary
-representations, and larger text return `delivery=HTTP` plus the relative
-`content_url`; they are never embedded as base64 in MCP or Redis.
+results return the same bounded summary plus a `SHARED_PV` reference. The Agent safely resolves the
+relative manifest path under its configured shared root and verifies every checksum before using
+text, structured data, image, or binary files. There is no public output-body REST or MCP API;
+Redis, PostgreSQL, and LLM Tool results remain bounded.
 
 `POST /executions/{execution_id}/artifacts` accepts idempotent Agent-authored UTF-8 content from an
 INLINE source or input-PV PATH. A REPORT defaults to `reports/final-report.md`; callers do not

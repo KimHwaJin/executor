@@ -189,13 +189,9 @@ HTTP calls must not be placed inside the Target row-lock transaction.
 - Alembic revision `0004` stores `session_count_observed_at` separately from health and resource
   timestamps. Successful probes replace the observation; failed probes preserve it and mark it
   stale through health state.
-- Alembic revision `0005` projects fenced Runtime Output Journal descriptors,
-  outputs, and MIME representation metadata into PostgreSQL while complete
-  content remains in Runtime-owned storage.
-- Alembic revision `0006` switches Step and Step Attempt state to bounded output
-  summaries and authoritative Attempt references. Legacy full-output columns
-  become write-disabled preservation data pending an explicitly destructive
-  retention decision.
+- The fresh baseline schema stores immutable source snapshot references, bounded Step summaries,
+  and fenced shared-volume result references. It has no legacy full-output or normalized output
+  tables.
 - Fresh observations use `max(active_execution_count, active_session_count)` for admission.
   Stale or unavailable observations fall back to DB reservations without representing the last
   Runtime count as zero.
@@ -257,18 +253,19 @@ refreshes it from the Runtime before returning.
 
 - Priority: P1
 - Status: IN_PROGRESS
-- Area: Runtime output collection, notebook persistence, PostgreSQL result storage, Agent access
-- Public API impact: additive output metadata, references, and bounded content access
+- Area: Runtime output collection, notebook projection, PostgreSQL result state, Agent access
+- Public API impact: shared-volume result references on Step detail and consolidated result reads
 - Request impact: none required for normal execution submission
 
 ### Agreed direction
 
 - Do not solve capacity risk by silently discarding or permanently truncating the execution result.
-- Preserve complete cell output on Runtime-owned storage and in the final notebook, subject only to
+- Preserve complete cell output on Agent/Executor shared storage and in the final notebook, subject only to
   an explicit platform-wide safety ceiling that is still to be measured.
 - Keep Redis integration events bounded to output summaries and result references.
-- Do not require an Agent or LLM to ingest every raw byte at once. Small results may be returned
-  directly; large results remain accessible through paginated or chunked result references.
+- Do not expose a general filesystem Tool to the LLM. Agent application code resolves a safe
+  relative result reference, validates manifests and content checksums, and selects what enters the
+  model context.
 - Distinguish semantic results such as metrics and compact tables from large visual/data output and
   repetitive diagnostic logs.
 
@@ -281,52 +278,38 @@ refreshes it from the Runtime before returning.
   retrieval call count. It checkpoints the JSON report after every completed scenario.
 - The harness never changes Runtime Target capacity. It fails when requested active concurrency
   exceeds configured capacity unless the operator explicitly chooses a queued-load measurement.
-- The Runtime-neutral journal, fencing, storage, metadata, finalization, and public-read contract is
-  recorded in [Runtime Output Journal](runtime-output-journal.md). No production output threshold
-  is selected before T35 baseline evidence exists.
-- Jupyter implements the Runtime-neutral Output Journal port. For journal-capable Runtime Drivers,
-  the Worker begins a fenced Step journal, commits each received output before reading the next
-  message, finalizes complete success and Tool-error delivery, and aborts incomplete delivery on
-  cancellation, timeout, or transport failure.
-- The compatibility path still retains full output in Worker memory and PostgreSQL until the output
-  metadata projection and journal-backed read contracts are introduced. Journal delivery therefore
-  provides durable intermediate evidence now but is not yet the final memory-bound cutover.
+- The fencing, commit ordering, path safety, and Agent-read contract is recorded in
+  [Shared execution result storage](shared-result-storage.md).
+- The Worker creates one fenced partial result directory, commits each received output to native
+  files, and atomically seals a terminal manifest on success, Tool error, timeout, or cancellation.
+- PostgreSQL and Redis carry bounded summaries plus references only. There is no compatibility
+  duplication of complete output bodies.
 
 ### Problem
 
-The Jupyter WebSocket currently accepts unbounded message size and, during the compatibility
-phase, still accumulates every output in an Executor process list after also committing it to the
-Runtime Output Journal. The same output is then stored in Step and StepAttempt JSON and embedded in
-the notebook. A large HTML display, base64 image, or repetitive stdout can therefore still multiply
-memory and PostgreSQL usage across concurrent executions even when Redis events remain small.
+Jupyter WebSocket messages still need a measured platform safety ceiling. Executor streams each
+received output to shared storage without accumulating a complete Execution in memory or storing
+full bodies in PostgreSQL and Redis. One individual WebSocket message can nevertheless be large,
+especially for HTML or base64 image display data.
 
 ### Required design direction
 
-- Journal output incrementally to Runtime-owned storage instead of retaining an unbounded cell in
-  Executor memory. The journal must be sufficient to construct or update the complete notebook.
+- Store output incrementally in fenced shared-volume files instead of retaining an unbounded cell
+  in Executor memory. The sealed manifest must be sufficient to project the complete notebook.
 - Store bounded preview, output summary, byte size, media type, checksum, and stable result
   reference in PostgreSQL rather than duplicating every full payload in Step and StepAttempt rows.
-- Provide cursor/chunk access for large text and individual output access for display data and
-  images. A caller must be able to retrieve the complete result when needed.
-- Keep a configurable per-message and in-process buffer safety bound. Exceeding the in-process
-  bound must switch to or continue Runtime-side journaling; it must not silently claim that the
-  discarded content is complete.
+- Keep a configurable per-message safety bound and measure it before production. Exceeding a hard
+  bound must fail explicitly without claiming that discarded content is complete.
 - Preserve clear metadata such as `complete`, `truncated_in_preview`, `size_bytes`, and
   `content_ref` so the Agent can decide whether additional retrieval is required.
 - Avoid carrying full base64 images through Redis or ordinary JSON list responses.
 
 ### Approved image delivery
 
-Runtime-produced images live on Jupyter-owned shared storage, which is not directly mounted into
-the Agent. Redis events carry only stable image metadata and references such as `output_id`,
-`content_ref`, media type, and byte size. They do not carry base64 image bodies or expiring URLs.
-
-When an image is required, the Agent retrieves the referenced original through an authenticated
-Executor output-content API. Executor resolves the Runtime-owned content and streams its native
-binary media type without exposing the Jupyter management token or raw Jupyter contents URL.
-Model-specific conversion, resizing, or base64 encoding is the Agent's responsibility after
-retrieval. A direct model-side signed-URL path may be added later as an optimization, but it is not
-the canonical delivery contract.
+Cell-output images live as native files under the fenced shared Step result. Redis carries only the
+manifest reference and bounded image summary. Agent application code validates the referenced PNG,
+JPEG, SVG, or other file before giving the selected image to a multimodal model. Runtime-produced
+plot artifacts remain on Jupyter-owned storage and use the separate Artifact contract.
 
 ### Measurement before thresholds
 
@@ -391,7 +374,7 @@ from an arbitrary universal constant.
 
 ### Deferred architecture
 
-A Runtime-side Runner or Collector that journals execution independently of Executor is not part of
+A Runtime-side Runner or Collector that persists execution independently of Executor is not part of
 the current scope. It may be reconsidered only if uninterrupted continuation across Executor Worker
 failure becomes a hard requirement. Until then, an unexpected Worker loss is handled safely as a
 failure rather than pretending that a disconnected execution can be resumed with complete output.

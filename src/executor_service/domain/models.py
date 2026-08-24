@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID, uuid4
 
 from executor_service.domain.enums import (
@@ -32,6 +32,11 @@ def utc_now() -> datetime:
     return datetime.now(UTC)
 
 
+type NotebookProjectionStatus = Literal[
+    "NOT_STARTED", "PENDING", "SUCCEEDED", "FAILED"
+]
+
+
 def empty_output_summary() -> dict[str, Any]:
     """Return the bounded persisted shape for a Step with no outputs."""
     return {
@@ -52,6 +57,8 @@ class ExecutionStep:
     source_type: CodeSourceType = CodeSourceType.INLINE
     source_path: str | None = None
     source_sha256: str = ""
+    source_snapshot_path: str | None = None
+    source_size_bytes: int | None = None
     step_timeout_seconds: int | None = None
     code_hash: str | None = None
     skill_name: str | None = None
@@ -64,6 +71,11 @@ class ExecutionStep:
         default_factory=empty_output_summary
     )
     result_execution_attempt_id: UUID | None = None
+    result_manifest_path: str | None = None
+    result_manifest_checksum_sha256: str | None = None
+    result_fencing_token: int | None = None
+    result_representation_count: int = 0
+    result_total_size_bytes: int = 0
     error_message: str | None = None
     created_by_type: ActorType | None = None
     created_by: str | None = None
@@ -104,6 +116,10 @@ class Execution:
     runtime_session_id: str | None = None
     workspace_path: str | None = None
     notebook_path: str | None = None
+    notebook_projection_status: NotebookProjectionStatus = "NOT_STARTED"
+    notebook_projection_attempt_count: int = 0
+    notebook_projection_error: str | None = None
+    notebook_projected_at: datetime | None = None
     error_message: str | None = None
     failure_type: FailureType | None = None
     lease_owner: str | None = None

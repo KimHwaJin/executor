@@ -24,14 +24,10 @@ class ConfiguredRuntimeDriverFactory:
                 raise RuntimeDriverError(
                     "JUPYTER Runtime Target requires connection_config.endpoint."
                 )
-            driver = JupyterRuntimeDriver(
+            return JupyterRuntimeDriver(
                 endpoint,
                 credential,
                 self._settings.jupyter_request_timeout_seconds,
                 self._settings.jupyter_storage_timeout_seconds,
             )
-            driver._output_chunk_bytes = (
-                self._settings.output_content_chunk_bytes
-            )
-            return driver
         raise RuntimeDriverError(f"Unsupported runtime_type: {runtime_type}")

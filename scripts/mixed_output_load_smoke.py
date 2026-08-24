@@ -1,6 +1,7 @@
 """Submit mixed Jupyter outputs concurrently and validate consolidated Agent results."""
 
 import asyncio
+import base64
 from dataclasses import dataclass
 from time import monotonic
 from typing import Any
@@ -10,8 +11,7 @@ from execution_spec_payload import execution_request, inline_spec
 from local_test_support import (
     env_float,
     env_int,
-    execution_output_content,
-    execution_output_items,
+    execution_step_outputs,
     execution_stream_text,
     executor_mcp_url,
     register_local_runtime_targets,
@@ -125,7 +125,7 @@ async def _validate_outputs(
     run_id: str,
     index: int,
 ) -> dict[str, Any]:
-    outputs = await execution_output_items(client, execution_id)
+    outputs = await execution_step_outputs(client, execution_id)
     marker = f"MIXED_{workload_type}:{run_id}:{index}"
     stream_text = await execution_stream_text(client, execution_id)
     if marker not in stream_text:
@@ -136,8 +136,11 @@ async def _validate_outputs(
         {
             media_type
             for output in outputs
-            for representation in output["representations"]
-            for media_type in [representation["media_type"]]
+            for media_type in (
+                output.get("data", {}).keys()
+                if isinstance(output.get("data"), dict)
+                else (["text/plain"] if output["output_type"] == "stream" else [])
+            )
         }
     )
     if workload_type == "TABLE" and "text/html" not in mime_types:
@@ -150,19 +153,16 @@ async def _validate_outputs(
         )
     if workload_type == "IMAGE":
         image_representations = [
-            (output["output_id"], representation["representation_id"])
+            output["data"]["image/png"]
             for output in outputs
-            for representation in output["representations"]
-            if representation["media_type"] == "image/png"
+            if isinstance(output.get("data"), dict)
+            and "image/png" in output["data"]
         ]
         if not image_representations:
             raise RuntimeError(
                 f"IMAGE result is missing image/png output: {mime_types}"
             )
-        output_id, representation_id = image_representations[0]
-        image = await execution_output_content(
-            client, execution_id, output_id, representation_id
-        )
+        image = base64.b64decode(image_representations[0], validate=True)
         if not image.startswith(b"\x89PNG\r\n\x1a\n"):
             raise RuntimeError(
                 "IMAGE result does not contain a valid PNG signature."

@@ -91,7 +91,7 @@ services:
       RUNTIME_CREDENTIAL_KEY: ${RUNTIME_CREDENTIAL_KEY:-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}
       RUNTIME_SESSION_COUNT_MAX_AGE_SECONDS: ${RUNTIME_SESSION_COUNT_MAX_AGE_SECONDS:-45}
       RUNTIME_CLEANUP_RETRY_INTERVAL_SECONDS: ${RUNTIME_CLEANUP_RETRY_INTERVAL_SECONDS:-60}
-      INPUT_HOST_ROOT: /workspace/input
+      SHARED_STORAGE_ROOT: /workspace/shared
       RUNTIME_ABORT_TIMEOUT_SECONDS: ${RUNTIME_ABORT_TIMEOUT_SECONDS:-15}
       TRACING_ENABLED: ${TRACING_ENABLED:-false}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://phoenix:6006/v1/traces}
@@ -115,7 +115,7 @@ services:
       redis:
         condition: service_healthy
     volumes:
-      - ./input_dir:/workspace/input:ro
+      - ./shared_dir:/workspace/shared
     restart: unless-stopped
 
   jupyter-secondary:

@@ -41,7 +41,7 @@ def _worker(
 ) -> ExecutionWorker:
     settings = Settings(
         runtime_enabled=True,
-        input_host_root=tmp_path,
+        shared_storage_root=tmp_path,
         execution_drain_timeout_seconds=drain_timeout,
         execution_pending_claim_interval_seconds=60,
     )
@@ -127,7 +127,7 @@ async def test_readiness_fails_as_soon_as_worker_enters_drain(
         database_url="sqlite+aiosqlite:///:memory:",
         redis_url="redis://localhost:6399/15",
         runtime_enabled=True,
-        input_host_root=tmp_path,
+        shared_storage_root=tmp_path,
     )
     container = ApplicationContainer(settings)
     async with container.engine.begin() as connection:
@@ -135,7 +135,7 @@ async def test_readiness_fails_as_soon_as_worker_enters_drain(
             text("CREATE TABLE alembic_version (version_num VARCHAR(32))")
         )
         await connection.execute(
-            text("INSERT INTO alembic_version VALUES ('0006')")
+            text("INSERT INTO alembic_version VALUES ('0004')")
         )
     monkeypatch.setattr(container.redis, "ping", AsyncMock(return_value=True))
     container.execution_worker._stopped = False

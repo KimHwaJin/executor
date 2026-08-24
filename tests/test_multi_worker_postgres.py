@@ -59,6 +59,9 @@ from executor_service.infrastructure.execution_leases import (
     ExecutionLeaseLostError,
 )
 from executor_service.infrastructure.outbox import OutboxPublisher
+from executor_service.infrastructure.result_storage import (
+    FilesystemExecutionResultStore,
+)
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
 )
@@ -159,11 +162,12 @@ def _server(
     )
 
 
-def _service(engine: AsyncEngine) -> ExecutionService:
+def _service(engine: AsyncEngine, root: Path) -> ExecutionService:
     session_factory = create_session_factory(engine)
     return ExecutionService(
         lambda: SQLAlchemyUnitOfWork(session_factory),
         {RuntimeType.JUPYTER: ("basic", "ml")},
+        FilesystemExecutionResultStore(root),
     )
 
 
@@ -177,7 +181,7 @@ def _workers(
         redis = Redis.from_url(_redis_test_url(), decode_responses=True)
         settings = Settings(
             runtime_enabled=False,
-            input_host_root=tmp_path / f"worker-{index}",
+            shared_storage_root=tmp_path / f"worker-{index}",
             execution_consumer_name=f"postgres-worker-{index}",
         )
         workers.append(
@@ -201,7 +205,7 @@ async def test_concurrent_workers_create_exactly_one_attempt_for_an_execution(
     postgres_engine: AsyncEngine,
     tmp_path: Path,
 ) -> None:
-    service = _service(postgres_engine)
+    service = _service(postgres_engine, tmp_path)
     session_factory = create_session_factory(postgres_engine)
     async with session_factory() as session, session.begin():
         session.add(_server(capacity=10))
@@ -228,7 +232,7 @@ async def test_stale_worker_cannot_write_or_heartbeat_after_takeover(
     postgres_engine: AsyncEngine,
     tmp_path: Path,
 ) -> None:
-    service = _service(postgres_engine)
+    service = _service(postgres_engine, tmp_path)
     session_factory = create_session_factory(postgres_engine)
     async with session_factory() as session, session.begin():
         session.add(_server(capacity=2))
@@ -295,7 +299,7 @@ async def test_concurrent_workers_create_one_attempt_for_a_requeued_operation(
     postgres_engine: AsyncEngine,
     tmp_path: Path,
 ) -> None:
-    service = _service(postgres_engine)
+    service = _service(postgres_engine, tmp_path)
     session_factory = create_session_factory(postgres_engine)
     async with session_factory() as session, session.begin():
         session.add(_server(capacity=10))
@@ -350,7 +354,7 @@ async def test_concurrent_workers_never_oversubscribe_jupyter_capacity(
     postgres_engine: AsyncEngine,
     tmp_path: Path,
 ) -> None:
-    service = _service(postgres_engine)
+    service = _service(postgres_engine, tmp_path)
     session_factory = create_session_factory(postgres_engine)
     target = _server(capacity=2)
     async with session_factory() as session, session.begin():
@@ -399,7 +403,7 @@ async def test_concurrent_workers_respect_fresh_observed_session_capacity(
     postgres_engine: AsyncEngine,
     tmp_path: Path,
 ) -> None:
-    service = _service(postgres_engine)
+    service = _service(postgres_engine, tmp_path)
     session_factory = create_session_factory(postgres_engine)
     target = _server(capacity=2, active_session_count=2)
     async with session_factory() as session, session.begin():
@@ -433,7 +437,7 @@ async def test_cancel_and_claim_race_has_one_consistent_terminal_result(
     postgres_engine: AsyncEngine,
     tmp_path: Path,
 ) -> None:
-    service = _service(postgres_engine)
+    service = _service(postgres_engine, tmp_path)
     session_factory = create_session_factory(postgres_engine)
     async with session_factory() as session, session.begin():
         session.add(_server(capacity=20))
@@ -489,8 +493,9 @@ async def test_cancel_and_claim_race_has_one_consistent_terminal_result(
 
 async def test_concurrent_outbox_publishers_emit_one_stream_message(
     postgres_engine: AsyncEngine,
+    tmp_path: Path,
 ) -> None:
-    service = _service(postgres_engine)
+    service = _service(postgres_engine, tmp_path)
     await service.submit(_command("outbox-once"))
     session_factory = create_session_factory(postgres_engine)
     unique = uuid4().hex

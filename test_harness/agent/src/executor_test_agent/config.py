@@ -3,6 +3,7 @@
 import os
 from dataclasses import dataclass
 from functools import lru_cache
+from pathlib import Path
 
 
 @dataclass(frozen=True, slots=True)
@@ -14,6 +15,7 @@ class AgentSettings:
     executor_redis_url: str
     executor_event_stream: str
     executor_consumer_group_prefix: str
+    executor_shared_storage_root: Path
     execution_timeout_seconds: float
     natural_language_execution_enabled: bool
     default_user_id: str
@@ -32,6 +34,9 @@ def get_settings() -> AgentSettings:
         executor_event_stream=os.getenv("EXECUTOR_EVENT_STREAM", "executor.events"),
         executor_consumer_group_prefix=os.getenv(
             "EXECUTOR_AGENT_CONSUMER_GROUP", "executor-test-agent"
+        ),
+        executor_shared_storage_root=Path(
+            os.getenv("EXECUTOR_SHARED_STORAGE_ROOT", "../../shared_dir")
         ),
         execution_timeout_seconds=float(os.getenv("EXECUTOR_EXECUTION_TIMEOUT_SECONDS", "120")),
         natural_language_execution_enabled=os.getenv(

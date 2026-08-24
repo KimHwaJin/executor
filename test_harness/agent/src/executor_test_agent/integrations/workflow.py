@@ -121,7 +121,11 @@ async def reconcile_execution(
     if str(wake_event.aggregate_id) != execution_id:
         raise RuntimeError("Wake-up event does not belong to the interrupted Execution.")
     async with Client(settings.executor_mcp_url) as client:
-        result = await collect_execution_result(client, execution_id)
+        result = await collect_execution_result(
+            client,
+            execution_id,
+            settings.executor_shared_storage_root,
+        )
 
     status = result["execution"]["state"]["status"]
     event_status = wake_event.payload.get("status")

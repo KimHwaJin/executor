@@ -1,9 +1,7 @@
 """Jupyter implementation of the generic RuntimeDriver contract."""
 
 import asyncio
-import hashlib
 import json
-from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from pathlib import PurePosixPath
 from typing import Any
@@ -23,19 +21,11 @@ from executor_service.domain.runtime import (
     RuntimeExecutionResult,
     RuntimeFileMetadata,
     RuntimeFileState,
-    RuntimeNotebookCell,
-    RuntimeNotebookMaterializationResult,
     RuntimeNotebookPreparationResult,
     RuntimeNotebookSourceCell,
-    RuntimeOutputAppendResult,
-    RuntimeOutputContentChunk,
-    RuntimeOutputDescriptor,
     RuntimeOutputHandler,
-    RuntimeOutputJournalDescriptor,
-    RuntimeOutputJournalIdentity,
     RuntimeOutputRecord,
     RuntimeOutputRepresentation,
-    RuntimeOutputRepresentationDescriptor,
     RuntimeResourceMetric,
     RuntimeResourceObservation,
     RuntimeStorageSnapshot,
@@ -49,7 +39,6 @@ class JupyterRuntimeDriver:
         token: str,
         request_timeout_seconds: float = 30,
         storage_timeout_seconds: float = 300,
-        output_chunk_bytes: int = 1048576,
     ) -> None:
         self._endpoint = endpoint.rstrip("/")
         self._token = token
@@ -59,7 +48,6 @@ class JupyterRuntimeDriver:
             timeout=request_timeout_seconds,
         )
         self._storage_timeout = storage_timeout_seconds
-        self._output_chunk_bytes = output_chunk_bytes
 
     async def close(self) -> None:
         await self._client.aclose()
@@ -276,8 +264,9 @@ class JupyterRuntimeDriver:
                     elif channel == "iopub":
                         output = _as_notebook_output(msg_type, content)
                         if output is not None:
-                            outputs.append(output)
-                            if output_handler is not None:
+                            if output_handler is None:
+                                outputs.append(output)
+                            else:
                                 record = _as_output_record(msg_type, content)
                                 if record is None:
                                     raise RuntimeDriverError(
@@ -296,287 +285,6 @@ class JupyterRuntimeDriver:
         return RuntimeExecutionResult(
             outputs=outputs, execution_count=execution_count
         )
-
-    async def output_journal_begin(
-        self, identity: RuntimeOutputJournalIdentity, source: str
-    ) -> RuntimeOutputJournalDescriptor:
-        response = await self._request(
-            "POST",
-            "/executor/storage/output-journals/begin",
-            json={
-                "journal": _journal_identity_payload(identity),
-                "source": source,
-            },
-            timeout=self._storage_timeout,
-        )
-        return _journal_descriptor(response, "begin")
-
-    async def output_journal_append(
-        self,
-        identity: RuntimeOutputJournalIdentity,
-        *,
-        journal_id: UUID,
-        expected_offset: int,
-        batch_id: UUID,
-        records: tuple[RuntimeOutputRecord, ...],
-    ) -> RuntimeOutputAppendResult:
-        response = await self._request(
-            "POST",
-            "/executor/storage/output-journals/append",
-            json={
-                "journal": _journal_identity_payload(identity),
-                "journal_id": str(journal_id),
-                "expected_offset": expected_offset,
-                "batch_id": str(batch_id),
-                "records": [
-                    _output_record_payload(record) for record in records
-                ],
-            },
-            timeout=self._storage_timeout,
-        )
-        try:
-            payload = response.json()
-            return RuntimeOutputAppendResult(
-                journal_id=UUID(str(payload["journal_id"])),
-                state=str(payload["state"]),
-                batch_id=UUID(str(payload["batch_id"])),
-                committed_offset=int(payload["committed_offset"]),
-                output_count=int(payload["output_count"]),
-                representation_count=int(payload["representation_count"]),
-                total_bytes=int(payload["total_bytes"]),
-                replayed=bool(payload["replayed"]),
-                outputs=tuple(
-                    _output_descriptor(item) for item in payload["outputs"]
-                ),
-            )
-        except (KeyError, TypeError, ValueError) as exc:
-            raise RuntimeDriverError(
-                "Jupyter Output Journal append response is invalid."
-            ) from exc
-
-    async def output_journal_finalize(
-        self,
-        identity: RuntimeOutputJournalIdentity,
-        *,
-        journal_id: UUID,
-    ) -> RuntimeOutputJournalDescriptor:
-        response = await self._request(
-            "POST",
-            "/executor/storage/output-journals/finalize",
-            json={
-                "journal": _journal_identity_payload(identity),
-                "journal_id": str(journal_id),
-            },
-            timeout=self._storage_timeout,
-        )
-        return _journal_descriptor(response, "finalize")
-
-    async def output_journal_abort(
-        self,
-        identity: RuntimeOutputJournalIdentity,
-        *,
-        journal_id: UUID,
-        reason: str,
-    ) -> RuntimeOutputJournalDescriptor:
-        response = await self._request(
-            "POST",
-            "/executor/storage/output-journals/abort",
-            json={
-                "journal": _journal_identity_payload(identity),
-                "journal_id": str(journal_id),
-                "reason": reason,
-            },
-            timeout=self._storage_timeout,
-        )
-        return _journal_descriptor(response, "abort")
-
-    async def output_journal_read(
-        self,
-        identity: RuntimeOutputJournalIdentity,
-        *,
-        journal_id: UUID,
-        output_id: UUID,
-        representation_id: UUID,
-        start: int,
-        end_exclusive: int,
-    ) -> RuntimeOutputContentChunk:
-        response = await self._request(
-            "POST",
-            "/executor/storage/output-journals/read",
-            json={
-                "journal": _journal_identity_payload(identity),
-                "journal_id": str(journal_id),
-                "output_id": str(output_id),
-                "representation_id": str(representation_id),
-                "start": start,
-                "end_exclusive": end_exclusive,
-            },
-            timeout=self._storage_timeout,
-        )
-        try:
-            size_bytes = int(response.headers["X-Content-Size"])
-            checksum = response.headers["X-Checksum-SHA256"]
-            complete = response.headers["X-Content-Complete"].lower() == "true"
-            response_start = int(response.headers["X-Content-Start"])
-            response_end = int(response.headers["X-Content-End-Exclusive"])
-            media_type = response.headers["Content-Type"].split(";", 1)[0]
-            if (
-                size_bytes < 0
-                or len(checksum) != 64
-                or response_start != start
-                or response_end != end_exclusive
-                or len(response.content) != end_exclusive - start
-                or not media_type
-            ):
-                raise ValueError("inconsistent content metadata")
-        except (KeyError, TypeError, ValueError) as exc:
-            raise RuntimeDriverError(
-                "Jupyter Output Journal read response is invalid."
-            ) from exc
-        return RuntimeOutputContentChunk(
-            content=response.content,
-            media_type=media_type,
-            size_bytes=size_bytes,
-            checksum_sha256=checksum,
-            complete=complete,
-            start=response_start,
-            end_exclusive=response_end,
-        )
-
-    async def output_journal_stream(
-        self,
-        identity: RuntimeOutputJournalIdentity,
-        *,
-        journal_id: UUID,
-        output_id: UUID,
-        representation_id: UUID,
-        start: int,
-        end_exclusive: int,
-        expected_media_type: str,
-        expected_size_bytes: int,
-        expected_checksum_sha256: str,
-        expected_complete: bool,
-    ) -> AsyncIterator[bytes]:
-        path = "/executor/storage/output-journals/read"
-        try:
-            async with self._client.stream(
-                "POST",
-                path,
-                json={
-                    "journal": _journal_identity_payload(identity),
-                    "journal_id": str(journal_id),
-                    "output_id": str(output_id),
-                    "representation_id": str(representation_id),
-                    "start": start,
-                    "end_exclusive": end_exclusive,
-                },
-                timeout=self._storage_timeout,
-            ) as response:
-                response.raise_for_status()
-                try:
-                    response_size = int(response.headers["X-Content-Size"])
-                    response_checksum = response.headers["X-Checksum-SHA256"]
-                    response_complete = (
-                        response.headers["X-Content-Complete"].lower()
-                        == "true"
-                    )
-                    response_start = int(response.headers["X-Content-Start"])
-                    response_end = int(
-                        response.headers["X-Content-End-Exclusive"]
-                    )
-                    response_media_type = response.headers[
-                        "Content-Type"
-                    ].split(";", 1)[0]
-                    if (
-                        response_size != expected_size_bytes
-                        or response_checksum != expected_checksum_sha256
-                        or response_complete != expected_complete
-                        or response_start != start
-                        or response_end != end_exclusive
-                        or response_media_type != expected_media_type
-                    ):
-                        raise ValueError("inconsistent content metadata")
-                except (KeyError, TypeError, ValueError) as exc:
-                    raise RuntimeDriverError(
-                        "Jupyter Output Journal stream response is invalid."
-                    ) from exc
-                received = 0
-                digest = hashlib.sha256()
-                async for chunk in response.aiter_bytes(
-                    self._output_chunk_bytes
-                ):
-                    received += len(chunk)
-                    if start == 0 and end_exclusive == expected_size_bytes:
-                        digest.update(chunk)
-                    yield chunk
-                if received != end_exclusive - start:
-                    raise RuntimeDriverError(
-                        "Jupyter Output Journal stream ended early."
-                    )
-                if (
-                    start == 0
-                    and end_exclusive == expected_size_bytes
-                    and digest.hexdigest() != expected_checksum_sha256
-                ):
-                    raise RuntimeDriverError(
-                        "Jupyter Output Journal stream checksum failed."
-                    )
-        except httpx.HTTPStatusError as exc:
-            raise RuntimeDriverError(
-                "Jupyter REST request failed: "
-                f"method=POST path={path} status={exc.response.status_code}."
-            ) from exc
-        except httpx.RequestError as exc:
-            raise RuntimeDriverError(
-                "Jupyter REST request failed: "
-                f"method=POST path={path} transport={type(exc).__name__}."
-            ) from exc
-
-    async def materialize_notebook(
-        self,
-        workspace_path: str,
-        runtime_profile: str,
-        cells: tuple[RuntimeNotebookCell, ...],
-    ) -> RuntimeNotebookMaterializationResult:
-        response = await self._request(
-            "POST",
-            "/executor/storage/output-journals/materialize-notebook",
-            json={
-                "workspace_path": workspace_path,
-                "runtime_profile": runtime_profile,
-                "cells": [
-                    {
-                        "sequence": cell.sequence,
-                        "execution_count": cell.execution_count,
-                        "journal_id": str(cell.journal_id),
-                        "journal": _journal_identity_payload(cell.journal),
-                    }
-                    for cell in cells
-                ],
-            },
-            timeout=self._storage_timeout,
-        )
-        try:
-            payload = response.json()
-            result = RuntimeNotebookMaterializationResult(
-                notebook_path=str(payload["notebook_path"]),
-                cell_count=int(payload["cell_count"]),
-                output_count=int(payload["output_count"]),
-            )
-        except (KeyError, TypeError, ValueError) as exc:
-            raise RuntimeDriverError(
-                "Jupyter notebook materialization response is invalid."
-            ) from exc
-        if (
-            result.notebook_path
-            != f"{workspace_path}/notebooks/execution.ipynb"
-            or result.cell_count != len(cells)
-            or result.output_count < 0
-        ):
-            raise RuntimeDriverError(
-                "Jupyter notebook materialization acknowledgement is invalid."
-            )
-        return result
 
     async def prepare_notebook(
         self,
@@ -710,11 +418,24 @@ class JupyterRuntimeDriver:
     async def write_notebook(
         self, path: str, notebook: dict[str, Any]
     ) -> None:
-        await self._request(
-            "PUT",
-            f"/api/contents/{_contents_path(path)}",
-            json={"type": "notebook", "format": "json", "content": notebook},
+        response = await self._request(
+            "POST",
+            "/executor/storage/notebooks/project",
+            json={"notebook_path": path, "notebook": notebook},
+            timeout=self._storage_timeout,
         )
+        try:
+            payload = response.json()
+            if (
+                payload.get("notebook_path") != path
+                or int(payload["cell_count"]) != len(notebook["cells"])
+                or len(str(payload["checksum_sha256"])) != 64
+            ):
+                raise ValueError("invalid notebook projection acknowledgement")
+        except (KeyError, TypeError, ValueError) as exc:
+            raise RuntimeDriverError(
+                "Jupyter notebook projection acknowledgement is invalid."
+            ) from exc
 
     async def read_notebook(self, path: str) -> dict[str, Any]:
         response = await self._request(
@@ -957,135 +678,6 @@ def _output_representation(
         encoding="UTF8",
         content=content,
     )
-
-
-def _journal_identity_payload(
-    identity: RuntimeOutputJournalIdentity,
-) -> dict[str, Any]:
-    return {
-        "workspace_path": identity.workspace_path,
-        "execution_id": str(identity.execution_id),
-        "operation_id": str(identity.operation_id),
-        "step_id": str(identity.step_id),
-        "sequence": identity.sequence,
-        "execution_attempt_id": str(identity.execution_attempt_id),
-        "fencing_token": identity.fencing_token,
-        "runtime_target_id": str(identity.runtime_target_id),
-        "runtime_session_id": identity.runtime_session_id,
-    }
-
-
-def _output_record_payload(record: RuntimeOutputRecord) -> dict[str, Any]:
-    return {
-        "kind": record.kind,
-        "stream_name": record.stream_name,
-        "execution_count": record.execution_count,
-        "representations": [
-            {
-                "media_type": representation.media_type,
-                "encoding": representation.encoding,
-                "content": representation.content,
-                "metadata": representation.metadata,
-            }
-            for representation in record.representations
-        ],
-        "metadata": record.metadata,
-    }
-
-
-def _journal_descriptor(
-    response: httpx.Response, operation: str
-) -> RuntimeOutputJournalDescriptor:
-    try:
-        payload = response.json()
-        checksum = payload.get("checksum_sha256")
-        if checksum is not None and (
-            not isinstance(checksum, str) or len(checksum) != 64
-        ):
-            raise ValueError("invalid checksum")
-        return RuntimeOutputJournalDescriptor(
-            journal_id=UUID(str(payload["journal_id"])),
-            state=str(payload["state"]),
-            committed_offset=int(payload["committed_offset"]),
-            output_count=int(payload["output_count"]),
-            representation_count=int(payload["representation_count"]),
-            total_bytes=int(payload["total_bytes"]),
-            checksum_sha256=checksum,
-        )
-    except (KeyError, TypeError, ValueError) as exc:
-        raise RuntimeDriverError(
-            f"Jupyter Output Journal {operation} response is invalid."
-        ) from exc
-
-
-def _output_descriptor(value: Any) -> RuntimeOutputDescriptor:
-    try:
-        if not isinstance(value, dict):
-            raise TypeError("output must be an object")
-        created_at = datetime.fromisoformat(
-            str(value["created_at"]).replace("Z", "+00:00")
-        )
-        if created_at.tzinfo is None:
-            raise ValueError("created_at must include a timezone")
-        representations = value["representations"]
-        if not isinstance(representations, list) or not representations:
-            raise TypeError("representations must be a non-empty array")
-        metadata = value.get("metadata", {})
-        if not isinstance(metadata, dict):
-            raise TypeError("metadata must be an object")
-        execution_count = value.get("execution_count")
-        if execution_count is not None and type(execution_count) is not int:
-            raise TypeError("execution_count must be an integer")
-        return RuntimeOutputDescriptor(
-            output_id=UUID(str(value["output_id"])),
-            ordinal=int(value["ordinal"]),
-            kind=str(value["kind"]),
-            stream_name=(
-                str(value["stream_name"])
-                if value.get("stream_name") is not None
-                else None
-            ),
-            execution_count=execution_count,
-            representations=tuple(
-                _representation_descriptor(item) for item in representations
-            ),
-            metadata=metadata,
-            created_at=created_at,
-        )
-    except (KeyError, TypeError, ValueError) as exc:
-        raise RuntimeDriverError(
-            "Jupyter Output Journal output descriptor is invalid."
-        ) from exc
-
-
-def _representation_descriptor(
-    value: Any,
-) -> RuntimeOutputRepresentationDescriptor:
-    try:
-        if not isinstance(value, dict):
-            raise TypeError("representation must be an object")
-        metadata = value.get("metadata", {})
-        if not isinstance(metadata, dict):
-            raise TypeError("metadata must be an object")
-        complete = value["complete"]
-        if type(complete) is not bool:
-            raise TypeError("complete must be a boolean")
-        checksum = str(value["checksum_sha256"])
-        if len(checksum) != 64:
-            raise ValueError("invalid checksum")
-        return RuntimeOutputRepresentationDescriptor(
-            representation_id=UUID(str(value["representation_id"])),
-            media_type=str(value["media_type"]),
-            size_bytes=int(value["size_bytes"]),
-            checksum_sha256=checksum,
-            complete=complete,
-            content_ref=str(value["content_ref"]),
-            metadata=metadata,
-        )
-    except (KeyError, TypeError, ValueError) as exc:
-        raise RuntimeDriverError(
-            "Jupyter Output Journal representation descriptor is invalid."
-        ) from exc
 
 
 def _error_summary(content: dict[str, Any]) -> str:

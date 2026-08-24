@@ -29,9 +29,6 @@ from executor_service.application.notebook_queries import (
     NotebookCellView,
     NotebookResponseFormat,
 )
-from executor_service.application.output_contents import (
-    ExecutionOutputContentService,
-)
 from executor_service.application.runtime_targets import (
     DisableRuntimeTargetCommand,
     RuntimeTargetManager,
@@ -61,9 +58,6 @@ from executor_service.interfaces.contracts import (
     ExecutionOperationPageResponse,
     ExecutionOperationResponse,
     ExecutionOperationResultResponse,
-    ExecutionOutputContentResponse,
-    ExecutionOutputPageResponse,
-    ExecutionOutputResponse,
     ExecutionPageResponse,
     ExecutionResponse,
     ExecutionResultResponse,
@@ -89,7 +83,6 @@ from executor_service.tracing import TracingManager
 StandardLimit = Annotated[int, Field(ge=1, le=200)]
 EventLimit = Annotated[int, Field(ge=1, le=500)]
 ArtifactLimit = Annotated[int, Field(ge=1, le=1000)]
-OutputLimit = Annotated[int, Field(ge=1, le=500)]
 
 
 def _public_tool_error(exc: Exception) -> ToolError:
@@ -126,8 +119,6 @@ def build_mcp_server(
     notebook_queries: ExecutionNotebookQueryService | None = None,
     execution_results: ExecutionResultQueryService | None = None,
     materialized_artifacts: MaterializedArtifactService | None = None,
-    output_contents: ExecutionOutputContentService | None = None,
-    output_inline_max_bytes: int = 65536,
 ) -> MCPServer:
     server = MCPServer(
         name="executor-service",
@@ -619,90 +610,6 @@ def build_mcp_server(
             except Exception as exc:
                 raise _public_tool_error(exc) from exc
             return ExecutionEventPageResponse.from_page(page)
-
-        @server.tool(
-            description=(
-                "List normalized Runtime output metadata in creation order. "
-                "Filter by Operation, Step, or Attempt and pass next_cursor "
-                "unchanged to continue. Content references are opaque."
-            )
-        )
-        async def execution_output_list(
-            execution_id: UUID,
-            operation_id: UUID | None = None,
-            step_id: UUID | None = None,
-            attempt_id: UUID | None = None,
-            cursor: str | None = None,
-            limit: OutputLimit = 200,
-        ) -> ExecutionOutputPageResponse:
-            try:
-                page = await execution_queries.outputs(
-                    execution_id,
-                    operation_id=operation_id,
-                    step_id=step_id,
-                    attempt_id=attempt_id,
-                    cursor=cursor,
-                    limit=limit,
-                )
-            except Exception as exc:
-                raise _public_tool_error(exc) from exc
-            return ExecutionOutputPageResponse.from_page(page)
-
-        @server.tool(
-            description=(
-                "Get one normalized Runtime output descriptor and all of its "
-                "MIME representation metadata."
-            )
-        )
-        async def execution_output_get(
-            execution_id: UUID,
-            output_id: UUID,
-        ) -> ExecutionOutputResponse:
-            try:
-                view = await execution_queries.output(execution_id, output_id)
-            except Exception as exc:
-                raise _public_tool_error(exc) from exc
-            return ExecutionOutputResponse.from_view(view)
-
-        if output_contents is not None:
-
-            @server.tool(
-                description=(
-                    "Read a small UTF-8 output representation inline. "
-                    "Images, binary data, and larger content return an "
-                    "HTTP content URL instead of base64."
-                )
-            )
-            async def execution_output_content_get(
-                execution_id: UUID,
-                output_id: UUID,
-                representation_id: UUID,
-            ) -> ExecutionOutputContentResponse:
-                try:
-                    descriptor = await output_contents.describe(
-                        execution_id, output_id, representation_id
-                    )
-                    content = await output_contents.read_inline_text(
-                        descriptor, max_bytes=output_inline_max_bytes
-                    )
-                except Exception as exc:
-                    raise _public_tool_error(exc) from exc
-                content_url = (
-                    f"/api/v1/executions/{execution_id}/outputs/"
-                    f"{output_id}/representations/{representation_id}/content"
-                )
-                return ExecutionOutputContentResponse(
-                    execution_id=execution_id,
-                    output_id=output_id,
-                    representation_id=representation_id,
-                    media_type=descriptor.media_type,
-                    size_bytes=descriptor.size_bytes,
-                    checksum_sha256=descriptor.checksum_sha256,
-                    complete=descriptor.complete,
-                    delivery="INLINE" if content is not None else "HTTP",
-                    content=content,
-                    content_url=content_url,
-                )
 
         @server.tool(
             description=(

@@ -3,6 +3,7 @@ from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
 from typing import Any, ClassVar
+from uuid import uuid4
 
 import pytest
 from redis.asyncio import Redis
@@ -33,6 +34,7 @@ from executor_service.domain.enums import (
 )
 from executor_service.domain.errors import InvalidStateTransitionError
 from executor_service.domain.models import Execution, utc_now
+from executor_service.domain.results import StepResultIdentity
 from executor_service.domain.runtime import (
     RuntimeAbortResult,
     RuntimeExecutionError,
@@ -300,7 +302,7 @@ def _worker(
 ) -> tuple[ExecutionWorker, Redis]:
     settings = Settings(
         runtime_enabled=False,
-        input_host_root=tmp_path,
+        shared_storage_root=tmp_path,
         execution_lease_seconds=30,
         execution_heartbeat_seconds=5,
         jupyter_request_timeout_seconds=0.1,
@@ -341,6 +343,20 @@ async def test_runtime_step_enforces_operation_and_step_timeouts(
 
     worker, redis = _worker(engine, tmp_path)
     try:
+        step = execution.steps[0]
+        source_reference = await worker._result_store.snapshot_source(
+            execution.id,
+            step.id,
+            "slow()",
+        )
+        result_identity = StepResultIdentity(
+            execution_id=execution.id,
+            operation_id=operation_id,
+            step_id=step.id,
+            sequence=0,
+            execution_attempt_id=uuid4(),
+            fencing_token=1,
+        )
         with pytest.raises(RuntimeExecutionTimeoutError) as operation_error:
             await worker._execute_runtime_step(
                 RecordingMultiDriver(),
@@ -348,6 +364,8 @@ async def test_runtime_step_enforces_operation_and_step_timeouts(
                 "slow()",
                 execution.id,
                 0,
+                result_identity=result_identity,
+                source_reference=source_reference,
             )
         assert operation_error.value.scope == "Operation"
 
@@ -364,6 +382,8 @@ async def test_runtime_step_enforces_operation_and_step_timeouts(
                 "slow()",
                 execution.id,
                 0,
+                result_identity=result_identity,
+                source_reference=source_reference,
             )
         assert step_error.value.scope == "Step"
     finally:
@@ -495,15 +515,19 @@ async def test_multi_operation_executes_submitted_steps_until_boundary(
     )
     notebook_path = next(iter(RecordingMultiDriver.notebooks))
     notebook = RecordingMultiDriver.notebooks[notebook_path]
-    assert [cell["source"] for cell in notebook["cells"]] == (
-        ["first", "raise expected", "third"]
-        if fail_code is None
-        else ["first", "raise expected"]
-    )
+    assert [cell["source"] for cell in notebook["cells"]] == [
+        "first",
+        "raise expected",
+        "third",
+    ]
     assert [cell["execution_count"] for cell in notebook["cells"]] == (
-        [1, 2, 3] if fail_code is None else [1, 2]
+        [1, 2, 3] if fail_code is None else [1, None, None]
     )
-    assert all(cell["outputs"] for cell in notebook["cells"])
+    assert [bool(cell["outputs"]) for cell in notebook["cells"]] == (
+        [True, True, True]
+        if fail_code is None
+        else [True, True, False]
+    )
     assert len(events) == 1
     assert events[0].payload["operation_id"] == str(operation.id)
     assert len(step_result_events) == (3 if fail_code is None else 2)
@@ -514,7 +538,18 @@ async def test_multi_operation_executes_submitted_steps_until_boundary(
         assert event.payload["operation_id"] == str(operation.id)
         assert event.payload["step_id"] == str(steps[index - 1].id)
         assert event.payload["result_available"] is True
-        assert event.payload["result_ref"]["scope"] == "STEP"
+        result_ref = event.payload["result_ref"]
+        assert result_ref["scope"] == "STEP"
+        assert result_ref["storage"] == "SHARED_PV"
+        assert result_ref["relative_path"].startswith("executions/")
+        assert len(result_ref["checksum_sha256"]) == 64
+        assert result_ref["execution_attempt_id"] == str(
+            operation.execution_attempt_id
+        )
+        assert result_ref["fencing_token"] >= 1
+        assert "outputs" not in event.payload
+        assert "content" not in event.payload
+        assert "base64" not in str(event.payload).lower()
         assert event.payload["output_summary"]["output_count"] > 0
         assert event.payload.get("execution_count") == (
             None if event.event_type == "execution.step_failed" else index

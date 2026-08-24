@@ -447,6 +447,22 @@ def upgrade() -> None:
         sa.Column("runtime_session_id", sa.String(length=255), nullable=True),
         sa.Column("workspace_path", sa.Text(), nullable=True),
         sa.Column("notebook_path", sa.Text(), nullable=True),
+        sa.Column(
+            "notebook_projection_status",
+            sa.String(length=16),
+            nullable=False,
+        ),
+        sa.Column(
+            "notebook_projection_attempt_count",
+            sa.Integer(),
+            nullable=False,
+        ),
+        sa.Column("notebook_projection_error", sa.Text(), nullable=True),
+        sa.Column(
+            "notebook_projected_at",
+            sa.DateTime(timezone=True),
+            nullable=True,
+        ),
         sa.Column("error_message", sa.Text(), nullable=True),
         sa.Column(
             "failure_type",
@@ -608,6 +624,17 @@ def upgrade() -> None:
         sa.CheckConstraint(
             "retry_count >= 0",
             name=op.f("ck_executions_non_negative_retry_count"),
+        ),
+        sa.CheckConstraint(
+            "notebook_projection_attempt_count >= 0",
+            name=op.f(
+                "ck_executions_non_negative_notebook_projection_attempt_count"
+            ),
+        ),
+        sa.CheckConstraint(
+            "notebook_projection_status IN "
+            "('NOT_STARTED', 'PENDING', 'SUCCEEDED', 'FAILED')",
+            name=op.f("ck_executions_valid_notebook_projection_status"),
         ),
         sa.CheckConstraint(
             "retry_from_sequence IS NULL OR retry_from_sequence >= 0",
@@ -1054,7 +1081,6 @@ def upgrade() -> None:
         sa.Column("execution_id", sa.Uuid(), nullable=False),
         sa.Column("operation_id", sa.Uuid(), nullable=False),
         sa.Column("sequence", sa.Integer(), nullable=False),
-        sa.Column("code", sa.Text(), nullable=False),
         sa.Column(
             "source_type",
             sa.Enum(
@@ -1068,6 +1094,8 @@ def upgrade() -> None:
         ),
         sa.Column("source_path", sa.Text(), nullable=True),
         sa.Column("source_sha256", sa.String(length=64), nullable=False),
+        sa.Column("source_snapshot_path", sa.Text(), nullable=False),
+        sa.Column("source_size_bytes", sa.BigInteger(), nullable=False),
         sa.Column("code_hash", sa.String(length=64), nullable=True),
         sa.Column("step_timeout_seconds", sa.Integer(), nullable=True),
         sa.Column("skill_name", sa.String(length=255), nullable=True),
@@ -1088,7 +1116,21 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("input_parameters", sa.JSON(), nullable=False),
-        sa.Column("outputs", sa.JSON(), nullable=False),
+        sa.Column("output_summary", sa.JSON(), nullable=False),
+        sa.Column("result_execution_attempt_id", sa.Uuid(), nullable=True),
+        sa.Column("result_manifest_path", sa.Text(), nullable=True),
+        sa.Column(
+            "result_manifest_checksum_sha256",
+            sa.String(length=64),
+            nullable=True,
+        ),
+        sa.Column("result_fencing_token", sa.BigInteger(), nullable=True),
+        sa.Column(
+            "result_representation_count", sa.BigInteger(), nullable=False
+        ),
+        sa.Column(
+            "result_total_size_bytes", sa.BigInteger(), nullable=False
+        ),
         sa.Column("error_message", sa.Text(), nullable=True),
         sa.Column(
             "created_by_type",
@@ -1168,6 +1210,12 @@ def upgrade() -> None:
             name=op.f("fk_execution_steps_operation_id_execution_operations"),
             ondelete="CASCADE",
         ),
+        sa.ForeignKeyConstraint(
+            ["result_execution_attempt_id"],
+            ["execution_attempts.id"],
+            name="fk_execution_steps_result_execution_attempt_id",
+            ondelete="SET NULL",
+        ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_execution_steps")),
         sa.UniqueConstraint(
             "execution_id",
@@ -1212,7 +1260,20 @@ def upgrade() -> None:
             ),
             nullable=False,
         ),
-        sa.Column("outputs", sa.JSON(), nullable=False),
+        sa.Column("output_summary", sa.JSON(), nullable=False),
+        sa.Column("result_manifest_path", sa.Text(), nullable=True),
+        sa.Column(
+            "result_manifest_checksum_sha256",
+            sa.String(length=64),
+            nullable=True,
+        ),
+        sa.Column("result_fencing_token", sa.BigInteger(), nullable=True),
+        sa.Column(
+            "result_representation_count", sa.BigInteger(), nullable=False
+        ),
+        sa.Column(
+            "result_total_size_bytes", sa.BigInteger(), nullable=False
+        ),
         sa.Column("error_message", sa.Text(), nullable=True),
         sa.Column(
             "created_by_type",

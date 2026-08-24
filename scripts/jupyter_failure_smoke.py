@@ -4,7 +4,7 @@ import asyncio
 from uuid import uuid4
 
 from execution_spec_payload import execution_request, inline_spec
-from local_test_support import required_tool_result
+from local_test_support import execution_step_outputs
 from mcp import Client
 
 
@@ -58,18 +58,14 @@ async def main() -> None:
             or steps[0]["result"]["status"] != "FAILED"
         ):
             raise RuntimeError(f"Expected FAILED execution and step: {result}")
-        outputs = await required_tool_result(
-            client,
-            "execution_output_list",
-            {"execution_id": execution_id, "limit": 100},
-        )
+        outputs = await execution_step_outputs(client, execution_id)
         errors = [
-            output for output in outputs["items"] if output["kind"] == "ERROR"
+            output for output in outputs if output["output_type"] == "error"
         ]
         if (
             len(errors) != 1
-            or errors[0]["metadata"].get("ename") != "ValueError"
-            or errors[0]["metadata"].get("evalue") != "expected"
+            or errors[0].get("ename") != "ValueError"
+            or errors[0].get("evalue") != "expected"
         ):
             raise RuntimeError(
                 f"Jupyter error output was not preserved: {outputs}"
@@ -89,8 +85,8 @@ async def main() -> None:
         print("execution_id:", execution_id)
         print("status: FAILED")
         print("error:", result["failure"]["message"])
-        print("output_kind:", errors[0]["kind"])
-        print("representations:", errors[0]["representations"])
+        print("output_kind:", errors[0]["output_type"])
+        print("traceback:", errors[0]["traceback"])
 
 
 if __name__ == "__main__":

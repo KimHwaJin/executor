@@ -17,8 +17,6 @@ from executor_service.application.execution_queries import (
     ExecutionDetailView,
     ExecutionEventView,
     ExecutionOperationView,
-    ExecutionOutputRepresentationView,
-    ExecutionOutputView,
     ExecutionStepAttemptView,
     ExecutionSummaryView,
 )
@@ -58,7 +56,11 @@ from executor_service.domain.enums import (
     StepStatus,
     TriggerType,
 )
-from executor_service.domain.models import Execution, ExecutionStep
+from executor_service.domain.models import (
+    Execution,
+    ExecutionStep,
+    NotebookProjectionStatus,
+)
 from executor_service.execution_specs import (
     ExecutionSpec,
     ResolvedExecutionSpec,
@@ -572,18 +574,27 @@ class ToolReference(ContractModel):
 
 
 class StepResultReference(ContractModel):
-    """Transport-neutral arguments for execution_output_list."""
+    """Immutable Step result manifest in the Agent/Executor shared volume."""
 
+    storage: Literal["SHARED_PV"] = "SHARED_PV"
     execution_id: UUID
     step_id: UUID
     attempt_id: UUID
+    fencing_token: int
+    relative_path: str
+    checksum_sha256: str
+    representation_count: int
+    total_size_bytes: int
 
 
-class StepResult(ContractModel):
+class StepResultSummary(ContractModel):
     status: StepStatus
     output_summary: OutputSummary
-    result_ref: StepResultReference | None
     error_message: str | None
+
+
+class StepResult(StepResultSummary):
+    result_ref: StepResultReference | None
 
 
 class Lifecycle(ContractModel):
@@ -632,9 +643,63 @@ class ExecutionStepResponse(AuditFields):
                         execution_id=execution_id,
                         step_id=step.id,
                         attempt_id=step.result_execution_attempt_id,
+                        fencing_token=step.result_fencing_token,
+                        relative_path=step.result_manifest_path,
+                        checksum_sha256=(
+                            step.result_manifest_checksum_sha256
+                        ),
+                        representation_count=(
+                            step.result_representation_count
+                        ),
+                        total_size_bytes=step.result_total_size_bytes,
                     )
-                    if step.result_execution_attempt_id is not None
+                    if (
+                        step.result_execution_attempt_id is not None
+                        and step.result_fencing_token is not None
+                        and step.result_manifest_path is not None
+                        and step.result_manifest_checksum_sha256 is not None
+                    )
                     else None
+                ),
+                error_message=step.error_message,
+            ),
+            lifecycle=Lifecycle(
+                started_at=step.started_at, finished_at=step.finished_at
+            ),
+            created_by_type=step.created_by_type,
+            created_by=step.created_by,
+            updated_by_type=step.updated_by_type,
+            updated_by=step.updated_by,
+            created_at=step.created_at,
+            updated_at=step.updated_at,
+        )
+
+
+class ExecutionStepSummaryResponse(AuditFields):
+    step_id: UUID
+    execution_id: UUID
+    sequence: int
+    lineage: ToolReference
+    result: StepResultSummary
+    lifecycle: Lifecycle
+
+    @classmethod
+    def from_domain(
+        cls, step: ExecutionStep, execution_id: UUID
+    ) -> "ExecutionStepSummaryResponse":
+        return cls(
+            step_id=step.id,
+            execution_id=execution_id,
+            sequence=step.sequence,
+            lineage=ToolReference(
+                skill_name=step.skill_name,
+                tool_name=step.tool_name,
+                input_parameters=step.input_parameters,
+            ),
+            result=StepResultSummary(
+                status=step.status,
+                output_summary=OutputSummary.model_validate(
+                    step.output_summary
                 ),
                 error_message=step.error_message,
             ),
@@ -675,9 +740,17 @@ class ExecutionCommandState(ContractModel):
     version: int
 
 
+class NotebookProjectionResponse(ContractModel):
+    status: NotebookProjectionStatus
+    attempt_count: int
+    error_message: str | None
+    projected_at: datetime | None
+
+
 class WorkspaceResponse(ContractModel):
     path: str | None
     notebook_path: str | None
+    notebook_projection: NotebookProjectionResponse
 
 
 class FailureResponse(ContractModel):
@@ -835,6 +908,14 @@ class ExecutionResponse(AuditFields):
             workspace=WorkspaceResponse(
                 path=execution.workspace_path,
                 notebook_path=execution.notebook_path,
+                notebook_projection=NotebookProjectionResponse(
+                    status=execution.notebook_projection_status,
+                    attempt_count=(
+                        execution.notebook_projection_attempt_count
+                    ),
+                    error_message=execution.notebook_projection_error,
+                    projected_at=execution.notebook_projected_at,
+                ),
             ),
             recovery=RecoveryResponse(
                 count=execution.recovery_count,
@@ -937,9 +1018,64 @@ class ExecutionStepAttemptResponse(AuditFields):
                         execution_id=view.execution_id,
                         step_id=view.execution_step_id,
                         attempt_id=view.execution_attempt_id,
+                        fencing_token=view.result_fencing_token,
+                        relative_path=view.result_manifest_path,
+                        checksum_sha256=(
+                            view.result_manifest_checksum_sha256
+                        ),
+                        representation_count=(
+                            view.result_representation_count
+                        ),
+                        total_size_bytes=view.result_total_size_bytes,
                     )
-                    if view.status in {StepStatus.SUCCEEDED, StepStatus.FAILED}
+                    if (
+                        view.status
+                        in {StepStatus.SUCCEEDED, StepStatus.FAILED}
+                        and view.result_fencing_token is not None
+                        and view.result_manifest_path is not None
+                        and view.result_manifest_checksum_sha256 is not None
+                    )
                     else None
+                ),
+                error_message=view.error_message,
+            ),
+            lifecycle=Lifecycle(
+                started_at=view.started_at, finished_at=view.finished_at
+            ),
+            created_by_type=view.created_by_type,
+            created_by=view.created_by,
+            updated_by_type=view.updated_by_type,
+            updated_by=view.updated_by,
+            created_at=view.created_at,
+            updated_at=view.updated_at,
+        )
+
+
+class ExecutionStepAttemptSummaryResponse(AuditFields):
+    step_attempt_id: UUID
+    execution_step_id: UUID
+    sequence: int
+    tool: ToolReference
+    result: StepResultSummary
+    lifecycle: Lifecycle
+
+    @classmethod
+    def from_view(
+        cls, view: ExecutionStepAttemptView
+    ) -> "ExecutionStepAttemptSummaryResponse":
+        return cls(
+            step_attempt_id=view.id,
+            execution_step_id=view.execution_step_id,
+            sequence=view.sequence,
+            tool=ToolReference(
+                skill_name=view.skill_name,
+                tool_name=view.tool_name,
+                input_parameters=view.input_parameters,
+            ),
+            result=StepResultSummary(
+                status=view.status,
+                output_summary=OutputSummary.model_validate(
+                    view.output_summary
                 ),
                 error_message=view.error_message,
             ),
@@ -1047,7 +1183,7 @@ class ExecutionAttemptDetailResponse(ExecutionAttemptResponse):
 
 
 class ExecutionStepPageResponse(PageResponse):
-    items: list[ExecutionStepResponse]
+    items: list[ExecutionStepSummaryResponse]
 
     @classmethod
     def from_page(
@@ -1055,7 +1191,7 @@ class ExecutionStepPageResponse(PageResponse):
     ) -> "ExecutionStepPageResponse":
         return cls(
             items=[
-                ExecutionStepResponse.from_domain(item, execution_id)
+                ExecutionStepSummaryResponse.from_domain(item, execution_id)
                 for item in page.items
             ],
             next_cursor=page.next_cursor,
@@ -1151,7 +1287,7 @@ class ExecutionOperationPageResponse(PageResponse):
 
 
 class ExecutionStepAttemptPageResponse(PageResponse):
-    items: list[ExecutionStepAttemptResponse]
+    items: list[ExecutionStepAttemptSummaryResponse]
 
     @classmethod
     def from_page(
@@ -1159,7 +1295,7 @@ class ExecutionStepAttemptPageResponse(PageResponse):
     ) -> "ExecutionStepAttemptPageResponse":
         return cls(
             items=[
-                ExecutionStepAttemptResponse.from_view(item)
+                ExecutionStepAttemptSummaryResponse.from_view(item)
                 for item in page.items
             ],
             next_cursor=page.next_cursor,
@@ -1347,136 +1483,6 @@ class ExecutionArtifactPageResponse(PageResponse):
             next_cursor=page.next_cursor,
             has_more=page.next_cursor is not None,
         )
-
-
-class OutputProducer(ContractModel):
-    execution_id: UUID
-    operation_id: UUID
-    step_id: UUID
-    attempt_id: UUID
-    sequence: int
-
-
-class OutputJournalReference(ContractModel):
-    journal_id: UUID
-    batch_id: UUID
-    state: str
-    fencing_token: int
-
-
-class OutputRuntimeReference(ContractModel):
-    target_id: UUID
-    session_id: str
-
-
-class ExecutionOutputRepresentationResponse(AuditFields):
-    representation_id: UUID
-    media_type: str
-    size_bytes: int
-    checksum_sha256: str
-    complete: bool
-    content_ref: str
-    metadata: dict[str, Any]
-
-    @classmethod
-    def from_view(
-        cls, view: ExecutionOutputRepresentationView
-    ) -> "ExecutionOutputRepresentationResponse":
-        return cls(
-            representation_id=view.id,
-            media_type=view.media_type,
-            size_bytes=view.size_bytes,
-            checksum_sha256=view.checksum_sha256,
-            complete=view.complete,
-            content_ref=view.content_ref,
-            metadata=view.metadata,
-            created_by_type=view.created_by_type,
-            created_by=view.created_by,
-            updated_by_type=view.updated_by_type,
-            updated_by=view.updated_by,
-            created_at=view.created_at,
-            updated_at=view.updated_at,
-        )
-
-
-class ExecutionOutputResponse(AuditFields):
-    output_id: UUID
-    produced_by: OutputProducer
-    journal: OutputJournalReference
-    runtime: OutputRuntimeReference
-    ordinal: int
-    kind: str
-    stream_name: str | None
-    execution_count: int | None
-    representations: list[ExecutionOutputRepresentationResponse]
-    metadata: dict[str, Any]
-
-    @classmethod
-    def from_view(cls, view: ExecutionOutputView) -> "ExecutionOutputResponse":
-        return cls(
-            output_id=view.id,
-            produced_by=OutputProducer(
-                execution_id=view.execution_id,
-                operation_id=view.operation_id,
-                step_id=view.execution_step_id,
-                attempt_id=view.execution_attempt_id,
-                sequence=view.sequence,
-            ),
-            journal=OutputJournalReference(
-                journal_id=view.journal_id,
-                batch_id=view.batch_id,
-                state=view.journal_state,
-                fencing_token=view.fencing_token,
-            ),
-            runtime=OutputRuntimeReference(
-                target_id=view.runtime_target_id,
-                session_id=view.runtime_session_id,
-            ),
-            ordinal=view.ordinal,
-            kind=view.kind,
-            stream_name=view.stream_name,
-            execution_count=view.execution_count,
-            representations=[
-                ExecutionOutputRepresentationResponse.from_view(item)
-                for item in view.representations
-            ],
-            metadata=view.metadata,
-            created_by_type=view.created_by_type,
-            created_by=view.created_by,
-            updated_by_type=view.updated_by_type,
-            updated_by=view.updated_by,
-            created_at=view.created_at,
-            updated_at=view.updated_at,
-        )
-
-
-class ExecutionOutputPageResponse(PageResponse):
-    items: list[ExecutionOutputResponse]
-
-    @classmethod
-    def from_page(
-        cls, page: Page[ExecutionOutputView]
-    ) -> "ExecutionOutputPageResponse":
-        return cls(
-            items=[
-                ExecutionOutputResponse.from_view(item) for item in page.items
-            ],
-            next_cursor=page.next_cursor,
-            has_more=page.next_cursor is not None,
-        )
-
-
-class ExecutionOutputContentResponse(ContractModel):
-    execution_id: UUID
-    output_id: UUID
-    representation_id: UUID
-    media_type: str
-    size_bytes: int
-    checksum_sha256: str
-    complete: bool
-    delivery: Literal["INLINE", "HTTP"]
-    content: str | None = None
-    content_url: str
 
 
 class ExecutionOperationResultResponse(ContractModel):

@@ -123,7 +123,6 @@ foreach ($rawEndpoint in $Endpoints) {
         "sessions/tool-session-$($diagnosticId.Substring(0, 24))/executions/$diagnosticId"
     )
     $notebookPath = "$workspace/notebooks/execution.ipynb"
-    $checkpointPath = "$workspace/notebooks/.ipynb_checkpoints/execution-checkpoint.ipynb"
     $artifactPath = "$workspace/artifacts/reports/rest-diagnostic.txt"
     $kernelId = $null
     $workspacePrepared = $false
@@ -131,8 +130,8 @@ foreach ($rawEndpoint in $Endpoints) {
     Write-Host ""
     Write-Host "=== Jupyter REST diagnostics: $endpoint ===" -ForegroundColor Cyan
     Write-Host "  Workspace relative path length: $($workspace.Length)"
-    Write-Host "  Checkpoint relative path length: $($checkpointPath.Length)"
-    Write-Host "  Checkpoint relative path: $checkpointPath"
+    Write-Host "  Notebook relative path length: $($notebookPath.Length)"
+    Write-Host "  Notebook relative path: $notebookPath"
 
     try {
         $status = Invoke-JupyterRequest -Endpoint $endpoint -Method "GET" -Path "/api/status"

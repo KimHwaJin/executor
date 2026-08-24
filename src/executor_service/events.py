@@ -109,6 +109,30 @@ class ResultReference(BaseModel):
     scope: Literal["STEP", "OPERATION", "EXECUTION"]
     operation_id: UUID | None = None
     step_id: UUID | None = None
+    storage: Literal["SHARED_PV"] | None = None
+    relative_path: str | None = Field(default=None, min_length=1)
+    checksum_sha256: str | None = Field(
+        default=None, min_length=64, max_length=64
+    )
+    execution_attempt_id: UUID | None = None
+    fencing_token: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def validate_step_reference(self) -> Self:
+        shared_fields = (
+            self.storage,
+            self.relative_path,
+            self.checksum_sha256,
+            self.execution_attempt_id,
+            self.fencing_token,
+        )
+        if self.scope == "STEP" and not all(
+            value is not None for value in shared_fields
+        ):
+            raise ValueError(
+                "A persisted Step result reference must be complete."
+            )
+        return self
 
 
 class StepEventPayload(EventPayload):

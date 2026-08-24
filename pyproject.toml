@@ -59,6 +59,7 @@ markers = [
 [tool.ruff]
 line-length = 79
 target-version = "py312"
+exclude = ["shared_dir"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "ASYNC", "RUF"]
@@ -72,4 +73,8 @@ python-version = "3.12"
 extra-paths = ["test_harness/jupyter/extension/src"]
 
 [tool.ty.src]
-exclude = ["test_harness/jupyter/jupyter_server_config.py", "test_harness/agent"]
+exclude = [
+    "shared_dir",
+    "test_harness/jupyter/jupyter_server_config.py",
+    "test_harness/agent",
+]

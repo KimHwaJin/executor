@@ -48,7 +48,7 @@ async def rest_client(
         database_url="sqlite+aiosqlite:///:memory:",
         redis_url="redis://localhost:6399/15",
         runtime_enabled=False,
-        input_host_root=tmp_path,
+        shared_storage_root=tmp_path,
     )
     container = ApplicationContainer(settings)
     async with container.engine.begin() as connection:
@@ -144,8 +144,6 @@ async def test_openapi_documents_all_execution_routes(
         "/api/v1/executions/{execution_id}/attempts/{attempt_id}",
         "/api/v1/executions/{execution_id}/attempts/{attempt_id}/steps",
         "/api/v1/executions/{execution_id}/events",
-        "/api/v1/executions/{execution_id}/outputs",
-        "/api/v1/executions/{execution_id}/outputs/{output_id}",
         "/api/v1/artifacts/{artifact_id}",
     } <= set(paths)
 
@@ -454,10 +452,15 @@ async def test_single_execution_rest_lifecycle_and_queries(
     artifacts = await client.get(
         f"/api/v1/executions/{execution_id}/artifacts"
     )
-    outputs = await client.get(f"/api/v1/executions/{execution_id}/outputs")
 
     assert fetched.status_code == 200
     assert fetched.json()["runtime"]["type"] == "JUPYTER"
+    assert fetched.json()["workspace"]["notebook_projection"] == {
+        "status": "NOT_STARTED",
+        "attempt_count": 0,
+        "error_message": None,
+        "projected_at": None,
+    }
     assert [item["execution_id"] for item in history.json()["items"]] == [
         execution_id
     ]
@@ -471,7 +474,6 @@ async def test_single_execution_rest_lifecycle_and_queries(
     assert events.json()["items"][0]["event_type"] == "execution.submitted"
     assert events.json()["items"][0]["payload"]["schema_version"] == "2.0"
     assert artifacts.json()["items"] == []
-    assert outputs.json()["items"] == []
     assert events.json()["items"][0]["delivery"]["status"] == "PENDING"
     assert body["created_by_type"] == "USER"
     assert body["created_by"] == "rest-user"
@@ -602,6 +604,7 @@ async def test_attempt_detail_and_step_attempt_routes(
     assert attempt_steps.json()["items"][0]["execution_step_id"] == str(
         step_id
     )
+    assert "result_ref" not in attempt_steps.json()["items"][0]["result"]
     assert (
         await client.get(f"/api/v1/executions/{uuid4()}/attempts/{attempt_id}")
     ).status_code == 404
@@ -763,7 +766,7 @@ async def test_path_execution_spec_rest_submit(
     client, container = rest_client
     content = b"print('PATH source')"
     relative_path = Path("plans/path-plan/step-0.py")
-    source_path = container.settings.input_host_root / relative_path
+    source_path = container.settings.request_storage_root / relative_path
     source_path.parent.mkdir(parents=True)
     source_path.write_bytes(content)
     payload = _submit_payload(key="rest-path-submit")
@@ -780,7 +783,13 @@ async def test_path_execution_spec_rest_submit(
 
     assert submitted.status_code == 202
     steps = await client.get(f"{submitted.headers['location']}/steps")
-    assert steps.json()["items"][0]["source"] == {
+    step_summary = steps.json()["items"][0]
+    assert "source" not in step_summary
+    assert "result_ref" not in step_summary["result"]
+    detail = await client.get(
+        f"{submitted.headers['location']}/steps/{step_summary['step_id']}"
+    )
+    assert detail.json()["source"] == {
         "type": "PATH",
         "path": relative_path.as_posix(),
         "sha256": hashlib.sha256(content).hexdigest(),

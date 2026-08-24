@@ -115,7 +115,7 @@ async def test_cancelled_cell_registers_partial_file_as_incomplete_artifact(
             ),
         )
     )
-    settings = Settings(runtime_enabled=False, input_host_root=tmp_path)
+    settings = Settings(runtime_enabled=False, shared_storage_root=tmp_path)
     redis = Redis.from_url("redis://127.0.0.1:6379/15", decode_responses=True)
     worker = ExecutionWorker(
         session_factory=session_factory,

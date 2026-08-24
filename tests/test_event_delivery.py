@@ -81,7 +81,7 @@ def _worker(
 ) -> ExecutionWorker:
     settings = Settings(
         runtime_enabled=False,
-        input_host_root=tmp_path,
+        shared_storage_root=tmp_path,
         redis_work_stream=stream,
         redis_work_dead_letter_stream=dlq_stream,
         execution_consumer_group=group,

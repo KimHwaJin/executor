@@ -100,6 +100,19 @@ async def test_seals_source_text_and_image_as_immutable_files(
                 manifest_path.parent / representation["relative_path"]
             ).is_file()
     assert not manifest_path.parent.with_name("1.partial").exists()
+    notebook_outputs = await store.read_step_outputs(result.reference)
+    assert notebook_outputs[0] == {
+        "output_type": "stream",
+        "name": "stdout",
+        "text": "hello\n",
+    }
+    assert notebook_outputs[1]["output_type"] == "display_data"
+    assert notebook_outputs[1]["data"] == {
+        "image/png": "iVBORw0KGgo="
+    }
+    projection = await store.read_step_projection(result.reference)
+    assert projection.outputs == notebook_outputs
+    assert projection.execution_count == 1
 
 
 @pytest.mark.asyncio

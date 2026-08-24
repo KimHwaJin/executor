@@ -61,8 +61,9 @@ checksum before reading declared files. The LLM is not given a general filesyste
    summaries.
 4. Insert the Agent-facing event in the transactional Outbox.
 5. Publish the committed Outbox event to Redis.
-6. Project the sealed result into the Jupyter notebook. Projection failure is recorded and retried;
-   it does not reverse a successful code execution.
+6. Project the sealed result into the Jupyter notebook. Projection state moves from `NOT_STARTED`
+   to `PENDING`, then `SUCCEEDED` or `FAILED`. Failure is recorded and retried without reversing a
+   successful code execution.
 
 An older fencing generation may leave an orphan directory, but it cannot update canonical
 PostgreSQL state, emit an authoritative event, or replace a newer notebook cell.

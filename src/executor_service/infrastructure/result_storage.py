@@ -20,6 +20,7 @@ from executor_service.domain.results import (
     StepResultAppend,
     StepResultDescriptor,
     StepResultIdentity,
+    StepResultProjection,
     StepResultReference,
 )
 from executor_service.domain.runtime import RuntimeOutputRecord
@@ -106,6 +107,17 @@ class FilesystemExecutionResultStore:
     async def read_source(self, reference: ExecutionSourceReference) -> str:
         return await asyncio.to_thread(self._read_source, reference)
 
+    async def read_step_outputs(
+        self, reference: StepResultReference
+    ) -> list[dict[str, object]]:
+        projection = await self.read_step_projection(reference)
+        return projection.outputs
+
+    async def read_step_projection(
+        self, reference: StepResultReference
+    ) -> StepResultProjection:
+        return await asyncio.to_thread(self._read_step_projection, reference)
+
     def _read_source(self, reference: ExecutionSourceReference) -> str:
         path = self._resolve_reference(reference.relative_path)
         body = path.read_bytes()
@@ -122,6 +134,130 @@ class FilesystemExecutionResultStore:
             raise ResultStorageError(
                 "Execution source snapshot is not UTF-8."
             ) from exc
+
+    def _read_step_projection(
+        self, reference: StepResultReference
+    ) -> StepResultProjection:
+        manifest_path = self._resolve_reference(reference.relative_path)
+        body = manifest_path.read_bytes()
+        if _sha256(body) != reference.checksum_sha256:
+            raise ResultStorageError("Step result manifest checksum failed.")
+        try:
+            manifest = json.loads(body)
+        except json.JSONDecodeError as exc:
+            raise ResultStorageError(
+                "Step result manifest is invalid JSON."
+            ) from exc
+        identity = manifest.get("identity")
+        if not isinstance(identity, dict) or (
+            str(identity.get("execution_attempt_id"))
+            != str(reference.execution_attempt_id)
+            or identity.get("fencing_token") != reference.fencing_token
+        ):
+            raise ResultStorageError("Step result reference identity conflicts.")
+        outputs = manifest.get("outputs")
+        if not isinstance(outputs, list):
+            raise ResultStorageError("Step result outputs are invalid.")
+        execution_count = manifest.get("execution_count")
+        if execution_count is not None and type(execution_count) is not int:
+            raise ResultStorageError(
+                "Step result execution count is invalid."
+            )
+        return StepResultProjection(
+            outputs=[
+                self._notebook_output(manifest_path.parent, output)
+                for output in outputs
+            ],
+            execution_count=execution_count,
+        )
+
+    def _notebook_output(
+        self, result_directory: Path, raw_output: object
+    ) -> dict[str, object]:
+        if not isinstance(raw_output, dict):
+            raise ResultStorageError("Step output descriptor is invalid.")
+        kind = str(raw_output.get("kind", ""))
+        raw_representations = raw_output.get("representations")
+        if not isinstance(raw_representations, list):
+            raise ResultStorageError(
+                "Step output representations are invalid."
+            )
+        if not all(isinstance(value, dict) for value in raw_representations):
+            raise ResultStorageError(
+                "Step output representation descriptor is invalid."
+            )
+        representations = {
+            str(value["media_type"]): self._representation_value(
+                result_directory, value
+            )
+            for value in raw_representations
+        }
+        metadata = raw_output.get("metadata", {})
+        if not isinstance(metadata, dict):
+            raise ResultStorageError("Step output metadata is invalid.")
+        if kind == "STREAM":
+            return {
+                "output_type": "stream",
+                "name": str(raw_output.get("stream_name") or "stdout"),
+                "text": str(representations.get("text/plain", "")),
+            }
+        if kind in {"DISPLAY", "RESULT"}:
+            output: dict[str, object] = {
+                "output_type": (
+                    "execute_result" if kind == "RESULT" else "display_data"
+                ),
+                "data": representations,
+                "metadata": metadata,
+            }
+            execution_count = raw_output.get("execution_count")
+            if kind == "RESULT":
+                output["execution_count"] = execution_count
+            return output
+        if kind == "ERROR":
+            traceback = str(representations.get("text/plain", ""))
+            return {
+                "output_type": "error",
+                "ename": str(metadata.get("ename", "ExecutionError")),
+                "evalue": str(metadata.get("evalue", "")),
+                "traceback": traceback.splitlines(),
+            }
+        raise ResultStorageError(f"Unsupported Step output kind: {kind!r}.")
+
+    def _representation_value(
+        self, result_directory: Path, value: dict[str, Any]
+    ) -> object:
+        relative_path = Path(str(value.get("relative_path", "")))
+        if relative_path.is_absolute() or any(
+            part in {"", ".", ".."} for part in relative_path.parts
+        ):
+            raise ResultStorageError("Step output path is unsafe.")
+        path = (result_directory / relative_path).resolve(strict=True)
+        try:
+            path.relative_to(result_directory)
+        except ValueError as exc:
+            raise ResultStorageError("Step output path escapes its result.") from exc
+        body = path.read_bytes()
+        if len(body) != value.get("size_bytes") or _sha256(body) != value.get(
+            "checksum_sha256"
+        ):
+            raise ResultStorageError("Step output content checksum failed.")
+        media_type = str(value.get("media_type", ""))
+        if media_type.startswith("image/") or media_type == "application/pdf":
+            return base64.b64encode(body).decode("ascii")
+        try:
+            text_value = body.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ResultStorageError(
+                "Text Step output is not UTF-8."
+            ) from exc
+        if media_type == "application/json" or media_type.endswith("+json"):
+            try:
+                return json.loads(text_value)
+            except json.JSONDecodeError as exc:
+                raise ResultStorageError(
+                    "JSON Step output is invalid."
+                ) from exc
+        return text_value
 
     async def begin_step_result(
         self,

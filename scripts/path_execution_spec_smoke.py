@@ -1,4 +1,4 @@
-"""Verify PATH input storage is separate from Jupyter-owned execution storage."""
+"""Verify PATH requests and results use shared storage, separate from Jupyter."""
 
 import asyncio
 import hashlib
@@ -36,9 +36,10 @@ async def _wait_terminal(client: Client, execution_id: str) -> dict[str, Any]:
 
 
 def _publish_input(unique: str) -> tuple[Path, Path, Path, bytes]:
-    input_root = Path(
-        os.getenv("EXECUTOR_INPUT_HOST_ROOT", "input_dir")
+    shared_root = Path(
+        os.getenv("LOCAL_TEST_SHARED_STORAGE_ROOT", "shared_dir")
     ).resolve()
+    input_root = shared_root / "requests"
     relative_path = Path("smoke") / unique / "step-0.py"
     source_path = input_root / relative_path
     temporary_path = source_path.with_suffix(".tmp")

@@ -132,7 +132,7 @@ def _worker(
 ) -> tuple[ExecutionWorker, Redis]:
     settings = Settings(
         runtime_enabled=False,
-        input_host_root=tmp_path,
+        shared_storage_root=tmp_path,
     )
     session_factory = create_session_factory(engine)
     redis = Redis.from_url("redis://127.0.0.1:6379/15", decode_responses=True)

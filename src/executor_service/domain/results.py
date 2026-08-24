@@ -48,6 +48,12 @@ class StepResultDescriptor:
 
 
 @dataclass(frozen=True, slots=True)
+class StepResultProjection:
+    outputs: list[dict[str, object]]
+    execution_count: int | None
+
+
+@dataclass(frozen=True, slots=True)
 class StepResultAppend:
     committed_offset: int
     output_count: int
@@ -67,6 +73,14 @@ class ExecutionResultStore(Protocol):
     async def read_source(
         self, reference: ExecutionSourceReference
     ) -> str: ...
+
+    async def read_step_outputs(
+        self, reference: StepResultReference
+    ) -> list[dict[str, object]]: ...
+
+    async def read_step_projection(
+        self, reference: StepResultReference
+    ) -> StepResultProjection: ...
 
     async def begin_step_result(
         self,
