@@ -1,6 +1,7 @@
 import asyncio
+from datetime import UTC, datetime
 from typing import Any, ClassVar, cast
-from uuid import UUID
+from uuid import UUID, uuid5
 
 import pytest
 
@@ -9,11 +10,13 @@ from executor_service.domain.runtime import (
     RuntimeExecutionError,
     RuntimeExecutionResult,
     RuntimeOutputAppendResult,
+    RuntimeOutputDescriptor,
     RuntimeOutputHandler,
     RuntimeOutputJournalDescriptor,
     RuntimeOutputJournalIdentity,
     RuntimeOutputRecord,
     RuntimeOutputRepresentation,
+    RuntimeOutputRepresentationDescriptor,
 )
 from executor_service.infrastructure.worker import ExecutionWorker
 
@@ -137,6 +140,8 @@ class RecordingJournalDriver:
         self.calls.append("append")
         self.records.extend(records)
         self.offset += 1
+        output_id = uuid5(journal_id, f"output:{self.offset - 1}")
+        representation = records[0].representations[0]
         return RuntimeOutputAppendResult(
             journal_id=journal_id,
             state="OPEN",
@@ -146,6 +151,31 @@ class RecordingJournalDriver:
             representation_count=1,
             total_bytes=len(records[0].representations[0].content),
             replayed=False,
+            outputs=(
+                RuntimeOutputDescriptor(
+                    output_id=output_id,
+                    ordinal=self.offset - 1,
+                    kind=records[0].kind,
+                    stream_name=records[0].stream_name,
+                    execution_count=records[0].execution_count,
+                    representations=(
+                        RuntimeOutputRepresentationDescriptor(
+                            representation_id=uuid5(
+                                output_id, "representation:0"
+                            ),
+                            media_type=representation.media_type,
+                            size_bytes=len(representation.content),
+                            checksum_sha256="a" * 64,
+                            complete=True,
+                            content_ref=(
+                                f"journal://{journal_id}/{output_id}/0"
+                            ),
+                        ),
+                    ),
+                    metadata=records[0].metadata,
+                    created_at=datetime.now(UTC),
+                ),
+            ),
         )
 
     async def output_journal_finalize(

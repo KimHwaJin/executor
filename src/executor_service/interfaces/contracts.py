@@ -17,6 +17,8 @@ from executor_service.application.execution_queries import (
     ExecutionDetailView,
     ExecutionEventView,
     ExecutionOperationView,
+    ExecutionOutputRepresentationView,
+    ExecutionOutputView,
     ExecutionStepAttemptView,
     ExecutionSummaryView,
 )
@@ -1310,6 +1312,123 @@ class ExecutionArtifactPageResponse(PageResponse):
             items=[
                 ExecutionArtifactSummaryResponse.from_view(item)
                 for item in page.items
+            ],
+            next_cursor=page.next_cursor,
+            has_more=page.next_cursor is not None,
+        )
+
+
+class OutputProducer(ContractModel):
+    execution_id: UUID
+    operation_id: UUID
+    step_id: UUID
+    attempt_id: UUID
+    sequence: int
+
+
+class OutputJournalReference(ContractModel):
+    journal_id: UUID
+    batch_id: UUID
+    state: str
+    fencing_token: int
+
+
+class OutputRuntimeReference(ContractModel):
+    target_id: UUID
+    session_id: str
+
+
+class ExecutionOutputRepresentationResponse(AuditFields):
+    representation_id: UUID
+    media_type: str
+    size_bytes: int
+    checksum_sha256: str
+    complete: bool
+    content_ref: str
+    metadata: dict[str, Any]
+
+    @classmethod
+    def from_view(
+        cls, view: ExecutionOutputRepresentationView
+    ) -> "ExecutionOutputRepresentationResponse":
+        return cls(
+            representation_id=view.id,
+            media_type=view.media_type,
+            size_bytes=view.size_bytes,
+            checksum_sha256=view.checksum_sha256,
+            complete=view.complete,
+            content_ref=view.content_ref,
+            metadata=view.metadata,
+            created_by_type=view.created_by_type,
+            created_by=view.created_by,
+            updated_by_type=view.updated_by_type,
+            updated_by=view.updated_by,
+            created_at=view.created_at,
+            updated_at=view.updated_at,
+        )
+
+
+class ExecutionOutputResponse(AuditFields):
+    output_id: UUID
+    produced_by: OutputProducer
+    journal: OutputJournalReference
+    runtime: OutputRuntimeReference
+    ordinal: int
+    kind: str
+    stream_name: str | None
+    execution_count: int | None
+    representations: list[ExecutionOutputRepresentationResponse]
+    metadata: dict[str, Any]
+
+    @classmethod
+    def from_view(cls, view: ExecutionOutputView) -> "ExecutionOutputResponse":
+        return cls(
+            output_id=view.id,
+            produced_by=OutputProducer(
+                execution_id=view.execution_id,
+                operation_id=view.operation_id,
+                step_id=view.execution_step_id,
+                attempt_id=view.execution_attempt_id,
+                sequence=view.sequence,
+            ),
+            journal=OutputJournalReference(
+                journal_id=view.journal_id,
+                batch_id=view.batch_id,
+                state=view.journal_state,
+                fencing_token=view.fencing_token,
+            ),
+            runtime=OutputRuntimeReference(
+                target_id=view.runtime_target_id,
+                session_id=view.runtime_session_id,
+            ),
+            ordinal=view.ordinal,
+            kind=view.kind,
+            stream_name=view.stream_name,
+            execution_count=view.execution_count,
+            representations=[
+                ExecutionOutputRepresentationResponse.from_view(item)
+                for item in view.representations
+            ],
+            metadata=view.metadata,
+            created_by_type=view.created_by_type,
+            created_by=view.created_by,
+            updated_by_type=view.updated_by_type,
+            updated_by=view.updated_by,
+            created_at=view.created_at,
+            updated_at=view.updated_at,
+        )
+
+
+class ExecutionOutputPageResponse(PageResponse):
+    items: list[ExecutionOutputResponse]
+
+    @classmethod
+    def from_page(
+        cls, page: Page[ExecutionOutputView]
+    ) -> "ExecutionOutputPageResponse":
+        return cls(
+            items=[
+                ExecutionOutputResponse.from_view(item) for item in page.items
             ],
             next_cursor=page.next_cursor,
             has_more=page.next_cursor is not None,

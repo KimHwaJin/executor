@@ -41,7 +41,9 @@ from executor_service.domain.runtime import (
     RuntimeDriverFactory,
     RuntimeExecutionError,
     RuntimeExecutionTimeoutError,
+    RuntimeOutputAppendResult,
     RuntimeOutputJournal,
+    RuntimeOutputJournalDescriptor,
     RuntimeOutputJournalIdentity,
     RuntimeOutputRecord,
     RuntimeStreamingExecutor,
@@ -52,6 +54,9 @@ from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
     ExecutionOperationORM,
     ExecutionORM,
+    ExecutionOutputJournalORM,
+    ExecutionOutputORM,
+    ExecutionOutputRepresentationORM,
     ExecutionStepAttemptORM,
     ExecutionStepORM,
     OutboxEventORM,
@@ -694,6 +699,7 @@ class ExecutionWorker:
                                         runtime_session_id,
                                     )
                                 ),
+                                output_journal_lease=lease,
                             ),
                             execution_id=execution.id,
                             target_id=target.id,
@@ -1543,6 +1549,7 @@ class ExecutionWorker:
                                     runtime_session_id,
                                 )
                             ),
+                            output_journal_lease=lease,
                         ),
                         execution_id=execution.id,
                         target_id=target.id,
@@ -2145,6 +2152,7 @@ class ExecutionWorker:
         sequence: int,
         *,
         output_journal_identity: RuntimeOutputJournalIdentity | None = None,
+        output_journal_lease: ExecutionLease | None = None,
     ) -> Any:
         async with self._session_factory() as session:
             row = (
@@ -2184,6 +2192,7 @@ class ExecutionWorker:
             runtime_session_id,
             code,
             output_journal_identity,
+            output_journal_lease,
         )
         if not timeouts:
             return await execution_call
@@ -2200,6 +2209,7 @@ class ExecutionWorker:
         runtime_session_id: str,
         code: str,
         identity: RuntimeOutputJournalIdentity | None,
+        lease: ExecutionLease | None = None,
     ) -> Any:
         if (
             identity is None
@@ -2209,10 +2219,29 @@ class ExecutionWorker:
             return await driver.execute(runtime_session_id, code)
 
         descriptor = await driver.output_journal_begin(identity)
-        if descriptor.state != "OPEN" or descriptor.committed_offset != 0:
+        if (
+            descriptor.state != "OPEN"
+            or descriptor.committed_offset != 0
+            or descriptor.output_count != 0
+            or descriptor.representation_count != 0
+            or descriptor.total_bytes != 0
+        ):
             raise RuntimeDriverError(
                 "Runtime Output Journal did not begin from an empty OPEN state."
             )
+        if lease is not None:
+            try:
+                await self._record_output_journal_started(
+                    lease, identity, descriptor
+                )
+            except Exception:
+                await self._abort_output_journal(
+                    driver,
+                    identity,
+                    descriptor.journal_id,
+                    "PostgreSQL output projection could not be initialized.",
+                )
+                raise
         committed_offset = descriptor.committed_offset
 
         async def append_output(record: RuntimeOutputRecord) -> None:
@@ -2233,6 +2262,8 @@ class ExecutionWorker:
                 raise RuntimeDriverError(
                     "Runtime Output Journal append acknowledgement is invalid."
                 )
+            if lease is not None:
+                await self._record_output_append(lease, identity, result)
             committed_offset = result.committed_offset
 
         try:
@@ -2243,7 +2274,11 @@ class ExecutionWorker:
             )
         except RuntimeExecutionError:
             await self._finalize_output_journal(
-                driver, identity, descriptor.journal_id, committed_offset
+                driver,
+                identity,
+                descriptor.journal_id,
+                committed_offset,
+                lease,
             )
             raise
         except asyncio.CancelledError:
@@ -2252,6 +2287,7 @@ class ExecutionWorker:
                 identity,
                 descriptor.journal_id,
                 "Runtime execution was cancelled before output delivery completed.",
+                lease,
             )
             raise
         except Exception as exc:
@@ -2260,10 +2296,15 @@ class ExecutionWorker:
                 identity,
                 descriptor.journal_id,
                 f"{type(exc).__name__}: output delivery did not complete.",
+                lease,
             )
             raise
         await self._finalize_output_journal(
-            driver, identity, descriptor.journal_id, committed_offset
+            driver,
+            identity,
+            descriptor.journal_id,
+            committed_offset,
+            lease,
         )
         return execution_result
 
@@ -2291,12 +2332,13 @@ class ExecutionWorker:
             runtime_session_id=runtime_session_id,
         )
 
-    @staticmethod
     async def _finalize_output_journal(
+        self,
         driver: RuntimeOutputJournal,
         identity: RuntimeOutputJournalIdentity,
         journal_id: UUID,
         committed_offset: int,
+        lease: ExecutionLease | None = None,
     ) -> None:
         finalized = await driver.output_journal_finalize(
             identity, journal_id=journal_id
@@ -2309,25 +2351,318 @@ class ExecutionWorker:
             raise RuntimeDriverError(
                 "Runtime Output Journal finalization acknowledgement is invalid."
             )
+        if lease is not None:
+            await self._record_output_journal_terminal(
+                lease, finalized, abort_reason=None
+            )
 
-    @staticmethod
     async def _abort_output_journal(
+        self,
         driver: RuntimeOutputJournal,
         identity: RuntimeOutputJournalIdentity,
         journal_id: UUID,
         reason: str,
+        lease: ExecutionLease | None = None,
     ) -> None:
         try:
-            await driver.output_journal_abort(
+            aborted = await driver.output_journal_abort(
                 identity,
                 journal_id=journal_id,
                 reason=reason[:2000],
             )
+            if aborted.journal_id != journal_id or aborted.state != "ABORTED":
+                raise RuntimeDriverError(
+                    "Runtime Output Journal abort acknowledgement is invalid."
+                )
+            if lease is not None:
+                await self._record_output_journal_terminal(
+                    lease, aborted, abort_reason=reason[:2000]
+                )
         except Exception:
             logger.warning(
                 "Runtime Output Journal abort failed",
                 exc_info=True,
                 extra={"execution_id": str(identity.execution_id)},
+            )
+
+    async def _record_output_journal_started(
+        self,
+        lease: ExecutionLease,
+        identity: RuntimeOutputJournalIdentity,
+        descriptor: RuntimeOutputJournalDescriptor,
+    ) -> None:
+        async with self._session_factory() as session, session.begin():
+            await require_active_lease(session, lease)
+            step = await session.get(ExecutionStepORM, identity.step_id)
+            history = await session.scalar(
+                select(ExecutionStepAttemptORM).where(
+                    ExecutionStepAttemptORM.execution_attempt_id
+                    == identity.execution_attempt_id,
+                    ExecutionStepAttemptORM.execution_step_id
+                    == identity.step_id,
+                )
+            )
+            if step is None or history is None:
+                raise RuntimeDriverError(
+                    "Runtime Output Journal has no active Step history."
+                )
+            existing = await session.get(
+                ExecutionOutputJournalORM, descriptor.journal_id
+            )
+            if existing is not None:
+                self._require_output_journal_identity(existing, identity)
+                if (
+                    existing.state != descriptor.state
+                    or existing.committed_offset != descriptor.committed_offset
+                    or existing.output_count != descriptor.output_count
+                    or existing.representation_count
+                    != descriptor.representation_count
+                    or existing.total_bytes != descriptor.total_bytes
+                ):
+                    raise RuntimeDriverError(
+                        "Runtime Output Journal projection state conflicts."
+                    )
+                return
+            actor_type = step.updated_by_type or step.created_by_type
+            actor_id = step.updated_by or step.created_by
+            now = utc_now()
+            session.add(
+                ExecutionOutputJournalORM(
+                    id=descriptor.journal_id,
+                    execution_id=identity.execution_id,
+                    operation_id=identity.operation_id,
+                    execution_step_id=identity.step_id,
+                    execution_attempt_id=identity.execution_attempt_id,
+                    execution_step_attempt_id=history.id,
+                    runtime_target_id=identity.runtime_target_id,
+                    runtime_session_id=identity.runtime_session_id,
+                    workspace_path=identity.workspace_path,
+                    sequence=identity.sequence,
+                    fencing_token=identity.fencing_token,
+                    state=descriptor.state,
+                    committed_offset=descriptor.committed_offset,
+                    output_count=descriptor.output_count,
+                    representation_count=descriptor.representation_count,
+                    total_bytes=descriptor.total_bytes,
+                    checksum_sha256=descriptor.checksum_sha256,
+                    created_by_type=actor_type,
+                    created_by=actor_id,
+                    updated_by_type=actor_type,
+                    updated_by=actor_id,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+
+    async def _record_output_append(
+        self,
+        lease: ExecutionLease,
+        identity: RuntimeOutputJournalIdentity,
+        result: RuntimeOutputAppendResult,
+    ) -> None:
+        async with self._session_factory() as session, session.begin():
+            await require_active_lease(session, lease)
+            journal = await session.scalar(
+                select(ExecutionOutputJournalORM)
+                .where(ExecutionOutputJournalORM.id == result.journal_id)
+                .with_for_update()
+            )
+            if journal is None:
+                raise RuntimeDriverError(
+                    "Runtime Output Journal projection was not initialized."
+                )
+            self._require_output_journal_identity(journal, identity)
+            if journal.state != "OPEN":
+                raise RuntimeDriverError(
+                    "A terminal Runtime Output Journal cannot accept metadata."
+                )
+            if result.output_count != len(result.outputs):
+                raise RuntimeDriverError(
+                    "Runtime Output Journal batch count is inconsistent."
+                )
+            previous_offset = result.committed_offset - len(result.outputs)
+            if [output.ordinal for output in result.outputs] != list(
+                range(previous_offset, result.committed_offset)
+            ):
+                raise RuntimeDriverError(
+                    "Runtime Output Journal ordinals are not contiguous."
+                )
+            representation_count = sum(
+                len(output.representations) for output in result.outputs
+            )
+            total_bytes = sum(
+                representation.size_bytes
+                for output in result.outputs
+                for representation in output.representations
+            )
+            if (
+                representation_count != result.representation_count
+                or total_bytes != result.total_bytes
+            ):
+                raise RuntimeDriverError(
+                    "Runtime Output Journal representation totals are "
+                    "inconsistent."
+                )
+            if journal.committed_offset == result.committed_offset:
+                existing_ids = set(
+                    await session.scalars(
+                        select(ExecutionOutputORM.id).where(
+                            ExecutionOutputORM.id.in_(
+                                output.output_id for output in result.outputs
+                            )
+                        )
+                    )
+                )
+                if existing_ids == {
+                    output.output_id for output in result.outputs
+                }:
+                    return
+            if journal.committed_offset != previous_offset:
+                raise RuntimeDriverError(
+                    "Runtime Output Journal projection offset is inconsistent."
+                )
+            actor_type = journal.updated_by_type or journal.created_by_type
+            actor_id = journal.updated_by or journal.created_by
+            for output in result.outputs:
+                session.add(
+                    ExecutionOutputORM(
+                        id=output.output_id,
+                        journal_id=result.journal_id,
+                        batch_id=result.batch_id,
+                        execution_id=identity.execution_id,
+                        operation_id=identity.operation_id,
+                        execution_step_id=identity.step_id,
+                        execution_attempt_id=identity.execution_attempt_id,
+                        sequence=identity.sequence,
+                        ordinal=output.ordinal,
+                        kind=output.kind,
+                        stream_name=output.stream_name,
+                        execution_count=output.execution_count,
+                        output_metadata=output.metadata,
+                        created_by_type=actor_type,
+                        created_by=actor_id,
+                        updated_by_type=actor_type,
+                        updated_by=actor_id,
+                        created_at=output.created_at,
+                        updated_at=output.created_at,
+                    )
+                )
+                session.add_all(
+                    [
+                        ExecutionOutputRepresentationORM(
+                            id=representation.representation_id,
+                            output_id=output.output_id,
+                            media_type=representation.media_type,
+                            size_bytes=representation.size_bytes,
+                            checksum_sha256=(representation.checksum_sha256),
+                            complete=representation.complete,
+                            content_ref=representation.content_ref,
+                            representation_metadata=representation.metadata,
+                            created_by_type=actor_type,
+                            created_by=actor_id,
+                            updated_by_type=actor_type,
+                            updated_by=actor_id,
+                            created_at=output.created_at,
+                            updated_at=output.created_at,
+                        )
+                        for representation in output.representations
+                    ]
+                )
+            journal.committed_offset = result.committed_offset
+            journal.output_count = result.committed_offset
+            journal.representation_count += result.representation_count
+            journal.total_bytes += result.total_bytes
+            journal.updated_at = utc_now()
+
+    async def _record_output_journal_terminal(
+        self,
+        lease: ExecutionLease,
+        descriptor: RuntimeOutputJournalDescriptor,
+        *,
+        abort_reason: str | None,
+    ) -> None:
+        allowed_statuses = (
+            (ExecutionStatus.RUNNING, ExecutionStatus.CANCEL_REQUESTED)
+            if descriptor.state == "ABORTED"
+            else (ExecutionStatus.RUNNING,)
+        )
+        async with self._session_factory() as session, session.begin():
+            await require_active_lease(
+                session, lease, allowed_statuses=allowed_statuses
+            )
+            journal = await session.scalar(
+                select(ExecutionOutputJournalORM)
+                .where(ExecutionOutputJournalORM.id == descriptor.journal_id)
+                .with_for_update()
+            )
+            if journal is None:
+                raise RuntimeDriverError(
+                    "Runtime Output Journal projection was not found."
+                )
+            if journal.state == descriptor.state:
+                if (
+                    journal.committed_offset != descriptor.committed_offset
+                    or journal.output_count != descriptor.output_count
+                    or journal.representation_count
+                    != descriptor.representation_count
+                    or journal.total_bytes != descriptor.total_bytes
+                    or journal.checksum_sha256 != descriptor.checksum_sha256
+                ):
+                    raise RuntimeDriverError(
+                        "Runtime Output Journal terminal replay conflicts."
+                    )
+                return
+            if journal.state != "OPEN":
+                raise RuntimeDriverError(
+                    "Runtime Output Journal terminal state conflicts."
+                )
+            if (
+                journal.committed_offset != descriptor.committed_offset
+                or journal.output_count != descriptor.output_count
+                or journal.representation_count
+                != descriptor.representation_count
+                or journal.total_bytes != descriptor.total_bytes
+            ):
+                raise RuntimeDriverError(
+                    "Runtime Output Journal terminal totals are inconsistent."
+                )
+            now = utc_now()
+            journal.state = descriptor.state
+            journal.checksum_sha256 = descriptor.checksum_sha256
+            journal.abort_reason = abort_reason
+            journal.completed_at = now
+            journal.updated_at = now
+
+    @staticmethod
+    def _require_output_journal_identity(
+        journal: ExecutionOutputJournalORM,
+        identity: RuntimeOutputJournalIdentity,
+    ) -> None:
+        actual = (
+            journal.execution_id,
+            journal.operation_id,
+            journal.execution_step_id,
+            journal.sequence,
+            journal.execution_attempt_id,
+            journal.fencing_token,
+            journal.runtime_target_id,
+            journal.runtime_session_id,
+            journal.workspace_path,
+        )
+        expected = (
+            identity.execution_id,
+            identity.operation_id,
+            identity.step_id,
+            identity.sequence,
+            identity.execution_attempt_id,
+            identity.fencing_token,
+            identity.runtime_target_id,
+            identity.runtime_session_id,
+            identity.workspace_path,
+        )
+        if actual != expected:
+            raise RuntimeDriverError(
+                "Runtime Output Journal projection identity conflicts."
             )
 
     async def _resolve_runtime_timeout(

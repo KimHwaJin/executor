@@ -1117,6 +1117,247 @@ class ExecutionStepAttemptORM(Base):
     )
 
 
+class ExecutionOutputJournalORM(Base):
+    """Fenced Runtime-owned output journal projected into PostgreSQL."""
+
+    __tablename__ = "execution_output_journals"
+    __table_args__ = (
+        *audit_actor_constraints(),
+        UniqueConstraint(
+            "execution_attempt_id",
+            "execution_step_id",
+            "fencing_token",
+            name="uq_output_journals_attempt_step_fence",
+        ),
+        CheckConstraint("sequence >= 0", name="non_negative_sequence"),
+        CheckConstraint("fencing_token > 0", name="positive_fencing_token"),
+        CheckConstraint(
+            "state IN ('OPEN', 'FINALIZED', 'ABORTED')",
+            name="valid_state",
+        ),
+        CheckConstraint(
+            "committed_offset >= 0", name="non_negative_committed_offset"
+        ),
+        CheckConstraint("output_count >= 0", name="non_negative_output_count"),
+        CheckConstraint(
+            "representation_count >= 0",
+            name="non_negative_representation_count",
+        ),
+        CheckConstraint("total_bytes >= 0", name="non_negative_total_bytes"),
+        Index(
+            "ix_output_journals_execution_sequence",
+            "execution_id",
+            "sequence",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    execution_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("executions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    operation_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("execution_operations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    execution_step_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("execution_steps.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    execution_attempt_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("execution_attempts.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    execution_step_attempt_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("execution_step_attempts.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    runtime_target_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("runtime_targets.id"),
+        nullable=False,
+    )
+    runtime_session_id: Mapped[str] = mapped_column(
+        String(1024), nullable=False
+    )
+    workspace_path: Mapped[str] = mapped_column(Text, nullable=False)
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    fencing_token: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+    committed_offset: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0
+    )
+    output_count: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0
+    )
+    representation_count: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0
+    )
+    total_bytes: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0
+    )
+    checksum_sha256: Mapped[str | None] = mapped_column(String(64))
+    abort_reason: Mapped[str | None] = mapped_column(Text)
+    created_by_type: Mapped[ActorType | None] = mapped_column(
+        enum_type(ActorType, "actor_type"), nullable=True
+    )
+    created_by: Mapped[str | None] = mapped_column(String(255))
+    updated_by_type: Mapped[ActorType | None] = mapped_column(
+        enum_type(ActorType, "actor_type"), nullable=True
+    )
+    updated_by: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+
+
+class ExecutionOutputORM(Base):
+    """One ordered output descriptor from a Runtime Output Journal."""
+
+    __tablename__ = "execution_outputs"
+    __table_args__ = (
+        *audit_actor_constraints(),
+        UniqueConstraint(
+            "journal_id", "ordinal", name="uq_outputs_journal_ordinal"
+        ),
+        CheckConstraint("sequence >= 0", name="non_negative_sequence"),
+        CheckConstraint("ordinal >= 0", name="non_negative_ordinal"),
+        CheckConstraint(
+            "kind IN ('STREAM', 'DISPLAY', 'RESULT', 'ERROR')",
+            name="valid_kind",
+        ),
+        CheckConstraint(
+            "execution_count IS NULL OR execution_count >= 0",
+            name="non_negative_execution_count",
+        ),
+        Index(
+            "ix_outputs_execution_created_cursor",
+            "execution_id",
+            "created_at",
+            "id",
+        ),
+        Index(
+            "ix_outputs_step_ordinal",
+            "execution_step_id",
+            "ordinal",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    journal_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("execution_output_journals.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    batch_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    execution_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("executions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    operation_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("execution_operations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    execution_step_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("execution_steps.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    execution_attempt_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("execution_attempts.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    ordinal: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    stream_name: Mapped[str | None] = mapped_column(String(32))
+    execution_count: Mapped[int | None] = mapped_column(Integer)
+    output_metadata: Mapped[dict[str, Any]] = mapped_column(
+        "metadata", JSON, nullable=False, default=dict
+    )
+    created_by_type: Mapped[ActorType | None] = mapped_column(
+        enum_type(ActorType, "actor_type"), nullable=True
+    )
+    created_by: Mapped[str | None] = mapped_column(String(255))
+    updated_by_type: Mapped[ActorType | None] = mapped_column(
+        enum_type(ActorType, "actor_type"), nullable=True
+    )
+    updated_by: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
+    )
+
+
+class ExecutionOutputRepresentationORM(Base):
+    """One MIME representation with an opaque Runtime content reference."""
+
+    __tablename__ = "execution_output_representations"
+    __table_args__ = (
+        *audit_actor_constraints(),
+        CheckConstraint("size_bytes >= 0", name="non_negative_size_bytes"),
+        UniqueConstraint("content_ref", name="uq_output_representations_ref"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    output_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("execution_outputs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    media_type: Mapped[str] = mapped_column(String(255), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    checksum_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    complete: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    content_ref: Mapped[str] = mapped_column(Text, nullable=False)
+    representation_metadata: Mapped[dict[str, Any]] = mapped_column(
+        "metadata", JSON, nullable=False, default=dict
+    )
+    created_by_type: Mapped[ActorType | None] = mapped_column(
+        enum_type(ActorType, "actor_type"), nullable=True
+    )
+    created_by: Mapped[str | None] = mapped_column(String(255))
+    updated_by_type: Mapped[ActorType | None] = mapped_column(
+        enum_type(ActorType, "actor_type"), nullable=True
+    )
+    updated_by: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
+    )
+
+
 class ExecutionArtifactORM(Base):
     """Artifact evidence attached at Execution, Attempt, or Step scope."""
 

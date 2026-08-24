@@ -13,6 +13,8 @@ from executor_service.application.execution_queries import (
     ExecutionDetailView,
     ExecutionEventView,
     ExecutionOperationView,
+    ExecutionOutputRepresentationView,
+    ExecutionOutputView,
     ExecutionStepAttemptView,
     ExecutionSummaryView,
 )
@@ -29,6 +31,7 @@ from executor_service.domain.errors import (
     ExecutionAttemptNotFoundError,
     ExecutionNotFoundError,
     ExecutionOperationNotFoundError,
+    ExecutionOutputNotFoundError,
 )
 from executor_service.domain.models import ExecutionStep
 from executor_service.infrastructure.db.models import (
@@ -36,6 +39,9 @@ from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
     ExecutionOperationORM,
     ExecutionORM,
+    ExecutionOutputJournalORM,
+    ExecutionOutputORM,
+    ExecutionOutputRepresentationORM,
     ExecutionStepAttemptORM,
     ExecutionStepORM,
     OutboxEventORM,
@@ -530,6 +536,117 @@ class SQLAlchemyExecutionQueryService:
             )
         return _artifact_view(row)
 
+    async def outputs(
+        self,
+        execution_id: UUID,
+        *,
+        operation_id: UUID | None = None,
+        step_id: UUID | None = None,
+        attempt_id: UUID | None = None,
+        cursor: str | None = None,
+        limit: int = 200,
+    ) -> Page[ExecutionOutputView]:
+        async with self._session_factory() as session:
+            await self._require_execution(session, execution_id)
+            statement = (
+                select(ExecutionOutputORM, ExecutionOutputJournalORM)
+                .join(
+                    ExecutionOutputJournalORM,
+                    ExecutionOutputJournalORM.id
+                    == ExecutionOutputORM.journal_id,
+                )
+                .where(ExecutionOutputORM.execution_id == execution_id)
+            )
+            if operation_id is not None:
+                statement = statement.where(
+                    ExecutionOutputORM.operation_id == operation_id
+                )
+            if step_id is not None:
+                statement = statement.where(
+                    ExecutionOutputORM.execution_step_id == step_id
+                )
+            if attempt_id is not None:
+                statement = statement.where(
+                    ExecutionOutputORM.execution_attempt_id == attempt_id
+                )
+            if cursor is not None:
+                created_at, item_id = decode_time_cursor(
+                    cursor, "execution_outputs"
+                )
+                statement = statement.where(
+                    or_(
+                        ExecutionOutputORM.created_at > created_at,
+                        and_(
+                            ExecutionOutputORM.created_at == created_at,
+                            ExecutionOutputORM.id > item_id,
+                        ),
+                    )
+                )
+            rows = list(
+                (
+                    await session.execute(
+                        statement.order_by(
+                            ExecutionOutputORM.created_at,
+                            ExecutionOutputORM.id,
+                        ).limit(limit + 1)
+                    )
+                ).all()
+            )
+            page_rows = rows[:limit]
+            representation_map = await self._output_representations(
+                session, [row.id for row, _journal in page_rows]
+            )
+        next_cursor = (
+            encode_time_cursor(
+                "execution_outputs",
+                page_rows[-1][0].created_at,
+                page_rows[-1][0].id,
+            )
+            if len(rows) > limit and page_rows
+            else None
+        )
+        return Page(
+            items=[
+                _output_view(
+                    row,
+                    journal,
+                    representation_map.get(row.id, ()),
+                )
+                for row, journal in page_rows
+            ],
+            next_cursor=next_cursor,
+        )
+
+    async def output(
+        self, execution_id: UUID, output_id: UUID
+    ) -> ExecutionOutputView:
+        async with self._session_factory() as session:
+            await self._require_execution(session, execution_id)
+            result = (
+                await session.execute(
+                    select(ExecutionOutputORM, ExecutionOutputJournalORM)
+                    .join(
+                        ExecutionOutputJournalORM,
+                        ExecutionOutputJournalORM.id
+                        == ExecutionOutputORM.journal_id,
+                    )
+                    .where(
+                        ExecutionOutputORM.id == output_id,
+                        ExecutionOutputORM.execution_id == execution_id,
+                    )
+                )
+            ).one_or_none()
+            if result is None:
+                raise ExecutionOutputNotFoundError(
+                    f"Execution Output {output_id} was not found in "
+                    f"Execution {execution_id}."
+                )
+            row, journal = result
+            representation_map = await self._output_representations(
+                session, [row.id]
+            )
+        return _output_view(row, journal, representation_map.get(row.id, ()))
+
     @staticmethod
     async def _require_execution(
         session: AsyncSession, execution_id: UUID
@@ -595,6 +712,29 @@ class SQLAlchemyExecutionQueryService:
             .group_by(ExecutionStepAttemptORM.execution_attempt_id)
         )
         return {attempt_id: count for attempt_id, count in rows}
+
+    @staticmethod
+    async def _output_representations(
+        session: AsyncSession, output_ids: list[UUID]
+    ) -> dict[UUID, tuple[ExecutionOutputRepresentationORM, ...]]:
+        if not output_ids:
+            return {}
+        rows = list(
+            await session.scalars(
+                select(ExecutionOutputRepresentationORM)
+                .where(
+                    ExecutionOutputRepresentationORM.output_id.in_(output_ids)
+                )
+                .order_by(
+                    ExecutionOutputRepresentationORM.output_id,
+                    ExecutionOutputRepresentationORM.id,
+                )
+            )
+        )
+        grouped: dict[UUID, list[ExecutionOutputRepresentationORM]] = {}
+        for row in rows:
+            grouped.setdefault(row.output_id, []).append(row)
+        return {key: tuple(value) for key, value in grouped.items()}
 
 
 def _redact(value: Any) -> Any:
@@ -706,6 +846,56 @@ def _artifact_view(row: ExecutionArtifactORM) -> ExecutionArtifactView:
         size_bytes=row.size_bytes,
         checksum_sha256=row.checksum_sha256,
         metadata=_redact(row.artifact_metadata),
+        created_by_type=row.created_by_type,
+        created_by=row.created_by,
+        updated_by_type=row.updated_by_type,
+        updated_by=row.updated_by,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def _output_view(
+    row: ExecutionOutputORM,
+    journal: ExecutionOutputJournalORM,
+    representations: tuple[ExecutionOutputRepresentationORM, ...],
+) -> ExecutionOutputView:
+    return ExecutionOutputView(
+        id=row.id,
+        journal_id=row.journal_id,
+        batch_id=row.batch_id,
+        execution_id=row.execution_id,
+        operation_id=row.operation_id,
+        execution_step_id=row.execution_step_id,
+        execution_attempt_id=row.execution_attempt_id,
+        runtime_target_id=journal.runtime_target_id,
+        runtime_session_id=journal.runtime_session_id,
+        journal_state=journal.state,
+        fencing_token=journal.fencing_token,
+        sequence=row.sequence,
+        ordinal=row.ordinal,
+        kind=row.kind,
+        stream_name=row.stream_name,
+        execution_count=row.execution_count,
+        metadata=_redact(row.output_metadata),
+        representations=tuple(
+            ExecutionOutputRepresentationView(
+                id=representation.id,
+                media_type=representation.media_type,
+                size_bytes=representation.size_bytes,
+                checksum_sha256=representation.checksum_sha256,
+                complete=representation.complete,
+                content_ref=representation.content_ref,
+                metadata=_redact(representation.representation_metadata),
+                created_by_type=representation.created_by_type,
+                created_by=representation.created_by,
+                updated_by_type=representation.updated_by_type,
+                updated_by=representation.updated_by,
+                created_at=representation.created_at,
+                updated_at=representation.updated_at,
+            )
+            for representation in representations
+        ),
         created_by_type=row.created_by_type,
         created_by=row.created_by,
         updated_by_type=row.updated_by_type,

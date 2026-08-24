@@ -16,6 +16,7 @@ MULTI Operations through a Runtime Driver. Jupyter REST/WebSocket is the first i
   `execution_attempt_get`, `execution_attempt_step_list`,
   `execution_notebook_read`, `execution_notebook_cell_read`,
   `execution_event_list`,
+  `execution_output_list`, `execution_output_get`,
   `execution_artifact_list`, `execution_artifact_get`
 - Runtime Target tools: `runtime_target_upsert`, `runtime_target_list`,
   `runtime_target_get`, `runtime_target_probe`, `runtime_target_disable`,
@@ -36,6 +37,8 @@ MULTI Operations through a Runtime Driver. Jupyter REST/WebSocket is the first i
 - Automatic and Manifest-based Artifact registration with checksum and lineage
 - Runtime-owned `.ipynb` output and execution-scoped artifacts on Jupyter shared storage; Executor
   retains only paths, metadata, and checksums
+- Fenced Runtime Output Journals with normalized PostgreSQL metadata and
+  cursor-paginated REST/MCP output descriptors
 - W3C trace-context propagation across HTTP/MCP, PostgreSQL Outbox, Redis Streams, Worker,
   and Jupyter operations with optional OTLP export to Arize Phoenix
 - `/healthz` and `/readyz` operational endpoints

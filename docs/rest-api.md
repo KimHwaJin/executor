@@ -18,6 +18,8 @@ authoritative state store and execution happens asynchronously through the Worke
 | GET | `/executions/{execution_id}/operations/{operation_id}/result` | Operation and all Step results |
 | GET | `/executions/{execution_id}/attempts` | Attempt history |
 | GET | `/executions/{execution_id}/events` | Integration event history |
+| GET | `/executions/{execution_id}/outputs` | Cursor-paginated normalized Runtime output metadata |
+| GET | `/executions/{execution_id}/outputs/{output_id}` | One output and its MIME representation metadata |
 | GET | `/executions/{execution_id}/artifacts` | Artifact history |
 | POST | `/executions/{execution_id}/artifacts` | Materialize Agent-authored text on Runtime storage |
 | GET | `/executions/{execution_id}/notebook` | Runtime-owned notebook |
@@ -111,6 +113,14 @@ OpenAPI is available at `/openapi.json`, Swagger UI at `/docs`, and ReDoc at `/r
 Redis events are wake-up notifications. Step events contain `output_summary`,
 `result_available=true`, and a `result_ref`, but never full text or image payloads. After an
 Operation or terminal event, the Agent calls the matching consolidated result endpoint once.
+
+`GET /executions/{execution_id}/outputs` exposes ordered output descriptors
+without loading complete Runtime-owned bodies. Optional `operation_id`,
+`step_id`, and `attempt_id` filters narrow the result. Each representation
+contains its MIME type, byte size, checksum, completeness, and an opaque
+`content_ref`; clients must not parse the reference. Native content retrieval
+is introduced with the streaming content endpoint in the next implementation
+slice.
 
 `POST /executions/{execution_id}/artifacts` accepts idempotent Agent-authored UTF-8 content from an
 INLINE source or input-PV PATH. A REPORT defaults to `reports/final-report.md`; callers do not

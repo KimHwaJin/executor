@@ -144,6 +144,8 @@ async def test_openapi_documents_all_execution_routes(
         "/api/v1/executions/{execution_id}/attempts/{attempt_id}",
         "/api/v1/executions/{execution_id}/attempts/{attempt_id}/steps",
         "/api/v1/executions/{execution_id}/events",
+        "/api/v1/executions/{execution_id}/outputs",
+        "/api/v1/executions/{execution_id}/outputs/{output_id}",
         "/api/v1/artifacts/{artifact_id}",
     } <= set(paths)
 
@@ -448,6 +450,7 @@ async def test_single_execution_rest_lifecycle_and_queries(
     artifacts = await client.get(
         f"/api/v1/executions/{execution_id}/artifacts"
     )
+    outputs = await client.get(f"/api/v1/executions/{execution_id}/outputs")
 
     assert fetched.status_code == 200
     assert fetched.json()["runtime"]["type"] == "JUPYTER"
@@ -464,6 +467,7 @@ async def test_single_execution_rest_lifecycle_and_queries(
     assert events.json()["items"][0]["event_type"] == "execution.submitted"
     assert events.json()["items"][0]["payload"]["schema_version"] == "2.0"
     assert artifacts.json()["items"] == []
+    assert outputs.json()["items"] == []
     assert events.json()["items"][0]["delivery"]["status"] == "PENDING"
     assert body["created_by_type"] == "USER"
     assert body["created_by"] == "rest-user"

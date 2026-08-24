@@ -163,6 +163,8 @@ async def test_mcp_client_can_query_execution_history_resources(
             "execution_artifact_get",
             "execution_artifact_list",
             "execution_event_list",
+            "execution_output_get",
+            "execution_output_list",
         }.issubset(tool_names)
 
         submitted = await client.call_tool(
