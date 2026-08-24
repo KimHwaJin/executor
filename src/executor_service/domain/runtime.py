@@ -1,8 +1,9 @@
 """Runtime driver contracts shared by the application and infrastructure layers."""
 
-from dataclasses import dataclass
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Protocol
+from typing import Any, Protocol, runtime_checkable
 from uuid import UUID
 
 from executor_service.domain.enums import RuntimeAbortStatus, RuntimeType
@@ -32,6 +33,104 @@ class RuntimeExecutionTimeoutError(RuntimeExecutionError):
 class RuntimeExecutionResult:
     outputs: list[dict[str, Any]]
     execution_count: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeOutputRepresentation:
+    media_type: str
+    encoding: str
+    content: str
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeOutputRecord:
+    kind: str
+    representations: tuple[RuntimeOutputRepresentation, ...]
+    stream_name: str | None = None
+    execution_count: int | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeOutputJournalIdentity:
+    workspace_path: str
+    execution_id: UUID
+    operation_id: UUID
+    step_id: UUID
+    sequence: int
+    execution_attempt_id: UUID
+    fencing_token: int
+    runtime_target_id: UUID
+    runtime_session_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeOutputJournalDescriptor:
+    journal_id: UUID
+    state: str
+    committed_offset: int
+    output_count: int
+    representation_count: int
+    total_bytes: int
+    checksum_sha256: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeOutputAppendResult:
+    journal_id: UUID
+    state: str
+    batch_id: UUID
+    committed_offset: int
+    output_count: int
+    representation_count: int
+    total_bytes: int
+    replayed: bool
+
+
+RuntimeOutputHandler = Callable[[RuntimeOutputRecord], Awaitable[None]]
+
+
+@runtime_checkable
+class RuntimeStreamingExecutor(Protocol):
+    async def execute_streaming(
+        self,
+        session_id: str,
+        code: str,
+        output_handler: RuntimeOutputHandler,
+    ) -> RuntimeExecutionResult: ...
+
+
+@runtime_checkable
+class RuntimeOutputJournal(Protocol):
+    async def output_journal_begin(
+        self, identity: RuntimeOutputJournalIdentity
+    ) -> RuntimeOutputJournalDescriptor: ...
+
+    async def output_journal_append(
+        self,
+        identity: RuntimeOutputJournalIdentity,
+        *,
+        journal_id: UUID,
+        expected_offset: int,
+        batch_id: UUID,
+        records: tuple[RuntimeOutputRecord, ...],
+    ) -> RuntimeOutputAppendResult: ...
+
+    async def output_journal_finalize(
+        self,
+        identity: RuntimeOutputJournalIdentity,
+        *,
+        journal_id: UUID,
+    ) -> RuntimeOutputJournalDescriptor: ...
+
+    async def output_journal_abort(
+        self,
+        identity: RuntimeOutputJournalIdentity,
+        *,
+        journal_id: UUID,
+        reason: str,
+    ) -> RuntimeOutputJournalDescriptor: ...
 
 
 @dataclass(frozen=True, slots=True)

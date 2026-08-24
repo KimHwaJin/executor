@@ -249,7 +249,7 @@ refreshes it from the Runtime before returning.
 ## PR-004: Preserve full Runtime output without unbounded Executor buffering
 
 - Priority: P1
-- Status: MEASUREMENT_READY
+- Status: IN_PROGRESS
 - Area: Runtime output collection, notebook persistence, PostgreSQL result storage, Agent access
 - Public API impact: additive output metadata, references, and bounded content access
 - Request impact: none required for normal execution submission
@@ -277,14 +277,21 @@ refreshes it from the Runtime before returning.
 - The Runtime-neutral journal, fencing, storage, metadata, finalization, and public-read contract is
   recorded in [Runtime Output Journal](runtime-output-journal.md). No production output threshold
   is selected before T35 baseline evidence exists.
+- Jupyter implements the Runtime-neutral Output Journal port. For journal-capable Runtime Drivers,
+  the Worker begins a fenced Step journal, commits each received output before reading the next
+  message, finalizes complete success and Tool-error delivery, and aborts incomplete delivery on
+  cancellation, timeout, or transport failure.
+- The compatibility path still retains full output in Worker memory and PostgreSQL until the output
+  metadata projection and journal-backed read contracts are introduced. Journal delivery therefore
+  provides durable intermediate evidence now but is not yet the final memory-bound cutover.
 
 ### Problem
 
-The Jupyter WebSocket currently accepts unbounded message size and accumulates every output in an
-Executor process list until the cell finishes. The same output is then stored in Step and
-StepAttempt JSON and embedded in the notebook. A large HTML display, base64 image, or repetitive
-stdout can therefore multiply memory and PostgreSQL usage across concurrent executions even when
-Redis events remain small.
+The Jupyter WebSocket currently accepts unbounded message size and, during the compatibility
+phase, still accumulates every output in an Executor process list after also committing it to the
+Runtime Output Journal. The same output is then stored in Step and StepAttempt JSON and embedded in
+the notebook. A large HTML display, base64 image, or repetitive stdout can therefore still multiply
+memory and PostgreSQL usage across concurrent executions even when Redis events remain small.
 
 ### Required design direction
 
