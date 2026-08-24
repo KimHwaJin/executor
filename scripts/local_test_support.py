@@ -10,6 +10,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+import httpx
 from mcp import Client
 
 
@@ -131,6 +132,73 @@ async def required_tool_result(
     if result.is_error or result.structured_content is None:
         raise RuntimeError(f"{tool_name} failed: {result.content}")
     return result.structured_content
+
+
+async def execution_output_items(
+    client: Client, execution_id: str
+) -> list[dict[str, Any]]:
+    """Read every normalized output descriptor without result-body duplication."""
+    items: list[dict[str, Any]] = []
+    cursor: str | None = None
+    while True:
+        page = await required_tool_result(
+            client,
+            "execution_output_list",
+            {
+                "execution_id": execution_id,
+                "cursor": cursor,
+                "limit": 200,
+            },
+        )
+        items.extend(page["items"])
+        cursor = page.get("next_cursor")
+        if cursor is None:
+            return items
+
+
+async def execution_output_content(
+    client: Client,
+    execution_id: str,
+    output_id: str,
+    representation_id: str,
+) -> bytes:
+    """Resolve an MCP-inline or HTTP-streamed output representation."""
+    descriptor = await required_tool_result(
+        client,
+        "execution_output_content_get",
+        {
+            "execution_id": execution_id,
+            "output_id": output_id,
+            "representation_id": representation_id,
+        },
+    )
+    if descriptor["delivery"] == "INLINE":
+        return (descriptor.get("content") or "").encode("utf-8")
+    async with httpx.AsyncClient(
+        base_url=executor_http_url(), timeout=60
+    ) as http:
+        response = await http.get(descriptor["content_url"])
+        response.raise_for_status()
+        return response.content
+
+
+async def execution_stream_text(client: Client, execution_id: str) -> str:
+    """Read ordered stdout/stderr text from normalized output references."""
+    chunks: list[str] = []
+    for output in await execution_output_items(client, execution_id):
+        if output["kind"] != "STREAM":
+            continue
+        for representation in output["representations"]:
+            if representation["media_type"] != "text/plain":
+                continue
+            content = await execution_output_content(
+                client,
+                execution_id,
+                output["output_id"],
+                representation["representation_id"],
+            )
+            chunks.append(content.decode("utf-8"))
+    return "".join(chunks)
 
 
 async def register_local_runtime_targets(

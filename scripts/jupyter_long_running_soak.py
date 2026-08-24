@@ -11,6 +11,7 @@ from local_test_support import (
     env_bool,
     env_float,
     env_int,
+    execution_stream_text,
     executor_mcp_url,
     register_local_runtime_targets,
     required_tool_result,
@@ -106,18 +107,6 @@ def _multi_step_soak_code(
         "}, indent=2), encoding='utf-8')\n"
         "print(f'SOAK_STEP_COMPLETE:{run_id}:{step_index}:{completed_at}', flush=True)\n"
     )
-
-
-def _stream_texts(result: dict[str, Any]) -> list[str]:
-    texts: list[str] = []
-    for operation in result["operations"]:
-        for step in operation["steps"]:
-            for output in step["result"]["outputs"]:
-                if output.get("output_type") == "stream" and isinstance(
-                    output.get("text"), str
-                ):
-                    texts.append(output["text"])
-    return texts
 
 
 async def _attempt_snapshot(
@@ -339,7 +328,7 @@ async def main() -> None:
         result = await required_tool_result(
             client, "execution_result_get", {"execution_id": execution_id}
         )
-        stream_text = "".join(_stream_texts(result))
+        stream_text = await execution_stream_text(client, execution_id)
         if step_count == 1:
             markers = (f"SOAK_START:{run_id}", f"SOAK_COMPLETE:{run_id}")
             heartbeat_marker = f"SOAK_HEARTBEAT:{run_id}"

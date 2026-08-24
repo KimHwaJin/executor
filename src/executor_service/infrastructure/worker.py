@@ -33,7 +33,12 @@ from executor_service.domain.enums import (
     RuntimeTargetStatus,
     StepStatus,
 )
-from executor_service.domain.models import Execution, ExecutionStep, utc_now
+from executor_service.domain.models import (
+    Execution,
+    ExecutionStep,
+    empty_output_summary,
+    utc_now,
+)
 from executor_service.domain.runtime import (
     RuntimeAbortResult,
     RuntimeDriver,
@@ -680,7 +685,7 @@ class ExecutionWorker:
                     workspace.notebook_path,
                 )
                 all_outputs: list[list[dict[str, object]]] = [
-                    step.outputs
+                    []
                     for step in execution.steps
                     if step.sequence < start_sequence
                 ]
@@ -1538,6 +1543,7 @@ class ExecutionWorker:
                 pending_steps,
                 target.id,
             )
+            operation_outputs: dict[int, list[dict[str, object]]] = {}
             for pending in pending_steps:
                 if not pending.code:
                     raise ValueError(
@@ -1591,6 +1597,7 @@ class ExecutionWorker:
                         )
                     raise
                 except RuntimeExecutionTimeoutError as exc:
+                    operation_outputs[pending.sequence] = exc.outputs
                     failure_type = (
                         FailureType.STEP_TIMEOUT
                         if exc.scope == "Step"
@@ -1616,6 +1623,7 @@ class ExecutionWorker:
                         lease,
                         execution.runtime_profile,
                         workspace,
+                        operation_outputs,
                     )
                     try:
                         await self._artifacts.discover_and_register(
@@ -1653,6 +1661,7 @@ class ExecutionWorker:
                         )
                     return
                 except RuntimeExecutionError as exc:
+                    operation_outputs[pending.sequence] = exc.outputs
                     await self._step_failed(
                         lease,
                         pending.sequence,
@@ -1667,6 +1676,7 @@ class ExecutionWorker:
                         lease,
                         execution.runtime_profile,
                         workspace,
+                        operation_outputs,
                     )
                     try:
                         await self._artifacts.discover_and_register(
@@ -1691,6 +1701,7 @@ class ExecutionWorker:
                         error_message=str(exc),
                     )
                     return
+                operation_outputs[pending.sequence] = result.outputs
                 await self._step_succeeded(
                     lease,
                     pending.sequence,
@@ -1698,7 +1709,11 @@ class ExecutionWorker:
                     result.execution_count,
                 )
                 await self._write_multi_notebook(
-                    driver, lease, execution.runtime_profile, workspace
+                    driver,
+                    lease,
+                    execution.runtime_profile,
+                    workspace,
+                    operation_outputs,
                 )
                 try:
                     await self._artifacts.discover_and_register(
@@ -1790,6 +1805,7 @@ class ExecutionWorker:
         lease: ExecutionLease,
         runtime_profile: str,
         workspace: ExecutionWorkspace,
+        fallback_outputs_by_sequence: dict[int, list[dict[str, object]]],
     ) -> None:
         async with self._session_factory() as session, session.begin():
             await require_active_lease(session, lease)
@@ -1806,7 +1822,10 @@ class ExecutionWorker:
             if step.status in {StepStatus.SUCCEEDED, StepStatus.FAILED}
         ]
         cells = [step.code or "" for step in executed_steps]
-        outputs = [step.outputs for step in executed_steps]
+        outputs: list[list[dict[str, object]]] = [
+            fallback_outputs_by_sequence.get(step.sequence, [])
+            for step in executed_steps
+        ]
         # Compatibility output counts follow the executed-cell order. The
         # notebook-first Runtime path retains prepared but unexecuted cells.
         execution_counts: list[int | None] = list(
@@ -1879,22 +1898,21 @@ class ExecutionWorker:
         await self._assert_active_lease(lease)
         if isinstance(driver, RuntimeNotebookMaterializer):
             journal_cells = await self._journal_notebook_cells(lease)
-            if len(journal_cells) == len(fallback_cells):
-                result = await driver.materialize_notebook(
-                    workspace.runtime_relative_path,
-                    runtime_profile,
-                    journal_cells,
+            if len(journal_cells) != len(fallback_cells):
+                raise RuntimeDriverError(
+                    "Runtime Output Journal coverage is incomplete; refusing "
+                    "to materialize a partial notebook."
                 )
-                if result.notebook_path != workspace.notebook_path:
-                    raise RuntimeDriverError(
-                        "Runtime materialized an unexpected notebook path."
-                    )
-                return
-            logger.warning(
-                "Runtime Output Journal coverage is incomplete; using "
-                "compatibility notebook materialization",
-                extra={"execution_id": str(lease.execution_id)},
+            result = await driver.materialize_notebook(
+                workspace.runtime_relative_path,
+                runtime_profile,
+                journal_cells,
             )
+            if result.notebook_path != workspace.notebook_path:
+                raise RuntimeDriverError(
+                    "Runtime materialized an unexpected notebook path."
+                )
+            return
         await driver.write_notebook(
             workspace.notebook_path,
             self._workspace.notebook_document(
@@ -2144,6 +2162,8 @@ class ExecutionWorker:
             if step is None:
                 raise ValueError(f"Execution Step {sequence} was not found.")
             step.status = StepStatus.RUNNING
+            step.output_summary = empty_output_summary()
+            step.result_execution_attempt_id = None
             step.started_at = now
             step.updated_at = now
             history = await session.scalar(
@@ -2164,7 +2184,7 @@ class ExecutionWorker:
                         tool_name=step.tool_name,
                         input_parameters=step.input_parameters,
                         status=StepStatus.RUNNING,
-                        outputs=[],
+                        output_summary=empty_output_summary(),
                         created_by_type=step.updated_by_type
                         or step.created_by_type,
                         created_by=step.updated_by or step.created_by,
@@ -2179,7 +2199,7 @@ class ExecutionWorker:
                 history.started_at = now
                 history.finished_at = None
                 history.error_message = None
-                history.outputs = []
+                history.output_summary = empty_output_summary()
             if step.operation_id is None:
                 raise ValueError(
                     f"Execution Step {sequence} has no Operation."
@@ -2218,8 +2238,10 @@ class ExecutionWorker:
                 raise ValueError(
                     f"Execution Step {sequence} or its Operation was not found."
                 )
+            output_summary = summarize_outputs(outputs).model_dump(mode="json")
             step.status = StepStatus.SUCCEEDED
-            step.outputs = outputs
+            step.output_summary = output_summary
+            step.result_execution_attempt_id = lease.attempt_id
             step.finished_at = now
             step.updated_at = now
             await session.execute(
@@ -2231,7 +2253,7 @@ class ExecutionWorker:
                 )
                 .values(
                     status=StepStatus.SUCCEEDED,
-                    outputs=outputs,
+                    output_summary=output_summary,
                     finished_at=now,
                 )
             )
@@ -2252,9 +2274,7 @@ class ExecutionWorker:
                         "operation_id": str(step.operation_id),
                         "step_id": str(step.id),
                     },
-                    "output_summary": summarize_outputs(outputs).model_dump(
-                        mode="json"
-                    ),
+                    "output_summary": output_summary,
                     "execution_count": execution_count,
                 },
             )
@@ -2280,8 +2300,10 @@ class ExecutionWorker:
                     f"Execution Step {sequence} or its Operation was not found."
                 )
             safe_error = error_message[:2000]
+            output_summary = summarize_outputs(outputs).model_dump(mode="json")
             step.status = StepStatus.FAILED
-            step.outputs = outputs
+            step.output_summary = output_summary
+            step.result_execution_attempt_id = lease.attempt_id
             step.error_message = safe_error
             step.finished_at = now
             step.updated_at = now
@@ -2294,7 +2316,7 @@ class ExecutionWorker:
                 )
                 .values(
                     status=StepStatus.FAILED,
-                    outputs=outputs,
+                    output_summary=output_summary,
                     error_message=safe_error,
                     finished_at=now,
                 )
@@ -2316,9 +2338,7 @@ class ExecutionWorker:
                         "operation_id": str(step.operation_id),
                         "step_id": str(step.id),
                     },
-                    "output_summary": summarize_outputs(outputs).model_dump(
-                        mode="json"
-                    ),
+                    "output_summary": output_summary,
                     "error_message": safe_error,
                 },
             )

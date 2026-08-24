@@ -4,10 +4,10 @@ Status: implementation contract for PR-004; thresholds pending T35 evidence.
 
 ## Purpose
 
-Executor currently collects every Jupyter output in one in-process list, duplicates that list in
-PostgreSQL Step and Step Attempt rows, and rewrites a complete notebook from those rows. This is
-correct for small outputs but makes Executor memory and PostgreSQL growth proportional to the full
-cell output multiplied by concurrent executions.
+Executor previously duplicated every Jupyter output in PostgreSQL Step and Step Attempt rows and
+rewrote complete notebooks from those rows. Step state now stores only a bounded summary and an
+authoritative Attempt reference; complete output remains in Runtime-owned journals and normalized
+metadata rows.
 
 The replacement keeps complete output on Runtime-owned storage while Executor retains bounded
 metadata, summaries, previews, and stable references. It is a Runtime-neutral domain contract:
@@ -180,9 +180,10 @@ projection contains:
 - MIME types, stream name, execution count, bounded preview, and opaque content references;
 - normal audit fields.
 
-Current Step and Step Attempt response models use the same referenced output projection. Their
-large `outputs` JSON bodies are removed only in the migration that also enables journal-backed
-reads; there is no period where complete output becomes unreachable.
+Step and Step Attempt response models use the referenced output projection and no longer expose or
+write large `outputs` JSON bodies. Revision `0006` deliberately leaves pre-upgrade values in
+write-disabled legacy database columns so an upgrade is not destructive. A later operator-approved
+cleanup migration may physically drop those columns after historical retention is confirmed.
 
 ## Public reads
 
@@ -235,9 +236,8 @@ failure while keeping already committed journal metadata observable.
 2. Add Jupyter extension journal begin/append/finalize/abort and storage tests. (implemented)
 3. Add the Runtime-neutral port and live Jupyter WebSocket journal delivery. (implemented with the
    compatibility output list retained; buffer cutover remains in slice 4)
-4. Add PostgreSQL output metadata and shared REST/MCP reference contracts.
-   (implemented additively; legacy Step output JSON remains until slice 5)
+4. Add PostgreSQL output metadata and shared REST/MCP reference contracts. (implemented)
 5. Add streaming content reads and notebook materialization from journals.
-   (implemented with notebook-first preparation, fenced Journal
-   materialization, native REST streaming/Range, and bounded MCP text reads)
+   (implemented with notebook-first preparation, fenced Journal materialization, native REST
+   streaming/Range, bounded MCP text reads, and bounded Step result contracts)
 6. Re-run T35, choose production thresholds, and record before/after evidence.

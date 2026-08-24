@@ -32,6 +32,19 @@ def utc_now() -> datetime:
     return datetime.now(UTC)
 
 
+def empty_output_summary() -> dict[str, Any]:
+    """Return the bounded persisted shape for a Step with no outputs."""
+    return {
+        "output_count": 0,
+        "output_types": {},
+        "stream_names": [],
+        "mime_types": [],
+        "has_image": False,
+        "image_count": 0,
+        "has_error": False,
+    }
+
+
 @dataclass(slots=True)
 class ExecutionStep:
     sequence: int
@@ -47,7 +60,10 @@ class ExecutionStep:
     operation_id: UUID | None = None
     id: UUID = field(default_factory=uuid4)
     status: StepStatus = StepStatus.PENDING
-    outputs: list[dict[str, Any]] = field(default_factory=list)
+    output_summary: dict[str, Any] = field(
+        default_factory=empty_output_summary
+    )
+    result_execution_attempt_id: UUID | None = None
     error_message: str | None = None
     created_by_type: ActorType | None = None
     created_by: str | None = None
@@ -194,7 +210,8 @@ class Execution:
             if step.sequence < self.retry_from_sequence:
                 continue
             step.status = StepStatus.PENDING
-            step.outputs = []
+            step.output_summary = empty_output_summary()
+            step.result_execution_attempt_id = None
             step.error_message = None
             step.started_at = None
             step.finished_at = None

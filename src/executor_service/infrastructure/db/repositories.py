@@ -232,7 +232,10 @@ class SQLAlchemyExecutionRepository:
                     step_timeout_seconds=step.step_timeout_seconds,
                     updated_by_type=step.updated_by_type,
                     updated_by=step.updated_by,
-                    outputs=step.outputs,
+                    output_summary=step.output_summary,
+                    result_execution_attempt_id=(
+                        step.result_execution_attempt_id
+                    ),
                     error_message=step.error_message,
                     updated_at=step.updated_at,
                     started_at=step.started_at,

@@ -31,13 +31,40 @@ Execution detail groups information by responsibility: `context`, `runtime`, `wo
 assignment fields remain null until the Worker selects a target and opens a session.
 
 Step detail exposes Executor-owned `step_id`, `sequence`, `code_hash`, per-Step `source` provenance,
-`step_timeout_seconds`, `lineage`, `result`, lifecycle timestamps, and audit fields. Operation
+`step_timeout_seconds`, `lineage`, `result`, lifecycle timestamps, and audit fields. `result`
+contains a bounded `output_summary` and, after success or failure, a `result_ref` containing the
+arguments needed by `execution_output_list` (`execution_id`, `step_id`, and authoritative
+`attempt_id`). It never duplicates full Runtime output bodies. Operation
 detail exposes accepted `schema_version` (currently always `1.0`), its sequence range,
 `operation_timeout_seconds`, metadata, result, and audit fields.
 
 `GET /executions/{execution_id}/result` and MCP `execution_result_get` return Execution detail,
 every Operation with its current Step results, immutable Attempts with Step Attempts, and full
 Artifact metadata in one call. The Operation-scoped equivalents return one Operation and its Steps.
-These are the authoritative reads after Redis signals `result_available=true`.
+These are the authoritative state and lineage reads after Redis signals
+`result_available=true`. Agents use each Step's `result_ref` with the paginated
+output APIs and retrieve only the representations needed for reasoning or a
+report.
+
+```json
+{
+  "status": "SUCCEEDED",
+  "output_summary": {
+    "output_count": 2,
+    "output_types": {"display_data": 1, "stream": 1},
+    "stream_names": ["stdout"],
+    "mime_types": ["image/png", "text/plain"],
+    "has_image": true,
+    "image_count": 1,
+    "has_error": false
+  },
+  "result_ref": {
+    "execution_id": "...",
+    "step_id": "...",
+    "attempt_id": "..."
+  },
+  "error_message": null
+}
+```
 
 List endpoints use opaque cursor pagination with `items`, `next_cursor`, and `has_more`.

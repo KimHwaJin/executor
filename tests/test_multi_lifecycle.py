@@ -262,7 +262,6 @@ async def _make_waiting(
                 tool_name="initialize",
                 input_parameters={},
                 status=StepStatus.SUCCEEDED,
-                outputs=[],
                 started_at=now - timedelta(minutes=1),
                 finished_at=now,
             )

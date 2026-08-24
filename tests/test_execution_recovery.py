@@ -133,7 +133,6 @@ async def test_expired_lease_is_failed_once_and_can_restart_from_zero(
                 tool_name="long_running_tool",
                 input_parameters={},
                 status=StepStatus.RUNNING,
-                outputs=[],
                 started_at=now - timedelta(minutes=2),
             )
         )

@@ -113,7 +113,9 @@ OpenAPI is available at `/openapi.json`, Swagger UI at `/docs`, and ReDoc at `/r
 
 Redis events are wake-up notifications. Step events contain `output_summary`,
 `result_available=true`, and a `result_ref`, but never full text or image payloads. After an
-Operation or terminal event, the Agent calls the matching consolidated result endpoint once.
+Operation or terminal event, the Agent calls the matching consolidated result endpoint once. Step
+results return the same bounded summary plus a transport-neutral `result_ref`; the reference
+values can be passed directly to REST query parameters or MCP `execution_output_list`.
 
 `GET /executions/{execution_id}/outputs` exposes ordered output descriptors
 without loading complete Runtime-owned bodies. Optional `operation_id`,

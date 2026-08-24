@@ -97,6 +97,7 @@ class ExecutionDetailView:
 @dataclass(frozen=True, slots=True)
 class ExecutionStepAttemptView:
     id: UUID
+    execution_id: UUID
     execution_attempt_id: UUID
     execution_step_id: UUID
     sequence: int
@@ -104,7 +105,7 @@ class ExecutionStepAttemptView:
     tool_name: str | None
     input_parameters: dict[str, Any]
     status: StepStatus
-    outputs: list[dict[str, Any]]
+    output_summary: dict[str, Any]
     error_message: str | None
     created_by_type: ActorType | None
     created_by: str | None

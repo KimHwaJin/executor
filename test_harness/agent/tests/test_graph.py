@@ -83,11 +83,15 @@ async def test_graph_runs_executor_request_and_returns_verified_result(monkeypat
                 {
                     "result": {
                         "status": "SUCCEEDED",
-                        "outputs": [
+                        "resolved_outputs": [
                             {
-                                "output_type": "stream",
-                                "name": "stdout",
-                                "text": "55\n",
+                                "kind": "STREAM",
+                                "representations": [
+                                    {
+                                        "media_type": "text/plain",
+                                        "content": "55\n",
+                                    }
+                                ],
                             }
                         ],
                         "error_message": None,
@@ -193,11 +197,15 @@ async def test_graph_runs_mcp_tool_agent_and_waits_for_stream_event(monkeypatch)
                 {
                     "result": {
                         "status": "SUCCEEDED",
-                        "outputs": [
+                        "resolved_outputs": [
                             {
-                                "output_type": "stream",
-                                "name": "stdout",
-                                "text": "55\n",
+                                "kind": "STREAM",
+                                "representations": [
+                                    {
+                                        "media_type": "text/plain",
+                                        "content": "55\n",
+                                    }
+                                ],
                             }
                         ],
                         "error_message": None,

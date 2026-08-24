@@ -192,6 +192,10 @@ HTTP calls must not be placed inside the Target row-lock transaction.
 - Alembic revision `0005` projects fenced Runtime Output Journal descriptors,
   outputs, and MIME representation metadata into PostgreSQL while complete
   content remains in Runtime-owned storage.
+- Alembic revision `0006` switches Step and Step Attempt state to bounded output
+  summaries and authoritative Attempt references. Legacy full-output columns
+  become write-disabled preservation data pending an explicitly destructive
+  retention decision.
 - Fresh observations use `max(active_execution_count, active_session_count)` for admission.
   Stale or unavailable observations fall back to DB reservations without representing the last
   Runtime count as zero.

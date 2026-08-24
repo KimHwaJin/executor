@@ -967,6 +967,7 @@ def _step_attempt_view(
 ) -> ExecutionStepAttemptView:
     return ExecutionStepAttemptView(
         id=row.id,
+        execution_id=row.execution_id,
         execution_attempt_id=row.execution_attempt_id,
         execution_step_id=row.execution_step_id,
         sequence=row.sequence,
@@ -974,7 +975,7 @@ def _step_attempt_view(
         tool_name=row.tool_name,
         input_parameters=_redact(row.input_parameters),
         status=row.status,
-        outputs=_redact(row.outputs),
+        output_summary=_redact(row.output_summary),
         error_message=row.error_message,
         created_by_type=row.created_by_type,
         created_by=row.created_by,

@@ -1,7 +1,6 @@
 """Submit mixed Jupyter outputs concurrently and validate consolidated Agent results."""
 
 import asyncio
-import base64
 from dataclasses import dataclass
 from time import monotonic
 from typing import Any
@@ -11,6 +10,9 @@ from execution_spec_payload import execution_request, inline_spec
 from local_test_support import (
     env_float,
     env_int,
+    execution_output_content,
+    execution_output_items,
+    execution_stream_text,
     executor_mcp_url,
     register_local_runtime_targets,
     required_tool_result,
@@ -115,25 +117,17 @@ def _workload_code(workload_type: str, run_id: str, index: int) -> str:
     raise ValueError(f"Unsupported mixed workload type: {workload_type}")
 
 
-def _all_outputs(result: dict[str, Any]) -> list[dict[str, Any]]:
-    return [
-        output
-        for operation in result["operations"]
-        for step in operation["steps"]
-        for output in step["result"]["outputs"]
-    ]
-
-
-def _validate_outputs(
-    result: dict[str, Any], workload_type: str, run_id: str, index: int
+async def _validate_outputs(
+    client: Client,
+    execution_id: str,
+    result: dict[str, Any],
+    workload_type: str,
+    run_id: str,
+    index: int,
 ) -> dict[str, Any]:
-    outputs = _all_outputs(result)
+    outputs = await execution_output_items(client, execution_id)
     marker = f"MIXED_{workload_type}:{run_id}:{index}"
-    stream_text = "".join(
-        output.get("text", "")
-        for output in outputs
-        if output.get("output_type") == "stream"
-    )
+    stream_text = await execution_stream_text(client, execution_id)
     if marker not in stream_text:
         raise RuntimeError(
             f"{workload_type} result is missing stream marker {marker!r}."
@@ -142,12 +136,8 @@ def _validate_outputs(
         {
             media_type
             for output in outputs
-            for media_type in (
-                output.get("data", {}).keys()
-                if isinstance(output.get("data"), dict)
-                else []
-            )
-            if isinstance(media_type, str)
+            for representation in output["representations"]
+            for media_type in [representation["media_type"]]
         }
     )
     if workload_type == "TABLE" and "text/html" not in mime_types:
@@ -159,17 +149,20 @@ def _validate_outputs(
             f"JSON result is missing application/json output: {mime_types}"
         )
     if workload_type == "IMAGE":
-        encoded_images = [
-            output["data"]["image/png"]
+        image_representations = [
+            (output["output_id"], representation["representation_id"])
             for output in outputs
-            if isinstance(output.get("data"), dict)
-            and "image/png" in output["data"]
+            for representation in output["representations"]
+            if representation["media_type"] == "image/png"
         ]
-        if not encoded_images:
+        if not image_representations:
             raise RuntimeError(
                 f"IMAGE result is missing image/png output: {mime_types}"
             )
-        image = base64.b64decode(encoded_images[0], validate=True)
+        output_id, representation_id = image_representations[0]
+        image = await execution_output_content(
+            client, execution_id, output_id, representation_id
+        )
         if not image.startswith(b"\x89PNG\r\n\x1a\n"):
             raise RuntimeError(
                 "IMAGE result does not contain a valid PNG signature."
@@ -345,8 +338,13 @@ async def main() -> None:
             result = await required_tool_result(
                 client, "execution_result_get", {"execution_id": execution_id}
             )
-            result_summaries[execution_id] = _validate_outputs(
-                result, timing.workload_type, run_id, index
+            result_summaries[execution_id] = await _validate_outputs(
+                client,
+                execution_id,
+                result,
+                timing.workload_type,
+                run_id,
+                index,
             )
 
         probes = await asyncio.gather(

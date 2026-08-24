@@ -111,7 +111,15 @@ async def test_query_service_returns_attempt_step_and_redacted_events(
                 tool_name="load_data",
                 input_parameters={"source": "daily"},
                 status=StepStatus.FAILED,
-                outputs=[{"output_type": "error"}],
+                output_summary={
+                    "output_count": 1,
+                    "output_types": {"error": 1},
+                    "stream_names": [],
+                    "mime_types": [],
+                    "has_image": False,
+                    "image_count": 0,
+                    "has_error": True,
+                },
                 error_message="expected failure",
                 started_at=now,
                 finished_at=now,
@@ -146,7 +154,8 @@ async def test_query_service_returns_attempt_step_and_redacted_events(
     assert attempts[0].step_count == 1
     assert attempt.step_count == 1
     assert attempt_steps[0].tool_name == "load_data"
-    assert attempt_steps[0].outputs == [{"output_type": "error"}]
+    assert attempt_steps[0].output_summary["output_count"] == 1
+    assert attempt_steps[0].output_summary["has_error"] is True
     secret_event = next(
         event
         for event in events
@@ -263,7 +272,6 @@ async def test_output_queries_page_filter_and_redact_metadata(
                 execution_step_id=execution.steps[0].id,
                 sequence=0,
                 status=StepStatus.SUCCEEDED,
-                outputs=[],
                 started_at=now,
                 finished_at=now,
             )

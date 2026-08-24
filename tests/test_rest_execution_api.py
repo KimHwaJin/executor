@@ -337,9 +337,15 @@ async def test_consolidated_result_returns_operation_steps_in_one_call(
             .where(ExecutionStepORM.execution_id == execution_id)
             .values(
                 status=StepStatus.SUCCEEDED,
-                outputs=[
-                    {"output_type": "stream", "name": "stdout", "text": "ok\n"}
-                ],
+                output_summary={
+                    "output_count": 1,
+                    "output_types": {"stream": 1},
+                    "stream_names": ["stdout"],
+                    "mime_types": [],
+                    "has_image": False,
+                    "image_count": 0,
+                    "has_error": False,
+                },
             )
         )
 
@@ -350,12 +356,10 @@ async def test_consolidated_result_returns_operation_steps_in_one_call(
 
     assert result.status_code == 200
     assert result.json()["execution"]["state"]["status"] == "SUCCEEDED"
-    assert (
-        result.json()["operations"][0]["steps"][0]["result"]["outputs"][0][
-            "text"
-        ]
-        == "ok\n"
-    )
+    step_result = result.json()["operations"][0]["steps"][0]["result"]
+    assert "outputs" not in step_result
+    assert step_result["output_summary"]["output_count"] == 1
+    assert step_result["output_summary"]["stream_names"] == ["stdout"]
     assert operation_result.status_code == 200
     assert operation_result.json()["operation"]["operation_id"] == str(
         operation_id
@@ -579,7 +583,6 @@ async def test_attempt_detail_and_step_attempt_routes(
                 tool_name="load_data",
                 input_parameters={},
                 status=StepStatus.RUNNING,
-                outputs=[],
                 started_at=now,
             )
         )

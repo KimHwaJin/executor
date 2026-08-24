@@ -20,6 +20,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     Uuid,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -50,6 +51,7 @@ from executor_service.domain.models import (
     ExecutionOperation,
     ExecutionStep,
     OutboxEvent,
+    empty_output_summary,
     utc_now,
 )
 from executor_service.infrastructure.db.base import Base
@@ -500,8 +502,20 @@ class ExecutionStepORM(Base):
     input_parameters: Mapped[dict[str, Any]] = mapped_column(
         JSON, nullable=False, default=dict
     )
-    outputs: Mapped[list[dict[str, Any]]] = mapped_column(
-        JSON, nullable=False, default=list
+    _retained_outputs: Mapped[list[dict[str, Any]]] = mapped_column(
+        "outputs",
+        JSON,
+        nullable=False,
+        server_default=text("'[]'"),
+        deferred=True,
+    )
+    output_summary: Mapped[dict[str, Any]] = mapped_column(
+        JSON, nullable=False, default=empty_output_summary
+    )
+    result_execution_attempt_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("execution_attempts.id", ondelete="SET NULL"),
+        nullable=True,
     )
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by_type: Mapped[ActorType | None] = mapped_column(
@@ -546,7 +560,8 @@ class ExecutionStepORM(Base):
             tool_name=step.tool_name,
             status=step.status,
             input_parameters=step.input_parameters,
-            outputs=step.outputs,
+            output_summary=step.output_summary,
+            result_execution_attempt_id=step.result_execution_attempt_id,
             error_message=step.error_message,
             created_by_type=step.created_by_type,
             created_by=step.created_by,
@@ -573,7 +588,8 @@ class ExecutionStepORM(Base):
             tool_name=self.tool_name,
             status=self.status,
             input_parameters=self.input_parameters,
-            outputs=self.outputs,
+            output_summary=self.output_summary,
+            result_execution_attempt_id=self.result_execution_attempt_id,
             error_message=self.error_message,
             created_by_type=self.created_by_type,
             created_by=self.created_by,
@@ -1088,8 +1104,15 @@ class ExecutionStepAttemptORM(Base):
     status: Mapped[StepStatus] = mapped_column(
         enum_type(StepStatus, "step_attempt_status"), nullable=False
     )
-    outputs: Mapped[list[dict[str, Any]]] = mapped_column(
-        JSON, nullable=False, default=list
+    _retained_outputs: Mapped[list[dict[str, Any]]] = mapped_column(
+        "outputs",
+        JSON,
+        nullable=False,
+        server_default=text("'[]'"),
+        deferred=True,
+    )
+    output_summary: Mapped[dict[str, Any]] = mapped_column(
+        JSON, nullable=False, default=empty_output_summary
     )
     error_message: Mapped[str | None] = mapped_column(Text)
     created_by_type: Mapped[ActorType | None] = mapped_column(

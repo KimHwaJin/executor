@@ -12,12 +12,12 @@ from jupyter_long_running_soak import (
     _attempt_snapshot,
     _multi_step_soak_code,
     _redis_snapshot,
-    _stream_texts,
     _wait_for_published_events,
 )
 from local_test_support import (
     env_float,
     env_int,
+    execution_stream_text,
     executor_mcp_url,
     register_local_runtime_targets,
     required_tool_result,
@@ -286,7 +286,7 @@ async def main() -> None:
             raise RuntimeError(
                 "Consolidated result does not contain every Operation."
             )
-        stream_text = "".join(_stream_texts(result))
+        stream_text = await execution_stream_text(client, execution_id)
         for operation_index in range(operation_count):
             for marker in (
                 f"SOAK_STEP_START:{run_id}:{operation_index}",

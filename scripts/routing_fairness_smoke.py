@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from execution_spec_payload import execution_request, inline_spec
 from local_test_support import (
+    execution_stream_text,
     executor_mcp_url,
     register_local_runtime_targets,
     required_tool_result,
@@ -195,16 +196,7 @@ async def _assert_profile_routing(
             raise RuntimeError(
                 f"{profile} profile Execution failed: {terminal}"
             )
-        consolidated = await required_tool_result(
-            client, "execution_result_get", {"execution_id": execution_id}
-        )
-        text = "".join(
-            output.get("text", "")
-            for operation in consolidated["operations"]
-            for step in operation["steps"]
-            for output in step["result"]["outputs"]
-            if output.get("output_type") == "stream"
-        )
+        text = await execution_stream_text(client, execution_id)
         if f"{marker}{expected_version}" not in text:
             raise RuntimeError(
                 f"{profile} profile used an unexpected Python version: {text!r}"

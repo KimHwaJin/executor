@@ -571,9 +571,18 @@ class ToolReference(ContractModel):
     input_parameters: dict[str, Any]
 
 
+class StepResultReference(ContractModel):
+    """Transport-neutral arguments for execution_output_list."""
+
+    execution_id: UUID
+    step_id: UUID
+    attempt_id: UUID
+
+
 class StepResult(ContractModel):
     status: StepStatus
-    outputs: list[dict[str, Any]]
+    output_summary: OutputSummary
+    result_ref: StepResultReference | None
     error_message: str | None
 
 
@@ -615,7 +624,18 @@ class ExecutionStepResponse(AuditFields):
             ),
             result=StepResult(
                 status=step.status,
-                outputs=step.outputs,
+                output_summary=OutputSummary.model_validate(
+                    step.output_summary
+                ),
+                result_ref=(
+                    StepResultReference(
+                        execution_id=execution_id,
+                        step_id=step.id,
+                        attempt_id=step.result_execution_attempt_id,
+                    )
+                    if step.result_execution_attempt_id is not None
+                    else None
+                ),
                 error_message=step.error_message,
             ),
             lifecycle=Lifecycle(
@@ -909,7 +929,18 @@ class ExecutionStepAttemptResponse(AuditFields):
             ),
             result=StepResult(
                 status=view.status,
-                outputs=view.outputs,
+                output_summary=OutputSummary.model_validate(
+                    view.output_summary
+                ),
+                result_ref=(
+                    StepResultReference(
+                        execution_id=view.execution_id,
+                        step_id=view.execution_step_id,
+                        attempt_id=view.execution_attempt_id,
+                    )
+                    if view.status in {StepStatus.SUCCEEDED, StepStatus.FAILED}
+                    else None
+                ),
                 error_message=view.error_message,
             ),
             lifecycle=Lifecycle(
