@@ -79,7 +79,9 @@ class FailingRuntimeStorageDriver(InMemoryRuntimeStorage):
             execution_count=1,
         )
 
-    async def write_notebook(self, path: str, notebook: dict[str, Any]) -> None:
+    async def write_notebook(
+        self, path: str, notebook: dict[str, Any]
+    ) -> None:
         if self.failure_point == "write_notebook":
             raise RuntimeDriverError("notebook write failed")
         await super().write_notebook(path, notebook)

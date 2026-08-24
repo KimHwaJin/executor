@@ -251,7 +251,9 @@ def _verify_local_install(environments: dict[str, Path]) -> None:
     for name, version in expected.items():
         python = environment_python(environments[name])
         if not python.is_file():
-            raise NativeJupyterError(f"{name} Python was not created: {python}")
+            raise NativeJupyterError(
+                f"{name} Python was not created: {python}"
+            )
         result = subprocess.run(
             [
                 str(python),
@@ -524,7 +526,9 @@ def parser() -> argparse.ArgumentParser:
     run_parser = subcommands.add_parser(
         "run", help="Run the native JupyterLab server."
     )
-    run_parser.add_argument("--install-root", default=str(DEFAULT_INSTALL_ROOT))
+    run_parser.add_argument(
+        "--install-root", default=str(DEFAULT_INSTALL_ROOT)
+    )
     run_parser.add_argument("--root-dir", default=str(DEFAULT_CONTENTS_ROOT))
     run_parser.add_argument("--host", default="127.0.0.1")
     run_parser.add_argument("--port", type=int, default=8888)
@@ -552,7 +556,9 @@ def main() -> None:
     try:
         if arguments.action == "setup":
             if extra:
-                raise NativeJupyterError(f"Unexpected setup arguments: {extra}")
+                raise NativeJupyterError(
+                    f"Unexpected setup arguments: {extra}"
+                )
             setup(arguments)
         elif arguments.action == "run":
             run_server(arguments, extra)

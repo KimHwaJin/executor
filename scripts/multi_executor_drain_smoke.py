@@ -137,13 +137,16 @@ async def main() -> None:
             long["state"]["status"] != "FAILED"
             or long["failure"]["type"] != "WORKER_SHUTDOWN"
             or long["retry"]["strategy"] != "FROM_START"
-            or long["recovery"]["runtime_session_cleanup_status"] != "SUCCEEDED"
+            or long["recovery"]["runtime_session_cleanup_status"]
+            != "SUCCEEDED"
         ):
             raise RuntimeError(
                 f"Drain-timeout execution was not recovered safely: {long}"
             )
         if queued["state"]["status"] != "SUCCEEDED":
-            raise RuntimeError(f"Queued execution was not handed off: {queued}")
+            raise RuntimeError(
+                f"Queued execution was not handed off: {queued}"
+            )
         if _attempt_owner(short_attempts) != PRIMARY_CONSUMER:
             raise RuntimeError(
                 f"Short execution owner changed unexpectedly: {short_attempts}"

@@ -26,7 +26,9 @@ from executor_service.infrastructure.runtime_registry import (
 async def test_registry_starts_without_a_runtime_target(
     engine: AsyncEngine,
 ) -> None:
-    registry = RuntimeTargetRegistry(create_session_factory(engine), Settings())
+    registry = RuntimeTargetRegistry(
+        create_session_factory(engine), Settings()
+    )
 
     page = await registry.list()
 

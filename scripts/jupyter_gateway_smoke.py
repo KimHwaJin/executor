@@ -56,7 +56,9 @@ async def main() -> None:
                 if output.get("output_type") == "stream"
             ]
             if not stream_outputs:
-                raise RuntimeError(f"{profile} did not return a stream output.")
+                raise RuntimeError(
+                    f"{profile} did not return a stream output."
+                )
             payload = json.loads("".join(stream_outputs))
             if payload["version"] != [major, minor]:
                 raise RuntimeError(

@@ -65,7 +65,9 @@ class InMemoryRuntimeStorage:
         )[0]
         return content[start:] if start <= len(content) else content
 
-    async def write_notebook(self, path: str, notebook: dict[str, Any]) -> None:
+    async def write_notebook(
+        self, path: str, notebook: dict[str, Any]
+    ) -> None:
         type(self).notebooks[path] = notebook
         type(self).put_runtime_file(path, json.dumps(notebook).encode())
 

@@ -400,7 +400,9 @@ def _assert_database(snapshot: DatabaseSnapshot) -> None:
         raise RuntimeError(
             f"Required Outbox events are missing: {snapshot.outbox_event_types}"
         )
-    if set(snapshot.outbox_schema_versions) != {EXECUTION_EVENT_SCHEMA_VERSION}:
+    if set(snapshot.outbox_schema_versions) != {
+        EXECUTION_EVENT_SCHEMA_VERSION
+    }:
         raise RuntimeError(
             f"Unexpected Outbox schema versions: {snapshot.outbox_schema_versions}"
         )

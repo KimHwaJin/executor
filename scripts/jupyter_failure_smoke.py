@@ -68,7 +68,9 @@ async def main() -> None:
             "result"
         ]["outputs"]
         errors = [
-            output for output in outputs if output.get("output_type") == "error"
+            output
+            for output in outputs
+            if output.get("output_type") == "error"
         ]
         if (
             len(errors) != 1

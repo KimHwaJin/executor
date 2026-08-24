@@ -101,7 +101,8 @@ class MaterializedArtifactService:
         async with self._session_factory() as session, session.begin():
             repeated = await session.scalar(
                 select(CommandReceiptORM).where(
-                    CommandReceiptORM.idempotency_key == command.idempotency_key
+                    CommandReceiptORM.idempotency_key
+                    == command.idempotency_key
                 )
             )
             if repeated is not None:
@@ -279,7 +280,9 @@ class MaterializedArtifactService:
             document.cells.append(
                 nbformat.v4.new_markdown_cell(
                     source=content,
-                    metadata={"executor": {"idempotency_key": idempotency_key}},
+                    metadata={
+                        "executor": {"idempotency_key": idempotency_key}
+                    },
                 )
             )
             await self._runtime_storage.write_notebook(
@@ -333,7 +336,9 @@ def _artifact_name(command: MaterializeArtifactCommand) -> str:
     return name
 
 
-def _target_path(workspace: str, artifact_type: ArtifactType, name: str) -> str:
+def _target_path(
+    workspace: str, artifact_type: ArtifactType, name: str
+) -> str:
     root = PurePosixPath(workspace)
     if artifact_type == ArtifactType.REPORT:
         return (root / "reports" / name).as_posix()

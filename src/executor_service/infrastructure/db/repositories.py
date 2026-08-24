@@ -48,7 +48,9 @@ class SQLAlchemyExecutionRepository:
         row = await self._session.scalar(statement)
         return row.to_domain() if row else None
 
-    async def get_by_submit_key(self, idempotency_key: str) -> Execution | None:
+    async def get_by_submit_key(
+        self, idempotency_key: str
+    ) -> Execution | None:
         row = await self._session.scalar(
             select(ExecutionORM)
             .where(ExecutionORM.idempotency_key == idempotency_key)
@@ -56,7 +58,9 @@ class SQLAlchemyExecutionRepository:
         )
         return row.to_domain() if row else None
 
-    async def get_by_cancel_key(self, idempotency_key: str) -> Execution | None:
+    async def get_by_cancel_key(
+        self, idempotency_key: str
+    ) -> Execution | None:
         row = await self._session.scalar(
             select(ExecutionORM)
             .where(ExecutionORM.cancel_idempotency_key == idempotency_key)

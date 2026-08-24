@@ -568,7 +568,9 @@ async def test_restart_audit_detects_missing_kernel_without_cleanup(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    execution, _ = await _make_waiting(execution_service, engine, "kernel-lost")
+    execution, _ = await _make_waiting(
+        execution_service, engine, "kernel-lost"
+    )
     FakeJupyterGateway.session_exists_result = False
     _patch_runtime_driver(monkeypatch, FakeJupyterGateway)
     worker, redis = _worker(engine, tmp_path)

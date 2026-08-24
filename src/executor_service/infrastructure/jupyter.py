@@ -85,7 +85,9 @@ class JupyterRuntimeDriver:
                 capacity_key="capacity_bytes",
             )
             process_count = payload.get("process_count")
-            if process_count is not None and not isinstance(process_count, int):
+            if process_count is not None and not isinstance(
+                process_count, int
+            ):
                 raise TypeError("process_count must be an integer")
         except (KeyError, TypeError, ValueError) as exc:
             raise RuntimeDriverError(
@@ -180,7 +182,9 @@ class JupyterRuntimeDriver:
                         if content.get("status") == "error":
                             error_message = _error_summary(content)
                     elif channel == "iopub" and msg_type == "status":
-                        idle_received = content.get("execution_state") == "idle"
+                        idle_received = (
+                            content.get("execution_state") == "idle"
+                        )
                     elif channel == "iopub":
                         output = _as_notebook_output(msg_type, content)
                         if output is not None:
@@ -279,7 +283,9 @@ class JupyterRuntimeDriver:
                 "Jupyter manifest response is invalid."
             ) from exc
 
-    async def write_notebook(self, path: str, notebook: dict[str, Any]) -> None:
+    async def write_notebook(
+        self, path: str, notebook: dict[str, Any]
+    ) -> None:
         await self._request(
             "PUT",
             f"/api/contents/{_contents_path(path)}",

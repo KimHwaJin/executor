@@ -255,7 +255,9 @@ class RuntimeTargetRegistry:
                     )
                 )
             )
-            views = [await self._to_view(session, target) for target in targets]
+            views = [
+                await self._to_view(session, target) for target in targets
+            ]
 
         summaries: list[RuntimePoolView] = []
         for runtime_type in RuntimeType:
@@ -368,7 +370,9 @@ class RuntimeTargetRegistry:
             try:
                 resource = await driver.resource_status()
             except Exception as exc:
-                resource_error = f"Resource probe failed ({type(exc).__name__})"
+                resource_error = (
+                    f"Resource probe failed ({type(exc).__name__})"
+                )
         else:
             resource_error = (
                 "Resource probe skipped because health probe failed."
@@ -397,7 +401,9 @@ class RuntimeTargetRegistry:
                     )
                     target.resource_process_count = resource.process_count
                     target.cpu_used_cores = _as_float(resource.cpu.used)
-                    target.cpu_capacity_cores = _as_float(resource.cpu.capacity)
+                    target.cpu_capacity_cores = _as_float(
+                        resource.cpu.capacity
+                    )
                     target.cpu_utilization = resource.cpu.utilization
                     target.memory_used_bytes = _as_int(resource.memory.used)
                     target.memory_capacity_bytes = _as_int(
@@ -530,7 +536,8 @@ class RuntimeTargetRegistry:
         async with self._session_factory() as session, session.begin():
             receipt = await session.scalar(
                 select(CommandReceiptORM).where(
-                    CommandReceiptORM.idempotency_key == command.idempotency_key
+                    CommandReceiptORM.idempotency_key
+                    == command.idempotency_key
                 )
             )
             if receipt is not None:
@@ -769,7 +776,10 @@ class RuntimeTargetRegistry:
         observed_at = target.resource_observed_at
         if observed_at is None or target.resource_last_error is not None:
             return False
-        if target.cpu_utilization is None and target.memory_utilization is None:
+        if (
+            target.cpu_utilization is None
+            and target.memory_utilization is None
+        ):
             return False
         if observed_at.tzinfo is None:
             observed_at = observed_at.replace(tzinfo=UTC)

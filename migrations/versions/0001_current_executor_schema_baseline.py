@@ -973,7 +973,9 @@ def upgrade() -> None:
         ),
         sa.CheckConstraint(
             "last_sequence >= first_sequence",
-            name=op.f("ck_execution_operations_valid_operation_sequence_range"),
+            name=op.f(
+                "ck_execution_operations_valid_operation_sequence_range"
+            ),
         ),
         sa.CheckConstraint(
             "operation_number > 0",

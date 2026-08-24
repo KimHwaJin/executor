@@ -145,7 +145,9 @@ async def test_query_service_returns_attempt_step_and_redacted_events(
     assert attempt_steps[0].tool_name == "load_data"
     assert attempt_steps[0].outputs == [{"output_type": "error"}]
     secret_event = next(
-        event for event in events if event.event_type == "execution.test_secret"
+        event
+        for event in events
+        if event.event_type == "execution.test_secret"
     )
     assert secret_event.payload == {
         "token": "[REDACTED]",
@@ -170,7 +172,9 @@ async def test_execution_reads_do_not_load_source_code_or_step_rows(
     ) -> None:
         statements.append(statement.lower())
 
-    event.listen(engine.sync_engine, "before_cursor_execute", capture_statement)
+    event.listen(
+        engine.sync_engine, "before_cursor_execute", capture_statement
+    )
     try:
         queries = SQLAlchemyExecutionQueryService(
             create_session_factory(engine)

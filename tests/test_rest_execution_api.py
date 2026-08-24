@@ -412,7 +412,9 @@ async def test_single_execution_rest_lifecycle_and_queries(
     assert submitted.status_code == 202
     body = submitted.json()
     execution_id = body["execution_id"]
-    assert submitted.headers["location"] == f"/api/v1/executions/{execution_id}"
+    assert (
+        submitted.headers["location"] == f"/api/v1/executions/{execution_id}"
+    )
     assert body["state"]["status"] == "QUEUED"
     assert body["operation"]["steps"][0]["sequence"] == 0
     assert body["operation"]["steps"][0]["step_id"]
@@ -443,7 +445,9 @@ async def test_single_execution_rest_lifecycle_and_queries(
     )
     attempts = await client.get(f"/api/v1/executions/{execution_id}/attempts")
     events = await client.get(f"/api/v1/executions/{execution_id}/events")
-    artifacts = await client.get(f"/api/v1/executions/{execution_id}/artifacts")
+    artifacts = await client.get(
+        f"/api/v1/executions/{execution_id}/artifacts"
+    )
 
     assert fetched.status_code == 200
     assert fetched.json()["runtime"]["type"] == "JUPYTER"
@@ -474,7 +478,9 @@ async def test_single_execution_rest_lifecycle_and_queries(
     )
     assert cancelled.status_code == 202
     assert cancelled.json()["state"]["status"] == "CANCEL_REQUESTED"
-    assert cancelled.headers["location"] == f"/api/v1/executions/{execution_id}"
+    assert (
+        cancelled.headers["location"] == f"/api/v1/executions/{execution_id}"
+    )
 
 
 async def test_execution_history_cursor_pagination_and_invalid_cursor(
@@ -586,7 +592,9 @@ async def test_attempt_detail_and_step_attempt_routes(
     assert "runtime" not in attempts.json()["items"][0]
     assert detail.json()["runtime"]["session_id"] == "rest-kernel"
     assert detail.json()["lease"]["owner"] == "rest-worker"
-    assert attempt_steps.json()["items"][0]["execution_step_id"] == str(step_id)
+    assert attempt_steps.json()["items"][0]["execution_step_id"] == str(
+        step_id
+    )
     assert (
         await client.get(f"/api/v1/executions/{uuid4()}/attempts/{attempt_id}")
     ).status_code == 404
@@ -594,7 +602,9 @@ async def test_attempt_detail_and_step_attempt_routes(
         f"/api/v1/executions/{execution_id}/attempts/{uuid4()}/steps"
     )
     assert wrong_parent.status_code == 404
-    assert wrong_parent.json()["error"]["code"] == "EXECUTION_ATTEMPT_NOT_FOUND"
+    assert (
+        wrong_parent.json()["error"]["code"] == "EXECUTION_ATTEMPT_NOT_FOUND"
+    )
 
 
 async def test_multi_operation_create_and_finalize_rest_api(
@@ -692,7 +702,9 @@ async def test_multi_operation_create_and_finalize_rest_api(
         },
     )
     assert continued_repeat.status_code == 202
-    assert continued_repeat.json()["operation"] == continued.json()["operation"]
+    assert (
+        continued_repeat.json()["operation"] == continued.json()["operation"]
+    )
     continued_steps = await client.get(
         f"/api/v1/executions/{execution_id}/steps"
     )

@@ -182,7 +182,9 @@ async def main() -> None:
                     if server_id not in server_ids:
                         continue
                     active = int(server["capacity"]["active_execution_count"])
-                    peak_active[server_id] = max(peak_active[server_id], active)
+                    peak_active[server_id] = max(
+                        peak_active[server_id], active
+                    )
                     if active > capacities[server_id]:
                         raise RuntimeError(
                             f"Jupyter capacity exceeded for {server['name']}: "
