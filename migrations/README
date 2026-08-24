@@ -4,6 +4,8 @@ Revision `0001` is the complete pre-release schema baseline recorded on 2026-08-
 the former incremental development chain and is intended to create a new empty database directly
 at the current schema. Existing databases stamped with a removed development revision must be
 recreated; no compatibility or data-preserving upgrade path is provided for that discarded chain.
+Revision `0002` is the current head. It adds monotonic fencing tokens to Execution and Attempt
+ownership so an expired Worker cannot mutate durable state after a later claim.
 
 Create or verify a database with:
 

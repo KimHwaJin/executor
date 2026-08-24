@@ -19,11 +19,13 @@ uv run alembic current
 uv run alembic check
 ```
 
-`current` must report `0001 (head)`, and `check` must report that no new upgrade operations are
-detected. A development database carrying one of the removed revisions must be backed up if its
-data matters, then recreated as an empty database before `upgrade head`. Clear the four Executor
-Redis Streams at the same time so stale work messages cannot reference rows removed by the reset.
-Do not use this reset procedure for a production database.
+Revision `0002` is the current head. It adds internal monotonic fencing tokens to the Execution and
+ExecutionAttempt lease records. `current` must report `0002 (head)`, and `check` must report that
+no new upgrade operations are detected. A development database carrying one of the removed
+pre-baseline revisions must be backed up if its data matters, then recreated as an empty database
+before `upgrade head`. Clear the four Executor Redis Streams at the same time so stale work
+messages cannot reference rows removed by the reset. Do not use this reset procedure for a
+production database.
 
 The opt-in PostgreSQL suite creates a fresh database per test, applies the real Alembic baseline,
 runs `alembic check`, and only then executes the concurrency scenario:

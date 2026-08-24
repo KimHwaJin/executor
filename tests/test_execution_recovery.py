@@ -1,6 +1,7 @@
 from datetime import timedelta
 from pathlib import Path
 
+import pytest
 from redis.asyncio import Redis
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -36,6 +37,10 @@ from executor_service.infrastructure.db.models import (
     RuntimeTargetORM,
 )
 from executor_service.infrastructure.db.session import create_session_factory
+from executor_service.infrastructure.execution_leases import (
+    ExecutionLease,
+    ExecutionLeaseLostError,
+)
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
 )
@@ -70,6 +75,7 @@ async def test_expired_lease_is_failed_once_and_can_restart_from_zero(
 ) -> None:
     execution = await execution_service.submit(_command())
     now = utc_now()
+    fencing_token = 7
     session_factory = create_session_factory(engine)
     async with session_factory() as session, session.begin():
         target = RuntimeTargetORM(
@@ -92,6 +98,7 @@ async def test_expired_lease_is_failed_once_and_can_restart_from_zero(
             lease_owner="dead-worker",
             lease_expires_at=now - timedelta(seconds=1),
             heartbeat_at=now - timedelta(minutes=1),
+            fencing_token=fencing_token,
             started_at=now - timedelta(minutes=2),
         )
         session.add(attempt)
@@ -119,6 +126,7 @@ async def test_expired_lease_is_failed_once_and_can_restart_from_zero(
                 lease_owner="dead-worker",
                 lease_expires_at=now - timedelta(seconds=1),
                 heartbeat_at=now - timedelta(minutes=1),
+                fencing_token=fencing_token,
                 started_at=now - timedelta(minutes=2),
             )
         )
@@ -155,9 +163,27 @@ async def test_expired_lease_is_failed_once_and_can_restart_from_zero(
         registry=registry,
         artifact_manager=ExecutionArtifactManager(session_factory),
     )
+    stale_lease = ExecutionLease(
+        execution_id=execution.id,
+        attempt_id=attempt.id,
+        owner="dead-worker",
+        fencing_token=fencing_token,
+    )
     try:
         await worker._recover_expired_leases()
         await worker._recover_expired_leases()
+        with pytest.raises(ExecutionLeaseLostError):
+            await worker._step_succeeded(
+                stale_lease,
+                0,
+                [{"output_type": "stream", "text": "stale"}],
+                1,
+            )
+        with pytest.raises(ExecutionLeaseLostError):
+            await worker._finalize(
+                stale_lease,
+                ExecutionStatus.SUCCEEDED,
+            )
     finally:
         await redis.aclose()
 
@@ -183,6 +209,18 @@ async def test_expired_lease_is_failed_once_and_can_restart_from_zero(
                 OutboxEventORM.event_type == "execution.operation_failed",
             )
         )
+        stale_step_events = await session.scalar(
+            select(func.count(OutboxEventORM.id)).where(
+                OutboxEventORM.aggregate_id == execution.id,
+                OutboxEventORM.event_type == "execution.step_succeeded",
+            )
+        )
+        stale_terminal_events = await session.scalar(
+            select(func.count(OutboxEventORM.id)).where(
+                OutboxEventORM.aggregate_id == execution.id,
+                OutboxEventORM.event_type == "execution.succeeded",
+            )
+        )
 
     assert recovered is not None
     assert recovered.status == ExecutionStatus.FAILED
@@ -191,6 +229,7 @@ async def test_expired_lease_is_failed_once_and_can_restart_from_zero(
     assert recovered.retry_strategy == RetryStrategy.FROM_START
     assert recovered.retry_from_sequence == 0
     assert recovered.recovery_count == 1
+    assert recovered.fencing_token == fencing_token + 1
     assert (
         recovered.runtime_session_cleanup_status
         == RuntimeSessionCleanupStatus.NOT_REQUIRED
@@ -199,8 +238,11 @@ async def test_expired_lease_is_failed_once_and_can_restart_from_zero(
     assert recovered_attempt.status == AttemptStatus.FAILED
     assert recovered_attempt.failure_type == FailureType.LEASE_EXPIRED
     assert recovered_attempt.retry_strategy == RetryStrategy.FROM_START
+    assert recovered_attempt.fencing_token == fencing_token
     assert recovered_operation is not None
     assert recovered_operation.status == OperationStatus.FAILED
     assert recovered_operation.execution_attempt_id == recovered_attempt.id
     assert operation_failed_events == 1
     assert failed_events == 1
+    assert stale_step_events == 0
+    assert stale_terminal_events == 0
