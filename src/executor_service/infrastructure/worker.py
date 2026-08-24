@@ -41,6 +41,8 @@ from executor_service.domain.runtime import (
     RuntimeDriverFactory,
     RuntimeExecutionError,
     RuntimeExecutionTimeoutError,
+    RuntimeNotebookCell,
+    RuntimeNotebookMaterializer,
     RuntimeOutputAppendResult,
     RuntimeOutputJournal,
     RuntimeOutputJournalDescriptor,
@@ -746,16 +748,14 @@ class ExecutionWorker:
                         )
                         all_outputs.append(exc.outputs)
                         execution_counts.append(None)
-                        await self._assert_active_lease(lease)
-                        await driver.write_notebook(
-                            workspace.notebook_path,
-                            self._workspace.notebook_document(
-                                workspace,
-                                execution.runtime_profile,
-                                cells[: sequence + 1],
-                                all_outputs,
-                                execution_counts,
-                            ),
+                        await self._write_execution_notebook(
+                            driver,
+                            lease,
+                            execution.runtime_profile,
+                            workspace,
+                            cells[: sequence + 1],
+                            all_outputs,
+                            execution_counts,
                         )
                         try:
                             await self._artifacts.discover_and_register(
@@ -785,16 +785,14 @@ class ExecutionWorker:
                         result.outputs,
                         result.execution_count,
                     )
-                    await self._assert_active_lease(lease)
-                    await driver.write_notebook(
-                        workspace.notebook_path,
-                        self._workspace.notebook_document(
-                            workspace,
-                            execution.runtime_profile,
-                            cells[: sequence + 1],
-                            all_outputs,
-                            execution_counts,
-                        ),
+                    await self._write_execution_notebook(
+                        driver,
+                        lease,
+                        execution.runtime_profile,
+                        workspace,
+                        cells[: sequence + 1],
+                        all_outputs,
+                        execution_counts,
                     )
                     try:
                         await self._artifacts.discover_and_register(
@@ -881,16 +879,14 @@ class ExecutionWorker:
                     exc.outputs,
                     str(exc),
                 )
-                await self._assert_active_lease(lease)
-                await driver.write_notebook(
-                    workspace.notebook_path,
-                    self._workspace.notebook_document(
-                        workspace,
-                        execution.runtime_profile,
-                        cells[: failed_sequence + 1],
-                        all_outputs,
-                        execution_counts,
-                    ),
+                await self._write_execution_notebook(
+                    driver,
+                    lease,
+                    execution.runtime_profile,
+                    workspace,
+                    cells[: failed_sequence + 1],
+                    all_outputs,
+                    execution_counts,
                 )
                 try:
                     await self._artifacts.discover_and_register(
@@ -1796,12 +1792,132 @@ class ExecutionWorker:
         execution_counts: list[int | None] = list(
             range(1, len(executed_steps) + 1)
         )
+        await self._write_execution_notebook(
+            driver,
+            lease,
+            runtime_profile,
+            workspace,
+            cells,
+            outputs,
+            execution_counts,
+        )
+
+    async def _write_execution_notebook(
+        self,
+        driver: RuntimeDriver,
+        lease: ExecutionLease,
+        runtime_profile: str,
+        workspace: ExecutionWorkspace,
+        fallback_cells: list[str],
+        fallback_outputs: list[list[dict[str, object]]],
+        fallback_execution_counts: list[int | None],
+    ) -> None:
         await self._assert_active_lease(lease)
+        if isinstance(driver, RuntimeNotebookMaterializer):
+            journal_cells = await self._journal_notebook_cells(lease)
+            if len(journal_cells) == len(fallback_cells):
+                result = await driver.materialize_notebook(
+                    workspace.runtime_relative_path,
+                    runtime_profile,
+                    journal_cells,
+                )
+                if result.notebook_path != workspace.notebook_path:
+                    raise RuntimeDriverError(
+                        "Runtime materialized an unexpected notebook path."
+                    )
+                return
+            logger.warning(
+                "Runtime Output Journal coverage is incomplete; using "
+                "compatibility notebook materialization",
+                extra={"execution_id": str(lease.execution_id)},
+            )
         await driver.write_notebook(
             workspace.notebook_path,
             self._workspace.notebook_document(
-                workspace, runtime_profile, cells, outputs, execution_counts
+                workspace,
+                runtime_profile,
+                fallback_cells,
+                fallback_outputs,
+                fallback_execution_counts,
             ),
+        )
+
+    async def _journal_notebook_cells(
+        self, lease: ExecutionLease
+    ) -> tuple[RuntimeNotebookCell, ...]:
+        async with self._session_factory() as session, session.begin():
+            await require_active_lease(session, lease)
+            steps = list(
+                await session.scalars(
+                    select(ExecutionStepORM)
+                    .where(
+                        ExecutionStepORM.execution_id == lease.execution_id,
+                        ExecutionStepORM.status.in_(
+                            (StepStatus.SUCCEEDED, StepStatus.FAILED)
+                        ),
+                    )
+                    .order_by(ExecutionStepORM.sequence)
+                )
+            )
+            journals = list(
+                await session.scalars(
+                    select(ExecutionOutputJournalORM)
+                    .where(
+                        ExecutionOutputJournalORM.execution_id
+                        == lease.execution_id,
+                        ExecutionOutputJournalORM.state.in_(
+                            ("FINALIZED", "ABORTED")
+                        ),
+                    )
+                    .order_by(
+                        ExecutionOutputJournalORM.fencing_token.desc(),
+                        ExecutionOutputJournalORM.created_at.desc(),
+                    )
+                )
+            )
+            journals_by_step: dict[UUID, ExecutionOutputJournalORM] = {}
+            for journal in journals:
+                journals_by_step.setdefault(journal.execution_step_id, journal)
+            selected = [
+                journals_by_step[step.id]
+                for step in steps
+                if step.id in journals_by_step
+            ]
+            execution_counts = {
+                journal_id: execution_count
+                for journal_id, execution_count in await session.execute(
+                    select(
+                        ExecutionOutputORM.journal_id,
+                        func.max(ExecutionOutputORM.execution_count),
+                    )
+                    .where(
+                        ExecutionOutputORM.journal_id.in_(
+                            [journal.id for journal in selected]
+                        )
+                    )
+                    .group_by(ExecutionOutputORM.journal_id)
+                )
+            }
+        if len(selected) != len(steps):
+            return ()
+        return tuple(
+            RuntimeNotebookCell(
+                sequence=step.sequence,
+                execution_count=execution_counts.get(journal.id),
+                journal_id=journal.id,
+                journal=RuntimeOutputJournalIdentity(
+                    workspace_path=journal.workspace_path,
+                    execution_id=journal.execution_id,
+                    operation_id=journal.operation_id,
+                    step_id=journal.execution_step_id,
+                    sequence=journal.sequence,
+                    execution_attempt_id=journal.execution_attempt_id,
+                    fencing_token=journal.fencing_token,
+                    runtime_target_id=journal.runtime_target_id,
+                    runtime_session_id=journal.runtime_session_id,
+                ),
+            )
+            for step, journal in zip(steps, selected, strict=True)
         )
 
     async def _complete_multi_operation(
@@ -2218,7 +2334,7 @@ class ExecutionWorker:
         ):
             return await driver.execute(runtime_session_id, code)
 
-        descriptor = await driver.output_journal_begin(identity)
+        descriptor = await driver.output_journal_begin(identity, code)
         if (
             descriptor.state != "OPEN"
             or descriptor.committed_offset != 0

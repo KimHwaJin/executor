@@ -75,6 +75,7 @@ The Jupyter provider uses safe relative paths under the existing execution works
 └── outputs/
     └── <operation-id>/<step-id>/<attempt-id>/<fencing-token>/
         ├── journal.json
+        ├── source.py
         ├── batches/
         │   └── <batch-id>.json
         └── content/
@@ -82,6 +83,8 @@ The Jupyter provider uses safe relative paths under the existing execution works
 ```
 
 - `journal.json` is a small state document written through temporary-file plus atomic rename.
+- `source.py` stores the exact Step source once when the Journal begins; notebook
+  materialization therefore does not resend all prior cell sources.
 - `batches/` contains immutable, idempotent append segments with ordered output metadata, never an
   unbounded inline body. `journal.json.committed_offset` advances only after the segment is durable;
   opening the journal repairs an interrupted state update from those segments.
@@ -206,4 +209,5 @@ failure while keeping already committed journal metadata observable.
 4. Add PostgreSQL output metadata and shared REST/MCP reference contracts.
    (implemented additively; legacy Step output JSON remains until slice 5)
 5. Add streaming content reads and notebook materialization from journals.
+   (notebook materialization implemented; content reads remain pending)
 6. Re-run T35, choose production thresholds, and record before/after evidence.

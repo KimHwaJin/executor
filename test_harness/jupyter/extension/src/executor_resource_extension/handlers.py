@@ -143,9 +143,12 @@ class OutputJournalBeginHandler(StorageHandler):
     @web.authenticated
     async def post(self) -> None:
         try:
-            identity = self.journal_identity(self.payload())
+            payload = self.payload()
+            identity = self.journal_identity(payload)
             result = await asyncio.to_thread(
-                self.output_journals.begin, identity
+                self.output_journals.begin,
+                identity,
+                str(payload["source"]),
             )
         except Exception as exc:
             self.write_storage_error(exc)
@@ -202,6 +205,23 @@ class OutputJournalAbortHandler(StorageHandler):
                 identity,
                 journal_id=str(payload["journal_id"]),
                 reason=str(payload["reason"]),
+            )
+        except Exception as exc:
+            self.write_storage_error(exc)
+            return
+        self.finish(result)
+
+
+class OutputJournalMaterializeNotebookHandler(StorageHandler):
+    @web.authenticated
+    async def post(self) -> None:
+        try:
+            payload = self.payload()
+            result = await asyncio.to_thread(
+                self.output_journals.materialize_notebook,
+                workspace_path=str(payload["workspace_path"]),
+                runtime_profile=str(payload["runtime_profile"]),
+                cells=payload["cells"],
             )
         except Exception as exc:
             self.write_storage_error(exc)

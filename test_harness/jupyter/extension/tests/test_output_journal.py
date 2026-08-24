@@ -80,7 +80,7 @@ class OutputJournalStorageTests(unittest.TestCase):
     def test_begin_and_append_persist_content_without_echoing_bodies(
         self,
     ) -> None:
-        begun = self.storage.begin(self.identity)
+        begun = self.storage.begin(self.identity, "print('journal')")
         batch_id = str(uuid4())
 
         appended = self.storage.append(
@@ -111,7 +111,9 @@ class OutputJournalStorageTests(unittest.TestCase):
     def test_replaying_batch_is_idempotent_and_conflicting_body_fails(
         self,
     ) -> None:
-        begun = self.storage.begin(self.identity)
+        begun = self.storage.begin(self.identity, "print('journal')")
+        with self.assertRaises(OutputJournalConflictError):
+            self.storage.begin(self.identity, "print('different')")
         batch_id = str(uuid4())
         first = self.storage.append(
             self.identity,
@@ -154,7 +156,7 @@ class OutputJournalStorageTests(unittest.TestCase):
     def test_offset_conflict_and_concurrent_append_allow_one_winner(
         self,
     ) -> None:
-        begun = self.storage.begin(self.identity)
+        begun = self.storage.begin(self.identity, "print('journal')")
 
         with self.assertRaises(OutputJournalConflictError):
             self.storage.append(
@@ -186,7 +188,7 @@ class OutputJournalStorageTests(unittest.TestCase):
         self.assertEqual(sum(item is not None for item in outcomes), 1)
 
     def test_finalize_is_idempotent_and_blocks_later_mutation(self) -> None:
-        begun = self.storage.begin(self.identity)
+        begun = self.storage.begin(self.identity, "print('journal')")
         self.storage.append(
             self.identity,
             journal_id=begun["journal_id"],
@@ -220,8 +222,80 @@ class OutputJournalStorageTests(unittest.TestCase):
                 records=_records(),
             )
 
+    def test_materializes_complete_notebook_from_terminal_journal(
+        self,
+    ) -> None:
+        begun = self.storage.begin(self.identity, "print('complete')")
+        self.storage.append(
+            self.identity,
+            journal_id=begun["journal_id"],
+            expected_offset=0,
+            batch_id=str(uuid4()),
+            records=_records(),
+        )
+        self.storage.finalize(self.identity, journal_id=begun["journal_id"])
+
+        result = self.storage.materialize_notebook(
+            workspace_path=self.workspace,
+            runtime_profile="basic",
+            cells=[
+                {
+                    "sequence": 0,
+                    "execution_count": 7,
+                    "journal_id": begun["journal_id"],
+                    "journal": self.identity.as_dict(),
+                }
+            ],
+        )
+
+        notebook_path = self.root / result["notebook_path"]
+        notebook = json.loads(notebook_path.read_text(encoding="utf-8"))
+        self.assertEqual(result["cell_count"], 1)
+        self.assertEqual(result["output_count"], 2)
+        self.assertEqual(notebook["nbformat"], 4)
+        self.assertEqual(notebook["metadata"]["kernelspec"]["name"], "basic")
+        self.assertEqual(notebook["cells"][0]["execution_count"], 7)
+        self.assertEqual(
+            notebook["cells"][0]["outputs"][0]["text"],
+            "complete text output",
+        )
+        self.assertEqual(
+            notebook["cells"][0]["outputs"][1]["data"]["image/png"],
+            base64.b64encode(b"png-bytes").decode(),
+        )
+
+    def test_materialization_rejects_open_or_foreign_journal(self) -> None:
+        begun = self.storage.begin(self.identity, "1 + 1")
+        cell = {
+            "sequence": 0,
+            "journal_id": begun["journal_id"],
+            "journal": self.identity.as_dict(),
+        }
+        with self.assertRaises(OutputJournalConflictError):
+            self.storage.materialize_notebook(
+                workspace_path=self.workspace,
+                runtime_profile="basic",
+                cells=[cell],
+            )
+
+        self.storage.abort(
+            self.identity,
+            journal_id=begun["journal_id"],
+            reason="expected",
+        )
+        cell["journal"] = {
+            **self.identity.as_dict(),
+            "workspace_path": "users/u1/projects/p1/sessions/s1/executions/e2",
+        }
+        with self.assertRaises(OutputJournalConflictError):
+            self.storage.materialize_notebook(
+                workspace_path=self.workspace,
+                runtime_profile="basic",
+                cells=[cell],
+            )
+
     def test_abort_is_idempotent_and_preserves_committed_content(self) -> None:
-        begun = self.storage.begin(self.identity)
+        begun = self.storage.begin(self.identity, "print('journal')")
         self.storage.append(
             self.identity,
             journal_id=begun["journal_id"],
@@ -256,7 +330,7 @@ class OutputJournalStorageTests(unittest.TestCase):
     def test_repairs_state_after_batch_commit_precedes_state_replace(
         self,
     ) -> None:
-        begun = self.storage.begin(self.identity)
+        begun = self.storage.begin(self.identity, "print('journal')")
         self.storage.append(
             self.identity,
             journal_id=begun["journal_id"],
@@ -295,8 +369,10 @@ class OutputJournalStorageTests(unittest.TestCase):
     def test_fencing_token_separates_storage_and_identity_mismatch_fails(
         self,
     ) -> None:
-        first = self.storage.begin(self.identity)
-        second = self.storage.begin(_identity(self.workspace, fencing_token=8))
+        first = self.storage.begin(self.identity, "print('first')")
+        second = self.storage.begin(
+            _identity(self.workspace, fencing_token=8), "print('second')"
+        )
 
         self.assertNotEqual(first["journal_id"], second["journal_id"])
         journal_files = list(
@@ -308,13 +384,14 @@ class OutputJournalStorageTests(unittest.TestCase):
                 _identity(
                     self.workspace,
                     runtime_session_id="different-session",
-                )
+                ),
+                "print('different')",
             )
 
     def test_rejects_unsafe_identity_and_invalid_representation(self) -> None:
         with self.assertRaises(OutputJournalError):
-            self.storage.begin(_identity("../escape"))
-        begun = self.storage.begin(self.identity)
+            self.storage.begin(_identity("../escape"), "print('unsafe')")
+        begun = self.storage.begin(self.identity, "print('journal')")
         with self.assertRaises(OutputJournalError):
             self.storage.append(
                 self.identity,

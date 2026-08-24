@@ -1,5 +1,6 @@
 import asyncio
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any, ClassVar, cast
 from uuid import UUID, uuid5
 
@@ -9,6 +10,8 @@ from executor_service.domain.runtime import (
     RuntimeDriverError,
     RuntimeExecutionError,
     RuntimeExecutionResult,
+    RuntimeNotebookCell,
+    RuntimeNotebookMaterializationResult,
     RuntimeOutputAppendResult,
     RuntimeOutputDescriptor,
     RuntimeOutputHandler,
@@ -120,8 +123,9 @@ class RecordingJournalDriver:
         )
 
     async def output_journal_begin(
-        self, _identity: RuntimeOutputJournalIdentity
+        self, _identity: RuntimeOutputJournalIdentity, source: str
     ) -> RuntimeOutputJournalDescriptor:
+        assert source
         self.calls.append("begin")
         return self._descriptor("OPEN")
 
@@ -215,8 +219,77 @@ class RecordingJournalDriver:
         )
 
 
+class RecordingNotebookMaterializer:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str, tuple[RuntimeNotebookCell, ...]]] = []
+
+    async def materialize_notebook(
+        self,
+        workspace_path: str,
+        runtime_profile: str,
+        cells: tuple[RuntimeNotebookCell, ...],
+    ) -> RuntimeNotebookMaterializationResult:
+        self.calls.append((workspace_path, runtime_profile, cells))
+        return RuntimeNotebookMaterializationResult(
+            notebook_path=f"{workspace_path}/notebooks/execution.ipynb",
+            cell_count=len(cells),
+            output_count=2,
+        )
+
+    async def write_notebook(self, *_args: object) -> None:
+        raise AssertionError("journal materialization must avoid Contents API")
+
+
 def _worker() -> ExecutionWorker:
     return ExecutionWorker.__new__(ExecutionWorker)
+
+
+async def test_worker_prefers_runtime_journal_notebook_materialization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    worker = _worker()
+    driver = RecordingNotebookMaterializer()
+    identity = _identity()
+    cell = RuntimeNotebookCell(
+        sequence=0,
+        execution_count=1,
+        journal_id=JOURNAL_ID,
+        journal=identity,
+    )
+
+    async def assert_active_lease(
+        _worker: ExecutionWorker, _lease: object
+    ) -> None:
+        return None
+
+    async def journal_notebook_cells(
+        _worker: ExecutionWorker, _lease: object
+    ) -> tuple[RuntimeNotebookCell, ...]:
+        return (cell,)
+
+    monkeypatch.setattr(
+        ExecutionWorker, "_assert_active_lease", assert_active_lease
+    )
+    monkeypatch.setattr(
+        ExecutionWorker, "_journal_notebook_cells", journal_notebook_cells
+    )
+    workspace_path = identity.workspace_path
+    workspace = SimpleNamespace(
+        runtime_relative_path=workspace_path,
+        notebook_path=f"{workspace_path}/notebooks/execution.ipynb",
+    )
+
+    await worker._write_execution_notebook(
+        cast(Any, driver),
+        cast(Any, object()),
+        "basic",
+        cast(Any, workspace),
+        ["print('complete')"],
+        [[{"output_type": "stream", "text": "complete"}]],
+        [1],
+    )
+
+    assert driver.calls == [(workspace_path, "basic", (cell,))]
 
 
 async def test_worker_journals_each_output_and_finalizes_success() -> None:

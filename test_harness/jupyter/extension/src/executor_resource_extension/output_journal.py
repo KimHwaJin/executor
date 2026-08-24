@@ -114,7 +114,11 @@ class OutputJournalStorage:
         self._root = Path(root_dir).resolve()
         self._locks = tuple(threading.Lock() for _ in range(64))
 
-    def begin(self, identity: JournalIdentity) -> dict[str, Any]:
+    def begin(self, identity: JournalIdentity, source: str) -> dict[str, Any]:
+        if not isinstance(source, str) or not source.strip():
+            raise OutputJournalError("source must not be blank.")
+        source_body = source.encode("utf-8")
+        source_checksum = _sha256_bytes(source_body)
         directory = self._journal_directory(identity)
         lock = self._lock_for(directory)
         with lock:
@@ -125,13 +129,23 @@ class OutputJournalStorage:
             if state_path.exists():
                 state = self._load_state(directory)
                 self._require_identity(state, identity)
+                if (
+                    state.get("source_size_bytes") != len(source_body)
+                    or state.get("source_checksum_sha256") != source_checksum
+                ):
+                    raise OutputJournalConflictError(
+                        "Output Journal source does not match existing state."
+                    )
                 return self._journal_view(state)
+            _atomic_bytes_write(directory / "source.py", source_body)
             now = _utc_now()
             state = {
                 "schema_version": JOURNAL_SCHEMA_VERSION,
                 "journal_id": str(uuid4()),
                 "state": "OPEN",
                 "identity": identity.as_dict(),
+                "source_size_bytes": len(source_body),
+                "source_checksum_sha256": source_checksum,
                 "committed_offset": 0,
                 "batch_count": 0,
                 "output_count": 0,
@@ -265,6 +279,255 @@ class OutputJournalStorage:
             state["completed_at"] = now
             _atomic_json_write(directory / "journal.json", state)
             return self._journal_view(state)
+
+    def materialize_notebook(
+        self,
+        *,
+        workspace_path: str,
+        runtime_profile: str,
+        cells: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        profile = runtime_profile.strip()
+        if not 1 <= len(profile) <= 128:
+            raise OutputJournalError(
+                "runtime_profile must contain 1 to 128 characters."
+            )
+        if not isinstance(cells, list) or not cells:
+            raise OutputJournalError("cells must not be empty.")
+        workspace = self._resolve_workspace(workspace_path, must_exist=True)
+        notebook_path = workspace / "notebooks" / "execution.ipynb"
+        materialized_cells: list[dict[str, Any]] = []
+        output_count = 0
+        seen_sequences: set[int] = set()
+        for cell in cells:
+            if not isinstance(cell, dict):
+                raise OutputJournalError(
+                    "Each notebook cell must be an object."
+                )
+            try:
+                sequence = int(cell["sequence"])
+                journal_id = _uuid_string(cell["journal_id"], "journal_id")
+                identity_value = cell["journal"]
+            except (KeyError, TypeError, ValueError) as exc:
+                raise OutputJournalError(
+                    "Notebook cell materialization input is invalid."
+                ) from exc
+            if sequence < 0 or sequence in seen_sequences:
+                raise OutputJournalError(
+                    "Notebook cell sequences must be unique and non-negative."
+                )
+            if not isinstance(identity_value, dict):
+                raise OutputJournalError(
+                    "Notebook cell journal must be an object."
+                )
+            identity = JournalIdentity.from_mapping(identity_value)
+            if identity.workspace_path != workspace_path:
+                raise OutputJournalConflictError(
+                    "Notebook cell journal belongs to another workspace."
+                )
+            directory = self._journal_directory(identity, must_exist=True)
+            state = self._load_and_repair(directory)
+            self._require_journal(state, identity, journal_id)
+            if state["state"] not in TERMINAL_STATES:
+                raise OutputJournalConflictError(
+                    "Notebook materialization requires a terminal Output Journal."
+                )
+            source = self._journal_source(directory, state)
+            notebook_outputs = [
+                self._notebook_output(directory, output)
+                for batch in self._ordered_batches(directory)
+                for output in batch["outputs"]
+            ]
+            if len(notebook_outputs) != state["output_count"]:
+                raise OutputJournalConflictError(
+                    "Output Journal count changed during notebook materialization."
+                )
+            execution_count = cell.get("execution_count")
+            if execution_count is not None:
+                try:
+                    execution_count = int(execution_count)
+                except (TypeError, ValueError) as exc:
+                    raise OutputJournalError(
+                        "Notebook cell execution_count must be an integer."
+                    ) from exc
+                if execution_count < 0:
+                    raise OutputJournalError(
+                        "Notebook cell execution_count must be non-negative."
+                    )
+            if execution_count is None:
+                execution_count = _output_execution_count(
+                    notebook_outputs, sequence
+                )
+            materialized_cells.append(
+                {
+                    "cell_type": "code",
+                    "execution_count": execution_count,
+                    "id": uuid5(
+                        NAMESPACE_URL,
+                        f"{identity.execution_id}:cell:{identity.step_id}",
+                    ).hex[:16],
+                    "metadata": {
+                        "executor": {
+                            "sequence": sequence,
+                            "journal_id": journal_id,
+                            "journal_state": state["state"],
+                            "fencing_token": identity.fencing_token,
+                        }
+                    },
+                    "outputs": notebook_outputs,
+                    "source": source,
+                }
+            )
+            output_count += len(notebook_outputs)
+            seen_sequences.add(sequence)
+        materialized_cells.sort(
+            key=lambda value: int(value["metadata"]["executor"]["sequence"])
+        )
+        notebook = {
+            "cells": materialized_cells,
+            "metadata": {
+                "executor": {"workspace": workspace_path},
+                "kernelspec": {
+                    "display_name": profile,
+                    "language": "python",
+                    "name": profile,
+                },
+                "language_info": {"name": "python"},
+            },
+            "nbformat": 4,
+            "nbformat_minor": 5,
+        }
+        notebook_path.parent.mkdir(parents=True, exist_ok=True)
+        lock = self._lock_for(notebook_path)
+        with lock:
+            _atomic_json_write(notebook_path, notebook)
+        return {
+            "notebook_path": notebook_path.relative_to(self._root).as_posix(),
+            "cell_count": len(materialized_cells),
+            "output_count": output_count,
+        }
+
+    @staticmethod
+    def _journal_source(directory: Path, state: dict[str, Any]) -> str:
+        try:
+            expected_size = int(state["source_size_bytes"])
+            expected_checksum = str(state["source_checksum_sha256"])
+            body = (directory / "source.py").read_bytes()
+        except (KeyError, OSError, TypeError, ValueError) as exc:
+            raise OutputJournalConflictError(
+                "Output Journal source is unavailable."
+            ) from exc
+        if (
+            len(body) != expected_size
+            or _sha256_bytes(body) != expected_checksum
+        ):
+            raise OutputJournalConflictError(
+                "Output Journal source does not match metadata."
+            )
+        try:
+            source = body.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise OutputJournalConflictError(
+                "Output Journal source is not UTF-8."
+            ) from exc
+        if not source.strip():
+            raise OutputJournalConflictError(
+                "Output Journal source must not be blank."
+            )
+        return source
+
+    def _notebook_output(
+        self, directory: Path, output: dict[str, Any]
+    ) -> dict[str, Any]:
+        kind = str(output.get("kind", ""))
+        representations = output.get("representations")
+        if not isinstance(representations, list):
+            raise OutputJournalConflictError(
+                "Output Journal representations are invalid."
+            )
+        values = {
+            str(representation["media_type"]): self._representation_value(
+                directory, representation
+            )
+            for representation in representations
+        }
+        metadata = output.get("metadata", {})
+        if not isinstance(metadata, dict):
+            raise OutputJournalConflictError(
+                "Output Journal metadata is invalid."
+            )
+        if kind == "STREAM":
+            return {
+                "output_type": "stream",
+                "name": str(output.get("stream_name") or "stdout"),
+                "text": str(values.get("text/plain", "")),
+            }
+        if kind in {"DISPLAY", "RESULT"}:
+            result: dict[str, Any] = {
+                "output_type": (
+                    "display_data" if kind == "DISPLAY" else "execute_result"
+                ),
+                "data": values,
+                "metadata": {
+                    key: value
+                    for key, value in metadata.items()
+                    if key != "transient"
+                },
+            }
+            if kind == "RESULT":
+                result["execution_count"] = output.get("execution_count")
+            return result
+        if kind == "ERROR":
+            traceback = str(values.get("text/plain", "")).splitlines()
+            return {
+                "output_type": "error",
+                "ename": str(metadata.get("ename", "Error")),
+                "evalue": str(metadata.get("evalue", "")),
+                "traceback": traceback,
+            }
+        raise OutputJournalConflictError(
+            f"Unsupported persisted output kind: {kind!r}."
+        )
+
+    def _representation_value(
+        self, directory: Path, representation: dict[str, Any]
+    ) -> Any:
+        try:
+            media_type = str(representation["media_type"])
+            storage_path = str(representation["storage_path"])
+            size_bytes = int(representation["size_bytes"])
+            checksum = str(representation["checksum_sha256"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise OutputJournalConflictError(
+                "Output representation metadata is invalid."
+            ) from exc
+        path = (self._root / storage_path).resolve(strict=True)
+        self._ensure_within_root(path)
+        try:
+            path.relative_to(directory)
+        except ValueError as exc:
+            raise OutputJournalConflictError(
+                "Output representation escapes its journal."
+            ) from exc
+        body = path.read_bytes()
+        if len(body) != size_bytes or _sha256_bytes(body) != checksum:
+            raise OutputJournalConflictError(
+                "Output representation content does not match metadata."
+            )
+        if media_type in {"image/png", "image/jpeg", "application/pdf"}:
+            return base64.b64encode(body).decode("ascii")
+        try:
+            text = body.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise OutputJournalConflictError(
+                "Non-binary output representation is not UTF-8."
+            ) from exc
+        if media_type == "application/json" or media_type.endswith("+json"):
+            try:
+                return json.loads(text)
+            except json.JSONDecodeError:
+                return text
+        return text
 
     def _persist_records(
         self,
@@ -452,6 +715,7 @@ class OutputJournalStorage:
 
     def _journal_checksum(self, directory: Path) -> str:
         digest = hashlib.sha256()
+        digest.update((directory / "source.py").read_bytes())
         for batch in self._ordered_batches(directory):
             digest.update(_canonical_json(batch))
         return digest.hexdigest()
@@ -573,6 +837,17 @@ def _uuid_string(value: str, name: str) -> str:
         return str(UUID(str(value)))
     except (TypeError, ValueError) as exc:
         raise OutputJournalError(f"{name} must be a UUID.") from exc
+
+
+def _output_execution_count(
+    outputs: list[dict[str, Any]], sequence: int
+) -> int:
+    counts = [
+        value
+        for output in outputs
+        if type(value := output.get("execution_count")) is int
+    ]
+    return max(counts, default=sequence + 1)
 
 
 def _utc_now() -> str:

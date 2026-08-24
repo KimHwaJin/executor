@@ -112,6 +112,21 @@ class RuntimeOutputAppendResult:
     outputs: tuple[RuntimeOutputDescriptor, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class RuntimeNotebookCell:
+    sequence: int
+    execution_count: int | None
+    journal_id: UUID
+    journal: RuntimeOutputJournalIdentity
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeNotebookMaterializationResult:
+    notebook_path: str
+    cell_count: int
+    output_count: int
+
+
 RuntimeOutputHandler = Callable[[RuntimeOutputRecord], Awaitable[None]]
 
 
@@ -128,7 +143,7 @@ class RuntimeStreamingExecutor(Protocol):
 @runtime_checkable
 class RuntimeOutputJournal(Protocol):
     async def output_journal_begin(
-        self, identity: RuntimeOutputJournalIdentity
+        self, identity: RuntimeOutputJournalIdentity, source: str
     ) -> RuntimeOutputJournalDescriptor: ...
 
     async def output_journal_append(
@@ -155,6 +170,16 @@ class RuntimeOutputJournal(Protocol):
         journal_id: UUID,
         reason: str,
     ) -> RuntimeOutputJournalDescriptor: ...
+
+
+@runtime_checkable
+class RuntimeNotebookMaterializer(Protocol):
+    async def materialize_notebook(
+        self,
+        workspace_path: str,
+        runtime_profile: str,
+        cells: tuple[RuntimeNotebookCell, ...],
+    ) -> RuntimeNotebookMaterializationResult: ...
 
 
 @dataclass(frozen=True, slots=True)

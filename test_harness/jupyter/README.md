@@ -78,11 +78,13 @@ variables, or credentials.
 ## Runtime storage endpoints
 
 The same authenticated extension prepares workspaces, snapshots artifacts, computes file metadata
-and SHA-256 on the Jupyter side, and reads append-only manifests. Notebook read/write uses
-Jupyter's standard Contents API. Executor can therefore persist paths and metadata without
-mounting Jupyter shared storage. File scans and hashing run in a worker thread so they do not block
-Jupyter's server event loop; Executor applies `JUPYTER_STORAGE_TIMEOUT_SECONDS` (default 300) to
-these potentially slower calls.
+and SHA-256 on the Jupyter side, and reads append-only manifests. Notebook reads and explicit
+Agent-authored file writes use Jupyter's standard Contents API. Executed notebook materialization
+uses the Output Journal endpoint described below, so Executor does not download and re-upload all
+cell outputs. Executor can therefore persist paths and metadata without mounting Jupyter shared
+storage. File scans and hashing run in a worker thread so they do not block Jupyter's server event
+loop; Executor applies `JUPYTER_STORAGE_TIMEOUT_SECONDS` (default 300) to these potentially slower
+calls.
 
 The extension also exposes authenticated internal Output Journal operations:
 
@@ -90,6 +92,7 @@ The extension also exposes authenticated internal Output Journal operations:
 - `POST /executor/storage/output-journals/append`
 - `POST /executor/storage/output-journals/finalize`
 - `POST /executor/storage/output-journals/abort`
+- `POST /executor/storage/output-journals/materialize-notebook`
 
 These are Runtime-driver endpoints, not public Agent APIs. They durably store complete Step output
 under `<workspace>/outputs/<operation>/<step>/<attempt>/<fencing-token>/`. Append uses both a stable
@@ -98,6 +101,13 @@ with changed records or a non-current offset returns HTTP 409. Output bodies are
 `content/`; responses contain checksums and opaque `journal://` references rather than echoing the
 bodies or physical paths. All operations require the same Jupyter token as the standard Contents
 API, and the workspace must first be created through `workspaces/prepare`.
+
+`begin` stores the exact Step source once as `source.py`. After terminal
+Journals are selected by Executor fencing metadata, `materialize-notebook`
+reconstructs complete Jupyter outputs from their native content files and
+atomically replaces `<workspace>/notebooks/execution.ipynb`. The request carries
+only ordered Journal identities and execution counts, not accumulated source or
+output bodies.
 
 ## Verification
 
