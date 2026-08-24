@@ -77,6 +77,29 @@ class RuntimeOutputJournalDescriptor:
 
 
 @dataclass(frozen=True, slots=True)
+class RuntimeOutputRepresentationDescriptor:
+    representation_id: UUID
+    media_type: str
+    size_bytes: int
+    checksum_sha256: str
+    complete: bool
+    content_ref: str
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeOutputDescriptor:
+    output_id: UUID
+    ordinal: int
+    kind: str
+    stream_name: str | None
+    execution_count: int | None
+    representations: tuple[RuntimeOutputRepresentationDescriptor, ...]
+    metadata: dict[str, Any]
+    created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
 class RuntimeOutputAppendResult:
     journal_id: UUID
     state: str
@@ -86,6 +109,7 @@ class RuntimeOutputAppendResult:
     representation_count: int
     total_bytes: int
     replayed: bool
+    outputs: tuple[RuntimeOutputDescriptor, ...]
 
 
 RuntimeOutputHandler = Callable[[RuntimeOutputRecord], Awaitable[None]]

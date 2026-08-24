@@ -189,6 +189,9 @@ HTTP calls must not be placed inside the Target row-lock transaction.
 - Alembic revision `0004` stores `session_count_observed_at` separately from health and resource
   timestamps. Successful probes replace the observation; failed probes preserve it and mark it
   stale through health state.
+- Alembic revision `0005` projects fenced Runtime Output Journal descriptors,
+  outputs, and MIME representation metadata into PostgreSQL while complete
+  content remains in Runtime-owned storage.
 - Fresh observations use `max(active_execution_count, active_session_count)` for admission.
   Stale or unavailable observations fall back to DB reservations without representing the last
   Runtime count as zero.

@@ -35,6 +35,8 @@ from executor_service.interfaces.contracts import (
     ExecutionOperationPageResponse,
     ExecutionOperationResponse,
     ExecutionOperationResultResponse,
+    ExecutionOutputPageResponse,
+    ExecutionOutputResponse,
     ExecutionPageResponse,
     ExecutionResponse,
     ExecutionResultResponse,
@@ -56,6 +58,7 @@ ExecutionLimit = Annotated[int, Query(ge=1, le=200)]
 AttemptLimit = Annotated[int, Query(ge=1, le=200)]
 EventLimit = Annotated[int, Query(ge=1, le=500)]
 ArtifactLimit = Annotated[int, Query(ge=1, le=1000)]
+OutputLimit = Annotated[int, Query(ge=1, le=500)]
 Cursor = Annotated[str | None, Query(max_length=2048)]
 NotebookLimit = Annotated[int, Query(ge=0, le=200)]
 NotebookStartIndex = Annotated[int, Query(ge=0)]
@@ -508,6 +511,42 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
             execution_id, cursor=cursor, limit=limit
         )
         return ExecutionEventPageResponse.from_page(page)
+
+    @router.get(
+        "/executions/{execution_id}/outputs",
+        response_model=ExecutionOutputPageResponse,
+        responses=DOMAIN_ERROR_RESPONSES,
+        summary="List normalized Runtime outputs",
+    )
+    async def list_execution_outputs(
+        execution_id: UUID,
+        operation_id: UUID | None = None,
+        step_id: UUID | None = None,
+        attempt_id: UUID | None = None,
+        cursor: Cursor = None,
+        limit: OutputLimit = 200,
+    ) -> ExecutionOutputPageResponse:
+        page = await execution_queries.outputs(
+            execution_id,
+            operation_id=operation_id,
+            step_id=step_id,
+            attempt_id=attempt_id,
+            cursor=cursor,
+            limit=limit,
+        )
+        return ExecutionOutputPageResponse.from_page(page)
+
+    @router.get(
+        "/executions/{execution_id}/outputs/{output_id}",
+        response_model=ExecutionOutputResponse,
+        responses=DOMAIN_ERROR_RESPONSES,
+        summary="Get one normalized Runtime output",
+    )
+    async def get_execution_output(
+        execution_id: UUID, output_id: UUID
+    ) -> ExecutionOutputResponse:
+        view = await execution_queries.output(execution_id, output_id)
+        return ExecutionOutputResponse.from_view(view)
 
     @router.get(
         "/executions/{execution_id}/artifacts",

@@ -58,6 +58,8 @@ from executor_service.interfaces.contracts import (
     ExecutionOperationPageResponse,
     ExecutionOperationResponse,
     ExecutionOperationResultResponse,
+    ExecutionOutputPageResponse,
+    ExecutionOutputResponse,
     ExecutionPageResponse,
     ExecutionResponse,
     ExecutionResultResponse,
@@ -83,6 +85,7 @@ from executor_service.tracing import TracingManager
 StandardLimit = Annotated[int, Field(ge=1, le=200)]
 EventLimit = Annotated[int, Field(ge=1, le=500)]
 ArtifactLimit = Annotated[int, Field(ge=1, le=1000)]
+OutputLimit = Annotated[int, Field(ge=1, le=500)]
 
 
 def _public_tool_error(exc: Exception) -> ToolError:
@@ -610,6 +613,50 @@ def build_mcp_server(
             except Exception as exc:
                 raise _public_tool_error(exc) from exc
             return ExecutionEventPageResponse.from_page(page)
+
+        @server.tool(
+            description=(
+                "List normalized Runtime output metadata in creation order. "
+                "Filter by Operation, Step, or Attempt and pass next_cursor "
+                "unchanged to continue. Content references are opaque."
+            )
+        )
+        async def execution_output_list(
+            execution_id: UUID,
+            operation_id: UUID | None = None,
+            step_id: UUID | None = None,
+            attempt_id: UUID | None = None,
+            cursor: str | None = None,
+            limit: OutputLimit = 200,
+        ) -> ExecutionOutputPageResponse:
+            try:
+                page = await execution_queries.outputs(
+                    execution_id,
+                    operation_id=operation_id,
+                    step_id=step_id,
+                    attempt_id=attempt_id,
+                    cursor=cursor,
+                    limit=limit,
+                )
+            except Exception as exc:
+                raise _public_tool_error(exc) from exc
+            return ExecutionOutputPageResponse.from_page(page)
+
+        @server.tool(
+            description=(
+                "Get one normalized Runtime output descriptor and all of its "
+                "MIME representation metadata."
+            )
+        )
+        async def execution_output_get(
+            execution_id: UUID,
+            output_id: UUID,
+        ) -> ExecutionOutputResponse:
+            try:
+                view = await execution_queries.output(execution_id, output_id)
+            except Exception as exc:
+                raise _public_tool_error(exc) from exc
+            return ExecutionOutputResponse.from_view(view)
 
         @server.tool(
             description=(

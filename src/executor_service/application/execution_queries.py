@@ -215,6 +215,51 @@ class ExecutionArtifactView:
     updated_at: datetime
 
 
+@dataclass(frozen=True, slots=True)
+class ExecutionOutputRepresentationView:
+    id: UUID
+    media_type: str
+    size_bytes: int
+    checksum_sha256: str
+    complete: bool
+    content_ref: str
+    metadata: dict[str, Any]
+    created_by_type: ActorType | None
+    created_by: str | None
+    updated_by_type: ActorType | None
+    updated_by: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionOutputView:
+    id: UUID
+    journal_id: UUID
+    batch_id: UUID
+    execution_id: UUID
+    operation_id: UUID
+    execution_step_id: UUID
+    execution_attempt_id: UUID
+    runtime_target_id: UUID
+    runtime_session_id: str
+    journal_state: str
+    fencing_token: int
+    sequence: int
+    ordinal: int
+    kind: str
+    stream_name: str | None
+    execution_count: int | None
+    metadata: dict[str, Any]
+    representations: tuple[ExecutionOutputRepresentationView, ...]
+    created_by_type: ActorType | None
+    created_by: str | None
+    updated_by_type: ActorType | None
+    updated_by: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
 class ExecutionQueryService(Protocol):
     async def executions(
         self,
@@ -297,3 +342,18 @@ class ExecutionQueryService(Protocol):
     ) -> Page[ExecutionArtifactView]: ...
 
     async def artifact(self, artifact_id: UUID) -> ExecutionArtifactView: ...
+
+    async def outputs(
+        self,
+        execution_id: UUID,
+        *,
+        operation_id: UUID | None = None,
+        step_id: UUID | None = None,
+        attempt_id: UUID | None = None,
+        cursor: str | None = None,
+        limit: int = 200,
+    ) -> Page[ExecutionOutputView]: ...
+
+    async def output(
+        self, execution_id: UUID, output_id: UUID
+    ) -> ExecutionOutputView: ...

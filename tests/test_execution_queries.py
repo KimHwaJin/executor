@@ -24,6 +24,9 @@ from executor_service.domain.enums import (
 from executor_service.domain.models import OutboxEvent, utc_now
 from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
+    ExecutionOutputJournalORM,
+    ExecutionOutputORM,
+    ExecutionOutputRepresentationORM,
     ExecutionStepAttemptORM,
     OutboxEventORM,
     RuntimeTargetORM,
@@ -202,3 +205,136 @@ async def test_execution_reads_do_not_load_source_code_or_step_rows(
     assert all(
         "executions.code," not in statement for statement in execution_selects
     )
+
+
+async def test_output_queries_page_filter_and_redact_metadata(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+) -> None:
+    execution = await execution_service.submit(_submit_command())
+    now = utc_now()
+    target_id = uuid4()
+    attempt_id = uuid4()
+    step_attempt_id = uuid4()
+    journal_id = uuid4()
+    output_ids = [
+        uuid4(),
+        uuid4(),
+    ]
+    operation_id = execution.steps[0].operation_id
+    assert operation_id is not None
+    session_factory = create_session_factory(engine)
+    async with session_factory() as session, session.begin():
+        session.add(
+            RuntimeTargetORM(
+                id=target_id,
+                name="output-jupyter",
+                connection_config={"endpoint": "http://127.0.0.1:8888"},
+                **runtime_credential_fields(),
+                pool=RuntimePool.INTERACTIVE,
+                status=RuntimeTargetStatus.ACTIVE,
+                max_concurrent_executions=1,
+                supported_profiles=["basic"],
+                enabled=True,
+            )
+        )
+        session.add(
+            ExecutionAttemptORM(
+                id=attempt_id,
+                execution_id=execution.id,
+                attempt_number=1,
+                runtime_target_id=target_id,
+                runtime_session_id="kernel-output",
+                status=AttemptStatus.SUCCEEDED,
+                heartbeat_at=now,
+                retry_strategy=RetryStrategy.FROM_FAILED_STEP,
+                runtime_session_cleanup_status=(
+                    RuntimeSessionCleanupStatus.NOT_REQUIRED
+                ),
+                started_at=now,
+                finished_at=now,
+            )
+        )
+        session.add(
+            ExecutionStepAttemptORM(
+                id=step_attempt_id,
+                execution_id=execution.id,
+                execution_attempt_id=attempt_id,
+                execution_step_id=execution.steps[0].id,
+                sequence=0,
+                status=StepStatus.SUCCEEDED,
+                outputs=[],
+                started_at=now,
+                finished_at=now,
+            )
+        )
+        session.add(
+            ExecutionOutputJournalORM(
+                id=journal_id,
+                execution_id=execution.id,
+                operation_id=operation_id,
+                execution_step_id=execution.steps[0].id,
+                execution_attempt_id=attempt_id,
+                execution_step_attempt_id=step_attempt_id,
+                runtime_target_id=target_id,
+                runtime_session_id="kernel-output",
+                workspace_path="users/u/executions/e",
+                sequence=0,
+                fencing_token=3,
+                state="FINALIZED",
+                committed_offset=2,
+                output_count=2,
+                representation_count=2,
+                total_bytes=8,
+                checksum_sha256="c" * 64,
+            )
+        )
+        for ordinal, output_id in enumerate(output_ids):
+            session.add(
+                ExecutionOutputORM(
+                    id=output_id,
+                    journal_id=journal_id,
+                    batch_id=uuid4(),
+                    execution_id=execution.id,
+                    operation_id=operation_id,
+                    execution_step_id=execution.steps[0].id,
+                    execution_attempt_id=attempt_id,
+                    sequence=0,
+                    ordinal=ordinal,
+                    kind="STREAM",
+                    stream_name="stdout",
+                    output_metadata={"token": "hidden"},
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+            session.add(
+                ExecutionOutputRepresentationORM(
+                    id=uuid4(),
+                    output_id=output_id,
+                    media_type="text/plain",
+                    size_bytes=4,
+                    checksum_sha256="a" * 64,
+                    complete=True,
+                    content_ref=f"journal://{journal_id}/{output_id}/text",
+                    representation_metadata={"password": "hidden"},
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+
+    queries = SQLAlchemyExecutionQueryService(session_factory)
+    first = await queries.outputs(execution.id, attempt_id=attempt_id, limit=1)
+    second = await queries.outputs(
+        execution.id, cursor=first.next_cursor, limit=1
+    )
+    detail = await queries.output(execution.id, first.items[0].id)
+
+    assert len(first.items) == 1
+    assert first.next_cursor is not None
+    assert len(second.items) == 1
+    assert first.items[0].id != second.items[0].id
+    assert detail.journal_id == journal_id
+    assert detail.runtime_target_id == target_id
+    assert detail.metadata == {"token": "[REDACTED]"}
+    assert detail.representations[0].metadata == {"password": "[REDACTED]"}

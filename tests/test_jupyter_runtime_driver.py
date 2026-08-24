@@ -384,6 +384,35 @@ async def test_output_journal_contract_uses_authenticated_extension_apis() -> (
                     "representation_count": 1,
                     "total_bytes": 4,
                     "replayed": False,
+                    "outputs": [
+                        {
+                            "output_id": (
+                                "11111111-1111-4111-8111-111111111111"
+                            ),
+                            "ordinal": 0,
+                            "kind": "STREAM",
+                            "stream_name": "stdout",
+                            "execution_count": None,
+                            "representations": [
+                                {
+                                    "representation_id": (
+                                        "22222222-2222-4222-8222-222222222222"
+                                    ),
+                                    "media_type": "text/plain",
+                                    "size_bytes": 4,
+                                    "checksum_sha256": "a" * 64,
+                                    "complete": True,
+                                    "content_ref": (
+                                        "journal://aaaaaaaa-aaaa-4aaa-8aaa-"
+                                        "aaaaaaaaaaaa/output/representation"
+                                    ),
+                                    "metadata": {},
+                                }
+                            ],
+                            "metadata": {},
+                            "created_at": "2026-08-24T00:00:00+00:00",
+                        }
+                    ],
                 },
             )
         if request.url.path.endswith("/finalize"):

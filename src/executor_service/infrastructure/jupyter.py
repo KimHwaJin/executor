@@ -22,11 +22,13 @@ from executor_service.domain.runtime import (
     RuntimeFileMetadata,
     RuntimeFileState,
     RuntimeOutputAppendResult,
+    RuntimeOutputDescriptor,
     RuntimeOutputHandler,
     RuntimeOutputJournalDescriptor,
     RuntimeOutputJournalIdentity,
     RuntimeOutputRecord,
     RuntimeOutputRepresentation,
+    RuntimeOutputRepresentationDescriptor,
     RuntimeResourceMetric,
     RuntimeResourceObservation,
     RuntimeStorageSnapshot,
@@ -331,6 +333,9 @@ class JupyterRuntimeDriver:
                 representation_count=int(payload["representation_count"]),
                 total_bytes=int(payload["total_bytes"]),
                 replayed=bool(payload["replayed"]),
+                outputs=tuple(
+                    _output_descriptor(item) for item in payload["outputs"]
+                ),
             )
         except (KeyError, TypeError, ValueError) as exc:
             raise RuntimeDriverError(
@@ -763,6 +768,76 @@ def _journal_descriptor(
     except (KeyError, TypeError, ValueError) as exc:
         raise RuntimeDriverError(
             f"Jupyter Output Journal {operation} response is invalid."
+        ) from exc
+
+
+def _output_descriptor(value: Any) -> RuntimeOutputDescriptor:
+    try:
+        if not isinstance(value, dict):
+            raise TypeError("output must be an object")
+        created_at = datetime.fromisoformat(
+            str(value["created_at"]).replace("Z", "+00:00")
+        )
+        if created_at.tzinfo is None:
+            raise ValueError("created_at must include a timezone")
+        representations = value["representations"]
+        if not isinstance(representations, list) or not representations:
+            raise TypeError("representations must be a non-empty array")
+        metadata = value.get("metadata", {})
+        if not isinstance(metadata, dict):
+            raise TypeError("metadata must be an object")
+        execution_count = value.get("execution_count")
+        if execution_count is not None and type(execution_count) is not int:
+            raise TypeError("execution_count must be an integer")
+        return RuntimeOutputDescriptor(
+            output_id=UUID(str(value["output_id"])),
+            ordinal=int(value["ordinal"]),
+            kind=str(value["kind"]),
+            stream_name=(
+                str(value["stream_name"])
+                if value.get("stream_name") is not None
+                else None
+            ),
+            execution_count=execution_count,
+            representations=tuple(
+                _representation_descriptor(item) for item in representations
+            ),
+            metadata=metadata,
+            created_at=created_at,
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise RuntimeDriverError(
+            "Jupyter Output Journal output descriptor is invalid."
+        ) from exc
+
+
+def _representation_descriptor(
+    value: Any,
+) -> RuntimeOutputRepresentationDescriptor:
+    try:
+        if not isinstance(value, dict):
+            raise TypeError("representation must be an object")
+        metadata = value.get("metadata", {})
+        if not isinstance(metadata, dict):
+            raise TypeError("metadata must be an object")
+        complete = value["complete"]
+        if type(complete) is not bool:
+            raise TypeError("complete must be a boolean")
+        checksum = str(value["checksum_sha256"])
+        if len(checksum) != 64:
+            raise ValueError("invalid checksum")
+        return RuntimeOutputRepresentationDescriptor(
+            representation_id=UUID(str(value["representation_id"])),
+            media_type=str(value["media_type"]),
+            size_bytes=int(value["size_bytes"]),
+            checksum_sha256=checksum,
+            complete=complete,
+            content_ref=str(value["content_ref"]),
+            metadata=metadata,
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise RuntimeDriverError(
+            "Jupyter Output Journal representation descriptor is invalid."
         ) from exc
 
 
