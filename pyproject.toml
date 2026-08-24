@@ -47,8 +47,10 @@ addopts = "-ra"
 asyncio_mode = "auto"
 testpaths = [
     "tests",
+    "test_harness/jupyter/extension/tests",
     "test_harness/jupyter/tests",
 ]
+pythonpath = ["test_harness/jupyter/extension/src"]
 markers = [
     "postgres: requires a disposable local PostgreSQL database",
     "redis: requires a local Redis server",
