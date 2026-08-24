@@ -81,6 +81,7 @@ _EXECUTION_DETAIL_COLUMNS = (
     ExecutionORM.retained_runtime_session_until,
     ExecutionORM.recovery_count,
     ExecutionORM.runtime_session_cleanup_status,
+    ExecutionORM.runtime_abort_status,
     ExecutionORM.operation_wait_expires_at,
     ExecutionORM.execution_expires_at,
 )
@@ -663,6 +664,7 @@ def _execution_detail_view(row: ExecutionORM) -> ExecutionDetailView:
         retained_runtime_session_until=row.retained_runtime_session_until,
         recovery_count=row.recovery_count,
         runtime_session_cleanup_status=row.runtime_session_cleanup_status,
+        runtime_abort_status=row.runtime_abort_status,
         operation_wait_expires_at=row.operation_wait_expires_at,
         execution_expires_at=row.execution_expires_at,
         created_by_type=row.created_by_type,
@@ -732,6 +734,7 @@ def _attempt_view(
         failure_type=row.failure_type,
         retry_strategy=row.retry_strategy,
         runtime_session_cleanup_status=row.runtime_session_cleanup_status,
+        runtime_abort_status=row.runtime_abort_status,
         created_by_type=row.created_by_type,
         created_by=row.created_by,
         updated_by_type=row.updated_by_type,

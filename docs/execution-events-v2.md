@@ -32,6 +32,8 @@ Executor Workers consume a separate `executor.work` Stream. Its internal message
 | `execution.succeeded`, `execution.failed` | terminal state, cleanup/retry information, and Execution result reference |
 | `execution.cancelled` | terminal cancellation and cleanup information; no result is produced |
 | `execution.timeout_requested` | Execution maximum-runtime cancellation request |
+| `execution.runtime_abort_started` | timeout type, Attempt ID, and pending Runtime abort/cleanup state |
+| `execution.runtime_abort_completed`, `execution.runtime_abort_failed` | bounded interrupt/delete outcome, session reusability, cleanup state, and version |
 | cleanup/retry-window events | retained-session cleanup outcome |
 
 Redis never carries complete output text or base64 image content. A Step summary reports output

@@ -125,6 +125,15 @@ class RuntimeSessionCleanupStatus(StrEnum):
     FAILED = "FAILED"
 
 
+class RuntimeAbortStatus(StrEnum):
+    NOT_REQUIRED = "NOT_REQUIRED"
+    PENDING = "PENDING"
+    IDLE_CONFIRMED = "IDLE_CONFIRMED"
+    SESSION_DELETED = "SESSION_DELETED"
+    SESSION_MISSING = "SESSION_MISSING"
+    FAILED = "FAILED"
+
+
 class ArtifactType(StrEnum):
     DATASET = "DATASET"
     NOTEBOOK = "NOTEBOOK"

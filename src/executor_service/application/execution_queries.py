@@ -18,6 +18,7 @@ from executor_service.domain.enums import (
     OperationStatus,
     OutboxStatus,
     RetryStrategy,
+    RuntimeAbortStatus,
     RuntimePool,
     RuntimeSessionCleanupStatus,
     RuntimeType,
@@ -80,6 +81,7 @@ class ExecutionDetailView:
     retained_runtime_session_until: datetime | None
     recovery_count: int
     runtime_session_cleanup_status: RuntimeSessionCleanupStatus
+    runtime_abort_status: RuntimeAbortStatus
     operation_wait_expires_at: datetime | None
     execution_expires_at: datetime | None
     created_by_type: ActorType | None
@@ -131,6 +133,7 @@ class ExecutionAttemptView:
     failure_type: FailureType | None
     retry_strategy: RetryStrategy
     runtime_session_cleanup_status: RuntimeSessionCleanupStatus
+    runtime_abort_status: RuntimeAbortStatus
     created_by_type: ActorType | None
     created_by: str | None
     updated_by_type: ActorType | None

@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any, Protocol
 from uuid import UUID
 
-from executor_service.domain.enums import RuntimeType
+from executor_service.domain.enums import RuntimeAbortStatus, RuntimeType
 
 
 class RuntimeDriverError(RuntimeError):
@@ -32,6 +32,12 @@ class RuntimeExecutionTimeoutError(RuntimeExecutionError):
 class RuntimeExecutionResult:
     outputs: list[dict[str, Any]]
     execution_count: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeAbortResult:
+    status: RuntimeAbortStatus
+    message: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,6 +117,10 @@ class RuntimeDriver(RuntimeStorage, Protocol):
     ) -> str: ...
 
     async def interrupt_session(self, session_id: str) -> None: ...
+
+    async def abort_session(
+        self, session_id: str, timeout_seconds: float
+    ) -> RuntimeAbortResult: ...
 
     async def delete_session(self, session_id: str) -> None: ...
 

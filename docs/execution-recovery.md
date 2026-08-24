@@ -27,6 +27,15 @@ Explicit retry is currently restricted to `SINGLE`. MULTI Tool failures return t
 `WAITING_FOR_OPERATION` and accept a correction Operation. MULTI Runtime-state loss remains
 non-retryable because a new kernel cannot reconstruct prior in-memory cell state safely.
 
+Step and Operation timeouts run a bounded Runtime abort workflow. Executor first records
+`runtime_abort_status=PENDING`, requests a driver-specific abort, and waits up to
+`RUNTIME_ABORT_TIMEOUT_SECONDS` for positive idle confirmation. Only `IDLE_CONFIRMED` permits
+same-session `FROM_FAILED_STEP` recovery or a MULTI correction Operation. If the session is missing
+or idle cannot be confirmed, Executor deletes it and records `SESSION_MISSING` or
+`SESSION_DELETED`; recovery can then start only from sequence zero where policy permits it. If
+deletion fails, both abort and cleanup are `FAILED`, the Runtime reservation remains, and retry is
+blocked until maintenance cleanup succeeds.
+
 For an in-flight user cancellation, the interrupted execution job only preserves files written by
 the current cell as `INCOMPLETE` evidence. The replacement cancellation job exclusively interrupts
 and deletes the Runtime session and commits the `CANCELLED` state and event. Worker shutdowns that
@@ -88,6 +97,13 @@ Lease recovery emits `execution.runtime_session_cleanup_completed` or
 `execution.runtime_session_cleanup_failed` after the cleanup result is persisted. Expired retained-session
 windows emit `execution.retry_window_expired`.
 
+`runtime_abort_status` is one of `NOT_REQUIRED`, `PENDING`, `IDLE_CONFIRMED`, `SESSION_DELETED`,
+`SESSION_MISSING`, or `FAILED`. It is stored on both the current Execution and immutable Attempt
+history. `execution.runtime_abort_started`, `execution.runtime_abort_completed`, and
+`execution.runtime_abort_failed` make the bounded outcome observable without carrying code or
+output. Lease recovery and cancellation resolve a previously `PENDING` abort rather than leaving
+an unknown state indefinitely.
+
 ## Long-running cells
 
 `JUPYTER_REQUEST_TIMEOUT_SECONDS` applies only to Jupyter REST operations such as health checks and
@@ -107,6 +123,9 @@ reconciliation. Local real-Jupyter tests are:
 uv run python scripts/jupyter_retry_smoke.py
 uv run python scripts/jupyter_retry_offline_recovery_smoke.py
 uv run python scripts/jupyter_worker_recovery_smoke.py
+JUPYTER_GATEWAY_ENDPOINT=http://127.0.0.1:8888 \
+JUPYTER_GATEWAY_TOKEN=change-me-local-only \
+uv run python scripts/jupyter_timeout_abort_smoke.py
 ```
 
 The OFFLINE recovery smoke temporarily replaces the registered server endpoint with an unreachable

@@ -3,6 +3,7 @@ from typing import Any
 import httpx
 import pytest
 
+from executor_service.domain.enums import RuntimeAbortStatus
 from executor_service.domain.runtime import RuntimeDriverError
 from executor_service.infrastructure.jupyter import (
     JupyterRuntimeDriver,
@@ -92,6 +93,72 @@ async def test_status_rejects_invalid_active_session_count() -> None:
             await driver.status()
     finally:
         await driver.close()
+
+
+async def test_abort_session_interrupts_and_confirms_idle() -> None:
+    requested: list[tuple[str, str]] = []
+    states = iter(["busy", "idle"])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requested.append((request.method, request.url.path))
+        if request.method == "POST":
+            return httpx.Response(204)
+        return httpx.Response(200, json={"execution_state": next(states)})
+
+    driver = JupyterRuntimeDriver("http://jupyter.invalid", "secret")
+    await driver._client.aclose()
+    driver._client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        base_url="http://jupyter.invalid",
+    )
+    try:
+        result = await driver.abort_session("kernel-1", 1)
+    finally:
+        await driver.close()
+
+    assert result.status == RuntimeAbortStatus.IDLE_CONFIRMED
+    assert requested == [
+        ("POST", "/api/kernels/kernel-1/interrupt"),
+        ("GET", "/api/kernels/kernel-1"),
+        ("GET", "/api/kernels/kernel-1"),
+    ]
+
+
+async def test_abort_session_reports_missing_kernel() -> None:
+    driver = JupyterRuntimeDriver("http://jupyter.invalid", "secret")
+    await driver._client.aclose()
+    driver._client = httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _request: httpx.Response(404)),
+        base_url="http://jupyter.invalid",
+    )
+    try:
+        result = await driver.abort_session("missing", 1)
+    finally:
+        await driver.close()
+
+    assert result.status == RuntimeAbortStatus.SESSION_MISSING
+
+
+async def test_abort_session_has_bounded_idle_confirmation() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            return httpx.Response(204)
+        return httpx.Response(200, json={"execution_state": "busy"})
+
+    driver = JupyterRuntimeDriver("http://jupyter.invalid", "secret")
+    await driver._client.aclose()
+    driver._client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        base_url="http://jupyter.invalid",
+    )
+    try:
+        result = await driver.abort_session("busy", 0.01)
+    finally:
+        await driver.close()
+
+    assert result.status == RuntimeAbortStatus.FAILED
+    assert result.message is not None
+    assert "idle" in result.message
 
 
 async def test_resource_status_rejects_unknown_schema_version() -> None:

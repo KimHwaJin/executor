@@ -79,6 +79,7 @@ class Settings(BaseSettings):
     execution_heartbeat_seconds: int = Field(default=15, ge=5)
     execution_drain_timeout_seconds: float = Field(default=30, ge=0)
     execution_shutdown_cleanup_seconds: float = Field(default=20, gt=0)
+    runtime_abort_timeout_seconds: float = Field(default=15, gt=0)
     failed_session_retention_seconds: int = Field(default=3600, ge=60)
     execution_max_runtime_seconds: int = Field(default=432000, ge=60)
     tracing_enabled: bool = False

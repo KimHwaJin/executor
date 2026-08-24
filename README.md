@@ -191,6 +191,7 @@ Run the official SDK client smoke test in a second terminal:
 ```bash
 uv run python scripts/mcp_smoke.py
 uv run python scripts/jupyter_gateway_smoke.py
+uv run python scripts/jupyter_timeout_abort_smoke.py
 uv run python scripts/jupyter_execution_smoke.py
 uv run python scripts/path_execution_spec_smoke.py
 uv run python scripts/single_jupyter_smoke.py

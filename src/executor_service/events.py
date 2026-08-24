@@ -15,6 +15,7 @@ from executor_service.domain.enums import (
     ExecutionStatus,
     FailureType,
     RetryStrategy,
+    RuntimeAbortStatus,
     RuntimeSessionCleanupStatus,
     StepStatus,
 )
@@ -226,6 +227,17 @@ class RetryWindowExpiredPayload(CleanupPayload):
     retry_was_queued: bool
 
 
+class RuntimeAbortPayload(StatusPayload):
+    status: ExecutionStatus
+    execution_attempt_id: UUID
+    failure_type: FailureType
+    runtime_abort_status: RuntimeAbortStatus
+    runtime_session_cleanup_status: RuntimeSessionCleanupStatus
+    session_reusable: bool
+    message: str | None = Field(default=None, max_length=2000)
+    version: int = Field(ge=0)
+
+
 ExecutionEventPayload = (
     StatusPayload
     | SubmittedPayload
@@ -253,6 +265,7 @@ ExecutionEventPayload = (
     | CleanupFailedPayload
     | TimeoutRequestedPayload
     | RetryWindowExpiredPayload
+    | RuntimeAbortPayload
 )
 
 EVENT_PAYLOAD_MODELS: dict[str, type[EventPayload]] = {
@@ -279,6 +292,9 @@ EVENT_PAYLOAD_MODELS: dict[str, type[EventPayload]] = {
     "execution.runtime_session_cleanup_completed": CleanupCompletedPayload,
     "execution.runtime_session_cleanup_failed": CleanupFailedPayload,
     "execution.retry_window_expired": RetryWindowExpiredPayload,
+    "execution.runtime_abort_started": RuntimeAbortPayload,
+    "execution.runtime_abort_completed": RuntimeAbortPayload,
+    "execution.runtime_abort_failed": RuntimeAbortPayload,
 }
 
 

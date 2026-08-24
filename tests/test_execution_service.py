@@ -387,9 +387,9 @@ async def test_infrastructure_retry_starts_from_zero_with_a_new_kernel(
                 failure_type=FailureType.LEASE_EXPIRED,
                 retry_strategy=RetryStrategy.FROM_START,
                 retry_from_sequence=0,
-                runtime_session_id="abandoned-kernel",
+                runtime_session_id=None,
                 runtime_target_id=uuid4(),
-                runtime_session_cleanup_status=RuntimeSessionCleanupStatus.FAILED,
+                runtime_session_cleanup_status=RuntimeSessionCleanupStatus.SUCCEEDED,
                 finished_at=now,
             )
         )
@@ -426,12 +426,20 @@ async def test_infrastructure_retry_starts_from_zero_with_a_new_kernel(
     ]
 
 
+@pytest.mark.parametrize(
+    "cleanup_status",
+    [
+        RuntimeSessionCleanupStatus.PENDING,
+        RuntimeSessionCleanupStatus.FAILED,
+    ],
+)
 async def test_infrastructure_retry_waits_for_abandoned_runtime_session_cleanup(
     execution_service: ExecutionService,
     engine: AsyncEngine,
+    cleanup_status: RuntimeSessionCleanupStatus,
 ) -> None:
     execution = await execution_service.submit(
-        submit_command("cleanup-pending-retry-submit")
+        submit_command(f"cleanup-{cleanup_status.value}-retry-submit")
     )
     now = utc_now()
     session_factory = create_session_factory(engine)
@@ -446,25 +454,24 @@ async def test_infrastructure_retry_waits_for_abandoned_runtime_session_cleanup(
                 retry_from_sequence=0,
                 runtime_session_id="cleanup-pending-kernel",
                 runtime_target_id=uuid4(),
-                runtime_session_cleanup_status=RuntimeSessionCleanupStatus.PENDING,
+                runtime_session_cleanup_status=cleanup_status,
                 finished_at=now,
             )
         )
 
-    with pytest.raises(InvalidStateTransitionError, match="still cleaning up"):
+    with pytest.raises(InvalidStateTransitionError, match="unresolved"):
         await execution_service.retry(
             RetryExecutionCommand(
                 execution_id=execution.id,
-                idempotency_key="cleanup-pending-retry-command",
+                idempotency_key=(
+                    f"cleanup-{cleanup_status.value}-retry-command"
+                ),
             )
         )
 
     unchanged = await execution_service.get(execution.id)
     assert unchanged.status == ExecutionStatus.FAILED
-    assert (
-        unchanged.runtime_session_cleanup_status
-        == RuntimeSessionCleanupStatus.PENDING
-    )
+    assert unchanged.runtime_session_cleanup_status == cleanup_status
 
 
 async def test_multi_execution_rejects_explicit_retry(
