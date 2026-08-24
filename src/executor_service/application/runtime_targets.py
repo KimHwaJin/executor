@@ -67,6 +67,9 @@ class RuntimeTargetView:
     supported_profiles: tuple[str, ...]
     active_execution_count: int
     active_session_count: int | None
+    admission_used_count: int
+    session_count_observed_at: datetime | None
+    session_count_fresh: bool
     last_health_check_at: datetime | None
     last_health_error: str | None
     resource_observed_at: datetime | None
@@ -93,13 +96,21 @@ class RuntimeTargetView:
 
     @property
     def accepting_new_executions(self) -> bool:
-        return self.enabled and self.status == RuntimeTargetStatus.ACTIVE
+        return (
+            self.enabled
+            and self.status == RuntimeTargetStatus.ACTIVE
+            and not self.admission_blocked
+        )
+
+    @property
+    def admission_blocked(self) -> bool:
+        return self.admission_used_count >= self.max_concurrent_executions
 
     @property
     def drain_complete(self) -> bool:
         return (
             self.status == RuntimeTargetStatus.DRAINING
-            and self.active_execution_count == 0
+            and self.admission_used_count == 0
         )
 
     @property
@@ -107,7 +118,7 @@ class RuntimeTargetView:
         if not self.accepting_new_executions:
             return 0
         return max(
-            0, self.max_concurrent_executions - self.active_execution_count
+            0, self.max_concurrent_executions - self.admission_used_count
         )
 
 

@@ -52,10 +52,11 @@ class JupyterRuntimeDriver:
         try:
             payload = response.json()
             active_session_count = payload.get("kernels")
-            if active_session_count is not None and not isinstance(
-                active_session_count, int
+            if (
+                type(active_session_count) is not int
+                or active_session_count < 0
             ):
-                raise TypeError("kernels must be an integer")
+                raise TypeError("kernels must be a non-negative integer")
             return {"active_session_count": active_session_count}
         except (TypeError, ValueError) as exc:
             raise RuntimeDriverError(

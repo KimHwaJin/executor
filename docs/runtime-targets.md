@@ -127,15 +127,37 @@ An eligible target must:
 - have the exact requested `RuntimePool` and `runtime_type`;
 - be enabled and `ACTIVE`;
 - advertise the requested `runtime_profile`, restricted by `RUNTIME_ALLOWED_PROFILES`;
-- have capacity after running, waiting, and retained-retry reservations are counted.
+- have capacity after running/waiting Attempts, retained retries, and unresolved session cleanup
+  reservations are counted.
+
+Admission keeps the atomic PostgreSQL reservation and the latest Runtime observation separate:
+
+- `active_execution_count` is the distinct DB reservation count;
+- `active_session_count` is the last successful Runtime session observation and is never replaced
+  with zero or null by a failed probe;
+- `session_count_observed_at` and `session_count_fresh` describe whether that observation is usable;
+- `admission_used_count` is `max(active_execution_count, active_session_count)` while the
+  observation is fresh, otherwise it is the DB reservation count;
+- `available_capacity` and `admission_blocked` are derived from `admission_used_count`.
+
+Session observations expire after `RUNTIME_SESSION_COUNT_MAX_AGE_SECONDS`. Runtime HTTP calls are
+performed before the registry transaction; scheduling reads only persisted observations while
+holding the Target row lock. Redis Stream entries are not reservations.
 
 The periodic probe also reads each driver's resource observation. Fresh observations are ranked by
 the maximum of reserved-slot ratio, CPU utilization, and memory utilization; CPU is a ranking
 signal, while memory at or above `RUNTIME_MEMORY_ADMISSION_LIMIT` blocks new admission. Ties use
 memory utilization, reservation count, and stable target name. If every candidate lacks a fresh
-observation (`RUNTIME_RESOURCE_MAX_AGE_SECONDS`), scheduling safely falls back to least slot usage.
+observation (`RUNTIME_RESOURCE_MAX_AGE_SECONDS`), scheduling safely falls back to the least
+effective admission usage.
 A resource-only probe failure leaves an otherwise healthy target `ACTIVE`, marks resource data
 stale, and does not erase its last successful observation.
+
+Cleanup `PENDING` or `FAILED` with a retained Runtime session ID continues to reserve a slot. The
+maintenance loop retries these deletions after `RUNTIME_CLEANUP_RETRY_INTERVAL_SECONDS`; successful
+cleanup clears the session ID and releases capacity. A fresh observed session count above DB
+reservations blocks admission and emits an operational warning, but does not automatically
+quarantine or delete an unowned Runtime session.
 
 Executor starts with an empty Runtime Fleet. `/readyz` covers PostgreSQL, Redis, and Worker
 admission, so the control API remains reachable while no target is registered. Use

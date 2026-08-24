@@ -30,9 +30,6 @@ from executor_service.application.runtime_targets import (
 from executor_service.config import Settings
 from executor_service.domain.enums import (
     ActorType,
-    AttemptStatus,
-    ExecutionStatus,
-    RetryStrategy,
     RuntimePool,
     RuntimeTargetStatus,
     RuntimeType,
@@ -51,6 +48,11 @@ from executor_service.infrastructure.db.models import (
     ExecutionORM,
     RuntimeTargetORM,
     RuntimeTargetPurgeORM,
+)
+from executor_service.infrastructure.runtime_admission import (
+    admission_used_count,
+    count_runtime_reservations,
+    session_count_is_fresh,
 )
 from executor_service.infrastructure.runtime_drivers import (
     ConfiguredRuntimeDriverFactory,
@@ -362,8 +364,12 @@ class RuntimeTargetRegistry:
                     "Runtime Target supports none of RUNTIME_ALLOWED_PROFILES."
                 )
             raw_session_count = status.get("active_session_count")
-            if isinstance(raw_session_count, int):
-                active_session_count = raw_session_count
+            if type(raw_session_count) is not int or raw_session_count < 0:
+                raise RuntimeTargetConfigurationError(
+                    "Runtime Target did not return a non-negative "
+                    "active_session_count."
+                )
+            active_session_count = raw_session_count
         except Exception as exc:
             error = f"Probe failed ({type(exc).__name__})"
         if error is None:
@@ -382,15 +388,18 @@ class RuntimeTargetRegistry:
         async with self._session_factory() as session, session.begin():
             target = await self._required_target(session, target_id, lock=True)
             if target.enabled:
+                checked_at = utc_now()
                 if error is None:
                     if target.status != RuntimeTargetStatus.DRAINING:
                         target.status = RuntimeTargetStatus.ACTIVE
                     target.supported_profiles = profiles
                 else:
                     target.status = RuntimeTargetStatus.OFFLINE
-                target.last_health_check_at = utc_now()
+                target.last_health_check_at = checked_at
                 target.last_health_error = error
-                target.active_session_count = active_session_count
+                if error is None and active_session_count is not None:
+                    target.active_session_count = active_session_count
+                    target.session_count_observed_at = checked_at
                 target.resource_last_check_at = utc_now()
                 target.resource_last_error = resource_error
                 if resource is not None:
@@ -417,7 +426,23 @@ class RuntimeTargetRegistry:
                 if actor_type is not None:
                     target.updated_by_type = actor_type
                     target.updated_by = actor_id
-            return await self._to_view(session, target)
+            view = await self._to_view(session, target)
+            if (
+                view.session_count_fresh
+                and view.active_session_count is not None
+                and view.active_session_count > view.active_execution_count
+            ):
+                logger.warning(
+                    "Runtime session count exceeds durable reservations",
+                    extra={
+                        "runtime_target_id": str(view.id),
+                        "active_execution_count": (
+                            view.active_execution_count
+                        ),
+                        "active_session_count": view.active_session_count,
+                    },
+                )
+            return view
 
     async def disable(
         self, command: DisableRuntimeTargetCommand
@@ -699,30 +724,26 @@ class RuntimeTargetRegistry:
     async def _to_view(
         self, session: AsyncSession, target: RuntimeTargetORM
     ) -> RuntimeTargetView:
-        active = await session.scalar(
-            select(func.count(ExecutionAttemptORM.id)).where(
-                ExecutionAttemptORM.runtime_target_id == target.id,
-                ExecutionAttemptORM.status.in_(
-                    [AttemptStatus.RUNNING, AttemptStatus.WAITING]
-                ),
-            )
+        now = utc_now()
+        active_execution_count = await count_runtime_reservations(
+            session, target.id, now
         )
-        retained = await session.scalar(
-            select(func.count(ExecutionORM.id)).where(
-                ExecutionORM.runtime_target_id == target.id,
-                ExecutionORM.status.in_(
-                    [ExecutionStatus.FAILED, ExecutionStatus.QUEUED]
-                ),
-                ExecutionORM.retry_strategy == RetryStrategy.FROM_FAILED_STEP,
-                ExecutionORM.retained_runtime_session_until > utc_now(),
-            )
+        session_count_fresh = session_count_is_fresh(
+            target,
+            now,
+            self._settings.runtime_session_count_max_age_seconds,
         )
-        active_execution_count = (active or 0) + (retained or 0)
+        effective_usage = admission_used_count(
+            target,
+            active_execution_count,
+            now,
+            self._settings.runtime_session_count_max_age_seconds,
+        )
         resource_fresh = self._resource_is_fresh(target)
         resource_pressure_score = None
         if resource_fresh:
             pressure_components = [
-                active_execution_count / target.max_concurrent_executions,
+                effective_usage / target.max_concurrent_executions,
                 *(
                     [target.cpu_utilization]
                     if target.cpu_utilization is not None
@@ -747,6 +768,9 @@ class RuntimeTargetRegistry:
             supported_profiles=tuple(target.supported_profiles),
             active_execution_count=active_execution_count,
             active_session_count=target.active_session_count,
+            admission_used_count=effective_usage,
+            session_count_observed_at=target.session_count_observed_at,
+            session_count_fresh=session_count_fresh,
             last_health_check_at=target.last_health_check_at,
             last_health_error=target.last_health_error,
             resource_observed_at=target.resource_observed_at,

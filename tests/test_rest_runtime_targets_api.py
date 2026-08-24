@@ -1,5 +1,5 @@
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -17,6 +17,7 @@ from executor_service.domain.runtime import (
 from executor_service.infrastructure.db.base import Base
 from executor_service.infrastructure.db.models import (
     ExecutionORM,
+    RuntimeTargetORM,
     RuntimeTargetPurgeORM,
 )
 from executor_service.interfaces.http.app import create_app
@@ -24,6 +25,8 @@ from executor_service.interfaces.http.app import create_app
 
 class HealthyGateway:
     fail_resource_probe = False
+    fail_health_probe = False
+    active_session_count = 1
 
     def __init__(
         self,
@@ -35,7 +38,9 @@ class HealthyGateway:
         pass
 
     async def status(self) -> dict[str, object]:
-        return {"active_session_count": 1}
+        if self.fail_health_probe:
+            raise RuntimeError("health endpoint unavailable")
+        return {"active_session_count": self.active_session_count}
 
     async def supported_profiles(self) -> list[str]:
         return ["basic", "ml"]
@@ -60,6 +65,8 @@ async def fleet_client(
     tmp_path: Path, monkeypatch: Any
 ) -> AsyncIterator[tuple[httpx.AsyncClient, ApplicationContainer]]:
     HealthyGateway.fail_resource_probe = False
+    HealthyGateway.fail_health_probe = False
+    HealthyGateway.active_session_count = 1
     monkeypatch.setattr(
         "executor_service.infrastructure.runtime_drivers.JupyterRuntimeDriver",
         HealthyGateway,
@@ -169,9 +176,21 @@ async def test_openapi_documents_runtime_fleet_routes_and_never_returns_token(
     assert created.json()["created_by"] == "fleet-admin"
     assert created.json()["updated_by"] == "fleet-admin"
     assert created.json()["runtime"]["supported_profiles"] == ["basic", "ml"]
-    assert created.json()["capacity"]["available_capacity"] == 2
+    assert created.json()["capacity"] == {
+        "max_concurrent_executions": 2,
+        "active_execution_count": 0,
+        "active_session_count": 1,
+        "admission_used_count": 1,
+        "available_capacity": 1,
+        "admission_blocked": False,
+        "session_count_observed_at": created.json()["capacity"][
+            "session_count_observed_at"
+        ],
+        "session_count_fresh": True,
+    }
+    assert created.json()["capacity"]["session_count_observed_at"]
     assert created.json()["resources"]["fresh"] is True
-    assert created.json()["resources"]["pressure_score"] == 0.25
+    assert created.json()["resources"]["pressure_score"] == 0.5
     assert created.json()["resources"]["memory"]["utilization"] == 0.25
 
 
@@ -195,11 +214,72 @@ async def test_resource_only_probe_failure_keeps_target_active_and_marks_data_st
     assert probed.status_code == 200
     assert probed.json()["state"]["status"] == "ACTIVE"
     assert probed.json()["resources"]["fresh"] is False
+    assert probed.json()["capacity"]["session_count_fresh"] is True
     assert (
         probed.json()["resources"]["last_error"]
         == "Resource probe failed (RuntimeError)"
     )
     assert probed.json()["resources"]["memory"]["utilization"] == 0.25
+
+
+async def test_failed_probe_retains_session_observation_but_marks_it_stale(
+    fleet_client: tuple[httpx.AsyncClient, ApplicationContainer],
+) -> None:
+    client, _ = fleet_client
+    created = await client.post(
+        "/api/v1/runtime-targets", json=_upsert_payload(40)
+    )
+    target_id = created.json()["target_id"]
+    observed_at = created.json()["capacity"]["session_count_observed_at"]
+    HealthyGateway.fail_health_probe = True
+    try:
+        probed = await client.post(
+            f"/api/v1/runtime-targets/{target_id}/probe",
+            json={"actor": {"type": "USER", "id": "fleet-admin"}},
+        )
+    finally:
+        HealthyGateway.fail_health_probe = False
+
+    assert probed.status_code == 200
+    assert probed.json()["state"]["status"] == "OFFLINE"
+    assert probed.json()["capacity"]["active_session_count"] == 1
+    before = datetime.fromisoformat(observed_at.replace("Z", "+00:00"))
+    after = datetime.fromisoformat(
+        probed.json()["capacity"]["session_count_observed_at"].replace(
+            "Z", "+00:00"
+        )
+    )
+    if after.tzinfo is None:
+        after = after.replace(tzinfo=UTC)
+    assert after == before
+    assert probed.json()["capacity"]["session_count_fresh"] is False
+    assert probed.json()["capacity"]["admission_used_count"] == 0
+
+
+async def test_stale_session_observation_uses_durable_reservations(
+    fleet_client: tuple[httpx.AsyncClient, ApplicationContainer],
+) -> None:
+    client, container = fleet_client
+    created = await client.post(
+        "/api/v1/runtime-targets", json=_upsert_payload(41)
+    )
+    target_id = UUID(created.json()["target_id"])
+    async with container.session_factory() as session, session.begin():
+        await session.execute(
+            update(RuntimeTargetORM)
+            .where(RuntimeTargetORM.id == target_id)
+            .values(
+                session_count_observed_at=datetime.now(UTC)
+                - timedelta(minutes=5)
+            )
+        )
+
+    response = await client.get(f"/api/v1/runtime-targets/{target_id}")
+    capacity = response.json()["capacity"]
+    assert capacity["active_session_count"] == 1
+    assert capacity["session_count_fresh"] is False
+    assert capacity["admission_used_count"] == 0
+    assert capacity["available_capacity"] == 43
 
 
 async def test_fleet_list_filters_cursor_capacity_and_state_controls(
@@ -242,7 +322,7 @@ async def test_fleet_list_filters_cursor_capacity_and_state_controls(
     }
     assert summaries[("JUPYTER", "INTERACTIVE")]["targets"]["total"] == 2
     assert summaries[("JUPYTER", "INTERACTIVE")]["capacity"]["configured"] == 5
-    assert summaries[("JUPYTER", "INTERACTIVE")]["capacity"]["available"] == 5
+    assert summaries[("JUPYTER", "INTERACTIVE")]["capacity"]["available"] == 3
     assert (
         summaries[("JUPYTER", "INTERACTIVE")]["state"][
             "accepting_new_executions"

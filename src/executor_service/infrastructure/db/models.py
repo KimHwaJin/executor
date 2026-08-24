@@ -725,6 +725,10 @@ class RuntimeTargetORM(Base):
         CheckConstraint(
             "max_concurrent_executions > 0", name="positive_max_concurrency"
         ),
+        CheckConstraint(
+            "active_session_count IS NULL OR active_session_count >= 0",
+            name="non_negative_active_session_count",
+        ),
         Index("ix_runtime_targets_pool_status", "pool", "enabled", "status"),
         Index("ix_runtime_targets_created_cursor", "created_at", "id"),
     )
@@ -765,6 +769,9 @@ class RuntimeTargetORM(Base):
     )
     last_health_error: Mapped[str | None] = mapped_column(String(500))
     active_session_count: Mapped[int | None] = mapped_column(Integer)
+    session_count_observed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
     resource_observed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True)
     )
