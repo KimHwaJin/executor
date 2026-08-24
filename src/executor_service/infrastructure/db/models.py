@@ -37,6 +37,7 @@ from executor_service.domain.enums import (
     OutboxDestination,
     OutboxStatus,
     RetryStrategy,
+    RuntimeAbortStatus,
     RuntimePool,
     RuntimeSessionCleanupStatus,
     RuntimeTargetStatus,
@@ -133,6 +134,11 @@ class ExecutionORM(Base):
         CheckConstraint(
             "runtime_session_cleanup_status IN ('NOT_REQUIRED', 'PENDING', 'SUCCEEDED', 'FAILED')",
             name="valid_runtime_session_cleanup_status",
+        ),
+        CheckConstraint(
+            "runtime_abort_status IN ('NOT_REQUIRED', 'PENDING', "
+            "'IDLE_CONFIRMED', 'SESSION_DELETED', 'SESSION_MISSING', 'FAILED')",
+            name="valid_runtime_abort_status",
         ),
         CheckConstraint(
             "retry_from_sequence IS NULL OR retry_from_sequence >= 0",
@@ -267,6 +273,11 @@ class ExecutionORM(Base):
             default=RuntimeSessionCleanupStatus.NOT_REQUIRED,
         )
     )
+    runtime_abort_status: Mapped[RuntimeAbortStatus] = mapped_column(
+        enum_type(RuntimeAbortStatus, "runtime_abort_status"),
+        nullable=False,
+        default=RuntimeAbortStatus.NOT_REQUIRED,
+    )
     finalization_requested: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False
     )
@@ -355,6 +366,7 @@ class ExecutionORM(Base):
             retry_count=execution.retry_count,
             recovery_count=execution.recovery_count,
             runtime_session_cleanup_status=execution.runtime_session_cleanup_status,
+            runtime_abort_status=execution.runtime_abort_status,
             finalization_requested=execution.finalization_requested,
             active_operation_id=execution.active_operation_id,
             operation_wait_expires_at=execution.operation_wait_expires_at,
@@ -410,6 +422,7 @@ class ExecutionORM(Base):
             retry_count=self.retry_count,
             recovery_count=self.recovery_count,
             runtime_session_cleanup_status=self.runtime_session_cleanup_status,
+            runtime_abort_status=self.runtime_abort_status,
             finalization_requested=self.finalization_requested,
             active_operation_id=self.active_operation_id,
             operation_wait_expires_at=self.operation_wait_expires_at,
@@ -921,6 +934,11 @@ class ExecutionAttemptORM(Base):
             name="valid_runtime_session_cleanup_status",
         ),
         CheckConstraint(
+            "runtime_abort_status IN ('NOT_REQUIRED', 'PENDING', "
+            "'IDLE_CONFIRMED', 'SESSION_DELETED', 'SESSION_MISSING', 'FAILED')",
+            name="valid_runtime_abort_status",
+        ),
+        CheckConstraint(
             "fencing_token >= 0", name="non_negative_fencing_token"
         ),
         Index("ix_execution_attempts_lease", "status", "lease_expires_at"),
@@ -983,6 +1001,11 @@ class ExecutionAttemptORM(Base):
             nullable=False,
             default=RuntimeSessionCleanupStatus.NOT_REQUIRED,
         )
+    )
+    runtime_abort_status: Mapped[RuntimeAbortStatus] = mapped_column(
+        enum_type(RuntimeAbortStatus, "attempt_runtime_abort_status"),
+        nullable=False,
+        default=RuntimeAbortStatus.NOT_REQUIRED,
     )
     created_by_type: Mapped[ActorType | None] = mapped_column(
         enum_type(ActorType, "actor_type"), nullable=True

@@ -1,5 +1,6 @@
 """Jupyter implementation of the generic RuntimeDriver contract."""
 
+import asyncio
 import json
 from datetime import UTC, datetime
 from pathlib import PurePosixPath
@@ -12,7 +13,9 @@ import websockets
 from websockets.exceptions import WebSocketException
 from websockets.typing import Subprotocol
 
+from executor_service.domain.enums import RuntimeAbortStatus
 from executor_service.domain.runtime import (
+    RuntimeAbortResult,
     RuntimeDriverError,
     RuntimeExecutionError,
     RuntimeExecutionResult,
@@ -114,6 +117,54 @@ class JupyterRuntimeDriver:
             f"/api/kernels/{session_id}/interrupt",
             allowed_statuses={204, 404},
         )
+
+    async def abort_session(
+        self, session_id: str, timeout_seconds: float
+    ) -> RuntimeAbortResult:
+        try:
+            interrupt = await self._request(
+                "POST",
+                f"/api/kernels/{session_id}/interrupt",
+                allowed_statuses={204, 404},
+            )
+            if interrupt.status_code == 404:
+                return RuntimeAbortResult(
+                    RuntimeAbortStatus.SESSION_MISSING,
+                    "Runtime session disappeared before interruption.",
+                )
+            async with asyncio.timeout(timeout_seconds):
+                while True:
+                    response = await self._request(
+                        "GET",
+                        f"/api/kernels/{session_id}",
+                        allowed_statuses={200, 404},
+                    )
+                    if response.status_code == 404:
+                        return RuntimeAbortResult(
+                            RuntimeAbortStatus.SESSION_MISSING,
+                            "Runtime session disappeared while confirming abort.",
+                        )
+                    try:
+                        execution_state = response.json()["execution_state"]
+                    except (KeyError, TypeError, ValueError) as exc:
+                        raise RuntimeDriverError(
+                            "Jupyter kernel status response is invalid."
+                        ) from exc
+                    if execution_state == "idle":
+                        return RuntimeAbortResult(
+                            RuntimeAbortStatus.IDLE_CONFIRMED
+                        )
+                    await asyncio.sleep(min(0.25, timeout_seconds / 10))
+        except TimeoutError:
+            return RuntimeAbortResult(
+                RuntimeAbortStatus.FAILED,
+                "Runtime did not confirm an idle session before the abort deadline.",
+            )
+        except RuntimeDriverError as exc:
+            return RuntimeAbortResult(
+                RuntimeAbortStatus.FAILED,
+                str(exc)[:2000],
+            )
 
     async def delete_session(self, session_id: str) -> None:
         await self._request(

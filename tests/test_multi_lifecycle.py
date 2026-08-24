@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from executor_service.application.commands import (
     CreateOperationCommand,
+    RetryExecutionCommand,
     StepSpec,
     SubmitExecutionCommand,
 )
@@ -22,6 +23,8 @@ from executor_service.domain.enums import (
     FailureType,
     OperationMode,
     OperationStatus,
+    RetryStrategy,
+    RuntimeAbortStatus,
     RuntimePool,
     RuntimeSessionCleanupStatus,
     RuntimeTargetStatus,
@@ -31,6 +34,7 @@ from executor_service.domain.enums import (
 from executor_service.domain.errors import InvalidStateTransitionError
 from executor_service.domain.models import Execution, utc_now
 from executor_service.domain.runtime import (
+    RuntimeAbortResult,
     RuntimeExecutionError,
     RuntimeExecutionResult,
     RuntimeExecutionTimeoutError,
@@ -80,6 +84,12 @@ class FakeJupyterGateway:
 class RecordingMultiDriver(InMemoryRuntimeStorage):
     executed: ClassVar[list[str]] = []
     fail_code: ClassVar[str | None] = None
+    slow_code: ClassVar[str | None] = None
+    abort_status: ClassVar[RuntimeAbortStatus] = (
+        RuntimeAbortStatus.IDLE_CONFIRMED
+    )
+    deleted: ClassVar[list[str]] = []
+    delete_fails: ClassVar[bool] = False
 
     def __init__(self, *_args: Any, **_kwargs: Any) -> None:
         pass
@@ -113,10 +123,18 @@ class RecordingMultiDriver(InMemoryRuntimeStorage):
         return "operation-kernel"
 
     async def delete_session(self, session_id: str) -> None:
-        del session_id
+        self.deleted.append(session_id)
+        if self.delete_fails:
+            raise RuntimeError("expected delete failure")
 
     async def interrupt_session(self, session_id: str) -> None:
         del session_id
+
+    async def abort_session(
+        self, session_id: str, timeout_seconds: float
+    ) -> RuntimeAbortResult:
+        del session_id, timeout_seconds
+        return RuntimeAbortResult(self.abort_status)
 
     async def session_exists(self, session_id: str) -> bool:
         del session_id
@@ -127,6 +145,8 @@ class RecordingMultiDriver(InMemoryRuntimeStorage):
     ) -> RuntimeExecutionResult:
         del session_id
         self.executed.append(code)
+        if code == self.slow_code:
+            await asyncio.sleep(2)
         if code == self.fail_code:
             raise RuntimeExecutionError(
                 "expected operation failure",
@@ -359,6 +379,10 @@ def _reset_fake_gateway() -> None:
     FakeJupyterGateway.interrupted = []
     RecordingMultiDriver.executed = []
     RecordingMultiDriver.fail_code = None
+    RecordingMultiDriver.slow_code = None
+    RecordingMultiDriver.abort_status = RuntimeAbortStatus.IDLE_CONFIRMED
+    RecordingMultiDriver.deleted = []
+    RecordingMultiDriver.delete_fails = False
 
 
 @pytest.mark.parametrize(
@@ -502,6 +526,319 @@ async def test_multi_operation_executes_submitted_steps_until_boundary(
         if event_type in {"execution.step_succeeded", "execution.step_failed"}
     ]
     assert max(result_positions) < ordered_event_types.index(expected_event)
+
+
+@pytest.mark.parametrize(
+    (
+        "abort_status",
+        "delete_fails",
+        "expected_execution_status",
+        "expected_abort_status",
+        "expected_cleanup_status",
+    ),
+    [
+        (
+            RuntimeAbortStatus.IDLE_CONFIRMED,
+            False,
+            ExecutionStatus.WAITING_FOR_OPERATION,
+            RuntimeAbortStatus.IDLE_CONFIRMED,
+            RuntimeSessionCleanupStatus.NOT_REQUIRED,
+        ),
+        (
+            RuntimeAbortStatus.FAILED,
+            False,
+            ExecutionStatus.FAILED,
+            RuntimeAbortStatus.SESSION_DELETED,
+            RuntimeSessionCleanupStatus.SUCCEEDED,
+        ),
+        (
+            RuntimeAbortStatus.FAILED,
+            True,
+            ExecutionStatus.FAILED,
+            RuntimeAbortStatus.FAILED,
+            RuntimeSessionCleanupStatus.FAILED,
+        ),
+    ],
+)
+async def test_multi_timeout_requires_confirmed_abort_before_transition(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    abort_status: RuntimeAbortStatus,
+    delete_fails: bool,
+    expected_execution_status: ExecutionStatus,
+    expected_abort_status: RuntimeAbortStatus,
+    expected_cleanup_status: RuntimeSessionCleanupStatus,
+) -> None:
+    command = replace(
+        _multi_command(f"timeout-{abort_status.value.lower()}-{delete_fails}"),
+        steps=(
+            StepSpec(
+                0,
+                "slow-timeout",
+                step_timeout_seconds=1,
+            ),
+        ),
+    )
+    execution = await execution_service.submit(command)
+    session_factory = create_session_factory(engine)
+    async with session_factory() as session, session.begin():
+        session.add(
+            RuntimeTargetORM(
+                name=f"timeout-target-{abort_status.value}-{delete_fails}",
+                connection_config={"endpoint": "http://timeout.invalid"},
+                **runtime_credential_fields(),
+                pool=RuntimePool.INTERACTIVE,
+                status=RuntimeTargetStatus.ACTIVE,
+                max_concurrent_executions=1,
+                supported_profiles=["basic"],
+                enabled=True,
+            )
+        )
+    RecordingMultiDriver.slow_code = "slow-timeout"
+    RecordingMultiDriver.abort_status = abort_status
+    RecordingMultiDriver.delete_fails = delete_fails
+    _patch_runtime_driver(monkeypatch, RecordingMultiDriver)
+    worker, redis = _worker(engine, tmp_path)
+    try:
+        await worker._run_execution(execution.id)
+    finally:
+        await redis.aclose()
+
+    async with session_factory() as session:
+        row = await session.get(ExecutionORM, execution.id)
+        operation = await session.get(
+            ExecutionOperationORM, execution.active_operation_id
+        )
+        step = await session.scalar(
+            select(ExecutionStepORM).where(
+                ExecutionStepORM.execution_id == execution.id
+            )
+        )
+        abort_events = list(
+            await session.scalars(
+                select(OutboxEventORM)
+                .where(
+                    OutboxEventORM.aggregate_id == execution.id,
+                    OutboxEventORM.event_type.like(
+                        "execution.runtime_abort_%"
+                    ),
+                )
+                .order_by(OutboxEventORM.created_at, OutboxEventORM.id)
+            )
+        )
+    assert row is not None and operation is not None and step is not None
+    assert row.status == expected_execution_status, row.error_message
+    assert row.runtime_abort_status == expected_abort_status, row.error_message
+    assert row.runtime_session_cleanup_status == expected_cleanup_status
+    assert operation.status == OperationStatus.FAILED
+    assert step.status == StepStatus.FAILED
+    assert [event.event_type for event in abort_events] == [
+        "execution.runtime_abort_started",
+        (
+            "execution.runtime_abort_failed"
+            if expected_abort_status == RuntimeAbortStatus.FAILED
+            else "execution.runtime_abort_completed"
+        ),
+    ]
+    assert RecordingMultiDriver.deleted == (
+        []
+        if abort_status == RuntimeAbortStatus.IDLE_CONFIRMED
+        else ["operation-kernel"]
+    )
+
+
+@pytest.mark.parametrize(
+    (
+        "abort_status",
+        "delete_fails",
+        "expected_abort_status",
+        "expected_cleanup_status",
+        "expected_retry_strategy",
+        "retains_session",
+    ),
+    [
+        (
+            RuntimeAbortStatus.IDLE_CONFIRMED,
+            False,
+            RuntimeAbortStatus.IDLE_CONFIRMED,
+            RuntimeSessionCleanupStatus.NOT_REQUIRED,
+            RetryStrategy.FROM_FAILED_STEP,
+            True,
+        ),
+        (
+            RuntimeAbortStatus.FAILED,
+            False,
+            RuntimeAbortStatus.SESSION_DELETED,
+            RuntimeSessionCleanupStatus.SUCCEEDED,
+            RetryStrategy.FROM_START,
+            False,
+        ),
+        (
+            RuntimeAbortStatus.FAILED,
+            True,
+            RuntimeAbortStatus.FAILED,
+            RuntimeSessionCleanupStatus.FAILED,
+            RetryStrategy.FROM_START,
+            True,
+        ),
+    ],
+)
+async def test_single_timeout_controls_retry_and_session_reuse(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    abort_status: RuntimeAbortStatus,
+    delete_fails: bool,
+    expected_abort_status: RuntimeAbortStatus,
+    expected_cleanup_status: RuntimeSessionCleanupStatus,
+    expected_retry_strategy: RetryStrategy,
+    retains_session: bool,
+) -> None:
+    command = replace(
+        _multi_command(
+            f"single-timeout-{abort_status.value.lower()}-{delete_fails}"
+        ),
+        operation_mode=OperationMode.SINGLE,
+        operation_wait_timeout_seconds=None,
+        steps=(
+            StepSpec(
+                0,
+                "single-slow-timeout",
+                step_timeout_seconds=1,
+            ),
+        ),
+    )
+    execution = await execution_service.submit(command)
+    session_factory = create_session_factory(engine)
+    async with session_factory() as session, session.begin():
+        session.add(
+            RuntimeTargetORM(
+                name=(
+                    "single-timeout-target-"
+                    f"{abort_status.value}-{delete_fails}"
+                ),
+                connection_config={"endpoint": "http://timeout.invalid"},
+                **runtime_credential_fields(),
+                pool=RuntimePool.INTERACTIVE,
+                status=RuntimeTargetStatus.ACTIVE,
+                max_concurrent_executions=1,
+                supported_profiles=["basic"],
+                enabled=True,
+            )
+        )
+    RecordingMultiDriver.slow_code = "single-slow-timeout"
+    RecordingMultiDriver.abort_status = abort_status
+    RecordingMultiDriver.delete_fails = delete_fails
+    _patch_runtime_driver(monkeypatch, RecordingMultiDriver)
+    worker, redis = _worker(engine, tmp_path)
+    try:
+        await worker._run_execution(execution.id)
+    finally:
+        await redis.aclose()
+
+    async with session_factory() as session:
+        row = await session.get(ExecutionORM, execution.id)
+        attempt = await session.scalar(
+            select(ExecutionAttemptORM).where(
+                ExecutionAttemptORM.execution_id == execution.id
+            )
+        )
+    assert row is not None and attempt is not None
+    assert row.status == ExecutionStatus.FAILED
+    assert row.failure_type == FailureType.STEP_TIMEOUT
+    assert row.runtime_abort_status == expected_abort_status
+    assert attempt.runtime_abort_status == expected_abort_status
+    assert row.runtime_session_cleanup_status == expected_cleanup_status
+    assert row.retry_strategy == expected_retry_strategy
+    assert (row.runtime_session_id is not None) is retains_session
+
+    if expected_cleanup_status == RuntimeSessionCleanupStatus.FAILED:
+        with pytest.raises(
+            InvalidStateTransitionError,
+            match="unresolved abandoned Runtime session cleanup",
+        ):
+            await execution_service.retry(
+                RetryExecutionCommand(
+                    execution_id=execution.id,
+                    idempotency_key=f"retry-blocked-{execution.id}",
+                )
+            )
+
+
+async def test_multi_correction_resets_resolved_abort_state(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    execution = await execution_service.submit(
+        replace(
+            _multi_command("timeout-correction-reset"),
+            steps=(
+                StepSpec(
+                    0,
+                    "slow-before-correction",
+                    step_timeout_seconds=1,
+                ),
+            ),
+        )
+    )
+    session_factory = create_session_factory(engine)
+    async with session_factory() as session, session.begin():
+        session.add(
+            RuntimeTargetORM(
+                name="timeout-correction-target",
+                connection_config={"endpoint": "http://timeout.invalid"},
+                **runtime_credential_fields(),
+                pool=RuntimePool.INTERACTIVE,
+                status=RuntimeTargetStatus.ACTIVE,
+                max_concurrent_executions=1,
+                supported_profiles=["basic"],
+                enabled=True,
+            )
+        )
+    RecordingMultiDriver.slow_code = "slow-before-correction"
+    _patch_runtime_driver(monkeypatch, RecordingMultiDriver)
+    worker, redis = _worker(engine, tmp_path)
+    try:
+        await worker._run_execution(execution.id)
+        async with session_factory() as session:
+            timed_out = await session.get(ExecutionORM, execution.id)
+        assert timed_out is not None
+        assert timed_out.status == ExecutionStatus.WAITING_FOR_OPERATION
+        assert (
+            timed_out.runtime_abort_status == RuntimeAbortStatus.IDLE_CONFIRMED
+        )
+
+        await execution_service.create_operation_result(
+            CreateOperationCommand(
+                execution_id=execution.id,
+                idempotency_key=f"timeout-correction-{execution.id}",
+                expected_version=timed_out.version,
+                steps=(StepSpec(1, "corrected = True"),),
+            )
+        )
+        RecordingMultiDriver.slow_code = None
+        await worker._run_execution(execution.id)
+    finally:
+        await redis.aclose()
+
+    async with session_factory() as session:
+        corrected = await session.get(ExecutionORM, execution.id)
+        attempt = await session.scalar(
+            select(ExecutionAttemptORM).where(
+                ExecutionAttemptORM.execution_id == execution.id
+            )
+        )
+    assert corrected is not None and attempt is not None
+    assert corrected.status == ExecutionStatus.WAITING_FOR_OPERATION
+    assert corrected.failure_type is None
+    assert corrected.runtime_abort_status == RuntimeAbortStatus.NOT_REQUIRED
+    assert attempt.failure_type is None
+    assert attempt.runtime_abort_status == RuntimeAbortStatus.NOT_REQUIRED
 
 
 async def test_expired_multi_wait_fails_and_cleans_kernel_once(

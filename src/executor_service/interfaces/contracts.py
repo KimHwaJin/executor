@@ -48,6 +48,7 @@ from executor_service.domain.enums import (
     OperationStatus,
     OutboxStatus,
     RetryStrategy,
+    RuntimeAbortStatus,
     RuntimePool,
     RuntimeSessionCleanupStatus,
     RuntimeTargetStatus,
@@ -664,6 +665,7 @@ class RetryResponse(ContractModel):
 class RecoveryResponse(ContractModel):
     count: int
     runtime_session_cleanup_status: RuntimeSessionCleanupStatus
+    runtime_abort_status: RuntimeAbortStatus
 
 
 class DeadlinesResponse(ContractModel):
@@ -807,6 +809,7 @@ class ExecutionResponse(AuditFields):
             recovery=RecoveryResponse(
                 count=execution.recovery_count,
                 runtime_session_cleanup_status=execution.runtime_session_cleanup_status,
+                runtime_abort_status=execution.runtime_abort_status,
             ),
             deadlines=DeadlinesResponse(
                 operation_wait_expires_at=execution.operation_wait_expires_at,
@@ -931,6 +934,7 @@ class AttemptLease(ContractModel):
 class AttemptRecovery(ContractModel):
     retry_strategy: RetryStrategy
     runtime_session_cleanup_status: RuntimeSessionCleanupStatus
+    runtime_abort_status: RuntimeAbortStatus
 
 
 class ExecutionAttemptResponse(AuditFields):
@@ -996,6 +1000,7 @@ class ExecutionAttemptDetailResponse(ExecutionAttemptResponse):
             recovery=AttemptRecovery(
                 retry_strategy=view.retry_strategy,
                 runtime_session_cleanup_status=view.runtime_session_cleanup_status,
+                runtime_abort_status=view.runtime_abort_status,
             ),
         )
 

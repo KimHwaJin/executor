@@ -6,6 +6,7 @@ import os
 import socket
 from collections.abc import AsyncIterator, Awaitable, Coroutine
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
@@ -26,6 +27,7 @@ from executor_service.domain.enums import (
     OperationMode,
     OperationStatus,
     RetryStrategy,
+    RuntimeAbortStatus,
     RuntimePool,
     RuntimeSessionCleanupStatus,
     RuntimeTargetStatus,
@@ -33,6 +35,7 @@ from executor_service.domain.enums import (
 )
 from executor_service.domain.models import Execution, utc_now
 from executor_service.domain.runtime import (
+    RuntimeAbortResult,
     RuntimeDriver,
     RuntimeDriverError,
     RuntimeDriverFactory,
@@ -91,6 +94,14 @@ RUN_MESSAGE_TYPES = DISPATCH_MESSAGE_TYPES - {"execution.cancellation_ready"}
 
 class RetainedRuntimeSessionLostError(RuntimeDriverError):
     """Raised when a retained-session retry reaches its target but the session is gone."""
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeTimeoutResolution:
+    abort_status: RuntimeAbortStatus
+    cleanup_status: RuntimeSessionCleanupStatus
+    retry_strategy: RetryStrategy
+    retain_session: bool
 
 
 class ExecutionWorker:
@@ -693,6 +704,11 @@ class ExecutionWorker:
                                 extra={"execution_id": str(execution.id)},
                             )
                         raise
+                    except RuntimeExecutionTimeoutError as exc:
+                        failed_sequence = sequence
+                        all_outputs.append(exc.outputs)
+                        execution_counts.append(None)
+                        raise
                     except RuntimeExecutionError as exc:
                         failed_sequence = sequence
                         await self._step_failed(
@@ -816,6 +832,68 @@ class ExecutionWorker:
                     runtime_session_cleanup_status=cleanup_status,
                 )
                 raise
+            except RuntimeExecutionTimeoutError as exc:
+                if runtime_session_id is None or failed_sequence is None:
+                    raise RuntimeError(
+                        "Runtime timeout has no active session or Step."
+                    ) from exc
+                failure_type = (
+                    FailureType.STEP_TIMEOUT
+                    if exc.scope == "Step"
+                    else FailureType.OPERATION_TIMEOUT
+                )
+                resolution = await self._resolve_runtime_timeout(
+                    lease,
+                    driver,
+                    runtime_session_id,
+                    failure_type,
+                )
+                await self._step_failed(
+                    lease,
+                    failed_sequence,
+                    exc.outputs,
+                    str(exc),
+                )
+                await self._assert_active_lease(lease)
+                await driver.write_notebook(
+                    workspace.notebook_path,
+                    self._workspace.notebook_document(
+                        workspace,
+                        execution.runtime_profile,
+                        cells[: failed_sequence + 1],
+                        all_outputs,
+                        execution_counts,
+                    ),
+                )
+                try:
+                    await self._artifacts.discover_and_register(
+                        driver=driver,
+                        workspace=workspace,
+                        before=artifact_snapshot,
+                        lease=lease,
+                        sequence=failed_sequence,
+                        status=ArtifactStatus.INCOMPLETE,
+                    )
+                except Exception as artifact_exc:
+                    await self._record_artifact_failure(
+                        lease,
+                        failed_sequence,
+                        artifact_exc,
+                    )
+                    logger.warning(
+                        "Timed-out Artifact registration failed",
+                        extra={"execution_id": str(execution.id)},
+                    )
+                await self._finalize(
+                    lease,
+                    ExecutionStatus.FAILED,
+                    str(exc),
+                    retain_session=resolution.retain_session,
+                    retry_from_sequence=failed_sequence,
+                    failure_type=failure_type,
+                    retry_strategy=resolution.retry_strategy,
+                    runtime_session_cleanup_status=resolution.cleanup_status,
+                )
             except ExecutionLeaseLostError:
                 logger.warning(
                     "Execution Worker lost its lease fence; stale results "
@@ -938,6 +1016,15 @@ class ExecutionWorker:
                 waiting_attempt.lease_expires_at = lease_expires
                 waiting_attempt.heartbeat_at = now
                 waiting_attempt.fencing_token = fencing_token
+                waiting_attempt.error_message = None
+                waiting_attempt.failure_type = None
+                waiting_attempt.retry_strategy = RetryStrategy.NOT_RETRYABLE
+                waiting_attempt.runtime_session_cleanup_status = (
+                    RuntimeSessionCleanupStatus.NOT_REQUIRED
+                )
+                waiting_attempt.runtime_abort_status = (
+                    RuntimeAbortStatus.NOT_REQUIRED
+                )
                 execution_row.status = ExecutionStatus.RUNNING
                 execution_row.lease_owner = self._consumer_name
                 execution_row.lease_expires_at = lease_expires
@@ -949,6 +1036,14 @@ class ExecutionWorker:
                     + timedelta(
                         seconds=self._settings.execution_max_runtime_seconds
                     )
+                )
+                execution_row.error_message = None
+                execution_row.failure_type = None
+                execution_row.runtime_session_cleanup_status = (
+                    RuntimeSessionCleanupStatus.NOT_REQUIRED
+                )
+                execution_row.runtime_abort_status = (
+                    RuntimeAbortStatus.NOT_REQUIRED
                 )
                 execution_row.updated_at = now
                 execution_row.version += 1
@@ -1083,6 +1178,9 @@ class ExecutionWorker:
                 execution_row.retained_runtime_session_until = None
             execution_row.runtime_session_cleanup_status = (
                 RuntimeSessionCleanupStatus.NOT_REQUIRED
+            )
+            execution_row.runtime_abort_status = (
+                RuntimeAbortStatus.NOT_REQUIRED
             )
             execution_row.updated_at = now
             execution_row.version += 1
@@ -1450,6 +1548,68 @@ class ExecutionWorker:
                             allow_cancel_requested=True,
                         )
                     raise
+                except RuntimeExecutionTimeoutError as exc:
+                    failure_type = (
+                        FailureType.STEP_TIMEOUT
+                        if exc.scope == "Step"
+                        else FailureType.OPERATION_TIMEOUT
+                    )
+                    resolution = await self._resolve_runtime_timeout(
+                        lease,
+                        driver,
+                        runtime_session_id,
+                        failure_type,
+                    )
+                    await self._step_failed(
+                        lease,
+                        pending.sequence,
+                        exc.outputs,
+                        str(exc),
+                    )
+                    await self._skip_operation_steps_after(
+                        lease, operation_id, pending.sequence
+                    )
+                    await self._write_multi_notebook(
+                        driver,
+                        lease,
+                        execution.runtime_profile,
+                        workspace,
+                    )
+                    try:
+                        await self._artifacts.discover_and_register(
+                            driver=driver,
+                            workspace=workspace,
+                            before=artifact_snapshot,
+                            lease=lease,
+                            sequence=pending.sequence,
+                            status=ArtifactStatus.INCOMPLETE,
+                        )
+                    except Exception as artifact_exc:
+                        await self._record_artifact_failure(
+                            lease,
+                            pending.sequence,
+                            artifact_exc,
+                        )
+                    if resolution.retain_session:
+                        await self._complete_multi_operation(
+                            lease,
+                            operation_id,
+                            OperationStatus.FAILED,
+                            failed_sequence=pending.sequence,
+                            error_message=str(exc),
+                        )
+                    else:
+                        await self._finalize(
+                            lease,
+                            ExecutionStatus.FAILED,
+                            str(exc),
+                            failure_type=failure_type,
+                            retry_strategy=RetryStrategy.NOT_RETRYABLE,
+                            runtime_session_cleanup_status=(
+                                resolution.cleanup_status
+                            ),
+                        )
+                    return
                 except RuntimeExecutionError as exc:
                     await self._step_failed(
                         lease,
@@ -2007,6 +2167,119 @@ class ExecutionWorker:
         except TimeoutError as exc:
             raise RuntimeExecutionTimeoutError(scope, timeout_seconds) from exc
 
+    async def _resolve_runtime_timeout(
+        self,
+        lease: ExecutionLease,
+        driver: RuntimeDriver,
+        runtime_session_id: str,
+        failure_type: FailureType,
+    ) -> RuntimeTimeoutResolution:
+        await self._record_runtime_abort(
+            lease,
+            RuntimeAbortStatus.PENDING,
+            RuntimeSessionCleanupStatus.PENDING,
+            failure_type,
+            session_reusable=False,
+        )
+        try:
+            result = await driver.abort_session(
+                runtime_session_id,
+                self._settings.runtime_abort_timeout_seconds,
+            )
+        except Exception as exc:
+            result = RuntimeAbortResult(
+                RuntimeAbortStatus.FAILED,
+                f"{type(exc).__name__}: Runtime abort request failed.",
+            )
+        if result.status == RuntimeAbortStatus.IDLE_CONFIRMED:
+            resolution = RuntimeTimeoutResolution(
+                abort_status=result.status,
+                cleanup_status=RuntimeSessionCleanupStatus.NOT_REQUIRED,
+                retry_strategy=RetryStrategy.FROM_FAILED_STEP,
+                retain_session=True,
+            )
+        elif result.status == RuntimeAbortStatus.SESSION_MISSING:
+            resolution = RuntimeTimeoutResolution(
+                abort_status=result.status,
+                cleanup_status=RuntimeSessionCleanupStatus.SUCCEEDED,
+                retry_strategy=RetryStrategy.FROM_START,
+                retain_session=False,
+            )
+        else:
+            try:
+                await driver.delete_session(runtime_session_id)
+            except Exception as exc:
+                result = RuntimeAbortResult(
+                    RuntimeAbortStatus.FAILED,
+                    f"{type(exc).__name__}: Runtime session deletion failed.",
+                )
+                resolution = RuntimeTimeoutResolution(
+                    abort_status=RuntimeAbortStatus.FAILED,
+                    cleanup_status=RuntimeSessionCleanupStatus.FAILED,
+                    retry_strategy=RetryStrategy.FROM_START,
+                    retain_session=False,
+                )
+            else:
+                resolution = RuntimeTimeoutResolution(
+                    abort_status=RuntimeAbortStatus.SESSION_DELETED,
+                    cleanup_status=RuntimeSessionCleanupStatus.SUCCEEDED,
+                    retry_strategy=RetryStrategy.FROM_START,
+                    retain_session=False,
+                )
+        await self._record_runtime_abort(
+            lease,
+            resolution.abort_status,
+            resolution.cleanup_status,
+            failure_type,
+            session_reusable=resolution.retain_session,
+            message=result.message,
+        )
+        return resolution
+
+    async def _record_runtime_abort(
+        self,
+        lease: ExecutionLease,
+        abort_status: RuntimeAbortStatus,
+        cleanup_status: RuntimeSessionCleanupStatus,
+        failure_type: FailureType,
+        *,
+        session_reusable: bool,
+        message: str | None = None,
+    ) -> None:
+        now = utc_now()
+        async with self._session_factory() as session, session.begin():
+            execution, attempt = await require_active_lease(session, lease)
+            execution.runtime_abort_status = abort_status
+            execution.runtime_session_cleanup_status = cleanup_status
+            execution.failure_type = failure_type
+            execution.updated_at = now
+            execution.version += 1
+            attempt.runtime_abort_status = abort_status
+            attempt.runtime_session_cleanup_status = cleanup_status
+            attempt.failure_type = failure_type
+            event_type = (
+                "execution.runtime_abort_started"
+                if abort_status == RuntimeAbortStatus.PENDING
+                else "execution.runtime_abort_completed"
+                if abort_status != RuntimeAbortStatus.FAILED
+                else "execution.runtime_abort_failed"
+            )
+            await _add_outbox(
+                session,
+                lease.execution_id,
+                event_type,
+                ExecutionStatus.RUNNING,
+                {
+                    "execution_attempt_id": str(lease.attempt_id),
+                    "failure_type": failure_type.value,
+                    "runtime_abort_status": abort_status.value,
+                    "runtime_session_cleanup_status": cleanup_status.value,
+                    "session_reusable": session_reusable,
+                    "message": message,
+                    "version": execution.version,
+                },
+            )
+
     async def _assert_active_lease(
         self,
         lease: ExecutionLease,
@@ -2132,6 +2405,17 @@ class ExecutionWorker:
         now = utc_now()
         async with self._session_factory() as session, session.begin():
             execution, attempt = await require_active_lease(session, lease)
+            abort_was_pending = (
+                execution.runtime_abort_status == RuntimeAbortStatus.PENDING
+            )
+            if (
+                abort_was_pending
+                and runtime_session_cleanup_status
+                == RuntimeSessionCleanupStatus.NOT_REQUIRED
+            ):
+                runtime_session_cleanup_status = (
+                    RuntimeSessionCleanupStatus.FAILED
+                )
             status = requested_status
             attempt_status = AttemptStatus(status.value)
             is_failed = status == ExecutionStatus.FAILED
@@ -2164,6 +2448,13 @@ class ExecutionWorker:
             execution.runtime_session_cleanup_status = (
                 runtime_session_cleanup_status
             )
+            if abort_was_pending:
+                execution.runtime_abort_status = (
+                    RuntimeAbortStatus.SESSION_DELETED
+                    if runtime_session_cleanup_status
+                    == RuntimeSessionCleanupStatus.SUCCEEDED
+                    else RuntimeAbortStatus.FAILED
+                )
             if (
                 not retain_session
                 and runtime_session_cleanup_status
@@ -2180,6 +2471,8 @@ class ExecutionWorker:
             attempt.runtime_session_cleanup_status = (
                 runtime_session_cleanup_status
             )
+            if abort_was_pending:
+                attempt.runtime_abort_status = execution.runtime_abort_status
             attempt.finished_at = now
             if execution.active_operation_id is not None:
                 operation_update = await session.execute(
@@ -2284,6 +2577,36 @@ class ExecutionWorker:
                         finished_at=now,
                     )
                 )
+            if abort_was_pending:
+                await _add_outbox(
+                    session,
+                    lease.execution_id,
+                    (
+                        "execution.runtime_abort_completed"
+                        if execution.runtime_abort_status
+                        == RuntimeAbortStatus.SESSION_DELETED
+                        else "execution.runtime_abort_failed"
+                    ),
+                    status,
+                    {
+                        "execution_attempt_id": str(lease.attempt_id),
+                        "failure_type": (
+                            effective_failure_type
+                            or FailureType.INTERNAL_ERROR
+                        ).value,
+                        "runtime_abort_status": (
+                            execution.runtime_abort_status.value
+                        ),
+                        "runtime_session_cleanup_status": (
+                            runtime_session_cleanup_status.value
+                        ),
+                        "session_reusable": False,
+                        "message": (
+                            "Runtime abort was resolved by terminal cleanup."
+                        ),
+                        "version": execution.version,
+                    },
+                )
             await _add_outbox(
                 session,
                 lease.execution_id,
@@ -2339,6 +2662,12 @@ class ExecutionWorker:
                 or execution.status != ExecutionStatus.CANCEL_REQUESTED
             ):
                 return
+            abort_was_pending = (
+                execution.runtime_abort_status == RuntimeAbortStatus.PENDING
+            )
+            abort_failure_type = (
+                execution.failure_type or FailureType.INTERNAL_ERROR
+            )
             execution.status = ExecutionStatus.CANCELLED
             execution.finished_at = now
             execution.updated_at = now
@@ -2350,6 +2679,12 @@ class ExecutionWorker:
             execution.retry_from_sequence = None
             execution.retained_runtime_session_until = None
             execution.runtime_session_cleanup_status = cleanup_status
+            if abort_was_pending:
+                execution.runtime_abort_status = (
+                    RuntimeAbortStatus.SESSION_DELETED
+                    if cleanup_status == RuntimeSessionCleanupStatus.SUCCEEDED
+                    else RuntimeAbortStatus.FAILED
+                )
             if cleanup_status == RuntimeSessionCleanupStatus.SUCCEEDED:
                 execution.runtime_session_id = None
             execution.version += 1
@@ -2366,6 +2701,18 @@ class ExecutionWorker:
                     failure_type=None,
                     retry_strategy=RetryStrategy.NOT_RETRYABLE,
                     runtime_session_cleanup_status=cleanup_status,
+                    **(
+                        {
+                            "runtime_abort_status": (
+                                RuntimeAbortStatus.SESSION_DELETED
+                                if cleanup_status
+                                == RuntimeSessionCleanupStatus.SUCCEEDED
+                                else RuntimeAbortStatus.FAILED
+                            )
+                        }
+                        if abort_was_pending
+                        else {}
+                    ),
                     finished_at=now,
                 )
             )
@@ -2405,6 +2752,39 @@ class ExecutionWorker:
                 )
                 .values(status=StepStatus.CANCELLED, finished_at=now)
             )
+            latest_attempt_id = None
+            if abort_was_pending:
+                latest_attempt_id = await session.scalar(
+                    select(ExecutionAttemptORM.id)
+                    .where(ExecutionAttemptORM.execution_id == execution_id)
+                    .order_by(ExecutionAttemptORM.attempt_number.desc())
+                    .limit(1)
+                )
+            if abort_was_pending and latest_attempt_id is not None:
+                await _add_outbox(
+                    session,
+                    execution_id,
+                    (
+                        "execution.runtime_abort_completed"
+                        if execution.runtime_abort_status
+                        == RuntimeAbortStatus.SESSION_DELETED
+                        else "execution.runtime_abort_failed"
+                    ),
+                    ExecutionStatus.CANCELLED,
+                    {
+                        "execution_attempt_id": str(latest_attempt_id),
+                        "failure_type": abort_failure_type.value,
+                        "runtime_abort_status": (
+                            execution.runtime_abort_status.value
+                        ),
+                        "runtime_session_cleanup_status": (
+                            cleanup_status.value
+                        ),
+                        "session_reusable": False,
+                        "message": "Runtime abort was resolved by cancellation.",
+                        "version": execution.version,
+                    },
+                )
             await _add_outbox(
                 session,
                 execution_id,
@@ -2638,6 +3018,17 @@ class ExecutionWorker:
                 )
             )
             for execution in expired:
+                recovery_failure_type = (
+                    execution.failure_type
+                    if execution.runtime_abort_status
+                    == RuntimeAbortStatus.PENDING
+                    and execution.failure_type
+                    in {
+                        FailureType.STEP_TIMEOUT,
+                        FailureType.OPERATION_TIMEOUT,
+                    }
+                    else FailureType.LEASE_EXPIRED
+                )
                 retry_strategy = (
                     RetryStrategy.NOT_RETRYABLE
                     if execution.operation_mode == OperationMode.MULTI
@@ -2666,9 +3057,16 @@ class ExecutionWorker:
                     )
                 execution.status = ExecutionStatus.FAILED
                 execution.error_message = (
-                    "Worker lease expired; execution requires retry."
+                    "Worker lease expired while Runtime abort was pending; "
+                    "the abandoned session requires cleanup."
+                    if recovery_failure_type
+                    in {
+                        FailureType.STEP_TIMEOUT,
+                        FailureType.OPERATION_TIMEOUT,
+                    }
+                    else "Worker lease expired; execution requires retry."
                 )
-                execution.failure_type = FailureType.LEASE_EXPIRED
+                execution.failure_type = recovery_failure_type
                 execution.finished_at = now
                 execution.updated_at = now
                 execution.lease_owner = None
@@ -2699,7 +3097,7 @@ class ExecutionWorker:
                         lease_owner=None,
                         lease_expires_at=None,
                         error_message=execution.error_message,
-                        failure_type=FailureType.LEASE_EXPIRED,
+                        failure_type=recovery_failure_type,
                         retry_strategy=retry_strategy,
                         runtime_session_cleanup_status=execution.runtime_session_cleanup_status,
                         finished_at=now,
@@ -2791,7 +3189,7 @@ class ExecutionWorker:
                     "execution.failed",
                     ExecutionStatus.FAILED,
                     {
-                        "failure_type": FailureType.LEASE_EXPIRED.value,
+                        "failure_type": recovery_failure_type.value,
                         "retry_strategy": retry_strategy.value,
                         "retry_from_sequence": execution.retry_from_sequence,
                         "runtime_session_cleanup_status": (
@@ -2852,44 +3250,95 @@ class ExecutionWorker:
         cleanup_status: RuntimeSessionCleanupStatus,
     ) -> None:
         async with self._session_factory() as session, session.begin():
-            execution_update = await session.execute(
-                update(ExecutionORM)
+            execution = await session.scalar(
+                select(ExecutionORM)
                 .where(
                     ExecutionORM.id == execution_id,
                     ExecutionORM.status == ExecutionStatus.FAILED,
                     ExecutionORM.runtime_session_id == runtime_session_id,
                 )
-                .values(
-                    runtime_session_id=(
-                        None
-                        if cleanup_status
-                        == RuntimeSessionCleanupStatus.SUCCEEDED
-                        else runtime_session_id
-                    ),
-                    runtime_session_cleanup_status=cleanup_status,
-                    updated_at=utc_now(),
-                    version=ExecutionORM.version + 1,
-                )
+                .with_for_update()
             )
+            if execution is None:
+                return
+            abort_was_pending = (
+                execution.runtime_abort_status == RuntimeAbortStatus.PENDING
+            )
+            if cleanup_status == RuntimeSessionCleanupStatus.SUCCEEDED:
+                execution.runtime_session_id = None
+            execution.runtime_session_cleanup_status = cleanup_status
+            if abort_was_pending:
+                execution.runtime_abort_status = (
+                    RuntimeAbortStatus.SESSION_DELETED
+                    if cleanup_status == RuntimeSessionCleanupStatus.SUCCEEDED
+                    else RuntimeAbortStatus.FAILED
+                )
+            execution.updated_at = utc_now()
+            execution.version += 1
             if attempt_id is not None:
                 await session.execute(
                     update(ExecutionAttemptORM)
                     .where(ExecutionAttemptORM.id == attempt_id)
-                    .values(runtime_session_cleanup_status=cleanup_status)
+                    .values(
+                        runtime_session_cleanup_status=cleanup_status,
+                        **(
+                            {
+                                "runtime_abort_status": (
+                                    RuntimeAbortStatus.SESSION_DELETED
+                                    if cleanup_status
+                                    == RuntimeSessionCleanupStatus.SUCCEEDED
+                                    else RuntimeAbortStatus.FAILED
+                                )
+                            }
+                            if abort_was_pending
+                            else {}
+                        ),
+                    )
                 )
-            if getattr(execution_update, "rowcount", None) == 1:
+            if abort_was_pending and attempt_id is not None:
                 await _add_outbox(
                     session,
                     execution_id,
                     (
-                        "execution.runtime_session_cleanup_completed"
+                        "execution.runtime_abort_completed"
                         if cleanup_status
                         == RuntimeSessionCleanupStatus.SUCCEEDED
-                        else "execution.runtime_session_cleanup_failed"
+                        else "execution.runtime_abort_failed"
                     ),
                     ExecutionStatus.FAILED,
-                    {"runtime_session_cleanup_status": cleanup_status.value},
+                    {
+                        "execution_attempt_id": str(attempt_id),
+                        "failure_type": (
+                            execution.failure_type
+                            or FailureType.INTERNAL_ERROR
+                        ).value,
+                        "runtime_abort_status": (
+                            execution.runtime_abort_status.value
+                        ),
+                        "runtime_session_cleanup_status": (
+                            cleanup_status.value
+                        ),
+                        "session_reusable": False,
+                        "message": (
+                            "Runtime session was deleted during lease recovery."
+                            if cleanup_status
+                            == RuntimeSessionCleanupStatus.SUCCEEDED
+                            else "Runtime session deletion failed during lease recovery."
+                        ),
+                        "version": execution.version,
+                    },
                 )
+            await _add_outbox(
+                session,
+                execution_id,
+                (
+                    "execution.runtime_session_cleanup_completed"
+                    if cleanup_status == RuntimeSessionCleanupStatus.SUCCEEDED
+                    else "execution.runtime_session_cleanup_failed"
+                ),
+                ExecutionStatus.FAILED,
+                {"runtime_session_cleanup_status": cleanup_status.value},
+            )
 
     async def _cleanup_expired_retained_runtime_sessions(self) -> None:
         now = utc_now()

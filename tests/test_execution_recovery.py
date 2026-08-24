@@ -1,5 +1,7 @@
+from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
+from typing import Any, ClassVar
 
 import pytest
 from redis.asyncio import Redis
@@ -7,6 +9,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from executor_service.application.commands import (
+    RetryExecutionCommand,
     StepSpec,
     SubmitExecutionCommand,
 )
@@ -19,12 +22,14 @@ from executor_service.domain.enums import (
     OperationMode,
     OperationStatus,
     RetryStrategy,
+    RuntimeAbortStatus,
     RuntimePool,
     RuntimeSessionCleanupStatus,
     RuntimeTargetStatus,
     StepStatus,
     TriggerType,
 )
+from executor_service.domain.errors import InvalidStateTransitionError
 from executor_service.domain.models import utc_now
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.models import (
@@ -46,6 +51,22 @@ from executor_service.infrastructure.runtime_registry import (
 )
 from executor_service.infrastructure.worker import ExecutionWorker
 from tests.runtime_credentials import runtime_credential_fields
+
+
+class RecoveryCleanupDriver:
+    delete_fails: ClassVar[bool] = False
+    deleted: ClassVar[list[str]] = []
+
+    def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+        pass
+
+    async def delete_session(self, session_id: str) -> None:
+        self.deleted.append(session_id)
+        if self.delete_fails:
+            raise RuntimeError("expected cleanup failure")
+
+    async def close(self) -> None:
+        pass
 
 
 def _command() -> SubmitExecutionCommand:
@@ -246,3 +267,161 @@ async def test_expired_lease_is_failed_once_and_can_restart_from_zero(
     assert failed_events == 1
     assert stale_step_events == 0
     assert stale_terminal_events == 0
+
+
+@pytest.mark.parametrize("delete_fails", [False, True])
+async def test_expired_lease_resolves_pending_runtime_abort(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    delete_fails: bool,
+) -> None:
+    execution = await execution_service.submit(
+        replace(
+            _command(),
+            idempotency_key=f"abort-recovery-{delete_fails}",
+            session_id=f"abort-recovery-{delete_fails}",
+        )
+    )
+    now = utc_now()
+    fencing_token = 11
+    runtime_session_id = f"pending-abort-{delete_fails}"
+    session_factory = create_session_factory(engine)
+    async with session_factory() as session, session.begin():
+        target = RuntimeTargetORM(
+            name=f"abort-recovery-target-{delete_fails}",
+            connection_config={"endpoint": "http://recovery.invalid"},
+            **runtime_credential_fields(),
+            pool=RuntimePool.INTERACTIVE,
+            status=RuntimeTargetStatus.ACTIVE,
+            max_concurrent_executions=1,
+            supported_profiles=["basic"],
+            enabled=True,
+        )
+        session.add(target)
+        await session.flush()
+        attempt = ExecutionAttemptORM(
+            execution_id=execution.id,
+            attempt_number=1,
+            runtime_target_id=target.id,
+            runtime_session_id=runtime_session_id,
+            status=AttemptStatus.RUNNING,
+            lease_owner="dead-abort-worker",
+            lease_expires_at=now - timedelta(seconds=1),
+            heartbeat_at=now - timedelta(minutes=1),
+            fencing_token=fencing_token,
+            failure_type=FailureType.STEP_TIMEOUT,
+            runtime_abort_status=RuntimeAbortStatus.PENDING,
+            runtime_session_cleanup_status=(
+                RuntimeSessionCleanupStatus.PENDING
+            ),
+            started_at=now - timedelta(minutes=2),
+        )
+        session.add(attempt)
+        await session.flush()
+        await session.execute(
+            update(ExecutionORM)
+            .where(ExecutionORM.id == execution.id)
+            .values(
+                status=ExecutionStatus.RUNNING,
+                runtime_target_id=target.id,
+                runtime_session_id=runtime_session_id,
+                lease_owner="dead-abort-worker",
+                lease_expires_at=now - timedelta(seconds=1),
+                heartbeat_at=now - timedelta(minutes=1),
+                fencing_token=fencing_token,
+                failure_type=FailureType.STEP_TIMEOUT,
+                runtime_abort_status=RuntimeAbortStatus.PENDING,
+                runtime_session_cleanup_status=(
+                    RuntimeSessionCleanupStatus.PENDING
+                ),
+                started_at=now - timedelta(minutes=2),
+            )
+        )
+        await session.execute(
+            update(ExecutionOperationORM)
+            .where(ExecutionOperationORM.id == execution.active_operation_id)
+            .values(
+                status=OperationStatus.RUNNING,
+                execution_attempt_id=attempt.id,
+                started_at=now - timedelta(minutes=2),
+            )
+        )
+
+    RecoveryCleanupDriver.delete_fails = delete_fails
+    RecoveryCleanupDriver.deleted = []
+    monkeypatch.setattr(
+        "executor_service.infrastructure.runtime_drivers.JupyterRuntimeDriver",
+        RecoveryCleanupDriver,
+    )
+    settings = Settings(
+        runtime_enabled=False,
+        input_host_root=tmp_path,
+        execution_lease_seconds=30,
+        execution_heartbeat_seconds=5,
+    )
+    redis = Redis.from_url("redis://127.0.0.1:6379/15", decode_responses=True)
+    worker = ExecutionWorker(
+        session_factory=session_factory,
+        redis=redis,
+        settings=settings,
+        registry=RuntimeTargetRegistry(session_factory, settings),
+        artifact_manager=ExecutionArtifactManager(session_factory),
+    )
+    try:
+        await worker._recover_expired_leases()
+    finally:
+        await redis.aclose()
+
+    expected_abort_status = (
+        RuntimeAbortStatus.FAILED
+        if delete_fails
+        else RuntimeAbortStatus.SESSION_DELETED
+    )
+    expected_cleanup_status = (
+        RuntimeSessionCleanupStatus.FAILED
+        if delete_fails
+        else RuntimeSessionCleanupStatus.SUCCEEDED
+    )
+    async with session_factory() as session:
+        row = await session.get(ExecutionORM, execution.id)
+        attempt_row = await session.get(ExecutionAttemptORM, attempt.id)
+        abort_events = list(
+            await session.scalars(
+                select(OutboxEventORM).where(
+                    OutboxEventORM.aggregate_id == execution.id,
+                    OutboxEventORM.event_type.like(
+                        "execution.runtime_abort_%"
+                    ),
+                )
+            )
+        )
+    assert row is not None and attempt_row is not None
+    assert row.status == ExecutionStatus.FAILED
+    assert row.failure_type == FailureType.STEP_TIMEOUT
+    assert row.retry_strategy == RetryStrategy.FROM_START
+    assert row.runtime_abort_status == expected_abort_status
+    assert attempt_row.runtime_abort_status == expected_abort_status
+    assert row.runtime_session_cleanup_status == expected_cleanup_status
+    assert (row.runtime_session_id is not None) is delete_fails
+    assert RecoveryCleanupDriver.deleted == [runtime_session_id]
+    assert [event.event_type for event in abort_events] == [
+        (
+            "execution.runtime_abort_failed"
+            if delete_fails
+            else "execution.runtime_abort_completed"
+        )
+    ]
+
+    if delete_fails:
+        with pytest.raises(
+            InvalidStateTransitionError,
+            match="unresolved abandoned Runtime session cleanup",
+        ):
+            await execution_service.retry(
+                RetryExecutionCommand(
+                    execution_id=execution.id,
+                    idempotency_key=f"blocked-abort-retry-{execution.id}",
+                )
+            )

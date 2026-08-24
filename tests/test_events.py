@@ -86,6 +86,9 @@ def test_every_supported_event_has_a_versioned_strict_payload_model() -> None:
         "execution.timeout_requested",
         "execution.runtime_session_cleanup_completed",
         "execution.runtime_session_cleanup_failed",
+        "execution.runtime_abort_started",
+        "execution.runtime_abort_completed",
+        "execution.runtime_abort_failed",
         "execution.retry_window_expired",
     }
 

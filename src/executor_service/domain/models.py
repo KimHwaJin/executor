@@ -15,6 +15,7 @@ from executor_service.domain.enums import (
     OutboxDestination,
     OutboxStatus,
     RetryStrategy,
+    RuntimeAbortStatus,
     RuntimePool,
     RuntimeSessionCleanupStatus,
     RuntimeType,
@@ -100,6 +101,7 @@ class Execution:
     runtime_session_cleanup_status: RuntimeSessionCleanupStatus = (
         RuntimeSessionCleanupStatus.NOT_REQUIRED
     )
+    runtime_abort_status: RuntimeAbortStatus = RuntimeAbortStatus.NOT_REQUIRED
     finalization_requested: bool = False
     active_operation_id: UUID | None = None
     operation_wait_expires_at: datetime | None = None
@@ -158,10 +160,15 @@ class Execution:
         if self.retry_strategy == RetryStrategy.FROM_START:
             if (
                 self.runtime_session_cleanup_status
-                == RuntimeSessionCleanupStatus.PENDING
+                in {
+                    RuntimeSessionCleanupStatus.PENDING,
+                    RuntimeSessionCleanupStatus.FAILED,
+                }
+                and self.runtime_session_id is not None
             ):
                 raise InvalidStateTransitionError(
-                    f"Execution {self.id} is still cleaning up its abandoned Runtime session."
+                    f"Execution {self.id} has unresolved abandoned Runtime "
+                    "session cleanup."
                 )
             self.retry_from_sequence = 0
             self.runtime_session_id = None

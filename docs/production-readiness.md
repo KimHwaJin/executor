@@ -80,19 +80,36 @@ item.
 ## PR-002: Stop and verify Runtime work after a timeout
 
 - Priority: P0
-- Status: PLANNED
+- Status: IMPLEMENTED
 - Area: Step timeout, Operation timeout, Runtime interruption, retry safety
 - Public API impact: none required
 - Request impact: none; existing Step and Operation timeout fields remain authoritative
 
 ### Problem
 
-The current timeout cancels only the Executor coroutine waiting on the Runtime WebSocket. It does
-not interrupt the Python code already executing in the Jupyter kernel. Executor can therefore
-record a Step or Operation timeout while the code continues to mutate kernel state and Runtime
-storage. The timeout is classified as a Runtime execution failure and can currently retain the
-same session for `FROM_FAILED_STEP`, allowing a retry or MULTI correction to target a kernel that
-is still busy or whose state continues to change.
+The former timeout cancelled only the Executor coroutine waiting on the Runtime WebSocket. It did
+not interrupt the Python code already executing in the Jupyter kernel. Executor could therefore
+record a Step or Operation timeout while the code continued to mutate kernel state and Runtime
+storage. The timeout was classified as a Runtime execution failure and could retain the same
+session for `FROM_FAILED_STEP`, allowing a retry or MULTI correction to target a kernel that was
+still busy or whose state continued to change.
+
+### Implementation
+
+- The generic Runtime Driver exposes `abort_session`, which returns a bounded
+  `RuntimeAbortResult`; Worker code is not coupled to Jupyter REST details.
+- Jupyter interruption is followed by bounded kernel-state polling. Only an explicit `idle`
+  response produces `IDLE_CONFIRMED`; missing kernels and failed confirmation cannot be reused.
+- Execution and Attempt rows persist `runtime_abort_status`. Revision `0003` adds the durable
+  fields and constraints, while versioned Outbox events record abort start and outcome.
+- SINGLE and MULTI timeout paths persist `PENDING` before touching the Runtime. Idle-confirmed
+  sessions may resume from the failed Step; every uncertain outcome forces session deletion and
+  `FROM_START` or a non-retryable terminal result according to lifecycle policy.
+- Failed deletion preserves the session reservation and cleanup `FAILED`, which blocks replacement
+  retry. Lease recovery and cancellation resolve interrupted `PENDING` workflows.
+- Unit tests cover idle confirmation, missing sessions, abort deadline, deletion failure, retry
+  blocking, MULTI correction, and lease-expiry recovery. The real-Jupyter timeout smoke proves a
+  delayed marker is never written and an interrupted infinite loop returns to a responsive kernel.
 
 ### Required design
 
