@@ -7,22 +7,37 @@ adversarial regression tests satisfy the stated completion criteria.
 ## PR-001: Fence stale Worker ownership
 
 - Priority: P0
-- Status: PLANNED
+- Status: IMPLEMENTED
 - Area: Worker lease, Attempt ownership, MULTI resume, durable state transitions
 - Public API impact: none
 - Request impact: none; callers do not provide or receive the fencing value
 
 ### Problem
 
-The current lease records an owner and expiry, but durable mutations do not prove that the calling
-Worker still owns the current lease. A task whose lease expired can resume after recovery and
+The former lease recorded an owner and expiry, but durable mutations did not prove that the calling
+Worker still owned the current lease. A task whose lease expired could resume after recovery and
 write a Runtime session, Step result, Artifact metadata, Outbox event, Operation result, or terminal
-Execution state after ownership has moved. An old heartbeat can also renew a later `RUNNING`
-Execution because it is filtered by Execution status but not by the active ownership generation.
+Execution state after ownership moved. An old heartbeat could also renew a later `RUNNING`
+Execution because it was filtered by Execution status but not by the active ownership generation.
 
-Heartbeat currently starts after workspace preparation and Runtime session creation. A slow
+Heartbeat formerly started after workspace preparation and Runtime session creation. A slow
 Runtime operation can therefore exceed the initial lease before heartbeat renewal begins even
 though the Worker process is still alive.
+
+### Implementation
+
+- Alembic revision `0002` stores a non-negative monotonic `fencing_token` on each Execution and
+  ExecutionAttempt.
+- Every claim and waiting MULTI resume increments the token while holding the Execution row lock;
+  expired-lease recovery revokes the previous token before releasing ownership.
+- The internal immutable `ExecutionLease` carries the Execution, Attempt, owner, and token through
+  the Worker. It is not part of REST, MCP, or Redis contracts.
+- Heartbeat begins immediately after claim and renews both rows in one transaction only when the
+  owner, token, status, and unexpired deadline all match.
+- Runtime-session recording, Step and StepAttempt transitions, Operation completion, Artifact and
+  notebook registration, finalization, and their Outbox writes validate the same lease inside the
+  mutation transaction. A mismatch raises `ExecutionLeaseLostError`; the stale Worker discards its
+  result without cleanup or a terminal event.
 
 ### Required design
 

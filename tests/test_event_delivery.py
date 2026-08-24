@@ -196,7 +196,8 @@ async def test_stale_pending_message_is_reclaimed_and_acked_once(
         assert await worker._recover_pending_messages() == 0
         assert dispatched == [execution_id]
         assert (
-            await redis_client.xpending_range(stream, group, "-", "+", 10) == []
+            await redis_client.xpending_range(stream, group, "-", "+", 10)
+            == []
         )
     finally:
         await redis_client.delete(stream, dlq_stream)
@@ -249,7 +250,8 @@ async def test_invalid_message_is_safely_dead_lettered(
         await worker._process_stream_message(message_id, fields)
 
         assert (
-            await redis_client.xpending_range(stream, group, "-", "+", 10) == []
+            await redis_client.xpending_range(stream, group, "-", "+", 10)
+            == []
         )
         dead_letters = await redis_client.xrange(dlq_stream)
         assert len(dead_letters) == 1

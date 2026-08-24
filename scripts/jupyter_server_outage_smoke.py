@@ -39,7 +39,9 @@ async def _compose(*arguments: str) -> str:
     return decoded
 
 
-async def _wait_server_active(client: Client, server_id: str) -> dict[str, Any]:
+async def _wait_server_active(
+    client: Client, server_id: str
+) -> dict[str, Any]:
     for _ in range(160):
         server = await probe_runtime_target(client, server_id)
         if server["state"]["status"] == "ACTIVE":

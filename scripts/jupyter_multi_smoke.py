@@ -95,7 +95,9 @@ async def main() -> None:
             container, second.id, ExecutionStatus.WAITING_FOR_OPERATION
         )
         if second.runtime_session_id != runtime_session_id:
-            raise RuntimeError("Multi execution changed kernels between cells.")
+            raise RuntimeError(
+                "Multi execution changed kernels between cells."
+            )
 
         failed = await container.execution_service.create_operation(
             CreateOperationCommand(
@@ -166,7 +168,11 @@ async def main() -> None:
         notebook_text = json.dumps(notebook_data)
         event_types = {event.event_type for event in events}
         cells = notebook_data.get("cells")
-        if len(attempts) != 1 or not isinstance(cells, list) or len(cells) != 4:
+        if (
+            len(attempts) != 1
+            or not isinstance(cells, list)
+            or len(cells) != 4
+        ):
             raise RuntimeError(
                 "Multi Attempt or notebook history is incomplete."
             )

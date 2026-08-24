@@ -122,7 +122,9 @@ def _notebook() -> dict[str, Any]:
     }
 
 
-async def test_notebook_read_uses_runtime_storage_and_paginates_cells() -> None:
+async def test_notebook_read_uses_runtime_storage_and_paginates_cells() -> (
+    None
+):
     service, storage, execution_id, target_id = _service(_notebook())
 
     view = await service.read_notebook(

@@ -561,7 +561,9 @@ def build_mcp_server(
             attempt_id: UUID,
         ) -> ExecutionAttemptDetailResponse:
             try:
-                view = await execution_queries.attempt(execution_id, attempt_id)
+                view = await execution_queries.attempt(
+                    execution_id, attempt_id
+                )
             except Exception as exc:
                 raise _public_tool_error(exc) from exc
             return ExecutionAttemptDetailResponse.from_view(view)

@@ -88,8 +88,10 @@ class ExecutionService:
                 )
                 if existing is not None:
                     _ensure_same_fingerprint(existing, fingerprint)
-                    operation_id = await uow.executions.get_operation_id_by_key(
-                        command.idempotency_key
+                    operation_id = (
+                        await uow.executions.get_operation_id_by_key(
+                            command.idempotency_key
+                        )
                     )
                     return ExecutionCommandResult(
                         execution=existing,
@@ -461,7 +463,9 @@ class ExecutionService:
         cause: PersistenceConflictError,
     ) -> Execution:
         async with self._uow_factory() as uow:
-            repeated = await uow.executions.get_command_receipt(idempotency_key)
+            repeated = await uow.executions.get_command_receipt(
+                idempotency_key
+            )
             if repeated is not None:
                 _ensure_same_receipt(repeated, command_type, fingerprint)
                 return await _required_execution(uow, execution_id)
@@ -782,7 +786,9 @@ def _operation_id_from_receipt(
     return UUID(value)
 
 
-def _validate_actor(actor_type: ActorType | None, actor_id: str | None) -> None:
+def _validate_actor(
+    actor_type: ActorType | None, actor_id: str | None
+) -> None:
     if (actor_type is None) != (actor_id is None):
         raise InvalidStateTransitionError(
             "actor_type and actor_id must be provided together."
@@ -811,10 +817,14 @@ def _apply_step_actor(
     step.updated_by = actor_id
 
 
-async def _required_execution(uow: UnitOfWork, execution_id: UUID) -> Execution:
+async def _required_execution(
+    uow: UnitOfWork, execution_id: UUID
+) -> Execution:
     execution = await uow.executions.get(execution_id)
     if execution is None:
-        raise ExecutionNotFoundError(f"Execution {execution_id} was not found.")
+        raise ExecutionNotFoundError(
+            f"Execution {execution_id} was not found."
+        )
     return execution
 
 

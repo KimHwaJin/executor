@@ -3,6 +3,7 @@
 import asyncio
 import os
 from collections.abc import AsyncIterator
+from datetime import timedelta
 from pathlib import Path
 from uuid import uuid4
 
@@ -11,7 +12,7 @@ import pytest_asyncio
 from alembic import command
 from alembic.config import Config
 from redis.asyncio import Redis
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select, text, update
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
@@ -34,13 +35,16 @@ from executor_service.domain.enums import (
     RuntimePool,
     RuntimeTargetStatus,
     RuntimeType,
+    StepStatus,
     TriggerType,
 )
+from executor_service.domain.models import utc_now
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
     ExecutionOperationORM,
     ExecutionORM,
+    ExecutionStepORM,
     OutboxEventORM,
     RuntimeTargetORM,
 )
@@ -50,6 +54,9 @@ from executor_service.infrastructure.db.repositories import (
 from executor_service.infrastructure.db.session import (
     create_engine,
     create_session_factory,
+)
+from executor_service.infrastructure.execution_leases import (
+    ExecutionLeaseLostError,
 )
 from executor_service.infrastructure.outbox import OutboxPublisher
 from executor_service.infrastructure.runtime_registry import (
@@ -211,6 +218,73 @@ async def test_concurrent_workers_create_exactly_one_attempt_for_an_execution(
     assert attempt_count == 1
 
 
+async def test_stale_worker_cannot_write_or_heartbeat_after_takeover(
+    postgres_engine: AsyncEngine,
+    tmp_path: Path,
+) -> None:
+    service = _service(postgres_engine)
+    session_factory = create_session_factory(postgres_engine)
+    async with session_factory() as session, session.begin():
+        session.add(_server(capacity=2))
+    execution = await service.submit(_command("lease-fence-takeover"))
+    workers, redis_clients = _workers(postgres_engine, tmp_path, count=2)
+    try:
+        first_claim = await workers[0]._claim(execution.id)
+        assert first_claim is not None
+        stale_lease = first_claim[2]
+        expired_at = utc_now() - timedelta(seconds=1)
+        async with session_factory() as session, session.begin():
+            await session.execute(
+                update(ExecutionORM)
+                .where(ExecutionORM.id == execution.id)
+                .values(lease_expires_at=expired_at)
+            )
+            await session.execute(
+                update(ExecutionAttemptORM)
+                .where(ExecutionAttemptORM.id == stale_lease.attempt_id)
+                .values(lease_expires_at=expired_at)
+            )
+
+        await workers[1]._recover_expired_leases()
+        await service.retry_result(
+            RetryExecutionCommand(
+                execution_id=execution.id,
+                idempotency_key=f"fence-retry-{execution.id}",
+            )
+        )
+        second_claim = await workers[1]._claim(execution.id)
+        assert second_claim is not None
+        current_lease = second_claim[2]
+        assert current_lease.fencing_token > stale_lease.fencing_token
+
+        with pytest.raises(ExecutionLeaseLostError):
+            await workers[0]._step_started(stale_lease, 0)
+        with pytest.raises(ExecutionLeaseLostError):
+            await workers[0]._renew_lease(stale_lease)
+
+        async with session_factory() as session:
+            persisted = await session.get(ExecutionORM, execution.id)
+            step = await session.scalar(
+                select(ExecutionStepORM).where(
+                    ExecutionStepORM.execution_id == execution.id,
+                    ExecutionStepORM.sequence == 0,
+                )
+            )
+            stale_step_events = await session.scalar(
+                select(func.count(OutboxEventORM.id)).where(
+                    OutboxEventORM.aggregate_id == execution.id,
+                    OutboxEventORM.event_type == "execution.step_started",
+                )
+            )
+        assert persisted is not None
+        assert persisted.fencing_token == current_lease.fencing_token
+        assert step is not None
+        assert step.status == StepStatus.PENDING
+        assert stale_step_events == 0
+    finally:
+        await _close_redis(redis_clients)
+
+
 async def test_concurrent_workers_create_one_attempt_for_a_requeued_operation(
     postgres_engine: AsyncEngine,
     tmp_path: Path,
@@ -257,7 +331,9 @@ async def test_concurrent_workers_create_one_attempt_for_a_requeued_operation(
                 )
             )
         )
-        operation = await session.get(ExecutionOperationORM, retry.operation_id)
+        operation = await session.get(
+            ExecutionOperationORM, retry.operation_id
+        )
     assert len(attempts) == 1
     assert operation is not None
     assert operation.status == OperationStatus.RUNNING
@@ -323,7 +399,8 @@ async def test_cancel_and_claim_race_has_one_consistent_terminal_result(
         session.add(_server(capacity=20))
     workers, redis_clients = _workers(postgres_engine, tmp_path, count=6)
     executions = [
-        await service.submit(_command(f"cancel-{index}")) for index in range(12)
+        await service.submit(_command(f"cancel-{index}"))
+        for index in range(12)
     ]
     try:
         await asyncio.gather(

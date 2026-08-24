@@ -46,9 +46,9 @@ def env_float(
 
 
 def executor_http_url() -> str:
-    return os.getenv("LOCAL_TEST_EXECUTOR_URL", "http://127.0.0.1:8000").rstrip(
-        "/"
-    )
+    return os.getenv(
+        "LOCAL_TEST_EXECUTOR_URL", "http://127.0.0.1:8000"
+    ).rstrip("/")
 
 
 def executor_mcp_url() -> str:

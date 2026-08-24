@@ -373,7 +373,9 @@ async def _assert_event_delivery(
     if {
         event.payload.get("schema_version") for event in snapshot.outbox_events
     } != {EXECUTION_EVENT_SCHEMA_VERSION}:
-        raise RuntimeError("PostgreSQL Outbox contains a non-v2 event payload.")
+        raise RuntimeError(
+            "PostgreSQL Outbox contains a non-v2 event payload."
+        )
     redis_rows = await _redis_events(
         redis,
         stream,
@@ -728,7 +730,9 @@ async def _run_failure_retry_case(
         "execution.succeeded",
     }
     if not required_events.issubset(event_types):
-        raise RuntimeError(f"Retry event timeline is incomplete: {event_types}")
+        raise RuntimeError(
+            f"Retry event timeline is incomplete: {event_types}"
+        )
     operation_events = [
         event
         for event in snapshot.outbox_events
@@ -923,7 +927,9 @@ async def _run_cancel_case(
     ] or [attempt["state"]["status"] for attempt in api_attempts] != [
         "CANCELLED"
     ]:
-        raise RuntimeError("REST cancellation history differs from PostgreSQL.")
+        raise RuntimeError(
+            "REST cancellation history differs from PostgreSQL."
+        )
     attempt_id = str(api_attempts[0]["attempt_id"])
     attempt_detail = await _attempt_detail(
         "REST", execution_id, attempt_id, mcp=mcp, rest=rest
@@ -945,9 +951,9 @@ async def _run_cancel_case(
         for artifact in snapshot.artifacts
         if artifact.name == "cancel-e2e.txt"
     ]
-    if tuple(_enum_value(artifact.status) for artifact in cancel_artifacts) != (
-        "INCOMPLETE",
-    ):
+    if tuple(
+        _enum_value(artifact.status) for artifact in cancel_artifacts
+    ) != ("INCOMPLETE",):
         raise RuntimeError(
             f"Cancelled-cell Artifact was not preserved: {cancel_artifacts}"
         )

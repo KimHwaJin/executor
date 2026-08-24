@@ -267,7 +267,9 @@ async def main() -> None:
                 )
             )
             await asyncio.sleep(0.05)
-        await _wait_statuses(client, queued_ids, ["QUEUED", "QUEUED", "QUEUED"])
+        await _wait_statuses(
+            client, queued_ids, ["QUEUED", "QUEUED", "QUEUED"]
+        )
 
         peak_active = dict.fromkeys(target_ids, 0)
         all_ids = [*blocker_ids, *queued_ids]
@@ -356,7 +358,9 @@ async def main() -> None:
             or target["capacity"]["active_session_count"] != 0
             for target in probes
         ):
-            raise RuntimeError(f"Runtime capacity or sessions leaked: {probes}")
+            raise RuntimeError(
+                f"Runtime capacity or sessions leaked: {probes}"
+            )
 
     report = write_report(
         "routing-fairness",

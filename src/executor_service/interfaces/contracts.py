@@ -187,7 +187,9 @@ class ExecutionNotebookResponse(ContractModel):
             execution_id=view.execution_id,
             response_format=view.response_format,
             metadata=view.metadata,
-            cells=[NotebookCellResponse.from_view(cell) for cell in view.cells],
+            cells=[
+                NotebookCellResponse.from_view(cell) for cell in view.cells
+            ],
             page=NotebookPage(
                 start_index=view.start_index,
                 limit=view.limit,
@@ -525,7 +527,9 @@ class RuntimePoolResponse(ContractModel):
     @classmethod
     def from_view(cls, view: RuntimePoolView) -> "RuntimePoolResponse":
         return cls(
-            runtime=RuntimePoolIdentity(type=view.runtime_type, pool=view.pool),
+            runtime=RuntimePoolIdentity(
+                type=view.runtime_type, pool=view.pool
+            ),
             targets=RuntimePoolTargets(
                 total=view.target_count,
                 enabled=view.enabled_target_count,

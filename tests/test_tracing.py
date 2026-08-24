@@ -223,7 +223,8 @@ async def test_asgi_middleware_extracts_inbound_w3c_context(
         mcp_parent = spans["executor.mcp.test"].parent
         assert mcp_parent is not None
         assert (
-            mcp_parent.span_id == spans["executor.http.request"].context.span_id
+            mcp_parent.span_id
+            == spans["executor.http.request"].context.span_id
         )
     finally:
         await tracing.shutdown()

@@ -16,7 +16,9 @@ from test_harness.jupyter.native import (
 def test_environment_python_uses_platform_specific_virtualenv_layout() -> None:
     root = Path("runtime")
     assert environment_python(root, windows=False) == root / "bin/python"
-    assert environment_python(root, windows=True) == root / "Scripts/python.exe"
+    assert (
+        environment_python(root, windows=True) == root / "Scripts/python.exe"
+    )
 
 
 def test_detects_current_cgroup_v2_leaf(tmp_path: Path) -> None:

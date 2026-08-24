@@ -92,7 +92,9 @@ async def test_mcp_client_can_list_and_call_execution_tools(
             "execution_finalize",
         }
 
-        submitted = await client.call_tool("execution_submit", SUBMIT_ARGUMENTS)
+        submitted = await client.call_tool(
+            "execution_submit", SUBMIT_ARGUMENTS
+        )
         assert not submitted.is_error
         execution_id = submitted.structured_content["execution_id"]
         assert submitted.structured_content["state"]["status"] == "QUEUED"
@@ -163,9 +165,13 @@ async def test_mcp_client_can_query_execution_history_resources(
             "execution_event_list",
         }.issubset(tool_names)
 
-        submitted = await client.call_tool("execution_submit", SUBMIT_ARGUMENTS)
+        submitted = await client.call_tool(
+            "execution_submit", SUBMIT_ARGUMENTS
+        )
         execution_id = submitted.structured_content["execution_id"]
-        operation_id = submitted.structured_content["operation"]["operation_id"]
+        operation_id = submitted.structured_content["operation"][
+            "operation_id"
+        ]
         attempts = await client.call_tool(
             "execution_attempt_list", {"execution_id": execution_id}
         )

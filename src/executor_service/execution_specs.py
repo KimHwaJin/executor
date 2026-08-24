@@ -121,7 +121,9 @@ class ExecutionSpecResolver:
             source_path = None
             checksum = hashlib.sha256(encoded).hexdigest()
         elif isinstance(source, PathStepSource):
-            content, checksum = await asyncio.to_thread(self._read_path, source)
+            content, checksum = await asyncio.to_thread(
+                self._read_path, source
+            )
             source_type = CodeSourceType.PATH
             source_path = source.path
         else:  # pragma: no cover

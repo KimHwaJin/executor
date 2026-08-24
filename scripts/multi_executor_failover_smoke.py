@@ -132,7 +132,8 @@ async def _wait_for_recovered_failure(
         state = await _execution(client, execution_id)
         if (
             state["state"]["status"] == "FAILED"
-            and state["recovery"]["runtime_session_cleanup_status"] != "PENDING"
+            and state["recovery"]["runtime_session_cleanup_status"]
+            != "PENDING"
         ):
             return state
         await asyncio.sleep(0.2)

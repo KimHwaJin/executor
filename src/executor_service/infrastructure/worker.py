@@ -50,6 +50,11 @@ from executor_service.infrastructure.db.models import (
     OutboxEventORM,
     RuntimeTargetORM,
 )
+from executor_service.infrastructure.execution_leases import (
+    ExecutionLease,
+    ExecutionLeaseLostError,
+    require_active_lease,
+)
 from executor_service.infrastructure.runtime_drivers import (
     ConfiguredRuntimeDriverFactory,
 )
@@ -103,8 +108,8 @@ class ExecutionWorker:
         self._redis = redis
         self._settings = settings
         self._registry = registry
-        self._driver_factory = driver_factory or ConfiguredRuntimeDriverFactory(
-            settings
+        self._driver_factory = (
+            driver_factory or ConfiguredRuntimeDriverFactory(settings)
         )
         self._artifacts = artifact_manager
         self._tracing = tracing or TracingManager(settings)
@@ -423,7 +428,9 @@ class ExecutionWorker:
                     with self._tracing.span(
                         "executor.reconcile",
                         context=context,
-                        attributes={"executor.execution.id": str(execution_id)},
+                        attributes={
+                            "executor.execution.id": str(execution_id)
+                        },
                     ):
                         if status == ExecutionStatus.CANCEL_REQUESTED:
                             self._dispatch(
@@ -491,7 +498,9 @@ class ExecutionWorker:
                 self._jobs[execution_id] = task
                 self._jobs_idle.clear()
                 task.add_done_callback(
-                    lambda done: self._remove_job_if_current(execution_id, done)
+                    lambda done: self._remove_job_if_current(
+                        execution_id, done
+                    )
                 )
             else:
                 coroutine.close()
@@ -563,13 +572,16 @@ class ExecutionWorker:
             claimed = await self._claim(execution_id)
             if claimed is None:
                 return
-            execution, target, attempt_id = claimed
+            execution, target, lease = claimed
             if execution.operation_mode == OperationMode.MULTI:
-                await self._run_multi_execution(execution, target, attempt_id)
+                await self._run_multi_execution(execution, target, lease)
                 return
             driver = self._create_driver(target)
             runtime_session_id: str | None = None
-            heartbeat: asyncio.Task[None] | None = None
+            heartbeat = asyncio.create_task(
+                self._heartbeat(lease),
+                name=f"heartbeat-{execution.id}",
+            )
             failed_sequence: int | None = None
             try:
                 resume = (
@@ -590,8 +602,7 @@ class ExecutionWorker:
                         )
                     except RuntimeDriverError as exc:
                         await self._defer_retained_retry(
-                            execution.id,
-                            attempt_id,
+                            lease,
                             target.id,
                             f"{type(exc).__name__}: retained runtime session preflight failed",
                         )
@@ -608,7 +619,7 @@ class ExecutionWorker:
                     target_id=target.id,
                 )
                 cells = self._workspace.load_cells(execution)
-                await self._ensure_steps(execution.id, len(cells))
+                await self._ensure_steps(lease, len(cells))
                 start_sequence = execution.retry_from_sequence if resume else 0
                 if not resume:
                     runtime_session_id = await self._trace_runtime(
@@ -625,15 +636,10 @@ class ExecutionWorker:
                         "Runtime session ID was not established."
                     )
                 await self._record_runtime_session(
-                    execution.id,
-                    attempt_id,
+                    lease,
                     runtime_session_id,
                     workspace.runtime_relative_path,
                     workspace.notebook_path,
-                )
-                heartbeat = asyncio.create_task(
-                    self._heartbeat(execution.id, attempt_id),
-                    name=f"heartbeat-{execution.id}",
                 )
                 all_outputs: list[list[dict[str, object]]] = [
                     step.outputs
@@ -646,7 +652,7 @@ class ExecutionWorker:
                     artifact_snapshot = await self._artifacts.snapshot(
                         driver, workspace
                     )
-                    await self._step_started(execution.id, attempt_id, sequence)
+                    await self._step_started(lease, sequence)
                     try:
                         result = await self._trace_runtime(
                             "executor.runtime.code.execute",
@@ -670,17 +676,17 @@ class ExecutionWorker:
                                 driver=driver,
                                 workspace=workspace,
                                 before=artifact_snapshot,
-                                execution_id=execution.id,
-                                attempt_id=attempt_id,
+                                lease=lease,
                                 sequence=sequence,
                                 status=ArtifactStatus.INCOMPLETE,
+                                allow_cancel_requested=True,
                             )
                         except Exception as artifact_exc:
                             await self._record_artifact_failure(
-                                execution.id,
-                                attempt_id,
+                                lease,
                                 sequence,
                                 artifact_exc,
+                                allow_cancel_requested=True,
                             )
                             logger.warning(
                                 "Cancelled-cell Artifact registration failed",
@@ -690,14 +696,14 @@ class ExecutionWorker:
                     except RuntimeExecutionError as exc:
                         failed_sequence = sequence
                         await self._step_failed(
-                            execution.id,
-                            attempt_id,
+                            lease,
                             sequence,
                             exc.outputs,
                             str(exc),
                         )
                         all_outputs.append(exc.outputs)
                         execution_counts.append(None)
+                        await self._assert_active_lease(lease)
                         await driver.write_notebook(
                             workspace.notebook_path,
                             self._workspace.notebook_document(
@@ -713,15 +719,13 @@ class ExecutionWorker:
                                 driver=driver,
                                 workspace=workspace,
                                 before=artifact_snapshot,
-                                execution_id=execution.id,
-                                attempt_id=attempt_id,
+                                lease=lease,
                                 sequence=sequence,
                                 status=ArtifactStatus.INCOMPLETE,
                             )
                         except Exception as artifact_exc:
                             await self._record_artifact_failure(
-                                execution.id,
-                                attempt_id,
+                                lease,
                                 sequence,
                                 artifact_exc,
                             )
@@ -733,12 +737,12 @@ class ExecutionWorker:
                     all_outputs.append(result.outputs)
                     execution_counts.append(result.execution_count)
                     await self._step_succeeded(
-                        execution.id,
-                        attempt_id,
+                        lease,
                         sequence,
                         result.outputs,
                         result.execution_count,
                     )
+                    await self._assert_active_lease(lease)
                     await driver.write_notebook(
                         workspace.notebook_path,
                         self._workspace.notebook_document(
@@ -754,15 +758,13 @@ class ExecutionWorker:
                             driver=driver,
                             workspace=workspace,
                             before=artifact_snapshot,
-                            execution_id=execution.id,
-                            attempt_id=attempt_id,
+                            lease=lease,
                             sequence=sequence,
                             status=ArtifactStatus.AVAILABLE,
                         )
                     except Exception as artifact_exc:
                         await self._record_artifact_failure(
-                            execution.id,
-                            attempt_id,
+                            lease,
                             sequence,
                             artifact_exc,
                         )
@@ -770,10 +772,10 @@ class ExecutionWorker:
                 await self._artifacts.register_notebook(
                     driver=driver,
                     workspace=workspace,
-                    execution_id=execution.id,
-                    attempt_id=attempt_id,
+                    lease=lease,
                     sequence=len(cells) - 1,
                 )
+                await self._assert_active_lease(lease)
                 await self._trace_runtime(
                     "executor.runtime.session.delete",
                     driver.delete_session(runtime_session_id),
@@ -781,8 +783,7 @@ class ExecutionWorker:
                     target_id=target.id,
                 )
                 await self._finalize(
-                    execution.id,
-                    attempt_id,
+                    lease,
                     ExecutionStatus.SUCCEEDED,
                     runtime_session_cleanup_status=RuntimeSessionCleanupStatus.SUCCEEDED,
                 )
@@ -807,8 +808,7 @@ class ExecutionWorker:
                             extra={"execution_id": str(execution.id)},
                         )
                 await self._finalize(
-                    execution.id,
-                    attempt_id,
+                    lease,
                     ExecutionStatus.FAILED,
                     "Executor worker stopped while the execution was running.",
                     failure_type=FailureType.WORKER_SHUTDOWN,
@@ -816,6 +816,16 @@ class ExecutionWorker:
                     runtime_session_cleanup_status=cleanup_status,
                 )
                 raise
+            except ExecutionLeaseLostError:
+                logger.warning(
+                    "Execution Worker lost its lease fence; stale results "
+                    "were discarded",
+                    extra={
+                        "execution_id": str(lease.execution_id),
+                        "execution_attempt_id": str(lease.attempt_id),
+                        "fencing_token": lease.fencing_token,
+                    },
+                )
             except Exception as exc:
                 retain_session = (
                     isinstance(exc, RuntimeExecutionError)
@@ -831,8 +841,7 @@ class ExecutionWorker:
                         driver, runtime_session_id
                     )
                 await self._finalize(
-                    execution.id,
-                    attempt_id,
+                    lease,
                     ExecutionStatus.FAILED,
                     _safe_error(exc),
                     retain_session=retain_session,
@@ -849,7 +858,7 @@ class ExecutionWorker:
 
     async def _claim(
         self, execution_id: UUID
-    ) -> tuple[Any, RuntimeTargetORM, UUID] | None:
+    ) -> tuple[Execution, RuntimeTargetORM, ExecutionLease] | None:
         now = utc_now()
         lease_expires = now + timedelta(
             seconds=self._settings.execution_lease_seconds
@@ -924,13 +933,16 @@ class ExecutionWorker:
                 ):
                     return None
                 waiting_attempt.status = AttemptStatus.RUNNING
+                fencing_token = execution_row.fencing_token + 1
                 waiting_attempt.lease_owner = self._consumer_name
                 waiting_attempt.lease_expires_at = lease_expires
                 waiting_attempt.heartbeat_at = now
+                waiting_attempt.fencing_token = fencing_token
                 execution_row.status = ExecutionStatus.RUNNING
                 execution_row.lease_owner = self._consumer_name
                 execution_row.lease_expires_at = lease_expires
                 execution_row.heartbeat_at = now
+                execution_row.fencing_token = fencing_token
                 execution_row.execution_expires_at = (
                     execution_row.execution_expires_at
                     or (execution_row.started_at or now)
@@ -951,7 +963,16 @@ class ExecutionWorker:
                     "execution.resumed",
                     ExecutionStatus.RUNNING,
                 )
-                return execution_row.to_domain(), target, waiting_attempt.id
+                return (
+                    execution_row.to_domain(),
+                    target,
+                    ExecutionLease(
+                        execution_id=execution_id,
+                        attempt_id=waiting_attempt.id,
+                        owner=self._consumer_name,
+                        fencing_token=fencing_token,
+                    ),
+                )
             is_resume = (
                 execution_row.retry_count > 0
                 and execution_row.retry_strategy
@@ -1007,6 +1028,7 @@ class ExecutionWorker:
                 or 0
             ) + 1
             attempt_id = uuid4()
+            fencing_token = execution_row.fencing_token + 1
             session.add(
                 ExecutionAttemptORM(
                     id=attempt_id,
@@ -1019,6 +1041,7 @@ class ExecutionWorker:
                     lease_owner=self._consumer_name,
                     lease_expires_at=lease_expires,
                     heartbeat_at=now,
+                    fencing_token=fencing_token,
                     created_by_type=(
                         execution_row.updated_by_type
                         or execution_row.created_by_type
@@ -1044,6 +1067,7 @@ class ExecutionWorker:
             execution_row.lease_owner = self._consumer_name
             execution_row.lease_expires_at = lease_expires
             execution_row.heartbeat_at = now
+            execution_row.fencing_token = fencing_token
             started_at = execution_row.started_at or now
             execution_row.started_at = started_at
             execution_row.execution_expires_at = (
@@ -1068,39 +1092,32 @@ class ExecutionWorker:
                 "execution.started",
                 ExecutionStatus.RUNNING,
             )
-            return execution_row.to_domain(), target, attempt_id
+            return (
+                execution_row.to_domain(),
+                target,
+                ExecutionLease(
+                    execution_id=execution_id,
+                    attempt_id=attempt_id,
+                    owner=self._consumer_name,
+                    fencing_token=fencing_token,
+                ),
+            )
 
     async def _defer_retained_retry(
         self,
-        execution_id: UUID,
-        attempt_id: UUID,
+        lease: ExecutionLease,
         target_id: UUID,
         diagnostic: str,
     ) -> None:
         now = utc_now()
         async with self._session_factory() as session, session.begin():
-            execution = await session.scalar(
-                select(ExecutionORM)
-                .where(ExecutionORM.id == execution_id)
-                .with_for_update()
-            )
-            attempt = await session.scalar(
-                select(ExecutionAttemptORM)
-                .where(ExecutionAttemptORM.id == attempt_id)
-                .with_for_update()
-            )
+            execution, attempt = await require_active_lease(session, lease)
             target = await session.scalar(
                 select(RuntimeTargetORM)
                 .where(RuntimeTargetORM.id == target_id)
                 .with_for_update()
             )
-            if (
-                execution is None
-                or attempt is None
-                or execution.status != ExecutionStatus.RUNNING
-                or attempt.status != AttemptStatus.RUNNING
-                or execution.retry_strategy != RetryStrategy.FROM_FAILED_STEP
-            ):
+            if execution.retry_strategy != RetryStrategy.FROM_FAILED_STEP:
                 return
             execution.status = ExecutionStatus.QUEUED
             execution.error_message = "The retained Runtime Target is temporarily unavailable; waiting for recovery."
@@ -1126,7 +1143,8 @@ class ExecutionWorker:
                     .where(
                         ExecutionOperationORM.id
                         == execution.active_operation_id,
-                        ExecutionOperationORM.status == OperationStatus.RUNNING,
+                        ExecutionOperationORM.status
+                        == OperationStatus.RUNNING,
                     )
                     .values(
                         status=OperationStatus.QUEUED,
@@ -1283,7 +1301,10 @@ class ExecutionWorker:
         observed_at = target.resource_observed_at
         if observed_at is None or target.resource_last_error is not None:
             return False
-        if target.cpu_utilization is None and target.memory_utilization is None:
+        if (
+            target.cpu_utilization is None
+            and target.memory_utilization is None
+        ):
             return False
         if observed_at.tzinfo is None:
             observed_at = observed_at.replace(tzinfo=UTC)
@@ -1315,10 +1336,16 @@ class ExecutionWorker:
         return pressure, memory, reserved, target.name
 
     async def _run_multi_execution(
-        self, execution: Execution, target: RuntimeTargetORM, attempt_id: UUID
+        self,
+        execution: Execution,
+        target: RuntimeTargetORM,
+        lease: ExecutionLease,
     ) -> None:
         driver = self._create_driver(target)
-        heartbeat: asyncio.Task[None] | None = None
+        heartbeat = asyncio.create_task(
+            self._heartbeat(lease),
+            name=f"heartbeat-{execution.id}",
+        )
         runtime_session_id = execution.runtime_session_id
         try:
             workspace = self._workspace.plan(execution)
@@ -1339,15 +1366,10 @@ class ExecutionWorker:
                     target_id=target.id,
                 )
             await self._record_runtime_session(
-                execution.id,
-                attempt_id,
+                lease,
                 runtime_session_id,
                 workspace.runtime_relative_path,
                 workspace.notebook_path,
-            )
-            heartbeat = asyncio.create_task(
-                self._heartbeat(execution.id, attempt_id),
-                name=f"heartbeat-{execution.id}",
             )
             if execution.finalization_requested:
                 last_sequence = max(
@@ -1356,10 +1378,10 @@ class ExecutionWorker:
                 await self._artifacts.register_notebook(
                     driver=driver,
                     workspace=workspace,
-                    execution_id=execution.id,
-                    attempt_id=attempt_id,
+                    lease=lease,
                     sequence=last_sequence,
                 )
+                await self._assert_active_lease(lease)
                 await self._trace_runtime(
                     "executor.runtime.session.delete",
                     driver.delete_session(runtime_session_id),
@@ -1367,8 +1389,7 @@ class ExecutionWorker:
                     target_id=target.id,
                 )
                 await self._finalize(
-                    execution.id,
-                    attempt_id,
+                    lease,
                     ExecutionStatus.SUCCEEDED,
                     runtime_session_cleanup_status=RuntimeSessionCleanupStatus.SUCCEEDED,
                 )
@@ -1395,9 +1416,7 @@ class ExecutionWorker:
                 artifact_snapshot = await self._artifacts.snapshot(
                     driver, workspace
                 )
-                await self._step_started(
-                    execution.id, attempt_id, pending.sequence
-                )
+                await self._step_started(lease, pending.sequence)
                 try:
                     result = await self._trace_runtime(
                         "executor.runtime.code.execute",
@@ -1418,33 +1437,32 @@ class ExecutionWorker:
                             driver=driver,
                             workspace=workspace,
                             before=artifact_snapshot,
-                            execution_id=execution.id,
-                            attempt_id=attempt_id,
+                            lease=lease,
                             sequence=pending.sequence,
                             status=ArtifactStatus.INCOMPLETE,
+                            allow_cancel_requested=True,
                         )
                     except Exception as artifact_exc:
                         await self._record_artifact_failure(
-                            execution.id,
-                            attempt_id,
+                            lease,
                             pending.sequence,
                             artifact_exc,
+                            allow_cancel_requested=True,
                         )
                     raise
                 except RuntimeExecutionError as exc:
                     await self._step_failed(
-                        execution.id,
-                        attempt_id,
+                        lease,
                         pending.sequence,
                         exc.outputs,
                         str(exc),
                     )
                     await self._skip_operation_steps_after(
-                        execution.id, operation_id, pending.sequence
+                        lease, operation_id, pending.sequence
                     )
                     await self._write_multi_notebook(
                         driver,
-                        execution.id,
+                        lease,
                         execution.runtime_profile,
                         workspace,
                     )
@@ -1453,21 +1471,18 @@ class ExecutionWorker:
                             driver=driver,
                             workspace=workspace,
                             before=artifact_snapshot,
-                            execution_id=execution.id,
-                            attempt_id=attempt_id,
+                            lease=lease,
                             sequence=pending.sequence,
                             status=ArtifactStatus.INCOMPLETE,
                         )
                     except Exception as artifact_exc:
                         await self._record_artifact_failure(
-                            execution.id,
-                            attempt_id,
+                            lease,
                             pending.sequence,
                             artifact_exc,
                         )
                     await self._complete_multi_operation(
-                        execution.id,
-                        attempt_id,
+                        lease,
                         operation_id,
                         OperationStatus.FAILED,
                         failed_sequence=pending.sequence,
@@ -1475,36 +1490,32 @@ class ExecutionWorker:
                     )
                     return
                 await self._step_succeeded(
-                    execution.id,
-                    attempt_id,
+                    lease,
                     pending.sequence,
                     result.outputs,
                     result.execution_count,
                 )
                 await self._write_multi_notebook(
-                    driver, execution.id, execution.runtime_profile, workspace
+                    driver, lease, execution.runtime_profile, workspace
                 )
                 try:
                     await self._artifacts.discover_and_register(
                         driver=driver,
                         workspace=workspace,
                         before=artifact_snapshot,
-                        execution_id=execution.id,
-                        attempt_id=attempt_id,
+                        lease=lease,
                         sequence=pending.sequence,
                         status=ArtifactStatus.AVAILABLE,
                     )
                 except Exception as artifact_exc:
                     await self._record_artifact_failure(
-                        execution.id,
-                        attempt_id,
+                        lease,
                         pending.sequence,
                         artifact_exc,
                     )
                     raise
             await self._complete_multi_operation(
-                execution.id,
-                attempt_id,
+                lease,
                 operation_id,
                 OperationStatus.SUCCEEDED,
             )
@@ -1519,8 +1530,7 @@ class ExecutionWorker:
                     driver, runtime_session_id
                 )
             await self._finalize(
-                execution.id,
-                attempt_id,
+                lease,
                 ExecutionStatus.FAILED,
                 "Executor worker stopped while a MULTI Operation Step was running.",
                 failure_type=FailureType.WORKER_SHUTDOWN,
@@ -1528,6 +1538,16 @@ class ExecutionWorker:
                 runtime_session_cleanup_status=cleanup_status,
             )
             raise
+        except ExecutionLeaseLostError:
+            logger.warning(
+                "Execution Worker lost its lease fence; stale results were "
+                "discarded",
+                extra={
+                    "execution_id": str(lease.execution_id),
+                    "execution_attempt_id": str(lease.attempt_id),
+                    "fencing_token": lease.fencing_token,
+                },
+            )
         except Exception as exc:
             cleanup_status = RuntimeSessionCleanupStatus.NOT_REQUIRED
             if runtime_session_id is not None:
@@ -1535,8 +1555,7 @@ class ExecutionWorker:
                     driver, runtime_session_id
                 )
             await self._finalize(
-                execution.id,
-                attempt_id,
+                lease,
                 ExecutionStatus.FAILED,
                 _safe_error(exc),
                 failure_type=_failure_policy(exc, False)[0],
@@ -1549,7 +1568,9 @@ class ExecutionWorker:
                 await asyncio.gather(heartbeat, return_exceptions=True)
             await driver.close()
 
-    async def _cancellation_job_owns_terminal(self, execution_id: UUID) -> bool:
+    async def _cancellation_job_owns_terminal(
+        self, execution_id: UUID
+    ) -> bool:
         async with self._session_factory() as session:
             status = await session.scalar(
                 select(ExecutionORM.status).where(
@@ -1564,15 +1585,16 @@ class ExecutionWorker:
     async def _write_multi_notebook(
         self,
         driver: RuntimeDriver,
-        execution_id: UUID,
+        lease: ExecutionLease,
         runtime_profile: str,
         workspace: ExecutionWorkspace,
     ) -> None:
-        async with self._session_factory() as session:
+        async with self._session_factory() as session, session.begin():
+            await require_active_lease(session, lease)
             steps = list(
                 await session.scalars(
                     select(ExecutionStepORM)
-                    .where(ExecutionStepORM.execution_id == execution_id)
+                    .where(ExecutionStepORM.execution_id == lease.execution_id)
                     .order_by(ExecutionStepORM.sequence)
                 )
             )
@@ -1588,6 +1610,7 @@ class ExecutionWorker:
         execution_counts: list[int | None] = list(
             range(1, len(executed_steps) + 1)
         )
+        await self._assert_active_lease(lease)
         await driver.write_notebook(
             workspace.notebook_path,
             self._workspace.notebook_document(
@@ -1597,8 +1620,7 @@ class ExecutionWorker:
 
     async def _complete_multi_operation(
         self,
-        execution_id: UUID,
-        attempt_id: UUID,
+        lease: ExecutionLease,
         operation_id: UUID,
         operation_status: OperationStatus,
         *,
@@ -1607,22 +1629,19 @@ class ExecutionWorker:
     ) -> None:
         now = utc_now()
         async with self._session_factory() as session, session.begin():
-            execution = await session.scalar(
-                select(ExecutionORM)
-                .where(ExecutionORM.id == execution_id)
-                .with_for_update()
-            )
-            if execution is None or execution.status != ExecutionStatus.RUNNING:
-                return
+            execution, attempt = await require_active_lease(session, lease)
             operation = await session.scalar(
                 select(ExecutionOperationORM)
                 .where(
                     ExecutionOperationORM.id == operation_id,
-                    ExecutionOperationORM.execution_id == execution_id,
+                    ExecutionOperationORM.execution_id == lease.execution_id,
                 )
                 .with_for_update()
             )
-            if operation is None or operation.status != OperationStatus.RUNNING:
+            if (
+                operation is None
+                or operation.status != OperationStatus.RUNNING
+            ):
                 return
             execution.status = ExecutionStatus.WAITING_FOR_OPERATION
             execution.lease_owner = None
@@ -1651,22 +1670,16 @@ class ExecutionWorker:
             )
             operation.finished_at = now
             operation.updated_at = now
-            await session.execute(
-                update(ExecutionAttemptORM)
-                .where(ExecutionAttemptORM.id == attempt_id)
-                .values(
-                    status=AttemptStatus.WAITING,
-                    lease_owner=None,
-                    lease_expires_at=None,
-                )
-            )
+            attempt.status = AttemptStatus.WAITING
+            attempt.lease_owner = None
+            attempt.lease_expires_at = None
             await _add_outbox(
                 session,
-                execution_id,
+                lease.execution_id,
                 f"execution.operation_{operation_status.value.lower()}",
                 ExecutionStatus.WAITING_FOR_OPERATION,
                 {
-                    "execution_attempt_id": str(attempt_id),
+                    "execution_attempt_id": str(lease.attempt_id),
                     "operation_id": str(operation_id),
                     "operation_status": operation_status.value,
                     "first_sequence": operation.first_sequence,
@@ -1686,7 +1699,7 @@ class ExecutionWorker:
             )
             await _add_outbox(
                 session,
-                execution_id,
+                lease.execution_id,
                 "execution.waiting_for_operation",
                 ExecutionStatus.WAITING_FOR_OPERATION,
                 {
@@ -1697,14 +1710,18 @@ class ExecutionWorker:
             )
 
     async def _skip_operation_steps_after(
-        self, execution_id: UUID, operation_id: UUID, failed_sequence: int
+        self,
+        lease: ExecutionLease,
+        operation_id: UUID,
+        failed_sequence: int,
     ) -> None:
         now = utc_now()
         async with self._session_factory() as session, session.begin():
+            await require_active_lease(session, lease)
             await session.execute(
                 update(ExecutionStepORM)
                 .where(
-                    ExecutionStepORM.execution_id == execution_id,
+                    ExecutionStepORM.execution_id == lease.execution_id,
                     ExecutionStepORM.operation_id == operation_id,
                     ExecutionStepORM.sequence > failed_sequence,
                     ExecutionStepORM.status == StepStatus.PENDING,
@@ -1714,12 +1731,15 @@ class ExecutionWorker:
                 )
             )
 
-    async def _ensure_steps(self, execution_id: UUID, cell_count: int) -> None:
+    async def _ensure_steps(
+        self, lease: ExecutionLease, cell_count: int
+    ) -> None:
         async with self._session_factory() as session, session.begin():
+            await require_active_lease(session, lease)
             steps = list(
                 await session.scalars(
                     select(ExecutionStepORM)
-                    .where(ExecutionStepORM.execution_id == execution_id)
+                    .where(ExecutionStepORM.execution_id == lease.execution_id)
                     .order_by(ExecutionStepORM.sequence)
                 )
             )
@@ -1730,37 +1750,28 @@ class ExecutionWorker:
 
     async def _record_runtime_session(
         self,
-        execution_id: UUID,
-        attempt_id: UUID,
+        lease: ExecutionLease,
         runtime_session_id: str,
         workspace_path: str,
         notebook_path: str,
     ) -> None:
         async with self._session_factory() as session, session.begin():
-            await session.execute(
-                update(ExecutionORM)
-                .where(ExecutionORM.id == execution_id)
-                .values(
-                    runtime_session_id=runtime_session_id,
-                    workspace_path=workspace_path,
-                    notebook_path=notebook_path,
-                    updated_at=utc_now(),
-                )
-            )
-            await session.execute(
-                update(ExecutionAttemptORM)
-                .where(ExecutionAttemptORM.id == attempt_id)
-                .values(runtime_session_id=runtime_session_id)
-            )
+            execution, attempt = await require_active_lease(session, lease)
+            execution.runtime_session_id = runtime_session_id
+            execution.workspace_path = workspace_path
+            execution.notebook_path = notebook_path
+            execution.updated_at = utc_now()
+            attempt.runtime_session_id = runtime_session_id
 
     async def _step_started(
-        self, execution_id: UUID, attempt_id: UUID, sequence: int
+        self, lease: ExecutionLease, sequence: int
     ) -> None:
         now = utc_now()
         async with self._session_factory() as session, session.begin():
+            await require_active_lease(session, lease)
             step = await session.scalar(
                 select(ExecutionStepORM).where(
-                    ExecutionStepORM.execution_id == execution_id,
+                    ExecutionStepORM.execution_id == lease.execution_id,
                     ExecutionStepORM.sequence == sequence,
                 )
             )
@@ -1771,15 +1782,16 @@ class ExecutionWorker:
             step.updated_at = now
             history = await session.scalar(
                 select(ExecutionStepAttemptORM).where(
-                    ExecutionStepAttemptORM.execution_attempt_id == attempt_id,
+                    ExecutionStepAttemptORM.execution_attempt_id
+                    == lease.attempt_id,
                     ExecutionStepAttemptORM.sequence == sequence,
                 )
             )
             if history is None:
                 session.add(
                     ExecutionStepAttemptORM(
-                        execution_id=execution_id,
-                        execution_attempt_id=attempt_id,
+                        execution_id=lease.execution_id,
+                        execution_attempt_id=lease.attempt_id,
                         execution_step_id=step.id,
                         sequence=sequence,
                         skill_name=step.skill_name,
@@ -1803,14 +1815,16 @@ class ExecutionWorker:
                 history.error_message = None
                 history.outputs = []
             if step.operation_id is None:
-                raise ValueError(f"Execution Step {sequence} has no Operation.")
+                raise ValueError(
+                    f"Execution Step {sequence} has no Operation."
+                )
             await _add_outbox(
                 session,
-                execution_id,
+                lease.execution_id,
                 "execution.step_started",
                 ExecutionStatus.RUNNING,
                 {
-                    "execution_attempt_id": str(attempt_id),
+                    "execution_attempt_id": str(lease.attempt_id),
                     "operation_id": str(step.operation_id),
                     "step_id": str(step.id),
                     "sequence": sequence,
@@ -1820,17 +1834,17 @@ class ExecutionWorker:
 
     async def _step_succeeded(
         self,
-        execution_id: UUID,
-        attempt_id: UUID,
+        lease: ExecutionLease,
         sequence: int,
         outputs: list[dict[str, Any]],
         execution_count: int | None,
     ) -> None:
         now = utc_now()
         async with self._session_factory() as session, session.begin():
+            await require_active_lease(session, lease)
             step = await session.scalar(
                 select(ExecutionStepORM).where(
-                    ExecutionStepORM.execution_id == execution_id,
+                    ExecutionStepORM.execution_id == lease.execution_id,
                     ExecutionStepORM.sequence == sequence,
                 )
             )
@@ -1845,7 +1859,8 @@ class ExecutionWorker:
             await session.execute(
                 update(ExecutionStepAttemptORM)
                 .where(
-                    ExecutionStepAttemptORM.execution_attempt_id == attempt_id,
+                    ExecutionStepAttemptORM.execution_attempt_id
+                    == lease.attempt_id,
                     ExecutionStepAttemptORM.sequence == sequence,
                 )
                 .values(
@@ -1856,11 +1871,11 @@ class ExecutionWorker:
             )
             await _add_outbox(
                 session,
-                execution_id,
+                lease.execution_id,
                 "execution.step_succeeded",
                 ExecutionStatus.RUNNING,
                 {
-                    "execution_attempt_id": str(attempt_id),
+                    "execution_attempt_id": str(lease.attempt_id),
                     "operation_id": str(step.operation_id),
                     "step_id": str(step.id),
                     "sequence": sequence,
@@ -1880,17 +1895,17 @@ class ExecutionWorker:
 
     async def _step_failed(
         self,
-        execution_id: UUID,
-        attempt_id: UUID,
+        lease: ExecutionLease,
         sequence: int,
         outputs: list[dict[str, Any]],
         error_message: str,
     ) -> None:
         now = utc_now()
         async with self._session_factory() as session, session.begin():
+            await require_active_lease(session, lease)
             step = await session.scalar(
                 select(ExecutionStepORM).where(
-                    ExecutionStepORM.execution_id == execution_id,
+                    ExecutionStepORM.execution_id == lease.execution_id,
                     ExecutionStepORM.sequence == sequence,
                 )
             )
@@ -1907,7 +1922,8 @@ class ExecutionWorker:
             await session.execute(
                 update(ExecutionStepAttemptORM)
                 .where(
-                    ExecutionStepAttemptORM.execution_attempt_id == attempt_id,
+                    ExecutionStepAttemptORM.execution_attempt_id
+                    == lease.attempt_id,
                     ExecutionStepAttemptORM.sequence == sequence,
                 )
                 .values(
@@ -1919,11 +1935,11 @@ class ExecutionWorker:
             )
             await _add_outbox(
                 session,
-                execution_id,
+                lease.execution_id,
                 "execution.step_failed",
                 ExecutionStatus.RUNNING,
                 {
-                    "execution_attempt_id": str(attempt_id),
+                    "execution_attempt_id": str(lease.attempt_id),
                     "operation_id": str(step.operation_id),
                     "step_id": str(step.id),
                     "sequence": sequence,
@@ -1991,51 +2007,103 @@ class ExecutionWorker:
         except TimeoutError as exc:
             raise RuntimeExecutionTimeoutError(scope, timeout_seconds) from exc
 
-    async def _heartbeat(self, execution_id: UUID, attempt_id: UUID) -> None:
+    async def _assert_active_lease(
+        self,
+        lease: ExecutionLease,
+        *,
+        allowed_statuses: tuple[ExecutionStatus, ...] = (
+            ExecutionStatus.RUNNING,
+        ),
+    ) -> None:
+        async with self._session_factory() as session, session.begin():
+            await require_active_lease(
+                session,
+                lease,
+                allowed_statuses=allowed_statuses,
+            )
+
+    async def _heartbeat(self, lease: ExecutionLease) -> None:
         while True:
             await asyncio.sleep(self._settings.execution_heartbeat_seconds)
-            now = utc_now()
-            lease = now + timedelta(
-                seconds=self._settings.execution_lease_seconds
-            )
-            async with self._session_factory() as session, session.begin():
-                await session.execute(
-                    update(ExecutionORM)
-                    .where(
-                        ExecutionORM.id == execution_id,
-                        ExecutionORM.status == ExecutionStatus.RUNNING,
-                    )
-                    .values(
-                        heartbeat_at=now,
-                        lease_expires_at=lease,
-                        updated_at=now,
-                    )
+            await self._renew_lease(lease)
+
+    async def _renew_lease(self, lease: ExecutionLease) -> None:
+        now = utc_now()
+        lease_expires = now + timedelta(
+            seconds=self._settings.execution_lease_seconds
+        )
+        async with self._session_factory() as session, session.begin():
+            execution_update = await session.execute(
+                update(ExecutionORM)
+                .where(
+                    ExecutionORM.id == lease.execution_id,
+                    ExecutionORM.status == ExecutionStatus.RUNNING,
+                    ExecutionORM.lease_owner == lease.owner,
+                    ExecutionORM.fencing_token == lease.fencing_token,
+                    ExecutionORM.lease_expires_at.is_not(None),
+                    ExecutionORM.lease_expires_at > now,
                 )
-                await session.execute(
-                    update(ExecutionAttemptORM)
-                    .where(
-                        ExecutionAttemptORM.id == attempt_id,
-                        ExecutionAttemptORM.status == AttemptStatus.RUNNING,
-                    )
-                    .values(heartbeat_at=now, lease_expires_at=lease)
+                .values(
+                    heartbeat_at=now,
+                    lease_expires_at=lease_expires,
+                    updated_at=now,
+                )
+            )
+            if getattr(execution_update, "rowcount", None) != 1:
+                raise ExecutionLeaseLostError(
+                    f"Execution {lease.execution_id} heartbeat lost fence "
+                    f"{lease.fencing_token}."
+                )
+            attempt_update = await session.execute(
+                update(ExecutionAttemptORM)
+                .where(
+                    ExecutionAttemptORM.id == lease.attempt_id,
+                    ExecutionAttemptORM.status == AttemptStatus.RUNNING,
+                    ExecutionAttemptORM.lease_owner == lease.owner,
+                    ExecutionAttemptORM.fencing_token == lease.fencing_token,
+                    ExecutionAttemptORM.lease_expires_at.is_not(None),
+                    ExecutionAttemptORM.lease_expires_at > now,
+                )
+                .values(
+                    heartbeat_at=now,
+                    lease_expires_at=lease_expires,
+                )
+            )
+            if getattr(attempt_update, "rowcount", None) != 1:
+                raise ExecutionLeaseLostError(
+                    f"Execution Attempt {lease.attempt_id} heartbeat lost "
+                    f"fence {lease.fencing_token}."
                 )
 
     async def _record_artifact_failure(
         self,
-        execution_id: UUID,
-        attempt_id: UUID,
+        lease: ExecutionLease,
         sequence: int,
         error: Exception,
+        *,
+        allow_cancel_requested: bool = False,
     ) -> None:
         try:
             async with self._session_factory() as session, session.begin():
+                await require_active_lease(
+                    session,
+                    lease,
+                    allowed_statuses=(
+                        (
+                            ExecutionStatus.RUNNING,
+                            ExecutionStatus.CANCEL_REQUESTED,
+                        )
+                        if allow_cancel_requested
+                        else (ExecutionStatus.RUNNING,)
+                    ),
+                )
                 await _add_outbox(
                     session,
-                    execution_id,
+                    lease.execution_id,
                     "execution.artifact_failed",
                     ExecutionStatus.RUNNING,
                     {
-                        "execution_attempt_id": str(attempt_id),
+                        "execution_attempt_id": str(lease.attempt_id),
                         "sequence": sequence,
                         "error_type": type(error).__name__,
                     },
@@ -2044,13 +2112,12 @@ class ExecutionWorker:
             # Never replace the original execution or Artifact error with telemetry failure.
             logger.exception(
                 "Artifact failure event persistence failed",
-                extra={"execution_id": str(execution_id)},
+                extra={"execution_id": str(lease.execution_id)},
             )
 
     async def _finalize(
         self,
-        execution_id: UUID,
-        attempt_id: UUID,
+        lease: ExecutionLease,
         requested_status: ExecutionStatus,
         error_message: str | None = None,
         *,
@@ -2064,17 +2131,7 @@ class ExecutionWorker:
     ) -> None:
         now = utc_now()
         async with self._session_factory() as session, session.begin():
-            execution = await session.scalar(
-                select(ExecutionORM)
-                .where(ExecutionORM.id == execution_id)
-                .with_for_update()
-            )
-            if (
-                execution is None
-                or execution.status.is_terminal
-                or execution.status == ExecutionStatus.CANCEL_REQUESTED
-            ):
-                return
+            execution, attempt = await require_active_lease(session, lease)
             status = requested_status
             attempt_status = AttemptStatus(status.value)
             is_failed = status == ExecutionStatus.FAILED
@@ -2114,18 +2171,16 @@ class ExecutionWorker:
             ):
                 execution.runtime_session_id = None
             execution.version += 1
-            await session.execute(
-                update(ExecutionAttemptORM)
-                .where(ExecutionAttemptORM.id == attempt_id)
-                .values(
-                    status=attempt_status,
-                    error_message=error_message if is_failed else None,
-                    failure_type=effective_failure_type,
-                    retry_strategy=effective_retry_strategy,
-                    runtime_session_cleanup_status=runtime_session_cleanup_status,
-                    finished_at=now,
-                )
+            attempt.status = attempt_status
+            attempt.lease_owner = None
+            attempt.lease_expires_at = None
+            attempt.error_message = error_message if is_failed else None
+            attempt.failure_type = effective_failure_type
+            attempt.retry_strategy = effective_retry_strategy
+            attempt.runtime_session_cleanup_status = (
+                runtime_session_cleanup_status
             )
+            attempt.finished_at = now
             if execution.active_operation_id is not None:
                 operation_update = await session.execute(
                     update(ExecutionOperationORM)
@@ -2142,7 +2197,7 @@ class ExecutionWorker:
                             if status == ExecutionStatus.SUCCEEDED
                             else OperationStatus.FAILED
                         ),
-                        execution_attempt_id=attempt_id,
+                        execution_attempt_id=lease.attempt_id,
                         error_message=error_message if is_failed else None,
                         finished_at=now,
                         updated_at=now,
@@ -2161,7 +2216,7 @@ class ExecutionWorker:
                     and getattr(operation_update, "rowcount", None) == 1
                 ):
                     operation_payload: dict[str, object] = {
-                        "execution_attempt_id": str(attempt_id),
+                        "execution_attempt_id": str(lease.attempt_id),
                         "operation_id": str(operation.id),
                         "operation_status": (
                             OperationStatus.SUCCEEDED.value
@@ -2181,7 +2236,7 @@ class ExecutionWorker:
                         )
                     await _add_outbox(
                         session,
-                        execution_id,
+                        lease.execution_id,
                         (
                             "execution.operation_succeeded"
                             if status == ExecutionStatus.SUCCEEDED
@@ -2194,7 +2249,7 @@ class ExecutionWorker:
                 await session.execute(
                     update(ExecutionStepORM)
                     .where(
-                        ExecutionStepORM.execution_id == execution_id,
+                        ExecutionStepORM.execution_id == lease.execution_id,
                         ExecutionStepORM.status == StepStatus.RUNNING,
                     )
                     .values(
@@ -2207,7 +2262,7 @@ class ExecutionWorker:
                 await session.execute(
                     update(ExecutionStepORM)
                     .where(
-                        ExecutionStepORM.execution_id == execution_id,
+                        ExecutionStepORM.execution_id == lease.execution_id,
                         ExecutionStepORM.status == StepStatus.PENDING,
                     )
                     .values(
@@ -2220,7 +2275,7 @@ class ExecutionWorker:
                     update(ExecutionStepAttemptORM)
                     .where(
                         ExecutionStepAttemptORM.execution_attempt_id
-                        == attempt_id,
+                        == lease.attempt_id,
                         ExecutionStepAttemptORM.status == StepStatus.RUNNING,
                     )
                     .values(
@@ -2231,7 +2286,7 @@ class ExecutionWorker:
                 )
             await _add_outbox(
                 session,
-                execution_id,
+                lease.execution_id,
                 f"execution.{status.value.lower()}",
                 status,
                 {
@@ -2618,6 +2673,8 @@ class ExecutionWorker:
                 execution.updated_at = now
                 execution.lease_owner = None
                 execution.lease_expires_at = None
+                execution.heartbeat_at = None
+                execution.fencing_token += 1
                 execution.retry_strategy = retry_strategy
                 execution.retry_from_sequence = (
                     0 if retry_strategy == RetryStrategy.FROM_START else None
@@ -2639,6 +2696,8 @@ class ExecutionWorker:
                     )
                     .values(
                         status=AttemptStatus.FAILED,
+                        lease_owner=None,
+                        lease_expires_at=None,
                         error_message=execution.error_message,
                         failure_type=FailureType.LEASE_EXPIRED,
                         retry_strategy=retry_strategy,
@@ -2982,7 +3041,8 @@ class ExecutionWorker:
                 "first_sequence": operation.first_sequence,
                 "last_sequence": operation.last_sequence,
                 "version": execution.version,
-                "error_message": operation.error_message or "Operation failed.",
+                "error_message": operation.error_message
+                or "Operation failed.",
             },
         )
 

@@ -420,7 +420,8 @@ async def test_preflight_connection_failure_defers_the_retained_retry(
         assert operation.execution_attempt_id is None
         assert event is not None
         assert (
-            event.payload["reason"] == "retained_target_temporarily_unavailable"
+            event.payload["reason"]
+            == "retained_target_temporarily_unavailable"
         )
 
 

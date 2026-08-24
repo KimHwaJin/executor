@@ -71,7 +71,9 @@ def _target(
     cpu_utilization: float | None = None,
     memory_utilization: float | None = None,
 ) -> RuntimeTargetORM:
-    has_resource = cpu_utilization is not None or memory_utilization is not None
+    has_resource = (
+        cpu_utilization is not None or memory_utilization is not None
+    )
     return RuntimeTargetORM(
         name=name,
         connection_config={"endpoint": f"http://{name}.invalid:8888"},
@@ -285,7 +287,9 @@ async def test_full_batch_pool_keeps_work_queued_until_capacity_is_released(
             await session.execute(
                 update(ExecutionORM)
                 .where(ExecutionORM.id == first.id)
-                .values(status=ExecutionStatus.SUCCEEDED, finished_at=utc_now())
+                .values(
+                    status=ExecutionStatus.SUCCEEDED, finished_at=utc_now()
+                )
             )
 
         waiting_claim = await worker._claim(waiting.id)

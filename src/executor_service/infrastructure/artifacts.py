@@ -16,6 +16,7 @@ from executor_service.domain.enums import (
     ArtifactStatus,
     ArtifactStorageType,
     ArtifactType,
+    ExecutionStatus,
 )
 from executor_service.domain.errors import ArtifactRegistrationError
 from executor_service.domain.runtime import (
@@ -30,6 +31,10 @@ from executor_service.infrastructure.db.models import (
     ExecutionStepAttemptORM,
     ExecutionStepORM,
     OutboxEventORM,
+)
+from executor_service.infrastructure.execution_leases import (
+    ExecutionLease,
+    require_active_lease,
 )
 from executor_service.infrastructure.workspace import ExecutionWorkspace
 from executor_service.tracing import capture_trace_carrier
@@ -113,17 +118,17 @@ class ExecutionArtifactManager:
         driver: RuntimeStorage,
         workspace: ExecutionWorkspace,
         before: RuntimeStorageSnapshot,
-        execution_id: UUID,
-        attempt_id: UUID,
+        lease: ExecutionLease,
         sequence: int,
         status: ArtifactStatus,
+        allow_cancel_requested: bool = False,
     ) -> list[UUID]:
         descriptors = await self._discover(driver, workspace, before, status)
         return await self._persist(
             descriptors,
-            execution_id=execution_id,
-            attempt_id=attempt_id,
+            lease=lease,
             sequence=sequence,
+            allow_cancel_requested=allow_cancel_requested,
         )
 
     async def register_notebook(
@@ -131,8 +136,7 @@ class ExecutionArtifactManager:
         *,
         driver: RuntimeStorage,
         workspace: ExecutionWorkspace,
-        execution_id: UUID,
-        attempt_id: UUID,
+        lease: ExecutionLease,
         sequence: int,
     ) -> list[UUID]:
         metadata = await driver.file_metadata(workspace.notebook_path)
@@ -144,8 +148,7 @@ class ExecutionArtifactManager:
         )
         return await self._persist(
             [descriptor],
-            execution_id=execution_id,
-            attempt_id=attempt_id,
+            lease=lease,
             sequence=sequence,
         )
 
@@ -253,7 +256,9 @@ class ExecutionArtifactManager:
             media_type=entry.media_type,
             size_bytes=entry.size_bytes,
             checksum_sha256=(
-                entry.checksum_sha256.lower() if entry.checksum_sha256 else None
+                entry.checksum_sha256.lower()
+                if entry.checksum_sha256
+                else None
             ),
             parent_artifact_id=entry.parent_artifact_id,
             external_parent_asset_id=entry.external_parent_asset_id,
@@ -266,22 +271,35 @@ class ExecutionArtifactManager:
         self,
         descriptors: list[ArtifactDescriptor],
         *,
-        execution_id: UUID,
-        attempt_id: UUID,
+        lease: ExecutionLease,
         sequence: int,
+        allow_cancel_requested: bool = False,
     ) -> list[UUID]:
         if not descriptors:
             return []
         async with self._session_factory() as session, session.begin():
+            await require_active_lease(
+                session,
+                lease,
+                allowed_statuses=(
+                    (
+                        ExecutionStatus.RUNNING,
+                        ExecutionStatus.CANCEL_REQUESTED,
+                    )
+                    if allow_cancel_requested
+                    else (ExecutionStatus.RUNNING,)
+                ),
+            )
             step = await session.scalar(
                 select(ExecutionStepORM).where(
-                    ExecutionStepORM.execution_id == execution_id,
+                    ExecutionStepORM.execution_id == lease.execution_id,
                     ExecutionStepORM.sequence == sequence,
                 )
             )
             step_attempt = await session.scalar(
                 select(ExecutionStepAttemptORM).where(
-                    ExecutionStepAttemptORM.execution_attempt_id == attempt_id,
+                    ExecutionStepAttemptORM.execution_attempt_id
+                    == lease.attempt_id,
                     ExecutionStepAttemptORM.sequence == sequence,
                 )
             )
@@ -292,7 +310,10 @@ class ExecutionArtifactManager:
             artifact_ids: list[UUID] = []
             for descriptor in descriptors:
                 identity_hash = _identity_hash(
-                    execution_id, attempt_id, step_attempt.id, descriptor
+                    lease.execution_id,
+                    lease.attempt_id,
+                    step_attempt.id,
+                    descriptor,
                 )
                 existing = await session.scalar(
                     select(ExecutionArtifactORM).where(
@@ -303,8 +324,8 @@ class ExecutionArtifactManager:
                     artifact_ids.append(existing.id)
                     continue
                 row = ExecutionArtifactORM(
-                    execution_id=execution_id,
-                    execution_attempt_id=attempt_id,
+                    execution_id=lease.execution_id,
+                    execution_attempt_id=lease.attempt_id,
                     execution_step_id=step.id,
                     execution_step_attempt_id=step_attempt.id,
                     parent_artifact_id=descriptor.parent_artifact_id,
@@ -333,10 +354,10 @@ class ExecutionArtifactManager:
                 artifact_ids.append(row.id)
                 carrier = capture_trace_carrier()
                 event = build_execution_event(
-                    execution_id=execution_id,
+                    execution_id=lease.execution_id,
                     event_type="execution.artifact_registered",
                     payload={
-                        "execution_attempt_id": str(attempt_id),
+                        "execution_attempt_id": str(lease.attempt_id),
                         "execution_step_id": str(step.id),
                         "artifact_id": str(row.id),
                         "artifact_type": descriptor.artifact_type.value,

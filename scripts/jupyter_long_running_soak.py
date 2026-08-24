@@ -332,7 +332,9 @@ async def main() -> None:
             poll_interval_seconds=poll_interval_seconds,
         )
         if terminal["state"]["status"] != "SUCCEEDED":
-            raise RuntimeError(f"Long-running soak did not succeed: {terminal}")
+            raise RuntimeError(
+                f"Long-running soak did not succeed: {terminal}"
+            )
 
         result = await required_tool_result(
             client, "execution_result_get", {"execution_id": execution_id}

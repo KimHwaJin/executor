@@ -227,7 +227,10 @@ async def main() -> None:
                 )
             )
             statuses = [state["state"]["status"] for state in states]
-            if statuses.count("RUNNING") == 2 and statuses.count("QUEUED") == 1:
+            if (
+                statuses.count("RUNNING") == 2
+                and statuses.count("QUEUED") == 1
+            ):
                 observed_batch_queue = True
                 break
             await asyncio.sleep(0.1)

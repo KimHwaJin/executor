@@ -138,6 +138,9 @@ class ExecutionORM(Base):
             "retry_from_sequence IS NULL OR retry_from_sequence >= 0",
             name="non_negative_retry_from_sequence",
         ),
+        CheckConstraint(
+            "fencing_token >= 0", name="non_negative_fencing_token"
+        ),
         Index("ix_executions_status_created_at", "status", "created_at", "id"),
         Index("ix_executions_created_cursor", "created_at", "id"),
         Index(
@@ -176,7 +179,9 @@ class ExecutionORM(Base):
     idempotency_key: Mapped[str] = mapped_column(
         String(255), unique=True, nullable=False
     )
-    request_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    request_fingerprint: Mapped[str] = mapped_column(
+        String(64), nullable=False
+    )
     cancel_idempotency_key: Mapped[str | None] = mapped_column(
         String(255), unique=True, nullable=True
     )
@@ -210,7 +215,9 @@ class ExecutionORM(Base):
     execution_metadata: Mapped[dict[str, Any]] = mapped_column(
         "metadata", JSON, nullable=False, default=dict
     )
-    cancellation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cancellation_reason: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )
     runtime_target_id: Mapped[UUID | None] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey("runtime_targets.id"),
@@ -233,6 +240,9 @@ class ExecutionORM(Base):
     heartbeat_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True)
     )
+    fencing_token: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0
+    )
     retry_strategy: Mapped[RetryStrategy] = mapped_column(
         enum_type(RetryStrategy, "retry_strategy"),
         nullable=False,
@@ -242,7 +252,9 @@ class ExecutionORM(Base):
     retained_runtime_session_until: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True)
     )
-    retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    retry_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
+    )
     recovery_count: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0
     )
@@ -496,7 +508,9 @@ class ExecutionStepORM(Base):
         default=utc_now,
         onupdate=utc_now,
     )
-    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
     finished_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True)
     )
@@ -619,7 +633,9 @@ class ExecutionOperationORM(Base):
     idempotency_key: Mapped[str] = mapped_column(
         String(255), nullable=False, unique=True
     )
-    request_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    request_fingerprint: Mapped[str] = mapped_column(
+        String(64), nullable=False
+    )
     status: Mapped[OperationStatus] = mapped_column(
         enum_type(OperationStatus, "operation_status"), nullable=False
     )
@@ -646,7 +662,9 @@ class ExecutionOperationORM(Base):
         default=utc_now,
         onupdate=utc_now,
     )
-    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
     finished_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True)
     )
@@ -726,7 +744,9 @@ class RuntimeTargetORM(Base):
     supported_profiles: Mapped[list[str]] = mapped_column(
         JSON, nullable=False, default=list
     )
-    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True
+    )
     last_health_check_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True)
     )
@@ -798,7 +818,9 @@ class RuntimeTargetPurgeORM(Base):
     idempotency_key: Mapped[str] = mapped_column(
         String(255), nullable=False, unique=True
     )
-    request_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    request_fingerprint: Mapped[str] = mapped_column(
+        String(64), nullable=False
+    )
     created_by_type: Mapped[ActorType | None] = mapped_column(
         enum_type(ActorType, "actor_type"), nullable=True
     )
@@ -830,7 +852,9 @@ class CommandReceiptORM(Base):
         String(255), nullable=False, unique=True
     )
     command_type: Mapped[str] = mapped_column(String(128), nullable=False)
-    request_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    request_fingerprint: Mapped[str] = mapped_column(
+        String(64), nullable=False
+    )
     result: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utc_now
@@ -896,6 +920,9 @@ class ExecutionAttemptORM(Base):
             "runtime_session_cleanup_status IN ('NOT_REQUIRED', 'PENDING', 'SUCCEEDED', 'FAILED')",
             name="valid_runtime_session_cleanup_status",
         ),
+        CheckConstraint(
+            "fencing_token >= 0", name="non_negative_fencing_token"
+        ),
         Index("ix_execution_attempts_lease", "status", "lease_expires_at"),
         Index(
             "ix_execution_attempts_target_status",
@@ -934,6 +961,9 @@ class ExecutionAttemptORM(Base):
     )
     heartbeat_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
+    )
+    fencing_token: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0
     )
     error_message: Mapped[str | None] = mapped_column(Text)
     failure_type: Mapped[FailureType | None] = mapped_column(
@@ -1084,7 +1114,9 @@ class ExecutionArtifactORM(Base):
             "created_at",
             "id",
         ),
-        Index("ix_execution_artifacts_step", "execution_step_id", "created_at"),
+        Index(
+            "ix_execution_artifacts_step", "execution_step_id", "created_at"
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(

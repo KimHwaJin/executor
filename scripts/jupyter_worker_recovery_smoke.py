@@ -71,7 +71,9 @@ async def main() -> None:
                     StepSpec(
                         sequence=0,
                         code=code,
-                        source_sha256=hashlib.sha256(code.encode()).hexdigest(),
+                        source_sha256=hashlib.sha256(
+                            code.encode()
+                        ).hexdigest(),
                         tool_name="long_running_tool",
                     ),
                 ),

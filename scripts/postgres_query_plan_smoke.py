@@ -73,7 +73,9 @@ async def main() -> None:
             await connection.execute(text("SET LOCAL enable_seqscan = off"))
             for check in CHECKS:
                 result = await connection.execute(
-                    text(f"EXPLAIN (ANALYZE, BUFFERS, COSTS OFF) {check.query}")
+                    text(
+                        f"EXPLAIN (ANALYZE, BUFFERS, COSTS OFF) {check.query}"
+                    )
                 )
                 plan = "\n".join(str(row[0]) for row in result)
                 if check.expected_index not in plan:

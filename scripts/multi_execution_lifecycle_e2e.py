@@ -612,7 +612,9 @@ async def _run_correction_and_finalization_case(
         expected_session_id=session_id,
         session_factory=session_factory,
     )
-    failed_steps = await _page("MCP", execution_id, "steps", mcp=mcp, rest=rest)
+    failed_steps = await _page(
+        "MCP", execution_id, "steps", mcp=mcp, rest=rest
+    )
     if [step["result"]["status"] for step in failed_steps] != [
         "SUCCEEDED",
         "SUCCEEDED",
@@ -695,7 +697,8 @@ async def _run_correction_and_finalization_case(
         finished["state"]["status"] != "SUCCEEDED"
         or finished["runtime"]["target_id"] != str(target_id)
         or finished["runtime"]["session_id"] is not None
-        or finished["recovery"]["runtime_session_cleanup_status"] != "SUCCEEDED"
+        or finished["recovery"]["runtime_session_cleanup_status"]
+        != "SUCCEEDED"
     ):
         raise RuntimeError(
             f"MULTI finalization did not clean up safely: {finished}"
@@ -786,7 +789,9 @@ async def _run_correction_and_finalization_case(
             artifact.checksum_sha256
             != hashlib.sha256(content.encode()).hexdigest()
         ):
-            raise RuntimeError(f"MULTI Artifact {name} has unexpected content.")
+            raise RuntimeError(
+                f"MULTI Artifact {name} has unexpected content."
+            )
     notebook = next(
         (
             artifact
@@ -796,7 +801,9 @@ async def _run_correction_and_finalization_case(
         None,
     )
     if notebook is None:
-        raise RuntimeError("Finished MULTI Execution has no notebook Artifact.")
+        raise RuntimeError(
+            "Finished MULTI Execution has no notebook Artifact."
+        )
     notebook_data = await _mcp_result(
         mcp,
         "execution_notebook_read",
@@ -1025,7 +1032,9 @@ async def _run_running_cancel_case(
         raise RuntimeError(
             f"PostgreSQL MULTI cancellation is inconsistent: {snapshot}"
         )
-    attempts = await _page("REST", execution_id, "attempts", mcp=mcp, rest=rest)
+    attempts = await _page(
+        "REST", execution_id, "attempts", mcp=mcp, rest=rest
+    )
     steps = await _page("MCP", execution_id, "steps", mcp=mcp, rest=rest)
     if [item["state"]["status"] for item in attempts] != ["CANCELLED"] or [
         item["result"]["status"] for item in steps
@@ -1052,9 +1061,9 @@ async def _run_running_cancel_case(
         for artifact in snapshot.artifacts
         if artifact.name == "multi-cancel.txt"
     ]
-    if tuple(_enum_value(artifact.status) for artifact in cancel_artifacts) != (
-        "INCOMPLETE",
-    ):
+    if tuple(
+        _enum_value(artifact.status) for artifact in cancel_artifacts
+    ) != ("INCOMPLETE",):
         raise RuntimeError(
             f"Cancelled MULTI Artifact was not preserved: {cancel_artifacts}"
         )
@@ -1062,7 +1071,9 @@ async def _run_running_cancel_case(
         cancel_artifacts[0].checksum_sha256
         != hashlib.sha256(b"started").hexdigest()
     ):
-        raise RuntimeError("Cancelled MULTI Artifact contains unexpected data.")
+        raise RuntimeError(
+            "Cancelled MULTI Artifact contains unexpected data."
+        )
     if any(
         _enum_value(artifact.artifact_type) == "NOTEBOOK"
         for artifact in snapshot.artifacts
@@ -1109,7 +1120,9 @@ async def main() -> None:
     mcp_url = os.getenv("EXECUTOR_MCP_URL", "http://127.0.0.1:8000/mcp")
     rest_url = os.getenv("EXECUTOR_REST_URL", "http://127.0.0.1:8000/api/v1")
     runtime_profile = os.getenv("MULTI_LIFECYCLE_RUNTIME_PROFILE", "basic")
-    timeout_seconds = float(os.getenv("MULTI_LIFECYCLE_TIMEOUT_SECONDS", "120"))
+    timeout_seconds = float(
+        os.getenv("MULTI_LIFECYCLE_TIMEOUT_SECONDS", "120")
+    )
     scan_limit = int(os.getenv("MULTI_LIFECYCLE_STREAM_SCAN_LIMIT", "10000"))
     unique = uuid4().hex
     engine = create_engine(

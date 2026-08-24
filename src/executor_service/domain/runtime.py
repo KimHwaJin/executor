@@ -84,7 +84,9 @@ class RuntimeStorage(Protocol):
 
     async def file_metadata(self, path: str) -> RuntimeFileMetadata: ...
 
-    async def read_manifest(self, workspace_path: str, start: int) -> bytes: ...
+    async def read_manifest(
+        self, workspace_path: str, start: int
+    ) -> bytes: ...
 
     async def write_notebook(
         self, path: str, notebook: dict[str, Any]

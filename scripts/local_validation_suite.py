@@ -37,7 +37,9 @@ def _steps(args: argparse.Namespace) -> list[Step]:
                     "single_failure_retry_cancel_e2e.py",
                     {},
                 ),
-                Step("multi-lifecycle", "multi_execution_lifecycle_e2e.py", {}),
+                Step(
+                    "multi-lifecycle", "multi_execution_lifecycle_e2e.py", {}
+                ),
             ]
         )
     common.extend(

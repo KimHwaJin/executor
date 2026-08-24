@@ -121,8 +121,13 @@ async def main() -> None:
             {"artifact_id": processed_artifact["artifact_id"]},
         )
         processed_detail = fetched.structured_content
-        if processed_detail["artifact_id"] != processed_artifact["artifact_id"]:
-            raise RuntimeError("Artifact detail lookup returned the wrong row.")
+        if (
+            processed_detail["artifact_id"]
+            != processed_artifact["artifact_id"]
+        ):
+            raise RuntimeError(
+                "Artifact detail lookup returned the wrong row."
+            )
         if (
             processed_detail["lineage"]["external_parent_asset_id"]
             != "raw-daily-data"
@@ -132,7 +137,9 @@ async def main() -> None:
                 f"Lineage or redaction failed: {processed_detail}"
             )
     if processed_detail["storage"]["size_bytes"] <= 0:
-        raise RuntimeError("Expected Runtime-computed processed data metadata.")
+        raise RuntimeError(
+            "Expected Runtime-computed processed data metadata."
+        )
     print("execution_id:", execution_id)
     print("artifact_count:", len(artifacts))
     print("artifact_types:", sorted(artifact_types))

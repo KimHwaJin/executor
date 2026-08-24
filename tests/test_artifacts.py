@@ -3,7 +3,7 @@ from datetime import timedelta
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from executor_service.application.commands import (
@@ -16,6 +16,7 @@ from executor_service.domain.enums import (
     ArtifactStorageType,
     ArtifactType,
     AttemptStatus,
+    ExecutionStatus,
     OperationMode,
     RuntimePool,
     RuntimeTargetStatus,
@@ -28,11 +29,16 @@ from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.models import (
     ExecutionArtifactORM,
     ExecutionAttemptORM,
+    ExecutionORM,
     ExecutionStepAttemptORM,
     OutboxEventORM,
     RuntimeTargetORM,
 )
 from executor_service.infrastructure.db.session import create_session_factory
+from executor_service.infrastructure.execution_leases import (
+    ExecutionLease,
+    ExecutionLeaseLostError,
+)
 from executor_service.infrastructure.execution_queries import (
     SQLAlchemyExecutionQueryService,
 )
@@ -70,12 +76,21 @@ async def _seed_attempt(
     engine: AsyncEngine,
     execution_id: UUID,
     step_id: UUID,
-) -> tuple[UUID, UUID]:
+) -> tuple[UUID, ExecutionLease]:
     target_id = uuid4()
     attempt_id = uuid4()
     now = utc_now()
+    owner = "artifact-worker"
+    fencing_token = 1
     session_factory = create_session_factory(engine)
     async with session_factory() as session, session.begin():
+        execution = await session.get(ExecutionORM, execution_id)
+        if execution is None:
+            raise AssertionError("Seeded Execution was not found.")
+        execution.status = ExecutionStatus.RUNNING
+        execution.lease_owner = owner
+        execution.lease_expires_at = now + timedelta(minutes=1)
+        execution.fencing_token = fencing_token
         session.add(
             RuntimeTargetORM(
                 id=target_id,
@@ -97,9 +112,10 @@ async def _seed_attempt(
                 runtime_target_id=target_id,
                 runtime_session_id="artifact-kernel",
                 status=AttemptStatus.RUNNING,
-                lease_owner="artifact-worker",
+                lease_owner=owner,
                 lease_expires_at=now + timedelta(minutes=1),
                 heartbeat_at=now,
+                fencing_token=fencing_token,
                 started_at=now,
             )
         )
@@ -117,7 +133,12 @@ async def _seed_attempt(
                 started_at=now,
             )
         )
-    return target_id, attempt_id
+    return target_id, ExecutionLease(
+        execution_id=execution_id,
+        attempt_id=attempt_id,
+        owner=owner,
+        fencing_token=fencing_token,
+    )
 
 
 async def test_artifact_discovery_manifest_lineage_and_idempotency(
@@ -125,9 +146,7 @@ async def test_artifact_discovery_manifest_lineage_and_idempotency(
     engine: AsyncEngine,
 ) -> None:
     execution = await execution_service.submit(_command())
-    _, attempt_id = await _seed_attempt(
-        engine, execution.id, execution.steps[0].id
-    )
+    _, lease = await _seed_attempt(engine, execution.id, execution.steps[0].id)
     workspace = WorkspaceManager().plan(execution)
     manager = ExecutionArtifactManager(create_session_factory(engine))
     driver = InMemoryRuntimeStorage()
@@ -181,8 +200,7 @@ async def test_artifact_discovery_manifest_lineage_and_idempotency(
         driver=driver,
         workspace=workspace,
         before=before,
-        execution_id=execution.id,
-        attempt_id=attempt_id,
+        lease=lease,
         sequence=0,
         status=ArtifactStatus.AVAILABLE,
     )
@@ -190,8 +208,7 @@ async def test_artifact_discovery_manifest_lineage_and_idempotency(
         driver=driver,
         workspace=workspace,
         before=before,
-        execution_id=execution.id,
-        attempt_id=attempt_id,
+        lease=lease,
         sequence=0,
         status=ArtifactStatus.AVAILABLE,
     )
@@ -228,7 +245,9 @@ async def test_artifact_discovery_manifest_lineage_and_idempotency(
     assert artifact_summary.storage.size_bytes == len(b"processed-data")
     assert "uri" not in artifact_summary.storage.model_dump()
     assert artifact_detail.storage.uri.startswith("jupyter-pv://")
-    assert artifact_detail.lineage.external_parent_asset_id == "raw-daily-asset"
+    assert (
+        artifact_detail.lineage.external_parent_asset_id == "raw-daily-asset"
+    )
     assert artifact_detail.metadata["rows"] == 1
     assert processed_artifact.storage_type == ArtifactStorageType.PV
     assert processed_artifact.external_parent_asset_id == "raw-daily-asset"
@@ -265,9 +284,7 @@ async def test_manifest_rejects_path_outside_pv(
     engine: AsyncEngine,
 ) -> None:
     execution = await execution_service.submit(_command())
-    _, attempt_id = await _seed_attempt(
-        engine, execution.id, execution.steps[0].id
-    )
+    _, lease = await _seed_attempt(engine, execution.id, execution.steps[0].id)
     workspace = WorkspaceManager().plan(execution)
     manager = ExecutionArtifactManager(create_session_factory(engine))
     driver = InMemoryRuntimeStorage()
@@ -294,8 +311,48 @@ async def test_manifest_rejects_path_outside_pv(
             driver=driver,
             workspace=workspace,
             before=before,
-            execution_id=execution.id,
-            attempt_id=attempt_id,
+            lease=lease,
             sequence=0,
             status=ArtifactStatus.AVAILABLE,
         )
+
+
+async def test_stale_lease_cannot_register_artifact(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+) -> None:
+    execution = await execution_service.submit(_command())
+    _, stale_lease = await _seed_attempt(
+        engine, execution.id, execution.steps[0].id
+    )
+    workspace = WorkspaceManager().plan(execution)
+    manager = ExecutionArtifactManager(create_session_factory(engine))
+    driver = InMemoryRuntimeStorage()
+    driver.reset_storage()
+    before = await manager.snapshot(driver, workspace)
+    driver.put_runtime_file(
+        f"{workspace.artifacts_path}/reports/stale.md",
+        b"# stale\n",
+    )
+    async with create_session_factory(engine)() as session, session.begin():
+        await session.execute(
+            update(ExecutionORM)
+            .where(ExecutionORM.id == execution.id)
+            .values(fencing_token=stale_lease.fencing_token + 1)
+        )
+
+    with pytest.raises(ExecutionLeaseLostError):
+        await manager.discover_and_register(
+            driver=driver,
+            workspace=workspace,
+            before=before,
+            lease=stale_lease,
+            sequence=0,
+            status=ArtifactStatus.AVAILABLE,
+        )
+
+    async with create_session_factory(engine)() as session:
+        artifact_count = await session.scalar(
+            select(func.count(ExecutionArtifactORM.id))
+        )
+    assert artifact_count == 0
