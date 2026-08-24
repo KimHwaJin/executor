@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from pathlib import PurePosixPath
 from typing import Any
 from urllib.parse import quote, urlencode, urlsplit, urlunsplit
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import httpx
 import websockets
@@ -21,6 +21,12 @@ from executor_service.domain.runtime import (
     RuntimeExecutionResult,
     RuntimeFileMetadata,
     RuntimeFileState,
+    RuntimeOutputAppendResult,
+    RuntimeOutputHandler,
+    RuntimeOutputJournalDescriptor,
+    RuntimeOutputJournalIdentity,
+    RuntimeOutputRecord,
+    RuntimeOutputRepresentation,
     RuntimeResourceMetric,
     RuntimeResourceObservation,
     RuntimeStorageSnapshot,
@@ -181,6 +187,25 @@ class JupyterRuntimeDriver:
     async def execute(
         self, session_id: str, code: str
     ) -> RuntimeExecutionResult:
+        return await self._execute(session_id, code, output_handler=None)
+
+    async def execute_streaming(
+        self,
+        session_id: str,
+        code: str,
+        output_handler: RuntimeOutputHandler,
+    ) -> RuntimeExecutionResult:
+        return await self._execute(
+            session_id, code, output_handler=output_handler
+        )
+
+    async def _execute(
+        self,
+        session_id: str,
+        code: str,
+        *,
+        output_handler: RuntimeOutputHandler | None,
+    ) -> RuntimeExecutionResult:
         websocket_session_id = str(uuid4())
         message_id = str(uuid4())
         uri = self._channels_uri(session_id, websocket_session_id)
@@ -241,6 +266,13 @@ class JupyterRuntimeDriver:
                         output = _as_notebook_output(msg_type, content)
                         if output is not None:
                             outputs.append(output)
+                            if output_handler is not None:
+                                record = _as_output_record(msg_type, content)
+                                if record is None:
+                                    raise RuntimeDriverError(
+                                        "Jupyter output mapping is incomplete."
+                                    )
+                                await output_handler(record)
                             if output["output_type"] == "error":
                                 error_message = _error_summary(output)
         except (OSError, TimeoutError, WebSocketException) as exc:
@@ -253,6 +285,93 @@ class JupyterRuntimeDriver:
         return RuntimeExecutionResult(
             outputs=outputs, execution_count=execution_count
         )
+
+    async def output_journal_begin(
+        self, identity: RuntimeOutputJournalIdentity
+    ) -> RuntimeOutputJournalDescriptor:
+        response = await self._request(
+            "POST",
+            "/executor/storage/output-journals/begin",
+            json=_journal_identity_payload(identity),
+            timeout=self._storage_timeout,
+        )
+        return _journal_descriptor(response, "begin")
+
+    async def output_journal_append(
+        self,
+        identity: RuntimeOutputJournalIdentity,
+        *,
+        journal_id: UUID,
+        expected_offset: int,
+        batch_id: UUID,
+        records: tuple[RuntimeOutputRecord, ...],
+    ) -> RuntimeOutputAppendResult:
+        response = await self._request(
+            "POST",
+            "/executor/storage/output-journals/append",
+            json={
+                "journal": _journal_identity_payload(identity),
+                "journal_id": str(journal_id),
+                "expected_offset": expected_offset,
+                "batch_id": str(batch_id),
+                "records": [
+                    _output_record_payload(record) for record in records
+                ],
+            },
+            timeout=self._storage_timeout,
+        )
+        try:
+            payload = response.json()
+            return RuntimeOutputAppendResult(
+                journal_id=UUID(str(payload["journal_id"])),
+                state=str(payload["state"]),
+                batch_id=UUID(str(payload["batch_id"])),
+                committed_offset=int(payload["committed_offset"]),
+                output_count=int(payload["output_count"]),
+                representation_count=int(payload["representation_count"]),
+                total_bytes=int(payload["total_bytes"]),
+                replayed=bool(payload["replayed"]),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise RuntimeDriverError(
+                "Jupyter Output Journal append response is invalid."
+            ) from exc
+
+    async def output_journal_finalize(
+        self,
+        identity: RuntimeOutputJournalIdentity,
+        *,
+        journal_id: UUID,
+    ) -> RuntimeOutputJournalDescriptor:
+        response = await self._request(
+            "POST",
+            "/executor/storage/output-journals/finalize",
+            json={
+                "journal": _journal_identity_payload(identity),
+                "journal_id": str(journal_id),
+            },
+            timeout=self._storage_timeout,
+        )
+        return _journal_descriptor(response, "finalize")
+
+    async def output_journal_abort(
+        self,
+        identity: RuntimeOutputJournalIdentity,
+        *,
+        journal_id: UUID,
+        reason: str,
+    ) -> RuntimeOutputJournalDescriptor:
+        response = await self._request(
+            "POST",
+            "/executor/storage/output-journals/abort",
+            json={
+                "journal": _journal_identity_payload(identity),
+                "journal_id": str(journal_id),
+                "reason": reason,
+            },
+            timeout=self._storage_timeout,
+        )
+        return _journal_descriptor(response, "abort")
 
     async def prepare_workspace(self, workspace_path: str) -> None:
         await self._request(
@@ -474,6 +593,177 @@ def _as_notebook_output(
             "traceback": content.get("traceback", []),
         }
     return None
+
+
+def _as_output_record(
+    msg_type: str | None, content: dict[str, Any]
+) -> RuntimeOutputRecord | None:
+    if msg_type == "stream":
+        return RuntimeOutputRecord(
+            kind="STREAM",
+            stream_name=str(content.get("name", "stdout")),
+            representations=(
+                RuntimeOutputRepresentation(
+                    media_type="text/plain",
+                    encoding="UTF8",
+                    content=str(content.get("text", "")),
+                ),
+            ),
+        )
+    if msg_type in {"display_data", "execute_result"}:
+        data = content.get("data", {})
+        if not isinstance(data, dict):
+            raise RuntimeDriverError("Jupyter display data is invalid.")
+        representations = tuple(
+            _output_representation(str(media_type), value)
+            for media_type, value in data.items()
+        )
+        if not representations:
+            representations = (
+                RuntimeOutputRepresentation(
+                    media_type="application/json",
+                    encoding="UTF8",
+                    content="{}",
+                ),
+            )
+        metadata = content.get("metadata", {})
+        if not isinstance(metadata, dict):
+            raise RuntimeDriverError("Jupyter output metadata is invalid.")
+        transient = content.get("transient")
+        record_metadata = dict(metadata)
+        if isinstance(transient, dict) and transient:
+            record_metadata["transient"] = transient
+        execution_count = content.get("execution_count")
+        if execution_count is not None and type(execution_count) is not int:
+            raise RuntimeDriverError("Jupyter execution_count is invalid.")
+        return RuntimeOutputRecord(
+            kind="RESULT" if msg_type == "execute_result" else "DISPLAY",
+            execution_count=execution_count,
+            representations=representations,
+            metadata=record_metadata,
+        )
+    if msg_type == "error":
+        name = str(content.get("ename", "Error"))
+        value = str(content.get("evalue", ""))
+        traceback = content.get("traceback", [])
+        if not isinstance(traceback, list):
+            raise RuntimeDriverError("Jupyter traceback is invalid.")
+        text = "\n".join(str(line) for line in traceback)
+        if not text:
+            text = f"{name}: {value}"
+        return RuntimeOutputRecord(
+            kind="ERROR",
+            representations=(
+                RuntimeOutputRepresentation(
+                    media_type="text/plain",
+                    encoding="UTF8",
+                    content=text,
+                ),
+            ),
+            metadata={"ename": name, "evalue": value},
+        )
+    return None
+
+
+def _output_representation(
+    media_type: str, value: Any
+) -> RuntimeOutputRepresentation:
+    normalized_media_type = media_type.strip().lower()
+    if not normalized_media_type or "/" not in normalized_media_type:
+        raise RuntimeDriverError("Jupyter output media type is invalid.")
+    base64_encoded = normalized_media_type in {
+        "image/png",
+        "image/jpeg",
+        "application/pdf",
+    }
+    if base64_encoded:
+        if not isinstance(value, str):
+            raise RuntimeDriverError(
+                "Jupyter binary representation is invalid."
+            )
+        return RuntimeOutputRepresentation(
+            media_type=normalized_media_type,
+            encoding="BASE64",
+            content=value,
+        )
+    if isinstance(value, str):
+        content = value
+    else:
+        try:
+            content = json.dumps(
+                value,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        except (TypeError, ValueError) as exc:
+            raise RuntimeDriverError(
+                "Jupyter output representation is not JSON serializable."
+            ) from exc
+    return RuntimeOutputRepresentation(
+        media_type=normalized_media_type,
+        encoding="UTF8",
+        content=content,
+    )
+
+
+def _journal_identity_payload(
+    identity: RuntimeOutputJournalIdentity,
+) -> dict[str, Any]:
+    return {
+        "workspace_path": identity.workspace_path,
+        "execution_id": str(identity.execution_id),
+        "operation_id": str(identity.operation_id),
+        "step_id": str(identity.step_id),
+        "sequence": identity.sequence,
+        "execution_attempt_id": str(identity.execution_attempt_id),
+        "fencing_token": identity.fencing_token,
+        "runtime_target_id": str(identity.runtime_target_id),
+        "runtime_session_id": identity.runtime_session_id,
+    }
+
+
+def _output_record_payload(record: RuntimeOutputRecord) -> dict[str, Any]:
+    return {
+        "kind": record.kind,
+        "stream_name": record.stream_name,
+        "execution_count": record.execution_count,
+        "representations": [
+            {
+                "media_type": representation.media_type,
+                "encoding": representation.encoding,
+                "content": representation.content,
+                "metadata": representation.metadata,
+            }
+            for representation in record.representations
+        ],
+        "metadata": record.metadata,
+    }
+
+
+def _journal_descriptor(
+    response: httpx.Response, operation: str
+) -> RuntimeOutputJournalDescriptor:
+    try:
+        payload = response.json()
+        checksum = payload.get("checksum_sha256")
+        if checksum is not None and (
+            not isinstance(checksum, str) or len(checksum) != 64
+        ):
+            raise ValueError("invalid checksum")
+        return RuntimeOutputJournalDescriptor(
+            journal_id=UUID(str(payload["journal_id"])),
+            state=str(payload["state"]),
+            committed_offset=int(payload["committed_offset"]),
+            output_count=int(payload["output_count"]),
+            representation_count=int(payload["representation_count"]),
+            total_bytes=int(payload["total_bytes"]),
+            checksum_sha256=checksum,
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise RuntimeDriverError(
+            f"Jupyter Output Journal {operation} response is invalid."
+        ) from exc
 
 
 def _error_summary(content: dict[str, Any]) -> str:

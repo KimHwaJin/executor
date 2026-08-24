@@ -1,13 +1,21 @@
+import json
 from typing import Any
+from uuid import UUID
 
 import httpx
 import pytest
 
 from executor_service.domain.enums import RuntimeAbortStatus
-from executor_service.domain.runtime import RuntimeDriverError
+from executor_service.domain.runtime import (
+    RuntimeDriverError,
+    RuntimeOutputJournalIdentity,
+    RuntimeOutputRecord,
+)
 from executor_service.infrastructure.jupyter import (
     JupyterRuntimeDriver,
+    _as_output_record,
     _contents_path,
+    _deserialize_v1,
 )
 
 
@@ -33,6 +41,20 @@ def _resource_payload() -> dict[str, Any]:
         },
         "observed_at": "2026-08-12T10:00:00Z",
     }
+
+
+def _journal_identity() -> RuntimeOutputJournalIdentity:
+    return RuntimeOutputJournalIdentity(
+        workspace_path="users/u/projects/p/sessions/s/executions/e",
+        execution_id=UUID("11111111-1111-4111-8111-111111111111"),
+        operation_id=UUID("22222222-2222-4222-8222-222222222222"),
+        step_id=UUID("33333333-3333-4333-8333-333333333333"),
+        sequence=0,
+        execution_attempt_id=UUID("44444444-4444-4444-8444-444444444444"),
+        fencing_token=7,
+        runtime_target_id=UUID("55555555-5555-4555-8555-555555555555"),
+        runtime_session_id="kernel-1",
+    )
 
 
 async def test_resource_status_parses_versioned_jupyter_response() -> None:
@@ -328,3 +350,204 @@ def test_contents_path_rejects_absolute_and_parent_paths() -> None:
         _contents_path("../escape.ipynb")
     with pytest.raises(RuntimeDriverError):
         _contents_path("/absolute.ipynb")
+
+
+async def test_output_journal_contract_uses_authenticated_extension_apis() -> (
+    None
+):
+    requests: list[httpx.Request] = []
+    journal_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    batch_id = UUID("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
+
+    def descriptor(state: str, offset: int) -> dict[str, Any]:
+        return {
+            "journal_id": journal_id,
+            "state": state,
+            "committed_offset": offset,
+            "output_count": offset,
+            "representation_count": offset,
+            "total_bytes": 4 * offset,
+            "checksum_sha256": "c" * 64 if state == "FINALIZED" else None,
+        }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path.endswith("/append"):
+            return httpx.Response(
+                200,
+                json={
+                    "journal_id": journal_id,
+                    "state": "OPEN",
+                    "batch_id": str(batch_id),
+                    "committed_offset": 1,
+                    "output_count": 1,
+                    "representation_count": 1,
+                    "total_bytes": 4,
+                    "replayed": False,
+                },
+            )
+        if request.url.path.endswith("/finalize"):
+            return httpx.Response(200, json=descriptor("FINALIZED", 1))
+        if request.url.path.endswith("/abort"):
+            return httpx.Response(200, json=descriptor("ABORTED", 1))
+        return httpx.Response(200, json=descriptor("OPEN", 0))
+
+    driver = JupyterRuntimeDriver("http://jupyter.invalid", "secret")
+    await driver._client.aclose()
+    driver._client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        base_url="http://jupyter.invalid",
+        headers={"Authorization": "token secret"},
+    )
+    identity = _journal_identity()
+    record = _as_output_record("stream", {"name": "stdout", "text": "done"})
+    assert record is not None
+    try:
+        begun = await driver.output_journal_begin(identity)
+        appended = await driver.output_journal_append(
+            identity,
+            journal_id=begun.journal_id,
+            expected_offset=0,
+            batch_id=batch_id,
+            records=(record,),
+        )
+        finalized = await driver.output_journal_finalize(
+            identity, journal_id=begun.journal_id
+        )
+        aborted = await driver.output_journal_abort(
+            identity,
+            journal_id=begun.journal_id,
+            reason="incomplete",
+        )
+    finally:
+        await driver.close()
+
+    assert begun.state == "OPEN"
+    assert appended.committed_offset == 1
+    assert finalized.state == "FINALIZED"
+    assert aborted.state == "ABORTED"
+    assert [request.url.path.rsplit("/", 1)[-1] for request in requests] == [
+        "begin",
+        "append",
+        "finalize",
+        "abort",
+    ]
+    append_payload = json.loads(requests[1].content)
+    assert append_payload["journal"]["fencing_token"] == 7
+    assert append_payload["records"] == [
+        {
+            "kind": "STREAM",
+            "stream_name": "stdout",
+            "execution_count": None,
+            "representations": [
+                {
+                    "media_type": "text/plain",
+                    "encoding": "UTF8",
+                    "content": "done",
+                    "metadata": {},
+                }
+            ],
+            "metadata": {},
+        }
+    ]
+    assert requests[0].headers["authorization"] == "token secret"
+
+
+def test_output_record_mapping_preserves_jupyter_mime_semantics() -> None:
+    display = _as_output_record(
+        "display_data",
+        {
+            "data": {
+                "text/plain": "chart",
+                "application/json": {"score": 0.9},
+                "image/png": "cG5n",
+            },
+            "metadata": {"width": 10},
+            "transient": {"display_id": "display-1"},
+        },
+    )
+    error = _as_output_record(
+        "error",
+        {
+            "ename": "ValueError",
+            "evalue": "bad value",
+            "traceback": ["line 1", "line 2"],
+        },
+    )
+
+    assert display is not None
+    assert display.kind == "DISPLAY"
+    assert [item.encoding for item in display.representations] == [
+        "UTF8",
+        "UTF8",
+        "BASE64",
+    ]
+    assert display.representations[1].content == '{"score":0.9}'
+    assert display.metadata["transient"] == {"display_id": "display-1"}
+    assert error is not None
+    assert error.kind == "ERROR"
+    assert error.representations[0].content == "line 1\nline 2"
+
+
+async def test_execute_streaming_delivers_each_iopub_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeWebSocket:
+        def __init__(self) -> None:
+            self.message_id = ""
+            self.messages = [
+                ("iopub", "stream", {"name": "stdout", "text": "one\n"}),
+                (
+                    "shell",
+                    "execute_reply",
+                    {"status": "ok", "execution_count": 3},
+                ),
+                ("iopub", "status", {"execution_state": "idle"}),
+            ]
+
+        async def __aenter__(self) -> "FakeWebSocket":
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            pass
+
+        async def send(self, raw: bytes) -> None:
+            _, message = _deserialize_v1(raw)
+            self.message_id = str(message["header"]["msg_id"])
+
+        async def recv(self) -> str:
+            channel, msg_type, content = self.messages.pop(0)
+            return json.dumps(
+                {
+                    "channel": channel,
+                    "header": {"msg_type": msg_type},
+                    "parent_header": {"msg_id": self.message_id},
+                    "metadata": {},
+                    "content": content,
+                }
+            )
+
+    socket = FakeWebSocket()
+    monkeypatch.setattr(
+        "executor_service.infrastructure.jupyter.websockets.connect",
+        lambda *_args, **_kwargs: socket,
+    )
+    records: list[RuntimeOutputRecord] = []
+
+    async def collect(record: RuntimeOutputRecord) -> None:
+        records.append(record)
+
+    driver = JupyterRuntimeDriver("http://jupyter.invalid", "secret")
+    try:
+        result = await driver.execute_streaming(
+            "kernel-1", "print('one')", collect
+        )
+    finally:
+        await driver.close()
+
+    assert result.execution_count == 3
+    assert result.outputs == [
+        {"output_type": "stream", "name": "stdout", "text": "one\n"}
+    ]
+    assert len(records) == 1
+    assert records[0].kind == "STREAM"

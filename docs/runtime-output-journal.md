@@ -201,7 +201,8 @@ failure while keeping already committed journal metadata observable.
 
 1. Run T35 against the current implementation and record the baseline.
 2. Add Jupyter extension journal begin/append/finalize/abort and storage tests. (implemented)
-3. Add the Runtime-neutral port and bounded Jupyter WebSocket collector.
+3. Add the Runtime-neutral port and live Jupyter WebSocket journal delivery. (implemented with the
+   compatibility output list retained; buffer cutover remains in slice 4)
 4. Add PostgreSQL output metadata and shared REST/MCP reference contracts.
 5. Add streaming content reads and notebook materialization from journals.
 6. Re-run T35, choose production thresholds, and record before/after evidence.

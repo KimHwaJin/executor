@@ -237,6 +237,12 @@ Large-output threshold evidence is collected separately with
 text/image/concurrency matrix requires `--preset full --confirm-full`. The journal-backed target
 architecture is documented in [Runtime Output Journal](docs/runtime-output-journal.md).
 
+Jupyter Steps now write each received IOPub output to a fenced Runtime-owned Output Journal before
+continuing delivery. Complete success and Tool-error output finalize the journal; cancellation,
+timeout, and transport interruption abort it without deleting committed evidence. The existing
+full-output PostgreSQL and notebook path remains active during this transition, so this milestone
+adds durable intermediate output but does not yet remove the compatibility memory/DB duplication.
+
 The scripts that start their own Executor processes require the Compose `executor` service to be
 stopped first; unique Redis Stream names do not isolate PostgreSQL queue reconciliation. Those
 scripts fail fast with the required command instead of allowing another Worker to claim their rows.

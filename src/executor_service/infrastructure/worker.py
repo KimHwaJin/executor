@@ -33,7 +33,7 @@ from executor_service.domain.enums import (
     RuntimeTargetStatus,
     StepStatus,
 )
-from executor_service.domain.models import Execution, utc_now
+from executor_service.domain.models import Execution, ExecutionStep, utc_now
 from executor_service.domain.runtime import (
     RuntimeAbortResult,
     RuntimeDriver,
@@ -41,6 +41,10 @@ from executor_service.domain.runtime import (
     RuntimeDriverFactory,
     RuntimeExecutionError,
     RuntimeExecutionTimeoutError,
+    RuntimeOutputJournal,
+    RuntimeOutputJournalIdentity,
+    RuntimeOutputRecord,
+    RuntimeStreamingExecutor,
 )
 from executor_service.events import build_execution_event
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
@@ -663,6 +667,9 @@ class ExecutionWorker:
                     if step.sequence < start_sequence
                 ]
                 execution_counts: list[int | None] = [None] * len(all_outputs)
+                steps_by_sequence = {
+                    step.sequence: step for step in execution.steps
+                }
                 for sequence in range(start_sequence, len(cells)):
                     code = cells[sequence]
                     artifact_snapshot = await self._artifacts.snapshot(
@@ -678,6 +685,15 @@ class ExecutionWorker:
                                 code,
                                 execution.id,
                                 sequence,
+                                output_journal_identity=(
+                                    self._output_journal_identity(
+                                        steps_by_sequence[sequence],
+                                        lease,
+                                        target.id,
+                                        workspace.runtime_relative_path,
+                                        runtime_session_id,
+                                    )
+                                ),
                             ),
                             execution_id=execution.id,
                             target_id=target.id,
@@ -1518,6 +1534,15 @@ class ExecutionWorker:
                             pending.code,
                             execution.id,
                             pending.sequence,
+                            output_journal_identity=(
+                                self._output_journal_identity(
+                                    pending,
+                                    lease,
+                                    target.id,
+                                    workspace.runtime_relative_path,
+                                    runtime_session_id,
+                                )
+                            ),
                         ),
                         execution_id=execution.id,
                         target_id=target.id,
@@ -2118,6 +2143,8 @@ class ExecutionWorker:
         code: str,
         execution_id: UUID,
         sequence: int,
+        *,
+        output_journal_identity: RuntimeOutputJournalIdentity | None = None,
     ) -> Any:
         async with self._session_factory() as session:
             row = (
@@ -2152,14 +2179,156 @@ class ExecutionWorker:
                     "Operation", float(row.operation_timeout_seconds)
                 )
             timeouts.append((remaining, "Operation"))
+        execution_call = self._execute_with_output_journal(
+            driver,
+            runtime_session_id,
+            code,
+            output_journal_identity,
+        )
         if not timeouts:
-            return await driver.execute(runtime_session_id, code)
+            return await execution_call
         timeout_seconds, scope = min(timeouts)
         try:
             async with asyncio.timeout(timeout_seconds):
-                return await driver.execute(runtime_session_id, code)
+                return await execution_call
         except TimeoutError as exc:
             raise RuntimeExecutionTimeoutError(scope, timeout_seconds) from exc
+
+    async def _execute_with_output_journal(
+        self,
+        driver: RuntimeDriver,
+        runtime_session_id: str,
+        code: str,
+        identity: RuntimeOutputJournalIdentity | None,
+    ) -> Any:
+        if (
+            identity is None
+            or not isinstance(driver, RuntimeOutputJournal)
+            or not isinstance(driver, RuntimeStreamingExecutor)
+        ):
+            return await driver.execute(runtime_session_id, code)
+
+        descriptor = await driver.output_journal_begin(identity)
+        if descriptor.state != "OPEN" or descriptor.committed_offset != 0:
+            raise RuntimeDriverError(
+                "Runtime Output Journal did not begin from an empty OPEN state."
+            )
+        committed_offset = descriptor.committed_offset
+
+        async def append_output(record: RuntimeOutputRecord) -> None:
+            nonlocal committed_offset
+            result = await driver.output_journal_append(
+                identity,
+                journal_id=descriptor.journal_id,
+                expected_offset=committed_offset,
+                batch_id=uuid4(),
+                records=(record,),
+            )
+            expected_committed_offset = committed_offset + 1
+            if (
+                result.journal_id != descriptor.journal_id
+                or result.state != "OPEN"
+                or result.committed_offset != expected_committed_offset
+            ):
+                raise RuntimeDriverError(
+                    "Runtime Output Journal append acknowledgement is invalid."
+                )
+            committed_offset = result.committed_offset
+
+        try:
+            execution_result = await driver.execute_streaming(
+                runtime_session_id,
+                code,
+                append_output,
+            )
+        except RuntimeExecutionError:
+            await self._finalize_output_journal(
+                driver, identity, descriptor.journal_id, committed_offset
+            )
+            raise
+        except asyncio.CancelledError:
+            await self._abort_output_journal(
+                driver,
+                identity,
+                descriptor.journal_id,
+                "Runtime execution was cancelled before output delivery completed.",
+            )
+            raise
+        except Exception as exc:
+            await self._abort_output_journal(
+                driver,
+                identity,
+                descriptor.journal_id,
+                f"{type(exc).__name__}: output delivery did not complete.",
+            )
+            raise
+        await self._finalize_output_journal(
+            driver, identity, descriptor.journal_id, committed_offset
+        )
+        return execution_result
+
+    @staticmethod
+    def _output_journal_identity(
+        step: ExecutionStep,
+        lease: ExecutionLease,
+        runtime_target_id: UUID,
+        workspace_path: str,
+        runtime_session_id: str,
+    ) -> RuntimeOutputJournalIdentity:
+        if step.operation_id is None:
+            raise ValueError(
+                f"Execution Step {step.sequence} has no Operation."
+            )
+        return RuntimeOutputJournalIdentity(
+            workspace_path=workspace_path,
+            execution_id=lease.execution_id,
+            operation_id=step.operation_id,
+            step_id=step.id,
+            sequence=step.sequence,
+            execution_attempt_id=lease.attempt_id,
+            fencing_token=lease.fencing_token,
+            runtime_target_id=runtime_target_id,
+            runtime_session_id=runtime_session_id,
+        )
+
+    @staticmethod
+    async def _finalize_output_journal(
+        driver: RuntimeOutputJournal,
+        identity: RuntimeOutputJournalIdentity,
+        journal_id: UUID,
+        committed_offset: int,
+    ) -> None:
+        finalized = await driver.output_journal_finalize(
+            identity, journal_id=journal_id
+        )
+        if (
+            finalized.journal_id != journal_id
+            or finalized.state != "FINALIZED"
+            or finalized.committed_offset != committed_offset
+        ):
+            raise RuntimeDriverError(
+                "Runtime Output Journal finalization acknowledgement is invalid."
+            )
+
+    @staticmethod
+    async def _abort_output_journal(
+        driver: RuntimeOutputJournal,
+        identity: RuntimeOutputJournalIdentity,
+        journal_id: UUID,
+        reason: str,
+    ) -> None:
+        try:
+            await driver.output_journal_abort(
+                identity,
+                journal_id=journal_id,
+                reason=reason[:2000],
+            )
+        except Exception:
+            logger.warning(
+                "Runtime Output Journal abort failed",
+                exc_info=True,
+                extra={"execution_id": str(identity.execution_id)},
+            )
 
     async def _resolve_runtime_timeout(
         self,
