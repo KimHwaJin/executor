@@ -1,6 +1,6 @@
 """Runtime driver contracts shared by the application and infrastructure layers."""
 
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Protocol, runtime_checkable
@@ -201,6 +201,13 @@ class RuntimeDriver(RuntimeStorage, Protocol):
     ) -> RuntimeExecutionResult: ...
 
 
+@runtime_checkable
+class RuntimeFileStreamer(Protocol):
+    def stream_file(
+        self, path: str, start: int, end: int
+    ) -> AsyncIterator[bytes]: ...
+
+
 class RuntimeDriverFactory(Protocol):
     def create(
         self,
@@ -233,3 +240,14 @@ class RuntimeStorageAccess(Protocol):
         path: str,
         content: str,
     ) -> RuntimeFileMetadata: ...
+
+
+class RuntimeArtifactContentAccess(Protocol):
+    def stream_file(
+        self,
+        runtime_type: RuntimeType,
+        preferred_target_id: UUID | None,
+        path: str,
+        start: int,
+        end: int,
+    ) -> AsyncIterator[bytes]: ...

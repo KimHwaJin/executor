@@ -363,7 +363,7 @@ async def main() -> None:
             "execution_notebook_read",
             {
                 "execution_id": execution_id,
-                "response_format": "detailed",
+                "view": "FULL",
                 "start_index": 0,
                 "limit": 200,
             },
@@ -420,7 +420,7 @@ async def main() -> None:
                 f"Expected exactly one execution.succeeded event, found {len(terminal_events)}."
             )
 
-        target_id = str(result["execution"]["runtime"]["target_id"])
+        target_id = str(terminal["runtime"]["target_id"])
         target = await required_tool_result(
             client,
             "runtime_target_probe",

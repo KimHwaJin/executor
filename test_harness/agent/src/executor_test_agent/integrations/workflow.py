@@ -15,6 +15,7 @@ from executor_test_agent.integrations.contracts import (
 )
 from executor_test_agent.integrations.events import event_stream_watermark
 from executor_test_agent.integrations.executor import (
+    fetch_execution_detail,
     fetch_execution_result,
     required_tool_result,
     resolve_execution_result,
@@ -128,7 +129,7 @@ async def reconcile_execution(
     wake_event = event_batch.wake_event
     if str(wake_event.aggregate_id) != execution_id:
         raise RuntimeError("Wake-up event does not belong to the interrupted Execution.")
-    result = await _reconciled_result(execution_id, settings)
+    result, detail = await _reconciled_result(execution_id, settings)
 
     status = result["execution"]["state"]["status"]
     event_status = wake_event.payload.get("status")
@@ -143,8 +144,8 @@ async def reconcile_execution(
         "wake_event_type": wake_event.event_type,
         "status": status,
         "version": result["execution"]["state"]["version"],
-        "runtime_target_id": result["execution"]["runtime"]["target_id"],
-        "notebook_path": result["execution"]["workspace"]["notebook_path"],
+        "runtime_target_id": detail["runtime"]["target_id"],
+        "notebook_path": detail["workspace"]["notebook_path"],
         "steps": steps,
         "artifacts": result["artifacts"],
         "attempts": result["attempts"],
@@ -165,18 +166,20 @@ async def reconcile_execution(
 async def _reconciled_result(
     execution_id: str,
     settings: AgentSettings,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], dict[str, Any]]:
     """Fetch through MCP, close its task group, then read shared files."""
 
     for attempt in range(1, RESULT_RECONCILIATION_ATTEMPTS + 1):
         try:
             async with Client(settings.executor_mcp_url) as client:
                 result = await fetch_execution_result(client, execution_id)
-            return await asyncio.to_thread(
+                detail = await fetch_execution_detail(client, execution_id)
+            resolved = await asyncio.to_thread(
                 resolve_execution_result,
                 result,
                 settings.executor_shared_storage_root,
             )
+            return resolved, detail
         except Exception:
             if attempt == RESULT_RECONCILIATION_ATTEMPTS:
                 raise

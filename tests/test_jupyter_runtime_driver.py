@@ -200,6 +200,8 @@ async def test_runtime_storage_contract_uses_jupyter_server_apis() -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
+        if request.url.path.endswith("/files/content"):
+            return httpx.Response(200, content=b"artifact")
         if request.url.path.endswith("/artifacts/snapshot"):
             return httpx.Response(
                 200,
@@ -267,6 +269,14 @@ async def test_runtime_storage_contract_uses_jupyter_server_apis() -> None:
         notebook = await driver.read_notebook(
             "users/u/executions/e/notebooks/execution.ipynb"
         )
+        streamed = b"".join(
+            [
+                chunk
+                async for chunk in driver.stream_file(
+                    "users/u/executions/e/artifacts/plots/a.png", 2, 5
+                )
+            ]
+        )
     finally:
         await driver.close()
 
@@ -274,6 +284,7 @@ async def test_runtime_storage_contract_uses_jupyter_server_apis() -> None:
     assert metadata.checksum_sha256 == "a" * 64
     assert manifest == b"{}\n"
     assert notebook == {"cells": []}
+    assert streamed == b"artifact"
     text_request = next(
         request
         for request in requests
@@ -291,9 +302,13 @@ async def test_runtime_storage_contract_uses_jupyter_server_apis() -> None:
         if request.url.path.endswith("/notebooks/project")
     )
     assert notebook_request.method == "POST"
-    assert requests[-1].url.path.endswith(
-        "/api/contents/users/u/executions/e/notebooks/execution.ipynb"
-    )
+    content_request = requests[-1]
+    assert content_request.url.path.endswith("/storage/files/content")
+    assert dict(content_request.url.params) == {
+        "path": "users/u/executions/e/artifacts/plots/a.png",
+        "start": "2",
+        "end": "5",
+    }
 
 
 async def test_request_reports_safe_http_failure_context() -> None:

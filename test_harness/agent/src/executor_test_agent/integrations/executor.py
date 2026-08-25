@@ -49,6 +49,19 @@ async def fetch_execution_result(
     )
 
 
+async def fetch_execution_detail(
+    client: Client,
+    execution_id: str,
+) -> dict[str, Any]:
+    """Fetch assignment and Runtime workspace fields omitted from compact Result."""
+
+    return await required_tool_result(
+        client,
+        "execution_get",
+        {"execution_id": execution_id},
+    )
+
+
 def resolve_execution_result(
     result: dict[str, Any],
     shared_storage_root: Path,

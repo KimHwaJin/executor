@@ -704,8 +704,8 @@ async def _run_failure_retry_case(
         "execution_notebook_read",
         {
             "execution_id": execution_id,
-            "response_format": "detailed",
-            "limit": 0,
+            "view": "FULL",
+            "limit": 200,
         },
     )
     if notebook_view["page"]["total_count"] != 3:

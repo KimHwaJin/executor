@@ -83,16 +83,20 @@ append-only artifact manifests. Notebook reads and writes use Jupyter's standard
 File scans and hashing run in a worker thread so they do not block Jupyter's server event loop;
 Executor applies `JUPYTER_STORAGE_TIMEOUT_SECONDS` (default 300) to these potentially slower calls.
 
-The extension exposes one Executor-only notebook preparation operation:
+The extension exposes Executor-only notebook preparation and file-content operations:
 
 - `POST /executor/storage/notebooks/prepare`
 - `POST /executor/storage/notebooks/project`
+- `GET /executor/storage/files/content?path=...&start=...&end=...`
 
 `prepare` atomically creates stable Executor-managed code cells before their Operation runs;
 `project` atomically replaces that notebook with the latest sealed shared-volume results. Neither
 operation uses NbModelClient, YDoc, RTC, or Jupyter checkpoints, so an already open JupyterLab
 document may require a reload. Complete Step outputs are not stored separately by this extension.
 Agents never receive the Jupyter token and do not call extension-internal endpoints.
+The file-content operation streams only an inclusive byte range below the configured Jupyter root.
+Executor uses it for registered PV Artifact downloads; it rejects absolute paths, traversal, and
+non-files. This route is internal and is not a replacement for the public Artifact API.
 
 ## Verification
 

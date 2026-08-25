@@ -331,43 +331,42 @@ def build_mcp_server(
 
         @server.tool(
             description=(
-                "Read the Runtime-owned Execution notebook like Datalayer read_notebook. brief "
-                "returns the first source line and detailed returns full source. start_index and "
-                "limit provide index pagination; limit 0 returns all remaining cells."
+                "Read the Runtime-owned Execution notebook. SUMMARY returns source previews and "
+                "output summaries. FULL returns complete source and outputs for the requested "
+                "page. start_index and limit provide bounded index pagination."
             )
         )
         async def execution_notebook_read(
             execution_id: UUID,
-            response_format: NotebookResponseFormat = "brief",
+            view: NotebookResponseFormat = "SUMMARY",
             start_index: Annotated[int, Field(ge=0)] = 0,
-            limit: Annotated[int, Field(ge=0, le=200)] = 20,
+            limit: Annotated[int, Field(ge=1, le=200)] = 20,
         ) -> ExecutionNotebookResponse:
             try:
-                view = await notebook_queries.read_notebook(
+                notebook = await notebook_queries.read_notebook(
                     execution_id,
-                    response_format=response_format,
+                    view=view,
                     start_index=start_index,
                     limit=limit,
                 )
             except Exception as exc:
                 raise _public_tool_error(exc) from exc
-            return ExecutionNotebookResponse.from_view(view)
+            return ExecutionNotebookResponse.from_view(notebook)
 
         @server.tool(
             description=(
-                "Read one Runtime-owned Notebook cell like Datalayer read_cell, including all "
-                "current outputs when include_outputs is true."
+                "Read one Runtime-owned Notebook cell with complete source and all current "
+                "outputs."
             ),
             structured_output=False,
         )
         async def execution_notebook_cell_read(
             execution_id: UUID,
             cell_index: Annotated[int, Field(ge=0)],
-            include_outputs: bool = True,
         ) -> list[TextContent | ImageContent]:
             try:
                 view = await notebook_queries.read_cell(
-                    execution_id, cell_index, include_outputs=include_outputs
+                    execution_id, cell_index
                 )
             except Exception as exc:
                 raise _public_tool_error(exc) from exc
@@ -399,9 +398,9 @@ def build_mcp_server(
 
             @server.tool(
                 description=(
-                    "Get the complete Execution result after an Executor event signals that "
-                    "results are available. Includes Operations, current Steps, immutable "
-                    "Attempts, Step Attempts, and Artifacts."
+                    "Get the compact authoritative Execution result after an Executor event "
+                    "signals availability. Includes current Operation and Step result "
+                    "references, Attempt summaries, and Artifact summaries."
                 )
             )
             async def execution_result_get(
@@ -443,6 +442,7 @@ def build_mcp_server(
             project_id: str | None = None,
             session_id: str | None = None,
             task_id: str | None = None,
+            workflow_id: str | None = None,
             status: ExecutionStatus | None = None,
             cursor: str | None = None,
             limit: StandardLimit = 100,
@@ -453,6 +453,7 @@ def build_mcp_server(
                     project_id=project_id,
                     session_id=session_id,
                     task_id=task_id,
+                    workflow_id=workflow_id,
                     status=status,
                     cursor=cursor,
                     limit=limit,
@@ -502,7 +503,7 @@ def build_mcp_server(
             return ExecutionOperationPageResponse.from_page(page)
 
         @server.tool(
-            description="Get one execution Operation result and Step range."
+            description="Get one accepted execution Operation detail."
         )
         async def execution_operation_get(
             execution_id: UUID,
@@ -620,7 +621,7 @@ def build_mcp_server(
         async def execution_artifact_list(
             execution_id: UUID,
             cursor: str | None = None,
-            limit: ArtifactLimit = 500,
+            limit: ArtifactLimit = 100,
         ) -> ExecutionArtifactPageResponse:
             try:
                 page = await execution_queries.artifacts(

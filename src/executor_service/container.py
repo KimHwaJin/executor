@@ -4,6 +4,9 @@ from redis.asyncio import Redis
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from executor_service.application.artifact_content import (
+    ArtifactContentService,
+)
 from executor_service.application.execution_results import (
     ExecutionResultQueryService,
 )
@@ -70,6 +73,12 @@ class ApplicationContainer:
             lambda: SQLAlchemyUnitOfWork(self.session_factory),
             {RuntimeType.JUPYTER: settings.runtime_allowed_profiles},
             self.result_store,
+            max_steps_per_operation=(
+                settings.execution_max_steps_per_operation
+            ),
+            max_steps_per_execution=(
+                settings.execution_max_steps_per_execution
+            ),
         )
         self.execution_queries = SQLAlchemyExecutionQueryService(
             self.session_factory
@@ -90,6 +99,9 @@ class ApplicationContainer:
             self.session_factory,
             self.runtime_registry,
             self.runtime_driver_factory,
+        )
+        self.artifact_content = ArtifactContentService(
+            self.execution_queries, self.runtime_storage
         )
         self.notebook_queries = ExecutionNotebookQueryService(
             self.execution_queries, self.runtime_storage

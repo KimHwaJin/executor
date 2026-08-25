@@ -11,6 +11,8 @@ from mcp.server.transport_security import TransportSecuritySettings
 
 from executor_service.container import ApplicationContainer
 from executor_service.domain.errors import (
+    ArtifactContentUnavailableError,
+    ArtifactRangeNotSatisfiableError,
     DomainError,
     ErrorCode,
     ExecutionArtifactNotFoundError,
@@ -128,9 +130,26 @@ def create_app(container: ApplicationContainer) -> FastAPI:
             http_status = status.HTTP_404_NOT_FOUND
         elif isinstance(
             exc,
-            (ExecutionNotebookNotAvailableError,),
+            (
+                ArtifactContentUnavailableError,
+                ExecutionNotebookNotAvailableError,
+            ),
         ):
             http_status = status.HTTP_409_CONFLICT
+        elif isinstance(exc, ArtifactRangeNotSatisfiableError):
+            return JSONResponse(
+                status_code=status.HTTP_416_RANGE_NOT_SATISFIABLE,
+                headers={
+                    "Accept-Ranges": "bytes",
+                    "Content-Range": f"bytes */{exc.size_bytes}",
+                },
+                content={
+                    "error": {
+                        "code": exc.code,
+                        "message": str(exc),
+                    }
+                },
+            )
         elif isinstance(
             exc,
             (

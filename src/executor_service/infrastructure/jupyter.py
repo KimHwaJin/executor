@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from pathlib import PurePosixPath
 from typing import Any
@@ -481,6 +482,31 @@ class JupyterRuntimeDriver:
             f"/api/contents/{_contents_path(path)}",
             json={"type": "file", "format": "text", "content": content},
         )
+
+    async def stream_file(
+        self, path: str, start: int, end: int
+    ) -> AsyncIterator[bytes]:
+        try:
+            async with self._client.stream(
+                "GET",
+                "/executor/storage/files/content",
+                params={"path": path, "start": start, "end": end},
+                timeout=self._storage_timeout,
+            ) as response:
+                response.raise_for_status()
+                async for chunk in response.aiter_bytes():
+                    if chunk:
+                        yield chunk
+        except httpx.HTTPStatusError as exc:
+            raise RuntimeDriverError(
+                "Jupyter file content request failed: "
+                f"status={exc.response.status_code}."
+            ) from exc
+        except httpx.RequestError as exc:
+            raise RuntimeDriverError(
+                "Jupyter file content request failed: "
+                f"transport={type(exc).__name__}."
+            ) from exc
 
     async def _request(
         self,

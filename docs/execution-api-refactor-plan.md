@@ -1,6 +1,6 @@
 # Execution API contract refactor plan
 
-Status: approved for implementation preparation
+Status: implemented on `refactor/execution-api-contracts`; pending merge review
 
 This document fixes the target contract for the Execution-facing REST and MCP APIs. Runtime
 Target and Runtime Pool administration APIs are outside this refactor.

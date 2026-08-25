@@ -41,7 +41,9 @@ counts/types, stream names, MIME types, image/error presence, `result_available=
 structured `result_ref`. The Operation outcome and `execution.waiting_for_operation` arrive after
 all Step events. The Agent treats these as wake-up signals, then calls
 `execution_operation_result_get` or `execution_result_get` for authoritative PostgreSQL-backed
-results. The REST equivalents are the `/result` endpoints.
+state and compact result indexes. The REST equivalents are the `/result` endpoints. Assignment,
+deadline, recovery, and Runtime workspace fields remain on `execution_get` or Execution detail and
+are not repeated in Result responses.
 
 Consumers must deduplicate by `event_id` in durable storage, commit the deduplication record and
 business state together, and ACK only after commit. Reclaim stale Pending entries with

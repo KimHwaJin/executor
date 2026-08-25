@@ -21,12 +21,12 @@ from executor_service.application.execution_queries import (
     ExecutionSummaryView,
 )
 from executor_service.application.execution_results import (
-    AttemptResultBundle,
     ExecutionResultBundle,
     OperationResultBundle,
 )
 from executor_service.application.notebook_queries import (
     NotebookCellView,
+    NotebookResponseFormat,
     NotebookView,
 )
 from executor_service.application.pagination import Page
@@ -154,6 +154,34 @@ class ExecutionArtifactMaterializeRequest(ContractModel):
         )
 
 
+class NotebookCellSummaryResponse(ContractModel):
+    index: int
+    id: str | None
+    type: str
+    execution_count: int | None
+    source_preview: str
+    source_truncated: bool
+    line_count: int
+    metadata: dict[str, Any]
+    output_summary: OutputSummary
+
+    @classmethod
+    def from_view(
+        cls, view: NotebookCellView
+    ) -> "NotebookCellSummaryResponse":
+        return cls(
+            index=view.index,
+            id=view.id,
+            type=view.type,
+            execution_count=view.execution_count,
+            source_preview=view.source[:500],
+            source_truncated=len(view.source) > 500,
+            line_count=view.line_count,
+            metadata=view.metadata,
+            output_summary=view.output_summary,
+        )
+
+
 class NotebookCellResponse(ContractModel):
     index: int
     id: str | None
@@ -181,19 +209,24 @@ class NotebookPage(ContractModel):
 
 class ExecutionNotebookResponse(ContractModel):
     execution_id: UUID
-    response_format: str
+    view: NotebookResponseFormat
     metadata: dict[str, Any]
-    cells: list[NotebookCellResponse]
+    cells: list[NotebookCellSummaryResponse | NotebookCellResponse]
     page: NotebookPage
 
     @classmethod
     def from_view(cls, view: NotebookView) -> "ExecutionNotebookResponse":
         return cls(
             execution_id=view.execution_id,
-            response_format=view.response_format,
+            view=view.view,
             metadata=view.metadata,
             cells=[
-                NotebookCellResponse.from_view(cell) for cell in view.cells
+                (
+                    NotebookCellSummaryResponse.from_view(cell)
+                    if view.view == "SUMMARY"
+                    else NotebookCellResponse.from_view(cell)
+                )
+                for cell in view.cells
             ],
             page=NotebookPage(
                 start_index=view.start_index,
@@ -1057,7 +1090,7 @@ class ExecutionStepAttemptSummaryResponse(AuditFields):
     execution_step_id: UUID
     sequence: int
     tool: ToolReference
-    result: StepResultSummary
+    result: StepResult
     lifecycle: Lifecycle
 
     @classmethod
@@ -1073,10 +1106,34 @@ class ExecutionStepAttemptSummaryResponse(AuditFields):
                 tool_name=view.tool_name,
                 input_parameters=view.input_parameters,
             ),
-            result=StepResultSummary(
+            result=StepResult(
                 status=view.status,
                 output_summary=OutputSummary.model_validate(
                     view.output_summary
+                ),
+                result_ref=(
+                    StepResultReference(
+                        execution_id=view.execution_id,
+                        step_id=view.execution_step_id,
+                        attempt_id=view.execution_attempt_id,
+                        fencing_token=view.result_fencing_token,
+                        relative_path=view.result_manifest_path,
+                        checksum_sha256=(view.result_manifest_checksum_sha256),
+                        complete=view.result_complete,
+                        representation_count=(
+                            view.result_representation_count
+                        ),
+                        total_size_bytes=view.result_total_size_bytes,
+                    )
+                    if (
+                        view.status
+                        in {StepStatus.SUCCEEDED, StepStatus.FAILED}
+                        and view.result_fencing_token is not None
+                        and view.result_manifest_path is not None
+                        and view.result_manifest_checksum_sha256 is not None
+                        and view.result_complete is not None
+                    )
+                    else None
                 ),
                 error_message=view.error_message,
             ),
@@ -1271,7 +1328,7 @@ class ExecutionOperationResponse(AuditFields):
 
 
 class ExecutionOperationPageResponse(PageResponse):
-    items: list[ExecutionOperationResponse]
+    items: list["ExecutionOperationSummaryResponse"]
 
     @classmethod
     def from_page(
@@ -1279,11 +1336,45 @@ class ExecutionOperationPageResponse(PageResponse):
     ) -> "ExecutionOperationPageResponse":
         return cls(
             items=[
-                ExecutionOperationResponse.from_view(item)
+                ExecutionOperationSummaryResponse.from_view(item)
                 for item in page.items
             ],
             next_cursor=page.next_cursor,
             has_more=page.next_cursor is not None,
+        )
+
+
+class ExecutionOperationSummaryResponse(AuditFields):
+    operation_id: UUID
+    operation_number: int
+    sequence_range: OperationSequenceRange
+    result: OperationResult
+    lifecycle: Lifecycle
+    step_count: int
+
+    @classmethod
+    def from_view(
+        cls, view: ExecutionOperationView
+    ) -> "ExecutionOperationSummaryResponse":
+        return cls(
+            operation_id=view.id,
+            operation_number=view.operation_number,
+            sequence_range=OperationSequenceRange(
+                first=view.first_sequence, last=view.last_sequence
+            ),
+            result=OperationResult(
+                status=view.status, error_message=view.error_message
+            ),
+            lifecycle=Lifecycle(
+                started_at=view.started_at, finished_at=view.finished_at
+            ),
+            step_count=view.step_count,
+            created_by_type=view.created_by_type,
+            created_by=view.created_by,
+            updated_by_type=view.updated_by_type,
+            updated_by=view.updated_by,
+            created_at=view.created_at,
+            updated_at=view.updated_at,
         )
 
 
@@ -1486,64 +1577,121 @@ class ExecutionArtifactPageResponse(PageResponse):
         )
 
 
-class ExecutionOperationResultResponse(ContractModel):
-    operation: ExecutionOperationResponse
-    steps: list[ExecutionStepResponse]
+class ExecutionResultExecutionResponse(ContractModel):
+    execution_id: UUID
+    state: ExecutionCommandState
+
+    @classmethod
+    def from_view(
+        cls, view: ExecutionDetailView
+    ) -> "ExecutionResultExecutionResponse":
+        return cls(
+            execution_id=view.id,
+            state=ExecutionCommandState(
+                status=view.status,
+                version=view.version,
+            ),
+        )
+
+
+class ExecutionResultStepResponse(ContractModel):
+    step_id: UUID
+    sequence: int
+    lineage: ToolReference
+    result: StepResult
+    lifecycle: Lifecycle
+
+    @classmethod
+    def from_domain(
+        cls, step: ExecutionStep, execution_id: UUID
+    ) -> "ExecutionResultStepResponse":
+        detail = ExecutionStepResponse.from_domain(step, execution_id)
+        return cls(
+            step_id=detail.step_id,
+            sequence=detail.sequence,
+            lineage=detail.lineage,
+            result=detail.result,
+            lifecycle=detail.lifecycle,
+        )
+
+
+class ExecutionResultOperationResponse(ContractModel):
+    operation_id: UUID
+    operation_number: int
+    sequence_range: OperationSequenceRange
+    result: OperationResult
+    lifecycle: Lifecycle
+    steps: list[ExecutionResultStepResponse]
 
     @classmethod
     def from_bundle(
         cls, bundle: OperationResultBundle
-    ) -> "ExecutionOperationResultResponse":
+    ) -> "ExecutionResultOperationResponse":
+        operation = bundle.operation
         return cls(
-            operation=ExecutionOperationResponse.from_view(bundle.operation),
+            operation_id=operation.id,
+            operation_number=operation.operation_number,
+            sequence_range=OperationSequenceRange(
+                first=operation.first_sequence,
+                last=operation.last_sequence,
+            ),
+            result=OperationResult(
+                status=operation.status,
+                error_message=operation.error_message,
+            ),
+            lifecycle=Lifecycle(
+                started_at=operation.started_at,
+                finished_at=operation.finished_at,
+            ),
             steps=[
-                ExecutionStepResponse.from_domain(
-                    step, bundle.operation.execution_id
+                ExecutionResultStepResponse.from_domain(
+                    step, operation.execution_id
                 )
                 for step in bundle.steps
             ],
         )
 
 
-class ExecutionAttemptResultResponse(ContractModel):
-    attempt: ExecutionAttemptDetailResponse
-    steps: list[ExecutionStepAttemptResponse]
+class ExecutionOperationResultResponse(ContractModel):
+    execution: ExecutionResultExecutionResponse
+    operation: ExecutionResultOperationResponse
 
     @classmethod
     def from_bundle(
-        cls, bundle: AttemptResultBundle
-    ) -> "ExecutionAttemptResultResponse":
+        cls, bundle: OperationResultBundle
+    ) -> "ExecutionOperationResultResponse":
         return cls(
-            attempt=ExecutionAttemptDetailResponse.from_view(bundle.attempt),
-            steps=[
-                ExecutionStepAttemptResponse.from_view(step)
-                for step in bundle.steps
-            ],
+            execution=ExecutionResultExecutionResponse.from_view(
+                bundle.execution
+            ),
+            operation=ExecutionResultOperationResponse.from_bundle(bundle),
         )
 
 
 class ExecutionResultResponse(ContractModel):
-    execution: ExecutionResponse
-    operations: list[ExecutionOperationResultResponse]
-    attempts: list[ExecutionAttemptResultResponse]
-    artifacts: list[ExecutionArtifactResponse]
+    execution: ExecutionResultExecutionResponse
+    operations: list[ExecutionResultOperationResponse]
+    attempts: list[ExecutionAttemptResponse]
+    artifacts: list[ExecutionArtifactSummaryResponse]
 
     @classmethod
     def from_bundle(
         cls, bundle: ExecutionResultBundle
     ) -> "ExecutionResultResponse":
         return cls(
-            execution=ExecutionResponse.from_view(bundle.execution),
+            execution=ExecutionResultExecutionResponse.from_view(
+                bundle.execution
+            ),
             operations=[
-                ExecutionOperationResultResponse.from_bundle(operation)
+                ExecutionResultOperationResponse.from_bundle(operation)
                 for operation in bundle.operations
             ],
             attempts=[
-                ExecutionAttemptResultResponse.from_bundle(attempt)
+                ExecutionAttemptResponse.from_view(attempt)
                 for attempt in bundle.attempts
             ],
             artifacts=[
-                ExecutionArtifactResponse.from_view(artifact)
+                ExecutionArtifactSummaryResponse.from_view(artifact)
                 for artifact in bundle.artifacts
             ],
         )

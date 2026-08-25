@@ -108,11 +108,12 @@ on the retained Runtime session and finalize after the last boundary. An Operati
 to the user and stops later approved Operations; automatic LLM correction is intentionally not
 performed without another review policy.
 
-The Agent exposes 21 read Tools and five policy-wrapped mutation Tools:
+The Agent exposes the allowlisted Executor read Tools and five policy-wrapped mutation Tools:
 
 - Runtime reads: `runtime_target_list`, `runtime_target_get`.
-- Execution reads: list/get, Steps, Operations, Attempts, events, normalized output metadata and
-  content, Artifacts, and notebook cells.
+- Execution reads: list/detail/result, Step lists, Operations, Attempts, events, Artifacts, and
+  notebook cells. Complete Step output bodies are resolved from checksum-verified shared-PV result
+  references rather than an MCP output-body Tool.
 - Mutations: submit, cancel, retry, append Operation, and finalize.
 
 It does not expose Runtime target upsert, probe, disable, or state-change Tools. The bridge uses the

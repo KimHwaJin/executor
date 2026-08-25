@@ -539,7 +539,7 @@ async def _run_case(
     notebook = await _rest_json(
         rest,
         "GET",
-        f"/executions/{execution_id}/notebook?response_format=detailed&limit=0",
+        f"/executions/{execution_id}/notebook?view=FULL&limit=200",
     )
     if notebook["page"]["total_count"] != 2:
         raise RuntimeError(f"Runtime-owned notebook is incomplete: {notebook}")

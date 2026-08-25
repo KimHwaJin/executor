@@ -71,6 +71,8 @@ class Settings(BaseSettings):
     shared_storage_root: Path = Path("./shared_dir")
     execution_inline_spec_max_bytes: int = Field(default=262144, ge=1)
     execution_file_spec_max_bytes: int = Field(default=52428800, ge=1)
+    execution_max_steps_per_operation: int = Field(default=100, ge=1)
+    execution_max_steps_per_execution: int = Field(default=1000, ge=1)
     execution_consumer_group: str = "executor-workers"
     execution_consumer_name: str = ""
     execution_pending_claim_interval_seconds: float = Field(default=5, gt=0)
@@ -131,6 +133,14 @@ class Settings(BaseSettings):
         ):
             raise ValueError(
                 "RUNTIME_ALLOWED_PROFILES must not contain duplicates."
+            )
+        if (
+            self.execution_max_steps_per_operation
+            > self.execution_max_steps_per_execution
+        ):
+            raise ValueError(
+                "EXECUTION_MAX_STEPS_PER_OPERATION must not exceed "
+                "EXECUTION_MAX_STEPS_PER_EXECUTION."
             )
         if (
             self.app_env.lower() != "local"

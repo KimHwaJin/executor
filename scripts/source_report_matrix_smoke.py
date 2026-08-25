@@ -123,7 +123,7 @@ async def _assert_notebook(
         "execution_notebook_read",
         {
             "execution_id": execution_id,
-            "response_format": "detailed",
+            "view": "FULL",
             "start_index": 0,
             "limit": 20,
         },
