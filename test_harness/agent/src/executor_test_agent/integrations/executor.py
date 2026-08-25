@@ -30,13 +30,31 @@ async def collect_execution_result(
     execution_id: str,
     shared_storage_root: Path,
 ) -> dict[str, Any]:
-    """Reconcile DB state over MCP, then resolve output bodies from shared PV."""
+    """Fetch Executor state over MCP, then resolve output bodies from shared PV."""
 
-    result = await required_tool_result(
+    result = await fetch_execution_result(client, execution_id)
+    return resolve_execution_result(result, shared_storage_root)
+
+
+async def fetch_execution_result(
+    client: Client,
+    execution_id: str,
+) -> dict[str, Any]:
+    """Fetch the authoritative result bundle without performing filesystem I/O."""
+
+    return await required_tool_result(
         client,
         "execution_result_get",
         {"execution_id": execution_id},
     )
+
+
+def resolve_execution_result(
+    result: dict[str, Any],
+    shared_storage_root: Path,
+) -> dict[str, Any]:
+    """Resolve immutable Step outputs after the MCP transport is closed."""
+
     for operation in result["operations"]:
         for step in operation["steps"]:
             reference = step["result"].get("result_ref")
