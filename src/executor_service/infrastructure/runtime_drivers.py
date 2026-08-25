@@ -29,5 +29,6 @@ class ConfiguredRuntimeDriverFactory:
                 credential,
                 self._settings.jupyter_request_timeout_seconds,
                 self._settings.jupyter_storage_timeout_seconds,
+                self._settings.runtime_max_output_message_bytes,
             )
         raise RuntimeDriverError(f"Unsupported runtime_type: {runtime_type}")

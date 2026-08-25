@@ -19,9 +19,10 @@ uv run alembic current
 uv run alembic check
 ```
 
-Revision `0002` is the current head. It adds internal monotonic fencing tokens to the Execution and
-ExecutionAttempt lease records. `current` must report `0002 (head)`, and `check` must report that
-no new upgrade operations are detected. A development database carrying one of the removed
+Revision `0001` is the current head and includes internal monotonic fencing tokens, Runtime abort
+state, Runtime session observations, and the current shared-result reference contract. `current`
+must report `0001 (head)`, and `check` must report that no new upgrade operations are detected. A
+development database carrying one of the removed
 pre-baseline revisions must be backed up if its data matters, then recreated as an empty database
 before `upgrade head`. Clear the four Executor Redis Streams at the same time so stale work
 messages cannot reference rows removed by the reset. Do not use this reset procedure for a

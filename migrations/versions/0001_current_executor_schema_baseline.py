@@ -486,6 +486,7 @@ def upgrade() -> None:
                 "OPERATION_TIMEOUT",
                 "STEP_TIMEOUT",
                 "EXECUTION_TIMEOUT",
+                "OUTPUT_LIMIT_EXCEEDED",
                 "RUNTIME_SESSION_LOST",
                 name="failure_type",
                 native_enum=False,
@@ -595,7 +596,7 @@ def upgrade() -> None:
             name=op.f("ck_executions_valid_created_by_type"),
         ),
         sa.CheckConstraint(
-            "failure_type IS NULL OR failure_type IN ('TOOL_ERROR', 'INFRASTRUCTURE_ERROR', 'WORKER_SHUTDOWN', 'RUNTIME_UNAVAILABLE', 'LEASE_EXPIRED', 'INTERNAL_ERROR', 'OPERATION_WAIT_TIMEOUT', 'OPERATION_TIMEOUT', 'STEP_TIMEOUT', 'EXECUTION_TIMEOUT', 'RUNTIME_SESSION_LOST')",
+            "failure_type IS NULL OR failure_type IN ('TOOL_ERROR', 'INFRASTRUCTURE_ERROR', 'WORKER_SHUTDOWN', 'RUNTIME_UNAVAILABLE', 'LEASE_EXPIRED', 'INTERNAL_ERROR', 'OPERATION_WAIT_TIMEOUT', 'OPERATION_TIMEOUT', 'STEP_TIMEOUT', 'EXECUTION_TIMEOUT', 'OUTPUT_LIMIT_EXCEEDED', 'RUNTIME_SESSION_LOST')",
             name=op.f("ck_executions_valid_failure_type"),
         ),
         sa.CheckConstraint(
@@ -823,6 +824,7 @@ def upgrade() -> None:
                 "OPERATION_TIMEOUT",
                 "STEP_TIMEOUT",
                 "EXECUTION_TIMEOUT",
+                "OUTPUT_LIMIT_EXCEEDED",
                 "RUNTIME_SESSION_LOST",
                 name="attempt_failure_type",
                 native_enum=False,
@@ -890,7 +892,7 @@ def upgrade() -> None:
             name=op.f("ck_execution_attempts_valid_created_by_type"),
         ),
         sa.CheckConstraint(
-            "failure_type IS NULL OR failure_type IN ('TOOL_ERROR', 'INFRASTRUCTURE_ERROR', 'WORKER_SHUTDOWN', 'RUNTIME_UNAVAILABLE', 'LEASE_EXPIRED', 'INTERNAL_ERROR', 'OPERATION_WAIT_TIMEOUT', 'OPERATION_TIMEOUT', 'STEP_TIMEOUT', 'EXECUTION_TIMEOUT', 'RUNTIME_SESSION_LOST')",
+            "failure_type IS NULL OR failure_type IN ('TOOL_ERROR', 'INFRASTRUCTURE_ERROR', 'WORKER_SHUTDOWN', 'RUNTIME_UNAVAILABLE', 'LEASE_EXPIRED', 'INTERNAL_ERROR', 'OPERATION_WAIT_TIMEOUT', 'OPERATION_TIMEOUT', 'STEP_TIMEOUT', 'EXECUTION_TIMEOUT', 'OUTPUT_LIMIT_EXCEEDED', 'RUNTIME_SESSION_LOST')",
             name=op.f("ck_execution_attempts_valid_attempt_failure_type"),
         ),
         sa.CheckConstraint(
@@ -1178,6 +1180,7 @@ def upgrade() -> None:
             nullable=True,
         ),
         sa.Column("result_fencing_token", sa.BigInteger(), nullable=True),
+        sa.Column("result_complete", sa.Boolean(), nullable=True),
         sa.Column(
             "result_representation_count", sa.BigInteger(), nullable=False
         ),
@@ -1319,6 +1322,7 @@ def upgrade() -> None:
             nullable=True,
         ),
         sa.Column("result_fencing_token", sa.BigInteger(), nullable=True),
+        sa.Column("result_complete", sa.Boolean(), nullable=True),
         sa.Column(
             "result_representation_count", sa.BigInteger(), nullable=False
         ),

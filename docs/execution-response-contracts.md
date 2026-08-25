@@ -37,7 +37,8 @@ Step detail exposes Executor-owned `step_id`, `sequence`, `code_hash`, per-Step 
 `step_timeout_seconds`, `lineage`, `result`, lifecycle timestamps, and audit fields. `result`
 contains a bounded `output_summary` and, after success or failure, a canonical `SHARED_PV`
 `result_ref` with a safe relative manifest path, checksum, authoritative Attempt, and fencing
-token. It never duplicates full output bodies. Operation
+token. It also reports `complete`, representation count, and retained byte size. It never
+duplicates full output bodies. Operation
 detail exposes accepted `schema_version` (currently always `1.0`), its sequence range,
 `operation_timeout_seconds`, metadata, result, and audit fields.
 
@@ -67,8 +68,11 @@ needed for reasoning or a report.
     "step_id": "...",
     "attempt_id": "...",
     "fencing_token": 3,
+    "complete": true,
     "relative_path": "executions/.../manifest.json",
-    "checksum_sha256": "hex"
+    "checksum_sha256": "hex",
+    "representation_count": 2,
+    "total_size_bytes": 1024
   },
   "error_message": null
 }

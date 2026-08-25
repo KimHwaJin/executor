@@ -29,6 +29,19 @@ class RuntimeExecutionTimeoutError(RuntimeExecutionError):
         self.timeout_seconds = timeout_seconds
 
 
+class RuntimeOutputLimitExceededError(RuntimeExecutionError):
+    """A Runtime message exceeded Executor's bounded receive capacity."""
+
+    def __init__(self, max_message_bytes: int) -> None:
+        super().__init__(
+            "Runtime output message exceeded the configured "
+            f"{max_message_bytes}-byte safety limit; the Step result is "
+            "incomplete.",
+            outputs=[],
+        )
+        self.max_message_bytes = max_message_bytes
+
+
 @dataclass(frozen=True, slots=True)
 class RuntimeExecutionResult:
     outputs: list[dict[str, Any]]

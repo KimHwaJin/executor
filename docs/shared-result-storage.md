@@ -46,12 +46,22 @@ content and the terminal manifest have been fsynced. A partial directory is neve
   "relative_path": "executions/.../manifest.json",
   "checksum_sha256": "hex",
   "attempt_id": "uuid",
-  "fencing_token": 3
+  "fencing_token": 3,
+  "complete": true,
+  "representation_count": 2,
+  "total_size_bytes": 1024
 }
 ```
 
 The Agent resolves `relative_path` below its configured shared root and verifies the manifest
 checksum before reading declared files. The LLM is not given a general filesystem tool.
+`complete=false` means the Runtime stream ended through timeout, cancellation, or an output
+message safety limit. Already committed representations remain immutable evidence, but callers
+must not interpret them as the complete Step result.
+
+Each representation records its native file path, MIME type, encoding, exact byte size, checksum,
+`complete=true`, and `truncated_in_preview=false`. Executor does not silently truncate retained
+content.
 
 ## Commit ordering
 

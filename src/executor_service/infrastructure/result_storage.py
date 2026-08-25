@@ -297,6 +297,7 @@ class FilesystemExecutionResultStore:
         state = {
             "schema_version": RESULT_MANIFEST_SCHEMA_VERSION,
             "state": "OPEN",
+            "complete": False,
             "identity": _identity_json(identity),
             "source": _source_json(source),
             "outputs": [],
@@ -457,6 +458,7 @@ class FilesystemExecutionResultStore:
         if state.get("state") != "OPEN":
             raise ResultStorageError("Step result is not OPEN.")
         state["state"] = state_name
+        state["complete"] = state_name in {"FINALIZED", "FAILED"}
         state["execution_count"] = execution_count
         state["error_message"] = (
             error_message[:2000] if error_message is not None else None
@@ -501,6 +503,7 @@ class FilesystemExecutionResultStore:
                     "size_bytes": len(body),
                     "checksum_sha256": _sha256(body),
                     "complete": True,
+                    "truncated_in_preview": False,
                     "metadata": _json_value(representation.metadata),
                 }
             )
@@ -533,6 +536,11 @@ class FilesystemExecutionResultStore:
         state = str(value.get("state", ""))
         if state not in TERMINAL_STATES:
             raise ResultStorageError("Step result manifest is not terminal.")
+        complete = value.get("complete")
+        if type(complete) is not bool:
+            raise ResultStorageError(
+                "Step result manifest completeness is invalid."
+            )
         identity = value.get("identity")
         source = value.get("source")
         if not isinstance(identity, dict) or not isinstance(source, dict):
@@ -542,6 +550,7 @@ class FilesystemExecutionResultStore:
         relative = manifest_path.relative_to(self._root).as_posix()
         return StepResultDescriptor(
             state=state,
+            complete=complete,
             reference=StepResultReference(
                 relative_path=relative,
                 checksum_sha256=_sha256(body),

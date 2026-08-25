@@ -242,6 +242,7 @@ class SQLAlchemyExecutionRepository:
                         step.result_manifest_checksum_sha256
                     ),
                     result_fencing_token=step.result_fencing_token,
+                    result_complete=step.result_complete,
                     result_representation_count=(
                         step.result_representation_count
                     ),

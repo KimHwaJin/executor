@@ -126,6 +126,7 @@ class ExecutionORM(Base):
             "'INFRASTRUCTURE_ERROR', 'WORKER_SHUTDOWN', 'RUNTIME_UNAVAILABLE', "
             "'LEASE_EXPIRED', 'INTERNAL_ERROR', 'OPERATION_WAIT_TIMEOUT', "
             "'OPERATION_TIMEOUT', 'STEP_TIMEOUT', 'EXECUTION_TIMEOUT', "
+            "'OUTPUT_LIMIT_EXCEEDED', "
             "'RUNTIME_SESSION_LOST')",
             name="valid_failure_type",
         ),
@@ -547,6 +548,7 @@ class ExecutionStepORM(Base):
         String(64)
     )
     result_fencing_token: Mapped[int | None] = mapped_column(BigInteger)
+    result_complete: Mapped[bool | None] = mapped_column(Boolean)
     result_representation_count: Mapped[int] = mapped_column(
         BigInteger, nullable=False, default=0
     )
@@ -604,6 +606,7 @@ class ExecutionStepORM(Base):
                 step.result_manifest_checksum_sha256
             ),
             result_fencing_token=step.result_fencing_token,
+            result_complete=step.result_complete,
             result_representation_count=step.result_representation_count,
             result_total_size_bytes=step.result_total_size_bytes,
             error_message=step.error_message,
@@ -641,6 +644,7 @@ class ExecutionStepORM(Base):
                 self.result_manifest_checksum_sha256
             ),
             result_fencing_token=self.result_fencing_token,
+            result_complete=self.result_complete,
             result_representation_count=self.result_representation_count,
             result_total_size_bytes=self.result_total_size_bytes,
             error_message=self.error_message,
@@ -998,6 +1002,7 @@ class ExecutionAttemptORM(Base):
             "'INFRASTRUCTURE_ERROR', 'WORKER_SHUTDOWN', 'RUNTIME_UNAVAILABLE', "
             "'LEASE_EXPIRED', 'INTERNAL_ERROR', 'OPERATION_WAIT_TIMEOUT', "
             "'OPERATION_TIMEOUT', 'STEP_TIMEOUT', 'EXECUTION_TIMEOUT', "
+            "'OUTPUT_LIMIT_EXCEEDED', "
             "'RUNTIME_SESSION_LOST')",
             name="valid_attempt_failure_type",
         ),
@@ -1165,6 +1170,7 @@ class ExecutionStepAttemptORM(Base):
         String(64)
     )
     result_fencing_token: Mapped[int | None] = mapped_column(BigInteger)
+    result_complete: Mapped[bool | None] = mapped_column(Boolean)
     result_representation_count: Mapped[int] = mapped_column(
         BigInteger, nullable=False, default=0
     )

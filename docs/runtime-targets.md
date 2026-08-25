@@ -190,7 +190,7 @@ active Executions.
 ### One native Jupyter server without Docker
 
 When Executor and Jupyter run on the same machine, they still use separate storage boundaries.
-Configure only Executor's Runtime policy and PATH input root. Do not configure a default Jupyter
+Configure only Executor's Runtime policy and Agent/Executor shared root. Do not configure a default Jupyter
 endpoint, token, target name, or pool on the Executor process:
 
 ```env
@@ -201,7 +201,8 @@ LOCAL_TEST_SHARED_STORAGE_ROOT=C:/absolute/path/to/executor/shared_dir
 ```
 
 Use the equivalent absolute POSIX path on Linux or macOS. Jupyter must use the custom image or have
-the Executor extension installed. Its root is Jupyter-owned storage, not `INPUT_HOST_ROOT`. The
+the Executor extension installed. Its root is Jupyter-owned storage, not
+`SHARED_STORAGE_ROOT`. The
 cross-platform native bootstrap is documented in
 [`test_harness/jupyter/README.md`](../test_harness/jupyter/README.md). It is the required setup path for a
 cloned repository without Docker and works in Windows PowerShell without WSL.

@@ -583,6 +583,7 @@ class StepResultReference(ContractModel):
     fencing_token: int
     relative_path: str
     checksum_sha256: str
+    complete: bool
     representation_count: int
     total_size_bytes: int
 
@@ -646,6 +647,7 @@ class ExecutionStepResponse(AuditFields):
                         fencing_token=step.result_fencing_token,
                         relative_path=step.result_manifest_path,
                         checksum_sha256=(step.result_manifest_checksum_sha256),
+                        complete=step.result_complete,
                         representation_count=(
                             step.result_representation_count
                         ),
@@ -656,6 +658,7 @@ class ExecutionStepResponse(AuditFields):
                         and step.result_fencing_token is not None
                         and step.result_manifest_path is not None
                         and step.result_manifest_checksum_sha256 is not None
+                        and step.result_complete is not None
                     )
                     else None
                 ),
@@ -1019,6 +1022,7 @@ class ExecutionStepAttemptResponse(AuditFields):
                         fencing_token=view.result_fencing_token,
                         relative_path=view.result_manifest_path,
                         checksum_sha256=(view.result_manifest_checksum_sha256),
+                        complete=view.result_complete,
                         representation_count=(
                             view.result_representation_count
                         ),
@@ -1030,6 +1034,7 @@ class ExecutionStepAttemptResponse(AuditFields):
                         and view.result_fencing_token is not None
                         and view.result_manifest_path is not None
                         and view.result_manifest_checksum_sha256 is not None
+                        and view.result_complete is not None
                     )
                     else None
                 ),

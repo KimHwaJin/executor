@@ -82,6 +82,8 @@ async def test_seals_source_text_and_image_as_immutable_files(
     )
     manifest = json.loads(manifest_body)
     assert manifest["state"] == "FINALIZED"
+    assert manifest["complete"] is True
+    assert result.complete is True
     assert manifest["output_summary"] == {
         "has_error": False,
         "has_image": True,
@@ -96,6 +98,8 @@ async def test_seals_source_text_and_image_as_immutable_files(
     )
     for output in manifest["outputs"]:
         for representation in output["representations"]:
+            assert representation["complete"] is True
+            assert representation["truncated_in_preview"] is False
             assert (
                 manifest_path.parent / representation["relative_path"]
             ).is_file()
@@ -111,6 +115,40 @@ async def test_seals_source_text_and_image_as_immutable_files(
     projection = await store.read_step_projection(result.reference)
     assert projection.outputs == notebook_outputs
     assert projection.execution_count == 1
+
+
+@pytest.mark.asyncio
+async def test_aborted_result_seals_partial_outputs_as_incomplete(
+    tmp_path: Path,
+) -> None:
+    store = FilesystemExecutionResultStore(tmp_path)
+    identity = _identity()
+    source = await store.snapshot_source(
+        identity.execution_id,
+        identity.step_id,
+        "print('partial')",
+    )
+    await store.begin_step_result(identity, source)
+    await store.append_step_outputs(
+        identity,
+        expected_offset=0,
+        batch_id=uuid4(),
+        records=(_text_record("before limit\n"),),
+    )
+
+    result = await store.abort_step_result(
+        identity,
+        reason="Runtime output message exceeded safety limit.",
+    )
+
+    manifest = json.loads(
+        (tmp_path / result.reference.relative_path).read_bytes()
+    )
+    assert result.state == "ABORTED"
+    assert result.complete is False
+    assert manifest["complete"] is False
+    assert manifest["total_size_bytes"] == len(b"before limit\n")
+    assert "safety limit" in manifest["error_message"]
 
 
 @pytest.mark.asyncio

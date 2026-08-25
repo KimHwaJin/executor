@@ -206,6 +206,21 @@ async def executor_rss_bytes(container: str) -> int:
     return int(payload)
 
 
+async def executor_output_limit_bytes(container: str) -> int:
+    payload = await _subprocess_output(
+        "docker",
+        "exec",
+        container,
+        "python",
+        "-c",
+        (
+            "from executor_service.config import get_settings; "
+            "print(get_settings().runtime_max_output_message_bytes)"
+        ),
+    )
+    return int(payload)
+
+
 def _database_engine() -> AsyncEngine:
     settings = get_settings()
     database_url = os.getenv("T35_DATABASE_URL", settings.database_dsn)
@@ -373,13 +388,17 @@ async def _submit_execution(
     scenario: Scenario,
     run_id: str,
     index: int,
+    operation_mode: str,
 ) -> str:
     payload = execution_request(
         idempotency_key=f"t35-{run_id}-{scenario.name}-{index}",
-        operation_mode="SINGLE",
+        operation_mode=operation_mode,
         trigger_type="INTERACTIVE",
         actor={"type": "USER", "id": "t35-user"},
         runtime_profile="basic",
+        operation_wait_timeout_seconds=(
+            300 if operation_mode == "MULTI" else None
+        ),
         operation_timeout_seconds=1800,
         spec=inline_spec(
             [
@@ -419,6 +438,7 @@ async def _wait_for_terminal(
     execution_ids: list[str],
     *,
     timeout_seconds: float,
+    completion_statuses: set[str] = TERMINAL_STATUSES,
 ) -> tuple[dict[str, dict[str, Any]], float, int]:
     started = monotonic()
     terminal: dict[str, dict[str, Any]] = {}
@@ -434,7 +454,7 @@ async def _wait_for_terminal(
         for execution_id, response in zip(pending, responses, strict=True):
             response.raise_for_status()
             state = response.json()
-            if state["state"]["status"] in TERMINAL_STATUSES:
+            if state["state"]["status"] in completion_statuses:
                 terminal[execution_id] = state
         peak_running = max(
             peak_running,
@@ -472,17 +492,100 @@ async def _retrieve_results(
         response.raise_for_status()
         response_size = len(response.content)
         result = response.json()
+        step_result_refs = [
+            step["result"].get("result_ref")
+            for operation in result["operations"]
+            for step in operation["steps"]
+            if step["result"].get("result_ref") is not None
+        ]
         measurements.append(
             {
                 "execution_id": execution_id,
                 "latency_seconds": round(latency, 6),
                 "response_size_bytes": response_size,
                 "notebook_size_bytes": _notebook_size(result),
+                "step_result_ref_count": len(step_result_refs),
+                "incomplete_step_result_ref_count": sum(
+                    reference["complete"] is False
+                    for reference in step_result_refs
+                ),
             }
         )
         del result
         del response
     return measurements
+
+
+async def _multi_output_limit_failure_type(
+    client: httpx.AsyncClient, execution_id: str
+) -> str | None:
+    response = await client.get(
+        f"/api/v1/executions/{execution_id}/events",
+        params={"limit": 500},
+    )
+    response.raise_for_status()
+    for event in reversed(response.json()["items"]):
+        if event["event_type"] in {
+            "execution.runtime_abort_completed",
+            "execution.runtime_abort_failed",
+        }:
+            return event["payload"].get("failure_type")
+    return None
+
+
+async def _cleanup_output_limit_executions(
+    client: httpx.AsyncClient,
+    execution_ids: list[str],
+    *,
+    run_id: str,
+    operation_mode: str,
+    timeout_seconds: float,
+) -> dict[str, dict[str, str | None]]:
+    if operation_mode == "SINGLE":
+        for execution_id in execution_ids:
+            response = await client.post(
+                f"/api/v1/executions/{execution_id}/retry",
+                json={
+                    "idempotency_key": (
+                        f"t35-cleanup-retry-{run_id}-{execution_id}"
+                    ),
+                    "actor": {"type": "USER", "id": "t35-user"},
+                },
+            )
+            response.raise_for_status()
+    for execution_id in execution_ids:
+        response = await client.post(
+            f"/api/v1/executions/{execution_id}/cancel",
+            json={
+                "idempotency_key": f"t35-cleanup-{run_id}-{execution_id}",
+                "reason": "T35 output-limit cleanup",
+                "actor": {"type": "USER", "id": "t35-user"},
+            },
+        )
+        response.raise_for_status()
+    cleaned, _, _ = await _wait_for_terminal(
+        client,
+        execution_ids,
+        timeout_seconds=timeout_seconds,
+    )
+    outcomes: dict[str, dict[str, str | None]] = {
+        execution_id: {
+            "status": state["state"]["status"],
+            "runtime_session_id": state["runtime"]["session_id"],
+            "runtime_session_cleanup_status": state["recovery"][
+                "runtime_session_cleanup_status"
+            ],
+        }
+        for execution_id, state in cleaned.items()
+    }
+    if any(
+        outcome["status"] != "CANCELLED"
+        or outcome["runtime_session_id"] is not None
+        or outcome["runtime_session_cleanup_status"] != "SUCCEEDED"
+        for outcome in outcomes.values()
+    ):
+        raise RuntimeError(f"T35 output-limit cleanup failed: {outcomes}")
+    return outcomes
 
 
 def _maximum(samples: list[ResourceSample], field: str) -> int | None:
@@ -523,6 +626,8 @@ async def run_scenario(
     target_ids: set[str],
     sample_interval_seconds: float,
     timeout_seconds: float,
+    expect_output_limit: bool,
+    operation_mode: str,
 ) -> dict[str, Any]:
     database_before = await database_snapshot(engine)
     origin = monotonic()
@@ -551,23 +656,98 @@ async def run_scenario(
         execution_ids = list(
             await asyncio.gather(
                 *(
-                    _submit_execution(client, scenario, run_id, index)
+                    _submit_execution(
+                        client,
+                        scenario,
+                        run_id,
+                        index,
+                        operation_mode,
+                    )
                     for index in range(scenario.concurrency)
                 )
             )
         )
         submit_seconds = monotonic() - submit_started
-        terminal, execution_seconds, peak_running = await _wait_for_terminal(
-            client, execution_ids, timeout_seconds=timeout_seconds
+        expected_limit_status = (
+            "WAITING_FOR_OPERATION" if operation_mode == "MULTI" else "FAILED"
         )
-        failures = {
-            execution_id: state["state"]["status"]
-            for execution_id, state in terminal.items()
-            if state["state"]["status"] != "SUCCEEDED"
-        }
-        if failures:
-            raise RuntimeError(f"T35 Executions failed: {failures}")
+        completion_statuses = set(TERMINAL_STATUSES)
+        if expect_output_limit and operation_mode == "MULTI":
+            completion_statuses.add("WAITING_FOR_OPERATION")
+        terminal, execution_seconds, peak_running = await _wait_for_terminal(
+            client,
+            execution_ids,
+            timeout_seconds=timeout_seconds,
+            completion_statuses=completion_statuses,
+        )
+        multi_failure_types: dict[str, str | None] = {}
+        if expect_output_limit and operation_mode == "MULTI":
+            values = await asyncio.gather(
+                *(
+                    _multi_output_limit_failure_type(client, execution_id)
+                    for execution_id in execution_ids
+                )
+            )
+            multi_failure_types = dict(zip(execution_ids, values, strict=True))
+        terminal_outcomes = {}
+        for execution_id, state in terminal.items():
+            failure = state.get("failure")
+            terminal_outcomes[execution_id] = {
+                "status": state["state"]["status"],
+                "failure_type": (
+                    multi_failure_types.get(execution_id)
+                    if operation_mode == "MULTI"
+                    else failure["type"]
+                    if failure is not None
+                    else None
+                ),
+            }
+        validation_error: str | None = None
+        if expect_output_limit:
+            unexpected = {
+                execution_id: outcome
+                for execution_id, outcome in terminal_outcomes.items()
+                if outcome
+                != {
+                    "status": expected_limit_status,
+                    "failure_type": "OUTPUT_LIMIT_EXCEEDED",
+                }
+            }
+            if unexpected:
+                validation_error = (
+                    f"T35 expected OUTPUT_LIMIT_EXCEEDED: {unexpected}"
+                )
+        else:
+            failures = {
+                execution_id: outcome
+                for execution_id, outcome in terminal_outcomes.items()
+                if outcome["status"] != "SUCCEEDED"
+            }
+            if failures:
+                raise RuntimeError(f"T35 Executions failed: {failures}")
         retrievals = await _retrieve_results(client, execution_ids)
+        if expect_output_limit:
+            missing_incomplete_references = [
+                item["execution_id"]
+                for item in retrievals
+                if item["incomplete_step_result_ref_count"] < 1
+            ]
+            if missing_incomplete_references:
+                validation_error = (
+                    "T35 output-limit failure has no incomplete Step result "
+                    f"reference: {missing_incomplete_references}"
+                )
+        cleanup_outcomes: dict[str, dict[str, str | None]] = {}
+        if expect_output_limit:
+            cleanup_outcomes = await _cleanup_output_limit_executions(
+                client,
+                execution_ids,
+                run_id=run_id,
+                operation_mode=operation_mode,
+                timeout_seconds=timeout_seconds,
+            )
+            if validation_error is not None:
+                raise RuntimeError(validation_error)
     finally:
         stop.set()
         await sampler
@@ -580,11 +760,17 @@ async def run_scenario(
     return {
         "name": scenario.name,
         "configuration": asdict(scenario),
+        "operation_mode": operation_mode,
         "requested_output_bytes_per_execution": scenario.size_mib * MIB,
         "requested_output_bytes_total": (
             scenario.size_mib * MIB * scenario.concurrency
         ),
         "execution_ids": execution_ids,
+        "expected_outcome": (
+            "OUTPUT_LIMIT_EXCEEDED" if expect_output_limit else "SUCCEEDED"
+        ),
+        "terminal_outcomes": terminal_outcomes,
+        "cleanup_outcomes": cleanup_outcomes,
         "timing_seconds": {
             "submit_total": round(submit_seconds, 6),
             "execution_until_terminal": round(execution_seconds, 6),
@@ -674,12 +860,34 @@ def _parse_args() -> argparse.Namespace:
             "output concurrency."
         ),
     )
+    parser.add_argument(
+        "--expect-output-limit",
+        action="store_true",
+        help=(
+            "Require every explicit scenario Execution to fail with "
+            "OUTPUT_LIMIT_EXCEEDED. The Executor limit must be lower than "
+            "the generated Runtime WebSocket message."
+        ),
+    )
+    parser.add_argument(
+        "--operation-mode",
+        choices=("SINGLE", "MULTI"),
+        default="SINGLE",
+        help="Execution lifecycle used by every scenario.",
+    )
     parser.add_argument("--sample-interval-seconds", type=float, default=1.0)
     parser.add_argument("--scenario-timeout-seconds", type=float, default=3600)
     parser.add_argument("--cooldown-seconds", type=float, default=2.0)
     args = parser.parse_args()
     if args.preset == "full" and not args.scenario and not args.confirm_full:
         parser.error("--preset full requires --confirm-full.")
+    if args.expect_output_limit and not args.scenario:
+        parser.error("--expect-output-limit requires an explicit --scenario.")
+    if args.operation_mode == "MULTI" and not args.expect_output_limit:
+        parser.error(
+            "--operation-mode MULTI is reserved for --expect-output-limit; "
+            "successful MULTI work waits for another Operation by design."
+        )
     if args.sample_interval_seconds <= 0:
         parser.error("--sample-interval-seconds must be positive.")
     if args.scenario_timeout_seconds <= 0:
@@ -755,6 +963,12 @@ async def main() -> None:
     else:
         container = await resolve_executor_container()
 
+    configured_output_limit_bytes = (
+        await executor_output_limit_bytes(container)
+        if container is not None
+        else None
+    )
+
     engine = _database_engine()
     results: list[dict[str, Any]] = []
     status = "RUNNING"
@@ -804,6 +1018,8 @@ async def main() -> None:
                         target_ids=target_ids,
                         sample_interval_seconds=args.sample_interval_seconds,
                         timeout_seconds=args.scenario_timeout_seconds,
+                        expect_output_limit=args.expect_output_limit,
+                        operation_mode=args.operation_mode,
                     )
                 )
                 report = write_report(
@@ -815,6 +1031,11 @@ async def main() -> None:
                         "scenario_count": len(scenarios),
                         "completed_scenario_count": len(results),
                         "executor_container": container,
+                        "runtime_max_output_message_bytes": (
+                            configured_output_limit_bytes
+                        ),
+                        "expect_output_limit": args.expect_output_limit,
+                        "operation_mode": args.operation_mode,
                         "runtime_targets": target_report,
                         "results": results,
                     },
@@ -838,6 +1059,11 @@ async def main() -> None:
                 "scenario_count": len(scenarios),
                 "completed_scenario_count": len(results),
                 "executor_container": container,
+                "runtime_max_output_message_bytes": (
+                    configured_output_limit_bytes
+                ),
+                "expect_output_limit": args.expect_output_limit,
+                "operation_mode": args.operation_mode,
                 "runtime_targets": target_report,
                 "failure": failure,
                 "results": results,

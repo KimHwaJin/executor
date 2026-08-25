@@ -58,6 +58,7 @@ from executor_service.domain.runtime import (
     RuntimeExecutionTimeoutError,
     RuntimeNotebookPreparer,
     RuntimeNotebookSourceCell,
+    RuntimeOutputLimitExceededError,
     RuntimeOutputRecord,
     RuntimeOutputRepresentation,
     RuntimeStreamingExecutor,
@@ -123,7 +124,7 @@ class RetainedRuntimeSessionLostError(RuntimeDriverError):
 
 
 @dataclass(frozen=True, slots=True)
-class RuntimeTimeoutResolution:
+class RuntimeAbortResolution:
     abort_status: RuntimeAbortStatus
     cleanup_status: RuntimeSessionCleanupStatus
     retry_strategy: RetryStrategy
@@ -149,6 +150,16 @@ class StoredRuntimeExecutionTimeoutError(RuntimeExecutionTimeoutError):
         stored_result: StepResultDescriptor,
     ) -> None:
         super().__init__(scope, timeout_seconds)
+        self.stored_result = stored_result
+
+
+class StoredRuntimeOutputLimitExceededError(RuntimeOutputLimitExceededError):
+    def __init__(
+        self,
+        max_message_bytes: int,
+        stored_result: StepResultDescriptor,
+    ) -> None:
+        super().__init__(max_message_bytes)
         self.stored_result = stored_result
 
 
@@ -777,7 +788,10 @@ class ExecutionWorker:
                                 extra={"execution_id": str(execution.id)},
                             )
                         raise
-                    except StoredRuntimeExecutionTimeoutError:
+                    except (
+                        StoredRuntimeExecutionTimeoutError,
+                        StoredRuntimeOutputLimitExceededError,
+                    ):
                         failed_sequence = sequence
                         raise
                     except StoredRuntimeExecutionError as exc:
@@ -888,17 +902,24 @@ class ExecutionWorker:
                     runtime_session_cleanup_status=cleanup_status,
                 )
                 raise
-            except StoredRuntimeExecutionTimeoutError as exc:
+            except (
+                StoredRuntimeExecutionTimeoutError,
+                StoredRuntimeOutputLimitExceededError,
+            ) as exc:
                 if runtime_session_id is None or failed_sequence is None:
                     raise RuntimeError(
-                        "Runtime timeout has no active session or Step."
+                        "Runtime abort workflow has no active session or Step."
                     ) from exc
                 failure_type = (
-                    FailureType.STEP_TIMEOUT
-                    if exc.scope == "Step"
-                    else FailureType.OPERATION_TIMEOUT
+                    FailureType.OUTPUT_LIMIT_EXCEEDED
+                    if isinstance(exc, StoredRuntimeOutputLimitExceededError)
+                    else (
+                        FailureType.STEP_TIMEOUT
+                        if exc.scope == "Step"
+                        else FailureType.OPERATION_TIMEOUT
+                    )
                 )
-                resolution = await self._resolve_runtime_timeout(
+                resolution = await self._resolve_runtime_abort(
                     lease,
                     driver,
                     runtime_session_id,
@@ -932,7 +953,7 @@ class ExecutionWorker:
                         artifact_exc,
                     )
                     logger.warning(
-                        "Timed-out Artifact registration failed",
+                        "Aborted-step Artifact registration failed",
                         extra={"execution_id": str(execution.id)},
                     )
                 await self._finalize(
@@ -1604,13 +1625,22 @@ class ExecutionWorker:
                             allow_cancel_requested=True,
                         )
                     raise
-                except StoredRuntimeExecutionTimeoutError as exc:
+                except (
+                    StoredRuntimeExecutionTimeoutError,
+                    StoredRuntimeOutputLimitExceededError,
+                ) as exc:
                     failure_type = (
-                        FailureType.STEP_TIMEOUT
-                        if exc.scope == "Step"
-                        else FailureType.OPERATION_TIMEOUT
+                        FailureType.OUTPUT_LIMIT_EXCEEDED
+                        if isinstance(
+                            exc, StoredRuntimeOutputLimitExceededError
+                        )
+                        else (
+                            FailureType.STEP_TIMEOUT
+                            if exc.scope == "Step"
+                            else FailureType.OPERATION_TIMEOUT
+                        )
                     )
-                    resolution = await self._resolve_runtime_timeout(
+                    resolution = await self._resolve_runtime_abort(
                         lease,
                         driver,
                         runtime_session_id,
@@ -2173,6 +2203,7 @@ class ExecutionWorker:
             step.result_manifest_path = None
             step.result_manifest_checksum_sha256 = None
             step.result_fencing_token = None
+            step.result_complete = None
             step.result_representation_count = 0
             step.result_total_size_bytes = 0
             step.started_at = now
@@ -2214,6 +2245,7 @@ class ExecutionWorker:
                 history.result_manifest_path = None
                 history.result_manifest_checksum_sha256 = None
                 history.result_fencing_token = None
+                history.result_complete = None
                 history.result_representation_count = 0
                 history.result_total_size_bytes = 0
             if step.operation_id is None:
@@ -2279,6 +2311,7 @@ class ExecutionWorker:
                     result_fencing_token=(
                         stored_result.reference.fencing_token
                     ),
+                    result_complete=stored_result.complete,
                     result_representation_count=(
                         stored_result.representation_count
                     ),
@@ -2313,6 +2346,7 @@ class ExecutionWorker:
                         "fencing_token": (
                             stored_result.reference.fencing_token
                         ),
+                        "complete": stored_result.complete,
                     },
                     "output_summary": output_summary,
                     "execution_count": stored_result.execution_count,
@@ -2367,6 +2401,7 @@ class ExecutionWorker:
                     result_fencing_token=(
                         stored_result.reference.fencing_token
                     ),
+                    result_complete=stored_result.complete,
                     result_representation_count=(
                         stored_result.representation_count
                     ),
@@ -2402,6 +2437,7 @@ class ExecutionWorker:
                         "fencing_token": (
                             stored_result.reference.fencing_token
                         ),
+                        "complete": stored_result.complete,
                     },
                     "output_summary": output_summary,
                     "error_message": safe_error,
@@ -2418,6 +2454,7 @@ class ExecutionWorker:
             stored_result.reference.checksum_sha256
         )
         step.result_fencing_token = stored_result.reference.fencing_token
+        step.result_complete = stored_result.complete
         step.result_representation_count = stored_result.representation_count
         step.result_total_size_bytes = stored_result.total_size_bytes
 
@@ -2530,6 +2567,15 @@ class ExecutionWorker:
                 )
                 for output in execution_result.outputs:
                     await append_output(_output_record(output))
+        except RuntimeOutputLimitExceededError as exc:
+            stored = await self._result_store.abort_step_result(
+                identity,
+                reason=str(exc),
+            )
+            raise StoredRuntimeOutputLimitExceededError(
+                exc.max_message_bytes,
+                stored,
+            ) from exc
         except RuntimeExecutionError as exc:
             if not streaming:
                 for output in exc.outputs:
@@ -2602,13 +2648,13 @@ class ExecutionWorker:
             size_bytes=step.source_size_bytes,
         )
 
-    async def _resolve_runtime_timeout(
+    async def _resolve_runtime_abort(
         self,
         lease: ExecutionLease,
         driver: RuntimeDriver,
         runtime_session_id: str,
         failure_type: FailureType,
-    ) -> RuntimeTimeoutResolution:
+    ) -> RuntimeAbortResolution:
         await self._record_runtime_abort(
             lease,
             RuntimeAbortStatus.PENDING,
@@ -2627,14 +2673,14 @@ class ExecutionWorker:
                 f"{type(exc).__name__}: Runtime abort request failed.",
             )
         if result.status == RuntimeAbortStatus.IDLE_CONFIRMED:
-            resolution = RuntimeTimeoutResolution(
+            resolution = RuntimeAbortResolution(
                 abort_status=result.status,
                 cleanup_status=RuntimeSessionCleanupStatus.NOT_REQUIRED,
                 retry_strategy=RetryStrategy.FROM_FAILED_STEP,
                 retain_session=True,
             )
         elif result.status == RuntimeAbortStatus.SESSION_MISSING:
-            resolution = RuntimeTimeoutResolution(
+            resolution = RuntimeAbortResolution(
                 abort_status=result.status,
                 cleanup_status=RuntimeSessionCleanupStatus.SUCCEEDED,
                 retry_strategy=RetryStrategy.FROM_START,
@@ -2648,14 +2694,14 @@ class ExecutionWorker:
                     RuntimeAbortStatus.FAILED,
                     f"{type(exc).__name__}: Runtime session deletion failed.",
                 )
-                resolution = RuntimeTimeoutResolution(
+                resolution = RuntimeAbortResolution(
                     abort_status=RuntimeAbortStatus.FAILED,
                     cleanup_status=RuntimeSessionCleanupStatus.FAILED,
                     retry_strategy=RetryStrategy.FROM_START,
                     retain_session=False,
                 )
             else:
-                resolution = RuntimeTimeoutResolution(
+                resolution = RuntimeAbortResolution(
                     abort_status=RuntimeAbortStatus.SESSION_DELETED,
                     cleanup_status=RuntimeSessionCleanupStatus.SUCCEEDED,
                     retry_strategy=RetryStrategy.FROM_START,
@@ -4248,6 +4294,13 @@ def _failure_policy(
             else RetryStrategy.FROM_START
         )
         return failure_type, retry_strategy
+    if isinstance(exc, RuntimeOutputLimitExceededError):
+        retry_strategy = (
+            RetryStrategy.FROM_FAILED_STEP
+            if retain_session
+            else RetryStrategy.FROM_START
+        )
+        return FailureType.OUTPUT_LIMIT_EXCEEDED, retry_strategy
     if isinstance(exc, RuntimeExecutionError) and retain_session:
         return FailureType.TOOL_ERROR, RetryStrategy.FROM_FAILED_STEP
     if isinstance(exc, RuntimeDriverError):

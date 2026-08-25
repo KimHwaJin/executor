@@ -116,6 +116,7 @@ class ResultReference(BaseModel):
     )
     execution_attempt_id: UUID | None = None
     fencing_token: int | None = Field(default=None, ge=1)
+    complete: bool | None = None
 
     @model_validator(mode="after")
     def validate_step_reference(self) -> Self:
@@ -125,6 +126,7 @@ class ResultReference(BaseModel):
             self.checksum_sha256,
             self.execution_attempt_id,
             self.fencing_token,
+            self.complete,
         )
         if self.scope == "STEP" and not all(
             value is not None for value in shared_fields

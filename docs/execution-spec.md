@@ -31,7 +31,7 @@ receipts beside its own Task, ExecutionPlan, and PlanStep records.
         "type": "PYTHON_EXECUTE",
         "source": {
           "type": "PATH",
-          "path": "requests/task-100/step-1.py",
+          "path": "task-100/step-1.py",
           "sha256": "<64 lowercase hex characters>"
         }
       }
@@ -44,7 +44,7 @@ Required fields are `schema_version`, `steps`, each Step `sequence`, `payload.ty
 `payload.source`. The current payload type is `PYTHON_EXECUTE`. Each Step independently chooses:
 
 - `INLINE`: UTF-8 Python source is carried in `content`.
-- `PATH`: a relative `.py` file under `INPUT_HOST_ROOT` is referenced by `path` and required
+- `PATH`: a relative `.py` file under `SHARED_STORAGE_ROOT/requests` is referenced by `path` and required
   SHA-256. The whole ExecutionSpec is never loaded from one PATH file.
 
 `step_timeout_seconds` and `lineage` are optional. Sequences are ordered and contiguous. Initial

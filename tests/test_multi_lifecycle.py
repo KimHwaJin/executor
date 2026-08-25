@@ -40,6 +40,7 @@ from executor_service.domain.runtime import (
     RuntimeExecutionError,
     RuntimeExecutionResult,
     RuntimeExecutionTimeoutError,
+    RuntimeOutputLimitExceededError,
     RuntimeResourceMetric,
     RuntimeResourceObservation,
 )
@@ -87,6 +88,7 @@ class RecordingMultiDriver(InMemoryRuntimeStorage):
     executed: ClassVar[list[str]] = []
     fail_code: ClassVar[str | None] = None
     slow_code: ClassVar[str | None] = None
+    limit_code: ClassVar[str | None] = None
     abort_status: ClassVar[RuntimeAbortStatus] = (
         RuntimeAbortStatus.IDLE_CONFIRMED
     )
@@ -149,6 +151,8 @@ class RecordingMultiDriver(InMemoryRuntimeStorage):
         self.executed.append(code)
         if code == self.slow_code:
             await asyncio.sleep(2)
+        if code == self.limit_code:
+            raise RuntimeOutputLimitExceededError(1048576)
         if code == self.fail_code:
             raise RuntimeExecutionError(
                 "expected operation failure",
@@ -399,6 +403,7 @@ def _reset_fake_gateway() -> None:
     RecordingMultiDriver.executed = []
     RecordingMultiDriver.fail_code = None
     RecordingMultiDriver.slow_code = None
+    RecordingMultiDriver.limit_code = None
     RecordingMultiDriver.abort_status = RuntimeAbortStatus.IDLE_CONFIRMED
     RecordingMultiDriver.deleted = []
     RecordingMultiDriver.delete_fails = False
@@ -679,6 +684,73 @@ async def test_multi_timeout_requires_confirmed_abort_before_transition(
         if abort_status == RuntimeAbortStatus.IDLE_CONFIRMED
         else ["operation-kernel"]
     )
+
+
+async def test_multi_output_limit_waits_for_correction_after_safe_abort(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    command = replace(
+        _multi_command("multi-output-limit"),
+        steps=(StepSpec(0, "oversized-output"),),
+    )
+    execution = await execution_service.submit(command)
+    session_factory = create_session_factory(engine)
+    async with session_factory() as session, session.begin():
+        session.add(
+            RuntimeTargetORM(
+                name="multi-output-limit-target",
+                connection_config={"endpoint": "http://limit.invalid"},
+                **runtime_credential_fields(),
+                pool=RuntimePool.INTERACTIVE,
+                status=RuntimeTargetStatus.ACTIVE,
+                max_concurrent_executions=1,
+                supported_profiles=["basic"],
+                enabled=True,
+            )
+        )
+    RecordingMultiDriver.limit_code = "oversized-output"
+    _patch_runtime_driver(monkeypatch, RecordingMultiDriver)
+    worker, redis = _worker(engine, tmp_path)
+    try:
+        await worker._run_execution(execution.id)
+    finally:
+        await redis.aclose()
+
+    async with session_factory() as session:
+        row = await session.get(ExecutionORM, execution.id)
+        operation = await session.get(
+            ExecutionOperationORM, execution.active_operation_id
+        )
+        step = await session.scalar(
+            select(ExecutionStepORM).where(
+                ExecutionStepORM.execution_id == execution.id
+            )
+        )
+        event_types = set(
+            await session.scalars(
+                select(OutboxEventORM.event_type).where(
+                    OutboxEventORM.aggregate_id == execution.id
+                )
+            )
+        )
+
+    assert row is not None and operation is not None and step is not None
+    assert row.status == ExecutionStatus.WAITING_FOR_OPERATION
+    assert row.failure_type == FailureType.OUTPUT_LIMIT_EXCEEDED
+    assert row.runtime_abort_status == RuntimeAbortStatus.IDLE_CONFIRMED
+    assert operation.status == OperationStatus.FAILED
+    assert step.status == StepStatus.FAILED
+    assert step.result_complete is False
+    assert {
+        "execution.runtime_abort_started",
+        "execution.runtime_abort_completed",
+        "execution.step_failed",
+        "execution.operation_failed",
+        "execution.waiting_for_operation",
+    }.issubset(event_types)
 
 
 @pytest.mark.parametrize(

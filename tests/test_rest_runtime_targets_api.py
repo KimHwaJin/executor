@@ -34,6 +34,7 @@ class HealthyGateway:
         _token: str,
         _timeout: float,
         _storage_timeout: float,
+        _max_output_message_bytes: int,
     ) -> None:
         pass
 
