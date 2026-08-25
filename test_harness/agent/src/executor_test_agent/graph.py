@@ -16,6 +16,7 @@ from executor_test_agent.integrations.contracts import (
     AgentExecutionRequest,
     ExecutionEventBatch,
 )
+from executor_test_agent.integrations.errors import exception_summary
 from executor_test_agent.integrations.events import (
     MULTI_OPERATION_WAKE_EVENT_TYPES,
     TERMINAL_EVENT_TYPES,
@@ -175,7 +176,9 @@ async def verify(state: AgentState) -> dict[str, Any]:
         result = await reconcile_execution(state.execution_id, event_batch, get_settings())
     except Exception as exc:
         return {
-            "messages": [AIMessage(content=f"Executor verification failed: {type(exc).__name__}")],
+            "messages": [
+                AIMessage(content=(f"Executor verification failed: {exception_summary(exc)}"))
+            ],
             "phase": "FAILED",
             "execution_request": None,
             "event_batch": None,

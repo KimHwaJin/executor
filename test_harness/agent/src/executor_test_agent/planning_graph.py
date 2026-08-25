@@ -16,6 +16,7 @@ from executor_test_agent.integrations.contracts import (
     AgentExecutionRequest,
     ExecutionEventBatch,
 )
+from executor_test_agent.integrations.errors import exception_summary
 from executor_test_agent.integrations.events import (
     MULTI_OPERATION_WAKE_EVENT_TYPES,
     TERMINAL_EVENT_TYPES,
@@ -276,7 +277,7 @@ async def verify_execution(state: PlanningAgentState) -> dict[str, Any]:
     except Exception as exc:
         return {
             "messages": [
-                AIMessage(content=f"Executor 결과 확인에 실패했습니다: {type(exc).__name__}")
+                AIMessage(content=(f"Executor 결과 확인에 실패했습니다: {exception_summary(exc)}"))
             ],
             "phase": "FAILED",
         }

@@ -1,5 +1,6 @@
 """Agent-side commands and reconciliation for asynchronous Executor execution."""
 
+import asyncio
 import hashlib
 import json
 from typing import Any
@@ -13,7 +14,14 @@ from executor_test_agent.integrations.contracts import (
     ExecutionEventBatch,
 )
 from executor_test_agent.integrations.events import event_stream_watermark
-from executor_test_agent.integrations.executor import collect_execution_result, required_tool_result
+from executor_test_agent.integrations.executor import (
+    fetch_execution_result,
+    required_tool_result,
+    resolve_execution_result,
+)
+
+RESULT_RECONCILIATION_ATTEMPTS = 3
+RESULT_RECONCILIATION_RETRY_SECONDS = 0.2
 
 
 async def submit_execution(
@@ -120,12 +128,7 @@ async def reconcile_execution(
     wake_event = event_batch.wake_event
     if str(wake_event.aggregate_id) != execution_id:
         raise RuntimeError("Wake-up event does not belong to the interrupted Execution.")
-    async with Client(settings.executor_mcp_url) as client:
-        result = await collect_execution_result(
-            client,
-            execution_id,
-            settings.executor_shared_storage_root,
-        )
+    result = await _reconciled_result(execution_id, settings)
 
     status = result["execution"]["state"]["status"]
     event_status = wake_event.payload.get("status")
@@ -157,6 +160,27 @@ async def reconcile_execution(
             if event.event_type in {"execution.operation_succeeded", "execution.operation_failed"}
         ],
     }
+
+
+async def _reconciled_result(
+    execution_id: str,
+    settings: AgentSettings,
+) -> dict[str, Any]:
+    """Fetch through MCP, close its task group, then read shared files."""
+
+    for attempt in range(1, RESULT_RECONCILIATION_ATTEMPTS + 1):
+        try:
+            async with Client(settings.executor_mcp_url) as client:
+                result = await fetch_execution_result(client, execution_id)
+            return resolve_execution_result(
+                result,
+                settings.executor_shared_storage_root,
+            )
+        except Exception:
+            if attempt == RESULT_RECONCILIATION_ATTEMPTS:
+                raise
+            await asyncio.sleep(RESULT_RECONCILIATION_RETRY_SECONDS * attempt)
+    raise AssertionError("Result reconciliation attempts were not executed.")
 
 
 def _scenario_idempotency_key(
