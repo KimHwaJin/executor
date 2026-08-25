@@ -172,7 +172,8 @@ async def _reconciled_result(
         try:
             async with Client(settings.executor_mcp_url) as client:
                 result = await fetch_execution_result(client, execution_id)
-            return resolve_execution_result(
+            return await asyncio.to_thread(
+                resolve_execution_result,
                 result,
                 settings.executor_shared_storage_root,
             )
