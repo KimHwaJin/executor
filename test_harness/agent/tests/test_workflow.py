@@ -11,6 +11,7 @@ async def test_reconciliation_retries_after_mcp_task_group_failure(
     monkeypatch,
 ) -> None:
     sleeps: list[float] = []
+    offloaded_calls: list[tuple[object, ...]] = []
 
     class FakeClient:
         def __init__(self, _url: str) -> None:
@@ -44,10 +45,15 @@ async def test_reconciliation_retries_after_mcp_task_group_failure(
     async def fake_sleep(seconds: float) -> None:
         sleeps.append(seconds)
 
+    async def fake_to_thread(function, *args: object) -> dict:
+        offloaded_calls.append((function, *args))
+        return function(*args)
+
     monkeypatch.setattr(workflow, "Client", FakeClient)
     monkeypatch.setattr(workflow, "fetch_execution_result", fake_fetch)
     monkeypatch.setattr(workflow, "resolve_execution_result", fake_resolve)
     monkeypatch.setattr(workflow.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(workflow.asyncio, "to_thread", fake_to_thread)
     settings = cast(
         AgentSettings,
         SimpleNamespace(
@@ -61,3 +67,4 @@ async def test_reconciliation_retries_after_mcp_task_group_failure(
     assert result == {"operations": []}
     assert len(clients) == 2
     assert sleeps == [workflow.RESULT_RECONCILIATION_RETRY_SECONDS]
+    assert offloaded_calls == [(fake_resolve, {"operations": []}, "unused")]
