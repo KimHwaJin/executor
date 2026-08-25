@@ -65,6 +65,9 @@ def read_step_result(
         raise ExecutionResultReadError("Result manifest is invalid JSON.") from exc
     if not isinstance(manifest, dict) or manifest.get("schema_version") != "1.0":
         raise ExecutionResultReadError("Result manifest schema is unsupported.")
+    complete = manifest.get("complete")
+    if type(complete) is not bool or complete != reference.get("complete"):
+        raise ExecutionResultReadError("Result manifest completeness conflicts with its reference.")
     identity = manifest.get("identity")
     if not isinstance(identity, dict) or (
         str(identity.get("execution_id")) != str(reference["execution_id"])
@@ -106,6 +109,10 @@ def _resolve_representation(
 ) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ExecutionResultReadError("Result representation is invalid.")
+    if value.get("complete") is not True:
+        raise ExecutionResultReadError("Result representation is not complete.")
+    if value.get("truncated_in_preview") is not False:
+        raise ExecutionResultReadError("Result representation preview metadata is invalid.")
     path = _resolve(result_directory, str(value.get("relative_path", "")))
     try:
         path.relative_to(root)

@@ -81,6 +81,10 @@ class Settings(BaseSettings):
     execution_drain_timeout_seconds: float = Field(default=30, ge=0)
     execution_shutdown_cleanup_seconds: float = Field(default=20, gt=0)
     runtime_abort_timeout_seconds: float = Field(default=15, gt=0)
+    runtime_max_output_message_bytes: int = Field(
+        default=33554432,
+        ge=1048576,
+    )
     runtime_cleanup_retry_interval_seconds: float = Field(default=60, gt=0)
     failed_session_retention_seconds: int = Field(default=3600, ge=60)
     execution_max_runtime_seconds: int = Field(default=432000, ge=60)

@@ -20,6 +20,7 @@ async def test_collect_execution_result_resolves_shared_manifest(
     manifest = {
         "schema_version": "1.0",
         "state": "FINALIZED",
+        "complete": True,
         "identity": {
             "execution_id": "execution-1",
             "operation_id": "operation-1",
@@ -47,6 +48,7 @@ async def test_collect_execution_result_resolves_shared_manifest(
                         "size_bytes": len(content),
                         "checksum_sha256": hashlib.sha256(content).hexdigest(),
                         "complete": True,
+                        "truncated_in_preview": False,
                         "metadata": {},
                     }
                 ],
@@ -80,6 +82,7 @@ async def test_collect_execution_result_resolves_shared_manifest(
                                     "step_id": "step-1",
                                     "attempt_id": "attempt-1",
                                     "fencing_token": 1,
+                                    "complete": True,
                                     "relative_path": manifest_path.relative_to(tmp_path).as_posix(),
                                     "checksum_sha256": hashlib.sha256(manifest_body).hexdigest(),
                                 }

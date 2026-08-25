@@ -37,6 +37,7 @@ class StepResultReference:
 @dataclass(frozen=True, slots=True)
 class StepResultDescriptor:
     state: str
+    complete: bool
     reference: StepResultReference
     source: ExecutionSourceReference
     output_count: int

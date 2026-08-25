@@ -284,10 +284,17 @@ refreshes it from the Runtime before returning.
   files, and atomically seals a terminal manifest on success, Tool error, timeout, or cancellation.
 - PostgreSQL and Redis carry bounded summaries plus references only. There is no compatibility
   duplication of complete output bodies.
+- `RUNTIME_MAX_OUTPUT_MESSAGE_BYTES` applies at the Runtime WebSocket receive boundary. The
+  checked-in 32 MiB value is a conservative local default, not an approved production threshold.
+- A limit breach records `OUTPUT_LIMIT_EXCEEDED`, seals already committed output with
+  `complete=false`, and runs the same interrupt-and-confirm workflow as a timeout. Same-session
+  retry is allowed only after positive idle confirmation.
+- Step detail, Redis Step references, and shared manifests expose completeness and retained byte
+  counts. Every representation remains native, checksummed, and untruncated.
 
 ### Problem
 
-Jupyter WebSocket messages still need a measured platform safety ceiling. Executor streams each
+The production Jupyter WebSocket ceiling still needs deployment-specific measurement. Executor streams each
 received output to shared storage without accumulating a complete Execution in memory or storing
 full bodies in PostgreSQL and Redis. One individual WebSocket message can nevertheless be large,
 especially for HTML or base64 image display data.
@@ -315,21 +322,21 @@ plot artifacts remain on Jupyter-owned storage and use the separate Artifact con
 
 T35 must measure 1, 5, 10, 25, 50, and 100 MiB text output; 1, 10, 25, and 50 MiB image output;
 and concurrency levels 1, 5, 10, and 20. Record Executor RSS, Runtime memory, PostgreSQL growth,
-notebook size, output API latency, and Agent retrieval calls. Final message, buffer, preview, and
+notebook size, result-reference API latency, and Agent retrieval calls. Final message, buffer, preview, and
 storage ceilings are chosen from the deployed Pod limits and measured concurrency rather than
 from an arbitrary universal constant.
 
 ### Completion criteria
 
 - Large and repetitive output cannot grow Executor memory without a configured bound.
-- Full retained output remains recoverable from Runtime storage and the notebook after Executor
+- Full retained output remains recoverable from shared result storage and the notebook after Executor
   restart.
 - PostgreSQL and Redis retain bounded summaries and references rather than duplicate large image
   or text payloads.
 - The Agent can discover output type and size, consume small results immediately, and retrieve
   every large output incrementally when required.
-- Image retrieval works through the authenticated Executor output-content API without exposing
-  Jupyter credentials, while Redis retains references only.
+- Image retrieval works through the checksum-validated Agent/Executor shared-volume reference;
+  Redis and ordinary APIs retain references only.
 - T35 measurements and the selected production thresholds are recorded before this item is marked
   complete.
 

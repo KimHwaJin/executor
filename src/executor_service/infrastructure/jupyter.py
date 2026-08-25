@@ -10,7 +10,11 @@ from uuid import UUID, uuid4
 
 import httpx
 import websockets
-from websockets.exceptions import WebSocketException
+from websockets.exceptions import (
+    ConnectionClosedError,
+    PayloadTooBig,
+    WebSocketException,
+)
 from websockets.typing import Subprotocol
 
 from executor_service.domain.enums import RuntimeAbortStatus
@@ -24,6 +28,7 @@ from executor_service.domain.runtime import (
     RuntimeNotebookPreparationResult,
     RuntimeNotebookSourceCell,
     RuntimeOutputHandler,
+    RuntimeOutputLimitExceededError,
     RuntimeOutputRecord,
     RuntimeOutputRepresentation,
     RuntimeResourceMetric,
@@ -39,6 +44,7 @@ class JupyterRuntimeDriver:
         token: str,
         request_timeout_seconds: float = 30,
         storage_timeout_seconds: float = 300,
+        max_output_message_bytes: int = 33554432,
     ) -> None:
         self._endpoint = endpoint.rstrip("/")
         self._token = token
@@ -48,6 +54,7 @@ class JupyterRuntimeDriver:
             timeout=request_timeout_seconds,
         )
         self._storage_timeout = storage_timeout_seconds
+        self._max_output_message_bytes = max_output_message_bytes
 
     async def close(self) -> None:
         await self._client.aclose()
@@ -239,7 +246,7 @@ class JupyterRuntimeDriver:
                 uri,
                 subprotocols=[Subprotocol("v1.kernel.websocket.jupyter.org")],
                 additional_headers={"Authorization": f"token {self._token}"},
-                max_size=None,
+                max_size=self._max_output_message_bytes,
                 ping_interval=20,
                 ping_timeout=20,
             ) as websocket:
@@ -275,6 +282,18 @@ class JupyterRuntimeDriver:
                                 await output_handler(record)
                             if output["output_type"] == "error":
                                 error_message = _error_summary(output)
+        except PayloadTooBig as exc:
+            raise RuntimeOutputLimitExceededError(
+                self._max_output_message_bytes
+            ) from exc
+        except ConnectionClosedError as exc:
+            if _message_limit_closed(exc):
+                raise RuntimeOutputLimitExceededError(
+                    self._max_output_message_bytes
+                ) from exc
+            raise RuntimeDriverError(
+                "Jupyter kernel channel became unavailable."
+            ) from exc
         except (OSError, TimeoutError, WebSocketException) as exc:
             raise RuntimeDriverError(
                 "Jupyter kernel channel became unavailable."
@@ -684,6 +703,23 @@ def _error_summary(content: dict[str, Any]) -> str:
     name = str(content.get("ename", "ExecutionError"))
     value = str(content.get("evalue", ""))
     return f"{name}: {value}"[:2000]
+
+
+def _message_limit_closed(exc: BaseException) -> bool:
+    """Recognize a bounded receive failure without exposing frame content."""
+
+    current: BaseException | None = exc
+    visited: set[int] = set()
+    while current is not None and id(current) not in visited:
+        visited.add(id(current))
+        if isinstance(current, PayloadTooBig):
+            return True
+        for close_frame_name in ("rcvd", "sent"):
+            close_frame = getattr(current, close_frame_name, None)
+            if getattr(close_frame, "code", None) == 1009:
+                return True
+        current = current.__cause__ or current.__context__
+    return False
 
 
 def _contents_path(path: str) -> str:

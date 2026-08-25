@@ -302,7 +302,7 @@ that pool.
 
 ExecutionSpec stays at schema version `1.0` during pre-release development. Each ordered Step uses
 `PYTHON_EXECUTE` and independently embeds INLINE code or references one UTF-8 `.py` file below
-`INPUT_HOST_ROOT` with a relative path and SHA-256. Executor persists the resolved source and
+`SHARED_STORAGE_ROOT/requests` with a relative path and SHA-256. Executor persists the resolved source and
 provenance on that ExecutionStep. The Jupyter Driver executes each Step as one code cell. See
 [ExecutionSpec v1](docs/execution-spec.md).
 
@@ -319,8 +319,8 @@ of already executed Steps is intentionally not supported.
 
 ## Storage ownership
 
-- The Agent writes PATH-type Step `.py` files into Agent/Executor input storage. Executor reads
-  them through `INPUT_HOST_ROOT`; Jupyter does not need this volume.
+- The Agent writes PATH-type Step `.py` files below `SHARED_STORAGE_ROOT/requests`. Executor reads
+  them through its Agent/Executor shared volume; Jupyter does not need this volume.
 - Jupyter creates execution workspaces, notebooks, artifacts, datasets, and manifests on its own
   shared storage. All Jupyter Runtime Targets share that storage.
 - Mounting the same shared PVC on every Jupyter Runtime Target is an operator-owned deployment
@@ -481,8 +481,8 @@ Jupyter-relative hierarchy:
     └── checkpoints/
 ```
 
-Raw data remains in S3. PATH submissions are resolved separately under Executor's
-`INPUT_HOST_ROOT`, and path traversal is rejected. The reusable processed-data hierarchy is intentionally not fixed until
+Raw data remains in S3. PATH submissions are resolved under
+`SHARED_STORAGE_ROOT/requests`, and path traversal is rejected. The reusable processed-data hierarchy is intentionally not fixed until
 [Deferred Decisions](docs/deferred-decisions.md) DD-002 is resolved.
 
 ## Consistency and delivery
@@ -560,6 +560,12 @@ Set Kubernetes `terminationGracePeriodSeconds` greater than
 Executions longer than the configured drain window cannot move their live Jupyter WebSocket to
 another Pod; they use the documented failure and explicit retry path when the deadline expires.
 
+`RUNTIME_MAX_OUTPUT_MESSAGE_BYTES` bounds one incoming Runtime WebSocket message before JSON or
+base64 decoding. The 32 MiB default is intended for local safety. Production must set it from T35
+measurements and Pod concurrency/memory limits. A breach is explicit
+`OUTPUT_LIMIT_EXCEEDED`; Executor interrupts the Runtime and marks the sealed Step result
+`complete=false` rather than silently truncating it.
+
 Executor starts with an empty Runtime Fleet. Every Jupyter endpoint and credential is registered
 through the Runtime Target REST or MCP API and the credential is encrypted with
 `RUNTIME_CREDENTIAL_KEY` before PostgreSQL storage. Plaintext credentials are not placed in request
@@ -570,8 +576,8 @@ replacing it directly makes existing dynamic credentials unreadable.
 
 A Kubernetes Deployment, ClusterIP Service, release migration Job, environment ConfigMap, and
 Secret key example are provided in [deploy/kubernetes](deploy/kubernetes/README.md). The baseline
-mounts only the Agent/Executor input PVC; Jupyter notebook and artifact storage remains attached to
-the Jupyter fleet and is accessed through Jupyter APIs.
+mounts the Agent/Executor shared-result PVC read-write. Jupyter notebook and Artifact storage
+remains attached to the Jupyter fleet and is accessed through authenticated Jupyter APIs.
 
 ## Package structure
 

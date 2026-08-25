@@ -116,6 +116,7 @@ class ExecutionStepAttemptView:
     result_manifest_path: str | None
     result_manifest_checksum_sha256: str | None
     result_fencing_token: int | None
+    result_complete: bool | None
     result_representation_count: int
     result_total_size_bytes: int
     error_message: str | None

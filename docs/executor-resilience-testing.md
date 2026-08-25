@@ -207,6 +207,40 @@ when an external sampler provides equivalent evidence. A non-loopback Executor i
 `T35_ALLOW_REMOTE=true` is set for an isolated non-production test stack. Override the host-side
 database connection with `T35_DATABASE_URL` when needed.
 
+The Executor rejects one oversized Runtime WebSocket message before JSON or base64 decoding. Test
+that boundary separately from the successful measurement matrix by starting the isolated Executor
+with a deliberately low value, then requiring the explicit failure:
+
+```bash
+# Executor container environment for this isolated run
+RUNTIME_MAX_OUTPUT_MESSAGE_BYTES=1048576
+
+uv run python scripts/t35_output_measurement.py \
+  --scenario IMAGE:2:1 \
+  --expect-output-limit
+
+uv run python scripts/t35_output_measurement.py \
+  --scenario IMAGE:2:1 \
+  --operation-mode MULTI \
+  --expect-output-limit
+```
+
+The report records the effective limit read from the Executor container and requires every
+Execution to terminate with `OUTPUT_LIMIT_EXCEEDED`. It is a failure if the workload succeeds or
+fails for another reason. The corresponding Step result reference and sealed manifest retain any
+already committed representations with `complete=false`; no silent truncation is accepted. Use an
+IMAGE scenario for the boundary test because one Jupyter display message contains the complete
+base64 representation, while stream text may be split into multiple protocol messages.
+The MULTI case must first reach `WAITING_FOR_OPERATION` so a corrected Operation could be added.
+The harness then cancels it and requires `CANCELLED`. For SINGLE, the harness requests the
+documented retry and immediately cancels it. Both cleanup paths release the retained Runtime
+session after recording the measured failure evidence.
+
+Choose the production value only after running the successful matrix with candidate limits and
+comparing peak Executor RSS against the Pod memory limit at the intended active concurrency. Keep
+headroom for JSON parsing, base64 expansion, Python object overhead, ordinary service memory, and
+multiple Workers receiving messages concurrently.
+
 ### Long-running Jupyter soak
 
 ```bash

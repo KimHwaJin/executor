@@ -799,6 +799,7 @@ def _step_attempt_view(
         result_manifest_path=row.result_manifest_path,
         result_manifest_checksum_sha256=(row.result_manifest_checksum_sha256),
         result_fencing_token=row.result_fencing_token,
+        result_complete=row.result_complete,
         result_representation_count=row.result_representation_count,
         result_total_size_bytes=row.result_total_size_bytes,
         error_message=row.error_message,

@@ -4,11 +4,14 @@ from uuid import UUID
 
 import httpx
 import pytest
+from websockets.exceptions import ConnectionClosedError, PayloadTooBig
+from websockets.frames import Close
 
 from executor_service.domain.enums import RuntimeAbortStatus
 from executor_service.domain.runtime import (
     RuntimeDriverError,
     RuntimeNotebookSourceCell,
+    RuntimeOutputLimitExceededError,
     RuntimeOutputRecord,
 )
 from executor_service.infrastructure.jupyter import (
@@ -517,3 +520,78 @@ async def test_execute_streaming_delivers_each_iopub_output(
     assert result.outputs == []
     assert len(records) == 1
     assert records[0].kind == "STREAM"
+
+
+async def test_execute_rejects_websocket_message_above_safety_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class OversizedWebSocket:
+        async def __aenter__(self) -> "OversizedWebSocket":
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            pass
+
+        async def send(self, _raw: bytes) -> None:
+            pass
+
+        async def recv(self) -> str:
+            raise PayloadTooBig(2048, 1024)
+
+    connect_options: dict[str, Any] = {}
+
+    def connect(*_args: object, **kwargs: Any) -> OversizedWebSocket:
+        connect_options.update(kwargs)
+        return OversizedWebSocket()
+
+    monkeypatch.setattr(
+        "executor_service.infrastructure.jupyter.websockets.connect",
+        connect,
+    )
+    driver = JupyterRuntimeDriver(
+        "http://jupyter.invalid",
+        "secret",
+        max_output_message_bytes=1024,
+    )
+    try:
+        with pytest.raises(
+            RuntimeOutputLimitExceededError,
+            match="1024-byte safety limit",
+        ):
+            await driver.execute("kernel-1", "print('large')")
+    finally:
+        await driver.close()
+
+    assert connect_options["max_size"] == 1024
+
+
+async def test_execute_recognizes_locally_sent_message_too_big_close(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class ClosedWebSocket:
+        async def __aenter__(self) -> "ClosedWebSocket":
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            pass
+
+        async def send(self, _raw: bytes) -> None:
+            pass
+
+        async def recv(self) -> str:
+            raise ConnectionClosedError(None, Close(1009, "message too big"))
+
+    monkeypatch.setattr(
+        "executor_service.infrastructure.jupyter.websockets.connect",
+        lambda *_args, **_kwargs: ClosedWebSocket(),
+    )
+    driver = JupyterRuntimeDriver(
+        "http://jupyter.invalid",
+        "secret",
+        max_output_message_bytes=1024,
+    )
+    try:
+        with pytest.raises(RuntimeOutputLimitExceededError):
+            await driver.execute("kernel-1", "print('large')")
+    finally:
+        await driver.close()
