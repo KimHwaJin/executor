@@ -33,8 +33,10 @@ Outbox Publisher가 커밋된 이벤트를 Event Stream에 발행한다.
 
 - 같은 `event_id`가 두 번 이상 전달될 수 있다.
 - 소비자는 `event_id`를 영속적으로 저장해 중복 처리하지 않는다.
+- `event_sequence`는 Execution마다 `1`부터 증가하며 DB 트랜잭션에서 발급한다.
 - Redis Stream message ID와 `event_id`는 서로 다른 값이다.
-- 재전달 과정에서 애플리케이션 처리 순서가 달라질 수 있다.
+- Publisher는 같은 Execution의 앞 순번이 발행될 때까지 뒤 순번을 보류한다.
+- 장애 복구와 소비자 병렬 처리까지 고려해 소비자는 순번을 검증한다.
 - 충돌하거나 누락된 이벤트는 Result API로 정합성을 확인한다.
 
 ## 3. 결과 저장 원칙
@@ -69,7 +71,7 @@ GET /api/v1/executions/{execution_id}/result
 
 ## 4. 공통 이벤트 Envelope
 
-모든 외부 실행 이벤트는 다음 여섯 필드만 최상위에 가진다.
+모든 외부 실행 이벤트는 다음 일곱 필드를 최상위에 가진다.
 
 ```json
 {
@@ -77,6 +79,7 @@ GET /api/v1/executions/{execution_id}/result
   "event_type": "execution.step_completed",
   "schema_version": "1.0",
   "execution_id": "exec-01K...",
+  "event_sequence": 4,
   "payload": {},
   "occurred_at": "2026-08-26T10:15:40.123Z"
 }
@@ -88,12 +91,17 @@ GET /api/v1/executions/{execution_id}/result
 | `event_type` | enum | O | 이벤트 종류 |
 | `schema_version` | literal `1.0` | O | 외부 이벤트 계약 버전 |
 | `execution_id` | string | O | 전체 실행의 고정 식별자 |
+| `event_sequence` | integer | O | Execution별 논리 이벤트 순번, `1`부터 증가 |
 | `payload` | object | O | 이벤트별 데이터 |
 | `occurred_at` | RFC 3339 UTC datetime | O | 이벤트에 해당하는 상태 전환 시각 |
 
 `payload`에는 `execution_id`와 `schema_version`을 반복하지 않는다. Redis Stream
 entry의 값은 문자열이므로 wire level에서는 `payload`가 JSON 문자열이다. 소비자는
 이를 JSON object로 파싱한다.
+
+`event_sequence`는 Redis Stream message ID나 Step의 `sequence`와 다르다. Redis 발행
+시점이 아니라 이벤트와 Outbox를 저장하는 PostgreSQL 트랜잭션에서 확정되며,
+`execution_id + event_sequence` 조합은 유일하다.
 
 ## 5. 공통 하위 객체
 
@@ -241,6 +249,7 @@ Retry에서는 다시 발행하지 않는다. Runtime 준비 전에 실패하면
   "event_type": "execution.started",
   "schema_version": "1.0",
   "execution_id": "exec-01K...",
+  "event_sequence": 1,
   "payload": {
     "status": "RUNNING",
     "runtime": {
@@ -271,6 +280,7 @@ Retry에서는 다시 발행하지 않는다.
   "event_type": "execution.operation_started",
   "schema_version": "1.0",
   "execution_id": "exec-01K...",
+  "event_sequence": 2,
   "payload": {
     "status": "RUNNING",
     "operation": {
@@ -299,6 +309,7 @@ Retry에서는 다시 발행하지 않는다.
   "event_type": "execution.step_started",
   "schema_version": "1.0",
   "execution_id": "exec-01K...",
+  "event_sequence": 3,
   "payload": {
     "status": "RUNNING",
     "operation": {
@@ -348,6 +359,7 @@ Step 실행 종료
   "event_type": "execution.step_completed",
   "schema_version": "1.0",
   "execution_id": "exec-01K...",
+  "event_sequence": 4,
   "payload": {
     "status": "SUCCEEDED",
     "operation": {
@@ -426,6 +438,7 @@ MULTI 성공 예시:
   "event_type": "execution.operation_completed",
   "schema_version": "1.0",
   "execution_id": "exec-01K...",
+  "event_sequence": 5,
   "payload": {
     "status": "SUCCEEDED",
     "execution_status": "WAITING_FOR_OPERATION",
@@ -535,6 +548,7 @@ Execution의 현재 수행 주기가 `SUCCEEDED`, `FAILED` 또는 `CANCELLED`로
   "event_type": "execution.completed",
   "schema_version": "1.0",
   "execution_id": "exec-01K...",
+  "event_sequence": 6,
   "payload": {
     "status": "SUCCEEDED",
     "operation_summary": {
@@ -558,6 +572,7 @@ Execution의 현재 수행 주기가 `SUCCEEDED`, `FAILED` 또는 `CANCELLED`로
   "event_type": "execution.completed",
   "schema_version": "1.0",
   "execution_id": "exec-01K...",
+  "event_sequence": 6,
   "payload": {
     "status": "FAILED",
     "operation_summary": {
@@ -673,18 +688,41 @@ Retry에서는 `execution.started`와 `execution.operation_started`를 다시 �
 
 ## 14. 소비자 처리 규칙
 
-### 14.1 실행 중 결과 사용
+### 14.1 중복·순서·누락 처리
+
+소비자는 Execution별 `last_event_sequence`를 Agent 소유 DB 또는 LangGraph checkpoint에
+저장한다. 이 처리는 LLM 프롬프트나 그래프 업무 노드가 아니라 공통 Event Subscriber가
+담당한다.
+
+- `event_sequence == last + 1`: 정상 처리하고 checkpoint를 갱신
+- `event_sequence <= last`: 중복 또는 늦은 이벤트이므로 적용하지 않고 ACK
+- `event_sequence > last + 1`: 현재 이벤트를 먼저 적용하지 않고 누락 구간 복구
+
+누락 구간은 다음 REST 또는 MCP 조회로 가져온다.
+
+```http
+GET /api/v1/executions/{execution_id}/events?after_sequence={last}&limit=500
+```
+
+```text
+execution_event_list(execution_id, after_sequence=last, limit=500)
+```
+
+페이지의 이벤트를 `event_sequence` 순서로 적용한 뒤 원래 Redis 이벤트로 돌아간다.
+정상적으로 연속된 Redis 이벤트에는 이 API를 호출하지 않는다.
+
+### 14.2 실행 중 결과 사용
 
 소비자는 `execution.step_completed`의 `result_ref`를 사용해 공유 PV의 Step Manifest와
 출력 파일을 읽는다. MULTI Agent는 이 결과로 후속 계획을 생성할 수 있다.
 
-### 14.2 Operation 경계
+### 14.3 Operation 경계
 
 `execution.operation_completed`는 해당 Operation에서 실제 수행된 Step의 최신 결과
 참조를 `step_results`로 다시 제공한다. 개별 Step 이벤트를 모두 처리했다면 추가 API
 호출은 필요 없다.
 
-### 14.3 Execution 경계
+### 14.4 Execution 경계
 
 최종 리포트 작성 전 전체 정합성을 확인하려면 Result API를 한 번 호출한다.
 
@@ -695,7 +733,7 @@ GET /api/v1/executions/{execution_id}/result
 모든 Step 이벤트를 중복 제거하여 영속적으로 처리했고 누락이 없음을 보장할 수 있다면
 누적한 `result_ref`를 그대로 사용할 수도 있다.
 
-### 14.4 정합성 재조회 조건
+### 14.5 정합성 재조회 조건
 
 다음 상황에서는 이벤트 payload만으로 상태를 확정하지 않는다.
 
@@ -712,6 +750,9 @@ GET /api/v1/executions/{execution_id}/result
 - `executor.events`에 전용 consumer group을 생성한다.
 - 처리 완료 후에만 `XACK`한다.
 - `event_id`를 DB에 저장하고 중복 이벤트를 무시한다.
+- Execution별 마지막 연속 `event_sequence`를 영속적으로 저장한다.
+- 순번이 건너뛰면 Event Subscriber가 이벤트 이력 API로 누락 구간만 복구한다.
+- Redis 처리와 복구 로직을 LLM 또는 LangGraph 업무 노드에 직접 구현하지 않는다.
 - 지원하는 `schema_version`인지 먼저 검사한다.
 - 알 수 없는 이벤트를 조용히 폐기하지 않고 별도 오류 채널에 기록한다.
 - `execution_id`를 현재 상태 조회의 대표 키로 사용한다.

@@ -487,7 +487,7 @@ owner.
 ## PR-006B: Ordered and recoverable Execution integration events
 
 - Priority: P1
-- Status: PLANNED
+- Status: IMPLEMENTED
 - Area: Transactional Outbox, Redis integration events, Agent event consumption
 - Public API impact: additive event ordering and recovery cursor
 - Request impact: none
@@ -501,11 +501,11 @@ publication, not authoritative per-Execution event order.
 
 ### Approved design
 
-- Assign every Agent-facing integration event a monotonically increasing `aggregate_sequence`
+- Assign every Agent-facing integration event a monotonically increasing `event_sequence`
   scoped to its `execution_id` in the same PostgreSQL transaction that persists the event.
 - Do not share this sequence with internal `executor.work` messages because Agent consumers cannot
   observe those messages and would see artificial gaps.
-- Enforce uniqueness for `(aggregate_id, aggregate_sequence)` and expose the sequence in the
+- Enforce uniqueness for `(execution_id, event_sequence)` and expose the sequence in the
   Outbox row, Redis envelope, durable event-list response, and recovery cursor.
 - Keep `event_id` as the delivery deduplication key. Do not use timestamps, Redis Stream IDs, Step
   sequence, or Execution version as substitutes for aggregate event order.
@@ -558,7 +558,7 @@ Execution event-list source, coupling transport cleanup to public history retent
   An Agent that is offline longer recovers its sequence gap from durable PostgreSQL history under
   PR-006B.
 - Split durable Agent-facing `execution_events` from transport-oriented `outbox_events`.
-  `execution_events` owns `event_id`, `execution_id`, `aggregate_sequence`, type, bounded payload,
+  `execution_events` owns `event_id`, `execution_id`, `event_sequence`, type, bounded payload,
   occurrence time, actor, and trace context. Outbox rows own destination and publication/retry
   state and reference the durable event when publishing an integration event.
 - Never automatically delete pending or unresolved failed Outbox rows. Delete published transport

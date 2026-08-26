@@ -23,6 +23,7 @@ Every Executor-produced Stream entry contains:
 - `event_type`: one of the six public Execution lifecycle event names
 - `schema_version`: event contract version; every event currently uses `1.0`
 - `execution_id`: Executor-owned Execution UUID
+- `event_sequence`: monotonic sequence scoped to one Execution
 - `occurred_at`: Outbox creation timestamp
 - `payload`: compact event JSON for downstream consumers
 
@@ -30,6 +31,17 @@ The decoded `payload` is a JSON object and does not duplicate envelope fields. E
 this contract both before Outbox persistence and again immediately before Redis publication to
 `executor.events`. Trace context remains internal to Outbox publishing and Phoenix spans. See
 [Redis Execution Event Contract 1.0](../dev_docs/redis-execution-events.md).
+
+The sequence is allocated in the same PostgreSQL transaction as the event. A Publisher does not
+select a later event for one Execution while an earlier sequence remains unpublished. Different
+Executions continue publishing concurrently. Consumers still validate the sequence because
+at-least-once redelivery, process crashes, and parallel handlers can produce duplicates or
+out-of-order application completion.
+
+Agent integration code persists the last contiguous sequence per Execution. A gap is recovered
+with `execution_event_list` or
+`GET /api/v1/executions/{execution_id}/events?after_sequence={last}` before the later Redis event
+is applied. Normal contiguous delivery performs no recovery query.
 
 ## Internal work contract
 

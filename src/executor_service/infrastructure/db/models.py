@@ -155,6 +155,10 @@ class ExecutionORM(Base):
             "fencing_token >= 0", name="non_negative_fencing_token"
         ),
         CheckConstraint(
+            "next_event_sequence >= 0",
+            name="non_negative_next_event_sequence",
+        ),
+        CheckConstraint(
             "notebook_projection_status IN "
             "('NOT_STARTED', 'PENDING', 'SUCCEEDED', 'FAILED')",
             name="valid_notebook_projection_status",
@@ -333,6 +337,9 @@ class ExecutionORM(Base):
     traceparent: Mapped[str | None] = mapped_column(String(512), nullable=True)
     tracestate: Mapped[str | None] = mapped_column(Text, nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    next_event_sequence: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0
+    )
 
     created_by_type: Mapped[ActorType | None] = mapped_column(
         enum_type(ActorType, "actor_type"), nullable=True
@@ -1521,13 +1528,24 @@ class OutboxEventORM(Base):
             "destination IN ('WORK', 'EVENTS')",
             name="valid_outbox_destination",
         ),
+        CheckConstraint(
+            "(destination = 'EVENTS' AND event_sequence >= 1) OR "
+            "(destination = 'WORK' AND event_sequence IS NULL)",
+            name="valid_outbox_event_sequence",
+        ),
+        UniqueConstraint(
+            "aggregate_type",
+            "aggregate_id",
+            "destination",
+            "event_sequence",
+            name="uq_outbox_aggregate_event_sequence",
+        ),
         Index("ix_outbox_pending", "status", "available_at", "created_at"),
         Index(
             "ix_outbox_execution_cursor",
             "aggregate_type",
             "aggregate_id",
-            "created_at",
-            "id",
+            "event_sequence",
         ),
     )
 
@@ -1539,6 +1557,9 @@ class OutboxEventORM(Base):
         Uuid(as_uuid=True), nullable=False, index=True
     )
     event_type: Mapped[str] = mapped_column(String(255), nullable=False)
+    event_sequence: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True
+    )
     destination: Mapped[OutboxDestination] = mapped_column(
         enum_type(OutboxDestination, "outbox_destination"), nullable=False
     )
@@ -1580,6 +1601,7 @@ class OutboxEventORM(Base):
             aggregate_type=event.aggregate_type,
             aggregate_id=event.aggregate_id,
             event_type=event.event_type,
+            event_sequence=event.event_sequence,
             destination=event.destination,
             payload=event.payload,
             created_by_type=event.created_by_type,

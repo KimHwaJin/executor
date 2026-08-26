@@ -40,6 +40,7 @@ def upgrade() -> None:
         sa.Column("aggregate_type", sa.String(length=128), nullable=False),
         sa.Column("aggregate_id", sa.Uuid(), nullable=False),
         sa.Column("event_type", sa.String(length=255), nullable=False),
+        sa.Column("event_sequence", sa.BigInteger(), nullable=True),
         sa.Column(
             "destination",
             sa.Enum(
@@ -106,6 +107,11 @@ def upgrade() -> None:
             name=op.f("ck_outbox_events_valid_outbox_destination"),
         ),
         sa.CheckConstraint(
+            "(destination = 'EVENTS' AND event_sequence >= 1) OR "
+            "(destination = 'WORK' AND event_sequence IS NULL)",
+            name=op.f("ck_outbox_events_valid_outbox_event_sequence"),
+        ),
+        sa.CheckConstraint(
             "status IN ('PENDING', 'PUBLISHED')",
             name=op.f("ck_outbox_events_valid_outbox_status"),
         ),
@@ -122,6 +128,13 @@ def upgrade() -> None:
             name=op.f("ck_outbox_events_complete_updated_by"),
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_outbox_events")),
+        sa.UniqueConstraint(
+            "aggregate_type",
+            "aggregate_id",
+            "destination",
+            "event_sequence",
+            name=op.f("uq_outbox_aggregate_event_sequence"),
+        ),
     )
     op.create_index(
         op.f("ix_outbox_events_aggregate_id"),
@@ -132,7 +145,7 @@ def upgrade() -> None:
     op.create_index(
         "ix_outbox_execution_cursor",
         "outbox_events",
-        ["aggregate_type", "aggregate_id", "created_at", "id"],
+        ["aggregate_type", "aggregate_id", "event_sequence"],
         unique=False,
     )
     op.create_index(
@@ -646,6 +659,12 @@ def upgrade() -> None:
         sa.Column("tracestate", sa.Text(), nullable=True),
         sa.Column("version", sa.Integer(), nullable=False),
         sa.Column(
+            "next_event_sequence",
+            sa.BigInteger(),
+            server_default=sa.text("0"),
+            nullable=False,
+        ),
+        sa.Column(
             "created_by_type",
             sa.Enum(
                 "AGENT",
@@ -738,6 +757,10 @@ def upgrade() -> None:
         sa.CheckConstraint(
             "fencing_token >= 0",
             name=op.f("ck_executions_non_negative_fencing_token"),
+        ),
+        sa.CheckConstraint(
+            "next_event_sequence >= 0",
+            name=op.f("ck_executions_non_negative_next_event_sequence"),
         ),
         sa.CheckConstraint(
             "runtime_abort_status IN ('NOT_REQUIRED', 'PENDING', "

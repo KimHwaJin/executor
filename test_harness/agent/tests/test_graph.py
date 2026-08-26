@@ -39,7 +39,10 @@ def _event(
 
 
 def _batch(*events: dict) -> dict:
-    return {"events": list(events), "wake_event": events[-1]}
+    ordered = [
+        {**event, "event_sequence": sequence} for sequence, event in enumerate(events, start=1)
+    ]
+    return {"events": ordered, "wake_event": ordered[-1]}
 
 
 async def test_graph_bootstraps_without_external_llm(monkeypatch) -> None:
@@ -242,11 +245,13 @@ async def test_graph_runs_mcp_tool_agent_and_waits_for_stream_event(monkeypatch)
             timeout_seconds,
             event_types,
             operation_id,
+            after_sequence,
         ):
             assert requested_execution_id == execution_id
             assert timeout_seconds > 0
             assert event_types == {"execution.completed"}
             assert operation_id is None
+            assert after_sequence == 0
             return graph_module.ExecutionEventBatch.model_validate(_batch(terminal_event))
 
     monkeypatch.setattr(graph_module, "_chat_model", lambda: object())

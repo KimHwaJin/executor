@@ -1588,16 +1588,23 @@ class EventDelivery(ContractModel):
 
 class ExecutionEventResponse(AuditFields):
     event_id: UUID
+    execution_id: UUID
+    event_sequence: int
+    schema_version: Literal["1.0"] = "1.0"
     event_type: str
     payload: dict[str, Any]
+    occurred_at: datetime
     delivery: EventDelivery
 
     @classmethod
     def from_view(cls, view: ExecutionEventView) -> "ExecutionEventResponse":
         return cls(
             event_id=view.id,
+            execution_id=view.execution_id,
+            event_sequence=view.event_sequence,
             event_type=view.event_type,
             payload=view.payload,
+            occurred_at=view.created_at,
             delivery=EventDelivery(
                 status=view.delivery_status,
                 attempt_count=view.publish_attempt_count,

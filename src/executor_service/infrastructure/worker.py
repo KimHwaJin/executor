@@ -18,7 +18,7 @@ from redis.asyncio import Redis
 from redis.exceptions import ResponseError
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import attributes, selectinload
 
 from executor_service.config import Settings
 from executor_service.domain.enums import (
@@ -3975,14 +3975,33 @@ async def _persist_execution_event(
 ) -> None:
     actor_row = (
         await session.execute(
-            select(
+            update(ExecutionORM)
+            .where(ExecutionORM.id == execution_id)
+            .values(
+                next_event_sequence=ExecutionORM.next_event_sequence + 1,
+                updated_at=ExecutionORM.updated_at,
+            )
+            .returning(
+                ExecutionORM.next_event_sequence,
                 ExecutionORM.updated_by_type,
                 ExecutionORM.updated_by,
                 ExecutionORM.created_by_type,
                 ExecutionORM.created_by,
-            ).where(ExecutionORM.id == execution_id)
+            )
+            .execution_options(synchronize_session=False)
         )
     ).one_or_none()
+    if actor_row is None:
+        raise ValueError(f"Execution {execution_id} was not found.")
+    loaded_execution = session.identity_map.get(
+        session.identity_key(ExecutionORM, execution_id)
+    )
+    if loaded_execution is not None:
+        attributes.set_committed_value(
+            loaded_execution,
+            "next_event_sequence",
+            actor_row.next_event_sequence,
+        )
     actor_type = None
     actor_id = None
     if actor_row is not None:
@@ -3991,6 +4010,7 @@ async def _persist_execution_event(
     carrier = capture_trace_carrier()
     event = build_execution_event(
         execution_id=execution_id,
+        event_sequence=actor_row.next_event_sequence,
         event_type=event_type,
         payload=payload,
         actor_type=actor_type,

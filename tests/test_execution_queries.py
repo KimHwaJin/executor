@@ -132,6 +132,7 @@ async def test_query_service_returns_attempt_step_and_redacted_events(
                     aggregate_type="Execution",
                     aggregate_id=execution.id,
                     event_type="execution.test_secret",
+                    event_sequence=1,
                     payload={
                         "token": "must-not-leak",
                         "nested": {"password": "hidden"},
@@ -139,12 +140,30 @@ async def test_query_service_returns_attempt_step_and_redacted_events(
                 )
             )
         )
+        for sequence in (2, 3):
+            session.add(
+                OutboxEventORM.from_domain(
+                    OutboxEvent(
+                        aggregate_type="Execution",
+                        aggregate_id=execution.id,
+                        event_type="execution.test_sequence",
+                        event_sequence=sequence,
+                        payload={"sequence": sequence},
+                    )
+                )
+            )
 
     queries = SQLAlchemyExecutionQueryService(session_factory)
     attempts = await queries.attempts(execution.id)
     attempt = await queries.attempt(execution.id, attempt_id)
     attempt_steps = await queries.attempt_steps(execution.id, attempt_id)
     events = await queries.events(execution.id)
+    recovery_page = await queries.events(
+        execution.id, after_sequence=1, limit=1
+    )
+    recovery_next = await queries.events(
+        execution.id, cursor=recovery_page.next_cursor, limit=1
+    )
 
     assert len(attempts) == 1
     assert attempts[0].status == AttemptStatus.FAILED
@@ -166,6 +185,10 @@ async def test_query_service_returns_attempt_step_and_redacted_events(
         "token": "[REDACTED]",
         "nested": {"password": "[REDACTED]"},
     }
+    assert [event.event_sequence for event in events] == [1, 2, 3]
+    assert [event.event_sequence for event in recovery_page] == [2]
+    assert recovery_page.next_cursor is not None
+    assert [event.event_sequence for event in recovery_next] == [3]
 
 
 async def test_execution_reads_do_not_load_source_code_or_step_rows(

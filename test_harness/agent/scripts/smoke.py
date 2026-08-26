@@ -21,6 +21,7 @@ async def main() -> None:
         settings.executor_redis_url,
         settings.executor_event_stream,
         settings.executor_consumer_group_prefix,
+        executor_mcp_url=settings.executor_mcp_url,
     )
     await waiter.open()
     try:
@@ -83,6 +84,7 @@ async def main() -> None:
         if not isinstance(execution_id, str):
             raise RuntimeError("Interrupted Agent state has no execution_id.")
         result: dict[str, Any] = interrupted
+        last_event_sequence = 0
         for _ in range(5):
             if result.get("phase") != "WAITING_FOR_EVENT":
                 break
@@ -94,7 +96,9 @@ async def main() -> None:
                 timeout_seconds=settings.execution_timeout_seconds,
                 event_types=set(event_types),
                 operation_id=result.get("awaited_operation_id"),
+                after_sequence=last_event_sequence,
             )
+            last_event_sequence = batch.wake_event.event_sequence
             resumed = await client.runs.wait(
                 thread["thread_id"],
                 "executor_mcp_agent",

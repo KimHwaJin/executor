@@ -143,6 +143,7 @@ async def wait_for_stream_event(state: AgentState) -> dict[str, Any]:
             settings.executor_redis_url,
             settings.executor_event_stream,
             settings.executor_consumer_group_prefix,
+            executor_mcp_url=settings.executor_mcp_url,
             start_id=state.event_stream_start_id,
         )
         await waiter.open()
@@ -152,6 +153,7 @@ async def wait_for_stream_event(state: AgentState) -> dict[str, Any]:
                 timeout_seconds=settings.execution_timeout_seconds,
                 event_types=set(state.awaited_event_types) or None,
                 operation_id=state.awaited_operation_id,
+                after_sequence=state.last_event_sequence,
             )
         finally:
             await waiter.close()
@@ -221,6 +223,7 @@ async def verify(state: AgentState) -> dict[str, Any]:
             *state.event_history,
             *(event.model_dump(mode="json") for event in event_batch.events),
         ],
+        "last_event_sequence": event_batch.wake_event.event_sequence,
         "awaited_event_types": [],
         "awaited_operation_id": None,
         "event_stream_start_id": None,

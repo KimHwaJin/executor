@@ -40,6 +40,7 @@ from executor_service.domain.enums import (
     MaintenanceRunStatus,
     OperationMode,
     OperationStatus,
+    OutboxDestination,
     OutboxStatus,
     RetryStrategy,
     RuntimePool,
@@ -50,6 +51,7 @@ from executor_service.domain.enums import (
     TriggerType,
 )
 from executor_service.domain.models import utc_now
+from executor_service.events import build_execution_event
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
@@ -691,8 +693,26 @@ async def test_concurrent_outbox_publishers_emit_one_stream_message(
     tmp_path: Path,
 ) -> None:
     service = _service(postgres_engine, tmp_path)
-    await service.submit(_command("outbox-once"))
+    execution = await service.submit(_command("outbox-once"))
     session_factory = create_session_factory(postgres_engine)
+    async with session_factory() as session, session.begin():
+        first_event = await session.scalar(
+            select(OutboxEventORM).where(
+                OutboxEventORM.aggregate_id == execution.id,
+                OutboxEventORM.destination == OutboxDestination.EVENTS,
+            )
+        )
+        assert first_event is not None
+        session.add(
+            OutboxEventORM.from_domain(
+                build_execution_event(
+                    execution_id=execution.id,
+                    event_sequence=2,
+                    event_type=first_event.event_type,
+                    payload=first_event.payload,
+                )
+            )
+        )
     unique = uuid4().hex
     stream = f"test:executor:postgres-outbox:{unique}"
     event_stream = f"{stream}:events"
@@ -720,7 +740,10 @@ async def test_concurrent_outbox_publishers_emit_one_stream_message(
     messages: list[tuple[str, dict[str, str]]] = []
     event_messages: list[tuple[str, dict[str, str]]] = []
     try:
-        published = await asyncio.gather(
+        first_round = await asyncio.gather(
+            *(publisher.publish_batch() for publisher in publishers)
+        )
+        second_round = await asyncio.gather(
             *(publisher.publish_batch() for publisher in publishers)
         )
         messages = await redis_clients[0].xrange(stream)
@@ -735,10 +758,14 @@ async def test_concurrent_outbox_publishers_emit_one_stream_message(
                 OutboxEventORM.status == OutboxStatus.PUBLISHED
             )
         )
-    assert sum(published) == 2
+    assert sum(first_round) + sum(second_round) == 3
     assert len(messages) == 1
-    assert len(event_messages) == 1
-    assert published_rows == 2
+    assert len(event_messages) == 2
+    assert [int(fields["event_sequence"]) for _, fields in event_messages] == [
+        1,
+        2,
+    ]
+    assert published_rows == 3
 
 
 async def test_bounded_pool_times_out_instead_of_opening_unlimited_connections(

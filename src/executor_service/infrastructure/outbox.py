@@ -9,8 +9,9 @@ from typing import cast
 from opentelemetry.trace import SpanKind
 from redis.asyncio import Redis
 from redis.typing import EncodableT, FieldT
-from sqlalchemy import select
+from sqlalchemy import exists, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.orm import aliased
 
 from executor_service.domain.enums import OutboxDestination, OutboxStatus
 from executor_service.domain.models import utc_now
@@ -84,12 +85,30 @@ class OutboxPublisher:
     async def publish_batch(self) -> int:
         now = utc_now()
         async with self._session_factory() as session, session.begin():
+            earlier = aliased(OutboxEventORM)
             events = list(
                 await session.scalars(
                     select(OutboxEventORM)
                     .where(
                         OutboxEventORM.status == OutboxStatus.PENDING,
                         OutboxEventORM.available_at <= now,
+                        or_(
+                            OutboxEventORM.destination
+                            != OutboxDestination.EVENTS,
+                            ~exists(
+                                select(earlier.id).where(
+                                    earlier.aggregate_type
+                                    == OutboxEventORM.aggregate_type,
+                                    earlier.aggregate_id
+                                    == OutboxEventORM.aggregate_id,
+                                    earlier.destination
+                                    == OutboxDestination.EVENTS,
+                                    earlier.event_sequence
+                                    < OutboxEventORM.event_sequence,
+                                    earlier.status != OutboxStatus.PUBLISHED,
+                                )
+                            ),
+                        ),
                     )
                     .order_by(OutboxEventORM.created_at)
                     .limit(self._batch_size)
@@ -104,6 +123,10 @@ class OutboxPublisher:
                             event.event_type, event.payload
                         )
                     else:
+                        if event.event_sequence is None:
+                            raise ValueError(
+                                "Execution event_sequence is required."
+                            )
                         payload = validate_execution_event_payload(
                             event.event_type, event.payload
                         )
@@ -157,6 +180,9 @@ class OutboxPublisher:
                                         EXECUTION_EVENT_SCHEMA_VERSION
                                     ),
                                     "execution_id": str(event.aggregate_id),
+                                    "event_sequence": str(
+                                        event.event_sequence
+                                    ),
                                     "payload": json.dumps(
                                         payload, separators=(",", ":")
                                     ),

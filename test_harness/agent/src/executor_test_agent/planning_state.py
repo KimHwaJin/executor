@@ -31,6 +31,7 @@ class PlanningAgentState(BaseModel):
     execution_id: str | None = None
     event_batch: dict[str, Any] | None = None
     event_history: list[dict[str, Any]] = Field(default_factory=list)
+    last_event_sequence: int = Field(default=0, ge=0)
     command_receipts: list[dict[str, Any]] = Field(default_factory=list)
     next_operation_index: int = Field(default=0, ge=0)
     execution_result: dict[str, Any] | None = None
