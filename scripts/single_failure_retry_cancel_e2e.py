@@ -17,11 +17,10 @@ import httpx
 from execution_spec_payload import execution_request, inline_spec
 from mcp import Client
 from redis.asyncio import Redis
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from executor_service.config import get_settings
-from executor_service.domain.enums import OutboxDestination
 from executor_service.events import (
     EXECUTION_EVENT_SCHEMA_VERSION,
     ExecutionStreamEnvelope,
@@ -29,6 +28,7 @@ from executor_service.events import (
 from executor_service.infrastructure.db.models import (
     ExecutionArtifactORM,
     ExecutionAttemptORM,
+    ExecutionEventORM,
     ExecutionOperationORM,
     ExecutionORM,
     ExecutionStepAttemptORM,
@@ -62,7 +62,7 @@ class DatabaseSnapshot:
     attempts: tuple[ExecutionAttemptORM, ...]
     step_attempts: tuple[ExecutionStepAttemptORM, ...]
     artifacts: tuple[ExecutionArtifactORM, ...]
-    outbox_events: tuple[OutboxEventORM, ...]
+    outbox_events: tuple[ExecutionEventORM, ...]
 
 
 @dataclass(frozen=True)
@@ -281,13 +281,12 @@ async def _database_snapshot(
         )
         outbox_events = list(
             await session.scalars(
-                select(OutboxEventORM)
-                .where(
-                    OutboxEventORM.aggregate_type == "Execution",
-                    OutboxEventORM.aggregate_id == execution_id,
-                    OutboxEventORM.destination == OutboxDestination.EVENTS,
+                select(ExecutionEventORM)
+                .where(ExecutionEventORM.execution_id == execution_id)
+                .order_by(
+                    ExecutionEventORM.created_at,
+                    ExecutionEventORM.id,
                 )
-                .order_by(OutboxEventORM.created_at, OutboxEventORM.id)
             )
         )
         operation = await session.scalar(
@@ -319,10 +318,19 @@ async def _wait_for_published_snapshot(
     deadline = monotonic() + timeout_seconds
     while monotonic() < deadline:
         snapshot = await _database_snapshot(session_factory, execution_id)
-        if snapshot.outbox_events and all(
-            _enum_value(event.status) == "PUBLISHED"
-            for event in snapshot.outbox_events
-        ):
+        async with session_factory() as session:
+            unpublished_count = await session.scalar(
+                select(func.count(OutboxEventORM.id))
+                .join(
+                    ExecutionEventORM,
+                    ExecutionEventORM.id == OutboxEventORM.execution_event_id,
+                )
+                .where(
+                    ExecutionEventORM.execution_id == execution_id,
+                    OutboxEventORM.published_at.is_(None),
+                )
+            )
+        if snapshot.outbox_events and not unpublished_count:
             return snapshot
         await asyncio.sleep(0.1)
     raise RuntimeError(

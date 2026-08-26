@@ -30,6 +30,7 @@ from executor_service.domain.enums import (
 from executor_service.domain.models import utc_now
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.models import (
+    ExecutionEventORM,
     ExecutionORM,
     OutboxEventORM,
     RuntimeTargetORM,
@@ -181,10 +182,15 @@ async def test_expired_cancellation_lease_is_taken_over_and_stale_final_is_rejec
     async with session_factory() as session:
         persisted = await session.get(ExecutionORM, execution.id)
         cancelled_events = await session.scalar(
-            select(func.count(OutboxEventORM.id)).where(
-                OutboxEventORM.aggregate_id == execution.id,
-                OutboxEventORM.event_type == "execution.completed",
-                OutboxEventORM.payload["status"].as_string() == "CANCELLED",
+            select(func.count(OutboxEventORM.id))
+            .join(
+                ExecutionEventORM,
+                ExecutionEventORM.id == OutboxEventORM.execution_event_id,
+            )
+            .where(
+                ExecutionEventORM.execution_id == execution.id,
+                ExecutionEventORM.event_type == "execution.completed",
+                ExecutionEventORM.payload["status"].as_string() == "CANCELLED",
                 OutboxEventORM.status == OutboxStatus.PENDING,
             )
         )

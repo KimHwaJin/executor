@@ -1590,11 +1590,11 @@ class ExecutionEventResponse(AuditFields):
     event_id: UUID
     execution_id: UUID
     event_sequence: int
-    schema_version: Literal["1.0"] = "1.0"
+    schema_version: str
     event_type: str
     payload: dict[str, Any]
     occurred_at: datetime
-    delivery: EventDelivery
+    delivery: EventDelivery | None
 
     @classmethod
     def from_view(cls, view: ExecutionEventView) -> "ExecutionEventResponse":
@@ -1602,15 +1602,22 @@ class ExecutionEventResponse(AuditFields):
             event_id=view.id,
             execution_id=view.execution_id,
             event_sequence=view.event_sequence,
+            schema_version=view.schema_version,
             event_type=view.event_type,
             payload=view.payload,
             occurred_at=view.created_at,
-            delivery=EventDelivery(
-                status=view.delivery_status,
-                attempt_count=view.publish_attempt_count,
-                available_at=view.available_at,
-                published_at=view.published_at,
-                last_error=view.last_error,
+            delivery=(
+                EventDelivery(
+                    status=view.delivery_status,
+                    attempt_count=view.publish_attempt_count,
+                    available_at=view.available_at,
+                    published_at=view.published_at,
+                    last_error=view.last_error,
+                )
+                if view.delivery_status is not None
+                and view.publish_attempt_count is not None
+                and view.available_at is not None
+                else None
             ),
             created_by_type=view.created_by_type,
             created_by=view.created_by,

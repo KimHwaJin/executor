@@ -41,6 +41,7 @@ def upgrade() -> None:
         sa.Column("aggregate_id", sa.Uuid(), nullable=False),
         sa.Column("event_type", sa.String(length=255), nullable=False),
         sa.Column("event_sequence", sa.BigInteger(), nullable=True),
+        sa.Column("execution_event_id", sa.Uuid(), nullable=True),
         sa.Column(
             "destination",
             sa.Enum(
@@ -52,7 +53,7 @@ def upgrade() -> None:
             ),
             nullable=False,
         ),
-        sa.Column("payload", sa.JSON(), nullable=False),
+        sa.Column("payload", sa.JSON(none_as_null=True), nullable=True),
         sa.Column(
             "created_by_type",
             sa.Enum(
@@ -107,9 +108,11 @@ def upgrade() -> None:
             name=op.f("ck_outbox_events_valid_outbox_destination"),
         ),
         sa.CheckConstraint(
-            "(destination = 'EVENTS' AND event_sequence >= 1) OR "
-            "(destination = 'WORK' AND event_sequence IS NULL)",
-            name=op.f("ck_outbox_events_valid_outbox_event_sequence"),
+            "(destination = 'EVENTS' AND event_sequence >= 1 "
+            "AND execution_event_id IS NOT NULL AND payload IS NULL) OR "
+            "(destination = 'WORK' AND event_sequence IS NULL "
+            "AND execution_event_id IS NULL AND payload IS NOT NULL)",
+            name=op.f("ck_outbox_events_valid_outbox_content"),
         ),
         sa.CheckConstraint(
             "status IN ('PENDING', 'PUBLISHED')",
@@ -134,6 +137,10 @@ def upgrade() -> None:
             "destination",
             "event_sequence",
             name=op.f("uq_outbox_aggregate_event_sequence"),
+        ),
+        sa.UniqueConstraint(
+            "execution_event_id",
+            name=op.f("uq_outbox_execution_event_id"),
         ),
     )
     op.create_index(
@@ -233,6 +240,46 @@ def upgrade() -> None:
                 "updated_by": None,
                 "created_at": maintenance_created_at,
                 "updated_at": maintenance_created_at,
+            }
+        ],
+    )
+    retention_created_at = datetime.now(UTC)
+    retention_table = op.create_table(
+        "event_retention_lease",
+        sa.Column("singleton_key", sa.String(length=32), nullable=False),
+        sa.Column("lease_owner", sa.String(length=255), nullable=True),
+        sa.Column(
+            "lease_expires_at", sa.DateTime(timezone=True), nullable=True
+        ),
+        sa.Column(
+            "last_started_at", sa.DateTime(timezone=True), nullable=True
+        ),
+        sa.Column(
+            "last_completed_at", sa.DateTime(timezone=True), nullable=True
+        ),
+        sa.Column("last_error", sa.String(length=1000), nullable=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.CheckConstraint(
+            "(lease_owner IS NULL) = (lease_expires_at IS NULL)",
+            name=op.f("ck_event_retention_lease_complete_lease"),
+        ),
+        sa.PrimaryKeyConstraint(
+            "singleton_key", name=op.f("pk_event_retention_lease")
+        ),
+    )
+    op.bulk_insert(
+        retention_table,
+        [
+            {
+                "singleton_key": "events",
+                "lease_owner": None,
+                "lease_expires_at": None,
+                "last_started_at": None,
+                "last_completed_at": None,
+                "last_error": None,
+                "created_at": retention_created_at,
+                "updated_at": retention_created_at,
             }
         ],
     )
@@ -896,6 +943,99 @@ def upgrade() -> None:
             "execution_id",
             name=op.f("pk_execution_event_sequences"),
         ),
+    )
+    op.create_table(
+        "execution_events",
+        sa.Column("id", sa.Uuid(), nullable=False),
+        sa.Column("execution_id", sa.Uuid(), nullable=False),
+        sa.Column("event_sequence", sa.BigInteger(), nullable=False),
+        sa.Column("event_type", sa.String(length=255), nullable=False),
+        sa.Column("schema_version", sa.String(length=32), nullable=False),
+        sa.Column("payload", sa.JSON(), nullable=False),
+        sa.Column(
+            "created_by_type",
+            sa.Enum(
+                "AGENT",
+                "USER",
+                "BATCH",
+                name="actor_type",
+                native_enum=False,
+                length=32,
+            ),
+            nullable=True,
+        ),
+        sa.Column("created_by", sa.String(length=255), nullable=True),
+        sa.Column(
+            "updated_by_type",
+            sa.Enum(
+                "AGENT",
+                "USER",
+                "BATCH",
+                name="actor_type",
+                native_enum=False,
+                length=32,
+            ),
+            nullable=True,
+        ),
+        sa.Column("updated_by", sa.String(length=255), nullable=True),
+        sa.Column("traceparent", sa.String(length=512), nullable=True),
+        sa.Column("tracestate", sa.Text(), nullable=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.CheckConstraint(
+            "created_by_type IS NULL OR created_by_type IN "
+            "('AGENT', 'USER', 'BATCH')",
+            name=op.f("ck_execution_events_valid_created_by_type"),
+        ),
+        sa.CheckConstraint(
+            "updated_by_type IS NULL OR updated_by_type IN "
+            "('AGENT', 'USER', 'BATCH')",
+            name=op.f("ck_execution_events_valid_updated_by_type"),
+        ),
+        sa.CheckConstraint(
+            "(created_by_type IS NULL) = (created_by IS NULL)",
+            name=op.f("ck_execution_events_complete_created_by"),
+        ),
+        sa.CheckConstraint(
+            "(updated_by_type IS NULL) = (updated_by IS NULL)",
+            name=op.f("ck_execution_events_complete_updated_by"),
+        ),
+        sa.CheckConstraint(
+            "event_sequence >= 1",
+            name=op.f("ck_execution_events_positive_event_sequence"),
+        ),
+        sa.ForeignKeyConstraint(
+            ["execution_id"],
+            ["executions.id"],
+            name=op.f("fk_execution_events_execution_id_executions"),
+            ondelete="CASCADE",
+        ),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_execution_events")),
+        sa.UniqueConstraint(
+            "execution_id",
+            "event_sequence",
+            name=op.f("uq_execution_events_execution_sequence"),
+        ),
+    )
+    op.create_index(
+        "ix_execution_events_created",
+        "execution_events",
+        ["created_at", "id"],
+        unique=False,
+    )
+    op.create_index(
+        "ix_execution_events_execution_cursor",
+        "execution_events",
+        ["execution_id", "event_sequence"],
+        unique=False,
+    )
+    op.create_foreign_key(
+        op.f("fk_outbox_events_execution_event_id_execution_events"),
+        "outbox_events",
+        "execution_events",
+        ["execution_event_id"],
+        ["id"],
+        ondelete="RESTRICT",
     )
     op.create_table(
         "maintenance_runs",
@@ -1887,6 +2027,11 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.drop_constraint(
+        op.f("fk_outbox_events_execution_event_id_execution_events"),
+        "outbox_events",
+        type_="foreignkey",
+    )
     op.drop_index(
         "ix_maintenance_run_targets_cursor",
         table_name="maintenance_run_targets",
@@ -1942,6 +2087,15 @@ def downgrade() -> None:
         "ix_execution_attempts_lease", table_name="execution_attempts"
     )
     op.drop_table("execution_attempts")
+    op.drop_index(
+        "ix_execution_events_execution_cursor",
+        table_name="execution_events",
+    )
+    op.drop_index(
+        "ix_execution_events_created",
+        table_name="execution_events",
+    )
+    op.drop_table("execution_events")
     op.drop_table("execution_event_sequences")
     op.drop_index("ix_executions_user_created_cursor", table_name="executions")
     op.drop_index(op.f("ix_executions_task_id"), table_name="executions")
@@ -1988,5 +2142,6 @@ def downgrade() -> None:
         op.f("ix_outbox_events_aggregate_id"), table_name="outbox_events"
     )
     op.drop_table("outbox_events")
+    op.drop_table("event_retention_lease")
     op.drop_table("executor_maintenance")
     op.drop_table("command_receipts")

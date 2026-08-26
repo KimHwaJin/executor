@@ -47,11 +47,11 @@ from executor_service.domain.runtime import (
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
+    ExecutionEventORM,
     ExecutionOperationORM,
     ExecutionORM,
     ExecutionStepAttemptORM,
     ExecutionStepORM,
-    OutboxEventORM,
     RuntimeTargetORM,
 )
 from executor_service.infrastructure.db.session import create_session_factory
@@ -479,30 +479,30 @@ async def test_multi_operation_executes_submitted_steps_until_boundary(
         )
         events = list(
             await session.scalars(
-                select(OutboxEventORM).where(
-                    OutboxEventORM.aggregate_id == execution.id,
-                    OutboxEventORM.event_type
+                select(ExecutionEventORM).where(
+                    ExecutionEventORM.execution_id == execution.id,
+                    ExecutionEventORM.event_type
                     == "execution.operation_completed",
-                    OutboxEventORM.payload["status"].as_string()
+                    ExecutionEventORM.payload["status"].as_string()
                     == expected_status.value,
                 )
             )
         )
         step_result_events = list(
             await session.scalars(
-                select(OutboxEventORM)
+                select(ExecutionEventORM)
                 .where(
-                    OutboxEventORM.aggregate_id == execution.id,
-                    OutboxEventORM.event_type == "execution.step_completed",
+                    ExecutionEventORM.execution_id == execution.id,
+                    ExecutionEventORM.event_type == "execution.step_completed",
                 )
-                .order_by(OutboxEventORM.created_at)
+                .order_by(ExecutionEventORM.created_at)
             )
         )
         ordered_event_types = list(
             await session.scalars(
-                select(OutboxEventORM.event_type)
-                .where(OutboxEventORM.aggregate_id == execution.id)
-                .order_by(OutboxEventORM.created_at, OutboxEventORM.id)
+                select(ExecutionEventORM.event_type)
+                .where(ExecutionEventORM.execution_id == execution.id)
+                .order_by(ExecutionEventORM.created_at, ExecutionEventORM.id)
             )
         )
     assert row is not None and operation is not None
@@ -650,14 +650,14 @@ async def test_multi_timeout_requires_confirmed_abort_before_transition(
         )
         abort_events = list(
             await session.scalars(
-                select(OutboxEventORM)
+                select(ExecutionEventORM)
                 .where(
-                    OutboxEventORM.aggregate_id == execution.id,
-                    OutboxEventORM.event_type.like(
+                    ExecutionEventORM.execution_id == execution.id,
+                    ExecutionEventORM.event_type.like(
                         "execution.runtime_abort_%"
                     ),
                 )
-                .order_by(OutboxEventORM.created_at, OutboxEventORM.id)
+                .order_by(ExecutionEventORM.created_at, ExecutionEventORM.id)
             )
         )
     assert row is not None and operation is not None and step is not None
@@ -719,8 +719,8 @@ async def test_multi_output_limit_waits_for_correction_after_safe_abort(
         )
         event_types = set(
             await session.scalars(
-                select(OutboxEventORM.event_type).where(
-                    OutboxEventORM.aggregate_id == execution.id
+                select(ExecutionEventORM.event_type).where(
+                    ExecutionEventORM.execution_id == execution.id
                 )
             )
         )
@@ -956,10 +956,10 @@ async def test_expired_multi_wait_fails_and_cleans_kernel_once(
             )
         )
         failed_events = await session.scalar(
-            select(func.count(OutboxEventORM.id)).where(
-                OutboxEventORM.aggregate_id == execution.id,
-                OutboxEventORM.event_type == "execution.completed",
-                OutboxEventORM.payload["status"].as_string() == "FAILED",
+            select(func.count(ExecutionEventORM.id)).where(
+                ExecutionEventORM.execution_id == execution.id,
+                ExecutionEventORM.event_type == "execution.completed",
+                ExecutionEventORM.payload["status"].as_string() == "FAILED",
             )
         )
     assert row is not None and attempt is not None
@@ -1116,10 +1116,10 @@ async def test_running_execution_deadline_requests_cancel_and_reclaims_kernel(
     async with session_factory() as session:
         row = await session.get(ExecutionORM, execution.id)
         timeout_events = await session.scalar(
-            select(func.count(OutboxEventORM.id)).where(
-                OutboxEventORM.aggregate_id == execution.id,
-                OutboxEventORM.event_type == "execution.completed",
-                OutboxEventORM.payload["status"].as_string() == "CANCELLED",
+            select(func.count(ExecutionEventORM.id)).where(
+                ExecutionEventORM.execution_id == execution.id,
+                ExecutionEventORM.event_type == "execution.completed",
+                ExecutionEventORM.payload["status"].as_string() == "CANCELLED",
             )
         )
     assert row is not None

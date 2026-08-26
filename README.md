@@ -20,7 +20,7 @@ MULTI Operations through a Runtime Driver. Jupyter REST/WebSocket is the first i
 - Runtime Target tools: `runtime_target_upsert`, `runtime_target_list`,
   `runtime_target_get`, `runtime_target_probe`, `runtime_target_disable`,
   `runtime_target_set_state`
-- Execution, ExecutionStep, and OutboxEvent persistence with SQLAlchemy 2 and Alembic
+- Execution, ExecutionStep, durable ExecutionEvent, and Outbox persistence with SQLAlchemy 2 and Alembic
 - Transactional Outbox publisher with at-least-once Redis Stream delivery
 - PostgreSQL-issued per-Execution event ordering with bounded REST/MCP gap recovery
 - Redis consumer group worker with PostgreSQL reconciliation, stale Pending recovery, and DLQ
@@ -388,7 +388,8 @@ type/profile snapshot, lease/heartbeat times, and recovery details. Use
 `execution_attempt_step_list` for the Steps actually run by that Attempt. Each Step history row
 snapshots its skill, tool, inputs, outputs, error, and timestamps, so a retry
 does not overwrite evidence from the earlier failure. `execution_event_list` returns the
-transactional Outbox timeline in `event_sequence` order and current Redis publication state.
+durable Execution event timeline in `event_sequence` order and current Redis publication state
+while its transport row is retained.
 Agent Subscribers call it only to recover a detected sequence gap; normal contiguous Redis
 delivery needs no history query. See the
 [Agent Event Consumer Guide](dev_docs/agent-execution-event-consumer-guide.md). Frontends compose the current
@@ -527,10 +528,11 @@ against that Runtime Target's capacity. A background audit verifies retained ses
 both stored deadlines after Executor restarts. An expired active lease is failed safely and can be
 retried by a later retry workflow; automatic re-execution is intentionally not enabled yet.
 
-Redis Stream trimming is deliberately disabled. `executor.work` and `executor.events` have
-independent consumers, and each retention policy must account for its group's delivered and Pending
-positions. PostgreSQL Outbox rows are also retained because they back the
-frontend execution event timeline.
+The retention manager bounds Executor-owned transport data under a PostgreSQL lease. It preserves
+Work Pending and undelivered entries, time-trims Agent events and the Work DLQ, deletes only old
+`PUBLISHED` Outbox rows, and retains public `execution_events` independently for gap recovery.
+The Agent-owned Event DLQ is not modified by Executor. Retention intervals and batch size are
+environment-configurable; see [Event Delivery](docs/event-delivery.md).
 
 Every published Stream entry and JSON payload uses the versioned Executor event contract. Agent
 consumers must use their own consumer group and durably deduplicate on `event_id` before ACK. See
@@ -567,6 +569,12 @@ time, and batch size are configured with `EXECUTION_PENDING_CLAIM_INTERVAL_SECON
 `EXECUTION_PENDING_CLAIM_IDLE_MILLISECONDS`, and `EXECUTION_PENDING_CLAIM_BATCH_SIZE`. The minimum
 idle time should exceed normal message dispatch latency; it does not need to match the much longer
 Execution lease because Redis only wakes the PostgreSQL-backed Worker.
+
+`EVENT_RETENTION_*` configures the singleton cleanup cadence, lease, and bounded batch size.
+`REDIS_WORK_RETENTION_SECONDS`, `REDIS_EVENT_RETENTION_SECONDS`, and
+`REDIS_WORK_DLQ_RETENTION_SECONDS` control Executor-owned Stream windows;
+`PUBLISHED_OUTBOX_RETENTION_SECONDS` and `EXECUTION_EVENT_RETENTION_SECONDS` independently bound
+transport rows and durable terminal-event history. Executor never trims the Agent-owned Event DLQ.
 
 Every Executor process must share `EXECUTION_CONSUMER_GROUP` and use a unique
 `EXECUTION_CONSUMER_NAME`; inject the Kubernetes Pod name in production. See

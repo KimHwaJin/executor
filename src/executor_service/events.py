@@ -8,7 +8,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from executor_service.domain.enums import ActorType
-from executor_service.domain.models import OutboxEvent
+from executor_service.domain.models import ExecutionEvent
 
 EXECUTION_EVENT_SCHEMA_VERSION = "1.0"
 
@@ -322,13 +322,12 @@ def build_execution_event(
     actor_id: str | None = None,
     traceparent: str | None = None,
     tracestate: str | None = None,
-) -> OutboxEvent:
-    """Build one validated public event for durable Outbox persistence."""
+) -> ExecutionEvent:
+    """Build one validated public event for durable history persistence."""
 
     normalized = validate_execution_event_payload(event_type, payload)
-    return OutboxEvent(
-        aggregate_type="Execution",
-        aggregate_id=execution_id,
+    return ExecutionEvent(
+        execution_id=execution_id,
         event_type=event_type,
         payload=normalized,
         event_sequence=event_sequence,

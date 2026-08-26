@@ -42,6 +42,15 @@ class Settings(BaseSettings):
     )
     outbox_poll_interval_seconds: float = Field(default=0.5, gt=0)
     outbox_batch_size: int = Field(default=100, ge=1, le=1000)
+    event_retention_enabled: bool = True
+    event_retention_interval_seconds: float = Field(default=3600, gt=0)
+    event_retention_lease_seconds: int = Field(default=300, ge=30)
+    event_retention_batch_size: int = Field(default=1000, ge=1, le=10000)
+    redis_work_retention_seconds: int = Field(default=259200, ge=3600)
+    redis_event_retention_seconds: int = Field(default=604800, ge=3600)
+    redis_work_dlq_retention_seconds: int = Field(default=2592000, ge=3600)
+    published_outbox_retention_seconds: int = Field(default=604800, ge=3600)
+    execution_event_retention_seconds: int = Field(default=7776000, ge=3600)
 
     mcp_allowed_hosts: Annotated[tuple[str, ...], NoDecode] = (
         "localhost:*",

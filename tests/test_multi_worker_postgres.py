@@ -55,6 +55,7 @@ from executor_service.events import build_execution_event
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
+    ExecutionEventORM,
     ExecutionEventSequenceORM,
     ExecutionOperationORM,
     ExecutionORM,
@@ -69,6 +70,9 @@ from executor_service.infrastructure.db.repositories import (
 from executor_service.infrastructure.db.session import (
     create_engine,
     create_session_factory,
+)
+from executor_service.infrastructure.event_retention import (
+    EventRetentionManager,
 )
 from executor_service.infrastructure.execution_leases import (
     ExecutionLeaseLostError,
@@ -404,10 +408,10 @@ async def test_concurrent_workers_claim_exactly_one_cancellation_owner(
     async with session_factory() as session:
         persisted = await session.get(ExecutionORM, execution.id)
         cancelled_events = await session.scalar(
-            select(func.count(OutboxEventORM.id)).where(
-                OutboxEventORM.aggregate_id == execution.id,
-                OutboxEventORM.event_type == "execution.completed",
-                OutboxEventORM.payload["status"].as_string() == "CANCELLED",
+            select(func.count(ExecutionEventORM.id)).where(
+                ExecutionEventORM.execution_id == execution.id,
+                ExecutionEventORM.event_type == "execution.completed",
+                ExecutionEventORM.payload["status"].as_string() == "CANCELLED",
             )
         )
     assert persisted is not None
@@ -699,27 +703,29 @@ async def test_concurrent_outbox_publishers_emit_one_stream_message(
     service = _service(postgres_engine, tmp_path)
     execution = await service.submit(_command("outbox-once"))
     session_factory = create_session_factory(postgres_engine)
+    events = [
+        build_execution_event(
+            execution_id=execution.id,
+            event_sequence=sequence,
+            event_type="execution.started",
+            payload={
+                "status": "RUNNING",
+                "runtime": {
+                    "provider": "JUPYTER",
+                    "profile": "basic",
+                    "target_id": str(uuid4()),
+                    "session_id": "kernel-outbox-once",
+                },
+            },
+        )
+        for sequence in (1, 2)
+    ]
     async with session_factory() as session, session.begin():
         session.add_all(
-            [
-                OutboxEventORM.from_domain(
-                    build_execution_event(
-                        execution_id=execution.id,
-                        event_sequence=sequence,
-                        event_type="execution.started",
-                        payload={
-                            "status": "RUNNING",
-                            "runtime": {
-                                "provider": "JUPYTER",
-                                "profile": "basic",
-                                "target_id": str(uuid4()),
-                                "session_id": "kernel-outbox-once",
-                            },
-                        },
-                    )
-                )
-                for sequence in (1, 2)
-            ]
+            [ExecutionEventORM.from_domain(event) for event in events]
+        )
+        session.add_all(
+            [OutboxEventORM.from_execution_event(event) for event in events]
         )
         session.add(
             ExecutionEventSequenceORM(
@@ -805,28 +811,30 @@ async def test_ordered_outbox_backlog_load(
     ]
     target_id = uuid4()
     session_factory = create_session_factory(postgres_engine)
+    events = [
+        build_execution_event(
+            execution_id=execution.id,
+            event_sequence=sequence,
+            event_type="execution.started",
+            payload={
+                "status": "RUNNING",
+                "runtime": {
+                    "provider": "JUPYTER",
+                    "profile": "basic",
+                    "target_id": str(target_id),
+                    "session_id": f"load-{execution.id}",
+                },
+            },
+        )
+        for execution in executions
+        for sequence in range(1, events_per_execution + 1)
+    ]
     async with session_factory() as session, session.begin():
         session.add_all(
-            [
-                OutboxEventORM.from_domain(
-                    build_execution_event(
-                        execution_id=execution.id,
-                        event_sequence=sequence,
-                        event_type="execution.started",
-                        payload={
-                            "status": "RUNNING",
-                            "runtime": {
-                                "provider": "JUPYTER",
-                                "profile": "basic",
-                                "target_id": str(target_id),
-                                "session_id": f"load-{execution.id}",
-                            },
-                        },
-                    )
-                )
-                for execution in executions
-                for sequence in range(1, events_per_execution + 1)
-            ]
+            [ExecutionEventORM.from_domain(event) for event in events]
+        )
+        session.add_all(
+            [OutboxEventORM.from_execution_event(event) for event in events]
         )
         session.add_all(
             [
@@ -928,6 +936,44 @@ async def test_ordered_outbox_query_uses_pending_event_index(
         )
     plan = "\n".join(str(row[0]) for row in result)
     assert "ix_outbox_pending_event_order" in plan, plan
+
+
+async def test_event_retention_has_one_postgres_lease_owner(
+    postgres_engine: AsyncEngine,
+) -> None:
+    unique = uuid4().hex
+    settings = Settings(
+        runtime_enabled=False,
+        redis_work_stream=f"test:retention-lease:{unique}:work",
+        redis_event_stream=f"test:retention-lease:{unique}:events",
+        redis_work_dead_letter_stream=(
+            f"test:retention-lease:{unique}:work-dlq"
+        ),
+        redis_event_dead_letter_stream=(
+            f"test:retention-lease:{unique}:event-dlq"
+        ),
+    )
+    session_factory = create_session_factory(postgres_engine)
+    redis_clients = [
+        Redis.from_url(_redis_test_url(), decode_responses=True)
+        for _ in range(2)
+    ]
+    managers = [
+        EventRetentionManager(session_factory, redis, settings)
+        for redis in redis_clients
+    ]
+    try:
+        claims = await asyncio.gather(
+            *(manager._acquire_lease() for manager in managers)
+        )
+        assert sum(claims) == 1
+        winner = managers[claims.index(True)]
+        loser = managers[claims.index(False)]
+        assert await loser.run_once() is None
+        await winner._release_lease(error=None)
+        assert await loser.run_once() is not None
+    finally:
+        await _close_redis(redis_clients)
 
 
 async def test_bounded_pool_times_out_instead_of_opening_unlimited_connections(

@@ -52,6 +52,7 @@ from executor_service.domain.enums import (
 )
 from executor_service.domain.models import (
     Execution,
+    ExecutionEvent,
     ExecutionOperation,
     ExecutionStep,
     NotebookProjectionStatus,
@@ -1017,6 +1018,38 @@ class ExecutorMaintenanceORM(Base):
     )
 
 
+class EventRetentionLeaseORM(Base):
+    __tablename__ = "event_retention_lease"
+    __table_args__ = (
+        CheckConstraint(
+            "(lease_owner IS NULL) = (lease_expires_at IS NULL)",
+            name="complete_lease",
+        ),
+    )
+
+    singleton_key: Mapped[str] = mapped_column(String(32), primary_key=True)
+    lease_owner: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_error: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
+    )
+
+
 class MaintenanceRunORM(Base):
     __tablename__ = "maintenance_runs"
     __table_args__ = (
@@ -1527,6 +1560,76 @@ class ExecutionEventSequenceORM(Base):
     last_sequence: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
 
+class ExecutionEventORM(Base):
+    __tablename__ = "execution_events"
+    __table_args__ = (
+        *audit_actor_constraints(),
+        CheckConstraint(
+            "event_sequence >= 1",
+            name="positive_event_sequence",
+        ),
+        UniqueConstraint(
+            "execution_id",
+            "event_sequence",
+            name="uq_execution_events_execution_sequence",
+        ),
+        Index(
+            "ix_execution_events_execution_cursor",
+            "execution_id",
+            "event_sequence",
+        ),
+        Index("ix_execution_events_created", "created_at", "id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
+    execution_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("executions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    event_sequence: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    event_type: Mapped[str] = mapped_column(String(255), nullable=False)
+    schema_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    created_by_type: Mapped[ActorType | None] = mapped_column(
+        enum_type(ActorType, "actor_type"), nullable=True
+    )
+    created_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    updated_by_type: Mapped[ActorType | None] = mapped_column(
+        enum_type(ActorType, "actor_type"), nullable=True
+    )
+    updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    traceparent: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    tracestate: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+    @classmethod
+    def from_domain(cls, event: ExecutionEvent) -> "ExecutionEventORM":
+        return cls(
+            id=event.id,
+            execution_id=event.execution_id,
+            event_sequence=event.event_sequence,
+            event_type=event.event_type,
+            schema_version=event.schema_version,
+            payload=event.payload,
+            created_by_type=event.created_by_type,
+            created_by=event.created_by,
+            updated_by_type=event.updated_by_type,
+            updated_by=event.updated_by,
+            traceparent=event.traceparent,
+            tracestate=event.tracestate,
+            created_at=event.created_at,
+            updated_at=event.updated_at,
+        )
+
+
 class OutboxEventORM(Base):
     __tablename__ = "outbox_events"
     __table_args__ = (
@@ -1539,9 +1642,11 @@ class OutboxEventORM(Base):
             name="valid_outbox_destination",
         ),
         CheckConstraint(
-            "(destination = 'EVENTS' AND event_sequence >= 1) OR "
-            "(destination = 'WORK' AND event_sequence IS NULL)",
-            name="valid_outbox_event_sequence",
+            "(destination = 'EVENTS' AND event_sequence >= 1 "
+            "AND execution_event_id IS NOT NULL AND payload IS NULL) OR "
+            "(destination = 'WORK' AND event_sequence IS NULL "
+            "AND execution_event_id IS NULL AND payload IS NOT NULL)",
+            name="valid_outbox_content",
         ),
         UniqueConstraint(
             "aggregate_type",
@@ -1549,6 +1654,10 @@ class OutboxEventORM(Base):
             "destination",
             "event_sequence",
             name="uq_outbox_aggregate_event_sequence",
+        ),
+        UniqueConstraint(
+            "execution_event_id",
+            name="uq_outbox_execution_event_id",
         ),
         Index("ix_outbox_pending", "status", "available_at", "created_at"),
         Index(
@@ -1580,10 +1689,17 @@ class OutboxEventORM(Base):
     event_sequence: Mapped[int | None] = mapped_column(
         BigInteger, nullable=True
     )
+    execution_event_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("execution_events.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
     destination: Mapped[OutboxDestination] = mapped_column(
         enum_type(OutboxDestination, "outbox_destination"), nullable=False
     )
-    payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    payload: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON(none_as_null=True), nullable=True
+    )
     created_by_type: Mapped[ActorType | None] = mapped_column(
         enum_type(ActorType, "actor_type"), nullable=True
     )
@@ -1613,6 +1729,9 @@ class OutboxEventORM(Base):
         DateTime(timezone=True), nullable=True
     )
     last_error: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    execution_event: Mapped[ExecutionEventORM | None] = relationship(
+        lazy="selectin"
+    )
 
     @classmethod
     def from_domain(cls, event: OutboxEvent) -> "OutboxEventORM":
@@ -1622,6 +1741,7 @@ class OutboxEventORM(Base):
             aggregate_id=event.aggregate_id,
             event_type=event.event_type,
             event_sequence=event.event_sequence,
+            execution_event_id=None,
             destination=event.destination,
             payload=event.payload,
             created_by_type=event.created_by_type,
@@ -1637,4 +1757,27 @@ class OutboxEventORM(Base):
             updated_at=event.updated_at,
             published_at=event.published_at,
             last_error=event.last_error,
+        )
+
+    @classmethod
+    def from_execution_event(cls, event: ExecutionEvent) -> "OutboxEventORM":
+        return cls(
+            aggregate_type="Execution",
+            aggregate_id=event.execution_id,
+            event_type=event.event_type,
+            event_sequence=event.event_sequence,
+            execution_event_id=event.id,
+            destination=OutboxDestination.EVENTS,
+            payload=None,
+            created_by_type=event.created_by_type,
+            created_by=event.created_by,
+            updated_by_type=event.updated_by_type,
+            updated_by=event.updated_by,
+            traceparent=event.traceparent,
+            tracestate=event.tracestate,
+            status=OutboxStatus.PENDING,
+            attempt_count=0,
+            available_at=event.created_at,
+            created_at=event.created_at,
+            updated_at=event.updated_at,
         )

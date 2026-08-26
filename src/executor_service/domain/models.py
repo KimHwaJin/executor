@@ -326,3 +326,21 @@ class OutboxEvent:
     updated_at: datetime = field(default_factory=utc_now)
     published_at: datetime | None = None
     last_error: str | None = None
+
+
+@dataclass(slots=True)
+class ExecutionEvent:
+    execution_id: UUID
+    event_sequence: int
+    event_type: str
+    payload: dict[str, Any]
+    schema_version: str = "1.0"
+    created_by_type: ActorType | None = None
+    created_by: str | None = None
+    updated_by_type: ActorType | None = None
+    updated_by: str | None = None
+    traceparent: str | None = None
+    tracestate: str | None = None
+    id: UUID = field(default_factory=uuid4)
+    created_at: datetime = field(default_factory=utc_now)
+    updated_at: datetime = field(default_factory=utc_now)

@@ -70,6 +70,7 @@ from executor_service.events import build_execution_event
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
+    ExecutionEventORM,
     ExecutionEventSequenceORM,
     ExecutionOperationORM,
     ExecutionORM,
@@ -3995,7 +3996,8 @@ async def _persist_execution_event(
         traceparent=carrier.traceparent,
         tracestate=carrier.tracestate,
     )
-    session.add(OutboxEventORM.from_domain(event))
+    session.add(ExecutionEventORM.from_domain(event))
+    session.add(OutboxEventORM.from_execution_event(event))
 
 
 async def _next_execution_event_sequence(
@@ -4064,10 +4066,9 @@ async def _add_start_events(session: AsyncSession, execution_id: UUID) -> None:
         return
     prior_payloads = list(
         await session.scalars(
-            select(OutboxEventORM.payload).where(
-                OutboxEventORM.aggregate_id == execution_id,
-                OutboxEventORM.destination == OutboxDestination.EVENTS,
-                OutboxEventORM.event_type == "execution.operation_started",
+            select(ExecutionEventORM.payload).where(
+                ExecutionEventORM.execution_id == execution_id,
+                ExecutionEventORM.event_type == "execution.operation_started",
             )
         )
     )

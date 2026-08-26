@@ -535,7 +535,7 @@ publication, not authoritative per-Execution event order.
 ## PR-006C: Bounded Redis Streams and decoupled durable event history
 
 - Priority: P1
-- Status: PLANNED
+- Status: IMPLEMENTED
 - Area: Redis retention, Transactional Outbox lifecycle, durable Execution events
 - Public API impact: event history remains available independently of Outbox cleanup
 - Request impact: none
@@ -572,12 +572,29 @@ Execution event-list source, coupling transport cleanup to public history retent
 
 - Internal work Stream: 1 to 3 days.
 - Agent integration-event Stream: 7 days.
-- Work and event DLQs: 30 days.
+- Work DLQ: 30 days. The Agent-owned event DLQ is outside Executor retention ownership.
 - Published Outbox transport rows: 7 days.
 - Durable Execution event history: 90 days after terminal state or until Execution hard delete.
 
 These are initial configurable values, not permanent product limits. Load, outage-recovery, and
 operations requirements determine the production values.
+
+### Implementation
+
+- Agent-facing events are persisted in `execution_events` in the same transaction as their
+  transport-oriented Outbox rows. The public event-history APIs read this durable table and only
+  join the remaining Outbox row for optional delivery diagnostics.
+- A PostgreSQL singleton lease permits only one Executor replica to run each retention pass.
+- Every database deletion is bounded by a configurable batch size. Only old `PUBLISHED` Outbox
+  rows are deleted; pending and failed delivery state is retained.
+- Durable events are deleted only after the owning Execution is terminal, the terminal-history
+  retention window has elapsed, and no Outbox row still references the event.
+- The work Stream trim boundary never passes the age cutoff, any consumer group's last-delivered
+  entry, or the earliest pending entry. A work Stream without a consumer group is not trimmed.
+- The Agent event Stream and Executor-owned work DLQ are trimmed by their independent time windows.
+  The event DLQ remains Agent-owned and is not modified by Executor.
+- Unit tests, real Redis integration tests, and a two-manager PostgreSQL lease test cover the
+  cleanup and recovery boundaries.
 
 ### Completion criteria
 
