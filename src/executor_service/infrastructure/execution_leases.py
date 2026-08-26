@@ -26,6 +26,13 @@ class ExecutionLease:
     fencing_token: int
 
 
+@dataclass(frozen=True, slots=True)
+class CancellationLease:
+    execution_id: UUID
+    owner: str
+    fencing_token: int
+
+
 async def require_active_lease(
     session: AsyncSession,
     lease: ExecutionLease,
@@ -71,3 +78,31 @@ async def require_active_lease(
             f"fence {lease.fencing_token}."
         )
     return execution, attempt
+
+
+async def require_active_cancellation_lease(
+    session: AsyncSession,
+    lease: CancellationLease,
+) -> ExecutionORM:
+    """Lock the Execution only while the exact cancellation lease is active."""
+
+    now = utc_now()
+    execution = await session.scalar(
+        select(ExecutionORM)
+        .where(
+            ExecutionORM.id == lease.execution_id,
+            ExecutionORM.status == ExecutionStatus.CANCEL_REQUESTED,
+            ExecutionORM.cancellation_lease_owner == lease.owner,
+            ExecutionORM.fencing_token == lease.fencing_token,
+            ExecutionORM.cancellation_lease_expires_at.is_not(None),
+            ExecutionORM.cancellation_lease_expires_at > now,
+        )
+        .with_for_update()
+    )
+    if execution is None:
+        raise ExecutionLeaseLostError(
+            f"Execution {lease.execution_id} cancellation lease is no "
+            f"longer owned by {lease.owner} at fence "
+            f"{lease.fencing_token}."
+        )
+    return execution

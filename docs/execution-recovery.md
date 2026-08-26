@@ -37,10 +37,15 @@ deletion fails, both abort and cleanup are `FAILED`, the Runtime reservation rem
 blocked until maintenance cleanup succeeds.
 
 For an in-flight user cancellation, the interrupted execution job only preserves files written by
-the current cell as `INCOMPLETE` evidence. The replacement cancellation job exclusively interrupts
-and deletes the Runtime session and commits the `CANCELLED` state and event. Worker shutdowns that
-do not originate from `CANCEL_REQUESTED` remain owned by the execution job and are classified as
-`WORKER_SHUTDOWN`.
+the current cell as `INCOMPLETE` evidence. A PostgreSQL cancellation lease selects exactly one
+replacement cancellation job to interrupt and delete the Runtime session and commit the
+`CANCELLED` state and event. Claiming cancellation increments the Execution fence, so the former
+execution Worker cannot write a late result. Duplicate reconciliation does not replace a live
+local cancellation job. The cancellation claim waits for the active execution Worker to preserve
+current-cell evidence and release its lease; a lost execution Worker is handled by lease expiry.
+If the cancellation owner then disappears, another Worker may take over only after its cancellation
+lease expires. Worker shutdowns that do not originate from `CANCEL_REQUESTED` remain owned by the
+execution job and are classified as `WORKER_SHUTDOWN`.
 
 ## Retry strategies
 

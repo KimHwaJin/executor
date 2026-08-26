@@ -16,6 +16,9 @@ source of truth; Redis only wakes a Worker.
   target capacity.
 - Reconciliation intentionally runs in every Pod. Losing the Redis notification does not lose the
   Execution because an unsuccessful claim leaves it durably `QUEUED`.
+- Cancellation uses a separate PostgreSQL owner, expiry, heartbeat, and monotonic fence. Duplicate
+  notifications and reconciliation candidates cannot make two Pods own Runtime cleanup for one
+  Execution. After lease expiry, exactly one replacement Pod can continue the idempotent cleanup.
 - A Redis message is acknowledged after dispatch, not after a multi-day execution completes.
   PostgreSQL status, leases, and reconciliation own the long-running lifecycle.
 
@@ -35,6 +38,10 @@ the local lifecycle state and active execution count for diagnosis.
 A forced process or Pod failure cannot perform the shutdown cleanup. Another Pod detects the
 expired lease, transitions the Execution to `FAILED` with `LEASE_EXPIRED`, and then deletes the
 abandoned Runtime session.
+
+For `CANCEL_REQUESTED`, the cancellation Worker owns a separate expiring lease. Claiming it
+invalidates the execution fence before Runtime interruption begins. If that Worker disappears,
+another Pod takes over after expiry; a stale owner cannot commit `CANCELLED` or publish its result.
 
 Runtime session cleanup is intentionally observable as a short two-stage transition:
 
