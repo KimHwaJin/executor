@@ -12,6 +12,8 @@ class ErrorCode(StrEnum):
     NOTEBOOK_CELL_NOT_FOUND = "NOTEBOOK_CELL_NOT_FOUND"
     NOTEBOOK_READ_ERROR = "NOTEBOOK_READ_ERROR"
     ARTIFACT_NOT_FOUND = "ARTIFACT_NOT_FOUND"
+    ARTIFACT_CONTENT_UNAVAILABLE = "ARTIFACT_CONTENT_UNAVAILABLE"
+    ARTIFACT_RANGE_NOT_SATISFIABLE = "ARTIFACT_RANGE_NOT_SATISFIABLE"
     RUNTIME_TARGET_NOT_FOUND = "RUNTIME_TARGET_NOT_FOUND"
     INVALID_EXECUTION_SPEC = "INVALID_EXECUTION_SPEC"
     INVALID_CURSOR = "INVALID_CURSOR"
@@ -104,3 +106,15 @@ class ExecutionArtifactNotFoundError(DomainError):
 
 class ArtifactRegistrationError(DomainError):
     code = ErrorCode.ARTIFACT_REGISTRATION_ERROR
+
+
+class ArtifactContentUnavailableError(DomainError):
+    code = ErrorCode.ARTIFACT_CONTENT_UNAVAILABLE
+
+
+class ArtifactRangeNotSatisfiableError(DomainError):
+    code = ErrorCode.ARTIFACT_RANGE_NOT_SATISFIABLE
+
+    def __init__(self, message: str, size_bytes: int) -> None:
+        super().__init__(message)
+        self.size_bytes = size_bytes

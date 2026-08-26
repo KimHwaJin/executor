@@ -13,17 +13,22 @@ authoritative state store and execution happens asynchronously through the Worke
 | POST | `/executions/{execution_id}/finalize` | Finalize a waiting MULTI Execution |
 | POST | `/executions/{execution_id}/cancel` | Request cancellation |
 | POST | `/executions/{execution_id}/retry` | Retry a retryable failed SINGLE Execution |
-| GET | `/executions/{execution_id}/steps` | Step history |
+| GET | `/executions/{execution_id}/steps` | Current Step summaries |
+| GET | `/executions/{execution_id}/steps/{step_id}` | One current Step with canonical result reference |
 | GET | `/executions/{execution_id}/operations` | Operation history |
+| GET | `/executions/{execution_id}/operations/{operation_id}` | One accepted Operation detail |
 | GET | `/executions/{execution_id}/operations/{operation_id}/result` | Operation and all Step results |
+| GET | `/executions/{execution_id}/operations/{operation_id}/steps` | Current Step summaries for one Operation |
 | GET | `/executions/{execution_id}/attempts` | Attempt history |
+| GET | `/executions/{execution_id}/attempts/{attempt_id}` | One immutable Attempt detail |
+| GET | `/executions/{execution_id}/attempts/{attempt_id}/steps` | Immutable Step results for one Attempt |
 | GET | `/executions/{execution_id}/events` | Integration event history |
-| GET | `/executions/{execution_id}/outputs` | Cursor-paginated normalized Runtime output metadata |
-| GET | `/executions/{execution_id}/outputs/{output_id}` | One output and its MIME representation metadata |
-| GET | `/executions/{execution_id}/outputs/{output_id}/representations/{representation_id}/content` | Stream native representation bytes; supports one HTTP byte Range |
 | GET | `/executions/{execution_id}/artifacts` | Artifact history |
 | POST | `/executions/{execution_id}/artifacts` | Materialize Agent-authored text on Runtime storage |
-| GET | `/executions/{execution_id}/notebook` | Runtime-owned notebook |
+| GET | `/artifacts/{artifact_id}` | One registered Artifact and lineage |
+| GET | `/artifacts/{artifact_id}/content` | Stream registered PV Artifact bytes with optional Range |
+| GET | `/executions/{execution_id}/notebook` | Paginated Runtime-owned notebook summary or full cells |
+| GET | `/executions/{execution_id}/notebook/cells/{cell_index}` | One complete Runtime-owned notebook cell |
 
 ## Submit
 
@@ -109,6 +114,12 @@ session, and reaches a terminal state. The Jupyter driver writes the final noteb
 All list endpoints use opaque cursor pagination. Clients must return `next_cursor` unchanged.
 OpenAPI is available at `/openapi.json`, Swagger UI at `/docs`, and ReDoc at `/redoc`.
 
+Execution history can be filtered by `user_id`, `project_id`, `session_id`, `task_id`,
+`workflow_id`, and `status`. Executor accepts at most
+`EXECUTION_MAX_STEPS_PER_OPERATION` Steps in one Operation and
+`EXECUTION_MAX_STEPS_PER_EXECUTION` Steps across one Execution. The configured defaults are 100
+and 1000.
+
 Execution detail exposes notebook projection separately under `workspace.notebook_projection`.
 The state begins as `NOT_STARTED`, becomes `PENDING` only while a projection is attempted, and
 finishes as `SUCCEEDED` or `FAILED`. Code execution and its shared-volume result remain successful
@@ -118,13 +129,27 @@ even when this user-facing notebook projection fails.
 
 Redis events are wake-up notifications. Step events contain `output_summary`,
 `result_available=true`, and a `result_ref`, but never full text or image payloads. After an
-Operation or terminal event, the Agent calls the matching consolidated result endpoint once. Step
-results return the same bounded summary plus a `SHARED_PV` reference. The Agent safely resolves the
-relative manifest path under its configured shared root and verifies every checksum before using
-text, structured data, image, or binary files. There is no public output-body REST or MCP API;
-Redis, PostgreSQL, and LLM Tool results remain bounded.
+Operation or terminal event, the Agent calls the matching compact result endpoint. The Execution
+Result contains only the Execution state/version, compact Operations and current Steps, Attempt
+summaries, and Artifact summaries. The Operation Result uses the same compact Operation and Step
+models. Step results return the bounded summary plus a `SHARED_PV` reference. The Agent safely
+resolves the relative manifest path under its configured shared root and verifies every checksum
+before using text, structured data, image, or binary files. There is no public Step output-body
+REST API and no equivalent MCP Tool; Redis, PostgreSQL, and LLM Tool results remain bounded.
+Direct current-Step detail is also REST-only in this contract; MCP clients use the compact Result
+Tools. This is an intentional surface difference rather than an omitted Tool.
 
 `POST /executions/{execution_id}/artifacts` accepts idempotent Agent-authored UTF-8 content from an
 INLINE source or input-PV PATH. A REPORT defaults to `reports/final-report.md`; callers do not
 choose an arbitrary Runtime target path. `append_to_notebook=true` also appends the Markdown as a
 notebook cell. Materialization is allowed only after a successful Execution.
+
+`GET /artifacts/{artifact_id}/content` is separate from Step-result retrieval. It streams a
+registered PV Artifact without buffering the complete body and supports one `Range: bytes=...`
+request. S3 content has a stable unsupported response until an S3 adapter or redirect policy is
+configured. Raw Artifact byte download is intentionally REST-only; MCP returns metadata.
+
+Notebook reads are audit and convenience APIs, not the authoritative Agent result channel.
+`view=SUMMARY` is the default and returns source previews and output summaries without raw output
+bodies. `view=FULL` returns complete source and every notebook output for each cell in the requested
+page. The single-cell endpoint is always full. Notebook pagination requires `1 <= limit <= 200`.

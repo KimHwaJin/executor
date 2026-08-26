@@ -221,10 +221,16 @@ async def test_mcp_execution_list_uses_opaque_next_cursor(
 
     async with Client(target) as client:
         submitted_ids: set[str] = set()
+        workflow_ids: dict[str, str] = {}
         for index in range(2):
             arguments["request"]["idempotency_key"] = f"mcp-page-{index}"
+            arguments["request"]["context"]["workflow_id"] = (
+                f"workflow-{index}"
+            )
             submitted = await client.call_tool("execution_submit", arguments)
-            submitted_ids.add(submitted.structured_content["execution_id"])
+            submitted_id = submitted.structured_content["execution_id"]
+            submitted_ids.add(submitted_id)
+            workflow_ids[f"workflow-{index}"] = submitted_id
 
         first = await client.call_tool("execution_list", {"limit": 1})
         assert not first.is_error
@@ -243,6 +249,14 @@ async def test_mcp_execution_list_uses_opaque_next_cursor(
         }
         assert returned_ids == submitted_ids
         assert second.structured_content["next_cursor"] is None
+
+        filtered = await client.call_tool(
+            "execution_list", {"workflow_id": "workflow-1"}
+        )
+        assert [
+            item["execution_id"]
+            for item in filtered.structured_content["items"]
+        ] == [workflow_ids["workflow-1"]]
 
 
 async def test_mcp_list_rejects_limit_outside_declared_contract(

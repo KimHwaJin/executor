@@ -182,6 +182,12 @@ class RuntimeStorage:
             "checksum_sha256": _sha256(path),
         }
 
+    def resolve_file(self, raw_path: str) -> Path:
+        path = self._resolve(raw_path, must_exist=True)
+        if not path.is_file():
+            raise StoragePathError("Path is not a file.")
+        return path
+
     def read_manifest(self, workspace_path: str, start: int) -> dict[str, Any]:
         if start < 0:
             raise StoragePathError("Manifest offset must be non-negative.")

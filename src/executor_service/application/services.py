@@ -54,6 +54,9 @@ class ExecutionService:
         uow_factory: UnitOfWorkFactory,
         runtime_profiles: Mapping[RuntimeType, tuple[str, ...]],
         result_store: ExecutionResultStore,
+        *,
+        max_steps_per_operation: int = 100,
+        max_steps_per_execution: int = 1000,
     ) -> None:
         self._uow_factory = uow_factory
         self._runtime_profiles = {
@@ -61,6 +64,14 @@ class ExecutionService:
             for runtime_type, profiles in runtime_profiles.items()
         }
         self._result_store = result_store
+        if max_steps_per_operation < 1:
+            raise ValueError("max_steps_per_operation must be positive.")
+        if max_steps_per_execution < max_steps_per_operation:
+            raise ValueError(
+                "max_steps_per_execution must be at least max_steps_per_operation."
+            )
+        self._max_steps_per_operation = max_steps_per_operation
+        self._max_steps_per_execution = max_steps_per_execution
 
     @property
     def runtime_profiles(self) -> dict[str, tuple[str, ...]]:
@@ -76,6 +87,7 @@ class ExecutionService:
         self, command: SubmitExecutionCommand
     ) -> ExecutionCommandResult:
         _validate_submit(command)
+        self._validate_step_limits(0, len(command.steps))
         allowed_profiles = self._runtime_profiles.get(command.runtime_type, ())
         if command.runtime_profile not in allowed_profiles:
             raise UnsupportedRuntimeProfileError(
@@ -261,6 +273,9 @@ class ExecutionService:
                     raise InvalidStateTransitionError(
                         "An Operation requires at least one Step."
                     )
+                self._validate_step_limits(
+                    len(execution.steps), len(command.steps)
+                )
                 expected_sequence = len(execution.steps)
                 sequences = [step.sequence for step in command.steps]
                 expected_sequences = list(
@@ -392,6 +407,20 @@ class ExecutionService:
             raise IdempotencyConflictError(
                 "The command conflicted with another state change."
             ) from exc
+
+    def _validate_step_limits(
+        self, current_step_count: int, new_step_count: int
+    ) -> None:
+        if new_step_count > self._max_steps_per_operation:
+            raise InvalidStateTransitionError(
+                "Operation Step count exceeds the configured maximum of "
+                f"{self._max_steps_per_operation}."
+            )
+        if current_step_count + new_step_count > self._max_steps_per_execution:
+            raise InvalidStateTransitionError(
+                "Execution Step count exceeds the configured maximum of "
+                f"{self._max_steps_per_execution}."
+            )
 
     async def finalize_execution(
         self, command: FinalizeExecutionCommand

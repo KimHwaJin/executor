@@ -42,13 +42,39 @@ duplicates full output bodies. Operation
 detail exposes accepted `schema_version` (currently always `1.0`), its sequence range,
 `operation_timeout_seconds`, metadata, result, and audit fields.
 
-`GET /executions/{execution_id}/result` and MCP `execution_result_get` return Execution detail,
-every Operation with its current Step results, immutable Attempts with Step Attempts, and full
-Artifact metadata in one call. The Operation-scoped equivalents return one Operation and its Steps.
-These are the authoritative state and lineage reads after Redis signals
-`result_available=true`. The Agent resolves each Step's reference below its configured shared
-root, verifies the manifest and declared file checksums, and reads only those representations
-needed for reasoning or a report.
+`GET /executions/{execution_id}/result` and MCP `execution_result_get` return a compact Execution
+header, every compact Operation with its current Step results, Attempt summaries, and Artifact
+summaries. They do not repeat Execution detail, Step Attempts, request-time source fields, or full
+Artifact detail. The Operation-scoped equivalents return the compact Execution header and one
+Operation using the same Step model. These are the authoritative state, lineage, and result-index
+reads after Redis signals `result_available=true`. The Agent resolves each Step's reference below
+its configured shared root, verifies the manifest and declared file checksums, and reads only those
+representations needed for reasoning or a report.
+
+```json
+{
+  "execution": {
+    "execution_id": "...",
+    "state": {"status": "SUCCEEDED", "version": 4}
+  },
+  "operations": [
+    {
+      "operation_id": "...",
+      "operation_number": 1,
+      "sequence_range": {"first": 0, "last": 1},
+      "result": {"status": "SUCCEEDED", "error_message": null},
+      "lifecycle": {"started_at": "...", "finished_at": "..."},
+      "steps": []
+    }
+  ],
+  "attempts": [],
+  "artifacts": []
+}
+```
+
+Use Execution detail separately when assignment, deadlines, recovery, or Runtime workspace data is
+needed. Attempt Step history carries the same canonical `result_ref`, so outputs from an older
+retry Attempt remain addressable after consolidated Result stops embedding Step Attempts.
 
 ```json
 {
@@ -79,3 +105,7 @@ needed for reasoning or a report.
 ```
 
 List endpoints use opaque cursor pagination with `items`, `next_cursor`, and `has_more`.
+
+REST alone exposes direct Step detail and raw registered-Artifact byte download. MCP Agent clients
+use the Result Tools for Step references and an authorized REST client for Artifact bytes. There is
+no public REST or MCP Step-output body API.

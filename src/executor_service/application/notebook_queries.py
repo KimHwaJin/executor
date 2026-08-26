@@ -16,7 +16,7 @@ from executor_service.domain.errors import (
 from executor_service.domain.runtime import RuntimeStorageAccess
 from executor_service.result_summaries import OutputSummary, summarize_outputs
 
-NotebookResponseFormat = Literal["brief", "detailed"]
+NotebookResponseFormat = Literal["SUMMARY", "FULL"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,7 +35,7 @@ class NotebookCellView:
 @dataclass(frozen=True, slots=True)
 class NotebookView:
     execution_id: UUID
-    response_format: NotebookResponseFormat
+    view: NotebookResponseFormat
     metadata: dict[str, Any]
     cells: list[NotebookCellView]
     start_index: int
@@ -56,28 +56,27 @@ class ExecutionNotebookQueryService:
         self,
         execution_id: UUID,
         *,
-        response_format: NotebookResponseFormat = "brief",
+        view: NotebookResponseFormat = "SUMMARY",
         start_index: int = 0,
         limit: int = 20,
     ) -> NotebookView:
-        if start_index < 0 or limit < 0:
+        if start_index < 0 or limit < 1:
             raise NotebookReadError(
-                "Notebook pagination values must be non-negative."
+                "Notebook start_index must be non-negative and limit must be positive."
             )
         notebook = await self._load(execution_id)
         cells = _cells(notebook, execution_id)
-        end_index = len(cells) if limit == 0 else start_index + limit
+        end_index = start_index + limit
         selected = cells[start_index:end_index]
         return NotebookView(
             execution_id=execution_id,
-            response_format=response_format,
+            view=view,
             metadata=_object(notebook.get("metadata", {})),
             cells=[
                 _cell_view(
                     cell,
                     index=start_index + offset,
-                    include_outputs=False,
-                    response_format=response_format,
+                    include_outputs=view == "FULL",
                 )
                 for offset, cell in enumerate(selected)
             ],
@@ -90,8 +89,6 @@ class ExecutionNotebookQueryService:
         self,
         execution_id: UUID,
         cell_index: int,
-        *,
-        include_outputs: bool = True,
     ) -> NotebookCellView:
         if cell_index < 0:
             raise NotebookCellNotFoundError(
@@ -106,8 +103,7 @@ class ExecutionNotebookQueryService:
         return _cell_view(
             cells[cell_index],
             index=cell_index,
-            include_outputs=include_outputs,
-            response_format="detailed",
+            include_outputs=True,
         )
 
     async def _load(self, execution_id: UUID) -> dict[str, Any]:
@@ -147,7 +143,6 @@ def _cell_view(
     *,
     index: int,
     include_outputs: bool,
-    response_format: NotebookResponseFormat,
 ) -> NotebookCellView:
     source = cell.get("source", "")
     if isinstance(source, list):
@@ -169,9 +164,7 @@ def _cell_view(
             if cell.get("execution_count") is not None
             else None
         ),
-        source=source
-        if response_format == "detailed"
-        else (lines[0] if lines else ""),
+        source=source,
         line_count=len(lines),
         metadata=_object(cell.get("metadata", {})),
         output_summary=summarize_outputs(normalized_outputs),

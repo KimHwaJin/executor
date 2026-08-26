@@ -125,6 +125,22 @@ class RuntimeStorageTests(unittest.TestCase):
                 storage.prepare_workspace("../escape")
             with self.assertRaises(StoragePathError):
                 storage.file_metadata("/etc/passwd")
+            with self.assertRaises(StoragePathError):
+                storage.resolve_file("../escape")
+
+    def test_resolves_download_file_only_below_jupyter_root(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            storage = RuntimeStorage(root)
+            file_path = root / "users/u1/artifacts/plots/chart.png"
+            file_path.parent.mkdir(parents=True)
+            file_path.write_bytes(b"png")
+
+            resolved = storage.resolve_file(
+                "users/u1/artifacts/plots/chart.png"
+            )
+
+            self.assertEqual(resolved, file_path.resolve())
 
 
 if __name__ == "__main__":

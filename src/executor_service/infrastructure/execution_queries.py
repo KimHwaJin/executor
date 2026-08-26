@@ -13,8 +13,10 @@ from executor_service.application.execution_queries import (
     ExecutionDetailView,
     ExecutionEventView,
     ExecutionOperationView,
+    ExecutionResultSnapshot,
     ExecutionStepAttemptView,
     ExecutionSummaryView,
+    OperationResultSnapshot,
 )
 from executor_service.application.pagination import (
     Page,
@@ -104,6 +106,7 @@ class SQLAlchemyExecutionQueryService:
         project_id: str | None = None,
         session_id: str | None = None,
         task_id: str | None = None,
+        workflow_id: str | None = None,
         status: ExecutionStatus | None = None,
         cursor: str | None = None,
         limit: int = 100,
@@ -128,6 +131,10 @@ class SQLAlchemyExecutionQueryService:
             statement = statement.where(ExecutionORM.session_id == session_id)
         if task_id is not None:
             statement = statement.where(ExecutionORM.task_id == task_id)
+        if workflow_id is not None:
+            statement = statement.where(
+                ExecutionORM.workflow_id == workflow_id
+            )
         if status is not None:
             statement = statement.where(ExecutionORM.status == status)
         if cursor is not None:
@@ -211,6 +218,21 @@ class SQLAlchemyExecutionQueryService:
             items=[row.to_domain() for row in page_rows],
             next_cursor=next_cursor,
         )
+
+    async def step(self, execution_id: UUID, step_id: UUID) -> ExecutionStep:
+        async with self._session_factory() as session:
+            await self._require_execution(session, execution_id)
+            row = await session.scalar(
+                select(ExecutionStepORM).where(
+                    ExecutionStepORM.id == step_id,
+                    ExecutionStepORM.execution_id == execution_id,
+                )
+            )
+        if row is None:
+            raise ExecutionNotFoundError(
+                f"Execution Step {step_id} was not found in Execution {execution_id}."
+            )
+        return row.to_domain()
 
     async def attempts(
         self,
@@ -482,7 +504,7 @@ class SQLAlchemyExecutionQueryService:
         execution_id: UUID,
         *,
         cursor: str | None = None,
-        limit: int = 500,
+        limit: int = 100,
     ) -> Page[ExecutionArtifactView]:
         async with self._session_factory() as session:
             await self._require_execution(session, execution_id)
@@ -533,6 +555,120 @@ class SQLAlchemyExecutionQueryService:
                 f"Execution Artifact {artifact_id} was not found."
             )
         return _artifact_view(row)
+
+    async def operation_result_snapshot(
+        self, execution_id: UUID, operation_id: UUID
+    ) -> OperationResultSnapshot:
+        async with self._session_factory() as session:
+            execution = await self._execution_row(session, execution_id)
+            operation = await session.scalar(
+                select(ExecutionOperationORM).where(
+                    ExecutionOperationORM.id == operation_id,
+                    ExecutionOperationORM.execution_id == execution_id,
+                )
+            )
+            if operation is None:
+                raise ExecutionOperationNotFoundError(
+                    f"Execution Operation {operation_id} was not found in "
+                    f"Execution {execution_id}."
+                )
+            steps = tuple(
+                row.to_domain()
+                for row in await session.scalars(
+                    select(ExecutionStepORM)
+                    .where(
+                        ExecutionStepORM.execution_id == execution_id,
+                        ExecutionStepORM.operation_id == operation_id,
+                    )
+                    .order_by(ExecutionStepORM.sequence)
+                )
+            )
+        return OperationResultSnapshot(
+            execution=_execution_detail_view(execution),
+            operation=_operation_view(operation),
+            steps=steps,
+        )
+
+    async def execution_result_snapshot(
+        self, execution_id: UUID
+    ) -> ExecutionResultSnapshot:
+        async with self._session_factory() as session:
+            execution = await self._execution_row(session, execution_id)
+            operations = tuple(
+                await session.scalars(
+                    select(ExecutionOperationORM)
+                    .where(ExecutionOperationORM.execution_id == execution_id)
+                    .order_by(ExecutionOperationORM.operation_number)
+                )
+            )
+            steps = tuple(
+                row.to_domain()
+                for row in await session.scalars(
+                    select(ExecutionStepORM)
+                    .where(ExecutionStepORM.execution_id == execution_id)
+                    .order_by(ExecutionStepORM.sequence)
+                )
+            )
+            attempt_rows = tuple(
+                await session.scalars(
+                    select(ExecutionAttemptORM)
+                    .where(ExecutionAttemptORM.execution_id == execution_id)
+                    .order_by(ExecutionAttemptORM.attempt_number)
+                )
+            )
+            step_count_rows = (
+                await session.execute(
+                    select(
+                        ExecutionStepAttemptORM.execution_attempt_id,
+                        func.count(ExecutionStepAttemptORM.id),
+                    )
+                    .where(
+                        ExecutionStepAttemptORM.execution_id == execution_id
+                    )
+                    .group_by(ExecutionStepAttemptORM.execution_attempt_id)
+                )
+            ).all()
+            artifact_rows = tuple(
+                await session.scalars(
+                    select(ExecutionArtifactORM)
+                    .where(ExecutionArtifactORM.execution_id == execution_id)
+                    .order_by(
+                        ExecutionArtifactORM.created_at,
+                        ExecutionArtifactORM.id,
+                    )
+                )
+            )
+        step_counts = {
+            attempt_id: count for attempt_id, count in step_count_rows
+        }
+        return ExecutionResultSnapshot(
+            execution=_execution_detail_view(execution),
+            operations=tuple(_operation_view(row) for row in operations),
+            steps=steps,
+            attempts=tuple(
+                _attempt_view(row, step_counts.get(row.id, 0))
+                for row in attempt_rows
+            ),
+            artifacts=tuple(_artifact_view(row) for row in artifact_rows),
+        )
+
+    @staticmethod
+    async def _execution_row(
+        session: AsyncSession, execution_id: UUID
+    ) -> ExecutionORM:
+        row = await session.scalar(
+            select(ExecutionORM)
+            .where(ExecutionORM.id == execution_id)
+            .options(
+                load_only(*_EXECUTION_DETAIL_COLUMNS),
+                noload(ExecutionORM.steps),
+            )
+        )
+        if row is None:
+            raise ExecutionNotFoundError(
+                f"Execution {execution_id} was not found."
+            )
+        return row
 
     @staticmethod
     async def _require_execution(

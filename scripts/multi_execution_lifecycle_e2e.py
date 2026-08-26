@@ -809,8 +809,8 @@ async def _run_correction_and_finalization_case(
         "execution_notebook_read",
         {
             "execution_id": execution_id,
-            "response_format": "detailed",
-            "limit": 0,
+            "view": "FULL",
+            "limit": 200,
         },
     )
     notebook_source = "\n".join(

@@ -1,5 +1,6 @@
 from dataclasses import replace
 from datetime import timedelta
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -23,6 +24,7 @@ from executor_service.domain.enums import (
     OperationStatus,
     RetryStrategy,
     RuntimeSessionCleanupStatus,
+    RuntimeType,
     StepStatus,
     TriggerType,
 )
@@ -39,7 +41,13 @@ from executor_service.infrastructure.db.models import (
     ExecutionORM,
     ExecutionStepORM,
 )
+from executor_service.infrastructure.db.repositories import (
+    SQLAlchemyUnitOfWork,
+)
 from executor_service.infrastructure.db.session import create_session_factory
+from executor_service.infrastructure.result_storage import (
+    FilesystemExecutionResultStore,
+)
 
 
 def submit_command(
@@ -92,6 +100,57 @@ async def test_submit_rejects_unconfigured_runtime_profile(
             replace(
                 submit_command("unsupported-profile"),
                 runtime_profile="unknown",
+            )
+        )
+
+
+async def test_step_limits_apply_to_submit_and_appended_operations(
+    engine: AsyncEngine,
+    tmp_path: Path,
+) -> None:
+    session_factory = create_session_factory(engine)
+    service = ExecutionService(
+        lambda: SQLAlchemyUnitOfWork(session_factory),
+        {RuntimeType.JUPYTER: ("basic",)},
+        FilesystemExecutionResultStore(tmp_path),
+        max_steps_per_operation=2,
+        max_steps_per_execution=2,
+    )
+
+    too_many_initial_steps = replace(
+        submit_command("too-many-initial-steps"),
+        steps=tuple(
+            StepSpec(sequence=index, code=f"value_{index} = {index}")
+            for index in range(3)
+        ),
+    )
+    with pytest.raises(
+        InvalidStateTransitionError,
+        match="Operation Step count exceeds",
+    ):
+        await service.submit(too_many_initial_steps)
+
+    execution = await service.submit(multi_submit_command("bounded-multi"))
+    async with session_factory() as session, session.begin():
+        await session.execute(
+            update(ExecutionORM)
+            .where(ExecutionORM.id == execution.id)
+            .values(status=ExecutionStatus.WAITING_FOR_OPERATION, version=2)
+        )
+
+    with pytest.raises(
+        InvalidStateTransitionError,
+        match="Execution Step count exceeds",
+    ):
+        await service.create_operation(
+            CreateOperationCommand(
+                execution_id=execution.id,
+                idempotency_key="too-many-total-steps",
+                expected_version=2,
+                steps=(
+                    StepSpec(sequence=1, code="value_1 = 1"),
+                    StepSpec(sequence=2, code="value_2 = 2"),
+                ),
             )
         )
 

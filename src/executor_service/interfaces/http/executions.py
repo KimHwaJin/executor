@@ -2,15 +2,18 @@
 
 from collections.abc import Awaitable
 from typing import Annotated, Any
+from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import (
     APIRouter,
+    Header,
     Path,
     Query,
     Response,
     status,
 )
+from fastapi.responses import StreamingResponse
 
 from executor_service.application.commands import (
     CancelExecutionCommand,
@@ -25,7 +28,6 @@ from executor_service.application.notebook_queries import (
 from executor_service.container import ApplicationContainer
 from executor_service.domain.enums import ExecutionStatus
 from executor_service.domain.errors import (
-    ExecutionNotFoundError,
     InvalidExecutionSpecError,
 )
 from executor_service.interfaces.contracts import (
@@ -63,7 +65,7 @@ AttemptLimit = Annotated[int, Query(ge=1, le=200)]
 EventLimit = Annotated[int, Query(ge=1, le=500)]
 ArtifactLimit = Annotated[int, Query(ge=1, le=1000)]
 Cursor = Annotated[str | None, Query(max_length=2048)]
-NotebookLimit = Annotated[int, Query(ge=0, le=200)]
+NotebookLimit = Annotated[int, Query(ge=1, le=200)]
 NotebookStartIndex = Annotated[int, Query(ge=0)]
 
 DOMAIN_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
@@ -133,6 +135,7 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
         project_id: str | None = None,
         session_id: str | None = None,
         task_id: str | None = None,
+        workflow_id: str | None = None,
         execution_status: Annotated[
             ExecutionStatus | None, Query(alias="status")
         ] = None,
@@ -144,6 +147,7 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
             project_id=project_id,
             session_id=session_id,
             task_id=task_id,
+            workflow_id=workflow_id,
             status=execution_status,
             cursor=cursor,
             limit=limit,
@@ -190,17 +194,17 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
     )
     async def read_execution_notebook(
         execution_id: UUID,
-        response_format: NotebookResponseFormat = "brief",
+        view: NotebookResponseFormat = "SUMMARY",
         start_index: NotebookStartIndex = 0,
         limit: NotebookLimit = 20,
     ) -> ExecutionNotebookResponse:
-        view = await container.notebook_queries.read_notebook(
+        notebook = await container.notebook_queries.read_notebook(
             execution_id,
-            response_format=response_format,
+            view=view,
             start_index=start_index,
             limit=limit,
         )
-        return ExecutionNotebookResponse.from_view(view)
+        return ExecutionNotebookResponse.from_view(notebook)
 
     @router.get(
         "/executions/{execution_id}/notebook/cells/{cell_index}",
@@ -211,10 +215,9 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
     async def read_execution_notebook_cell(
         execution_id: UUID,
         cell_index: Annotated[int, Path(ge=0)],
-        include_outputs: bool = True,
     ) -> ExecutionNotebookCellResponse:
         view = await container.notebook_queries.read_cell(
-            execution_id, cell_index, include_outputs=include_outputs
+            execution_id, cell_index
         )
         return ExecutionNotebookCellResponse.from_view(execution_id, view)
 
@@ -325,7 +328,10 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
             },
         )
         execution = result.execution
-        response.headers["Location"] = f"/api/v1/executions/{execution.id}"
+        response.headers["Location"] = (
+            f"/api/v1/executions/{execution.id}/operations/"
+            f"{result.operation_id}"
+        )
         return ExecutionCommandResponse.from_domain(
             execution, operation_id=result.operation_id
         )
@@ -384,14 +390,7 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
     async def get_execution_step(
         execution_id: UUID, step_id: UUID
     ) -> ExecutionStepResponse:
-        execution = await execution_service.get(execution_id)
-        step = next(
-            (item for item in execution.steps if item.id == step_id), None
-        )
-        if step is None:
-            raise ExecutionNotFoundError(
-                f"Execution Step {step_id} was not found in Execution {execution_id}."
-            )
+        step = await execution_queries.step(execution_id, step_id)
         return ExecutionStepResponse.from_domain(step, execution_id)
 
     @router.get(
@@ -414,7 +413,7 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
         "/executions/{execution_id}/operations/{operation_id}",
         response_model=ExecutionOperationResponse,
         responses=DOMAIN_ERROR_RESPONSES,
-        summary="Get one execution Operation result",
+        summary="Get one execution Operation detail",
     )
     async def get_execution_operation(
         execution_id: UUID, operation_id: UUID
@@ -455,7 +454,7 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
         "/executions/{execution_id}/attempts",
         response_model=ExecutionAttemptPageResponse,
         responses=DOMAIN_ERROR_RESPONSES,
-        summary="List immutable execution Attempts and Step Attempts",
+        summary="List immutable execution Attempt summaries",
     )
     async def list_execution_attempts(
         execution_id: UUID,
@@ -524,7 +523,7 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
     async def list_execution_artifacts(
         execution_id: UUID,
         cursor: Cursor = None,
-        limit: ArtifactLimit = 500,
+        limit: ArtifactLimit = 100,
     ) -> ExecutionArtifactPageResponse:
         page = await execution_queries.artifacts(
             execution_id, cursor=cursor, limit=limit
@@ -561,5 +560,46 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
     ) -> ExecutionArtifactResponse:
         view = await execution_queries.artifact(artifact_id)
         return ExecutionArtifactResponse.from_view(view)
+
+    @router.get(
+        "/artifacts/{artifact_id}/content",
+        responses={
+            **DOMAIN_ERROR_RESPONSES,
+            206: {"description": "Requested Artifact byte range"},
+            416: {"description": "Artifact byte range is not satisfiable"},
+        },
+        summary="Stream registered Artifact content",
+    )
+    async def download_execution_artifact(
+        artifact_id: UUID,
+        range_header: Annotated[str | None, Header(alias="Range")] = None,
+    ) -> StreamingResponse:
+        content = await container.artifact_content.open(
+            artifact_id, range_header
+        )
+        byte_range = content.byte_range
+        headers = {
+            "Accept-Ranges": "bytes",
+            "Content-Length": str(byte_range.length),
+            "Content-Disposition": (
+                "attachment; filename*=UTF-8''" + quote(content.name, safe="")
+            ),
+            "ETag": f'"{content.checksum_sha256}"',
+            "X-Checksum-SHA256": content.checksum_sha256,
+        }
+        if byte_range.partial:
+            headers["Content-Range"] = (
+                f"bytes {byte_range.start}-{byte_range.end}/{byte_range.size}"
+            )
+        return StreamingResponse(
+            content.body,
+            status_code=(
+                status.HTTP_206_PARTIAL_CONTENT
+                if byte_range.partial
+                else status.HTTP_200_OK
+            ),
+            media_type=content.media_type,
+            headers=headers,
+        )
 
     return router

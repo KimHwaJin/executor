@@ -15,6 +15,7 @@ def _load_jupyter_server_extension(server_app: Any) -> None:
     from executor_resource_extension.collector import ResourceCollector
     from executor_resource_extension.handlers import (
         ArtifactSnapshotHandler,
+        FileContentHandler,
         FileMetadataHandler,
         ManifestReadHandler,
         NotebookPrepareHandler,
@@ -56,6 +57,12 @@ def _load_jupyter_server_extension(server_app: Any) -> None:
                     base_url, "executor", "storage", "files", "metadata"
                 ),
                 FileMetadataHandler,
+            ),
+            (
+                url_path_join(
+                    base_url, "executor", "storage", "files", "content"
+                ),
+                FileContentHandler,
             ),
             (
                 url_path_join(

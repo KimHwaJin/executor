@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import Any, BinaryIO, cast
 
 from jupyter_server.base.handlers import (  # ty: ignore[unresolved-import]
     APIHandler,
@@ -95,6 +95,53 @@ class FileMetadataHandler(StorageHandler):
             self.write_storage_error(exc)
             return
         self.finish(result)
+
+
+class FileContentHandler(StorageHandler):
+    @web.authenticated
+    async def get(self) -> None:
+        handle: BinaryIO | None = None
+        try:
+            path = await asyncio.to_thread(
+                self.storage.resolve_file,
+                self.get_query_argument("path"),
+            )
+            size = path.stat().st_size
+            start = int(self.get_query_argument("start", "0"))
+            end = int(self.get_query_argument("end", str(size - 1)))
+            if start < 0 or end < start or end >= size:
+                raise StoragePathError("Requested file range is invalid.")
+            self.set_header("Content-Type", "application/octet-stream")
+            self.set_header("Content-Length", str(end - start + 1))
+            self.set_header("Cache-Control", "no-store")
+            opened = await asyncio.to_thread(_open_binary, path)
+            handle = opened
+            await asyncio.to_thread(opened.seek, start)
+            remaining = end - start + 1
+            while remaining:
+                chunk = await asyncio.to_thread(
+                    _read_chunk, opened, min(1024 * 1024, remaining)
+                )
+                if not chunk:
+                    raise StoragePathError(
+                        "Runtime file ended before the requested range."
+                    )
+                self.write(chunk)
+                await self.flush()
+                remaining -= len(chunk)
+        except Exception as exc:
+            self.write_storage_error(exc)
+        finally:
+            if handle is not None:
+                await asyncio.to_thread(handle.close)
+
+
+def _read_chunk(handle: BinaryIO, size: int) -> bytes:
+    return handle.read(size)
+
+
+def _open_binary(path: Any) -> BinaryIO:
+    return cast(BinaryIO, path.open("rb"))
 
 
 class ManifestReadHandler(StorageHandler):

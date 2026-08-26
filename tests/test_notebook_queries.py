@@ -128,7 +128,7 @@ async def test_notebook_read_uses_runtime_storage_and_paginates_cells() -> (
     service, storage, execution_id, target_id = _service(_notebook())
 
     view = await service.read_notebook(
-        execution_id, response_format="detailed", start_index=1, limit=1
+        execution_id, view="FULL", start_index=1, limit=1
     )
 
     assert view.total_count == 2
@@ -140,6 +140,27 @@ async def test_notebook_read_uses_runtime_storage_and_paginates_cells() -> (
             target_id,
             "users/u/executions/e/notebooks/execution.ipynb",
         )
+    ]
+
+
+async def test_notebook_summary_omits_raw_outputs_but_full_preserves_them() -> (
+    None
+):
+    service, _, execution_id, _ = _service(_notebook())
+
+    summary = await service.read_notebook(
+        execution_id, view="SUMMARY", start_index=0, limit=1
+    )
+    full = await service.read_notebook(
+        execution_id, view="FULL", start_index=0, limit=1
+    )
+
+    assert summary.view == "SUMMARY"
+    assert summary.cells[0].outputs == []
+    assert summary.cells[0].output_summary.output_count == 1
+    assert full.view == "FULL"
+    assert full.cells[0].outputs == [
+        {"output_type": "stream", "name": "stdout", "text": "40\n"}
     ]
 
 
@@ -178,6 +199,8 @@ async def test_notebook_indices_and_shape_are_validated() -> None:
         await service.read_cell(execution_id, 2)
     with pytest.raises(NotebookReadError):
         await service.read_notebook(execution_id, start_index=-1)
+    with pytest.raises(NotebookReadError):
+        await service.read_notebook(execution_id, limit=0)
     with pytest.raises(NotebookReadError):
         await malformed.read_notebook(malformed_id)
 

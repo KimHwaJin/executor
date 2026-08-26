@@ -3,13 +3,17 @@ from collections.abc import AsyncIterator
 from copy import deepcopy
 from datetime import timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 import httpx
 import pytest_asyncio
 from sqlalchemy import update
 
+from executor_service.application.artifact_content import (
+    ArtifactByteRange,
+    ArtifactContent,
+)
 from executor_service.config import Settings
 from executor_service.container import ApplicationContainer
 from executor_service.domain.enums import (
@@ -22,6 +26,7 @@ from executor_service.domain.enums import (
     RuntimeType,
     StepStatus,
 )
+from executor_service.domain.errors import ArtifactRangeNotSatisfiableError
 from executor_service.domain.models import utc_now
 from executor_service.domain.runtime import (
     RuntimeFileMetadata,
@@ -145,6 +150,7 @@ async def test_openapi_documents_all_execution_routes(
         "/api/v1/executions/{execution_id}/attempts/{attempt_id}/steps",
         "/api/v1/executions/{execution_id}/events",
         "/api/v1/artifacts/{artifact_id}",
+        "/api/v1/artifacts/{artifact_id}/content",
     } <= set(paths)
 
     invalid_payload = _submit_payload()
@@ -154,6 +160,76 @@ async def test_openapi_documents_all_execution_routes(
     assert invalid.status_code == 422
     assert invalid.json()["error"]["code"] == "REQUEST_VALIDATION_ERROR"
     assert "must-not-leak" not in invalid.text
+
+
+async def test_artifact_content_endpoint_streams_ranges_with_metadata(
+    rest_client: tuple[httpx.AsyncClient, ApplicationContainer],
+) -> None:
+    client, container = rest_client
+    artifact_id = uuid4()
+
+    class _ContentService:
+        async def open(
+            self, requested_id: UUID, range_header: str | None
+        ) -> ArtifactContent:
+            assert requested_id == artifact_id
+            assert range_header == "bytes=2-5"
+
+            async def body() -> AsyncIterator[bytes]:
+                yield b"2345"
+
+            return ArtifactContent(
+                name="plot image.png",
+                media_type="image/png",
+                checksum_sha256="b" * 64,
+                byte_range=ArtifactByteRange(
+                    start=2,
+                    end=5,
+                    size=10,
+                    partial=True,
+                ),
+                body=body(),
+            )
+
+    cast(Any, container).artifact_content = _ContentService()
+    response = await client.get(
+        f"/api/v1/artifacts/{artifact_id}/content",
+        headers={"Range": "bytes=2-5"},
+    )
+
+    assert response.status_code == 206
+    assert response.content == b"2345"
+    assert response.headers["content-type"] == "image/png"
+    assert response.headers["content-range"] == "bytes 2-5/10"
+    assert response.headers["accept-ranges"] == "bytes"
+    assert response.headers["content-length"] == "4"
+    assert response.headers["etag"] == f'"{"b" * 64}"'
+    assert "plot%20image.png" in response.headers["content-disposition"]
+
+
+async def test_artifact_content_endpoint_returns_range_contract(
+    rest_client: tuple[httpx.AsyncClient, ApplicationContainer],
+) -> None:
+    client, container = rest_client
+
+    class _RejectingContentService:
+        async def open(
+            self, _artifact_id: UUID, _range_header: str | None
+        ) -> ArtifactContent:
+            raise ArtifactRangeNotSatisfiableError("invalid range", 10)
+
+    cast(Any, container).artifact_content = _RejectingContentService()
+    response = await client.get(
+        f"/api/v1/artifacts/{uuid4()}/content",
+        headers={"Range": "bytes=20-30"},
+    )
+
+    assert response.status_code == 416
+    assert response.headers["accept-ranges"] == "bytes"
+    assert response.headers["content-range"] == "bytes */10"
+    assert response.json()["error"]["code"] == (
+        "ARTIFACT_RANGE_NOT_SATISFIABLE"
+    )
 
 
 async def test_submit_contract_validates_lifecycle_and_optional_scope(
@@ -240,14 +316,16 @@ async def test_rest_reads_runtime_owned_notebook_and_cell_outputs(
             .values(runtime_target_id=target_id, notebook_path=relative)
         )
 
-    brief = await client.get(
+    summary = await client.get(
         f"/api/v1/executions/{execution_id}/notebook",
-        params={"response_format": "brief"},
+        params={"view": "SUMMARY"},
     )
-    assert brief.status_code == 200
-    assert brief.json()["cells"][0]["source"] == "print('first')"
-    assert brief.json()["cells"][0]["outputs"] == []
-    assert brief.json()["cells"][0]["output_summary"] == {
+    assert summary.status_code == 200
+    assert summary.json()["cells"][0]["source_preview"].startswith(
+        "print('first')"
+    )
+    assert "outputs" not in summary.json()["cells"][0]
+    assert summary.json()["cells"][0]["output_summary"] == {
         "output_count": 1,
         "output_types": {"stream": 1},
         "stream_names": ["stdout"],
@@ -353,6 +431,28 @@ async def test_consolidated_result_returns_operation_steps_in_one_call(
     )
 
     assert result.status_code == 200
+    assert set(result.json()) == {
+        "execution",
+        "operations",
+        "attempts",
+        "artifacts",
+    }
+    assert set(result.json()["execution"]) == {"execution_id", "state"}
+    assert set(result.json()["operations"][0]) == {
+        "operation_id",
+        "operation_number",
+        "sequence_range",
+        "result",
+        "lifecycle",
+        "steps",
+    }
+    assert set(result.json()["operations"][0]["steps"][0]) == {
+        "step_id",
+        "sequence",
+        "lineage",
+        "result",
+        "lifecycle",
+    }
     assert result.json()["execution"]["state"]["status"] == "SUCCEEDED"
     step_result = result.json()["operations"][0]["steps"][0]["result"]
     assert "outputs" not in step_result
@@ -584,8 +684,18 @@ async def test_attempt_detail_and_step_attempt_routes(
                 skill_name="data_load",
                 tool_name="load_data",
                 input_parameters={},
-                status=StepStatus.RUNNING,
+                status=StepStatus.SUCCEEDED,
+                result_fencing_token=1,
+                result_manifest_path=(
+                    "executions/e/operations/o/steps/s/attempts/a/1/"
+                    "manifest.json"
+                ),
+                result_manifest_checksum_sha256="c" * 64,
+                result_complete=True,
+                result_representation_count=1,
+                result_total_size_bytes=4,
                 started_at=now,
+                finished_at=now,
             )
         )
 
@@ -604,7 +714,10 @@ async def test_attempt_detail_and_step_attempt_routes(
     assert attempt_steps.json()["items"][0]["execution_step_id"] == str(
         step_id
     )
-    assert "result_ref" not in attempt_steps.json()["items"][0]["result"]
+    result_ref = attempt_steps.json()["items"][0]["result"]["result_ref"]
+    assert result_ref["attempt_id"] == str(attempt_id)
+    assert result_ref["relative_path"].endswith("manifest.json")
+    assert result_ref["complete"] is True
     assert (
         await client.get(f"/api/v1/executions/{uuid4()}/attempts/{attempt_id}")
     ).status_code == 404
@@ -676,6 +789,10 @@ async def test_multi_operation_create_and_finalize_rest_api(
     )
     assert continued.status_code == 202
     assert continued.json()["state"]["status"] == "QUEUED"
+    operation_id = continued.json()["operation"]["operation_id"]
+    assert continued.headers["location"] == (
+        f"/api/v1/executions/{execution_id}/operations/{operation_id}"
+    )
     continued_repeat = await client.post(
         f"/api/v1/executions/{execution_id}/operations",
         json={
@@ -723,7 +840,14 @@ async def test_multi_operation_create_and_finalize_rest_api(
         1,
         2,
     ]
-    operation_id = continued.json()["operation"]["operation_id"]
+    operations = await client.get(
+        f"/api/v1/executions/{execution_id}/operations"
+    )
+    operation_summary = operations.json()["items"][-1]
+    assert operation_summary["operation_id"] == operation_id
+    assert "schema_version" not in operation_summary
+    assert "metadata" not in operation_summary
+    assert "execution_attempt_id" not in operation_summary
     operation = await client.get(
         f"/api/v1/executions/{execution_id}/operations/{operation_id}"
     )

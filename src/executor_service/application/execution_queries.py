@@ -229,6 +229,22 @@ class ExecutionArtifactView:
     updated_at: datetime
 
 
+@dataclass(frozen=True, slots=True)
+class OperationResultSnapshot:
+    execution: ExecutionDetailView
+    operation: ExecutionOperationView
+    steps: tuple[ExecutionStep, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionResultSnapshot:
+    execution: ExecutionDetailView
+    operations: tuple[ExecutionOperationView, ...]
+    steps: tuple[ExecutionStep, ...]
+    attempts: tuple[ExecutionAttemptView, ...]
+    artifacts: tuple[ExecutionArtifactView, ...]
+
+
 class ExecutionQueryService(Protocol):
     async def executions(
         self,
@@ -237,6 +253,7 @@ class ExecutionQueryService(Protocol):
         project_id: str | None = None,
         session_id: str | None = None,
         task_id: str | None = None,
+        workflow_id: str | None = None,
         status: ExecutionStatus | None = None,
         cursor: str | None = None,
         limit: int = 100,
@@ -251,6 +268,10 @@ class ExecutionQueryService(Protocol):
         cursor: str | None = None,
         limit: int = 100,
     ) -> Page[ExecutionStep]: ...
+
+    async def step(
+        self, execution_id: UUID, step_id: UUID
+    ) -> ExecutionStep: ...
 
     async def attempts(
         self,
@@ -307,7 +328,15 @@ class ExecutionQueryService(Protocol):
         execution_id: UUID,
         *,
         cursor: str | None = None,
-        limit: int = 500,
+        limit: int = 100,
     ) -> Page[ExecutionArtifactView]: ...
 
     async def artifact(self, artifact_id: UUID) -> ExecutionArtifactView: ...
+
+    async def operation_result_snapshot(
+        self, execution_id: UUID, operation_id: UUID
+    ) -> OperationResultSnapshot: ...
+
+    async def execution_result_snapshot(
+        self, execution_id: UUID
+    ) -> ExecutionResultSnapshot: ...

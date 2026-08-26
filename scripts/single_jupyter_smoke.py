@@ -150,8 +150,8 @@ async def main() -> None:
             "execution_notebook_read",
             {
                 "execution_id": execution_id,
-                "response_format": "detailed",
-                "limit": 0,
+                "view": "FULL",
+                "limit": 200,
             },
         )
         if len(notebook["cells"]) != 2:

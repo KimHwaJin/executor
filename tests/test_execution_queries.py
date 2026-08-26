@@ -1,16 +1,19 @@
+from dataclasses import replace
 from datetime import timedelta
 from uuid import uuid4
 
-from sqlalchemy import event
+from sqlalchemy import event, update
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from executor_service.application.commands import (
+    CreateOperationCommand,
     StepSpec,
     SubmitExecutionCommand,
 )
 from executor_service.application.services import ExecutionService
 from executor_service.domain.enums import (
     AttemptStatus,
+    ExecutionStatus,
     FailureType,
     OperationMode,
     RetryStrategy,
@@ -24,6 +27,7 @@ from executor_service.domain.enums import (
 from executor_service.domain.models import OutboxEvent, utc_now
 from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
+    ExecutionORM,
     ExecutionStepAttemptORM,
     OutboxEventORM,
     RuntimeTargetORM,
@@ -211,3 +215,63 @@ async def test_execution_reads_do_not_load_source_code_or_step_rows(
     assert all(
         "executions.code," not in statement for statement in execution_selects
     )
+
+
+async def test_result_snapshot_uses_fixed_bulk_queries_and_workflow_filter(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+) -> None:
+    command = replace(
+        _submit_command(),
+        idempotency_key="bulk-result-submit",
+        operation_mode=OperationMode.MULTI,
+        operation_wait_timeout_seconds=600,
+        workflow_id="workflow-bulk",
+    )
+    execution = await execution_service.submit(command)
+    session_factory = create_session_factory(engine)
+    async with session_factory() as session, session.begin():
+        await session.execute(
+            update(ExecutionORM)
+            .where(ExecutionORM.id == execution.id)
+            .values(status=ExecutionStatus.WAITING_FOR_OPERATION, version=2)
+        )
+    await execution_service.create_operation(
+        CreateOperationCommand(
+            execution_id=execution.id,
+            idempotency_key="bulk-result-operation",
+            expected_version=2,
+            steps=(StepSpec(sequence=1, code="print('next')"),),
+        )
+    )
+
+    queries = SQLAlchemyExecutionQueryService(session_factory)
+    filtered = await queries.executions(workflow_id="workflow-bulk")
+    assert [item.id for item in filtered.items] == [execution.id]
+    assert not (await queries.executions(workflow_id="other")).items
+
+    statements: list[str] = []
+
+    def capture_statement(
+        _connection: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        statements.append(statement.lower())
+
+    event.listen(
+        engine.sync_engine, "before_cursor_execute", capture_statement
+    )
+    try:
+        snapshot = await queries.execution_result_snapshot(execution.id)
+    finally:
+        event.remove(
+            engine.sync_engine, "before_cursor_execute", capture_statement
+        )
+
+    assert len(snapshot.operations) == 2
+    assert len(snapshot.steps) == 2
+    assert len(statements) == 6
