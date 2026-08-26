@@ -21,7 +21,8 @@ uv run alembic check
 
 Revision `0001` includes internal monotonic fencing tokens, Runtime abort state, Runtime session
 observations, and the current shared-result reference contract. Revision `0002` adds exclusive,
-expiring cancellation ownership fields and is the current head. `current` must report `0002
+expiring cancellation ownership fields. Revision `0003` adds the singleton Executor-wide
+maintenance admission state and is the current head. `current` must report `0003
 (head)`, and `check` must report that no new upgrade operations are detected. A development
 database carrying one of the removed
 pre-baseline revisions must be backed up if its data matters, then recreated as an empty database
@@ -85,7 +86,8 @@ uv run alembic upgrade head
 uv run python scripts/postgres_query_plan_smoke.py
 ```
 
-The script runs read-only `EXPLAIN ANALYZE` statements. It disables sequential scans only inside its
-own transaction because a small development database would otherwise correctly prefer a sequential
-scan. The check proves that the intended indexes are usable; production query planning remains
-fully controlled by PostgreSQL statistics.
+Revision `0003` adds only the singleton maintenance row and does not require another operational
+index. The script runs read-only `EXPLAIN ANALYZE` statements. It disables sequential scans only
+inside its own transaction because a small development database would otherwise correctly prefer
+a sequential scan. The check proves that the intended indexes are usable; production query
+planning remains fully controlled by PostgreSQL statistics.

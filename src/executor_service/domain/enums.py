@@ -35,6 +35,11 @@ class ActorType(StrEnum):
     BATCH = "BATCH"
 
 
+class ExecutorAdmissionState(StrEnum):
+    ACTIVE = "ACTIVE"
+    DRAINING = "DRAINING"
+
+
 class RuntimePool(StrEnum):
     INTERACTIVE = "INTERACTIVE"
     BATCH = "BATCH"

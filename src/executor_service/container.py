@@ -28,6 +28,9 @@ from executor_service.infrastructure.db.session import (
 from executor_service.infrastructure.execution_queries import (
     SQLAlchemyExecutionQueryService,
 )
+from executor_service.infrastructure.maintenance import (
+    ExecutorMaintenanceService,
+)
 from executor_service.infrastructure.materialized_artifacts import (
     MaterializedArtifactService,
 )
@@ -47,7 +50,7 @@ from executor_service.infrastructure.runtime_storage import (
 from executor_service.infrastructure.worker import ExecutionWorker
 from executor_service.tracing import TracingManager
 
-EXPECTED_SCHEMA_REVISION = "0001"
+EXPECTED_SCHEMA_REVISION = "0003"
 
 
 class ApplicationContainer:
@@ -95,6 +98,7 @@ class ApplicationContainer:
         self.runtime_registry = RuntimeTargetRegistry(
             self.session_factory, settings
         )
+        self.maintenance = ExecutorMaintenanceService(self.session_factory)
         self.runtime_storage = FleetRuntimeStorageAccess(
             self.session_factory,
             self.runtime_registry,
@@ -134,6 +138,7 @@ class ApplicationContainer:
         )
 
     async def start(self) -> None:
+        await self.maintenance.initialize()
         self.outbox_publisher.start()
         if self.settings.runtime_enabled:
             await self.runtime_registry.start()

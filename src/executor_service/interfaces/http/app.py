@@ -33,6 +33,9 @@ from executor_service.domain.errors import (
     UnsupportedRuntimeProfileError,
 )
 from executor_service.interfaces.http.executions import build_execution_router
+from executor_service.interfaces.http.maintenance import (
+    build_maintenance_router,
+)
 from executor_service.interfaces.http.runtime_targets import (
     build_runtime_target_router,
 )
@@ -224,6 +227,7 @@ def create_app(container: ApplicationContainer) -> FastAPI:
 
     app.include_router(build_execution_router(container))
     app.include_router(build_runtime_target_router(container))
+    app.include_router(build_maintenance_router(container))
 
     # Register this catch-all mount last so operational routes remain reachable.
     app.mount("/", mcp_app)

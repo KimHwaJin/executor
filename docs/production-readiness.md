@@ -343,7 +343,7 @@ from an arbitrary universal constant.
 ## PR-005: Controlled Executor maintenance and fail-safe restart recovery
 
 - Priority: P1
-- Status: PLANNED
+- Status: IN PROGRESS — persistent admission and status implemented
 - Area: Executor admission, maintenance, Worker shutdown, startup reconciliation
 - Public API impact: additive administrative maintenance APIs
 - Request impact: none for normal execution submission
@@ -370,6 +370,20 @@ from an arbitrary universal constant.
   applies.
 - Combine restart reconciliation with PR-001 fencing so a stale Worker cannot publish or persist a
   late result after recovery has taken ownership.
+
+### Implemented foundation
+
+- Alembic revision `0003` seeds the singleton PostgreSQL `executor_maintenance` row in `ACTIVE`.
+- `GET /api/v1/maintenance`, `POST /api/v1/maintenance/drain`, and
+  `POST /api/v1/maintenance/activate` expose idempotent, audited global admission control.
+- New Runtime admission share-locks the maintenance row in the Execution claim transaction. Drain
+  therefore serializes against concurrent claims across replicas without rejecting submissions.
+- Existing Runtime sessions, cancellation, cleanup, and local Worker shutdown remain independent
+  of global admission.
+- Maintenance status derives workload and owned Runtime-session counts from PostgreSQL and exposes
+  `safe_to_shutdown`. See [Executor Maintenance](executor-maintenance.md).
+
+The asynchronous terminate-running operation and unexpected-restart reconciliation remain planned.
 
 ### Planned deployment procedure
 

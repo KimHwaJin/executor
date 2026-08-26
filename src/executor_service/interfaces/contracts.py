@@ -24,6 +24,7 @@ from executor_service.application.execution_results import (
     ExecutionResultBundle,
     OperationResultBundle,
 )
+from executor_service.application.maintenance import ExecutorMaintenanceView
 from executor_service.application.notebook_queries import (
     NotebookCellView,
     NotebookResponseFormat,
@@ -43,6 +44,7 @@ from executor_service.domain.enums import (
     AttemptStatus,
     CodeSourceType,
     ExecutionStatus,
+    ExecutorAdmissionState,
     FailureType,
     OperationMode,
     OperationStatus,
@@ -79,6 +81,60 @@ class AuditFields(ContractModel):
     updated_by: str | None
     created_at: datetime
     updated_at: datetime
+
+
+class ExecutorAdmissionResponse(ContractModel):
+    state: ExecutorAdmissionState
+    accepting_new_executions: bool
+    version: int
+
+
+class ExecutorWorkloadResponse(ContractModel):
+    queued_execution_count: int
+    active_execution_count: int
+    cancel_requested_count: int
+
+
+class ExecutorCleanupResponse(ContractModel):
+    unresolved_cleanup_count: int
+    active_runtime_session_count: int
+
+
+class ExecutorMaintenanceResponse(AuditFields):
+    admission: ExecutorAdmissionResponse
+    workload: ExecutorWorkloadResponse
+    cleanup: ExecutorCleanupResponse
+    safe_to_shutdown: bool
+
+    @classmethod
+    def from_view(
+        cls, view: ExecutorMaintenanceView
+    ) -> "ExecutorMaintenanceResponse":
+        return cls(
+            admission=ExecutorAdmissionResponse(
+                state=view.admission_state,
+                accepting_new_executions=(view.accepting_new_executions),
+                version=view.version,
+            ),
+            workload=ExecutorWorkloadResponse(
+                queued_execution_count=view.queued_execution_count,
+                active_execution_count=view.active_execution_count,
+                cancel_requested_count=view.cancel_requested_count,
+            ),
+            cleanup=ExecutorCleanupResponse(
+                unresolved_cleanup_count=view.unresolved_cleanup_count,
+                active_runtime_session_count=(
+                    view.active_runtime_session_count
+                ),
+            ),
+            safe_to_shutdown=view.safe_to_shutdown,
+            created_by_type=view.created_by_type,
+            created_by=view.created_by,
+            updated_by_type=view.updated_by_type,
+            updated_by=view.updated_by,
+            created_at=view.created_at,
+            updated_at=view.updated_at,
+        )
 
 
 class ActorInput(ContractModel):

@@ -40,6 +40,7 @@ MULTI Operations through a Runtime Driver. Jupyter REST/WebSocket is the first i
 - W3C trace-context propagation across HTTP/MCP, PostgreSQL Outbox, Redis Streams, Worker,
   and Jupyter operations with optional OTLP export to Arize Phoenix
 - `/healthz` and `/readyz` operational endpoints
+- PostgreSQL-backed Executor-wide drain, activate, and shutdown-readiness status APIs
 - PostgreSQL, Redis, custom Python slim INTERACTIVE/BATCH Jupyter fleets, and opt-in Phoenix
   through Docker Compose
 - Authenticated Jupyter resource endpoint with cgroup v2 CPU and memory measurement
@@ -358,6 +359,13 @@ active jobs may finish for up to `EXECUTION_DRAIN_TIMEOUT_SECONDS`. Only jobs st
 that deadline enter the existing `WORKER_SHUTDOWN` cleanup and recovery path. `/healthz` remains a
 process liveness check, while `/workerz` reports `ACCEPTING`, `DRAINING`, or `STOPPED` and the local
 active execution count.
+
+For planned service maintenance, use `POST /api/v1/maintenance/drain` instead of stopping each
+Worker locally. It persists `DRAINING` for all replicas, keeps submissions durably queued, and
+allows existing Runtime sessions, cancellation, and cleanup to continue. Poll
+`GET /api/v1/maintenance` until `safe_to_shutdown=true`, then use
+`POST /api/v1/maintenance/activate` after deployment. These operator-only controls are REST APIs,
+not MCP Tools. See [Executor Maintenance](docs/executor-maintenance.md).
 
 All MCP and REST list operations return `{items, next_cursor, has_more}`. `next_cursor` is an
 opaque continuation token:

@@ -23,11 +23,16 @@ from executor_service.application.commands import (
     StepSpec,
     SubmitExecutionCommand,
 )
+from executor_service.application.maintenance import (
+    SetExecutorAdmissionCommand,
+)
 from executor_service.application.services import ExecutionService
 from executor_service.config import Settings
 from executor_service.domain.enums import (
+    ActorType,
     AttemptStatus,
     ExecutionStatus,
+    ExecutorAdmissionState,
     OperationMode,
     OperationStatus,
     OutboxStatus,
@@ -58,6 +63,9 @@ from executor_service.infrastructure.db.session import (
 )
 from executor_service.infrastructure.execution_leases import (
     ExecutionLeaseLostError,
+)
+from executor_service.infrastructure.maintenance import (
+    ExecutorMaintenanceService,
 )
 from executor_service.infrastructure.outbox import OutboxPublisher
 from executor_service.infrastructure.result_storage import (
@@ -227,6 +235,60 @@ async def test_concurrent_workers_create_exactly_one_attempt_for_an_execution(
             )
         )
     assert attempt_count == 1
+
+
+async def test_persistent_drain_blocks_every_worker_until_activate(
+    postgres_engine: AsyncEngine,
+    tmp_path: Path,
+) -> None:
+    service = _service(postgres_engine, tmp_path)
+    session_factory = create_session_factory(postgres_engine)
+    maintenance = ExecutorMaintenanceService(session_factory)
+    async with session_factory() as session, session.begin():
+        session.add(_server(capacity=10))
+    executions = [
+        await service.submit(_command(f"drained-{index}"))
+        for index in range(6)
+    ]
+    await maintenance.set_state(
+        SetExecutorAdmissionCommand(
+            idempotency_key="postgres-global-drain",
+            desired_state=ExecutorAdmissionState.DRAINING,
+            actor_type=ActorType.USER,
+            actor_id="postgres-operator",
+        )
+    )
+    workers, redis_clients = _workers(postgres_engine, tmp_path, count=6)
+    try:
+        blocked = await asyncio.gather(
+            *(
+                workers[index]._claim(execution.id)
+                for index, execution in enumerate(executions)
+            )
+        )
+        drained_view = await maintenance.get()
+        await maintenance.set_state(
+            SetExecutorAdmissionCommand(
+                idempotency_key="postgres-global-activate",
+                desired_state=ExecutorAdmissionState.ACTIVE,
+                actor_type=ActorType.USER,
+                actor_id="postgres-operator",
+            )
+        )
+        # Target rows use SKIP LOCKED, so a simultaneous one-target burst may
+        # intentionally defer contenders to reconciliation. Claim sequentially
+        # here to isolate global admission from target-lock contention.
+        admitted = [
+            await workers[index]._claim(execution.id)
+            for index, execution in enumerate(executions)
+        ]
+    finally:
+        await _close_redis(redis_clients)
+
+    assert all(claim is None for claim in blocked)
+    assert drained_view.queued_execution_count == len(executions)
+    assert not drained_view.accepting_new_executions
+    assert all(claim is not None for claim in admitted)
 
 
 async def test_concurrent_workers_claim_exactly_one_cancellation_owner(
