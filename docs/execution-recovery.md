@@ -70,7 +70,7 @@ session still exists before executing code. A missing session records `RUNTIME_S
 retry. A missing or disabled target similarly records `RUNTIME_UNAVAILABLE` and requires an
 explicit `FROM_START` retry. If the retention window expires while the target is unavailable, the
 queued retry returns to `FAILED`, session cleanup is attempted, and
-`execution.retry_window_expired` is emitted.
+an `execution.completed` failure event is emitted if that queued retry attempt was closed.
 
 ## Worker shutdown and lease expiry
 
@@ -98,16 +98,14 @@ only `RUNNING` rows with expired leases are eligible.
 - `SUCCEEDED`: the driver accepted session deletion and the current Execution session ID is cleared;
 - `FAILED`: cleanup could not be confirmed; the historical Attempt retains its session ID.
 
-Lease recovery emits `execution.runtime_session_cleanup_completed` or
-`execution.runtime_session_cleanup_failed` after the cleanup result is persisted. Expired retained-session
-windows emit `execution.retry_window_expired`.
+Runtime cleanup progress is persisted in PostgreSQL and exposed through Execution/Attempt query
+responses. It is not a separate public Redis event.
 
 `runtime_abort_status` is one of `NOT_REQUIRED`, `PENDING`, `IDLE_CONFIRMED`, `SESSION_DELETED`,
 `SESSION_MISSING`, or `FAILED`. It is stored on both the current Execution and immutable Attempt
-history. `execution.runtime_abort_started`, `execution.runtime_abort_completed`, and
-`execution.runtime_abort_failed` make the bounded outcome observable without carrying code or
-output. Lease recovery and cancellation resolve a previously `PENDING` abort rather than leaving
-an unknown state indefinitely.
+history. Lease recovery and cancellation resolve a previously `PENDING` abort rather than leaving
+an unknown state indefinitely. External consumers observe the final Step, Operation, and Execution
+boundary events and query cleanup details when needed.
 
 ## Long-running cells
 

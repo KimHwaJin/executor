@@ -289,11 +289,14 @@ async def test_disabled_retained_target_requires_an_explicit_from_start_retry(
         event = await session.scalar(
             select(OutboxEventORM).where(
                 OutboxEventORM.aggregate_id == execution.id,
-                OutboxEventORM.event_type == "execution.failed",
+                OutboxEventORM.event_type == "execution.completed",
+                OutboxEventORM.payload["status"].as_string() == "FAILED",
             )
         )
         assert event is not None
-        assert event.payload["reason"] == "retained_target_unavailable"
+        assert (
+            event.payload["error"]["code"] == "EXECUTION_RUNTIME_UNAVAILABLE"
+        )
 
 
 async def test_draining_target_allows_its_retained_runtime_session_to_finish(
@@ -391,12 +394,6 @@ async def test_preflight_connection_failure_defers_the_retained_retry(
                 .order_by(ExecutionAttemptORM.attempt_number)
             )
         )
-        event = await session.scalar(
-            select(OutboxEventORM).where(
-                OutboxEventORM.aggregate_id == execution.id,
-                OutboxEventORM.event_type == "execution.retry_deferred",
-            )
-        )
         assert deferred is not None
         assert deferred.status == ExecutionStatus.QUEUED
         assert deferred.retry_strategy != RetryStrategy.NOT_RETRYABLE
@@ -418,11 +415,6 @@ async def test_preflight_connection_failure_defers_the_retained_retry(
         assert operation is not None
         assert operation.status == OperationStatus.QUEUED
         assert operation.execution_attempt_id is None
-        assert event is not None
-        assert (
-            event.payload["reason"]
-            == "retained_target_temporarily_unavailable"
-        )
 
 
 async def test_missing_retained_runtime_session_fails_without_running_on_another_target(
@@ -516,8 +508,9 @@ async def test_queued_retained_retry_expires_without_switching_targets(
         event = await session.scalar(
             select(OutboxEventORM).where(
                 OutboxEventORM.aggregate_id == execution.id,
-                OutboxEventORM.event_type == "execution.retry_window_expired",
+                OutboxEventORM.event_type == "execution.completed",
+                OutboxEventORM.payload["status"].as_string() == "FAILED",
             )
         )
         assert event is not None
-        assert event.payload["retry_was_queued"] is True
+        assert event.payload["retry"] is None

@@ -105,7 +105,8 @@ async def main() -> None:
             failed_events = await session.scalar(
                 select(func.count(OutboxEventORM.id)).where(
                     OutboxEventORM.aggregate_id == submitted.id,
-                    OutboxEventORM.event_type == "execution.failed",
+                    OutboxEventORM.event_type == "execution.completed",
+                    OutboxEventORM.payload["status"].as_string() == "FAILED",
                 )
             )
         if server is None:

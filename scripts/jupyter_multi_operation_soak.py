@@ -333,12 +333,12 @@ async def main() -> None:
         events = await _wait_for_published_events(client, execution_id)
         event_types = [event["event_type"] for event in events]
         required_events = {
-            "execution.submitted",
             "execution.started",
-            "execution.operation_submitted",
-            "execution.operation_succeeded",
-            "execution.finalization_requested",
-            "execution.succeeded",
+            "execution.operation_started",
+            "execution.step_started",
+            "execution.step_completed",
+            "execution.operation_completed",
+            "execution.completed",
         }
         if not required_events.issubset(event_types):
             raise RuntimeError(

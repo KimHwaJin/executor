@@ -86,7 +86,7 @@ def test_mutation_result_reads_nested_command_state() -> None:
             "state": {"status": "QUEUED", "version": 0},
         },
         wait_for_event=True,
-        event_types=["execution.succeeded"],
+        event_types=["execution.completed"],
         event_stream_start_id="123-0",
     )
 

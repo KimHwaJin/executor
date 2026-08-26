@@ -91,7 +91,7 @@ calling `runtime_target_list`; `supported_profiles` contains the selectable prof
 execution requests call the policy-wrapped `execution_submit`. The Chat UI run waits for the
 relevant Redis boundary and then displays the execution ID, status, referenced Step results,
 Artifact names, and Runtime-owned notebook path. A MULTI submit or Operation wakes on
-`execution.waiting_for_operation`; a finalize wakes on the terminal event. This synchronous wait
+`execution.operation_completed`; a finalize wakes on `execution.completed`. This synchronous wait
 exists only to make the local Chat UI test self-contained. Production still requires the durable
 Agent-owned consumer, event deduplication, Pending recovery, DLQ, and external thread resume
 described above.
@@ -176,10 +176,11 @@ uv run python scripts/smoke.py
 ```
 
 The smoke client creates a thread and invokes a deterministic two-Operation MULTI Execution. The
-initial Operation executes two Steps. After the first `execution.waiting_for_operation`, the graph
+initial Operation executes two Steps. After the first `execution.operation_completed`, the graph
 submits a one-Step follow-up Operation that reuses variables from the retained Runtime session.
 After the second boundary, the graph calls `execution_finalize` and waits for
-`execution.succeeded`. The follow-up Step creates `artifacts/reports/agent-e2e.txt`; the client
+`execution.completed` with `payload.status=SUCCEEDED`. The follow-up Step creates
+`artifacts/reports/agent-e2e.txt`; the client
 requires both that file and the Runtime-owned `execution.ipynb`, verifies all three Step results and
 the submit/Operation/finalize receipts, then prints the Runtime Target. Override
 `TEST_AGENT_SERVER_URL` when the development server uses a different address.

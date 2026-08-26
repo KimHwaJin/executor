@@ -184,9 +184,11 @@ async def main() -> None:
                 "Multi notebook does not prove same-kernel state continuity."
             )
         if not {
-            "execution.operation_succeeded",
-            "execution.operation_failed",
-            "execution.succeeded",
+            "execution.operation_started",
+            "execution.step_started",
+            "execution.step_completed",
+            "execution.operation_completed",
+            "execution.completed",
         }.issubset(event_types):
             raise RuntimeError(
                 f"Multi Outbox event history is incomplete: {event_types}"

@@ -42,6 +42,6 @@ terminal 상태인 `SUCCEEDED`, `FAILED`, `CANCELLED`에는 취소를 요청할 
 | `created_at`, `updated_at` | 생성 및 마지막 변경 시각 |
 
 응답 `Location`은 Execution 상태조회 API를 가리킨다. 이후
-`execution.cancelled` 또는 `execution.failed` terminal 이벤트를 기다리고, timeout이면
+`execution.completed` 이벤트의 `payload.status`가 `CANCELLED` 또는 `FAILED`가 될 때까지
+기다리고, timeout이면
 `GET /api/v1/executions/{execution_id}`로 확인한다.
-

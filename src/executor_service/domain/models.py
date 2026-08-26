@@ -73,6 +73,7 @@ class ExecutionStep:
     result_execution_attempt_id: UUID | None = None
     result_manifest_path: str | None = None
     result_manifest_checksum_sha256: str | None = None
+    result_manifest_size_bytes: int | None = None
     result_fencing_token: int | None = None
     result_complete: bool | None = None
     result_representation_count: int = 0

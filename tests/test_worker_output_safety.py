@@ -184,8 +184,7 @@ async def test_output_limit_aborts_runtime_and_persists_incomplete_result(
     assert manifest["complete"] is False
     assert "safety limit" in manifest["error_message"]
     assert {
-        "execution.runtime_abort_started",
-        "execution.runtime_abort_completed",
-        "execution.step_failed",
-        "execution.failed",
+        "execution.step_completed",
+        "execution.operation_completed",
+        "execution.completed",
     }.issubset(event_types)

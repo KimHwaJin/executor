@@ -16,18 +16,15 @@ def _fields(
     return {
         "event_id": event_id,
         "event_type": event_type,
-        "schema_version": "2.0",
-        "aggregate_type": "Execution",
-        "aggregate_id": execution_id,
+        "schema_version": "1.0",
+        "execution_id": execution_id,
         "occurred_at": "2026-08-13T00:00:00Z",
         "payload": json.dumps(
             {
-                "schema_version": "2.0",
-                "execution_id": execution_id,
-                "operation_id": operation_id,
+                "operation": {"id": operation_id, "number": 1},
                 "status": (
                     "WAITING_FOR_OPERATION"
-                    if event_type == "execution.waiting_for_operation"
+                    if event_type == "execution.operation_completed"
                     else "SUCCEEDED"
                 ),
             }
@@ -41,13 +38,13 @@ async def test_waiter_skips_stale_operation_and_duplicate_event_ids() -> None:
     current_operation_id = str(uuid4())
     duplicate_step_event_id = str(uuid4())
     messages = [
-        ("0-0", {"aggregate_id": str(uuid4()), "payload": "not-json"}),
+        ("0-0", {"execution_id": str(uuid4()), "payload": "not-json"}),
         (
             "1-0",
             _fields(
                 execution_id,
                 str(uuid4()),
-                "execution.waiting_for_operation",
+                "execution.operation_completed",
                 old_operation_id,
             ),
         ),
@@ -56,7 +53,7 @@ async def test_waiter_skips_stale_operation_and_duplicate_event_ids() -> None:
             _fields(
                 execution_id,
                 duplicate_step_event_id,
-                "execution.step_succeeded",
+                "execution.step_completed",
                 current_operation_id,
             ),
         ),
@@ -65,7 +62,7 @@ async def test_waiter_skips_stale_operation_and_duplicate_event_ids() -> None:
             _fields(
                 execution_id,
                 duplicate_step_event_id,
-                "execution.step_succeeded",
+                "execution.step_completed",
                 current_operation_id,
             ),
         ),
@@ -74,7 +71,7 @@ async def test_waiter_skips_stale_operation_and_duplicate_event_ids() -> None:
             _fields(
                 execution_id,
                 str(uuid4()),
-                "execution.waiting_for_operation",
+                "execution.operation_completed",
                 current_operation_id,
             ),
         ),
@@ -97,13 +94,13 @@ async def test_waiter_skips_stale_operation_and_duplicate_event_ids() -> None:
     batch = await waiter.wait_for_wakeup(
         execution_id,
         timeout_seconds=1,
-        event_types={"execution.waiting_for_operation"},
+        event_types={"execution.operation_completed"},
         operation_id=current_operation_id,
     )
 
     assert [event.event_type for event in batch.events] == [
-        "execution.step_succeeded",
-        "execution.waiting_for_operation",
+        "execution.step_completed",
+        "execution.operation_completed",
     ]
     assert len({event.event_id for event in batch.events}) == 2
     assert fake_redis.acked == ["0-0", "1-0", "2-0", "3-0", "4-0"]

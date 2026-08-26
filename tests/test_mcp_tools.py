@@ -191,10 +191,7 @@ async def test_mcp_client_can_query_execution_history_resources(
         )
 
         assert attempts.structured_content["items"] == []
-        assert (
-            events.structured_content["items"][0]["event_type"]
-            == "execution.submitted"
-        )
+        assert events.structured_content["items"] == []
         assert (
             operations.structured_content["items"][0]["operation_id"]
             == operation_id

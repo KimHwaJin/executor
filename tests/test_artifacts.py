@@ -18,6 +18,7 @@ from executor_service.domain.enums import (
     AttemptStatus,
     ExecutionStatus,
     OperationMode,
+    OutboxDestination,
     RuntimePool,
     RuntimeTargetStatus,
     StepStatus,
@@ -271,11 +272,11 @@ async def test_artifact_discovery_manifest_lineage_and_idempotency(
         )
         artifact_events = await session.scalar(
             select(func.count(OutboxEventORM.id)).where(
-                OutboxEventORM.event_type == "execution.artifact_registered"
+                OutboxEventORM.destination == OutboxDestination.EVENTS
             )
         )
     assert artifact_rows == 5
-    assert artifact_events == 5
+    assert artifact_events == 0
 
 
 async def test_manifest_rejects_path_outside_pv(

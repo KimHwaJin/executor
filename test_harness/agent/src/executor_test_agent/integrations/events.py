@@ -10,15 +10,12 @@ from redis.exceptions import ResponseError
 from executor_test_agent.integrations.contracts import ExecutionEventBatch, ExecutionEventEnvelope
 
 TERMINAL_EVENT_TYPES = {
-    "execution.succeeded",
-    "execution.failed",
-    "execution.cancelled",
+    "execution.completed",
 }
 
 MULTI_OPERATION_WAKE_EVENT_TYPES = {
-    "execution.waiting_for_operation",
-    "execution.failed",
-    "execution.cancelled",
+    "execution.operation_completed",
+    "execution.completed",
 }
 
 
@@ -79,7 +76,7 @@ class ExecutionEventWaiter:
                 )
                 for _, messages in batches:
                     for message_id, fields in messages:
-                        if fields.get("aggregate_id") != execution_id:
+                        if fields.get("execution_id") != execution_id:
                             await self._redis.xack(self._stream, self._group, message_id)
                             continue
                         event = ExecutionEventEnvelope.from_redis_fields(fields)
@@ -88,7 +85,12 @@ class ExecutionEventWaiter:
                         if event_id in self._seen_event_ids:
                             continue
                         self._seen_event_ids.add(event_id)
-                        payload_operation_id = event.payload.get("operation_id")
+                        operation = event.payload.get("operation")
+                        payload_operation_id = (
+                            str(operation.get("id"))
+                            if isinstance(operation, dict) and operation.get("id") is not None
+                            else None
+                        )
                         if (
                             operation_id is not None
                             and event.event_type not in TERMINAL_EVENT_TYPES

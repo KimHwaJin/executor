@@ -183,7 +183,8 @@ async def test_expired_cancellation_lease_is_taken_over_and_stale_final_is_rejec
         cancelled_events = await session.scalar(
             select(func.count(OutboxEventORM.id)).where(
                 OutboxEventORM.aggregate_id == execution.id,
-                OutboxEventORM.event_type == "execution.cancelled",
+                OutboxEventORM.event_type == "execution.completed",
+                OutboxEventORM.payload["status"].as_string() == "CANCELLED",
                 OutboxEventORM.status == OutboxStatus.PENDING,
             )
         )

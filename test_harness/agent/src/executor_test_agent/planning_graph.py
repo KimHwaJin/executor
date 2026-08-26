@@ -282,7 +282,10 @@ async def verify_execution(state: PlanningAgentState) -> dict[str, Any]:
             "phase": "FAILED",
         }
     status = str(result["status"])
-    failed_step = any(event.event_type == "execution.step_failed" for event in batch.events)
+    failed_step = any(
+        event.event_type == "execution.step_completed" and event.payload.get("status") == "FAILED"
+        for event in batch.events
+    )
     phase = _phase_after_result(status, failed_step, state)
     message = _result_message(result, failed_step)
     return {

@@ -50,7 +50,6 @@ class DatabaseSnapshot:
     outbox_event_ids: frozenset[str]
     outbox_event_types: tuple[str, ...]
     outbox_statuses: tuple[str, ...]
-    outbox_schema_versions: tuple[str | None, ...]
 
 
 @dataclass(frozen=True)
@@ -336,9 +335,6 @@ async def _database_snapshot(
         outbox_event_ids=frozenset(str(row.id) for row in events),
         outbox_event_types=tuple(row.event_type for row in events),
         outbox_statuses=tuple(_enum_value(row.status) for row in events),
-        outbox_schema_versions=tuple(
-            row.payload.get("schema_version") for row in events
-        ),
     )
 
 
@@ -370,7 +366,7 @@ async def _redis_events(
     return [
         fields
         for _, fields in rows
-        if fields.get("aggregate_id") == execution_id
+        if fields.get("execution_id") == execution_id
     ]
 
 
@@ -392,19 +388,16 @@ def _assert_database(snapshot: DatabaseSnapshot) -> None:
             f"Unexpected PostgreSQL Step Attempt states: {snapshot.step_attempt_statuses}"
         )
     required_events = {
-        "execution.submitted",
         "execution.started",
-        "execution.succeeded",
+        "execution.operation_started",
+        "execution.step_started",
+        "execution.step_completed",
+        "execution.operation_completed",
+        "execution.completed",
     }
     if not required_events.issubset(snapshot.outbox_event_types):
         raise RuntimeError(
             f"Required Outbox events are missing: {snapshot.outbox_event_types}"
-        )
-    if set(snapshot.outbox_schema_versions) != {
-        EXECUTION_EVENT_SCHEMA_VERSION
-    }:
-        raise RuntimeError(
-            f"Unexpected Outbox schema versions: {snapshot.outbox_schema_versions}"
         )
 
 
@@ -531,7 +524,9 @@ async def _run_case(
         envelope.schema_version != EXECUTION_EVENT_SCHEMA_VERSION
         for envelope in envelopes
     ):
-        raise RuntimeError("Redis Stream contains a non-v2 Execution event.")
+        raise RuntimeError(
+            "Redis Stream contains an unsupported event version."
+        )
 
     notebook_path = terminal["workspace"]["notebook_path"]
     if not notebook_path:

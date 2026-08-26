@@ -203,7 +203,8 @@ outputs[].representations[].relative_path
 
 1. Result API가 반환한 `result_ref.relative_path`를 Agent 공유 PV 루트 아래에서 해석한다.
 2. 절대경로, `..`, 공유 루트 이탈 경로는 거부한다.
-3. manifest bytes의 SHA-256을 계산해 `result_ref.checksum_sha256`과 비교한다.
+3. manifest bytes의 크기와 SHA-256을 계산해 각각 `result_ref.size_bytes`,
+   `result_ref.checksum_sha256`과 비교한다.
 4. `schema_version`이 지원하는 `1.0`인지 확인한다.
 5. manifest `identity`가 Result API의 Execution/Step/Attempt/fence와 일치하는지 확인한다.
 6. `state`와 `complete`를 확인한다. `ABORTED` 출력은 부분 증거로만 사용한다.
@@ -213,4 +214,3 @@ outputs[].representations[].relative_path
 
 일반 파일 탐색으로 다른 attempt나 fencing generation을 선택해서는 안 된다. PostgreSQL 원본
 상태가 가리키는 `result_ref`와 그 manifest 내부에 선언된 파일만 읽는다.
-

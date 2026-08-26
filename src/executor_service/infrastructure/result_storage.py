@@ -554,6 +554,7 @@ class FilesystemExecutionResultStore:
             reference=StepResultReference(
                 relative_path=relative,
                 checksum_sha256=_sha256(body),
+                size_bytes=len(body),
                 execution_attempt_id=UUID(
                     str(identity["execution_attempt_id"])
                 ),

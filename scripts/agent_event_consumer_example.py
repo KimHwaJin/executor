@@ -1,4 +1,4 @@
-"""Reference Agent consumer for Executor event contract v2.
+"""Reference Agent consumer for Executor event contract v1.0.
 
 The SQLite database is intentionally local to this example. A production Agent should store the
 same deduplication key and its own state update in one PostgreSQL transaction before ACKing Redis.
@@ -18,9 +18,7 @@ from executor_service.config import get_settings
 from executor_service.events import ExecutionStreamEnvelope
 
 TERMINAL_EVENT_TYPES = {
-    "execution.succeeded",
-    "execution.failed",
-    "execution.cancelled",
+    "execution.completed",
 }
 
 
@@ -59,7 +57,7 @@ def _apply_once(
     """Persist Agent state and its deduplication key atomically."""
 
     event_id = str(event.event_id)
-    execution_id = str(event.aggregate_id)
+    execution_id = str(event.execution_id)
     payload_json = json.dumps(
         event.payload, separators=(",", ":"), sort_keys=True
     )
@@ -126,7 +124,7 @@ async def _consume_message(
     await redis.xack(stream, group, message_id)
     print(
         f"event_id={event.event_id} type={event.event_type} "
-        f"execution_id={event.aggregate_id} applied={applied}"
+        f"execution_id={event.execution_id} applied={applied}"
     )
     return stop_after_terminal and event.event_type in TERMINAL_EVENT_TYPES
 

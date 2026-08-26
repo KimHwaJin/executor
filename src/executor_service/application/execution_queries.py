@@ -115,6 +115,7 @@ class ExecutionStepAttemptView:
     output_summary: dict[str, Any]
     result_manifest_path: str | None
     result_manifest_checksum_sha256: str | None
+    result_manifest_size_bytes: int | None
     result_fencing_token: int | None
     result_complete: bool | None
     result_representation_count: int

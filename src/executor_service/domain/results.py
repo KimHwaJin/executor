@@ -30,6 +30,7 @@ class StepResultIdentity:
 class StepResultReference:
     relative_path: str
     checksum_sha256: str
+    size_bytes: int
     execution_attempt_id: UUID
     fencing_token: int
 

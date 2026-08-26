@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 from datetime import timedelta
+from typing import cast
 
 from opentelemetry.trace import SpanKind
 from redis.asyncio import Redis
@@ -13,7 +14,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from executor_service.domain.enums import OutboxDestination, OutboxStatus
 from executor_service.domain.models import utc_now
-from executor_service.events import validate_execution_event_payload
+from executor_service.events import (
+    EXECUTION_EVENT_SCHEMA_VERSION,
+    validate_execution_event_payload,
+)
 from executor_service.infrastructure.db.models import OutboxEventORM
 from executor_service.tracing import (
     TracingManager,
@@ -99,18 +103,11 @@ class OutboxPublisher:
                         payload = validate_work_payload(
                             event.event_type, event.payload
                         )
-                        id_field = "message_id"
-                        type_field = "message_type"
                     else:
                         payload = validate_execution_event_payload(
                             event.event_type, event.payload
                         )
-                        id_field = "event_id"
-                        type_field = "event_type"
                     if payload != event.payload:
-                        # A deploy may find a pre-v1 PENDING row whose otherwise valid payload is
-                        # missing only version normalization. Upgrade it in the same transaction
-                        # that publishes and marks the row PUBLISHED.
                         event.payload = payload
                     context = extract_trace_context(
                         {
@@ -128,22 +125,44 @@ class OutboxPublisher:
                             "executor.execution.id": str(event.aggregate_id),
                         },
                     ):
-                        fields: dict[FieldT, EncodableT] = {
-                            id_field: str(event.id),
-                            type_field: event.event_type,
-                            "schema_version": str(payload["schema_version"]),
-                            "aggregate_type": event.aggregate_type,
-                            "aggregate_id": str(event.aggregate_id),
-                            "occurred_at": event.created_at.isoformat(),
-                            "payload": json.dumps(
-                                payload, separators=(",", ":")
-                            ),
-                        }
-                        carrier = capture_trace_carrier()
-                        if carrier.traceparent:
-                            fields["traceparent"] = carrier.traceparent
-                        if carrier.tracestate:
-                            fields["tracestate"] = carrier.tracestate
+                        if event.destination == OutboxDestination.WORK:
+                            fields = cast(
+                                dict[FieldT, EncodableT],
+                                {
+                                    "message_id": str(event.id),
+                                    "message_type": event.event_type,
+                                    "schema_version": str(
+                                        payload["schema_version"]
+                                    ),
+                                    "aggregate_type": event.aggregate_type,
+                                    "aggregate_id": str(event.aggregate_id),
+                                    "occurred_at": event.created_at.isoformat(),
+                                    "payload": json.dumps(
+                                        payload, separators=(",", ":")
+                                    ),
+                                },
+                            )
+                            carrier = capture_trace_carrier()
+                            if carrier.traceparent:
+                                fields["traceparent"] = carrier.traceparent
+                            if carrier.tracestate:
+                                fields["tracestate"] = carrier.tracestate
+                        else:
+                            fields = cast(
+                                dict[FieldT, EncodableT],
+                                {
+                                    "event_id": str(event.id),
+                                    "event_type": event.event_type,
+                                    "schema_version": (
+                                        EXECUTION_EVENT_SCHEMA_VERSION
+                                    ),
+                                    "execution_id": str(event.aggregate_id),
+                                    "payload": json.dumps(
+                                        payload, separators=(",", ":")
+                                    ),
+                                    "occurred_at": event.created_at.isoformat(),
+                                },
+                            )
                         await self._redis.xadd(
                             self._stream_names[event.destination], fields
                         )

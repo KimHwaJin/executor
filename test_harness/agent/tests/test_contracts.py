@@ -66,27 +66,24 @@ def test_single_execution_rejects_follow_up_operations() -> None:
         )
 
 
-def test_event_envelope_validates_common_v2_fields() -> None:
+def test_event_envelope_validates_v1_fields() -> None:
     execution_id = uuid4()
     event = ExecutionEventEnvelope.from_redis_fields(
         {
             "event_id": str(uuid4()),
-            "event_type": "execution.succeeded",
-            "schema_version": "2.0",
-            "aggregate_type": "Execution",
-            "aggregate_id": str(execution_id),
+            "event_type": "execution.completed",
+            "schema_version": "1.0",
+            "execution_id": str(execution_id),
             "occurred_at": "2026-08-13T00:00:00Z",
             "payload": json.dumps(
                 {
-                    "schema_version": "2.0",
-                    "execution_id": str(execution_id),
                     "status": "SUCCEEDED",
                 }
             ),
         }
     )
 
-    assert event.aggregate_id == execution_id
+    assert event.execution_id == execution_id
     assert event.payload["status"] == "SUCCEEDED"
 
 
@@ -95,24 +92,21 @@ def test_event_batch_requires_wake_event_to_be_last() -> None:
     first = ExecutionEventEnvelope.model_validate(
         {
             "event_id": uuid4(),
-            "event_type": "execution.step_succeeded",
-            "schema_version": "2.0",
-            "aggregate_type": "Execution",
-            "aggregate_id": execution_id,
+            "event_type": "execution.step_completed",
+            "schema_version": "1.0",
+            "execution_id": execution_id,
             "occurred_at": "2026-08-13T00:00:00Z",
             "payload": {
-                "schema_version": "2.0",
-                "execution_id": str(execution_id),
                 "status": "SUCCEEDED",
             },
         }
     )
     wake = first.model_copy(
-        update={"event_id": uuid4(), "event_type": "execution.waiting_for_operation"}
+        update={"event_id": uuid4(), "event_type": "execution.operation_completed"}
     )
 
     batch = ExecutionEventBatch(events=[first, wake], wake_event=wake)
-    assert batch.wake_event.event_type == "execution.waiting_for_operation"
+    assert batch.wake_event.event_type == "execution.operation_completed"
 
     with pytest.raises(ValidationError, match="last event"):
         ExecutionEventBatch(events=[first, wake], wake_event=first)
@@ -121,20 +115,19 @@ def test_event_batch_requires_wake_event_to_be_last() -> None:
         ExecutionEventBatch(events=[first, first], wake_event=first)
 
 
-def test_event_envelope_rejects_mismatched_execution_id() -> None:
+def test_event_envelope_rejects_legacy_envelope_fields() -> None:
     with pytest.raises(ValidationError):
         ExecutionEventEnvelope.from_redis_fields(
             {
                 "event_id": str(uuid4()),
-                "event_type": "execution.failed",
-                "schema_version": "2.0",
+                "event_type": "execution.completed",
+                "schema_version": "1.0",
                 "aggregate_type": "Execution",
                 "aggregate_id": str(uuid4()),
+                "execution_id": str(uuid4()),
                 "occurred_at": "2026-08-13T00:00:00Z",
                 "payload": json.dumps(
                     {
-                        "schema_version": "2.0",
-                        "execution_id": str(uuid4()),
                         "status": "FAILED",
                     }
                 ),

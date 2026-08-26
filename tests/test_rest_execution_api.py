@@ -571,10 +571,8 @@ async def test_single_execution_rest_lifecycle_and_queries(
     assert steps.json()["items"][0]["execution_id"] == execution_id
     assert step.json()["lineage"]["tool_name"] == "load_data"
     assert attempts.json()["items"] == []
-    assert events.json()["items"][0]["event_type"] == "execution.submitted"
-    assert events.json()["items"][0]["payload"]["schema_version"] == "2.0"
+    assert events.json()["items"] == []
     assert artifacts.json()["items"] == []
-    assert events.json()["items"][0]["delivery"]["status"] == "PENDING"
     assert body["created_by_type"] == "USER"
     assert body["created_by"] == "rest-user"
 
@@ -691,6 +689,7 @@ async def test_attempt_detail_and_step_attempt_routes(
                     "manifest.json"
                 ),
                 result_manifest_checksum_sha256="c" * 64,
+                result_manifest_size_bytes=128,
                 result_complete=True,
                 result_representation_count=1,
                 result_total_size_bytes=4,

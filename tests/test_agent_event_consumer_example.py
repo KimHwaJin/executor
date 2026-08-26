@@ -27,28 +27,25 @@ def test_agent_example_applies_one_event_id_exactly_once(
     execution_id = uuid4()
     event = build_execution_event(
         execution_id=execution_id,
-        event_type="execution.succeeded",
+        event_type="execution.completed",
         payload={
             "status": "SUCCEEDED",
-            "failure_type": None,
-            "retry_strategy": "NOT_RETRYABLE",
-            "retry_from_sequence": None,
-            "runtime_session_cleanup_status": "SUCCEEDED",
-            "result_available": True,
-            "result_ref": {
-                "scope": "EXECUTION",
-                "operation_id": None,
-                "step_id": None,
+            "operation_summary": {
+                "total": 1,
+                "succeeded": 1,
+                "failed": 0,
+                "cancelled": 0,
             },
+            "retry": None,
+            "error": None,
         },
     )
     envelope = ExecutionStreamEnvelope.from_redis_fields(
         {
             "event_id": str(event.id),
             "event_type": event.event_type,
-            "schema_version": "2.0",
-            "aggregate_type": "Execution",
-            "aggregate_id": str(execution_id),
+            "schema_version": "1.0",
+            "execution_id": str(execution_id),
             "occurred_at": event.created_at.isoformat(),
             "payload": json.dumps(event.payload),
         }
@@ -73,4 +70,4 @@ def test_agent_example_applies_one_event_id_exactly_once(
     finally:
         verification.close()
     assert consumed_count == (1,)
-    assert current_state == ("execution.succeeded", "SUCCEEDED")
+    assert current_state == ("execution.completed", "SUCCEEDED")

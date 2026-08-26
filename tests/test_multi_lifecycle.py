@@ -410,19 +410,17 @@ def _reset_fake_gateway() -> None:
 
 
 @pytest.mark.parametrize(
-    ("fail_code", "expected_status", "expected_steps", "expected_event"),
+    ("fail_code", "expected_status", "expected_steps"),
     [
         (
             None,
             OperationStatus.SUCCEEDED,
             [StepStatus.SUCCEEDED, StepStatus.SUCCEEDED, StepStatus.SUCCEEDED],
-            "execution.operation_succeeded",
         ),
         (
             "raise expected",
             OperationStatus.FAILED,
             [StepStatus.SUCCEEDED, StepStatus.FAILED, StepStatus.SKIPPED],
-            "execution.operation_failed",
         ),
     ],
 )
@@ -434,7 +432,6 @@ async def test_multi_operation_executes_submitted_steps_until_boundary(
     fail_code: str | None,
     expected_status: OperationStatus,
     expected_steps: list[StepStatus],
-    expected_event: str,
 ) -> None:
     command = _multi_command(f"operation-{expected_status.value.lower()}")
     command = replace(
@@ -484,7 +481,10 @@ async def test_multi_operation_executes_submitted_steps_until_boundary(
             await session.scalars(
                 select(OutboxEventORM).where(
                     OutboxEventORM.aggregate_id == execution.id,
-                    OutboxEventORM.event_type == expected_event,
+                    OutboxEventORM.event_type
+                    == "execution.operation_completed",
+                    OutboxEventORM.payload["status"].as_string()
+                    == expected_status.value,
                 )
             )
         )
@@ -493,9 +493,7 @@ async def test_multi_operation_executes_submitted_steps_until_boundary(
                 select(OutboxEventORM)
                 .where(
                     OutboxEventORM.aggregate_id == execution.id,
-                    OutboxEventORM.event_type.in_(
-                        ["execution.step_succeeded", "execution.step_failed"]
-                    ),
+                    OutboxEventORM.event_type == "execution.step_completed",
                 )
                 .order_by(OutboxEventORM.created_at)
             )
@@ -532,37 +530,34 @@ async def test_multi_operation_executes_submitted_steps_until_boundary(
         [True, True, True] if fail_code is None else [True, True, False]
     )
     assert len(events) == 1
-    assert events[0].payload["operation_id"] == str(operation.id)
+    assert events[0].payload["operation"]["id"] == str(operation.id)
     assert len(step_result_events) == (3 if fail_code is None else 2)
-    assert [event.payload["sequence"] for event in step_result_events] == list(
-        range(len(step_result_events))
-    )
+    assert [
+        event.payload["step"]["sequence"] for event in step_result_events
+    ] == list(range(len(step_result_events)))
     for index, event in enumerate(step_result_events, start=1):
-        assert event.payload["operation_id"] == str(operation.id)
-        assert event.payload["step_id"] == str(steps[index - 1].id)
-        assert event.payload["result_available"] is True
+        assert event.payload["operation"]["id"] == str(operation.id)
+        assert event.payload["step"]["id"] == str(steps[index - 1].id)
         result_ref = event.payload["result_ref"]
-        assert result_ref["scope"] == "STEP"
         assert result_ref["storage"] == "SHARED_PV"
         assert result_ref["relative_path"].startswith("executions/")
         assert len(result_ref["checksum_sha256"]) == 64
-        assert result_ref["execution_attempt_id"] == str(
+        assert result_ref["size_bytes"] > 0
+        assert event.payload["attempt"]["id"] == str(
             operation.execution_attempt_id
         )
-        assert result_ref["fencing_token"] >= 1
         assert "outputs" not in event.payload
         assert "content" not in event.payload
         assert "base64" not in str(event.payload).lower()
-        assert event.payload["output_summary"]["output_count"] > 0
-        assert event.payload.get("execution_count") == (
-            None if event.event_type == "execution.step_failed" else index
-        )
+        assert event.payload["output_summary"]["count"] > 0
     result_positions = [
         index
         for index, event_type in enumerate(ordered_event_types)
-        if event_type in {"execution.step_succeeded", "execution.step_failed"}
+        if event_type == "execution.step_completed"
     ]
-    assert max(result_positions) < ordered_event_types.index(expected_event)
+    assert max(result_positions) < ordered_event_types.index(
+        "execution.operation_completed"
+    )
 
 
 @pytest.mark.parametrize(
@@ -671,14 +666,7 @@ async def test_multi_timeout_requires_confirmed_abort_before_transition(
     assert row.runtime_session_cleanup_status == expected_cleanup_status
     assert operation.status == OperationStatus.FAILED
     assert step.status == StepStatus.FAILED
-    assert [event.event_type for event in abort_events] == [
-        "execution.runtime_abort_started",
-        (
-            "execution.runtime_abort_failed"
-            if expected_abort_status == RuntimeAbortStatus.FAILED
-            else "execution.runtime_abort_completed"
-        ),
-    ]
+    assert abort_events == []
     assert RecordingMultiDriver.deleted == (
         []
         if abort_status == RuntimeAbortStatus.IDLE_CONFIRMED
@@ -745,11 +733,8 @@ async def test_multi_output_limit_waits_for_correction_after_safe_abort(
     assert step.status == StepStatus.FAILED
     assert step.result_complete is False
     assert {
-        "execution.runtime_abort_started",
-        "execution.runtime_abort_completed",
-        "execution.step_failed",
-        "execution.operation_failed",
-        "execution.waiting_for_operation",
+        "execution.step_completed",
+        "execution.operation_completed",
     }.issubset(event_types)
 
 
@@ -973,7 +958,8 @@ async def test_expired_multi_wait_fails_and_cleans_kernel_once(
         failed_events = await session.scalar(
             select(func.count(OutboxEventORM.id)).where(
                 OutboxEventORM.aggregate_id == execution.id,
-                OutboxEventORM.event_type == "execution.failed",
+                OutboxEventORM.event_type == "execution.completed",
+                OutboxEventORM.payload["status"].as_string() == "FAILED",
             )
         )
     assert row is not None and attempt is not None
@@ -1137,7 +1123,8 @@ async def test_running_execution_deadline_requests_cancel_and_reclaims_kernel(
         timeout_events = await session.scalar(
             select(func.count(OutboxEventORM.id)).where(
                 OutboxEventORM.aggregate_id == execution.id,
-                OutboxEventORM.event_type == "execution.timeout_requested",
+                OutboxEventORM.event_type == "execution.completed",
+                OutboxEventORM.payload["status"].as_string() == "CANCELLED",
             )
         )
     assert row is not None

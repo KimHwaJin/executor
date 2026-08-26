@@ -475,8 +475,12 @@ MULTI 성공 예시:
 ```json
 {
   "status": "FAILED",
-  "execution_status": "FAILED",
-  "continuation": null,
+  "execution_status": "WAITING_FOR_OPERATION",
+  "continuation": {
+    "allowed": true,
+    "expected_version": 4,
+    "expires_at": "2026-08-26T10:25:40.123Z"
+  },
   "error": {
     "code": "OPERATION_STEP_FAILED",
     "message": "Operation stopped because a step failed.",
@@ -499,15 +503,21 @@ MULTI 성공 예시:
 `step_summary.completed`는 성공, 실패, 취소 Step의 합이다. 실행되지 않은 Step 수는
 `total - completed`로 계산한다.
 
-`step_results`는 sequence 순으로 정렬한다. Retry된 Step은 과거 Attempt를 모두
+`step_results`는 sequence 순으로 정렬하며, 저장이 완료되어 참조할 수 있는 Step 결과만
+포함한다. 따라서 결과 파일이 없는 취소 Step이나 비정상 복구 상태에서는
+`step_summary.completed`보다 항목 수가 적을 수 있다. Retry된 Step은 과거 Attempt를 모두
 나열하지 않고 Operation 종료 시점의 최종 Attempt만 포함한다. 전체 Attempt 이력은
 Result API로 확인한다.
 
 `continuation`은 다음 조건을 모두 만족할 때만 객체로 제공한다.
 
 - lifecycle이 MULTI임
-- Operation이 성공함
+- Execution이 `WAITING_FOR_OPERATION` 상태임
 - 다음 Operation 접수 가능 시간이 지나지 않음
+
+따라서 Operation이 실패해도 Runtime Session을 안전하게 유지했고 후속 보정 Operation을
+받을 수 있다면 `continuation`을 제공한다. Runtime Session을 잃었거나 Execution 자체가
+종료됐다면 `null`이다.
 
 그 외에는 `null`이다. `expected_version`은 다음 Operation 요청의 낙관적 잠금 값이며,
 `expires_at`은 접수 만료 시각이다.
@@ -559,11 +569,10 @@ Execution의 현재 수행 주기가 `SUCCEEDED`, `FAILED` 또는 `CANCELLED`로
     "retry": {
       "allowed": true,
       "from_step_id": "step-02K...",
-      "expected_version": 7,
       "expires_at": "2026-08-27T10:20:00.123Z"
     },
     "error": {
-      "code": "EXECUTION_STEP_FAILED",
+      "code": "EXECUTION_TOOL_ERROR",
       "message": "Execution stopped because a step failed.",
       "operation_id": "op-02K...",
       "step_id": "step-02K...",
@@ -584,12 +593,18 @@ Execution의 현재 수행 주기가 `SUCCEEDED`, `FAILED` 또는 `CANCELLED`로
 | `retry` | object 또는 null | O | 재시도 접수 정보 |
 | `error` | object 또는 null | O | 실패 또는 취소 요약 |
 
+`operation_summary.total`에는 등록된 모든 Operation이 포함된다. 인프라 장애 복구처럼
+Execution이 Operation 상태를 종결하기 전에 종료된 예외 상황에서는 성공, 실패, 취소의
+합이 `total`보다 작을 수 있다.
+
 `retry`는 기술적 재시도 가능 여부와 Executor의 Retry Window 정책을 모두 만족할 때만
 객체로 제공한다.
 
 - `from_step_id`: 재시작할 실패 Step ID
-- `expected_version`: Retry 요청에 사용할 낙관적 잠금 버전
 - `expires_at`: Retry 요청 만료 시각
+
+Retry API는 `expected_version`을 받지 않는다. `idempotency_key`와 Executor가 보관한
+실패·Runtime 상태를 기준으로 재시도를 접수한다.
 
 실패 후 Retry가 수행되면 새로운 Step Attempt 이벤트부터 다시 시작하고, 다시 종료될
 때 같은 `execution_id`로 새로운 `execution.completed`를 발행한다.
@@ -628,7 +643,11 @@ POST /api/v1/executions/{execution_id}/finalize
 → execution.completed
 ```
 
-### 13.3 Step 실패 후 Retry
+Operation이 실패했더라도 `execution.operation_completed`의 `continuation.allowed`가
+`true`이면 Agent는 실패 결과를 읽고 보정 Operation을 추가할 수 있다. 이 경계에서는
+`execution.completed`를 발행하지 않는다.
+
+### 13.3 SINGLE Step 실패 후 Retry
 
 ```text
 execution.started
