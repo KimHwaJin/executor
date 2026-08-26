@@ -31,6 +31,7 @@ __all__ = [
     "ExecutionOperationCreateRequest",
     "ExecutionRetryRequest",
     "ExecutionSubmitRequest",
+    "ExecutorMaintenanceMutationRequest",
     "RuntimeTargetMutationRequest",
     "RuntimeTargetProbeRequest",
     "RuntimeTargetPurgeRequest",
@@ -41,6 +42,11 @@ __all__ = [
 
 class HTTPModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+class ExecutorMaintenanceMutationRequest(HTTPModel):
+    idempotency_key: str = Field(min_length=1, max_length=255)
+    actor: ActorInput
 
 
 class RuntimeTargetProbeRequest(HTTPModel):

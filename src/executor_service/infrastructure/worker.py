@@ -81,6 +81,9 @@ from executor_service.infrastructure.execution_leases import (
     require_active_cancellation_lease,
     require_active_lease,
 )
+from executor_service.infrastructure.maintenance import (
+    ExecutorMaintenanceService,
+)
 from executor_service.infrastructure.result_storage import (
     FilesystemExecutionResultStore,
 )
@@ -1114,6 +1117,13 @@ class ExecutionWorker:
                 ExecutionStatus.QUEUED,
                 ExecutionStatus.FINALIZING,
             }:
+                return None
+            if (
+                execution_row.runtime_session_id is None
+                and not await ExecutorMaintenanceService.admission_is_active(
+                    session, lock=True
+                )
+            ):
                 return None
             operation: ExecutionOperationORM | None = None
             if (

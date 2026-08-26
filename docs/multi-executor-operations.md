@@ -21,8 +21,16 @@ source of truth; Redis only wakes a Worker.
   Execution. After lease expiry, exactly one replacement Pod can continue the idempotent cleanup.
 - A Redis message is acknowledged after dispatch, not after a multi-day execution completes.
   PostgreSQL status, leases, and reconciliation own the long-running lifecycle.
+- Executor-wide admission is a singleton PostgreSQL state. A new claim takes a shared lock on that
+  row, while drain or activate takes an exclusive lock, so the drain response cannot race with a
+  late claim in another Pod.
 
 ## Graceful shutdown and process crash
+
+Operator-requested global drain is separate from the local shutdown behavior below. Use
+`POST /api/v1/maintenance/drain` to stop new Runtime allocation across every Pod while keeping the
+service ready for queries, cancellation, and later activation. Submissions remain queued and
+existing MULTI Runtime sessions may continue. See [Executor Maintenance](executor-maintenance.md).
 
 On graceful shutdown, the owning Worker first enters `DRAINING`: it rejects new claims, cancels its
 Redis intake and queue reconciliation loops, and makes `/readyz` fail through the

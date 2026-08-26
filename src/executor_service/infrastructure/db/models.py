@@ -31,6 +31,7 @@ from executor_service.domain.enums import (
     AttemptStatus,
     CodeSourceType,
     ExecutionStatus,
+    ExecutorAdmissionState,
     FailureType,
     OperationMode,
     OperationStatus,
@@ -965,6 +966,48 @@ class CommandReceiptORM(Base):
     result: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utc_now
+    )
+
+
+class ExecutorMaintenanceORM(Base):
+    """Singleton state shared by every Executor Worker replica."""
+
+    __tablename__ = "executor_maintenance"
+    __table_args__ = (
+        *audit_actor_constraints(),
+        CheckConstraint("singleton_key = 'executor'", name="singleton_key"),
+        CheckConstraint(
+            "admission_state IN ('ACTIVE', 'DRAINING')",
+            name="valid_admission_state",
+        ),
+        CheckConstraint("version >= 0", name="non_negative_version"),
+    )
+
+    singleton_key: Mapped[str] = mapped_column(
+        String(32), primary_key=True, default="executor"
+    )
+    admission_state: Mapped[ExecutorAdmissionState] = mapped_column(
+        enum_type(ExecutorAdmissionState, "executor_admission_state"),
+        nullable=False,
+        default=ExecutorAdmissionState.ACTIVE,
+    )
+    version: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    created_by_type: Mapped[ActorType | None] = mapped_column(
+        enum_type(ActorType, "actor_type"), nullable=True
+    )
+    created_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    updated_by_type: Mapped[ActorType | None] = mapped_column(
+        enum_type(ActorType, "actor_type"), nullable=True
+    )
+    updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
     )
 
 
