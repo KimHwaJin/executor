@@ -1,8 +1,11 @@
 import json
 import runpy
 import sqlite3
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
+
+import pytest
 
 from executor_service.events import (
     ExecutionStreamEnvelope,
@@ -19,6 +22,7 @@ EXAMPLE = runpy.run_path(
 )
 apply_once = EXAMPLE["_apply_once"]
 open_state_database = EXAMPLE["_open_state_database"]
+EventSequenceGapError = EXAMPLE["EventSequenceGapError"]
 
 
 def test_agent_example_applies_one_event_id_exactly_once(
@@ -27,6 +31,7 @@ def test_agent_example_applies_one_event_id_exactly_once(
     execution_id = uuid4()
     event = build_execution_event(
         execution_id=execution_id,
+        event_sequence=1,
         event_type="execution.completed",
         payload={
             "status": "SUCCEEDED",
@@ -46,6 +51,7 @@ def test_agent_example_applies_one_event_id_exactly_once(
             "event_type": event.event_type,
             "schema_version": "1.0",
             "execution_id": str(execution_id),
+            "event_sequence": "1",
             "occurred_at": event.created_at.isoformat(),
             "payload": json.dumps(event.payload),
         }
@@ -64,10 +70,42 @@ def test_agent_example_applies_one_event_id_exactly_once(
             "SELECT COUNT(*) FROM consumed_executor_events"
         ).fetchone()
         current_state = verification.execute(
-            "SELECT event_type, status FROM agent_execution_state WHERE execution_id = ?",
+            """
+            SELECT last_event_sequence, event_type, status
+            FROM agent_execution_state
+            WHERE execution_id = ?
+            """,
             (str(execution_id),),
         ).fetchone()
     finally:
         verification.close()
     assert consumed_count == (1,)
-    assert current_state == ("execution.completed", "SUCCEEDED")
+    assert current_state == (1, "execution.completed", "SUCCEEDED")
+
+
+def test_agent_example_requires_history_recovery_for_a_gap(
+    tmp_path: Path,
+) -> None:
+    envelope = ExecutionStreamEnvelope(
+        event_id=uuid4(),
+        event_type="execution.started",
+        schema_version="1.0",
+        execution_id=uuid4(),
+        event_sequence=2,
+        payload={
+            "status": "RUNNING",
+            "runtime": {
+                "provider": "JUPYTER",
+                "profile": "basic",
+                "target_id": str(uuid4()),
+                "session_id": "kernel-1",
+            },
+        },
+        occurred_at=datetime.now(UTC),
+    )
+    state = open_state_database(tmp_path / "agent-events.db")
+    try:
+        with pytest.raises(EventSequenceGapError):
+            apply_once(state, envelope)
+    finally:
+        state.close()

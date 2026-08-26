@@ -74,6 +74,7 @@ def test_event_envelope_validates_v1_fields() -> None:
             "event_type": "execution.completed",
             "schema_version": "1.0",
             "execution_id": str(execution_id),
+            "event_sequence": "1",
             "occurred_at": "2026-08-13T00:00:00Z",
             "payload": json.dumps(
                 {
@@ -95,6 +96,7 @@ def test_event_batch_requires_wake_event_to_be_last() -> None:
             "event_type": "execution.step_completed",
             "schema_version": "1.0",
             "execution_id": execution_id,
+            "event_sequence": 1,
             "occurred_at": "2026-08-13T00:00:00Z",
             "payload": {
                 "status": "SUCCEEDED",
@@ -102,7 +104,11 @@ def test_event_batch_requires_wake_event_to_be_last() -> None:
         }
     )
     wake = first.model_copy(
-        update={"event_id": uuid4(), "event_type": "execution.operation_completed"}
+        update={
+            "event_id": uuid4(),
+            "event_type": "execution.operation_completed",
+            "event_sequence": 2,
+        }
     )
 
     batch = ExecutionEventBatch(events=[first, wake], wake_event=wake)
@@ -125,6 +131,7 @@ def test_event_envelope_rejects_legacy_envelope_fields() -> None:
                 "aggregate_type": "Execution",
                 "aggregate_id": str(uuid4()),
                 "execution_id": str(uuid4()),
+                "event_sequence": "1",
                 "occurred_at": "2026-08-13T00:00:00Z",
                 "payload": json.dumps(
                     {

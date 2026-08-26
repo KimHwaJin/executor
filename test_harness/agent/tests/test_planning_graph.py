@@ -39,7 +39,10 @@ def _event(
 
 
 def _batch(*events: dict[str, Any]) -> ExecutionEventBatch:
-    return ExecutionEventBatch.model_validate({"events": list(events), "wake_event": events[-1]})
+    ordered = [
+        {**event, "event_sequence": sequence} for sequence, event in enumerate(events, start=1)
+    ]
+    return ExecutionEventBatch.model_validate({"events": ordered, "wake_event": ordered[-1]})
 
 
 def _plan(mode: str = "SINGLE") -> ExecutionPlan:

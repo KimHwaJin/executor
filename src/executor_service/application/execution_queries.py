@@ -187,6 +187,8 @@ class ExecutionOperationView:
 @dataclass(frozen=True, slots=True)
 class ExecutionEventView:
     id: UUID
+    execution_id: UUID
+    event_sequence: int
     event_type: str
     payload: dict[str, Any]
     delivery_status: OutboxStatus
@@ -320,6 +322,7 @@ class ExecutionQueryService(Protocol):
         self,
         execution_id: UUID,
         *,
+        after_sequence: int = 0,
         cursor: str | None = None,
         limit: int = 200,
     ) -> Page[ExecutionEventView]: ...

@@ -5,6 +5,7 @@ import os
 from collections.abc import AsyncIterator
 from datetime import timedelta
 from pathlib import Path
+from time import perf_counter
 from uuid import uuid4
 
 import pytest
@@ -50,9 +51,11 @@ from executor_service.domain.enums import (
     TriggerType,
 )
 from executor_service.domain.models import utc_now
+from executor_service.events import build_execution_event
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
+    ExecutionEventSequenceORM,
     ExecutionOperationORM,
     ExecutionORM,
     ExecutionStepORM,
@@ -85,6 +88,9 @@ from executor_service.infrastructure.runtime_registry import (
 )
 from executor_service.infrastructure.worker import ExecutionWorker
 from executor_service.tracing import TracingManager
+from scripts.postgres_query_plan_smoke import (
+    ORDERED_EVENT_PUBLICATION_QUERY,
+)
 from tests.runtime_credentials import runtime_credential_fields
 
 pytestmark = pytest.mark.postgres
@@ -691,8 +697,36 @@ async def test_concurrent_outbox_publishers_emit_one_stream_message(
     tmp_path: Path,
 ) -> None:
     service = _service(postgres_engine, tmp_path)
-    await service.submit(_command("outbox-once"))
+    execution = await service.submit(_command("outbox-once"))
     session_factory = create_session_factory(postgres_engine)
+    async with session_factory() as session, session.begin():
+        session.add_all(
+            [
+                OutboxEventORM.from_domain(
+                    build_execution_event(
+                        execution_id=execution.id,
+                        event_sequence=sequence,
+                        event_type="execution.started",
+                        payload={
+                            "status": "RUNNING",
+                            "runtime": {
+                                "provider": "JUPYTER",
+                                "profile": "basic",
+                                "target_id": str(uuid4()),
+                                "session_id": "kernel-outbox-once",
+                            },
+                        },
+                    )
+                )
+                for sequence in (1, 2)
+            ]
+        )
+        session.add(
+            ExecutionEventSequenceORM(
+                execution_id=execution.id,
+                last_sequence=2,
+            )
+        )
     unique = uuid4().hex
     stream = f"test:executor:postgres-outbox:{unique}"
     event_stream = f"{stream}:events"
@@ -720,7 +754,10 @@ async def test_concurrent_outbox_publishers_emit_one_stream_message(
     messages: list[tuple[str, dict[str, str]]] = []
     event_messages: list[tuple[str, dict[str, str]]] = []
     try:
-        published = await asyncio.gather(
+        first_round = await asyncio.gather(
+            *(publisher.publish_batch() for publisher in publishers)
+        )
+        second_round = await asyncio.gather(
             *(publisher.publish_batch() for publisher in publishers)
         )
         messages = await redis_clients[0].xrange(stream)
@@ -735,10 +772,162 @@ async def test_concurrent_outbox_publishers_emit_one_stream_message(
                 OutboxEventORM.status == OutboxStatus.PUBLISHED
             )
         )
-    assert sum(published) == 2
+    assert sum(first_round) + sum(second_round) == 3
     assert len(messages) == 1
-    assert len(event_messages) == 1
-    assert published_rows == 2
+    assert len(event_messages) == 2
+    assert [int(fields["event_sequence"]) for _, fields in event_messages] == [
+        1,
+        2,
+    ]
+    assert published_rows == 3
+
+
+async def test_ordered_outbox_backlog_load(
+    postgres_engine: AsyncEngine,
+    tmp_path: Path,
+) -> None:
+    execution_count = int(
+        os.getenv("EXECUTOR_OUTBOX_LOAD_EXECUTION_COUNT", "5")
+    )
+    events_per_execution = int(
+        os.getenv("EXECUTOR_OUTBOX_LOAD_EVENTS_PER_EXECUTION", "100")
+    )
+    minimum_events_per_second = float(
+        os.getenv("EXECUTOR_OUTBOX_LOAD_MIN_EVENTS_PER_SECOND", "0")
+    )
+    assert execution_count >= 1
+    assert events_per_execution >= 1
+
+    service = _service(postgres_engine, tmp_path)
+    executions = [
+        await service.submit(_command(f"outbox-load-{index}"))
+        for index in range(execution_count)
+    ]
+    target_id = uuid4()
+    session_factory = create_session_factory(postgres_engine)
+    async with session_factory() as session, session.begin():
+        session.add_all(
+            [
+                OutboxEventORM.from_domain(
+                    build_execution_event(
+                        execution_id=execution.id,
+                        event_sequence=sequence,
+                        event_type="execution.started",
+                        payload={
+                            "status": "RUNNING",
+                            "runtime": {
+                                "provider": "JUPYTER",
+                                "profile": "basic",
+                                "target_id": str(target_id),
+                                "session_id": f"load-{execution.id}",
+                            },
+                        },
+                    )
+                )
+                for execution in executions
+                for sequence in range(1, events_per_execution + 1)
+            ]
+        )
+        session.add_all(
+            [
+                ExecutionEventSequenceORM(
+                    execution_id=execution.id,
+                    last_sequence=events_per_execution,
+                )
+                for execution in executions
+            ]
+        )
+
+    unique = uuid4().hex
+    work_stream = f"test:executor:outbox-load:{unique}:work"
+    event_stream = f"test:executor:outbox-load:{unique}:events"
+    settings = Settings(
+        runtime_enabled=False,
+        redis_work_stream=work_stream,
+        redis_event_stream=event_stream,
+    )
+    redis_clients = [
+        Redis.from_url(_redis_test_url(), decode_responses=True)
+        for _ in range(2)
+    ]
+    publishers = [
+        OutboxPublisher(
+            session_factory=session_factory,
+            redis=redis,
+            work_stream_name=work_stream,
+            event_stream_name=event_stream,
+            poll_interval_seconds=0.01,
+            batch_size=100,
+            tracing=TracingManager(settings),
+        )
+        for redis in redis_clients
+    ]
+    expected_count = execution_count * (events_per_execution + 1)
+    published_count = 0
+    rounds = 0
+    started_at = perf_counter()
+    try:
+        while published_count < expected_count:
+            counts = await asyncio.gather(
+                *(publisher.publish_batch() for publisher in publishers)
+            )
+            published_this_round = sum(counts)
+            if published_this_round == 0:
+                raise AssertionError(
+                    "Ordered Outbox backlog stopped making progress."
+                )
+            published_count += published_this_round
+            rounds += 1
+            if rounds > events_per_execution + execution_count + 10:
+                raise AssertionError(
+                    "Ordered Outbox backlog required unexpected extra rounds."
+                )
+        elapsed_seconds = perf_counter() - started_at
+        event_messages = await redis_clients[0].xrange(event_stream)
+        work_messages = await redis_clients[0].xrange(work_stream)
+    finally:
+        await redis_clients[0].delete(work_stream, event_stream)
+        await _close_redis(redis_clients)
+
+    sequences_by_execution = {
+        str(execution.id): [] for execution in executions
+    }
+    for _, fields in event_messages:
+        sequences_by_execution[fields["execution_id"]].append(
+            int(fields["event_sequence"])
+        )
+    expected_sequences = list(range(1, events_per_execution + 1))
+    assert all(
+        sequences == expected_sequences
+        for sequences in sequences_by_execution.values()
+    )
+    assert len(event_messages) == execution_count * events_per_execution
+    assert len(work_messages) == execution_count
+    events_per_second = len(event_messages) / elapsed_seconds
+    print(
+        {
+            "execution_count": execution_count,
+            "events_per_execution": events_per_execution,
+            "published_event_count": len(event_messages),
+            "publisher_rounds": rounds,
+            "elapsed_seconds": round(elapsed_seconds, 6),
+            "events_per_second": round(events_per_second, 2),
+        }
+    )
+    if minimum_events_per_second > 0:
+        assert events_per_second >= minimum_events_per_second
+
+
+async def test_ordered_outbox_query_uses_pending_event_index(
+    postgres_engine: AsyncEngine,
+) -> None:
+    async with postgres_engine.begin() as connection:
+        await connection.execute(text("SET LOCAL enable_seqscan = off"))
+        result = await connection.execute(
+            text(f"EXPLAIN (COSTS OFF) {ORDERED_EVENT_PUBLICATION_QUERY}")
+        )
+    plan = "\n".join(str(row[0]) for row in result)
+    assert "ix_outbox_pending_event_order" in plan, plan
 
 
 async def test_bounded_pool_times_out_instead_of_opening_unlimited_connections(

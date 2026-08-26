@@ -79,6 +79,19 @@ SINGLE rejects `operation_wait_timeout_seconds`. MULTI requires it and supports 
 triggering. `operation_timeout_seconds` limits all Steps in that Operation; each
 `step_timeout_seconds` limits just its Step.
 
+## Event history and gap recovery
+
+`GET /executions/{execution_id}/events`는 `event_sequence` 오름차순으로 공개 lifecycle
+이벤트를 반환한다. Agent Subscriber가 Redis에서 순번 누락을 발견했을 때만
+`after_sequence={last_event_sequence}`로 누락 구간을 조회한다. 응답이 여러 페이지면
+`next_cursor`를 그대로 다음 요청의 `cursor`로 전달한다. 정상적인 연속 Redis 전달에는
+이 API를 호출할 필요가 없다.
+
+전체 이벤트 Envelope, 타입별 payload 및 소비 알고리즘은 다음 문서를 참고한다.
+
+- [Redis Execution Event Contract 1.0](../dev_docs/redis-execution-events.md)
+- [Agent Execution Event Consumer Guide](../dev_docs/agent-execution-event-consumer-guide.md)
+
 The command receipt includes Executor-owned IDs:
 
 ```json

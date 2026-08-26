@@ -26,6 +26,7 @@ class ExecutionEventEnvelope(BaseModel):
     ]
     schema_version: Literal["1.0"]
     execution_id: UUID
+    event_sequence: int = Field(ge=1)
     payload: dict[str, Any]
     occurred_at: datetime
 
@@ -38,6 +39,25 @@ class ExecutionEventEnvelope(BaseModel):
         if not isinstance(payload, dict):
             raise ValueError("Executor event payload must be a JSON object.")
         return cls.model_validate({**fields, "payload": payload})
+
+    @classmethod
+    def from_history_item(cls, item: dict[str, Any]) -> "ExecutionEventEnvelope":
+        """Parse the public envelope fields from an event-history item."""
+
+        return cls.model_validate(
+            {
+                key: item[key]
+                for key in {
+                    "event_id",
+                    "event_type",
+                    "schema_version",
+                    "execution_id",
+                    "event_sequence",
+                    "payload",
+                    "occurred_at",
+                }
+            }
+        )
 
 
 class ExecutionEventBatch(BaseModel):
@@ -58,6 +78,9 @@ class ExecutionEventBatch(BaseModel):
         event_ids = [event.event_id for event in self.events]
         if len(event_ids) != len(set(event_ids)):
             raise ValueError("An event batch cannot contain duplicate event_id values.")
+        event_sequences = [event.event_sequence for event in self.events]
+        if event_sequences != sorted(set(event_sequences)):
+            raise ValueError("An event batch must be ordered by unique event_sequence values.")
         return self
 
 

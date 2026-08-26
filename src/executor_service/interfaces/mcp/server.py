@@ -599,12 +599,14 @@ def build_mcp_server(
         )
         async def execution_event_list(
             execution_id: UUID,
+            after_sequence: Annotated[int, Field(ge=0)] = 0,
             cursor: str | None = None,
             limit: EventLimit = 200,
         ) -> ExecutionEventPageResponse:
             try:
                 page = await execution_queries.events(
                     execution_id,
+                    after_sequence=after_sequence,
                     cursor=cursor,
                     limit=limit,
                 )

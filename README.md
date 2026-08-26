@@ -22,6 +22,7 @@ MULTI Operations through a Runtime Driver. Jupyter REST/WebSocket is the first i
   `runtime_target_set_state`
 - Execution, ExecutionStep, and OutboxEvent persistence with SQLAlchemy 2 and Alembic
 - Transactional Outbox publisher with at-least-once Redis Stream delivery
+- PostgreSQL-issued per-Execution event ordering with bounded REST/MCP gap recovery
 - Redis consumer group worker with PostgreSQL reconciliation, stale Pending recovery, and DLQ
 - Multi-Executor coordination through PostgreSQL row locks, unique lease owners, and crash recovery
 - Jupyter REST/WebSocket kernel execution, interrupt, and deletion
@@ -387,7 +388,10 @@ type/profile snapshot, lease/heartbeat times, and recovery details. Use
 `execution_attempt_step_list` for the Steps actually run by that Attempt. Each Step history row
 snapshots its skill, tool, inputs, outputs, error, and timestamps, so a retry
 does not overwrite evidence from the earlier failure. `execution_event_list` returns the
-transactional Outbox timeline and current Redis publication state. Frontends compose the current
+transactional Outbox timeline in `event_sequence` order and current Redis publication state.
+Agent Subscribers call it only to recover a detected sequence gap; normal contiguous Redis
+delivery needs no history query. See the
+[Agent Event Consumer Guide](dev_docs/agent-execution-event-consumer-guide.md). Frontends compose the current
 Execution with Attempt/Step, event, and Artifact list endpoints for an end-to-end detail view.
 Secret-shaped keys in historical inputs, outputs, and event payloads are defensively redacted.
 

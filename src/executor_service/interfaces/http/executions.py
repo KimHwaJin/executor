@@ -63,6 +63,7 @@ from executor_service.tracing import TracingManager
 ExecutionLimit = Annotated[int, Query(ge=1, le=200)]
 AttemptLimit = Annotated[int, Query(ge=1, le=200)]
 EventLimit = Annotated[int, Query(ge=1, le=500)]
+EventSequence = Annotated[int, Query(ge=0)]
 ArtifactLimit = Annotated[int, Query(ge=1, le=1000)]
 Cursor = Annotated[str | None, Query(max_length=2048)]
 NotebookLimit = Annotated[int, Query(ge=1, le=200)]
@@ -506,11 +507,15 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
     )
     async def list_execution_events(
         execution_id: UUID,
+        after_sequence: EventSequence = 0,
         cursor: Cursor = None,
         limit: EventLimit = 200,
     ) -> ExecutionEventPageResponse:
         page = await execution_queries.events(
-            execution_id, cursor=cursor, limit=limit
+            execution_id,
+            after_sequence=after_sequence,
+            cursor=cursor,
+            limit=limit,
         )
         return ExecutionEventPageResponse.from_page(page)
 

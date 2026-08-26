@@ -17,6 +17,8 @@ from opentelemetry.trace import SpanKind
 from redis.asyncio import Redis
 from redis.exceptions import ResponseError
 from sqlalchemy import func, select, update
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
 
@@ -68,6 +70,7 @@ from executor_service.events import build_execution_event
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
+    ExecutionEventSequenceORM,
     ExecutionOperationORM,
     ExecutionORM,
     ExecutionStepAttemptORM,
@@ -3973,24 +3976,18 @@ async def _persist_execution_event(
     event_type: str,
     payload: dict[str, object],
 ) -> None:
-    actor_row = (
-        await session.execute(
-            select(
-                ExecutionORM.updated_by_type,
-                ExecutionORM.updated_by,
-                ExecutionORM.created_by_type,
-                ExecutionORM.created_by,
-            ).where(ExecutionORM.id == execution_id)
-        )
-    ).one_or_none()
-    actor_type = None
-    actor_id = None
-    if actor_row is not None:
-        actor_type = actor_row.updated_by_type or actor_row.created_by_type
-        actor_id = actor_row.updated_by or actor_row.created_by
+    execution = await session.get(ExecutionORM, execution_id)
+    if execution is None:
+        raise ValueError(f"Execution {execution_id} was not found.")
+    event_sequence = await _next_execution_event_sequence(
+        session, execution_id
+    )
+    actor_type = execution.updated_by_type or execution.created_by_type
+    actor_id = execution.updated_by or execution.created_by
     carrier = capture_trace_carrier()
     event = build_execution_event(
         execution_id=execution_id,
+        event_sequence=event_sequence,
         event_type=event_type,
         payload=payload,
         actor_type=actor_type,
@@ -3999,6 +3996,34 @@ async def _persist_execution_event(
         tracestate=carrier.tracestate,
     )
     session.add(OutboxEventORM.from_domain(event))
+
+
+async def _next_execution_event_sequence(
+    session: AsyncSession,
+    execution_id: UUID,
+) -> int:
+    table = ExecutionEventSequenceORM.__table__
+    dialect_name = session.get_bind().dialect.name
+    if dialect_name == "postgresql":
+        statement = postgresql_insert(ExecutionEventSequenceORM)
+    elif dialect_name == "sqlite":
+        statement = sqlite_insert(ExecutionEventSequenceORM)
+    else:
+        raise RuntimeError(
+            f"Unsupported event sequence dialect: {dialect_name}"
+        )
+    result = await session.execute(
+        statement.values(
+            execution_id=execution_id,
+            last_sequence=1,
+        )
+        .on_conflict_do_update(
+            index_elements=[table.c.execution_id],
+            set_={"last_sequence": table.c.last_sequence + 1},
+        )
+        .returning(table.c.last_sequence)
+    )
+    return int(result.scalar_one())
 
 
 async def _add_start_events(session: AsyncSession, execution_id: UUID) -> None:

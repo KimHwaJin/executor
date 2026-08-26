@@ -115,6 +115,7 @@ async def route_request(state: PlanningAgentState, config: RunnableConfig) -> di
         "execution_id": None,
         "event_batch": None,
         "event_history": [],
+        "last_event_sequence": 0,
         "command_receipts": [],
         "next_operation_index": 0,
         "execution_result": None,
@@ -244,6 +245,7 @@ async def wait_for_stream_event(state: PlanningAgentState) -> dict[str, Any]:
             settings.executor_redis_url,
             settings.executor_event_stream,
             f"{settings.executor_consumer_group_prefix}-planning",
+            executor_mcp_url=settings.executor_mcp_url,
             start_id=state.event_stream_start_id,
         )
         await waiter.open()
@@ -253,6 +255,7 @@ async def wait_for_stream_event(state: PlanningAgentState) -> dict[str, Any]:
                 timeout_seconds=settings.execution_timeout_seconds,
                 event_types=set(state.awaited_event_types) or None,
                 operation_id=state.awaited_operation_id,
+                after_sequence=state.last_event_sequence,
             )
         finally:
             await waiter.close()
@@ -298,6 +301,7 @@ async def verify_execution(state: PlanningAgentState) -> dict[str, Any]:
             *state.event_history,
             *(event.model_dump(mode="json") for event in batch.events),
         ],
+        "last_event_sequence": batch.wake_event.event_sequence,
         "awaited_event_types": [],
         "awaited_operation_id": None,
         "event_stream_start_id": None,

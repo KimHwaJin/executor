@@ -310,6 +310,7 @@ class OutboxEvent:
     aggregate_id: UUID
     event_type: str
     payload: dict[str, Any]
+    event_sequence: int | None = None
     destination: OutboxDestination = OutboxDestination.EVENTS
     created_by_type: ActorType | None = None
     created_by: str | None = None

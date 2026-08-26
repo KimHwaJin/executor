@@ -1108,11 +1108,6 @@ async def test_running_execution_deadline_requests_cancel_and_reclaims_kernel(
     worker, redis = _worker(engine, tmp_path)
     try:
         await worker._audit_multi_lifecycle()
-        for _ in range(50):
-            current = await execution_service.get(execution.id)
-            if current.status == ExecutionStatus.CANCELLED:
-                break
-            await asyncio.sleep(0.01)
         if worker._jobs:
             await asyncio.gather(*list(worker._jobs.values()))
     finally:

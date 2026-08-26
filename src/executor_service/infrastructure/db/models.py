@@ -20,6 +20,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     Uuid,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -333,7 +334,6 @@ class ExecutionORM(Base):
     traceparent: Mapped[str | None] = mapped_column(String(512), nullable=True)
     tracestate: Mapped[str | None] = mapped_column(Text, nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-
     created_by_type: Mapped[ActorType | None] = mapped_column(
         enum_type(ActorType, "actor_type"), nullable=True
     )
@@ -1510,6 +1510,23 @@ class ExecutionArtifactORM(Base):
     )
 
 
+class ExecutionEventSequenceORM(Base):
+    __tablename__ = "execution_event_sequences"
+    __table_args__ = (
+        CheckConstraint(
+            "last_sequence >= 1",
+            name="positive_last_sequence",
+        ),
+    )
+
+    execution_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("executions.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    last_sequence: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+
 class OutboxEventORM(Base):
     __tablename__ = "outbox_events"
     __table_args__ = (
@@ -1521,13 +1538,34 @@ class OutboxEventORM(Base):
             "destination IN ('WORK', 'EVENTS')",
             name="valid_outbox_destination",
         ),
+        CheckConstraint(
+            "(destination = 'EVENTS' AND event_sequence >= 1) OR "
+            "(destination = 'WORK' AND event_sequence IS NULL)",
+            name="valid_outbox_event_sequence",
+        ),
+        UniqueConstraint(
+            "aggregate_type",
+            "aggregate_id",
+            "destination",
+            "event_sequence",
+            name="uq_outbox_aggregate_event_sequence",
+        ),
         Index("ix_outbox_pending", "status", "available_at", "created_at"),
+        Index(
+            "ix_outbox_pending_event_order",
+            "aggregate_type",
+            "aggregate_id",
+            "event_sequence",
+            postgresql_where=text(
+                "destination = 'EVENTS' AND status = 'PENDING'"
+            ),
+            sqlite_where=text("destination = 'EVENTS' AND status = 'PENDING'"),
+        ),
         Index(
             "ix_outbox_execution_cursor",
             "aggregate_type",
             "aggregate_id",
-            "created_at",
-            "id",
+            "event_sequence",
         ),
     )
 
@@ -1539,6 +1577,9 @@ class OutboxEventORM(Base):
         Uuid(as_uuid=True), nullable=False, index=True
     )
     event_type: Mapped[str] = mapped_column(String(255), nullable=False)
+    event_sequence: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True
+    )
     destination: Mapped[OutboxDestination] = mapped_column(
         enum_type(OutboxDestination, "outbox_destination"), nullable=False
     )
@@ -1580,6 +1621,7 @@ class OutboxEventORM(Base):
             aggregate_type=event.aggregate_type,
             aggregate_id=event.aggregate_id,
             event_type=event.event_type,
+            event_sequence=event.event_sequence,
             destination=event.destination,
             payload=event.payload,
             created_by_type=event.created_by_type,

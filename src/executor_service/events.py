@@ -267,12 +267,13 @@ EVENT_PAYLOAD_MODELS: dict[str, type[ContractModel]] = {
 
 
 class ExecutionStreamEnvelope(ContractModel):
-    """Six-field Redis representation delivered to external consumers."""
+    """Ordered Redis representation delivered to external consumers."""
 
     event_id: UUID
     event_type: ExecutionEventType
     schema_version: Literal["1.0"]
     execution_id: UUID
+    event_sequence: int = Field(ge=1)
     payload: dict[str, Any]
     occurred_at: datetime
 
@@ -314,6 +315,7 @@ def validate_execution_event_payload(
 def build_execution_event(
     *,
     execution_id: UUID,
+    event_sequence: int,
     event_type: str,
     payload: dict[str, Any],
     actor_type: ActorType | None = None,
@@ -329,6 +331,7 @@ def build_execution_event(
         aggregate_id=execution_id,
         event_type=event_type,
         payload=normalized,
+        event_sequence=event_sequence,
         created_by_type=actor_type,
         created_by=actor_id,
         updated_by_type=actor_type,

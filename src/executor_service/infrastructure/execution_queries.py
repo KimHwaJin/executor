@@ -440,6 +440,7 @@ class SQLAlchemyExecutionQueryService:
         self,
         execution_id: UUID,
         *,
+        after_sequence: int = 0,
         cursor: str | None = None,
         limit: int = 200,
     ) -> Page[ExecutionEventView]:
@@ -449,31 +450,29 @@ class SQLAlchemyExecutionQueryService:
                 OutboxEventORM.aggregate_type == "Execution",
                 OutboxEventORM.aggregate_id == execution_id,
                 OutboxEventORM.destination == OutboxDestination.EVENTS,
+                OutboxEventORM.event_sequence.is_not(None),
             )
+            sequence_cursor = after_sequence
             if cursor is not None:
-                created_at, item_id = decode_time_cursor(
+                sequence_cursor = decode_integer_cursor(
                     cursor, "execution_events"
                 )
-                statement = statement.where(
-                    or_(
-                        OutboxEventORM.created_at > created_at,
-                        and_(
-                            OutboxEventORM.created_at == created_at,
-                            OutboxEventORM.id > item_id,
-                        ),
-                    )
-                )
+            statement = statement.where(
+                OutboxEventORM.event_sequence > sequence_cursor
+            )
             rows = list(
                 await session.scalars(
-                    statement.order_by(
-                        OutboxEventORM.created_at, OutboxEventORM.id
-                    ).limit(limit + 1)
+                    statement.order_by(OutboxEventORM.event_sequence).limit(
+                        limit + 1
+                    )
                 )
             )
         page_rows = rows[:limit]
         items = [
             ExecutionEventView(
                 id=row.id,
+                execution_id=row.aggregate_id,
+                event_sequence=_required_event_sequence(row),
                 event_type=row.event_type,
                 payload=_redact(row.payload),
                 delivery_status=row.status,
@@ -491,8 +490,9 @@ class SQLAlchemyExecutionQueryService:
             for row in page_rows
         ]
         next_cursor = (
-            encode_time_cursor(
-                "execution_events", page_rows[-1].created_at, page_rows[-1].id
+            encode_integer_cursor(
+                "execution_events",
+                _required_event_sequence(page_rows[-1]),
             )
             if len(rows) > limit and page_rows
             else None
@@ -949,3 +949,9 @@ def _step_attempt_view(
         started_at=row.started_at,
         finished_at=row.finished_at,
     )
+
+
+def _required_event_sequence(row: OutboxEventORM) -> int:
+    if row.event_sequence is None:
+        raise ValueError(f"Execution event {row.id} has no event_sequence.")
+    return row.event_sequence

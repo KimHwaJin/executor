@@ -3,14 +3,16 @@
 import asyncio
 import json
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import cast
+from uuid import UUID
 
 from opentelemetry.trace import SpanKind
 from redis.asyncio import Redis
 from redis.typing import EncodableT, FieldT
-from sqlalchemy import select
+from sqlalchemy import exists, or_, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.orm import aliased
 
 from executor_service.domain.enums import OutboxDestination, OutboxStatus
 from executor_service.domain.models import utc_now
@@ -84,26 +86,60 @@ class OutboxPublisher:
     async def publish_batch(self) -> int:
         now = utc_now()
         async with self._session_factory() as session, session.begin():
+            earlier = aliased(OutboxEventORM)
             events = list(
                 await session.scalars(
                     select(OutboxEventORM)
                     .where(
                         OutboxEventORM.status == OutboxStatus.PENDING,
                         OutboxEventORM.available_at <= now,
+                        or_(
+                            OutboxEventORM.destination
+                            != OutboxDestination.EVENTS,
+                            ~exists(
+                                select(earlier.id).where(
+                                    earlier.aggregate_type
+                                    == OutboxEventORM.aggregate_type,
+                                    earlier.aggregate_id
+                                    == OutboxEventORM.aggregate_id,
+                                    earlier.destination
+                                    == OutboxDestination.EVENTS,
+                                    earlier.event_sequence
+                                    < OutboxEventORM.event_sequence,
+                                    earlier.status == OutboxStatus.PENDING,
+                                )
+                            ),
+                        ),
                     )
                     .order_by(OutboxEventORM.created_at)
                     .limit(self._batch_size)
                     .with_for_update(skip_locked=True)
                 )
             )
+            await self._append_contiguous_execution_events(
+                session,
+                events,
+                now=now,
+            )
             published = 0
+            blocked_aggregates: set[tuple[str, UUID]] = set()
             for event in events:
+                aggregate_key = (event.aggregate_type, event.aggregate_id)
+                if (
+                    event.destination == OutboxDestination.EVENTS
+                    and aggregate_key in blocked_aggregates
+                ):
+                    continue
                 try:
                     if event.destination == OutboxDestination.WORK:
                         payload = validate_work_payload(
                             event.event_type, event.payload
                         )
                     else:
+                        if event.event_sequence is None:
+                            raise ValueError(
+                                "Execution event_sequence is required."
+                            )
                         payload = validate_execution_event_payload(
                             event.event_type, event.payload
                         )
@@ -157,6 +193,9 @@ class OutboxPublisher:
                                         EXECUTION_EVENT_SCHEMA_VERSION
                                     ),
                                     "execution_id": str(event.aggregate_id),
+                                    "event_sequence": str(
+                                        event.event_sequence
+                                    ),
                                     "payload": json.dumps(
                                         payload, separators=(",", ":")
                                     ),
@@ -171,6 +210,8 @@ class OutboxPublisher:
                     event.last_error = None
                     published += 1
                 except Exception as exc:
+                    if event.destination == OutboxDestination.EVENTS:
+                        blocked_aggregates.add(aggregate_key)
                     event.attempt_count += 1
                     delay_seconds = min(2 ** min(event.attempt_count, 6), 60)
                     event.available_at = utc_now() + timedelta(
@@ -185,3 +226,65 @@ class OutboxPublisher:
                     )
             await session.flush()
             return published
+
+    async def _append_contiguous_execution_events(
+        self,
+        session: AsyncSession,
+        events: list[OutboxEventORM],
+        *,
+        now: datetime,
+    ) -> None:
+        remaining = self._batch_size - len(events)
+        if remaining <= 0:
+            return
+        heads = [
+            event
+            for event in events
+            if event.destination == OutboxDestination.EVENTS
+        ]
+        if not heads:
+            return
+        aggregate_keys = {
+            (event.aggregate_type, event.aggregate_id) for event in heads
+        }
+        head_ids = {event.id for event in heads}
+        unavailable_predecessor = aliased(OutboxEventORM)
+        followers = list(
+            await session.scalars(
+                select(OutboxEventORM)
+                .where(
+                    OutboxEventORM.status == OutboxStatus.PENDING,
+                    OutboxEventORM.destination == OutboxDestination.EVENTS,
+                    OutboxEventORM.available_at <= now,
+                    tuple_(
+                        OutboxEventORM.aggregate_type,
+                        OutboxEventORM.aggregate_id,
+                    ).in_(aggregate_keys),
+                    OutboxEventORM.id.not_in(head_ids),
+                    ~exists(
+                        select(unavailable_predecessor.id).where(
+                            unavailable_predecessor.aggregate_type
+                            == OutboxEventORM.aggregate_type,
+                            unavailable_predecessor.aggregate_id
+                            == OutboxEventORM.aggregate_id,
+                            unavailable_predecessor.destination
+                            == OutboxDestination.EVENTS,
+                            unavailable_predecessor.status
+                            == OutboxStatus.PENDING,
+                            unavailable_predecessor.event_sequence
+                            < OutboxEventORM.event_sequence,
+                            unavailable_predecessor.id.not_in(head_ids),
+                            unavailable_predecessor.available_at > now,
+                        )
+                    ),
+                )
+                .order_by(
+                    OutboxEventORM.aggregate_type,
+                    OutboxEventORM.aggregate_id,
+                    OutboxEventORM.event_sequence,
+                )
+                .limit(remaining)
+                .with_for_update(skip_locked=True)
+            )
+        )
+        events.extend(followers)
