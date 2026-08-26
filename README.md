@@ -266,10 +266,10 @@ uv run alembic current
 uv run alembic check
 ```
 
-Revision `0001` is the complete 2026-08-19 pre-release schema baseline. Revision `0002` is the
-current head and adds internal Worker lease fencing. Databases on the supported baseline upgrade
-normally with `alembic upgrade head`; databases on a discarded pre-baseline development revision
-must be recreated. See [Database Operations](docs/database-operations.md).
+Revision `0001` is the complete 2026-08-26 pre-release schema baseline and the current head. It is
+intended for a new empty database. Databases on a discarded development revision must be recreated;
+there is no compatibility or data-preserving upgrade path for those revisions. See
+[Database Operations](docs/database-operations.md).
 
 ## Tool contracts
 

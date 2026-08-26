@@ -22,22 +22,26 @@ Before deployment:
 
 1. Replace `executor-service:latest` in both workload manifests with the same immutable image
    digest or release tag.
-2. Update MCP host/origin allowlists, tracing endpoint, database pool size, and resource limits in
-   `configmap.yaml`.
+2. Update MCP host/origin allowlists, Runtime profiles, tracing endpoint, database pool size, and
+   resource limits in `configmap.yaml`.
 3. Create `executor-secret` through the platform Secret manager with the keys shown in
    `secret.example.yaml`. A local `secret.yaml` is ignored by Git, but the platform Secret manager
    is preferred. `RUNTIME_CREDENTIAL_KEY` must be a Fernet key and must remain stable while
    encrypted Runtime credentials exist in PostgreSQL.
-4. Change `executor-input-pvc` in `deployment.yaml` to the existing Agent/Executor shared claim.
-   The Agent mounts it read-write; Executor mounts it read-only at `/workspace/input`.
+4. Change `executor-shared-pvc` in `deployment.yaml` to the existing Agent/Executor RWX claim.
+   Both services mount it read-write at their configured shared-storage root; Executor uses
+   `/workspace/shared`. The Agent must resolve Executor `result_ref.relative_path` values against
+   its own mount of the same claim.
 5. Ensure all Jupyter servers mount their own common Jupyter PV. Executor must not mount or inspect
    that Jupyter PV; notebook and artifact access goes through Jupyter APIs.
 6. After Executor is Ready, register every Jupyter server through the Runtime Target REST or MCP
    API. Executor starts with an empty Runtime Fleet and never creates a target from environment
    variables.
 
-The manifest intentionally omits Runtime/Jupyter tuning variables and uses the application defaults.
-Add a setting to the ConfigMap only when the deployment needs an explicit environment override.
+The manifest intentionally contains no default Runtime Target endpoint or Jupyter token. Register
+targets after startup through the Runtime Target API. Generic fleet limits are explicit in the
+ConfigMap; provider-specific timeouts use application defaults unless an environment overrides
+them.
 
 Generate a Fernet key outside Git with:
 
@@ -52,13 +56,15 @@ origins that send an Origin header. Keep both lists narrow; do not disable DNS-r
 ## Release order
 
 Run the migration once per release before rolling out the Deployment. Do not run Alembic in every
-application Pod.
+application Pod. The current pre-release schema has one baseline revision, `0001`, and the
+migration Job must run against an empty Executor database.
 
 ```bash
 kubectl apply -f deploy/kubernetes/configmap.yaml
 kubectl apply -f deploy/kubernetes/service.yaml
 kubectl apply -f deploy/kubernetes/migration-job.yaml
 kubectl wait --for=condition=complete job/executor-migrate --timeout=300s
+kubectl logs job/executor-migrate
 kubectl apply -f deploy/kubernetes/deployment.yaml
 kubectl rollout status deployment/executor --timeout=300s
 ```
@@ -78,6 +84,10 @@ Job before applying the new release manifest. A fixed, already-completed Job doe
 If the Pod is running but not Ready, inspect `/readyz`; a missing migration, Redis outage, or
 draining Worker is intentionally reported there. Inspect `/api/v1/runtime-targets` separately for
 Runtime Fleet health.
+
+After a clean migration, `alembic_version.version_num` is `0001`. Do not stamp an empty database;
+the Job must execute `alembic upgrade head` so it creates constraints, indexes, and the initial
+Executor maintenance row.
 
 ## Shutdown and scaling
 
