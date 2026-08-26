@@ -26,6 +26,9 @@ from executor_service.application.commands import (
 from executor_service.application.maintenance import (
     SetExecutorAdmissionCommand,
 )
+from executor_service.application.maintenance_runs import (
+    CreateMaintenanceRunCommand,
+)
 from executor_service.application.services import ExecutionService
 from executor_service.config import Settings
 from executor_service.domain.enums import (
@@ -33,6 +36,8 @@ from executor_service.domain.enums import (
     AttemptStatus,
     ExecutionStatus,
     ExecutorAdmissionState,
+    MaintenanceRunAction,
+    MaintenanceRunStatus,
     OperationMode,
     OperationStatus,
     OutboxStatus,
@@ -51,6 +56,7 @@ from executor_service.infrastructure.db.models import (
     ExecutionOperationORM,
     ExecutionORM,
     ExecutionStepORM,
+    MaintenanceRunORM,
     OutboxEventORM,
     RuntimeTargetORM,
 )
@@ -66,6 +72,9 @@ from executor_service.infrastructure.execution_leases import (
 )
 from executor_service.infrastructure.maintenance import (
     ExecutorMaintenanceService,
+)
+from executor_service.infrastructure.maintenance_runs import (
+    MaintenanceRunService,
 )
 from executor_service.infrastructure.outbox import OutboxPublisher
 from executor_service.infrastructure.result_storage import (
@@ -289,6 +298,70 @@ async def test_persistent_drain_blocks_every_worker_until_activate(
     assert drained_view.queued_execution_count == len(executions)
     assert not drained_view.accepting_new_executions
     assert all(claim is not None for claim in admitted)
+
+
+async def test_maintenance_run_has_one_owner_and_recovers_after_lease_expiry(
+    postgres_engine: AsyncEngine,
+    tmp_path: Path,
+) -> None:
+    service = _service(postgres_engine, tmp_path)
+    session_factory = create_session_factory(postgres_engine)
+    execution = await service.submit(_command("maintenance-run-lease"))
+    async with session_factory() as session, session.begin():
+        await session.execute(
+            update(ExecutionORM)
+            .where(ExecutionORM.id == execution.id)
+            .values(
+                status=ExecutionStatus.RUNNING,
+                runtime_session_id="maintenance-run-session",
+            )
+        )
+    runs = MaintenanceRunService(session_factory, service, lease_seconds=30)
+    created = await runs.create(
+        CreateMaintenanceRunCommand(
+            idempotency_key="postgres-maintenance-run",
+            action=MaintenanceRunAction.STOP_ACTIVE_EXECUTIONS,
+            actor_type=ActorType.USER,
+            actor_id="postgres-operator",
+        )
+    )
+
+    claims = await asyncio.gather(
+        *(
+            runs.reconcile_once(f"maintenance-worker-{index}")
+            for index in range(6)
+        )
+    )
+
+    assert sum(claims) == 1
+    after_request = await service.get(execution.id)
+    assert after_request.status == ExecutionStatus.CANCEL_REQUESTED
+    async with session_factory() as session, session.begin():
+        run = await session.get(MaintenanceRunORM, created.id)
+        assert run is not None
+        first_fence = run.fencing_token
+        await session.execute(
+            update(ExecutionORM)
+            .where(ExecutionORM.id == execution.id)
+            .values(
+                status=ExecutionStatus.CANCELLED,
+                runtime_session_id=None,
+                runtime_session_cleanup_status=(
+                    RuntimeSessionCleanupStatus.SUCCEEDED
+                ),
+            )
+        )
+        run.lease_expires_at = utc_now() - timedelta(seconds=1)
+
+    assert await runs.reconcile_once("maintenance-recovery-worker")
+    completed = await runs.get(created.id)
+    async with session_factory() as session:
+        recovered = await session.get(MaintenanceRunORM, created.id)
+
+    assert completed.status == MaintenanceRunStatus.SUCCEEDED
+    assert completed.counts.stopped == 1
+    assert recovered is not None
+    assert recovered.fencing_token == first_fence + 1
 
 
 async def test_concurrent_workers_claim_exactly_one_cancellation_owner(

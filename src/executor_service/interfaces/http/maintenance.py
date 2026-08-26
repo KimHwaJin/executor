@@ -1,19 +1,28 @@
 """REST administration facade for Executor-wide maintenance."""
 
-from typing import Any
+from typing import Annotated, Any
+from uuid import UUID
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query, Response, status
 
 from executor_service.application.maintenance import (
     SetExecutorAdmissionCommand,
 )
 from executor_service.container import ApplicationContainer
 from executor_service.domain.enums import ExecutorAdmissionState
-from executor_service.interfaces.contracts import ExecutorMaintenanceResponse
+from executor_service.interfaces.contracts import (
+    ExecutorMaintenanceResponse,
+    MaintenanceRunResponse,
+    MaintenanceRunTargetPageResponse,
+)
 from executor_service.interfaces.http.schemas import (
     ErrorResponse,
     ExecutorMaintenanceMutationRequest,
+    MaintenanceRunCreateRequest,
 )
+
+RunTargetLimit = Annotated[int, Query(ge=1, le=200)]
+Cursor = Annotated[str | None, Query(max_length=2048)]
 
 MAINTENANCE_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
     409: {
@@ -22,6 +31,10 @@ MAINTENANCE_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
     },
     422: {"model": ErrorResponse, "description": "Invalid request"},
 }
+MAINTENANCE_RUN_READ_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
+    **MAINTENANCE_ERROR_RESPONSES,
+    404: {"model": ErrorResponse, "description": "Maintenance Run not found"},
+}
 
 
 def build_maintenance_router(
@@ -29,6 +42,7 @@ def build_maintenance_router(
 ) -> APIRouter:
     router = APIRouter(prefix="/api/v1", tags=["maintenance"])
     maintenance = container.maintenance
+    maintenance_runs = container.maintenance_runs
     tracing = container.tracing
 
     @router.get(
@@ -82,5 +96,58 @@ def build_maintenance_router(
         request: ExecutorMaintenanceMutationRequest,
     ) -> ExecutorMaintenanceResponse:
         return await set_state(request, ExecutorAdmissionState.ACTIVE)
+
+    @router.post(
+        "/maintenance/runs",
+        response_model=MaintenanceRunResponse,
+        status_code=status.HTTP_202_ACCEPTED,
+        responses=MAINTENANCE_ERROR_RESPONSES,
+        summary="Create a durable Run that stops active Executions",
+    )
+    async def create_run(
+        request: MaintenanceRunCreateRequest,
+        response: Response,
+    ) -> MaintenanceRunResponse:
+        with tracing.span(
+            "executor.http.maintenance_run_create",
+            attributes={"executor.maintenance.action": request.action.value},
+        ):
+            view = await maintenance_runs.create(request.to_command())
+        response.headers["Location"] = f"/api/v1/maintenance/runs/{view.id}"
+        return MaintenanceRunResponse.from_view(view)
+
+    @router.get(
+        "/maintenance/runs/{run_id}",
+        response_model=MaintenanceRunResponse,
+        responses=MAINTENANCE_RUN_READ_ERROR_RESPONSES,
+        summary="Get one Maintenance Run and its target counts",
+    )
+    async def get_run(run_id: UUID) -> MaintenanceRunResponse:
+        with tracing.span(
+            "executor.http.maintenance_run_get",
+            attributes={"executor.maintenance.run.id": str(run_id)},
+        ):
+            view = await maintenance_runs.get(run_id)
+        return MaintenanceRunResponse.from_view(view)
+
+    @router.get(
+        "/maintenance/runs/{run_id}/targets",
+        response_model=MaintenanceRunTargetPageResponse,
+        responses=MAINTENANCE_RUN_READ_ERROR_RESPONSES,
+        summary="List the Execution targets captured by a Maintenance Run",
+    )
+    async def list_run_targets(
+        run_id: UUID,
+        cursor: Cursor = None,
+        limit: RunTargetLimit = 100,
+    ) -> MaintenanceRunTargetPageResponse:
+        with tracing.span(
+            "executor.http.maintenance_run_targets_list",
+            attributes={"executor.maintenance.run.id": str(run_id)},
+        ):
+            page = await maintenance_runs.list_targets(
+                run_id, cursor=cursor, limit=limit
+            )
+        return MaintenanceRunTargetPageResponse.from_page(page)
 
     return router

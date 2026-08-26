@@ -367,6 +367,11 @@ allows existing Runtime sessions, cancellation, and cleanup to continue. Poll
 `POST /api/v1/maintenance/activate` after deployment. These operator-only controls are REST APIs,
 not MCP Tools. See [Executor Maintenance](docs/executor-maintenance.md).
 
+To stop active work instead of waiting, create a durable `STOP_ACTIVE_EXECUTIONS` Maintenance Run
+with `POST /api/v1/maintenance/runs`. The Run snapshots active Execution targets, reuses the normal
+fenced cancellation path, survives Executor restarts through an expiring lease, and exposes summary
+and cursor-paginated target lookup APIs. Ordinary queued work is retained.
+
 All MCP and REST list operations return `{items, next_cursor, has_more}`. `next_cursor` is an
 opaque continuation token:
 clients and agents must pass it back unchanged as the next call's `cursor` while keeping the same

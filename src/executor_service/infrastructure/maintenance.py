@@ -13,6 +13,7 @@ from executor_service.application.maintenance import (
 from executor_service.domain.enums import (
     ExecutionStatus,
     ExecutorAdmissionState,
+    MaintenanceRunStatus,
     RuntimeSessionCleanupStatus,
 )
 from executor_service.domain.errors import IdempotencyConflictError
@@ -21,6 +22,7 @@ from executor_service.infrastructure.db.models import (
     CommandReceiptORM,
     ExecutionORM,
     ExecutorMaintenanceORM,
+    MaintenanceRunORM,
 )
 
 MAINTENANCE_KEY = "executor"
@@ -159,6 +161,19 @@ class ExecutorMaintenanceService:
                 ExecutionORM.runtime_session_id.is_not(None)
             )
         )
+        active_run = await session.scalar(
+            select(MaintenanceRunORM)
+            .where(
+                MaintenanceRunORM.status.in_(
+                    (
+                        MaintenanceRunStatus.REQUESTED,
+                        MaintenanceRunStatus.RUNNING,
+                    )
+                )
+            )
+            .order_by(MaintenanceRunORM.created_at.desc())
+            .limit(1)
+        )
         return ExecutorMaintenanceView(
             admission_state=state.admission_state,
             version=state.version,
@@ -167,6 +182,9 @@ class ExecutorMaintenanceService:
             cancel_requested_count=cancel_requested or 0,
             unresolved_cleanup_count=unresolved_cleanup or 0,
             active_runtime_session_count=active_runtime_sessions or 0,
+            active_run_id=active_run.id if active_run else None,
+            active_run_action=active_run.action if active_run else None,
+            active_run_status=active_run.status if active_run else None,
             created_by_type=state.created_by_type,
             created_by=state.created_by,
             updated_by_type=state.updated_by_type,

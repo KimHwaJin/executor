@@ -25,6 +25,8 @@ class ErrorCode(StrEnum):
     IDEMPOTENCY_CONFLICT = "IDEMPOTENCY_CONFLICT"
     PERSISTENCE_CONFLICT = "PERSISTENCE_CONFLICT"
     RUNTIME_TARGET_PURGE_CONFLICT = "RUNTIME_TARGET_PURGE_CONFLICT"
+    MAINTENANCE_RUN_NOT_FOUND = "MAINTENANCE_RUN_NOT_FOUND"
+    MAINTENANCE_RUN_CONFLICT = "MAINTENANCE_RUN_CONFLICT"
     INTERNAL_ERROR = "INTERNAL_ERROR"
 
 
@@ -98,6 +100,14 @@ class RuntimeTargetConfigurationError(DomainError):
 
 class RuntimeTargetPurgeConflictError(DomainError):
     code = ErrorCode.RUNTIME_TARGET_PURGE_CONFLICT
+
+
+class MaintenanceRunNotFoundError(DomainError):
+    code = ErrorCode.MAINTENANCE_RUN_NOT_FOUND
+
+
+class MaintenanceRunConflictError(DomainError):
+    code = ErrorCode.MAINTENANCE_RUN_CONFLICT
 
 
 class ExecutionArtifactNotFoundError(DomainError):

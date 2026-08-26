@@ -31,6 +31,9 @@ from executor_service.infrastructure.execution_queries import (
 from executor_service.infrastructure.maintenance import (
     ExecutorMaintenanceService,
 )
+from executor_service.infrastructure.maintenance_runs import (
+    MaintenanceRunService,
+)
 from executor_service.infrastructure.materialized_artifacts import (
     MaterializedArtifactService,
 )
@@ -50,7 +53,7 @@ from executor_service.infrastructure.runtime_storage import (
 from executor_service.infrastructure.worker import ExecutionWorker
 from executor_service.tracing import TracingManager
 
-EXPECTED_SCHEMA_REVISION = "0003"
+EXPECTED_SCHEMA_REVISION = "0004"
 
 
 class ApplicationContainer:
@@ -99,6 +102,11 @@ class ApplicationContainer:
             self.session_factory, settings
         )
         self.maintenance = ExecutorMaintenanceService(self.session_factory)
+        self.maintenance_runs = MaintenanceRunService(
+            self.session_factory,
+            self.execution_service,
+            lease_seconds=settings.execution_lease_seconds,
+        )
         self.runtime_storage = FleetRuntimeStorageAccess(
             self.session_factory,
             self.runtime_registry,
@@ -135,6 +143,7 @@ class ApplicationContainer:
             artifact_manager=self.artifact_manager,
             result_store=self.result_store,
             tracing=self.tracing,
+            maintenance_runs=self.maintenance_runs,
         )
 
     async def start(self) -> None:

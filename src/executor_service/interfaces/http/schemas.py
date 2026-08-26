@@ -8,13 +8,19 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from executor_service.application.maintenance_runs import (
+    CreateMaintenanceRunCommand,
+)
 from executor_service.application.runtime_targets import (
     DisableRuntimeTargetCommand,
     PurgeRuntimeTargetCommand,
     RuntimeTargetPurgeView,
     SetRuntimeTargetStateCommand,
 )
-from executor_service.domain.enums import RuntimeTargetStatus
+from executor_service.domain.enums import (
+    MaintenanceRunAction,
+    RuntimeTargetStatus,
+)
 from executor_service.execution_specs import ExecutionSpec
 from executor_service.interfaces.contracts import (
     ActorInput,
@@ -32,6 +38,7 @@ __all__ = [
     "ExecutionRetryRequest",
     "ExecutionSubmitRequest",
     "ExecutorMaintenanceMutationRequest",
+    "MaintenanceRunCreateRequest",
     "RuntimeTargetMutationRequest",
     "RuntimeTargetProbeRequest",
     "RuntimeTargetPurgeRequest",
@@ -47,6 +54,20 @@ class HTTPModel(BaseModel):
 class ExecutorMaintenanceMutationRequest(HTTPModel):
     idempotency_key: str = Field(min_length=1, max_length=255)
     actor: ActorInput
+
+
+class MaintenanceRunCreateRequest(HTTPModel):
+    idempotency_key: str = Field(min_length=1, max_length=255)
+    action: MaintenanceRunAction
+    actor: ActorInput
+
+    def to_command(self) -> CreateMaintenanceRunCommand:
+        return CreateMaintenanceRunCommand(
+            idempotency_key=self.idempotency_key,
+            action=self.action,
+            actor_type=self.actor.type,
+            actor_id=self.actor.id,
+        )
 
 
 class RuntimeTargetProbeRequest(HTTPModel):

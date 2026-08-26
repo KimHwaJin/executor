@@ -45,6 +45,7 @@ counts, audit fields, and `safe_to_shutdown`:
     "unresolved_cleanup_count": 0,
     "active_runtime_session_count": 0
   },
+  "active_run": null,
   "safe_to_shutdown": true,
   "created_by_type": null,
   "created_by": null,
@@ -77,6 +78,39 @@ continues to describe only that local Worker.
 
 ## Current boundary
 
-The asynchronous `terminate-running` operation and unexpected-restart reconciliation are the next
-PR-005 phases. Until those are implemented, use individual Execution cancellation or wait for
-`safe_to_shutdown=true` after drain.
+Maintenance Runs provide durable asynchronous stopping of active work:
+
+```text
+POST /api/v1/maintenance/runs
+GET  /api/v1/maintenance/runs/{maintenance_run_id}
+GET  /api/v1/maintenance/runs/{maintenance_run_id}/targets
+```
+
+Create a Run with the supported action:
+
+```json
+{
+  "idempotency_key": "maintenance-stop-20260826-1",
+  "action": "STOP_ACTIVE_EXECUTIONS",
+  "actor": {"type": "USER", "id": "operator-100"}
+}
+```
+
+Creation atomically changes global admission to `DRAINING`, captures the active Execution IDs, and
+returns `202 Accepted` with a `maintenance_run_id` and target counts. Ordinary `QUEUED` Executions
+without an owned Runtime session are not selected and remain queued for a later activation.
+
+Every Run and target is stored in PostgreSQL. One Worker owns a Run through an expiring lease and
+monotonic fencing token. It sends each target through the normal idempotent Execution cancellation
+state machine, then observes cancellation and Runtime cleanup until all targets are stopped. If the
+Worker disappears, another Worker claims the expired Run lease and continues only its unfinished
+targets. This resumes the stop workflow; it does not resume interrupted user code.
+
+Only one non-terminal Maintenance Run is allowed at a time. Target listing uses opaque cursor
+pagination so a Run may safely contain many thousands of Executions. A Run remains `RUNNING` while
+Runtime cleanup is unresolved; background cleanup and Run reconciliation can later complete it.
+`GET /api/v1/maintenance` includes the current `active_run` reference so operators can rediscover
+the Run ID after losing a client response or restarting Executor.
+
+Unexpected-Worker-loss classification and startup reconciliation outside an explicitly requested
+Maintenance Run remain the next PR-005 phase.

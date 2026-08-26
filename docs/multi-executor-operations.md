@@ -32,6 +32,12 @@ Operator-requested global drain is separate from the local shutdown behavior bel
 service ready for queries, cancellation, and later activation. Submissions remain queued and
 existing MULTI Runtime sessions may continue. See [Executor Maintenance](executor-maintenance.md).
 
+`STOP_ACTIVE_EXECUTIONS` creates one durable Maintenance Run with one target row per selected
+Execution. Workers compete for the Run with `FOR UPDATE SKIP LOCKED`; the winner holds an expiring
+lease and fencing token. Cancellation uses a stable Run/Execution idempotency key. After Worker
+loss, one replacement resumes unfinished targets after lease expiry while stale Run writes are
+rejected.
+
 On graceful shutdown, the owning Worker first enters `DRAINING`: it rejects new claims, cancels its
 Redis intake and queue reconciliation loops, and makes `/readyz` fail through the
 `worker_accepting` check. Already-dispatched jobs keep their heartbeats and may finish for up to
