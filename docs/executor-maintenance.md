@@ -112,5 +112,6 @@ Runtime cleanup is unresolved; background cleanup and Run reconciliation can lat
 `GET /api/v1/maintenance` includes the current `active_run` reference so operators can rediscover
 the Run ID after losing a client response or restarting Executor.
 
-Unexpected-Worker-loss classification and startup reconciliation outside an explicitly requested
-Maintenance Run remain the next PR-005 phase.
+Unexpected Worker loss is reconciled independently of an operator-requested Maintenance Run. Each
+new Worker fences expired `RUNNING` leases before accepting work, records `LEASE_EXPIRED`, and then
+cleans the owned Runtime session asynchronously under the persisted cleanup reservation.

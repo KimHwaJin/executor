@@ -89,6 +89,13 @@ lease records `LEASE_EXPIRED`, increments `recovery_count`, marks the retry stra
 and performs best-effort abandoned-session deletion. Re-running reconciliation is idempotent because
 only `RUNNING` rows with expired leases are eligible.
 
+On process startup, this database fencing pass completes before the Worker reports `ACCEPTING` or
+starts Redis intake. Missing owner/expiry fields on a `RUNNING` row are treated as an incomplete
+lease and recovered by the same path. Runtime session deletion runs after the database barrier in a
+background maintenance task; the persisted `PENDING` cleanup reservation continues consuming
+Runtime capacity until cleanup is confirmed. Concurrent starting Pods use `FOR UPDATE SKIP LOCKED`,
+so exactly one process records each recovery and its terminal events.
+
 ## Runtime session cleanup
 
 `runtime_session_cleanup_status` is one of:

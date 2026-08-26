@@ -16,7 +16,10 @@ from executor_service.infrastructure.db.session import create_session_factory
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
 )
-from executor_service.infrastructure.worker import ExecutionWorker
+from executor_service.infrastructure.worker import (
+    ExecutionWorker,
+    ExpiredLeaseRecovery,
+)
 
 
 class IdleRedis:
@@ -93,6 +96,66 @@ async def test_stop_drains_active_job_and_rejects_new_dispatch(
     assert worker.active_job_count == 0
 
 
+async def test_startup_reconciliation_blocks_admission_until_fencing_finishes(
+    engine: AsyncEngine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    worker = _worker(engine, tmp_path)
+    reconciliation_started = asyncio.Event()
+    release_reconciliation = asyncio.Event()
+
+    async def reconcile() -> ExpiredLeaseRecovery:
+        reconciliation_started.set()
+        await release_reconciliation.wait()
+        return ExpiredLeaseRecovery(execution_count=2, cleanup_targets=())
+
+    monkeypatch.setattr(worker, "_fence_expired_leases", reconcile)
+    start_task = asyncio.create_task(worker.start())
+    await reconciliation_started.wait()
+
+    assert worker.lifecycle_state == "STARTING"
+    assert not worker.accepting_work
+    assert worker.startup_reconciliation_completed_at is None
+
+    release_reconciliation.set()
+    await start_task
+    try:
+        assert worker.lifecycle_state == "ACCEPTING"
+        assert worker.accepting_work
+        assert worker.startup_reconciliation_completed_at is not None
+        assert worker.startup_recovered_execution_count == 2
+        assert worker.startup_cleanup_target_count == 0
+    finally:
+        await worker.stop()
+
+
+async def test_startup_reconciliation_failure_keeps_worker_stopped(
+    engine: AsyncEngine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    worker = _worker(engine, tmp_path)
+
+    async def fail_reconciliation() -> ExpiredLeaseRecovery:
+        raise RuntimeError("expected startup recovery failure")
+
+    monkeypatch.setattr(
+        worker,
+        "_fence_expired_leases",
+        fail_reconciliation,
+    )
+
+    with pytest.raises(
+        RuntimeError, match="expected startup recovery failure"
+    ):
+        await worker.start()
+
+    assert worker.lifecycle_state == "STOPPED"
+    assert not worker.accepting_work
+    assert worker.startup_reconciliation_completed_at is None
+
+
 async def test_stop_cancels_remaining_job_after_drain_deadline(
     engine: AsyncEngine,
     tmp_path: Path,
@@ -135,7 +198,7 @@ async def test_readiness_fails_as_soon_as_worker_enters_drain(
             text("CREATE TABLE alembic_version (version_num VARCHAR(32))")
         )
         await connection.execute(
-            text("INSERT INTO alembic_version VALUES ('0001')")
+            text("INSERT INTO alembic_version VALUES ('0002')")
         )
     monkeypatch.setattr(container.redis, "ping", AsyncMock(return_value=True))
     container.execution_worker._stopped = False

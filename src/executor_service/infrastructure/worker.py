@@ -16,7 +16,7 @@ from uuid import UUID, uuid4
 from opentelemetry.trace import SpanKind
 from redis.asyncio import Redis
 from redis.exceptions import ResponseError
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -151,6 +151,12 @@ class CancellationWork:
     runtime_session_id: str | None
 
 
+@dataclass(frozen=True, slots=True)
+class ExpiredLeaseRecovery:
+    execution_count: int
+    cleanup_targets: tuple[tuple[UUID, UUID | None, UUID, str], ...]
+
+
 class StoredRuntimeExecutionError(RuntimeExecutionError):
     def __init__(
         self,
@@ -223,6 +229,9 @@ class ExecutionWorker:
         self._draining = False
         self._stopped = True
         self._pending_claim_cursor = "0-0"
+        self._startup_reconciliation_completed_at: datetime | None = None
+        self._startup_recovered_execution_count = 0
+        self._startup_cleanup_target_count = 0
 
     @property
     def accepting_work(self) -> bool:
@@ -235,6 +244,18 @@ class ExecutionWorker:
     @property
     def active_job_count(self) -> int:
         return len(self._jobs)
+
+    @property
+    def startup_reconciliation_completed_at(self) -> datetime | None:
+        return self._startup_reconciliation_completed_at
+
+    @property
+    def startup_recovered_execution_count(self) -> int:
+        return self._startup_recovered_execution_count
+
+    @property
+    def startup_cleanup_target_count(self) -> int:
+        return self._startup_cleanup_target_count
 
     def _create_driver(self, target: RuntimeTargetORM) -> RuntimeDriver:
         credential = self._registry.resolve_credential(
@@ -265,19 +286,23 @@ class ExecutionWorker:
         self._stop_event.clear()
         self._stopped = False
         self._draining = False
-        self._accepting_work = True
-        self._admission_loops = [
-            asyncio.create_task(
-                self._stream_loop(), name="execution-stream-consumer"
-            ),
-            asyncio.create_task(
-                self._pending_recovery_loop(),
-                name="execution-pending-recovery",
-            ),
-            asyncio.create_task(
-                self._reconcile_loop(), name="execution-reconciler"
-            ),
-        ]
+        self._accepting_work = False
+        self._startup_reconciliation_completed_at = None
+        self._startup_recovered_execution_count = 0
+        self._startup_cleanup_target_count = 0
+        try:
+            startup_recovery = await self._fence_expired_leases()
+        except Exception:
+            self._stopped = True
+            logger.exception("Executor startup reconciliation failed")
+            raise
+        self._startup_reconciliation_completed_at = utc_now()
+        self._startup_recovered_execution_count = (
+            startup_recovery.execution_count
+        )
+        self._startup_cleanup_target_count = len(
+            startup_recovery.cleanup_targets
+        )
         self._maintenance_loops = [
             asyncio.create_task(
                 self._lease_recovery_loop(), name="execution-lease-recovery"
@@ -291,6 +316,15 @@ class ExecutionWorker:
                 name="multi-lifecycle-auditor",
             ),
         ]
+        if startup_recovery.cleanup_targets:
+            self._maintenance_loops.append(
+                asyncio.create_task(
+                    self._cleanup_recovery_targets(
+                        startup_recovery.cleanup_targets
+                    ),
+                    name="startup-runtime-session-cleanup",
+                )
+            )
         if self._maintenance_runs is not None:
             self._maintenance_loops.append(
                 asyncio.create_task(
@@ -298,6 +332,19 @@ class ExecutionWorker:
                     name="maintenance-run-reconciler",
                 )
             )
+        self._accepting_work = True
+        self._admission_loops = [
+            asyncio.create_task(
+                self._stream_loop(), name="execution-stream-consumer"
+            ),
+            asyncio.create_task(
+                self._pending_recovery_loop(),
+                name="execution-pending-recovery",
+            ),
+            asyncio.create_task(
+                self._reconcile_loop(), name="execution-reconciler"
+            ),
+        ]
 
     async def begin_drain(self) -> None:
         if self._stopped or self._draining:
@@ -3460,21 +3507,32 @@ class ExecutionWorker:
         if cleanup_target is not None:
             await self._cleanup_abandoned_session(*cleanup_target)
 
-    async def _recover_expired_leases(self) -> None:
+    async def _recover_expired_leases(self) -> int:
+        recovery = await self._fence_expired_leases()
+        await self._cleanup_recovery_targets(recovery.cleanup_targets)
+        return recovery.execution_count
+
+    async def _fence_expired_leases(self) -> ExpiredLeaseRecovery:
         now = utc_now()
-        cleanup_targets: list[tuple[UUID, UUID, UUID, str]] = []
+        cleanup_targets: list[tuple[UUID, UUID | None, UUID, str]] = []
+        recovered_count = 0
         async with self._session_factory() as session, session.begin():
             expired = list(
                 await session.scalars(
                     select(ExecutionORM)
                     .where(
                         ExecutionORM.status == ExecutionStatus.RUNNING,
-                        ExecutionORM.lease_expires_at < now,
+                        or_(
+                            ExecutionORM.lease_owner.is_(None),
+                            ExecutionORM.lease_expires_at.is_(None),
+                            ExecutionORM.lease_expires_at < now,
+                        ),
                     )
                     .with_for_update(skip_locked=True)
                 )
             )
             for execution in expired:
+                recovered_count += 1
                 running_step_attempts = list(
                     await session.execute(
                         select(
@@ -3515,12 +3573,11 @@ class ExecutionWorker:
                 if (
                     execution.runtime_target_id is not None
                     and execution.runtime_session_id is not None
-                    and attempt is not None
                 ):
                     cleanup_targets.append(
                         (
                             execution.id,
-                            attempt.id,
+                            attempt.id if attempt is not None else None,
                             execution.runtime_target_id,
                             execution.runtime_session_id,
                         )
@@ -3651,6 +3708,15 @@ class ExecutionWorker:
                             session, execution.id, operation.id
                         )
                 await _add_execution_completed_event(session, execution.id)
+        return ExpiredLeaseRecovery(
+            execution_count=recovered_count,
+            cleanup_targets=tuple(cleanup_targets),
+        )
+
+    async def _cleanup_recovery_targets(
+        self,
+        cleanup_targets: tuple[tuple[UUID, UUID | None, UUID, str], ...],
+    ) -> None:
         for (
             execution_id,
             attempt_id,
@@ -3678,7 +3744,21 @@ class ExecutionWorker:
                 RuntimeSessionCleanupStatus.FAILED,
             )
             return
-        driver = self._create_driver(target)
+        try:
+            driver = self._create_driver(target)
+        except Exception:
+            logger.warning(
+                "Abandoned runtime session cleanup could not create a driver",
+                extra={"execution_id": str(execution_id)},
+                exc_info=True,
+            )
+            await self._record_cleanup_result(
+                execution_id,
+                attempt_id,
+                runtime_session_id,
+                RuntimeSessionCleanupStatus.FAILED,
+            )
+            return
         try:
             await driver.delete_session(runtime_session_id)
         except Exception:

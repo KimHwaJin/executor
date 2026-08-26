@@ -21,9 +21,10 @@ uv run alembic check
 
 Revision `0001` includes internal monotonic fencing tokens, exclusive cancellation ownership,
 Runtime abort state and observations, the shared-result reference contract, Executor-wide
-maintenance admission, and durable leased Maintenance Runs with per-Execution targets. It is the
-only revision and current head. `current` must report `0001 (head)`, and `check` must report that
-no new upgrade operations are detected. A development database carrying one of the removed
+maintenance admission, and durable leased Maintenance Runs with per-Execution targets. Revision
+`0002` bridges an already initialized earlier `0001` database to durable Execution event history
+and is the current head. `current` must report `0002 (head)`, and `check` must report that no new
+upgrade operations are detected. A development database carrying one of the removed
 pre-baseline revisions must be backed up if its data matters, then recreated as an empty database
 before `upgrade head`. Clear the four Executor Redis Streams at the same time so stale work
 messages cannot reference rows removed by the reset. Do not use this reset procedure for a

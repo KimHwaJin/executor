@@ -159,7 +159,8 @@ Operational endpoints:
 - OpenAPI: `http://127.0.0.1:8000/openapi.json`
 - liveness: `http://127.0.0.1:8000/healthz`
 - readiness (PostgreSQL, Redis, Jupyter, Worker admission): `http://127.0.0.1:8000/readyz`
-- Worker lifecycle and active execution count: `http://127.0.0.1:8000/workerz`
+- Worker lifecycle, active execution count, and startup reconciliation summary:
+  `http://127.0.0.1:8000/workerz`
 
 ### Phoenix tracing
 
@@ -267,9 +268,10 @@ uv run alembic current
 uv run alembic check
 ```
 
-Revision `0001` is the complete 2026-08-26 pre-release schema baseline and the current head. It is
-intended for a new empty database. Databases on a discarded development revision must be recreated;
-there is no compatibility or data-preserving upgrade path for those revisions. See
+Revision `0001` is the complete 2026-08-26 pre-release schema baseline. Revision `0002` is the
+current head and bridges databases initialized from the earlier deployed `0001` shape to durable
+Execution event history. Databases on a discarded pre-baseline development revision must still be
+recreated; there is no compatibility or data-preserving upgrade path for those revisions. See
 [Database Operations](docs/database-operations.md).
 
 ## Tool contracts
@@ -358,8 +360,8 @@ On graceful process shutdown, Worker admission stops before active jobs are touc
 reports `worker_accepting=false`, Redis consumption and PostgreSQL queue reconciliation stop, and
 active jobs may finish for up to `EXECUTION_DRAIN_TIMEOUT_SECONDS`. Only jobs still running after
 that deadline enter the existing `WORKER_SHUTDOWN` cleanup and recovery path. `/healthz` remains a
-process liveness check, while `/workerz` reports `ACCEPTING`, `DRAINING`, or `STOPPED` and the local
-active execution count.
+process liveness check, while `/workerz` reports `STARTING`, `ACCEPTING`, `DRAINING`, or `STOPPED`,
+the local active execution count, and the latest startup reconciliation summary.
 
 For planned service maintenance, use `POST /api/v1/maintenance/drain` instead of stopping each
 Worker locally. It persists `DRAINING` for all replicas, keeps submissions durably queued, and

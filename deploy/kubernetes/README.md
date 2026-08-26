@@ -56,8 +56,8 @@ origins that send an Origin header. Keep both lists narrow; do not disable DNS-r
 ## Release order
 
 Run the migration once per release before rolling out the Deployment. Do not run Alembic in every
-application Pod. The current pre-release schema has one baseline revision, `0001`, and the
-migration Job must run against an empty Executor database.
+application Pod. Revision `0001` is the pre-release baseline and `0002` is the current head. The
+`0002` bridge supports both a fresh database and an existing earlier `0001` deployment.
 
 ```bash
 kubectl apply -f deploy/kubernetes/configmap.yaml
@@ -85,7 +85,7 @@ If the Pod is running but not Ready, inspect `/readyz`; a missing migration, Red
 draining Worker is intentionally reported there. Inspect `/api/v1/runtime-targets` separately for
 Runtime Fleet health.
 
-After a clean migration, `alembic_version.version_num` is `0001`. Do not stamp an empty database;
+After migration, `alembic_version.version_num` is `0002`. Do not stamp an empty database;
 the Job must execute `alembic upgrade head` so it creates constraints, indexes, and the initial
 Executor maintenance row.
 
