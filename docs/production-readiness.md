@@ -373,7 +373,8 @@ from an arbitrary universal constant.
 
 ### Implemented foundation
 
-- Alembic revision `0003` seeds the singleton PostgreSQL `executor_maintenance` row in `ACTIVE`.
+- Alembic baseline revision `0001` seeds the singleton PostgreSQL `executor_maintenance` row in
+  `ACTIVE`.
 - `GET /api/v1/maintenance`, `POST /api/v1/maintenance/drain`, and
   `POST /api/v1/maintenance/activate` expose idempotent, audited global admission control.
 - New Runtime admission share-locks the maintenance row in the Execution claim transaction. Drain
@@ -382,7 +383,7 @@ from an arbitrary universal constant.
   of global admission.
 - Maintenance status derives workload and owned Runtime-session counts from PostgreSQL and exposes
   `safe_to_shutdown`. See [Executor Maintenance](executor-maintenance.md).
-- Alembic revision `0004` persists `MaintenanceRun` and per-Execution targets. Run creation
+- Alembic baseline revision `0001` persists `MaintenanceRun` and per-Execution targets. Run creation
   atomically drains admission and snapshots active work, while an expiring leased reconciler sends
   each target through the existing fenced cancellation state machine.
 - Maintenance Run APIs provide asynchronous creation, summary lookup, and cursor-paginated target
@@ -436,8 +437,9 @@ owner.
 
 ### Implementation
 
-- Alembic revision `0002` adds cancellation-specific owner, expiry, and heartbeat fields plus a
-  recovery index. Normal execution and cancellation ownership remain explicitly distinct.
+- Alembic baseline revision `0001` includes cancellation-specific owner, expiry, and heartbeat
+  fields plus a recovery index. Normal execution and cancellation ownership remain explicitly
+  distinct.
 - A cancellation claim locks the Execution row, establishes one expiring owner, increments the
   existing monotonic `fencing_token`, and clears the former execution lease. The prior execution
   Worker therefore cannot persist another Step, Artifact, Operation, terminal state, or Outbox

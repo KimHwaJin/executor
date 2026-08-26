@@ -211,6 +211,10 @@ manifest에는 다음 정보가 포함된다.
 - Jupyter execution count
 - 실행 오류 정보
 
+manifest 전체 필드와 Agent 검증 절차는
+[Step Result Manifest 1.0](step-result-manifest.md)을 따른다. 기계 판독용 규격은
+[JSON Schema](step-result-manifest.schema.json)로 제공한다.
+
 `representation_count`는 `output_count`와 다르다. 하나의 `display_data`가
 `text/plain`과 `image/png` 두 가지 표현을 가지면 `output_count`는 1이고
 `representation_count`는 2다.

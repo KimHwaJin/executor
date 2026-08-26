@@ -2,13 +2,14 @@
 
 Revision ID: 0001
 Revises:
-Create Date: 2026-08-19 07:21:16.393317
+Create Date: 2026-08-26
 
 This pre-release baseline replaces the discarded incremental development chain and must be
 applied to an empty database.
 """
 
 from collections.abc import Sequence
+from datetime import UTC, datetime
 
 import sqlalchemy as sa
 from alembic import op
@@ -139,6 +140,78 @@ def upgrade() -> None:
         "outbox_events",
         ["status", "available_at", "created_at"],
         unique=False,
+    )
+    maintenance_created_at = datetime.now(UTC)
+    maintenance_table = op.create_table(
+        "executor_maintenance",
+        sa.Column("singleton_key", sa.String(length=32), nullable=False),
+        sa.Column(
+            "admission_state",
+            sa.Enum(
+                "ACTIVE",
+                "DRAINING",
+                name="executor_admission_state",
+                native_enum=False,
+                length=32,
+            ),
+            nullable=False,
+        ),
+        sa.Column("version", sa.BigInteger(), nullable=False),
+        sa.Column("created_by_type", sa.String(length=32), nullable=True),
+        sa.Column("created_by", sa.String(length=255), nullable=True),
+        sa.Column("updated_by_type", sa.String(length=32), nullable=True),
+        sa.Column("updated_by", sa.String(length=255), nullable=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.CheckConstraint(
+            "singleton_key = 'executor'",
+            name=op.f("ck_executor_maintenance_singleton_key"),
+        ),
+        sa.CheckConstraint(
+            "admission_state IN ('ACTIVE', 'DRAINING')",
+            name=op.f("ck_executor_maintenance_valid_admission_state"),
+        ),
+        sa.CheckConstraint(
+            "version >= 0",
+            name=op.f("ck_executor_maintenance_non_negative_version"),
+        ),
+        sa.CheckConstraint(
+            "created_by_type IS NULL OR created_by_type IN "
+            "('AGENT', 'USER', 'BATCH')",
+            name=op.f("ck_executor_maintenance_valid_created_by_type"),
+        ),
+        sa.CheckConstraint(
+            "updated_by_type IS NULL OR updated_by_type IN "
+            "('AGENT', 'USER', 'BATCH')",
+            name=op.f("ck_executor_maintenance_valid_updated_by_type"),
+        ),
+        sa.CheckConstraint(
+            "(created_by_type IS NULL) = (created_by IS NULL)",
+            name=op.f("ck_executor_maintenance_complete_created_by"),
+        ),
+        sa.CheckConstraint(
+            "(updated_by_type IS NULL) = (updated_by IS NULL)",
+            name=op.f("ck_executor_maintenance_complete_updated_by"),
+        ),
+        sa.PrimaryKeyConstraint(
+            "singleton_key", name=op.f("pk_executor_maintenance")
+        ),
+    )
+    op.bulk_insert(
+        maintenance_table,
+        [
+            {
+                "singleton_key": "executor",
+                "admission_state": "ACTIVE",
+                "version": 0,
+                "created_by_type": None,
+                "created_by": None,
+                "updated_by_type": None,
+                "updated_by": None,
+                "created_at": maintenance_created_at,
+                "updated_at": maintenance_created_at,
+            }
+        ],
     )
     op.create_table(
         "runtime_target_purges",
@@ -500,6 +573,21 @@ def upgrade() -> None:
         ),
         sa.Column("heartbeat_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column(
+            "cancellation_lease_owner",
+            sa.String(length=255),
+            nullable=True,
+        ),
+        sa.Column(
+            "cancellation_lease_expires_at",
+            sa.DateTime(timezone=True),
+            nullable=True,
+        ),
+        sa.Column(
+            "cancellation_heartbeat_at",
+            sa.DateTime(timezone=True),
+            nullable=True,
+        ),
+        sa.Column(
             "fencing_token",
             sa.BigInteger(),
             server_default=sa.text("0"),
@@ -711,6 +799,12 @@ def upgrade() -> None:
         unique=False,
     )
     op.create_index(
+        "ix_executions_cancellation_lease",
+        "executions",
+        ["status", "cancellation_lease_expires_at"],
+        unique=False,
+    )
+    op.create_index(
         op.f("ix_executions_operation_wait_expires_at"),
         "executions",
         ["operation_wait_expires_at"],
@@ -759,6 +853,150 @@ def upgrade() -> None:
         "ix_executions_user_created_cursor",
         "executions",
         ["user_id", "created_at", "id"],
+        unique=False,
+    )
+    op.create_table(
+        "maintenance_runs",
+        sa.Column("id", sa.Uuid(), nullable=False),
+        sa.Column("idempotency_key", sa.String(length=255), nullable=False),
+        sa.Column("request_fingerprint", sa.String(length=64), nullable=False),
+        sa.Column("action", sa.String(length=32), nullable=False),
+        sa.Column("status", sa.String(length=32), nullable=False),
+        sa.Column("lease_owner", sa.String(length=255), nullable=True),
+        sa.Column(
+            "lease_expires_at", sa.DateTime(timezone=True), nullable=True
+        ),
+        sa.Column("heartbeat_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("fencing_token", sa.BigInteger(), nullable=False),
+        sa.Column("error_message", sa.Text(), nullable=True),
+        sa.Column("created_by_type", sa.String(length=32), nullable=True),
+        sa.Column("created_by", sa.String(length=255), nullable=True),
+        sa.Column("updated_by_type", sa.String(length=32), nullable=True),
+        sa.Column("updated_by", sa.String(length=255), nullable=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("started_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("finished_at", sa.DateTime(timezone=True), nullable=True),
+        sa.CheckConstraint(
+            "action IN ('STOP_ACTIVE_EXECUTIONS')",
+            name=op.f("ck_maintenance_runs_valid_action"),
+        ),
+        sa.CheckConstraint(
+            "status IN ('REQUESTED', 'RUNNING', 'SUCCEEDED', 'FAILED')",
+            name=op.f("ck_maintenance_runs_valid_status"),
+        ),
+        sa.CheckConstraint(
+            "fencing_token >= 0",
+            name=op.f("ck_maintenance_runs_non_negative_fencing_token"),
+        ),
+        sa.CheckConstraint(
+            "created_by_type IS NULL OR created_by_type IN "
+            "('AGENT', 'USER', 'BATCH')",
+            name=op.f("ck_maintenance_runs_valid_created_by_type"),
+        ),
+        sa.CheckConstraint(
+            "updated_by_type IS NULL OR updated_by_type IN "
+            "('AGENT', 'USER', 'BATCH')",
+            name=op.f("ck_maintenance_runs_valid_updated_by_type"),
+        ),
+        sa.CheckConstraint(
+            "(created_by_type IS NULL) = (created_by IS NULL)",
+            name=op.f("ck_maintenance_runs_complete_created_by"),
+        ),
+        sa.CheckConstraint(
+            "(updated_by_type IS NULL) = (updated_by IS NULL)",
+            name=op.f("ck_maintenance_runs_complete_updated_by"),
+        ),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_maintenance_runs")),
+        sa.UniqueConstraint(
+            "idempotency_key",
+            name=op.f("uq_maintenance_runs_idempotency_key"),
+        ),
+    )
+    op.create_index(
+        "ix_maintenance_runs_recovery",
+        "maintenance_runs",
+        ["status", "lease_expires_at"],
+        unique=False,
+    )
+    op.create_index(
+        "ix_maintenance_runs_created",
+        "maintenance_runs",
+        ["created_at", "id"],
+        unique=False,
+    )
+    op.create_table(
+        "maintenance_run_targets",
+        sa.Column("id", sa.Uuid(), nullable=False),
+        sa.Column("maintenance_run_id", sa.Uuid(), nullable=False),
+        sa.Column("execution_id", sa.Uuid(), nullable=False),
+        sa.Column(
+            "selected_execution_status", sa.String(length=32), nullable=False
+        ),
+        sa.Column("status", sa.String(length=32), nullable=False),
+        sa.Column("error_message", sa.Text(), nullable=True),
+        sa.Column(
+            "stop_requested_at", sa.DateTime(timezone=True), nullable=True
+        ),
+        sa.Column("completed_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("created_by_type", sa.String(length=32), nullable=True),
+        sa.Column("created_by", sa.String(length=255), nullable=True),
+        sa.Column("updated_by_type", sa.String(length=32), nullable=True),
+        sa.Column("updated_by", sa.String(length=255), nullable=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.CheckConstraint(
+            "status IN ('PENDING', 'STOP_REQUESTED', 'STOPPED', 'FAILED')",
+            name=op.f("ck_maintenance_run_targets_valid_status"),
+        ),
+        sa.CheckConstraint(
+            "created_by_type IS NULL OR created_by_type IN "
+            "('AGENT', 'USER', 'BATCH')",
+            name=op.f("ck_maintenance_run_targets_valid_created_by_type"),
+        ),
+        sa.CheckConstraint(
+            "updated_by_type IS NULL OR updated_by_type IN "
+            "('AGENT', 'USER', 'BATCH')",
+            name=op.f("ck_maintenance_run_targets_valid_updated_by_type"),
+        ),
+        sa.CheckConstraint(
+            "(created_by_type IS NULL) = (created_by IS NULL)",
+            name=op.f("ck_maintenance_run_targets_complete_created_by"),
+        ),
+        sa.CheckConstraint(
+            "(updated_by_type IS NULL) = (updated_by IS NULL)",
+            name=op.f("ck_maintenance_run_targets_complete_updated_by"),
+        ),
+        sa.ForeignKeyConstraint(
+            ["execution_id"],
+            ["executions.id"],
+            name=op.f("fk_maintenance_run_targets_execution_id_executions"),
+        ),
+        sa.ForeignKeyConstraint(
+            ["maintenance_run_id"],
+            ["maintenance_runs.id"],
+            name=op.f(
+                "fk_maintenance_run_targets_maintenance_run_id_maintenance_runs"
+            ),
+            ondelete="CASCADE",
+        ),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_maintenance_run_targets")),
+        sa.UniqueConstraint(
+            "maintenance_run_id",
+            "execution_id",
+            name="uq_maintenance_run_targets_run_execution",
+        ),
+    )
+    op.create_index(
+        "ix_maintenance_run_targets_run_status",
+        "maintenance_run_targets",
+        ["maintenance_run_id", "status"],
+        unique=False,
+    )
+    op.create_index(
+        "ix_maintenance_run_targets_cursor",
+        "maintenance_run_targets",
+        ["maintenance_run_id", "created_at", "id"],
         unique=False,
     )
     op.create_table(
@@ -1602,6 +1840,20 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_index(
+        "ix_maintenance_run_targets_cursor",
+        table_name="maintenance_run_targets",
+    )
+    op.drop_index(
+        "ix_maintenance_run_targets_run_status",
+        table_name="maintenance_run_targets",
+    )
+    op.drop_table("maintenance_run_targets")
+    op.drop_index("ix_maintenance_runs_created", table_name="maintenance_runs")
+    op.drop_index(
+        "ix_maintenance_runs_recovery", table_name="maintenance_runs"
+    )
+    op.drop_table("maintenance_runs")
+    op.drop_index(
         "ix_execution_artifacts_step", table_name="execution_artifacts"
     )
     op.drop_index(
@@ -1662,6 +1914,7 @@ def downgrade() -> None:
         op.f("ix_executions_operation_wait_expires_at"),
         table_name="executions",
     )
+    op.drop_index("ix_executions_cancellation_lease", table_name="executions")
     op.drop_index("ix_executions_lease", table_name="executions")
     op.drop_index(
         op.f("ix_executions_execution_expires_at"), table_name="executions"
@@ -1685,4 +1938,5 @@ def downgrade() -> None:
         op.f("ix_outbox_events_aggregate_id"), table_name="outbox_events"
     )
     op.drop_table("outbox_events")
+    op.drop_table("executor_maintenance")
     op.drop_table("command_receipts")

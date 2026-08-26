@@ -1,0 +1,192 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://executor.local/schemas/step-result-manifest-1.0.json",
+  "title": "Executor Step Result Manifest 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "state",
+    "complete",
+    "identity",
+    "source",
+    "outputs",
+    "output_count",
+    "representation_count",
+    "total_size_bytes",
+    "execution_count",
+    "error_message",
+    "output_summary",
+    "created_at",
+    "updated_at",
+    "completed_at"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "state": {"enum": ["FINALIZED", "FAILED", "ABORTED"]},
+    "complete": {"type": "boolean"},
+    "identity": {"$ref": "#/$defs/identity"},
+    "source": {"$ref": "#/$defs/source"},
+    "outputs": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/output"}
+    },
+    "output_count": {"type": "integer", "minimum": 0},
+    "representation_count": {"type": "integer", "minimum": 0},
+    "total_size_bytes": {"type": "integer", "minimum": 0},
+    "execution_count": {
+      "oneOf": [{"type": "integer"}, {"type": "null"}]
+    },
+    "error_message": {
+      "oneOf": [
+        {"type": "string", "maxLength": 2000},
+        {"type": "null"}
+      ]
+    },
+    "output_summary": {"$ref": "#/$defs/output_summary"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "updated_at": {"type": "string", "format": "date-time"},
+    "completed_at": {"type": "string", "format": "date-time"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"state": {"const": "ABORTED"}}},
+      "then": {
+        "properties": {
+          "complete": {"const": false},
+          "error_message": {"type": "string"}
+        }
+      },
+      "else": {"properties": {"complete": {"const": true}}}
+    },
+    {
+      "if": {"properties": {"state": {"const": "FINALIZED"}}},
+      "then": {"properties": {"error_message": {"type": "null"}}},
+      "else": {"properties": {"error_message": {"type": "string"}}}
+    }
+  ],
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "execution_id",
+        "operation_id",
+        "step_id",
+        "sequence",
+        "execution_attempt_id",
+        "fencing_token"
+      ],
+      "properties": {
+        "execution_id": {"$ref": "#/$defs/uuid"},
+        "operation_id": {"$ref": "#/$defs/uuid"},
+        "step_id": {"$ref": "#/$defs/uuid"},
+        "sequence": {"type": "integer", "minimum": 0},
+        "execution_attempt_id": {"$ref": "#/$defs/uuid"},
+        "fencing_token": {"type": "integer", "minimum": 1}
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["relative_path", "checksum_sha256", "size_bytes"],
+      "properties": {
+        "relative_path": {"type": "string", "minLength": 1},
+        "checksum_sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 0}
+      }
+    },
+    "representation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "media_type",
+        "encoding",
+        "relative_path",
+        "size_bytes",
+        "checksum_sha256",
+        "complete",
+        "truncated_in_preview",
+        "metadata"
+      ],
+      "properties": {
+        "media_type": {"type": "string", "minLength": 1},
+        "encoding": {"enum": ["UTF8", "BASE64"]},
+        "relative_path": {"type": "string", "minLength": 1},
+        "size_bytes": {"type": "integer", "minimum": 0},
+        "checksum_sha256": {"$ref": "#/$defs/sha256"},
+        "complete": {"const": true},
+        "truncated_in_preview": {"const": false},
+        "metadata": {"type": "object", "additionalProperties": true}
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ordinal",
+        "kind",
+        "stream_name",
+        "execution_count",
+        "representations",
+        "metadata",
+        "created_at"
+      ],
+      "properties": {
+        "ordinal": {"type": "integer", "minimum": 0},
+        "kind": {"enum": ["STREAM", "DISPLAY", "RESULT", "ERROR"]},
+        "stream_name": {
+          "oneOf": [{"type": "string"}, {"type": "null"}]
+        },
+        "execution_count": {
+          "oneOf": [{"type": "integer"}, {"type": "null"}]
+        },
+        "representations": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/representation"}
+        },
+        "metadata": {"type": "object", "additionalProperties": true},
+        "created_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "output_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "output_count",
+        "output_types",
+        "stream_names",
+        "mime_types",
+        "has_image",
+        "image_count",
+        "has_error"
+      ],
+      "properties": {
+        "output_count": {"type": "integer", "minimum": 0},
+        "output_types": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        },
+        "stream_names": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "mime_types": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "has_image": {"type": "boolean"},
+        "image_count": {"type": "integer", "minimum": 0},
+        "has_error": {"type": "boolean"}
+      }
+    }
+  }
+}

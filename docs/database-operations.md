@@ -6,7 +6,7 @@ consume an application pool.
 
 ## Schema baseline
 
-Revision `0001` is a complete snapshot of the Executor schema recorded on 2026-08-19. It creates
+Revision `0001` is a complete snapshot of the Executor schema recorded on 2026-08-26. It creates
 all current tables, foreign keys, check/unique constraints, and operational indexes in one step.
 The earlier incremental development revisions were deliberately removed; this is a pre-release
 baseline reset, not a data-preserving upgrade from that discarded chain.
@@ -19,13 +19,11 @@ uv run alembic current
 uv run alembic check
 ```
 
-Revision `0001` includes internal monotonic fencing tokens, Runtime abort state, Runtime session
-observations, and the current shared-result reference contract. Revision `0002` adds exclusive,
-expiring cancellation ownership fields. Revision `0003` adds the singleton Executor-wide
-maintenance admission state. Revision `0004` adds durable leased Maintenance Runs and their
-per-Execution targets and is the current head. `current` must report `0004
-(head)`, and `check` must report that no new upgrade operations are detected. A development
-database carrying one of the removed
+Revision `0001` includes internal monotonic fencing tokens, exclusive cancellation ownership,
+Runtime abort state and observations, the shared-result reference contract, Executor-wide
+maintenance admission, and durable leased Maintenance Runs with per-Execution targets. It is the
+only revision and current head. `current` must report `0001 (head)`, and `check` must report that
+no new upgrade operations are detected. A development database carrying one of the removed
 pre-baseline revisions must be backed up if its data matters, then recreated as an empty database
 before `upgrade head`. Clear the four Executor Redis Streams at the same time so stale work
 messages cannot reference rows removed by the reset. Do not use this reset procedure for a
@@ -76,9 +74,8 @@ transactions and Pod count rather than from total active analyses.
 ## Query-plan verification
 
 Baseline `0001` includes indexes for the unfiltered Execution cursor list, retained-session cleanup,
-maximum-runtime expiry, status lists, worker lease recovery, Runtime Target capacity, Outbox
-publication, and child history pagination. Revision `0002` adds the cancellation lease recovery
-index.
+maximum-runtime expiry, status lists, execution and cancellation lease recovery, Runtime Target
+capacity, Outbox publication, child history pagination, and Maintenance Run recovery.
 
 After applying migrations to a local PostgreSQL database, verify the critical plans with:
 
@@ -87,8 +84,7 @@ uv run alembic upgrade head
 uv run python scripts/postgres_query_plan_smoke.py
 ```
 
-Revision `0003` adds only the singleton maintenance row. Revision `0004` indexes recoverable Run
-leases and per-Run target status/cursor queries. The script runs read-only `EXPLAIN ANALYZE`
+The script runs read-only `EXPLAIN ANALYZE`
 statements. It disables sequential scans only
 inside its own transaction because a small development database would otherwise correctly prefer
 a sequential scan. The check proves that the intended indexes are usable; production query
