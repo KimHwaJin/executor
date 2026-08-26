@@ -49,7 +49,7 @@ Redis 처리 세부사항은 LLM이나 LangGraph 업무 노드가 아니라 Agen
 - `execution_id`: 이벤트가 속한 Executor Execution ID
 - `event_sequence`: 해당 Execution 안에서만 증가하는 논리 순번
 - `payload`: 이벤트 타입별 데이터
-- `occurred_at`: 이벤트가 PostgreSQL Outbox에 기록된 시각
+- `occurred_at`: 이벤트가 PostgreSQL `execution_events`에 기록된 시각
 
 `event_sequence`는 Redis Stream message ID, Step의 `sequence`, Attempt 번호,
 `occurred_at`과 서로 다른 값이다. 이벤트 순서 판단에는 오직
@@ -213,4 +213,3 @@ Operation 실패라도 `continuation.allowed=true`이면 실패 결과를 바탕
 - Subscriber 재시작 뒤 Pending reclaim과 중복 이벤트를 테스트한다.
 - SINGLE의 `execution.completed`, MULTI의 `operation_completed`와 `execution.completed` wake
   경계를 테스트한다.
-

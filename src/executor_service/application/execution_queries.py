@@ -190,14 +190,15 @@ class ExecutionEventView:
     execution_id: UUID
     event_sequence: int
     event_type: str
+    schema_version: str
     payload: dict[str, Any]
-    delivery_status: OutboxStatus
-    publish_attempt_count: int
+    delivery_status: OutboxStatus | None
+    publish_attempt_count: int | None
     created_by_type: ActorType | None
     created_by: str | None
     updated_by_type: ActorType | None
     updated_by: str | None
-    available_at: datetime
+    available_at: datetime | None
     created_at: datetime
     updated_at: datetime
     published_at: datetime | None

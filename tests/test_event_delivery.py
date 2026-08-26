@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 from collections.abc import AsyncIterator, Coroutine
+from datetime import timedelta
 from pathlib import Path
 from typing import Any, cast
 from uuid import UUID, uuid4
@@ -26,12 +27,16 @@ from executor_service.domain.enums import (
     RuntimeTargetStatus,
     TriggerType,
 )
+from executor_service.domain.models import utc_now
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
     RuntimeTargetORM,
 )
 from executor_service.infrastructure.db.session import create_session_factory
+from executor_service.infrastructure.event_retention import (
+    EventRetentionManager,
+)
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
 )
@@ -46,6 +51,83 @@ def test_dead_letter_stream_must_be_separate() -> None:
         Settings(
             redis_work_stream="same-stream", redis_event_stream="same-stream"
         )
+
+
+async def test_retention_trims_old_entries_without_removing_work_pending(
+    redis_client: Redis,
+    engine: AsyncEngine,
+) -> None:
+    unique = uuid4().hex
+    work_stream = f"test:retention:{unique}:work"
+    event_stream = f"test:retention:{unique}:events"
+    work_dlq = f"test:retention:{unique}:work-dlq"
+    group = f"test:retention:{unique}:workers"
+    old_ms = int((utc_now() - timedelta(days=4)).timestamp() * 1000)
+    now_ms = int(utc_now().timestamp() * 1000)
+    old_ids = [f"{old_ms}-{index}" for index in range(250)]
+    recent_id = f"{now_ms}-0"
+    settings = Settings(
+        runtime_enabled=False,
+        redis_work_stream=work_stream,
+        redis_event_stream=event_stream,
+        redis_work_dead_letter_stream=work_dlq,
+        redis_event_dead_letter_stream=f"{work_dlq}:agent-owned",
+        redis_work_retention_seconds=3 * 24 * 3600,
+        redis_event_retention_seconds=3 * 24 * 3600,
+        redis_work_dlq_retention_seconds=3 * 24 * 3600,
+    )
+    manager = EventRetentionManager(
+        create_session_factory(engine), redis_client, settings
+    )
+    try:
+        for message_id in old_ids:
+            await redis_client.xadd(
+                work_stream, {"value": "old"}, id=message_id
+            )
+            await redis_client.xadd(
+                event_stream, {"value": "old"}, id=message_id
+            )
+            await redis_client.xadd(work_dlq, {"value": "old"}, id=message_id)
+        await redis_client.xadd(work_stream, {"value": "recent"}, id=recent_id)
+        await redis_client.xadd(
+            event_stream, {"value": "recent"}, id=recent_id
+        )
+        await redis_client.xadd(work_dlq, {"value": "recent"}, id=recent_id)
+        await redis_client.xgroup_create(work_stream, group, id="0")
+        delivered = await redis_client.xreadgroup(
+            group,
+            "consumer-a",
+            streams={work_stream: ">"},
+            count=250,
+        )
+        delivered_ids = [message_id for message_id, _ in delivered[0][1]]
+        await redis_client.xack(work_stream, group, *delivered_ids[:200])
+
+        await manager._trim_work_stream()
+        await manager._trim_by_age(
+            event_stream, settings.redis_event_retention_seconds
+        )
+        await manager._trim_by_age(
+            work_dlq, settings.redis_work_dlq_retention_seconds
+        )
+
+        pending = await redis_client.xpending_range(
+            work_stream, group, "-", "+", 100
+        )
+        assert len(pending) == 50
+        assert await redis_client.xrange(
+            work_stream, min=delivered_ids[200], max=delivered_ids[200]
+        )
+        assert await redis_client.xrange(
+            event_stream, min=recent_id, max=recent_id
+        )
+        assert await redis_client.xrange(
+            work_dlq, min=recent_id, max=recent_id
+        )
+        assert await redis_client.xlen(event_stream) < 251
+        assert await redis_client.xlen(work_dlq) < 251
+    finally:
+        await redis_client.delete(work_stream, event_stream, work_dlq)
 
 
 @pytest_asyncio.fixture

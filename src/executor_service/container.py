@@ -25,6 +25,9 @@ from executor_service.infrastructure.db.session import (
     create_engine,
     create_session_factory,
 )
+from executor_service.infrastructure.event_retention import (
+    EventRetentionManager,
+)
 from executor_service.infrastructure.execution_queries import (
     SQLAlchemyExecutionQueryService,
 )
@@ -134,6 +137,11 @@ class ApplicationContainer:
             batch_size=settings.outbox_batch_size,
             tracing=self.tracing,
         )
+        self.event_retention = EventRetentionManager(
+            self.session_factory,
+            self.redis,
+            settings,
+        )
         self.execution_worker = ExecutionWorker(
             session_factory=self.session_factory,
             redis=self.redis,
@@ -148,7 +156,9 @@ class ApplicationContainer:
 
     async def start(self) -> None:
         await self.maintenance.initialize()
+        await self.event_retention.initialize()
         self.outbox_publisher.start()
+        self.event_retention.start()
         if self.settings.runtime_enabled:
             await self.runtime_registry.start()
             await self.execution_worker.start()
@@ -156,6 +166,7 @@ class ApplicationContainer:
     async def stop(self) -> None:
         await self.execution_worker.stop()
         await self.runtime_registry.stop()
+        await self.event_retention.stop()
         await self.outbox_publisher.stop()
         await self.tracing.shutdown()
         await self.redis.aclose()

@@ -16,10 +16,7 @@ from sqlalchemy.orm import aliased
 
 from executor_service.domain.enums import OutboxDestination, OutboxStatus
 from executor_service.domain.models import utc_now
-from executor_service.events import (
-    EXECUTION_EVENT_SCHEMA_VERSION,
-    validate_execution_event_payload,
-)
+from executor_service.events import validate_execution_event_payload
 from executor_service.infrastructure.db.models import OutboxEventORM
 from executor_service.tracing import (
     TracingManager,
@@ -132,6 +129,10 @@ class OutboxPublisher:
                     continue
                 try:
                     if event.destination == OutboxDestination.WORK:
+                        if event.payload is None:
+                            raise ValueError(
+                                "Work Outbox payload is required."
+                            )
                         payload = validate_work_payload(
                             event.event_type, event.payload
                         )
@@ -140,10 +141,19 @@ class OutboxPublisher:
                             raise ValueError(
                                 "Execution event_sequence is required."
                             )
+                        public_event = event.execution_event
+                        if public_event is None:
+                            raise ValueError(
+                                "Durable Execution event is required."
+                            )
                         payload = validate_execution_event_payload(
-                            event.event_type, event.payload
+                            public_event.event_type,
+                            public_event.payload,
                         )
-                    if payload != event.payload:
+                    if (
+                        event.destination == OutboxDestination.WORK
+                        and payload != event.payload
+                    ):
                         event.payload = payload
                     context = extract_trace_context(
                         {
@@ -184,22 +194,29 @@ class OutboxPublisher:
                             if carrier.tracestate:
                                 fields["tracestate"] = carrier.tracestate
                         else:
+                            public_event = event.execution_event
+                            if public_event is None:
+                                raise ValueError(
+                                    "Durable Execution event is required."
+                                )
                             fields = cast(
                                 dict[FieldT, EncodableT],
                                 {
-                                    "event_id": str(event.id),
-                                    "event_type": event.event_type,
-                                    "schema_version": (
-                                        EXECUTION_EVENT_SCHEMA_VERSION
+                                    "event_id": str(public_event.id),
+                                    "event_type": public_event.event_type,
+                                    "schema_version": public_event.schema_version,
+                                    "execution_id": str(
+                                        public_event.execution_id
                                     ),
-                                    "execution_id": str(event.aggregate_id),
                                     "event_sequence": str(
-                                        event.event_sequence
+                                        public_event.event_sequence
                                     ),
                                     "payload": json.dumps(
                                         payload, separators=(",", ":")
                                     ),
-                                    "occurred_at": event.created_at.isoformat(),
+                                    "occurred_at": (
+                                        public_event.created_at.isoformat()
+                                    ),
                                 },
                             )
                         await self._redis.xadd(

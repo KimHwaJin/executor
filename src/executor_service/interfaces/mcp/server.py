@@ -593,8 +593,8 @@ def build_mcp_server(
 
         @server.tool(
             description=(
-                "List the PostgreSQL Outbox event timeline and Redis publication state for an "
-                "execution."
+                "List the durable PostgreSQL event timeline and current Redis publication "
+                "state for an execution."
             )
         )
         async def execution_event_list(

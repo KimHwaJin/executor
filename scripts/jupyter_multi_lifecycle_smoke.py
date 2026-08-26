@@ -22,8 +22,8 @@ from executor_service.domain.enums import (
 )
 from executor_service.domain.models import Execution, utc_now
 from executor_service.infrastructure.db.models import (
+    ExecutionEventORM,
     ExecutionORM,
-    OutboxEventORM,
     RuntimeTargetORM,
 )
 from executor_service.infrastructure.jupyter import JupyterRuntimeDriver
@@ -103,10 +103,11 @@ async def main() -> None:
         async with container.session_factory() as session:
             server = await session.get(RuntimeTargetORM, server_id)
             failed_events = await session.scalar(
-                select(func.count(OutboxEventORM.id)).where(
-                    OutboxEventORM.aggregate_id == submitted.id,
-                    OutboxEventORM.event_type == "execution.completed",
-                    OutboxEventORM.payload["status"].as_string() == "FAILED",
+                select(func.count(ExecutionEventORM.id)).where(
+                    ExecutionEventORM.execution_id == submitted.id,
+                    ExecutionEventORM.event_type == "execution.completed",
+                    ExecutionEventORM.payload["status"].as_string()
+                    == "FAILED",
                 )
             )
         if server is None:

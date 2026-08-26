@@ -12,23 +12,23 @@ consumers independently process integration events.
 - `executor.work.dlq`: invalid internal work-message metadata
 - `executor.events.dlq`: reserved for the Agent consumer's invalid integration-event policy
 
-The two primary Streams must never share a consumer group. PostgreSQL and the Transactional
-Outbox are the source of truth; Redis is not used as an Execution cache.
+The two primary Streams must never share a consumer group. PostgreSQL Execution state and durable
+`execution_events` are the source of truth; Redis is not used as an Execution cache.
 
 ## Integration event contract
 
 Every Executor-produced Stream entry contains:
 
-- `event_id`: UUID of the PostgreSQL Outbox Event and consumer deduplication key
+- `event_id`: UUID of the durable PostgreSQL Execution Event and consumer deduplication key
 - `event_type`: one of the six public Execution lifecycle event names
 - `schema_version`: event contract version; every event currently uses `1.0`
 - `execution_id`: Executor-owned Execution UUID
 - `event_sequence`: monotonic sequence scoped to one Execution
-- `occurred_at`: Outbox creation timestamp
+- `occurred_at`: durable Execution Event creation timestamp
 - `payload`: compact event JSON for downstream consumers
 
 The decoded `payload` is a JSON object and does not duplicate envelope fields. Executor validates
-this contract both before Outbox persistence and again immediately before Redis publication to
+this contract before durable event/Outbox persistence and again immediately before Redis publication to
 `executor.events`. Trace context remains internal to Outbox publishing and Phoenix spans. See
 [Redis Execution Event Contract 1.0](../dev_docs/redis-execution-events.md).
 
@@ -99,7 +99,20 @@ untrusted DLQ entry back to the primary Stream.
 
 ## Retention boundary
 
-Executor does not trim either primary Stream. Each Stream needs a retention policy based on its own
-consumer group's delivered and Pending positions.
-Published Outbox rows are also retained because `execution_event_list` uses them as the durable
-frontend event timeline.
+The Executor retention manager runs under the singleton PostgreSQL `event_retention_lease`; only
+one replica performs a pass at a time. Every pass is bounded by `EVENT_RETENTION_BATCH_SIZE`.
+
+- `executor.work` is trimmed only up to the most conservative age, delivered, and earliest Pending
+  boundary across its consumer groups. A Stream without a group is not trimmed.
+- `executor.events` is time-trimmed after `REDIS_EVENT_RETENTION_SECONDS`. An Agent offline beyond
+  that window recovers from durable PostgreSQL history by `event_sequence`.
+- `executor.work.dlq` is time-trimmed after `REDIS_WORK_DLQ_RETENTION_SECONDS`.
+- `executor.events.dlq` remains Agent-owned and is never modified by Executor.
+- Only `PUBLISHED` Outbox rows older than `PUBLISHED_OUTBOX_RETENTION_SECONDS` are deleted.
+  Pending and failed publication state is retained.
+- Durable `execution_events` are deleted only after the Execution is terminal, its configured
+  history window elapsed, and no Outbox row still references the event.
+
+Defaults are Work 3 days, Agent events 7 days, Work DLQ 30 days, published Outbox 7 days, and
+terminal Execution event history 90 days. They are configurable operational defaults rather than
+protocol guarantees.

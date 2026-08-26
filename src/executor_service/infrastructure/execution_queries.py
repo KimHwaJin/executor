@@ -25,7 +25,7 @@ from executor_service.application.pagination import (
     encode_integer_cursor,
     encode_time_cursor,
 )
-from executor_service.domain.enums import ExecutionStatus, OutboxDestination
+from executor_service.domain.enums import ExecutionStatus
 from executor_service.domain.errors import (
     ExecutionArtifactNotFoundError,
     ExecutionAttemptNotFoundError,
@@ -36,6 +36,7 @@ from executor_service.domain.models import ExecutionStep
 from executor_service.infrastructure.db.models import (
     ExecutionArtifactORM,
     ExecutionAttemptORM,
+    ExecutionEventORM,
     ExecutionOperationORM,
     ExecutionORM,
     ExecutionStepAttemptORM,
@@ -446,11 +447,13 @@ class SQLAlchemyExecutionQueryService:
     ) -> Page[ExecutionEventView]:
         async with self._session_factory() as session:
             await self._require_execution(session, execution_id)
-            statement = select(OutboxEventORM).where(
-                OutboxEventORM.aggregate_type == "Execution",
-                OutboxEventORM.aggregate_id == execution_id,
-                OutboxEventORM.destination == OutboxDestination.EVENTS,
-                OutboxEventORM.event_sequence.is_not(None),
+            statement = (
+                select(ExecutionEventORM, OutboxEventORM)
+                .outerjoin(
+                    OutboxEventORM,
+                    OutboxEventORM.execution_event_id == ExecutionEventORM.id,
+                )
+                .where(ExecutionEventORM.execution_id == execution_id)
             )
             sequence_cursor = after_sequence
             if cursor is not None:
@@ -458,41 +461,48 @@ class SQLAlchemyExecutionQueryService:
                     cursor, "execution_events"
                 )
             statement = statement.where(
-                OutboxEventORM.event_sequence > sequence_cursor
+                ExecutionEventORM.event_sequence > sequence_cursor
             )
             rows = list(
-                await session.scalars(
-                    statement.order_by(OutboxEventORM.event_sequence).limit(
-                        limit + 1
+                (
+                    await session.execute(
+                        statement.order_by(
+                            ExecutionEventORM.event_sequence
+                        ).limit(limit + 1)
                     )
                 )
+                .tuples()
+                .all()
             )
         page_rows = rows[:limit]
         items = [
             ExecutionEventView(
-                id=row.id,
-                execution_id=row.aggregate_id,
-                event_sequence=_required_event_sequence(row),
-                event_type=row.event_type,
-                payload=_redact(row.payload),
-                delivery_status=row.status,
-                publish_attempt_count=row.attempt_count,
-                created_by_type=row.created_by_type,
-                created_by=row.created_by,
-                updated_by_type=row.updated_by_type,
-                updated_by=row.updated_by,
-                available_at=row.available_at,
-                created_at=row.created_at,
-                updated_at=row.updated_at,
-                published_at=row.published_at,
-                last_error=row.last_error,
+                id=event.id,
+                execution_id=event.execution_id,
+                event_sequence=event.event_sequence,
+                event_type=event.event_type,
+                schema_version=event.schema_version,
+                payload=_redact(event.payload),
+                delivery_status=outbox.status if outbox else None,
+                publish_attempt_count=(
+                    outbox.attempt_count if outbox else None
+                ),
+                created_by_type=event.created_by_type,
+                created_by=event.created_by,
+                updated_by_type=event.updated_by_type,
+                updated_by=event.updated_by,
+                available_at=outbox.available_at if outbox else None,
+                created_at=event.created_at,
+                updated_at=event.updated_at,
+                published_at=outbox.published_at if outbox else None,
+                last_error=outbox.last_error if outbox else None,
             )
-            for row in page_rows
+            for event, outbox in page_rows
         ]
         next_cursor = (
             encode_integer_cursor(
                 "execution_events",
-                _required_event_sequence(page_rows[-1]),
+                page_rows[-1][0].event_sequence,
             )
             if len(rows) > limit and page_rows
             else None
@@ -949,9 +959,3 @@ def _step_attempt_view(
         started_at=row.started_at,
         finished_at=row.finished_at,
     )
-
-
-def _required_event_sequence(row: OutboxEventORM) -> int:
-    if row.event_sequence is None:
-        raise ValueError(f"Execution event {row.id} has no event_sequence.")
-    return row.event_sequence

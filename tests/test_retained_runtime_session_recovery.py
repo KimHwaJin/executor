@@ -32,10 +32,10 @@ from executor_service.domain.runtime import RuntimeDriverError
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
+    ExecutionEventORM,
     ExecutionOperationORM,
     ExecutionORM,
     ExecutionStepORM,
-    OutboxEventORM,
     RuntimeTargetORM,
 )
 from executor_service.infrastructure.db.session import create_session_factory
@@ -287,10 +287,10 @@ async def test_disabled_retained_target_requires_an_explicit_from_start_retry(
         assert operation is not None
         assert operation.status == OperationStatus.FAILED
         event = await session.scalar(
-            select(OutboxEventORM).where(
-                OutboxEventORM.aggregate_id == execution.id,
-                OutboxEventORM.event_type == "execution.completed",
-                OutboxEventORM.payload["status"].as_string() == "FAILED",
+            select(ExecutionEventORM).where(
+                ExecutionEventORM.execution_id == execution.id,
+                ExecutionEventORM.event_type == "execution.completed",
+                ExecutionEventORM.payload["status"].as_string() == "FAILED",
             )
         )
         assert event is not None
@@ -506,10 +506,10 @@ async def test_queued_retained_retry_expires_without_switching_targets(
         assert operation is not None
         assert operation.status == OperationStatus.FAILED
         event = await session.scalar(
-            select(OutboxEventORM).where(
-                OutboxEventORM.aggregate_id == execution.id,
-                OutboxEventORM.event_type == "execution.completed",
-                OutboxEventORM.payload["status"].as_string() == "FAILED",
+            select(ExecutionEventORM).where(
+                ExecutionEventORM.execution_id == execution.id,
+                ExecutionEventORM.event_type == "execution.completed",
+                ExecutionEventORM.payload["status"].as_string() == "FAILED",
             )
         )
         assert event is not None

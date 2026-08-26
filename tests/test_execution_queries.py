@@ -24,12 +24,12 @@ from executor_service.domain.enums import (
     StepStatus,
     TriggerType,
 )
-from executor_service.domain.models import OutboxEvent, utc_now
+from executor_service.domain.models import ExecutionEvent, utc_now
 from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
+    ExecutionEventORM,
     ExecutionORM,
     ExecutionStepAttemptORM,
-    OutboxEventORM,
     RuntimeTargetORM,
 )
 from executor_service.infrastructure.db.session import create_session_factory
@@ -127,10 +127,9 @@ async def test_query_service_returns_attempt_step_and_redacted_events(
             )
         )
         session.add(
-            OutboxEventORM.from_domain(
-                OutboxEvent(
-                    aggregate_type="Execution",
-                    aggregate_id=execution.id,
+            ExecutionEventORM.from_domain(
+                ExecutionEvent(
+                    execution_id=execution.id,
                     event_type="execution.test_secret",
                     event_sequence=1,
                     payload={
@@ -142,10 +141,9 @@ async def test_query_service_returns_attempt_step_and_redacted_events(
         )
         for sequence in (2, 3):
             session.add(
-                OutboxEventORM.from_domain(
-                    OutboxEvent(
-                        aggregate_type="Execution",
-                        aggregate_id=execution.id,
+                ExecutionEventORM.from_domain(
+                    ExecutionEvent(
+                        execution_id=execution.id,
                         event_type="execution.test_sequence",
                         event_sequence=sequence,
                         payload={"sequence": sequence},

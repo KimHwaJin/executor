@@ -28,7 +28,8 @@ Executor는 내부 명령과 외부 이벤트를 서로 다른 Stream으로 관�
 외부 시스템은 `executor.events`만 소비한다. 독립적으로 모든 이벤트를 받아야 하는
 시스템끼리는 consumer group을 공유하지 않는다.
 
-Execution 상태 변경과 OutboxEvent 생성은 하나의 PostgreSQL 트랜잭션으로 처리한다.
+Execution 상태 변경, 영구 ExecutionEvent, 전송용 OutboxEvent 생성은 하나의 PostgreSQL
+트랜잭션으로 처리한다.
 Outbox Publisher가 커밋된 이벤트를 Event Stream에 발행한다.
 
 - 같은 `event_id`가 두 번 이상 전달될 수 있다.
@@ -100,7 +101,7 @@ entry의 값은 문자열이므로 wire level에서는 `payload`가 JSON 문자�
 이를 JSON object로 파싱한다.
 
 `event_sequence`는 Redis Stream message ID나 Step의 `sequence`와 다르다. Redis 발행
-시점이 아니라 이벤트와 Outbox를 저장하는 PostgreSQL 트랜잭션에서 확정되며,
+시점이 아니라 영구 이벤트와 Outbox를 저장하는 PostgreSQL 트랜잭션에서 확정되며,
 `execution_id + event_sequence` 조합은 유일하다.
 
 ## 5. 공통 하위 객체

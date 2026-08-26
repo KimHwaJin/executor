@@ -85,7 +85,8 @@ triggering. `operation_timeout_seconds` limits all Steps in that Operation; each
 이벤트를 반환한다. Agent Subscriber가 Redis에서 순번 누락을 발견했을 때만
 `after_sequence={last_event_sequence}`로 누락 구간을 조회한다. 응답이 여러 페이지면
 `next_cursor`를 그대로 다음 요청의 `cursor`로 전달한다. 정상적인 연속 Redis 전달에는
-이 API를 호출할 필요가 없다.
+이 API를 호출할 필요가 없다. 이벤트 Envelope와 payload는 영구 `execution_events`에서
+반환되며, 단기 Outbox 전송 행이 정리된 오래된 이벤트는 `delivery=null`이다.
 
 전체 이벤트 Envelope, 타입별 payload 및 소비 알고리즘은 다음 문서를 참고한다.
 

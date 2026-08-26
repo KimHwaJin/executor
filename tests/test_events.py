@@ -28,6 +28,7 @@ from executor_service.events import (
     build_execution_event,
 )
 from executor_service.infrastructure.db.models import (
+    ExecutionEventORM,
     ExecutionEventSequenceORM,
     OutboxEventORM,
 )
@@ -132,7 +133,8 @@ async def test_event_stream_serializes_the_ordered_public_envelope(
     )
     session_factory = create_session_factory(engine)
     async with session_factory() as session, session.begin():
-        session.add(OutboxEventORM.from_domain(event))
+        session.add(ExecutionEventORM.from_domain(event))
+        session.add(OutboxEventORM.from_execution_event(event))
 
     recording_redis = RecordingRedis()
     publisher = OutboxPublisher(
@@ -167,11 +169,9 @@ async def test_event_stream_serializes_the_ordered_public_envelope(
     assert json.loads(fields["payload"]) == event.payload
 
     async with session_factory() as session:
-        stored = await session.scalar(
-            select(OutboxEventORM).where(OutboxEventORM.id == event.id)
-        )
+        stored = await session.get(ExecutionEventORM, event.id)
     assert stored is not None
-    assert "schema_version" not in stored.payload
+    assert stored.schema_version == "1.0"
 
 
 async def test_multiple_events_in_one_transaction_receive_unique_sequences(
@@ -257,11 +257,15 @@ async def test_failed_event_blocks_later_sequence_until_retry(
         payload=_started_payload(),
     )
     session_factory = create_session_factory(engine)
+    first_row = OutboxEventORM.from_execution_event(first)
+    second_row = OutboxEventORM.from_execution_event(second)
     async with session_factory() as session, session.begin():
         session.add_all(
             [
-                OutboxEventORM.from_domain(first),
-                OutboxEventORM.from_domain(second),
+                ExecutionEventORM.from_domain(first),
+                ExecutionEventORM.from_domain(second),
+                first_row,
+                second_row,
             ]
         )
 
@@ -281,7 +285,7 @@ async def test_failed_event_blocks_later_sequence_until_retry(
 
     async with session_factory() as session, session.begin():
         stored = await session.scalar(
-            select(OutboxEventORM).where(OutboxEventORM.id == first.id)
+            select(OutboxEventORM).where(OutboxEventORM.id == first_row.id)
         )
         assert stored is not None
         stored.available_at = stored.created_at
@@ -308,10 +312,13 @@ async def test_delayed_event_blocks_later_sequence_in_same_batch(
         )
         for sequence in (1, 2, 3)
     ]
-    rows = [OutboxEventORM.from_domain(event) for event in events]
+    rows = [OutboxEventORM.from_execution_event(event) for event in events]
     rows[1].available_at += timedelta(days=1)
     session_factory = create_session_factory(engine)
     async with session_factory() as session, session.begin():
+        session.add_all(
+            [ExecutionEventORM.from_domain(event) for event in events]
+        )
         session.add_all(rows)
 
     recording_redis = RecordingRedis()

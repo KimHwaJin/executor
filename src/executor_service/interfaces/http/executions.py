@@ -503,7 +503,7 @@ def build_execution_router(container: ApplicationContainer) -> APIRouter:
         "/executions/{execution_id}/events",
         response_model=ExecutionEventPageResponse,
         responses=DOMAIN_ERROR_RESPONSES,
-        summary="List the transactional Outbox event timeline",
+        summary="List the durable Execution event timeline",
     )
     async def list_execution_events(
         execution_id: UUID,

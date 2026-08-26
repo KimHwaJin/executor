@@ -35,11 +35,11 @@ from executor_service.domain.results import StepResultDescriptor
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
+    ExecutionEventORM,
     ExecutionOperationORM,
     ExecutionORM,
     ExecutionStepAttemptORM,
     ExecutionStepORM,
-    OutboxEventORM,
     RuntimeTargetORM,
 )
 from executor_service.infrastructure.db.session import create_session_factory
@@ -218,31 +218,32 @@ async def test_expired_lease_is_failed_once_and_can_restart_from_zero(
             ExecutionOperationORM, execution.active_operation_id
         )
         failed_events = await session.scalar(
-            select(func.count(OutboxEventORM.id)).where(
-                OutboxEventORM.aggregate_id == execution.id,
-                OutboxEventORM.event_type == "execution.completed",
-                OutboxEventORM.payload["status"].as_string() == "FAILED",
+            select(func.count(ExecutionEventORM.id)).where(
+                ExecutionEventORM.execution_id == execution.id,
+                ExecutionEventORM.event_type == "execution.completed",
+                ExecutionEventORM.payload["status"].as_string() == "FAILED",
             )
         )
         operation_failed_events = await session.scalar(
-            select(func.count(OutboxEventORM.id)).where(
-                OutboxEventORM.aggregate_id == execution.id,
-                OutboxEventORM.event_type == "execution.operation_completed",
-                OutboxEventORM.payload["status"].as_string() == "FAILED",
+            select(func.count(ExecutionEventORM.id)).where(
+                ExecutionEventORM.execution_id == execution.id,
+                ExecutionEventORM.event_type
+                == "execution.operation_completed",
+                ExecutionEventORM.payload["status"].as_string() == "FAILED",
             )
         )
         stale_step_events = await session.scalar(
-            select(func.count(OutboxEventORM.id)).where(
-                OutboxEventORM.aggregate_id == execution.id,
-                OutboxEventORM.event_type == "execution.step_completed",
-                OutboxEventORM.payload["status"].as_string() == "SUCCEEDED",
+            select(func.count(ExecutionEventORM.id)).where(
+                ExecutionEventORM.execution_id == execution.id,
+                ExecutionEventORM.event_type == "execution.step_completed",
+                ExecutionEventORM.payload["status"].as_string() == "SUCCEEDED",
             )
         )
         stale_terminal_events = await session.scalar(
-            select(func.count(OutboxEventORM.id)).where(
-                OutboxEventORM.aggregate_id == execution.id,
-                OutboxEventORM.event_type == "execution.completed",
-                OutboxEventORM.payload["status"].as_string() == "SUCCEEDED",
+            select(func.count(ExecutionEventORM.id)).where(
+                ExecutionEventORM.execution_id == execution.id,
+                ExecutionEventORM.event_type == "execution.completed",
+                ExecutionEventORM.payload["status"].as_string() == "SUCCEEDED",
             )
         )
 
@@ -392,9 +393,9 @@ async def test_expired_lease_resolves_pending_runtime_abort(
         attempt_row = await session.get(ExecutionAttemptORM, attempt.id)
         abort_events = list(
             await session.scalars(
-                select(OutboxEventORM).where(
-                    OutboxEventORM.aggregate_id == execution.id,
-                    OutboxEventORM.event_type.like(
+                select(ExecutionEventORM).where(
+                    ExecutionEventORM.execution_id == execution.id,
+                    ExecutionEventORM.event_type.like(
                         "execution.runtime_abort_%"
                     ),
                 )
