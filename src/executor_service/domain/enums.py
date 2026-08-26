@@ -40,6 +40,32 @@ class ExecutorAdmissionState(StrEnum):
     DRAINING = "DRAINING"
 
 
+class MaintenanceRunAction(StrEnum):
+    STOP_ACTIVE_EXECUTIONS = "STOP_ACTIVE_EXECUTIONS"
+
+
+class MaintenanceRunStatus(StrEnum):
+    REQUESTED = "REQUESTED"
+    RUNNING = "RUNNING"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+
+    @property
+    def is_terminal(self) -> bool:
+        return self in {self.SUCCEEDED, self.FAILED}
+
+
+class MaintenanceRunTargetStatus(StrEnum):
+    PENDING = "PENDING"
+    STOP_REQUESTED = "STOP_REQUESTED"
+    STOPPED = "STOPPED"
+    FAILED = "FAILED"
+
+    @property
+    def is_terminal(self) -> bool:
+        return self in {self.STOPPED, self.FAILED}
+
+
 class RuntimePool(StrEnum):
     INTERACTIVE = "INTERACTIVE"
     BATCH = "BATCH"

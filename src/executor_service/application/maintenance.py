@@ -2,8 +2,14 @@
 
 from dataclasses import dataclass
 from datetime import datetime
+from uuid import UUID
 
-from executor_service.domain.enums import ActorType, ExecutorAdmissionState
+from executor_service.domain.enums import (
+    ActorType,
+    ExecutorAdmissionState,
+    MaintenanceRunAction,
+    MaintenanceRunStatus,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,6 +29,9 @@ class ExecutorMaintenanceView:
     cancel_requested_count: int
     unresolved_cleanup_count: int
     active_runtime_session_count: int
+    active_run_id: UUID | None
+    active_run_action: MaintenanceRunAction | None
+    active_run_status: MaintenanceRunStatus | None
     created_by_type: ActorType | None
     created_by: str | None
     updated_by_type: ActorType | None

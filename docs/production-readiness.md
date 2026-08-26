@@ -343,7 +343,7 @@ from an arbitrary universal constant.
 ## PR-005: Controlled Executor maintenance and fail-safe restart recovery
 
 - Priority: P1
-- Status: IN PROGRESS — persistent admission and status implemented
+- Status: IN PROGRESS — admission and recoverable Maintenance Runs implemented
 - Area: Executor admission, maintenance, Worker shutdown, startup reconciliation
 - Public API impact: additive administrative maintenance APIs
 - Request impact: none for normal execution submission
@@ -382,8 +382,14 @@ from an arbitrary universal constant.
   of global admission.
 - Maintenance status derives workload and owned Runtime-session counts from PostgreSQL and exposes
   `safe_to_shutdown`. See [Executor Maintenance](executor-maintenance.md).
+- Alembic revision `0004` persists `MaintenanceRun` and per-Execution targets. Run creation
+  atomically drains admission and snapshots active work, while an expiring leased reconciler sends
+  each target through the existing fenced cancellation state machine.
+- Maintenance Run APIs provide asynchronous creation, summary lookup, and cursor-paginated target
+  lookup. An expired Run lease is recoverable by another Worker without duplicating cancellation.
 
-The asynchronous terminate-running operation and unexpected-restart reconciliation remain planned.
+Unexpected Worker-loss classification and startup reconciliation outside an explicit Maintenance
+Run remain planned.
 
 ### Planned deployment procedure
 

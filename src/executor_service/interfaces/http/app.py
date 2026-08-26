@@ -25,6 +25,8 @@ from executor_service.domain.errors import (
     InvalidCursorError,
     InvalidExecutionSpecError,
     InvalidStateTransitionError,
+    MaintenanceRunConflictError,
+    MaintenanceRunNotFoundError,
     NotebookCellNotFoundError,
     NotebookReadError,
     PersistenceConflictError,
@@ -128,6 +130,7 @@ def create_app(container: ApplicationContainer) -> FastAPI:
                 ExecutionArtifactNotFoundError,
                 NotebookCellNotFoundError,
                 RuntimeTargetNotFoundError,
+                MaintenanceRunNotFoundError,
             ),
         ):
             http_status = status.HTTP_404_NOT_FOUND
@@ -170,6 +173,7 @@ def create_app(container: ApplicationContainer) -> FastAPI:
                 InvalidStateTransitionError,
                 RuntimeTargetPurgeConflictError,
                 PersistenceConflictError,
+                MaintenanceRunConflictError,
             ),
         ):
             http_status = status.HTTP_409_CONFLICT

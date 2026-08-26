@@ -84,6 +84,9 @@ from executor_service.infrastructure.execution_leases import (
 from executor_service.infrastructure.maintenance import (
     ExecutorMaintenanceService,
 )
+from executor_service.infrastructure.maintenance_runs import (
+    MaintenanceRunService,
+)
 from executor_service.infrastructure.result_storage import (
     FilesystemExecutionResultStore,
 )
@@ -186,6 +189,7 @@ class ExecutionWorker:
         result_store: ExecutionResultStore | None = None,
         driver_factory: RuntimeDriverFactory | None = None,
         tracing: TracingManager | None = None,
+        maintenance_runs: MaintenanceRunService | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._redis = redis
@@ -199,6 +203,7 @@ class ExecutionWorker:
             settings.shared_storage_root
         )
         self._tracing = tracing or TracingManager(settings)
+        self._maintenance_runs = maintenance_runs
         self._workspace = WorkspaceManager()
         self._consumer_name = settings.execution_consumer_name or (
             f"{socket.gethostname()}-{os.getpid()}"
@@ -281,6 +286,13 @@ class ExecutionWorker:
                 name="multi-lifecycle-auditor",
             ),
         ]
+        if self._maintenance_runs is not None:
+            self._maintenance_loops.append(
+                asyncio.create_task(
+                    self._maintenance_run_loop(),
+                    name="maintenance-run-reconciler",
+                )
+            )
 
     async def begin_drain(self) -> None:
         if self._stopped or self._draining:
@@ -563,6 +575,20 @@ class ExecutionWorker:
                 raise
             except Exception:
                 logger.exception("MULTI execution lifecycle audit failed")
+            await asyncio.sleep(self._settings.execution_heartbeat_seconds)
+
+    async def _maintenance_run_loop(self) -> None:
+        if self._maintenance_runs is None:
+            return
+        while not self._stop_event.is_set():
+            try:
+                await self._maintenance_runs.reconcile_once(
+                    self._consumer_name
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("Maintenance Run reconciliation failed")
             await asyncio.sleep(self._settings.execution_heartbeat_seconds)
 
     def _dispatch(
