@@ -332,6 +332,58 @@ This existing scenario sends SIGKILL to the primary Executor. The surviving proc
 the expired lease as `LEASE_EXPIRED`, delete the abandoned kernel, and complete exactly one
 explicit `FROM_START` retry.
 
+### Kubernetes Worker Pod loss
+
+Run this scenario only in an isolated non-production namespace. It submits a long SINGLE
+Execution, finds the owning Pod from the immutable Attempt lease, force deletes that exact Pod,
+and verifies lease fencing, abandoned Runtime cleanup, explicit retry, event ordering, and final
+success.
+
+Prerequisites:
+
+- the release migration Job completed and `alembic_version.version_num` is `0002`;
+- the Executor Deployment and at least one compatible Runtime Target are Ready;
+- the active kubectl identity can get Deployments and Pods and delete the selected Executor Pod;
+- `--base-url` reaches the same Deployment selected by `--namespace`, `--deployment`, and
+  `--selector`; and
+- no production workload shares the namespace, Runtime pool, or Executor database.
+
+Two or more replicas keep the Service continuously available. One replica is also supported; the
+validator tolerates the temporary HTTP outage while the Deployment creates its replacement Pod.
+
+```bash
+uv run python scripts/kubernetes_worker_failover_e2e.py \
+  --base-url https://executor.example.internal \
+  --context non-production-cluster \
+  --namespace executor-test \
+  --deployment executor \
+  --runtime-profile basic \
+  --allow-pod-delete
+```
+
+If the Gateway requires a bearer token, inject it without placing it on the command line:
+
+```bash
+export KUBE_FAILOVER_BEARER_TOKEN='<temporary test token>'
+```
+
+An internal CA can be supplied with `--ca-file`. The script does not provide an insecure TLS
+switch. The default report is written to `test-results/kubernetes-worker-failover.json`, which is
+ignored by Git.
+
+The run passes only when all of these invariants hold:
+
+1. the first Attempt owner exactly matches the Pod that was deleted;
+2. the Execution and first Attempt become `FAILED/LEASE_EXPIRED`;
+3. abandoned Runtime cleanup reaches `SUCCEEDED` and the old session is released;
+4. `execution_retry` creates exactly one second Attempt with a different Runtime session;
+5. the retry succeeds; and
+6. durable events have unique IDs, contiguous Execution-scoped sequences, and exactly one failed
+   followed by one successful `execution.completed` cycle.
+
+The validator deliberately retains the Execution, result files, and event history as audit
+evidence. It does not scale the Deployment or alter maintenance admission state.
+
 ### Runtime-owned storage operation failures
 
 ```bash

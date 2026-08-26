@@ -100,3 +100,23 @@ The 90-second Pod grace period is greater than the default 30-second execution d
 shutdown cleanup and buffer. If those settings increase, increase `terminationGracePeriodSeconds`
 as well. A live Jupyter WebSocket cannot migrate between Pods during a rollout; work that outlives
 the drain period follows the documented failure and explicit retry flow.
+
+## Non-production Worker-loss validation
+
+After deploying revision `0002`, validate actual Pod-loss recovery before production rollout. The
+repository provides a guarded cross-platform Python validator that force deletes only the Pod
+recorded as the running Attempt owner:
+
+```bash
+uv run python scripts/kubernetes_worker_failover_e2e.py \
+  --base-url https://executor.example.internal \
+  --context non-production-cluster \
+  --namespace executor-test \
+  --deployment executor \
+  --allow-pod-delete
+```
+
+The command is destructive and refuses to run without `--allow-pod-delete`. It verifies
+`LEASE_EXPIRED`, Runtime cleanup, explicit `FROM_START` retry, final success, and durable event
+uniqueness/order. See [Executor resilience testing](../../docs/executor-resilience-testing.md) for
+prerequisites, optional authentication, report location, and exact pass criteria.
