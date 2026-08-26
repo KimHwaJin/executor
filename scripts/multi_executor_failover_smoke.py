@@ -267,7 +267,7 @@ async def main() -> None:
                 succeeded["state"]["status"] != "SUCCEEDED"
                 or len(attempts) != 2
                 or [item["lease"]["owner"] for item in attempts]
-                != [PRIMARY_CONSUMER, SECONDARY_CONSUMER]
+                != [None, SECONDARY_CONSUMER]
                 or [item["state"]["status"] for item in attempts]
                 != ["FAILED", "SUCCEEDED"]
                 or attempts[0]["runtime"]["session_id"]

@@ -332,9 +332,54 @@ This existing scenario sends SIGKILL to the primary Executor. The surviving proc
 the expired lease as `LEASE_EXPIRED`, delete the abandoned kernel, and complete exactly one
 explicit `FROM_START` retry.
 
+### Isolated Docker Worker loss
+
+This is the repeatable application-level acceptance test for Worker crash recovery. It creates a
+dedicated Compose project with its own PostgreSQL, Redis, Jupyter, shared volumes, and two Executor
+containers. It does not reuse or remove the ordinary local Compose project.
+
+```bash
+uv run python scripts/docker_worker_failover_e2e.py \
+  --allow-container-kill
+```
+
+The command builds `executor-service:failover` by overlaying the current application and migration
+sources on the existing `executor-service:local` dependency image. It reuses
+`executor-jupyter:local` by default, so ordinary source changes need no external registry lookup.
+If dependencies or the main Dockerfile changed, rebuild or load `executor-service:local` first. If
+the Jupyter harness changed, pass `--build-jupyter-image`; in a closed network, pre-load all base
+images from the internal registry before doing so.
+
+The validator registers the isolated Jupyter Target, submits a long SINGLE Execution, identifies
+its owning Worker from the Attempt lease, sends `SIGKILL` to only that container, and uses the
+surviving Executor API to verify recovery and retry. By default it removes only its uniquely named
+Compose project and volumes when the run ends. Use `--keep-stack` only when failed containers,
+logs, PostgreSQL, or result files must be retained for diagnosis.
+
+The default host ports are `8010` and `8011`. Override them when occupied:
+
+```bash
+uv run python scripts/docker_worker_failover_e2e.py \
+  --primary-port 18010 \
+  --secondary-port 18011 \
+  --allow-container-kill
+```
+
+The report is written to `test-results/docker-worker-failover.json`. This Docker gate verifies the
+Executor application invariants listed in the Kubernetes scenario below. It does not verify
+Kubernetes scheduling, Downward API identity injection, Probes, Service/Istio routing, or PVC
+mount behavior.
+
+The isolated Docker baseline validated on 2026-08-26 force-killed the Secondary owner with exit
+code 137. The Primary fenced the lease as `LEASE_EXPIRED`, completed abandoned session cleanup,
+accepted one `FROM_START` retry on a new Runtime session, and reached `SUCCEEDED`. PostgreSQL
+returned ten unique durable events with contiguous `event_sequence` values from 1 through 10. The
+generated Compose project and its four dedicated volumes were removed automatically.
+
 ### Kubernetes Worker Pod loss
 
-Run this scenario only in an isolated non-production namespace. It submits a long SINGLE
+This optional platform-level scenario is retained for initial cluster qualification and major
+deployment changes. Run it only in an isolated non-production namespace. It submits a long SINGLE
 Execution, finds the owning Pod from the immutable Attempt lease, force deletes that exact Pod,
 and verifies lease fencing, abandoned Runtime cleanup, explicit retry, event ordering, and final
 success.

@@ -397,12 +397,13 @@ and processed asynchronously after the database startup barrier, so an unavailab
 make startup unbounded and its slot cannot be over-allocated. `/workerz` exposes the completed-at
 time and recovered/cleanup-target counts for the current process start.
 
-`scripts/kubernetes_worker_failover_e2e.py` provides the guarded deployment-level release check.
-It identifies the owning Pod from Attempt history, force deletes only that Pod, and verifies
-`LEASE_EXPIRED`, asynchronous Runtime cleanup, a single explicit `FROM_START` retry, final success,
-and contiguous durable event history. The script requires `--allow-pod-delete` and is restricted by
-procedure to an isolated non-production namespace. Running it in each target platform remains a
-deployment release gate rather than a unit-test substitute.
+`scripts/docker_worker_failover_e2e.py` provides the repeatable application-level release check in
+an isolated two-Executor Compose project. It identifies the owning container from Attempt history,
+sends `SIGKILL` only to that container, and verifies `LEASE_EXPIRED`, asynchronous Runtime cleanup,
+a single explicit `FROM_START` retry, final success, and contiguous durable event history.
+`scripts/kubernetes_worker_failover_e2e.py` retains the same guarded scenario for optional initial
+cluster qualification and major Deployment changes; it is not required for every application
+change.
 
 ### Planned deployment procedure
 

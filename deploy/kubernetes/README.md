@@ -103,9 +103,9 @@ the drain period follows the documented failure and explicit retry flow.
 
 ## Non-production Worker-loss validation
 
-After deploying revision `0002`, validate actual Pod-loss recovery before production rollout. The
-repository provides a guarded cross-platform Python validator that force deletes only the Pod
-recorded as the running Attempt owner:
+The isolated Docker Worker-loss gate validates application recovery without touching Kubernetes.
+For initial cluster qualification or major Deployment changes, the repository also provides a
+guarded platform validator that force deletes only the Pod recorded as the running Attempt owner:
 
 ```bash
 uv run python scripts/kubernetes_worker_failover_e2e.py \

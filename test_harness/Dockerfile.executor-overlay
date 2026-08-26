@@ -1,0 +1,14 @@
+ARG EXECUTOR_BASE_IMAGE=executor-service:local
+FROM ${EXECUTOR_BASE_IMAGE}
+
+USER root
+
+# Reuse the already-installed dependency environment while replacing the
+# application and migration sources under test. This keeps closed-network
+# failover validation independent of external base-image metadata lookups.
+RUN rm -rf /app/src /app/migrations
+COPY --chown=1000:1000 alembic.ini /app/alembic.ini
+COPY --chown=1000:1000 migrations /app/migrations
+COPY --chown=1000:1000 src /app/src
+
+USER executor

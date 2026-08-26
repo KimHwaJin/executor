@@ -124,7 +124,7 @@ def test_attempt_history_proves_fencing_cleanup_and_from_start_retry() -> None:
     validate_attempt_history(
         [
             {
-                "lease": {"owner": "executor-old"},
+                "lease": {"owner": None},
                 "state": {"status": "FAILED"},
                 "failure": {"type": "LEASE_EXPIRED"},
                 "recovery": {"runtime_session_cleanup_status": "SUCCEEDED"},
@@ -138,7 +138,6 @@ def test_attempt_history_proves_fencing_cleanup_and_from_start_retry() -> None:
                 "runtime": {"session_id": "kernel-new"},
             },
         ],
-        deleted_owner="executor-old",
         initial_session_id="kernel-old",
     )
 
@@ -146,7 +145,7 @@ def test_attempt_history_proves_fencing_cleanup_and_from_start_retry() -> None:
 def test_attempt_history_rejects_reused_abandoned_session() -> None:
     attempts = [
         {
-            "lease": {"owner": "executor-old"},
+            "lease": {"owner": None},
             "state": {"status": "FAILED"},
             "failure": {"type": "LEASE_EXPIRED"},
             "recovery": {"runtime_session_cleanup_status": "SUCCEEDED"},
@@ -163,6 +162,29 @@ def test_attempt_history_rejects_reused_abandoned_session() -> None:
     with pytest.raises(ValidationError, match="reused"):
         validate_attempt_history(
             attempts,
-            deleted_owner="executor-old",
+            initial_session_id="kernel-old",
+        )
+
+
+def test_attempt_history_requires_failed_lease_release() -> None:
+    attempts = [
+        {
+            "lease": {"owner": "stale-worker"},
+            "state": {"status": "FAILED"},
+            "failure": {"type": "LEASE_EXPIRED"},
+            "recovery": {"runtime_session_cleanup_status": "SUCCEEDED"},
+            "runtime": {"session_id": "kernel-old"},
+        },
+        {
+            "lease": {"owner": "executor-new"},
+            "state": {"status": "SUCCEEDED"},
+            "failure": None,
+            "recovery": {"runtime_session_cleanup_status": "NOT_REQUIRED"},
+            "runtime": {"session_id": "kernel-new"},
+        },
+    ]
+    with pytest.raises(ValidationError, match="not released"):
+        validate_attempt_history(
+            attempts,
             initial_session_id="kernel-old",
         )
