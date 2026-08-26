@@ -1,4 +1,5 @@
 import json
+from datetime import timedelta
 from typing import Any, cast
 from uuid import uuid4
 
@@ -26,7 +27,10 @@ from executor_service.events import (
     ExecutionStreamEnvelope,
     build_execution_event,
 )
-from executor_service.infrastructure.db.models import OutboxEventORM
+from executor_service.infrastructure.db.models import (
+    ExecutionEventSequenceORM,
+    OutboxEventORM,
+)
 from executor_service.infrastructure.db.session import create_session_factory
 from executor_service.infrastructure.outbox import OutboxPublisher
 from executor_service.infrastructure.worker import _persist_execution_event
@@ -201,7 +205,12 @@ async def test_multiple_events_in_one_transaction_receive_unique_sequences(
                 .order_by(OutboxEventORM.event_sequence)
             )
         )
+        sequence_state = await session.get(
+            ExecutionEventSequenceORM, execution.id
+        )
     assert sequences == [1, 2]
+    assert sequence_state is not None
+    assert sequence_state.last_sequence == 2
 
 
 def test_stream_envelope_rejects_wrong_version_and_legacy_fields() -> None:
@@ -277,13 +286,61 @@ async def test_failed_event_blocks_later_sequence_until_retry(
         assert stored is not None
         stored.available_at = stored.created_at
 
-    assert await publisher.publish_batch() == 1
-    assert await publisher.publish_batch() == 1
+    assert await publisher.publish_batch() == 2
     sequences = [
         int(fields["event_sequence"])
         for fields in recording_redis.messages["event-contract-v1"]
     ]
     assert sequences == [1, 2]
+
+
+async def test_delayed_event_blocks_later_sequence_in_same_batch(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+) -> None:
+    execution = await execution_service.submit(_submit_command())
+    events = [
+        build_execution_event(
+            execution_id=execution.id,
+            event_sequence=sequence,
+            event_type="execution.started",
+            payload=_started_payload(),
+        )
+        for sequence in (1, 2, 3)
+    ]
+    rows = [OutboxEventORM.from_domain(event) for event in events]
+    rows[1].available_at += timedelta(days=1)
+    session_factory = create_session_factory(engine)
+    async with session_factory() as session, session.begin():
+        session.add_all(rows)
+
+    recording_redis = RecordingRedis()
+    publisher = OutboxPublisher(
+        session_factory=session_factory,
+        redis=cast(Redis, recording_redis),
+        work_stream_name="work-contract-v1",
+        event_stream_name="event-contract-v1",
+        poll_interval_seconds=0.01,
+        batch_size=10,
+        tracing=TracingManager(Settings(runtime_enabled=False)),
+    )
+
+    assert await publisher.publish_batch() == 2
+    assert [
+        int(fields["event_sequence"])
+        for fields in recording_redis.messages["event-contract-v1"]
+    ] == [1]
+
+    async with session_factory() as session, session.begin():
+        delayed = await session.get(OutboxEventORM, rows[1].id)
+        assert delayed is not None
+        delayed.available_at = delayed.created_at
+
+    assert await publisher.publish_batch() == 2
+    assert [
+        int(fields["event_sequence"])
+        for fields in recording_redis.messages["event-contract-v1"]
+    ] == [1, 2, 3]
 
 
 def test_successful_step_requires_persisted_result() -> None:

@@ -154,6 +154,16 @@ def upgrade() -> None:
         ["status", "available_at", "created_at"],
         unique=False,
     )
+    op.create_index(
+        "ix_outbox_pending_event_order",
+        "outbox_events",
+        ["aggregate_type", "aggregate_id", "event_sequence"],
+        unique=False,
+        postgresql_where=sa.text(
+            "destination = 'EVENTS' AND status = 'PENDING'"
+        ),
+        sqlite_where=sa.text("destination = 'EVENTS' AND status = 'PENDING'"),
+    )
     maintenance_created_at = datetime.now(UTC)
     maintenance_table = op.create_table(
         "executor_maintenance",
@@ -659,12 +669,6 @@ def upgrade() -> None:
         sa.Column("tracestate", sa.Text(), nullable=True),
         sa.Column("version", sa.Integer(), nullable=False),
         sa.Column(
-            "next_event_sequence",
-            sa.BigInteger(),
-            server_default=sa.text("0"),
-            nullable=False,
-        ),
-        sa.Column(
             "created_by_type",
             sa.Enum(
                 "AGENT",
@@ -757,10 +761,6 @@ def upgrade() -> None:
         sa.CheckConstraint(
             "fencing_token >= 0",
             name=op.f("ck_executions_non_negative_fencing_token"),
-        ),
-        sa.CheckConstraint(
-            "next_event_sequence >= 0",
-            name=op.f("ck_executions_non_negative_next_event_sequence"),
         ),
         sa.CheckConstraint(
             "runtime_abort_status IN ('NOT_REQUIRED', 'PENDING', "
@@ -877,6 +877,25 @@ def upgrade() -> None:
         "executions",
         ["user_id", "created_at", "id"],
         unique=False,
+    )
+    op.create_table(
+        "execution_event_sequences",
+        sa.Column("execution_id", sa.Uuid(), nullable=False),
+        sa.Column("last_sequence", sa.BigInteger(), nullable=False),
+        sa.CheckConstraint(
+            "last_sequence >= 1",
+            name=op.f("ck_execution_event_sequences_positive_last_sequence"),
+        ),
+        sa.ForeignKeyConstraint(
+            ["execution_id"],
+            ["executions.id"],
+            name=op.f("fk_execution_event_sequences_execution_id_executions"),
+            ondelete="CASCADE",
+        ),
+        sa.PrimaryKeyConstraint(
+            "execution_id",
+            name=op.f("pk_execution_event_sequences"),
+        ),
     )
     op.create_table(
         "maintenance_runs",
@@ -1923,6 +1942,7 @@ def downgrade() -> None:
         "ix_execution_attempts_lease", table_name="execution_attempts"
     )
     op.drop_table("execution_attempts")
+    op.drop_table("execution_event_sequences")
     op.drop_index("ix_executions_user_created_cursor", table_name="executions")
     op.drop_index(op.f("ix_executions_task_id"), table_name="executions")
     op.drop_index("ix_executions_task_created_cursor", table_name="executions")
@@ -1961,6 +1981,7 @@ def downgrade() -> None:
     )
     op.drop_table("runtime_targets")
     op.drop_table("runtime_target_purges")
+    op.drop_index("ix_outbox_pending_event_order", table_name="outbox_events")
     op.drop_index("ix_outbox_pending", table_name="outbox_events")
     op.drop_index("ix_outbox_execution_cursor", table_name="outbox_events")
     op.drop_index(

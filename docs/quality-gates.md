@@ -45,6 +45,38 @@ The PostgreSQL suite creates a fresh database per test, applies Alembic to
 `head`, runs `alembic check`, exercises concurrent Workers, and drops the test
 database afterward. Never point the admin URL at a production server.
 
+## Ordered Outbox load gate
+
+이벤트 순서 보장 쿼리 또는 Outbox 인덱스를 변경할 때는 disposable PostgreSQL DB와
+전용 Redis test DB에서 다음 부하 검사를 실행한다.
+
+```bash
+uv run python scripts/outbox_ordering_load_smoke.py
+```
+
+기본 시나리오는 다음 두 가지다.
+
+- 단일 Execution에 미발행 이벤트 2,000개가 적체된 상황
+- 30개 Execution에 각각 미발행 이벤트 100개가 적체된 상황
+
+각 실행은 Execution별 `event_sequence`가 빠짐없이 오름차순으로 발행되는지 검증하고,
+처리 시간·초당 이벤트 수·Publisher 반복 횟수를 출력한다. 필요하면
+`--min-events-per-second`로 해당 실행환경의 회귀 하한을 지정한다. 스크립트는 테스트마다
+새 PostgreSQL DB를 생성하고 제거하므로 운영 DB 권한이나 주소를 사용하면 안 된다.
+
+```bash
+uv run python scripts/outbox_ordering_load_smoke.py \
+  --single-events 2000 \
+  --parallel-executions 30 \
+  --parallel-events 100 \
+  --min-events-per-second 100
+```
+
+2026-08-26 로컬 Docker 기준 참고 결과는 단일 Execution 2,000개가 21 Publisher
+rounds, 1.66초, 약 1,203 events/s였고, 30개 Execution의 총 3,000개가 21 rounds,
+1.91초, 약 1,568 events/s였다. 이 값은 운영환경 SLA가 아니라 동일 장비에서 회귀를
+탐지하기 위한 기준선이다.
+
 ## Runtime release gate
 
 Real Jupyter execution is intentionally separate from the fast pull-request

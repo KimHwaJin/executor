@@ -38,6 +38,17 @@ Executions continue publishing concurrently. Consumers still validate the sequen
 at-least-once redelivery, process crashes, and parallel handlers can produce duplicates or
 out-of-order application completion.
 
+The Publisher's predecessor lookup is supported by the partial PostgreSQL index
+`ix_outbox_pending_event_order`. It contains only pending Agent-facing events, so long published
+histories are not rescanned while selecting the next sequence. Changes to this query or index must
+pass `scripts/postgres_query_plan_smoke.py` and the ordered Outbox load gate documented in
+`docs/quality-gates.md`.
+
+한 Publisher는 선택한 Execution의 연속된 available 이벤트를
+`OUTBOX_BATCH_SIZE` 범위에서 같은 트랜잭션으로 잠그고 순서대로 발행한다. 선행 이벤트의
+검증 또는 Redis 발행이 실패하면 같은 Execution의 나머지 이벤트는 그 배치에서 건너뛰며,
+실패 이벤트가 재시도되어 성공하기 전까지 다음 Publisher 조회에서도 차단된다.
+
 Agent integration code persists the last contiguous sequence per Execution. A gap is recovered
 with `execution_event_list` or
 `GET /api/v1/executions/{execution_id}/events?after_sequence={last}` before the later Redis event
