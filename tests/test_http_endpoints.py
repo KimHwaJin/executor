@@ -28,6 +28,11 @@ async def test_health_endpoint() -> None:
         "state": "STOPPED",
         "accepting_new_executions": False,
         "active_execution_count": 0,
+        "startup_reconciliation": {
+            "completed_at": None,
+            "recovered_execution_count": 0,
+            "runtime_cleanup_target_count": 0,
+        },
     }
     assert removed_metrics.status_code == 404
     await container.redis.aclose()

@@ -273,6 +273,115 @@ async def test_expired_lease_is_failed_once_and_can_restart_from_zero(
     assert stale_terminal_events == 0
 
 
+async def test_orphan_running_execution_without_attempt_is_fenced_and_cleaned(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    execution = await execution_service.submit(
+        replace(
+            _command(),
+            idempotency_key="orphan-without-attempt",
+            session_id="orphan-without-attempt",
+        )
+    )
+    now = utc_now()
+    runtime_session_id = "orphan-session-without-attempt"
+    session_factory = create_session_factory(engine)
+    async with session_factory() as session, session.begin():
+        target = RuntimeTargetORM(
+            name="orphan-without-attempt-target",
+            connection_config={"endpoint": "http://recovery.invalid"},
+            **runtime_credential_fields(),
+            pool=RuntimePool.INTERACTIVE,
+            status=RuntimeTargetStatus.ACTIVE,
+            max_concurrent_executions=1,
+            supported_profiles=["basic"],
+            enabled=True,
+        )
+        session.add(target)
+        await session.flush()
+        await session.execute(
+            update(ExecutionORM)
+            .where(ExecutionORM.id == execution.id)
+            .values(
+                status=ExecutionStatus.RUNNING,
+                runtime_target_id=target.id,
+                runtime_session_id=runtime_session_id,
+                lease_owner=None,
+                lease_expires_at=None,
+                heartbeat_at=None,
+                fencing_token=3,
+                started_at=now - timedelta(minutes=2),
+            )
+        )
+        await session.execute(
+            update(ExecutionStepORM)
+            .where(ExecutionStepORM.id == execution.steps[0].id)
+            .values(
+                status=StepStatus.RUNNING,
+                started_at=now - timedelta(minutes=2),
+            )
+        )
+        await session.execute(
+            update(ExecutionOperationORM)
+            .where(ExecutionOperationORM.id == execution.active_operation_id)
+            .values(
+                status=OperationStatus.RUNNING,
+                started_at=now - timedelta(minutes=2),
+            )
+        )
+
+    RecoveryCleanupDriver.delete_fails = False
+    RecoveryCleanupDriver.deleted = []
+    monkeypatch.setattr(
+        "executor_service.infrastructure.runtime_drivers.JupyterRuntimeDriver",
+        RecoveryCleanupDriver,
+    )
+    settings = Settings(
+        runtime_enabled=False,
+        shared_storage_root=tmp_path,
+    )
+    redis = Redis.from_url(
+        "redis://127.0.0.1:6379/15",
+        decode_responses=True,
+    )
+    worker = ExecutionWorker(
+        session_factory=session_factory,
+        redis=redis,
+        settings=settings,
+        registry=RuntimeTargetRegistry(session_factory, settings),
+        artifact_manager=ExecutionArtifactManager(session_factory),
+    )
+    try:
+        recovered_count = await worker._recover_expired_leases()
+    finally:
+        await redis.aclose()
+
+    async with session_factory() as session:
+        recovered = await session.get(ExecutionORM, execution.id)
+        completed_events = await session.scalar(
+            select(func.count(ExecutionEventORM.id)).where(
+                ExecutionEventORM.execution_id == execution.id,
+                ExecutionEventORM.event_type == "execution.completed",
+            )
+        )
+
+    assert recovered_count == 1
+    assert recovered is not None
+    assert recovered.status == ExecutionStatus.FAILED
+    assert recovered.failure_type == FailureType.LEASE_EXPIRED
+    assert recovered.fencing_token == 4
+    assert recovered.runtime_session_id is None
+    assert (
+        recovered.runtime_session_cleanup_status
+        == RuntimeSessionCleanupStatus.SUCCEEDED
+    )
+    assert RecoveryCleanupDriver.deleted == [runtime_session_id]
+    assert completed_events == 1
+
+
 @pytest.mark.parametrize("delete_fails", [False, True])
 async def test_expired_lease_resolves_pending_runtime_abort(
     execution_service: ExecutionService,

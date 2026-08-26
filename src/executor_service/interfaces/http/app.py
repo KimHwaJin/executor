@@ -227,6 +227,19 @@ def create_app(container: ApplicationContainer) -> FastAPI:
             "state": worker.lifecycle_state,
             "accepting_new_executions": worker.accepting_work,
             "active_execution_count": worker.active_job_count,
+            "startup_reconciliation": {
+                "completed_at": (
+                    worker.startup_reconciliation_completed_at.isoformat()
+                    if worker.startup_reconciliation_completed_at is not None
+                    else None
+                ),
+                "recovered_execution_count": (
+                    worker.startup_recovered_execution_count
+                ),
+                "runtime_cleanup_target_count": (
+                    worker.startup_cleanup_target_count
+                ),
+            },
         }
 
     app.include_router(build_execution_router(container))

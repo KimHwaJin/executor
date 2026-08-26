@@ -1,11 +1,9 @@
 Single-database Alembic environment for the Executor PostgreSQL schema.
 
-Revision `0001` is the complete pre-release schema baseline recorded on 2026-08-26. It replaces
-the former incremental development chain and is intended to create a new empty database directly
-at the current schema. Existing databases stamped with a removed development revision must be
-recreated; no compatibility or data-preserving upgrade path is provided for that discarded chain.
-It is the only revision and current head. It includes Execution and cancellation lease fencing,
-Executor-wide admission state, and durable Maintenance Runs.
+Revision `0001` is the complete pre-release schema baseline recorded on 2026-08-26. Revision
+`0002` is the current head and safely bridges databases created from the earlier deployed `0001`
+shape to durable Execution events. The baseline replaces the former incremental development chain.
+Databases stamped with a removed pre-baseline development revision must still be recreated.
 
 Create or verify a database with:
 

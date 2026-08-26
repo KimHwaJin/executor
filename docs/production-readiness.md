@@ -343,7 +343,7 @@ from an arbitrary universal constant.
 ## PR-005: Controlled Executor maintenance and fail-safe restart recovery
 
 - Priority: P1
-- Status: IN PROGRESS — admission and recoverable Maintenance Runs implemented
+- Status: IMPLEMENTED
 - Area: Executor admission, maintenance, Worker shutdown, startup reconciliation
 - Public API impact: additive administrative maintenance APIs
 - Request impact: none for normal execution submission
@@ -389,8 +389,13 @@ from an arbitrary universal constant.
 - Maintenance Run APIs provide asynchronous creation, summary lookup, and cursor-paginated target
   lookup. An expired Run lease is recoverable by another Worker without duplicating cancellation.
 
-Unexpected Worker-loss classification and startup reconciliation outside an explicit Maintenance
-Run remain planned.
+Worker startup now fences every expired or incomplete `RUNNING` lease in PostgreSQL before opening
+Redis intake or queue reconciliation. The transition records `LEASE_EXPIRED`, increments the
+Execution fence and recovery count, closes active Step/Operation/Attempt state, and persists the
+terminal integration events transactionally. Runtime cleanup targets are reserved as `PENDING`
+and processed asynchronously after the database startup barrier, so an unavailable Runtime cannot
+make startup unbounded and its slot cannot be over-allocated. `/workerz` exposes the completed-at
+time and recovered/cleanup-target counts for the current process start.
 
 ### Planned deployment procedure
 
@@ -635,9 +640,9 @@ operations requirements determine the production values.
 
 ### Verified baseline
 
-- Static/unit gate: Ruff passed, format passed, ty passed, 125 tests passed.
-- Redis integration gate: 9 tests passed.
-- PostgreSQL concurrency and migration gate: 6 tests passed.
+- Static/unit gate: Ruff passed, format passed, ty passed, 205 tests passed.
+- Redis integration gate: 10 tests passed.
+- PostgreSQL concurrency and migration gate: 16 tests passed.
 
 ### Remaining CI-platform work
 
