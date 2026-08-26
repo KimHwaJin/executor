@@ -75,8 +75,10 @@ from executor_service.infrastructure.db.models import (
     RuntimeTargetORM,
 )
 from executor_service.infrastructure.execution_leases import (
+    CancellationLease,
     ExecutionLease,
     ExecutionLeaseLostError,
+    require_active_cancellation_lease,
     require_active_lease,
 )
 from executor_service.infrastructure.result_storage import (
@@ -129,6 +131,13 @@ class RuntimeAbortResolution:
     cleanup_status: RuntimeSessionCleanupStatus
     retry_strategy: RetryStrategy
     retain_session: bool
+
+
+@dataclass(frozen=True, slots=True)
+class CancellationWork:
+    lease: CancellationLease
+    runtime_target_id: UUID | None
+    runtime_session_id: str | None
 
 
 class StoredRuntimeExecutionError(RuntimeExecutionError):
@@ -566,9 +575,13 @@ class ExecutionWorker:
             return
         if current is not None and not current.done():
             if replace:
+                if current.get_name() == f"cancellation-{execution_id}":
+                    coroutine.close()
+                    return
                 current.cancel()
                 task = asyncio.create_task(
-                    coroutine, name=f"cancel-{execution_id}"
+                    self._handoff_to_cancellation(current, coroutine),
+                    name=f"cancellation-{execution_id}",
                 )
                 self._jobs[execution_id] = task
                 self._jobs_idle.clear()
@@ -580,12 +593,33 @@ class ExecutionWorker:
             else:
                 coroutine.close()
             return
-        task = asyncio.create_task(coroutine, name=f"execution-{execution_id}")
+        task = asyncio.create_task(
+            coroutine,
+            name=(
+                f"cancellation-{execution_id}"
+                if replace
+                else f"execution-{execution_id}"
+            ),
+        )
         self._jobs[execution_id] = task
         self._jobs_idle.clear()
         task.add_done_callback(
             lambda done: self._remove_job_if_current(execution_id, done)
         )
+
+    @staticmethod
+    async def _handoff_to_cancellation(
+        previous: asyncio.Task[None],
+        cancellation: Coroutine[Any, Any, None],
+    ) -> None:
+        cancellation_started = False
+        try:
+            await asyncio.gather(previous, return_exceptions=True)
+            cancellation_started = True
+            await cancellation
+        finally:
+            if not cancellation_started:
+                cancellation.close()
 
     def _remove_job_if_current(
         self, execution_id: UUID, task: asyncio.Task[None]
@@ -877,6 +911,7 @@ class ExecutionWorker:
                 if await self._cancellation_job_owns_terminal(execution.id):
                     # The replacement cancellation job exclusively owns Runtime cleanup and the
                     # CANCELLED transition. This execution job only preserves cell evidence.
+                    await self._release_execution_for_cancellation(lease)
                     raise
                 cleanup_status = RuntimeSessionCleanupStatus.NOT_REQUIRED
                 if runtime_session_id is not None:
@@ -1005,6 +1040,61 @@ class ExecutionWorker:
                     heartbeat.cancel()
                     await asyncio.gather(heartbeat, return_exceptions=True)
                 await driver.close()
+
+    async def _claim_cancellation(
+        self, execution_id: UUID
+    ) -> CancellationWork | None:
+        now = utc_now()
+        lease_expires = now + timedelta(
+            seconds=self._settings.execution_lease_seconds
+        )
+        async with self._session_factory() as session, session.begin():
+            execution = await session.scalar(
+                select(ExecutionORM)
+                .where(ExecutionORM.id == execution_id)
+                .with_for_update()
+            )
+            if (
+                execution is None
+                or execution.status != ExecutionStatus.CANCEL_REQUESTED
+            ):
+                return None
+            execution_lease_expiry = execution.lease_expires_at
+            if (
+                execution.lease_owner is not None
+                and execution_lease_expiry is not None
+                and _as_utc(execution_lease_expiry) > now
+            ):
+                return None
+            active_expiry = execution.cancellation_lease_expires_at
+            has_active_owner = (
+                execution.cancellation_lease_owner is not None
+                and active_expiry is not None
+                and _as_utc(active_expiry) > now
+            )
+            if (
+                has_active_owner
+                and execution.cancellation_lease_owner != self._consumer_name
+            ):
+                return None
+            if not has_active_owner:
+                execution.fencing_token += 1
+                execution.lease_owner = None
+                execution.lease_expires_at = None
+                execution.heartbeat_at = None
+            execution.cancellation_lease_owner = self._consumer_name
+            execution.cancellation_lease_expires_at = lease_expires
+            execution.cancellation_heartbeat_at = now
+            execution.updated_at = now
+            return CancellationWork(
+                lease=CancellationLease(
+                    execution_id=execution.id,
+                    owner=self._consumer_name,
+                    fencing_token=execution.fencing_token,
+                ),
+                runtime_target_id=execution.runtime_target_id,
+                runtime_session_id=execution.runtime_session_id,
+            )
 
     async def _claim(
         self, execution_id: UUID
@@ -1771,6 +1861,7 @@ class ExecutionWorker:
             if await self._cancellation_job_owns_terminal(execution.id):
                 # Avoid racing the replacement cancellation job for session deletion and the
                 # terminal event. The interrupted-cell handler above already preserved evidence.
+                await self._release_execution_for_cancellation(lease)
                 raise
             cleanup_status = RuntimeSessionCleanupStatus.NOT_REQUIRED
             if runtime_session_id is not None:
@@ -2776,10 +2867,62 @@ class ExecutionWorker:
                 allowed_statuses=allowed_statuses,
             )
 
+    async def _release_execution_for_cancellation(
+        self, lease: ExecutionLease
+    ) -> None:
+        now = utc_now()
+        async with self._session_factory() as session, session.begin():
+            execution, attempt = await require_active_lease(
+                session,
+                lease,
+                allowed_statuses=(ExecutionStatus.CANCEL_REQUESTED,),
+            )
+            execution.lease_owner = None
+            execution.lease_expires_at = None
+            execution.heartbeat_at = None
+            execution.updated_at = now
+            attempt.lease_owner = None
+            attempt.lease_expires_at = None
+
     async def _heartbeat(self, lease: ExecutionLease) -> None:
         while True:
             await asyncio.sleep(self._settings.execution_heartbeat_seconds)
             await self._renew_lease(lease)
+
+    async def _cancellation_heartbeat(self, lease: CancellationLease) -> None:
+        while True:
+            await asyncio.sleep(self._settings.execution_heartbeat_seconds)
+            await self._renew_cancellation_lease(lease)
+
+    async def _renew_cancellation_lease(
+        self, lease: CancellationLease
+    ) -> None:
+        now = utc_now()
+        lease_expires = now + timedelta(
+            seconds=self._settings.execution_lease_seconds
+        )
+        async with self._session_factory() as session, session.begin():
+            result = await session.execute(
+                update(ExecutionORM)
+                .where(
+                    ExecutionORM.id == lease.execution_id,
+                    ExecutionORM.status == ExecutionStatus.CANCEL_REQUESTED,
+                    ExecutionORM.cancellation_lease_owner == lease.owner,
+                    ExecutionORM.fencing_token == lease.fencing_token,
+                    ExecutionORM.cancellation_lease_expires_at.is_not(None),
+                    ExecutionORM.cancellation_lease_expires_at > now,
+                )
+                .values(
+                    cancellation_heartbeat_at=now,
+                    cancellation_lease_expires_at=lease_expires,
+                    updated_at=now,
+                )
+            )
+            if getattr(result, "rowcount", None) != 1:
+                raise ExecutionLeaseLostError(
+                    f"Execution {lease.execution_id} cancellation heartbeat "
+                    f"lost fence {lease.fencing_token}."
+                )
 
     async def _renew_lease(self, lease: ExecutionLease) -> None:
         now = utc_now()
@@ -3106,43 +3249,78 @@ class ExecutionWorker:
             )
 
     async def _cancel_execution(self, execution_id: UUID) -> None:
-        target: RuntimeTargetORM | None = None
-        runtime_session_id: str | None = None
-        cleanup_status = RuntimeSessionCleanupStatus.NOT_REQUIRED
+        work = await self._claim_cancellation(execution_id)
+        if work is None:
+            return
+        heartbeat = asyncio.create_task(
+            self._cancellation_heartbeat(work.lease),
+            name=f"cancellation-heartbeat-{execution_id}",
+        )
+        try:
+            cleanup_status = await self._stop_cancelled_runtime(work)
+            await self._finalize_cancellation(work.lease, cleanup_status)
+        except ExecutionLeaseLostError:
+            logger.info(
+                "Cancellation Worker lost ownership; discarding its result",
+                extra={
+                    "execution_id": str(execution_id),
+                    "fencing_token": work.lease.fencing_token,
+                },
+            )
+        except Exception:
+            logger.exception(
+                "Cancellation Worker failed; another Worker may recover "
+                "after its lease expires",
+                extra={"execution_id": str(execution_id)},
+            )
+        finally:
+            heartbeat.cancel()
+            await asyncio.gather(heartbeat, return_exceptions=True)
+
+    async def _stop_cancelled_runtime(
+        self, work: CancellationWork
+    ) -> RuntimeSessionCleanupStatus:
+        if work.runtime_session_id is None:
+            return RuntimeSessionCleanupStatus.NOT_REQUIRED
+        if work.runtime_target_id is None:
+            return RuntimeSessionCleanupStatus.FAILED
+        await self._assert_active_cancellation_lease(work.lease)
         async with self._session_factory() as session:
-            execution = await session.get(ExecutionORM, execution_id)
-            if (
-                execution is None
-                or execution.status != ExecutionStatus.CANCEL_REQUESTED
-            ):
-                return
-            runtime_session_id = execution.runtime_session_id
-            if execution.runtime_target_id is not None:
-                target = await session.get(
-                    RuntimeTargetORM, execution.runtime_target_id
-                )
-        if target is not None and runtime_session_id is not None:
+            target = await session.get(
+                RuntimeTargetORM, work.runtime_target_id
+            )
+        if target is None:
+            return RuntimeSessionCleanupStatus.FAILED
+        try:
             driver = self._create_driver(target)
-            try:
-                cleanup_status = await _best_effort_session_stop(
-                    driver, runtime_session_id
-                )
-            finally:
-                await driver.close()
-        elif runtime_session_id is not None:
-            cleanup_status = RuntimeSessionCleanupStatus.FAILED
+        except Exception:
+            logger.exception(
+                "Cancellation could not create the assigned Runtime Driver",
+                extra={"execution_id": str(work.lease.execution_id)},
+            )
+            return RuntimeSessionCleanupStatus.FAILED
+        try:
+            return await _best_effort_session_stop(
+                driver, work.runtime_session_id
+            )
+        finally:
+            await driver.close()
+
+    async def _assert_active_cancellation_lease(
+        self, lease: CancellationLease
+    ) -> None:
+        async with self._session_factory() as session, session.begin():
+            await require_active_cancellation_lease(session, lease)
+
+    async def _finalize_cancellation(
+        self,
+        lease: CancellationLease,
+        cleanup_status: RuntimeSessionCleanupStatus,
+    ) -> None:
         now = utc_now()
         async with self._session_factory() as session, session.begin():
-            execution = await session.scalar(
-                select(ExecutionORM)
-                .where(ExecutionORM.id == execution_id)
-                .with_for_update()
-            )
-            if (
-                execution is None
-                or execution.status != ExecutionStatus.CANCEL_REQUESTED
-            ):
-                return
+            execution = await require_active_cancellation_lease(session, lease)
+            execution_id = lease.execution_id
             abort_was_pending = (
                 execution.runtime_abort_status == RuntimeAbortStatus.PENDING
             )
@@ -3154,6 +3332,10 @@ class ExecutionWorker:
             execution.updated_at = now
             execution.lease_owner = None
             execution.lease_expires_at = None
+            execution.heartbeat_at = None
+            execution.cancellation_lease_owner = None
+            execution.cancellation_lease_expires_at = None
+            execution.cancellation_heartbeat_at = None
             execution.operation_wait_expires_at = None
             execution.failure_type = None
             execution.retry_strategy = RetryStrategy.NOT_RETRYABLE
@@ -3182,6 +3364,8 @@ class ExecutionWorker:
                     failure_type=None,
                     retry_strategy=RetryStrategy.NOT_RETRYABLE,
                     runtime_session_cleanup_status=cleanup_status,
+                    lease_owner=None,
+                    lease_expires_at=None,
                     **(
                         {
                             "runtime_abort_status": (

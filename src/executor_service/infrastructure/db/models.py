@@ -184,6 +184,11 @@ class ExecutionORM(Base):
         ),
         Index("ix_executions_lease", "status", "lease_expires_at"),
         Index(
+            "ix_executions_cancellation_lease",
+            "status",
+            "cancellation_lease_expires_at",
+        ),
+        Index(
             "ix_executions_retained_session_cleanup",
             "status",
             "retry_strategy",
@@ -235,6 +240,15 @@ class ExecutionORM(Base):
     )
     cancellation_reason: Mapped[str | None] = mapped_column(
         Text, nullable=True
+    )
+    cancellation_lease_owner: Mapped[str | None] = mapped_column(
+        String(255), nullable=True
+    )
+    cancellation_lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    cancellation_heartbeat_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
     runtime_target_id: Mapped[UUID | None] = mapped_column(
         Uuid(as_uuid=True),

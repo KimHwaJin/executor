@@ -33,6 +33,7 @@ from executor_service.domain.enums import (
     OutboxStatus,
     RetryStrategy,
     RuntimePool,
+    RuntimeSessionCleanupStatus,
     RuntimeTargetStatus,
     RuntimeType,
     StepStatus,
@@ -226,6 +227,51 @@ async def test_concurrent_workers_create_exactly_one_attempt_for_an_execution(
             )
         )
     assert attempt_count == 1
+
+
+async def test_concurrent_workers_claim_exactly_one_cancellation_owner(
+    postgres_engine: AsyncEngine,
+    tmp_path: Path,
+) -> None:
+    service = _service(postgres_engine, tmp_path)
+    execution = await service.submit(_command("single-cancellation-owner"))
+    await service.cancel(
+        CancelExecutionCommand(
+            execution_id=execution.id,
+            idempotency_key=f"postgres-cancel-{execution.id}",
+            reason="exclusive cancellation owner verification",
+        )
+    )
+    workers, redis_clients = _workers(postgres_engine, tmp_path, count=8)
+    try:
+        claims = await asyncio.gather(
+            *(worker._claim_cancellation(execution.id) for worker in workers)
+        )
+        winners = [claim for claim in claims if claim is not None]
+        assert len(winners) == 1
+        winner = winners[0]
+        await workers[
+            next(index for index, claim in enumerate(claims) if claim)
+        ]._finalize_cancellation(
+            winner.lease,
+            RuntimeSessionCleanupStatus.NOT_REQUIRED,
+        )
+    finally:
+        await _close_redis(redis_clients)
+
+    session_factory = create_session_factory(postgres_engine)
+    async with session_factory() as session:
+        persisted = await session.get(ExecutionORM, execution.id)
+        cancelled_events = await session.scalar(
+            select(func.count(OutboxEventORM.id)).where(
+                OutboxEventORM.aggregate_id == execution.id,
+                OutboxEventORM.event_type == "execution.cancelled",
+            )
+        )
+    assert persisted is not None
+    assert persisted.status == ExecutionStatus.CANCELLED
+    assert persisted.cancellation_lease_owner is None
+    assert cancelled_events == 1
 
 
 async def test_stale_worker_cannot_write_or_heartbeat_after_takeover(
@@ -447,20 +493,33 @@ async def test_cancel_and_claim_race_has_one_consistent_terminal_result(
         for index in range(12)
     ]
     try:
+        claim_tasks = [
+            asyncio.create_task(
+                workers[index % len(workers)]._claim(execution.id)
+            )
+            for index, execution in enumerate(executions)
+        ]
+        cancel_tasks = [
+            asyncio.create_task(
+                service.cancel(
+                    CancelExecutionCommand(
+                        execution_id=execution.id,
+                        idempotency_key=f"postgres-cancel-{execution.id}",
+                        reason="PostgreSQL claim/cancel race verification",
+                    )
+                )
+            )
+            for execution in executions
+        ]
+        await asyncio.gather(*claim_tasks, *cancel_tasks)
+        claims = [task.result() for task in claim_tasks]
         await asyncio.gather(
             *(
-                operation
-                for index, execution in enumerate(executions)
-                for operation in (
-                    workers[index % len(workers)]._claim(execution.id),
-                    service.cancel(
-                        CancelExecutionCommand(
-                            execution_id=execution.id,
-                            idempotency_key=f"postgres-cancel-{execution.id}",
-                            reason="PostgreSQL claim/cancel race verification",
-                        )
-                    ),
-                )
+                workers[
+                    index % len(workers)
+                ]._release_execution_for_cancellation(claim[2])
+                for index, claim in enumerate(claims)
+                if claim is not None
             )
         )
         await asyncio.gather(

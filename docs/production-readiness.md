@@ -400,18 +400,43 @@ failure rather than pretending that a disconnected execution can be resumed with
 ## PR-006A: Exclusive and recoverable cancellation ownership
 
 - Priority: P1
-- Status: PLANNED
+- Status: IMPLEMENTED
 - Area: Execution cancellation, reconciliation, Runtime cleanup, multi-Worker coordination
 - Public API impact: none
 - Request impact: none
 
 ### Problem
 
-The reconciliation loop scans `CANCEL_REQUESTED` executions every two seconds and dispatches their
-cancellation with replacement enabled. If Runtime interruption or session deletion takes longer
-than one reconciliation interval, the replacement cancels the already-running cancellation task
-and starts another one. Multiple Worker replicas can also attempt the same external Runtime cleanup
-because cancellation has no exclusive database-backed owner.
+The former reconciliation loop scanned `CANCEL_REQUESTED` executions every two seconds and
+dispatched their cancellation with replacement enabled. If Runtime interruption or session
+deletion took longer than one reconciliation interval, the replacement cancelled the
+already-running cancellation task and started another one. Multiple Worker replicas could also
+attempt the same external Runtime cleanup because cancellation had no exclusive database-backed
+owner.
+
+### Implementation
+
+- Alembic revision `0002` adds cancellation-specific owner, expiry, and heartbeat fields plus a
+  recovery index. Normal execution and cancellation ownership remain explicitly distinct.
+- A cancellation claim locks the Execution row, establishes one expiring owner, increments the
+  existing monotonic `fencing_token`, and clears the former execution lease. The prior execution
+  Worker therefore cannot persist another Step, Artifact, Operation, terminal state, or Outbox
+  event.
+- An active execution lease is not preempted until its Worker has handled cancellation, preserved
+  current-cell files as `INCOMPLETE` evidence, and explicitly released ownership. If that Worker
+  disappears, cancellation waits for lease expiry instead. This establishes a deterministic
+  evidence-preservation-to-cleanup handoff without weakening the fence.
+- A cancellation heartbeat renews only the matching owner, fence, `CANCEL_REQUESTED` state, and
+  unexpired lease. Another Worker can claim only after expiry and receives a newer fence.
+- Runtime interruption/deletion starts only after a guarded lease check. Final Attempt, Step,
+  Operation, Execution, cleanup state, and `execution.cancelled` Outbox writes occur in one
+  transaction guarded by the same cancellation lease.
+- Duplicate Redis delivery and two-second reconciliation do not replace a live local cancellation
+  job. Other replicas may dispatch candidates, but PostgreSQL admits exactly one owner.
+- Cancellation shutdown or an unexpected failure leaves the Execution in `CANCEL_REQUESTED`; after
+  lease expiry another Worker safely resumes the idempotent Runtime cleanup. A cleanup failure is
+  persisted as `FAILED` and continues to reserve Runtime capacity for the existing maintenance
+  cleanup loop.
 
 ### Approved design
 

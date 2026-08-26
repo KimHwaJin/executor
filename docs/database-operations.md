@@ -19,10 +19,11 @@ uv run alembic current
 uv run alembic check
 ```
 
-Revision `0001` is the current head and includes internal monotonic fencing tokens, Runtime abort
-state, Runtime session observations, and the current shared-result reference contract. `current`
-must report `0001 (head)`, and `check` must report that no new upgrade operations are detected. A
-development database carrying one of the removed
+Revision `0001` includes internal monotonic fencing tokens, Runtime abort state, Runtime session
+observations, and the current shared-result reference contract. Revision `0002` adds exclusive,
+expiring cancellation ownership fields and is the current head. `current` must report `0002
+(head)`, and `check` must report that no new upgrade operations are detected. A development
+database carrying one of the removed
 pre-baseline revisions must be backed up if its data matters, then recreated as an empty database
 before `upgrade head`. Clear the four Executor Redis Streams at the same time so stale work
 messages cannot reference rows removed by the reset. Do not use this reset procedure for a
@@ -74,7 +75,8 @@ transactions and Pod count rather than from total active analyses.
 
 Baseline `0001` includes indexes for the unfiltered Execution cursor list, retained-session cleanup,
 maximum-runtime expiry, status lists, worker lease recovery, Runtime Target capacity, Outbox
-publication, and child history pagination.
+publication, and child history pagination. Revision `0002` adds the cancellation lease recovery
+index.
 
 After applying migrations to a local PostgreSQL database, verify the critical plans with:
 

@@ -1106,7 +1106,7 @@ async def test_running_execution_deadline_requests_cancel_and_reclaims_kernel(
                 status=ExecutionStatus.RUNNING,
                 execution_expires_at=now - timedelta(seconds=1),
                 lease_owner="slow-worker",
-                lease_expires_at=now + timedelta(minutes=1),
+                lease_expires_at=now - timedelta(seconds=1),
             )
         )
         await session.execute(
@@ -1115,7 +1115,7 @@ async def test_running_execution_deadline_requests_cancel_and_reclaims_kernel(
             .values(
                 status=AttemptStatus.RUNNING,
                 lease_owner="slow-worker",
-                lease_expires_at=now + timedelta(minutes=1),
+                lease_expires_at=now - timedelta(seconds=1),
             )
         )
     _patch_runtime_driver(monkeypatch, FakeJupyterGateway)
