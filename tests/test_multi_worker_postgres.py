@@ -400,7 +400,8 @@ async def test_concurrent_workers_claim_exactly_one_cancellation_owner(
         cancelled_events = await session.scalar(
             select(func.count(OutboxEventORM.id)).where(
                 OutboxEventORM.aggregate_id == execution.id,
-                OutboxEventORM.event_type == "execution.cancelled",
+                OutboxEventORM.event_type == "execution.completed",
+                OutboxEventORM.payload["status"].as_string() == "CANCELLED",
             )
         )
     assert persisted is not None

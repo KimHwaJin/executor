@@ -11,27 +11,23 @@ from executor_test_agent.code_policy import PlannedStep
 
 
 class ExecutionEventEnvelope(BaseModel):
-    """Version 2 Redis envelope without importing Executor implementation types."""
+    """Version 1.0 Redis envelope without Executor implementation types."""
 
     model_config = ConfigDict(extra="forbid")
 
     event_id: UUID
-    event_type: str = Field(pattern=r"^execution\.")
-    schema_version: Literal["2.0"]
-    aggregate_type: Literal["Execution"]
-    aggregate_id: UUID
-    occurred_at: datetime
+    event_type: Literal[
+        "execution.started",
+        "execution.operation_started",
+        "execution.step_started",
+        "execution.step_completed",
+        "execution.operation_completed",
+        "execution.completed",
+    ]
+    schema_version: Literal["1.0"]
+    execution_id: UUID
     payload: dict[str, Any]
-    traceparent: str | None = None
-    tracestate: str | None = None
-
-    @model_validator(mode="after")
-    def validate_common_payload(self) -> Self:
-        if self.payload.get("schema_version") != self.schema_version:
-            raise ValueError("Stream and payload schema versions must match.")
-        if self.payload.get("execution_id") != str(self.aggregate_id):
-            raise ValueError("Stream aggregate_id must match payload execution_id.")
-        return self
+    occurred_at: datetime
 
     @classmethod
     def from_redis_fields(cls, fields: dict[str, str]) -> "ExecutionEventEnvelope":
@@ -56,8 +52,8 @@ class ExecutionEventBatch(BaseModel):
     def validate_wake_event(self) -> Self:
         if self.events[-1].event_id != self.wake_event.event_id:
             raise ValueError("wake_event must be the last event in the batch.")
-        execution_ids = {event.aggregate_id for event in self.events}
-        if execution_ids != {self.wake_event.aggregate_id}:
+        execution_ids = {event.execution_id for event in self.events}
+        if execution_ids != {self.wake_event.execution_id}:
             raise ValueError("Every event in a batch must belong to the same Execution.")
         event_ids = [event.event_id for event in self.events]
         if len(event_ids) != len(set(event_ids)):

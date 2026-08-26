@@ -116,7 +116,7 @@ async def main() -> None:
             redis_event_ids = {
                 fields["event_id"]
                 for _, fields in event_entries
-                if fields.get("aggregate_id") == execution_id
+                if fields.get("execution_id") == execution_id
             }
             if redis_event_ids != postgres_event_ids:
                 raise RuntimeError(

@@ -25,19 +25,16 @@ from executor_service.domain.runtime import (
     RuntimeStorage,
     RuntimeStorageSnapshot,
 )
-from executor_service.events import build_execution_event
 from executor_service.infrastructure.db.models import (
     ExecutionArtifactORM,
     ExecutionStepAttemptORM,
     ExecutionStepORM,
-    OutboxEventORM,
 )
 from executor_service.infrastructure.execution_leases import (
     ExecutionLease,
     require_active_lease,
 )
 from executor_service.infrastructure.workspace import ExecutionWorkspace
-from executor_service.tracing import capture_trace_carrier
 
 ARTIFACT_DIRECTORY_TYPES = {
     "datasets": ArtifactType.DATASET,
@@ -352,25 +349,6 @@ class ExecutionArtifactManager:
                 session.add(row)
                 await session.flush()
                 artifact_ids.append(row.id)
-                carrier = capture_trace_carrier()
-                event = build_execution_event(
-                    execution_id=lease.execution_id,
-                    event_type="execution.artifact_registered",
-                    payload={
-                        "execution_attempt_id": str(lease.attempt_id),
-                        "execution_step_id": str(step.id),
-                        "artifact_id": str(row.id),
-                        "artifact_type": descriptor.artifact_type.value,
-                        "storage_type": descriptor.storage_type.value,
-                        "status": descriptor.status.value,
-                        "uri": descriptor.uri,
-                    },
-                    actor_type=row.created_by_type,
-                    actor_id=row.created_by,
-                    traceparent=carrier.traceparent,
-                    tracestate=carrier.tracestate,
-                )
-                session.add(OutboxEventORM.from_domain(event))
             return artifact_ids
 
 

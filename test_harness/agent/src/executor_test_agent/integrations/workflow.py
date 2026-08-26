@@ -127,12 +127,16 @@ async def reconcile_execution(
     """Treat the event as a wake-up and reconcile authoritative results through MCP."""
 
     wake_event = event_batch.wake_event
-    if str(wake_event.aggregate_id) != execution_id:
+    if str(wake_event.execution_id) != execution_id:
         raise RuntimeError("Wake-up event does not belong to the interrupted Execution.")
     result, detail = await _reconciled_result(execution_id, settings)
 
     status = result["execution"]["state"]["status"]
-    event_status = wake_event.payload.get("status")
+    event_status = (
+        wake_event.payload.get("execution_status")
+        if wake_event.event_type == "execution.operation_completed"
+        else wake_event.payload.get("status")
+    )
     if status != event_status:
         raise RuntimeError(
             f"Redis wake-up status {event_status!r} does not match Executor state {status!r}."
@@ -153,12 +157,12 @@ async def reconcile_execution(
         "step_events": [
             event.model_dump(mode="json")
             for event in event_batch.events
-            if event.event_type in {"execution.step_succeeded", "execution.step_failed"}
+            if event.event_type == "execution.step_completed"
         ],
         "operation_events": [
             event.model_dump(mode="json")
             for event in event_batch.events
-            if event.event_type in {"execution.operation_succeeded", "execution.operation_failed"}
+            if event.event_type == "execution.operation_completed"
         ],
     }
 

@@ -23,14 +23,16 @@ def _event(
     return {
         "event_id": event_id,
         "event_type": event_type,
-        "schema_version": "2.0",
-        "aggregate_type": "Execution",
-        "aggregate_id": execution_id,
+        "schema_version": "1.0",
+        "execution_id": execution_id,
         "occurred_at": "2026-08-13T00:00:00Z",
         "payload": {
-            "schema_version": "2.0",
-            "execution_id": execution_id,
             "status": status,
+            **(
+                {"execution_status": status}
+                if event_type == "execution.operation_completed"
+                else {}
+            ),
             **payload,
         },
     }
@@ -75,7 +77,7 @@ async def test_graph_runs_executor_request_and_returns_verified_result(monkeypat
 
     async def fake_reconcile_execution(execution_id, event_batch, _settings):
         assert execution_id == "00000000-0000-0000-0000-000000000001"
-        assert event_batch.wake_event.event_type == "execution.succeeded"
+        assert event_batch.wake_event.event_type == "execution.completed"
         return {
             "execution_id": execution_id,
             "status": "SUCCEEDED",
@@ -136,7 +138,7 @@ async def test_graph_runs_executor_request_and_returns_verified_result(monkeypat
     terminal_event = _event(
         execution_id,
         "00000000-0000-0000-0000-000000000002",
-        "execution.succeeded",
+        "execution.completed",
         "SUCCEEDED",
     )
     raw_result = await checkpointed_graph.ainvoke(Command(resume=_batch(terminal_event)), config)
@@ -153,7 +155,7 @@ async def test_graph_runs_mcp_tool_agent_and_waits_for_stream_event(monkeypatch)
     terminal_event = _event(
         execution_id,
         "00000000-0000-0000-0000-000000000011",
-        "execution.succeeded",
+        "execution.completed",
         "SUCCEEDED",
     )
 
@@ -168,7 +170,7 @@ async def test_graph_runs_mcp_tool_agent_and_waits_for_stream_event(monkeypatch)
                 "execution_id": execution_id,
                 "status": "QUEUED",
                 "wait_for_event": True,
-                "event_types": ["execution.succeeded", "execution.failed"],
+                "event_types": ["execution.completed"],
                 "event_stream_start_id": "20-0",
             }
             return {
@@ -243,7 +245,7 @@ async def test_graph_runs_mcp_tool_agent_and_waits_for_stream_event(monkeypatch)
         ):
             assert requested_execution_id == execution_id
             assert timeout_seconds > 0
-            assert event_types == {"execution.succeeded", "execution.failed"}
+            assert event_types == {"execution.completed"}
             assert operation_id is None
             return graph_module.ExecutionEventBatch.model_validate(_batch(terminal_event))
 
@@ -333,7 +335,7 @@ async def test_graph_advances_and_finalizes_deterministic_multi_scenario(monkeyp
             "step_events": [
                 event.model_dump(mode="json")
                 for event in event_batch.events
-                if event.event_type == "execution.step_succeeded"
+                if event.event_type == "execution.step_completed"
             ],
             "operation_events": [],
             "wake_event_id": str(event_batch.wake_event.event_id),
@@ -377,14 +379,14 @@ async def test_graph_advances_and_finalizes_deterministic_multi_scenario(monkeyp
     first_step = _event(
         execution_id,
         "00000000-0000-0000-0000-000000000033",
-        "execution.step_succeeded",
+        "execution.step_completed",
         "SUCCEEDED",
         result={"outputs": [], "execution_count": 1},
     )
     first_wait = _event(
         execution_id,
         "00000000-0000-0000-0000-000000000034",
-        "execution.waiting_for_operation",
+        "execution.operation_completed",
         "WAITING_FOR_OPERATION",
     )
     state = await checkpointed_graph.ainvoke(Command(resume=_batch(first_step, first_wait)), config)
@@ -395,14 +397,14 @@ async def test_graph_advances_and_finalizes_deterministic_multi_scenario(monkeyp
     second_step = _event(
         execution_id,
         "00000000-0000-0000-0000-000000000035",
-        "execution.step_succeeded",
+        "execution.step_completed",
         "SUCCEEDED",
         result={"outputs": [], "execution_count": 2},
     )
     second_wait = _event(
         execution_id,
         "00000000-0000-0000-0000-000000000036",
-        "execution.waiting_for_operation",
+        "execution.operation_completed",
         "WAITING_FOR_OPERATION",
     )
     state = await checkpointed_graph.ainvoke(
@@ -414,7 +416,7 @@ async def test_graph_advances_and_finalizes_deterministic_multi_scenario(monkeyp
     succeeded = _event(
         execution_id,
         "00000000-0000-0000-0000-000000000037",
-        "execution.succeeded",
+        "execution.completed",
         "SUCCEEDED",
     )
     state = await checkpointed_graph.ainvoke(Command(resume=_batch(succeeded)), config)
@@ -425,7 +427,7 @@ async def test_graph_advances_and_finalizes_deterministic_multi_scenario(monkeyp
     assert len(result.command_receipts) == 3
     assert len(result.event_history) == 5
     assert result.execution_result is not None
-    assert result.execution_result["wake_event_type"] == "execution.succeeded"
+    assert result.execution_result["wake_event_type"] == "execution.completed"
 
 
 async def test_graph_ends_cleanly_when_stream_event_wait_fails(monkeypatch) -> None:
@@ -441,7 +443,7 @@ async def test_graph_ends_cleanly_when_stream_event_wait_fails(monkeypatch) -> N
                 "execution_id": execution_id,
                 "status": "QUEUED",
                 "wait_for_event": True,
-                "event_types": ["execution.succeeded", "execution.failed"],
+                "event_types": ["execution.completed"],
                 "event_stream_start_id": "40-0",
             }
             return {

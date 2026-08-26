@@ -519,18 +519,10 @@ async def _retrieve_results(
 async def _multi_output_limit_failure_type(
     client: httpx.AsyncClient, execution_id: str
 ) -> str | None:
-    response = await client.get(
-        f"/api/v1/executions/{execution_id}/events",
-        params={"limit": 500},
-    )
+    response = await client.get(f"/api/v1/executions/{execution_id}")
     response.raise_for_status()
-    for event in reversed(response.json()["items"]):
-        if event["event_type"] in {
-            "execution.runtime_abort_completed",
-            "execution.runtime_abort_failed",
-        }:
-            return event["payload"].get("failure_type")
-    return None
+    failure = response.json().get("failure")
+    return str(failure["type"]) if isinstance(failure, dict) else None
 
 
 async def _cleanup_output_limit_executions(

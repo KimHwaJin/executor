@@ -406,8 +406,8 @@ does not read the object. See [Artifact Manifest](docs/artifact-manifest.md) for
 
 `execution_artifact_list` and `execution_artifact_get` expose execution/Attempt/Step references,
 storage URI, media type, size, checksum, status, metadata, and a direct parent Artifact or external
-Agent Asset ID. Registration emits
-`execution.artifact_registered` through the Transactional Outbox.
+Agent Asset ID. Artifact state is queried from PostgreSQL and is not published as a separate
+integration event.
 
 Agent-authored `.ipynb` files are not execution inputs. Agent-authored Python is supplied per Step,
 either INLINE or as a `.py` PATH. Executor builds the Notebook document from executed Steps and
@@ -500,9 +500,10 @@ Raw data remains in S3. PATH submissions are resolved under
 
 ## Consistency and delivery
 
-Submission commits both its Agent-facing `execution.submitted` event and internal
-`operation.ready` message in one PostgreSQL transaction. Cancellation uses the same pattern. A
-background publisher claims pending rows with `FOR UPDATE SKIP LOCKED`, routes each row to either
+Submission commits the Execution state and internal `operation.ready` message in one PostgreSQL
+transaction. Cancellation uses the same Work Stream pattern. Public events begin when Runtime
+execution actually starts. A background publisher claims pending rows with `FOR UPDATE SKIP
+LOCKED`, routes each row to either
 `executor.events` or `executor.work`, and
 then marks it published. A crash between Redis `XADD` and the database update can create a
 duplicate, so consumers must deduplicate on `event_id`.
@@ -529,7 +530,7 @@ frontend execution event timeline.
 
 Every published Stream entry and JSON payload uses the versioned Executor event contract. Agent
 consumers must use their own consumer group and durably deduplicate on `event_id` before ACK. See
-[Execution Event Contract v2](docs/execution-events-v2.md) and the reference
+[Redis Execution Event Contract 1.0](dev_docs/redis-execution-events.md) and the reference
 `scripts/agent_event_consumer_example.py`.
 
 The real-Jupyter regression suite includes a combined SINGLE failure/retry/cancellation scenario

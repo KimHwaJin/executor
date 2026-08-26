@@ -220,25 +220,29 @@ async def test_expired_lease_is_failed_once_and_can_restart_from_zero(
         failed_events = await session.scalar(
             select(func.count(OutboxEventORM.id)).where(
                 OutboxEventORM.aggregate_id == execution.id,
-                OutboxEventORM.event_type == "execution.failed",
+                OutboxEventORM.event_type == "execution.completed",
+                OutboxEventORM.payload["status"].as_string() == "FAILED",
             )
         )
         operation_failed_events = await session.scalar(
             select(func.count(OutboxEventORM.id)).where(
                 OutboxEventORM.aggregate_id == execution.id,
-                OutboxEventORM.event_type == "execution.operation_failed",
+                OutboxEventORM.event_type == "execution.operation_completed",
+                OutboxEventORM.payload["status"].as_string() == "FAILED",
             )
         )
         stale_step_events = await session.scalar(
             select(func.count(OutboxEventORM.id)).where(
                 OutboxEventORM.aggregate_id == execution.id,
-                OutboxEventORM.event_type == "execution.step_succeeded",
+                OutboxEventORM.event_type == "execution.step_completed",
+                OutboxEventORM.payload["status"].as_string() == "SUCCEEDED",
             )
         )
         stale_terminal_events = await session.scalar(
             select(func.count(OutboxEventORM.id)).where(
                 OutboxEventORM.aggregate_id == execution.id,
-                OutboxEventORM.event_type == "execution.succeeded",
+                OutboxEventORM.event_type == "execution.completed",
+                OutboxEventORM.payload["status"].as_string() == "SUCCEEDED",
             )
         )
 
@@ -405,13 +409,7 @@ async def test_expired_lease_resolves_pending_runtime_abort(
     assert row.runtime_session_cleanup_status == expected_cleanup_status
     assert (row.runtime_session_id is not None) is delete_fails
     assert RecoveryCleanupDriver.deleted == [runtime_session_id]
-    assert [event.event_type for event in abort_events] == [
-        (
-            "execution.runtime_abort_failed"
-            if delete_fails
-            else "execution.runtime_abort_completed"
-        )
-    ]
+    assert abort_events == []
 
     if delete_fails:
         with pytest.raises(

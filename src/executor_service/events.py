@@ -1,4 +1,4 @@
-"""Versioned contracts and factory for Executor-owned Execution events."""
+"""Public Redis contracts and factory for Executor Execution events."""
 
 import json
 from datetime import datetime
@@ -7,352 +7,280 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from executor_service.domain.enums import (
-    ActorType,
-    ArtifactStatus,
-    ArtifactStorageType,
-    ArtifactType,
-    ExecutionStatus,
-    FailureType,
-    RetryStrategy,
-    RuntimeAbortStatus,
-    RuntimeSessionCleanupStatus,
-    StepStatus,
-)
+from executor_service.domain.enums import ActorType
 from executor_service.domain.models import OutboxEvent
-from executor_service.result_summaries import OutputSummary
 
-EXECUTION_EVENT_SCHEMA_VERSION = "2.0"
+EXECUTION_EVENT_SCHEMA_VERSION = "1.0"
+
+type ExecutionEventType = Literal[
+    "execution.started",
+    "execution.operation_started",
+    "execution.step_started",
+    "execution.step_completed",
+    "execution.operation_completed",
+    "execution.completed",
+]
 
 
-class EventPayload(BaseModel):
-    """Fields shared by every version 2 Execution event payload."""
+class ContractModel(BaseModel):
+    """Strict base for the public event contract."""
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["2.0"] = EXECUTION_EVENT_SCHEMA_VERSION
-    execution_id: UUID
+
+class RuntimeSummary(ContractModel):
+    provider: str = Field(min_length=1, max_length=64)
+    profile: str = Field(min_length=1, max_length=128)
+    target_id: UUID
+    session_id: str | None = Field(default=None, max_length=255)
 
 
-class StatusPayload(EventPayload):
-    status: ExecutionStatus
+class OperationReference(ContractModel):
+    id: UUID
+    number: int = Field(ge=1)
 
 
-class TaskPayload(StatusPayload):
-    task_id: str = Field(min_length=1, max_length=255)
+class StartedOperationReference(OperationReference):
+    step_count: int = Field(ge=1)
 
 
-class StepReceiptPayload(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+class StepReference(ContractModel):
+    id: UUID
     sequence: int = Field(ge=0)
-    step_id: UUID
 
 
-class SubmittedPayload(TaskPayload):
-    status: Literal[ExecutionStatus.QUEUED]
-    idempotency_key: str = Field(min_length=1, max_length=255)
-    operation_id: UUID
-    steps: list[StepReceiptPayload]
-    first_sequence: int = Field(ge=0)
-    last_sequence: int = Field(ge=0)
+class AttemptReference(ContractModel):
+    id: UUID
+    number: int = Field(ge=1)
+    reason: Literal["INITIAL", "RETRY"]
 
 
-class OperationSubmittedPayload(SubmittedPayload):
-    version: int = Field(ge=0)
-
-
-class FinalizationRequestedPayload(TaskPayload):
-    status: Literal[ExecutionStatus.FINALIZING]
-    version: int = Field(ge=0)
-
-
-class WaitingForOperationPayload(StatusPayload):
-    status: Literal[ExecutionStatus.WAITING_FOR_OPERATION]
-    operation_id: UUID
-    operation_wait_expires_at: datetime
-    version: int = Field(ge=0)
-
-
-class RetryRequestedPayload(TaskPayload):
-    status: Literal[ExecutionStatus.QUEUED]
-    operation_id: UUID
-    from_sequence: int = Field(ge=0)
-    retry_strategy: RetryStrategy
-    previous_failure_type: FailureType | None
-    retry_count: int = Field(ge=1)
-
-
-class RetryDeferredPayload(StatusPayload):
-    status: Literal[ExecutionStatus.QUEUED]
-    failure_type: FailureType
-    retry_strategy: RetryStrategy
-    reason: str = Field(min_length=1, max_length=255)
-    runtime_target_id: UUID
-
-
-class TerminalPayload(StatusPayload):
-    failure_type: FailureType | None
-    retry_strategy: RetryStrategy
-    retry_from_sequence: int | None = Field(default=None, ge=0)
-    runtime_session_cleanup_status: RuntimeSessionCleanupStatus
-    recovery_count: int | None = Field(default=None, ge=0)
-    reason: str | None = Field(default=None, min_length=1, max_length=255)
-
-
-class StartedPayload(StatusPayload):
-    status: Literal[ExecutionStatus.RUNNING]
-
-
-class ResultReference(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    scope: Literal["STEP", "OPERATION", "EXECUTION"]
-    operation_id: UUID | None = None
-    step_id: UUID | None = None
-    storage: Literal["SHARED_PV"] | None = None
-    relative_path: str | None = Field(default=None, min_length=1)
-    checksum_sha256: str | None = Field(
-        default=None, min_length=64, max_length=64
-    )
-    execution_attempt_id: UUID | None = None
-    fencing_token: int | None = Field(default=None, ge=1)
-    complete: bool | None = None
+class ResultReference(ContractModel):
+    storage: Literal["SHARED_PV"]
+    relative_path: str = Field(min_length=1, max_length=4096)
+    media_type: str = Field(min_length=1, max_length=255)
+    size_bytes: int = Field(ge=0)
+    checksum_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
 
     @model_validator(mode="after")
-    def validate_step_reference(self) -> Self:
-        shared_fields = (
-            self.storage,
-            self.relative_path,
-            self.checksum_sha256,
-            self.execution_attempt_id,
-            self.fencing_token,
-            self.complete,
-        )
-        if self.scope == "STEP" and not all(
-            value is not None for value in shared_fields
+    def validate_relative_path(self) -> Self:
+        path = self.relative_path.replace("\\", "/")
+        if path.startswith("/") or any(
+            part in {"", ".", ".."} for part in path.split("/")
         ):
+            raise ValueError("Result relative_path must stay below its root.")
+        self.relative_path = path
+        return self
+
+
+class OutputSummary(ContractModel):
+    count: int = Field(ge=0)
+    content_types: list[str]
+
+    @model_validator(mode="after")
+    def validate_content_types(self) -> Self:
+        normalized = sorted(set(self.content_types))
+        if any(not item.strip() for item in normalized):
+            raise ValueError("Output content types must not be blank.")
+        self.content_types = normalized
+        return self
+
+
+class ErrorSummary(ContractModel):
+    code: str = Field(min_length=1, max_length=128)
+    message: str = Field(min_length=1, max_length=2000)
+    retryable: bool
+
+
+class OperationErrorSummary(ErrorSummary):
+    step_id: UUID | None = None
+
+
+class ExecutionErrorSummary(OperationErrorSummary):
+    operation_id: UUID | None = None
+
+
+class StepSummary(ContractModel):
+    total: int = Field(ge=0)
+    completed: int = Field(ge=0)
+    succeeded: int = Field(ge=0)
+    failed: int = Field(ge=0)
+    cancelled: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def validate_counts(self) -> Self:
+        terminal = self.succeeded + self.failed + self.cancelled
+        if self.completed != terminal or self.completed > self.total:
+            raise ValueError("Step summary counts are inconsistent.")
+        return self
+
+
+class OperationSummary(ContractModel):
+    total: int = Field(ge=0)
+    succeeded: int = Field(ge=0)
+    failed: int = Field(ge=0)
+    cancelled: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def validate_counts(self) -> Self:
+        if self.succeeded + self.failed + self.cancelled > self.total:
+            raise ValueError("Operation summary counts are inconsistent.")
+        return self
+
+
+class Continuation(ContractModel):
+    allowed: Literal[True]
+    expected_version: int = Field(ge=0)
+    expires_at: datetime
+
+
+class RetryAvailability(ContractModel):
+    allowed: Literal[True]
+    from_step_id: UUID
+    expires_at: datetime
+
+
+class ExecutionStartedPayload(ContractModel):
+    status: Literal["RUNNING"]
+    runtime: RuntimeSummary
+
+
+class OperationStartedPayload(ContractModel):
+    status: Literal["RUNNING"]
+    operation: StartedOperationReference
+
+
+class StepStartedPayload(ContractModel):
+    status: Literal["RUNNING"]
+    operation: OperationReference
+    step: StepReference
+    attempt: AttemptReference
+
+
+class StepCompletedPayload(ContractModel):
+    status: Literal["SUCCEEDED", "FAILED", "CANCELLED"]
+    operation: OperationReference
+    step: StepReference
+    attempt: AttemptReference
+    result_ref: ResultReference | None
+    output_summary: OutputSummary | None
+    error: ErrorSummary | None
+
+    @model_validator(mode="after")
+    def validate_outcome(self) -> Self:
+        if self.status == "SUCCEEDED":
+            if self.result_ref is None or self.output_summary is None:
+                raise ValueError(
+                    "A successful Step requires its persisted result."
+                )
+            if self.error is not None:
+                raise ValueError("A successful Step cannot contain an error.")
+        elif self.error is None:
+            raise ValueError("A failed or cancelled Step requires an error.")
+        return self
+
+
+class StepResult(ContractModel):
+    step_id: UUID
+    sequence: int = Field(ge=0)
+    status: Literal["SUCCEEDED", "FAILED", "CANCELLED"]
+    attempt: AttemptReference
+    result_ref: ResultReference | None
+
+    @model_validator(mode="after")
+    def validate_outcome(self) -> Self:
+        if self.status == "SUCCEEDED" and self.result_ref is None:
+            raise ValueError("A successful Step result requires a reference.")
+        return self
+
+
+class OperationCompletedPayload(ContractModel):
+    status: Literal["SUCCEEDED", "FAILED", "CANCELLED"]
+    execution_status: Literal[
+        "WAITING_FOR_OPERATION", "SUCCEEDED", "FAILED", "CANCELLED"
+    ]
+    operation: OperationReference
+    step_summary: StepSummary
+    step_results: list[StepResult]
+    continuation: Continuation | None
+    error: OperationErrorSummary | None
+
+    @model_validator(mode="after")
+    def validate_outcome(self) -> Self:
+        if self.status == "SUCCEEDED" and self.error is not None:
+            raise ValueError("A successful Operation cannot contain an error.")
+        if self.status != "SUCCEEDED" and self.error is None:
             raise ValueError(
-                "A persisted Step result reference must be complete."
+                "A failed or cancelled Operation requires an error."
+            )
+        if self.continuation is not None and self.execution_status != (
+            "WAITING_FOR_OPERATION"
+        ):
+            raise ValueError("Continuation requires WAITING_FOR_OPERATION.")
+        sequences = [item.sequence for item in self.step_results]
+        if sequences != sorted(set(sequences)):
+            raise ValueError(
+                "Operation Step results must have unique ordered sequences."
             )
         return self
 
 
-class StepEventPayload(EventPayload):
-    execution_attempt_id: UUID
-    operation_id: UUID
-    step_id: UUID
-    sequence: int = Field(ge=0)
-    status: StepStatus
+class ExecutionCompletedPayload(ContractModel):
+    status: Literal["SUCCEEDED", "FAILED", "CANCELLED"]
+    operation_summary: OperationSummary
+    retry: RetryAvailability | None
+    error: ExecutionErrorSummary | None
+
+    @model_validator(mode="after")
+    def validate_outcome(self) -> Self:
+        if self.status == "SUCCEEDED":
+            if self.retry is not None or self.error is not None:
+                raise ValueError(
+                    "A successful Execution cannot contain retry or error."
+                )
+        elif self.error is None:
+            raise ValueError(
+                "A failed or cancelled Execution requires an error."
+            )
+        if self.status != "FAILED" and self.retry is not None:
+            raise ValueError("Only a failed Execution can be retried.")
+        return self
 
 
-class StepStartedPayload(StepEventPayload):
-    status: Literal[StepStatus.RUNNING]
-
-
-class StepSucceededPayload(StepEventPayload):
-    status: Literal[StepStatus.SUCCEEDED]
-    result_available: Literal[True]
-    result_ref: ResultReference
-    output_summary: OutputSummary
-    execution_count: int | None = Field(default=None, ge=0)
-
-
-class StepFailedPayload(StepEventPayload):
-    status: Literal[StepStatus.FAILED]
-    result_available: Literal[True]
-    result_ref: ResultReference
-    output_summary: OutputSummary
-    error_message: str = Field(min_length=1, max_length=2000)
-
-
-class CancelRequestedPayload(StatusPayload):
-    status: Literal[ExecutionStatus.CANCEL_REQUESTED]
-    task_id: str = Field(min_length=1, max_length=255)
-
-
-class SucceededPayload(TerminalPayload):
-    status: Literal[ExecutionStatus.SUCCEEDED]
-    result_available: Literal[True]
-    result_ref: ResultReference
-
-
-class FailedPayload(TerminalPayload):
-    status: Literal[ExecutionStatus.FAILED]
-    result_available: Literal[True]
-    result_ref: ResultReference
-
-
-class OperationOutcomePayload(StatusPayload):
-    status: Literal[
-        ExecutionStatus.WAITING_FOR_OPERATION,
-        ExecutionStatus.SUCCEEDED,
-        ExecutionStatus.FAILED,
-    ]
-    execution_attempt_id: UUID | None
-    operation_id: UUID
-    first_sequence: int = Field(ge=0)
-    last_sequence: int = Field(ge=0)
-    version: int = Field(ge=0)
-    result_available: Literal[True]
-    result_ref: ResultReference
-
-
-class OperationSucceededPayload(OperationOutcomePayload):
-    operation_status: Literal["SUCCEEDED"]
-
-
-class OperationFailedPayload(OperationOutcomePayload):
-    operation_status: Literal["FAILED"]
-    failed_sequence: int | None = Field(default=None, ge=0)
-    error_message: str = Field(min_length=1, max_length=2000)
-
-
-class ArtifactRegisteredPayload(EventPayload):
-    execution_attempt_id: UUID | None
-    execution_step_id: UUID | None
-    artifact_id: UUID
-    artifact_type: ArtifactType
-    storage_type: ArtifactStorageType
-    status: ArtifactStatus
-    uri: str = Field(min_length=1)
-
-
-class ArtifactFailedPayload(StatusPayload):
-    status: Literal[ExecutionStatus.RUNNING]
-    execution_attempt_id: UUID
-    sequence: int = Field(ge=0)
-    error_type: str = Field(min_length=1, max_length=255)
-
-
-class CleanupPayload(StatusPayload):
-    status: Literal[ExecutionStatus.FAILED, ExecutionStatus.CANCELLED]
-    runtime_session_cleanup_status: RuntimeSessionCleanupStatus
-
-
-class CancelledPayload(StatusPayload):
-    status: Literal[ExecutionStatus.CANCELLED]
-    runtime_session_cleanup_status: RuntimeSessionCleanupStatus
-
-
-class CleanupCompletedPayload(CleanupPayload):
-    runtime_session_cleanup_status: Literal[
-        RuntimeSessionCleanupStatus.SUCCEEDED
-    ]
-
-
-class CleanupFailedPayload(CleanupPayload):
-    runtime_session_cleanup_status: Literal[RuntimeSessionCleanupStatus.FAILED]
-
-
-class TimeoutRequestedPayload(StatusPayload):
-    status: Literal[ExecutionStatus.CANCEL_REQUESTED]
-    failure_type: Literal[FailureType.EXECUTION_TIMEOUT]
-
-
-class RetryWindowExpiredPayload(CleanupPayload):
-    retry_was_queued: bool
-
-
-class RuntimeAbortPayload(StatusPayload):
-    status: ExecutionStatus
-    execution_attempt_id: UUID
-    failure_type: FailureType
-    runtime_abort_status: RuntimeAbortStatus
-    runtime_session_cleanup_status: RuntimeSessionCleanupStatus
-    session_reusable: bool
-    message: str | None = Field(default=None, max_length=2000)
-    version: int = Field(ge=0)
-
-
-ExecutionEventPayload = (
-    StatusPayload
-    | SubmittedPayload
-    | OperationSubmittedPayload
-    | FinalizationRequestedPayload
-    | WaitingForOperationPayload
-    | RetryRequestedPayload
-    | RetryDeferredPayload
-    | TerminalPayload
-    | StartedPayload
+type ExecutionEventPayload = (
+    ExecutionStartedPayload
+    | OperationStartedPayload
     | StepStartedPayload
-    | StepSucceededPayload
-    | StepFailedPayload
-    | CancelRequestedPayload
-    | SucceededPayload
-    | FailedPayload
-    | OperationOutcomePayload
-    | OperationSucceededPayload
-    | OperationFailedPayload
-    | ArtifactRegisteredPayload
-    | ArtifactFailedPayload
-    | CleanupPayload
-    | CancelledPayload
-    | CleanupCompletedPayload
-    | CleanupFailedPayload
-    | TimeoutRequestedPayload
-    | RetryWindowExpiredPayload
-    | RuntimeAbortPayload
+    | StepCompletedPayload
+    | OperationCompletedPayload
+    | ExecutionCompletedPayload
 )
 
-EVENT_PAYLOAD_MODELS: dict[str, type[EventPayload]] = {
-    "execution.submitted": SubmittedPayload,
-    "execution.operation_submitted": OperationSubmittedPayload,
-    "execution.finalization_requested": FinalizationRequestedPayload,
-    "execution.waiting_for_operation": WaitingForOperationPayload,
-    "execution.cancel_requested": CancelRequestedPayload,
-    "execution.retry_requested": RetryRequestedPayload,
-    "execution.started": StartedPayload,
-    "execution.resumed": StartedPayload,
+EVENT_PAYLOAD_MODELS: dict[str, type[ContractModel]] = {
+    "execution.started": ExecutionStartedPayload,
+    "execution.operation_started": OperationStartedPayload,
     "execution.step_started": StepStartedPayload,
-    "execution.step_succeeded": StepSucceededPayload,
-    "execution.step_failed": StepFailedPayload,
-    "execution.retry_deferred": RetryDeferredPayload,
-    "execution.operation_succeeded": OperationSucceededPayload,
-    "execution.operation_failed": OperationFailedPayload,
-    "execution.artifact_registered": ArtifactRegisteredPayload,
-    "execution.artifact_failed": ArtifactFailedPayload,
-    "execution.succeeded": SucceededPayload,
-    "execution.failed": FailedPayload,
-    "execution.cancelled": CancelledPayload,
-    "execution.timeout_requested": TimeoutRequestedPayload,
-    "execution.runtime_session_cleanup_completed": CleanupCompletedPayload,
-    "execution.runtime_session_cleanup_failed": CleanupFailedPayload,
-    "execution.retry_window_expired": RetryWindowExpiredPayload,
-    "execution.runtime_abort_started": RuntimeAbortPayload,
-    "execution.runtime_abort_completed": RuntimeAbortPayload,
-    "execution.runtime_abort_failed": RuntimeAbortPayload,
+    "execution.step_completed": StepCompletedPayload,
+    "execution.operation_completed": OperationCompletedPayload,
+    "execution.completed": ExecutionCompletedPayload,
 }
 
 
-class ExecutionStreamEnvelope(BaseModel):
-    """Redis Stream representation delivered to Agent-owned consumer groups."""
-
-    model_config = ConfigDict(extra="forbid")
+class ExecutionStreamEnvelope(ContractModel):
+    """Six-field Redis representation delivered to external consumers."""
 
     event_id: UUID
-    event_type: str = Field(min_length=1, max_length=255)
-    schema_version: Literal["2.0"]
-    aggregate_type: Literal["Execution"]
-    aggregate_id: UUID
-    occurred_at: datetime
+    event_type: ExecutionEventType
+    schema_version: Literal["1.0"]
+    execution_id: UUID
     payload: dict[str, Any]
-    traceparent: str | None = None
-    tracestate: str | None = None
+    occurred_at: datetime
 
     @model_validator(mode="after")
     def validate_payload_contract(self) -> Self:
-        normalized = validate_execution_event_payload(
+        self.payload = validate_execution_event_payload(
             self.event_type, self.payload
         )
-        if normalized["schema_version"] != self.schema_version:
-            raise ValueError(
-                "Stream and payload schema_version values must match."
-            )
-        if normalized["execution_id"] != str(self.aggregate_id):
-            raise ValueError(
-                "Stream aggregate_id must match payload execution_id."
-            )
-        self.payload = normalized
         return self
 
     @classmethod
@@ -373,13 +301,12 @@ class ExecutionStreamEnvelope(BaseModel):
 def validate_execution_event_payload(
     event_type: str, payload: dict[str, Any]
 ) -> dict[str, Any]:
-    """Validate and JSON-normalize one known Executor event payload."""
+    """Validate and JSON-normalize one public Executor event payload."""
 
     model = EVENT_PAYLOAD_MODELS.get(event_type)
     if model is None:
         raise ValueError(f"Unsupported Executor event type: {event_type}")
-    versioned = {"schema_version": EXECUTION_EVENT_SCHEMA_VERSION, **payload}
-    return model.model_validate(versioned).model_dump(
+    return model.model_validate(payload).model_dump(
         mode="json", exclude_unset=True
     )
 
@@ -394,16 +321,9 @@ def build_execution_event(
     traceparent: str | None = None,
     tracestate: str | None = None,
 ) -> OutboxEvent:
-    """Build a validated version 2 event for durable Outbox persistence."""
+    """Build one validated public event for durable Outbox persistence."""
 
-    normalized = validate_execution_event_payload(
-        event_type,
-        {"execution_id": str(execution_id), **payload},
-    )
-    if normalized["execution_id"] != str(execution_id):
-        raise ValueError(
-            "Event payload execution_id must match the aggregate execution_id."
-        )
+    normalized = validate_execution_event_payload(event_type, payload)
     return OutboxEvent(
         aggregate_type="Execution",
         aggregate_id=execution_id,

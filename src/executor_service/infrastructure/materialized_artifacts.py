@@ -27,14 +27,11 @@ from executor_service.domain.errors import (
     InvalidStateTransitionError,
 )
 from executor_service.domain.runtime import RuntimeStorageAccess
-from executor_service.events import build_execution_event
 from executor_service.infrastructure.db.models import (
     CommandReceiptORM,
     ExecutionArtifactORM,
     ExecutionORM,
-    OutboxEventORM,
 )
-from executor_service.tracing import capture_trace_carrier
 
 SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$")
 ARTIFACT_DIRECTORIES = {
@@ -97,7 +94,6 @@ class MaterializedArtifactService:
         identity_hash = hashlib.sha256(
             f"{command.execution_id}:{target_path}:{file.checksum_sha256}".encode()
         ).hexdigest()
-        carrier = capture_trace_carrier()
         async with self._session_factory() as session, session.begin():
             repeated = await session.scalar(
                 select(CommandReceiptORM).where(
@@ -112,7 +108,6 @@ class MaterializedArtifactService:
                     ExecutionArtifactORM.identity_hash == identity_hash
                 )
             )
-            created = artifact is None
             if artifact is None:
                 artifact = ExecutionArtifactORM(
                     id=artifact_id,
@@ -151,28 +146,6 @@ class MaterializedArtifactService:
                     result={"artifact_id": str(artifact_id)},
                 )
             )
-            if created:
-                session.add(
-                    OutboxEventORM.from_domain(
-                        build_execution_event(
-                            execution_id=command.execution_id,
-                            event_type="execution.artifact_registered",
-                            payload={
-                                "execution_attempt_id": None,
-                                "execution_step_id": None,
-                                "artifact_id": str(artifact_id),
-                                "artifact_type": command.artifact_type.value,
-                                "storage_type": ArtifactStorageType.PV.value,
-                                "status": ArtifactStatus.AVAILABLE.value,
-                                "uri": artifact.uri,
-                            },
-                            actor_type=command.actor_type,
-                            actor_id=command.actor_id,
-                            traceparent=carrier.traceparent,
-                            tracestate=carrier.tracestate,
-                        )
-                    )
-                )
         return artifact_id
 
     async def _receipt(

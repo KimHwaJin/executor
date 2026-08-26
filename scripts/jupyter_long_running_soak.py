@@ -211,7 +211,7 @@ async def _redis_snapshot(execution_id: str) -> dict[str, Any]:
         matching_events = sum(
             1
             for _, fields in entries
-            if fields.get("aggregate_id") == execution_id
+            if fields.get("execution_id") == execution_id
         )
         try:
             pending = await redis.xpending(work_stream, work_group)
@@ -413,11 +413,13 @@ async def main() -> None:
         terminal_events = [
             event
             for event in events
-            if event["event_type"] == "execution.succeeded"
+            if event["event_type"] == "execution.completed"
+            and event["payload"]["status"] == "SUCCEEDED"
         ]
         if len(terminal_events) != 1:
             raise RuntimeError(
-                f"Expected exactly one execution.succeeded event, found {len(terminal_events)}."
+                "Expected exactly one successful execution.completed event, "
+                f"found {len(terminal_events)}."
             )
 
         target_id = str(terminal["runtime"]["target_id"])

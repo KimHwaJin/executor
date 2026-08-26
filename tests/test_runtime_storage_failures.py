@@ -244,17 +244,16 @@ async def test_runtime_storage_failure_finalizes_consistent_state_and_events(
         assert attempt.failure_type == FailureType.RUNTIME_UNAVAILABLE
         assert attempt.retry_strategy == RetryStrategy.FROM_START
         assert operation.status == OperationStatus.FAILED
-        assert "execution.operation_failed" in event_types
-        assert "execution.failed" in event_types
+        assert "execution.operation_completed" in event_types
+        assert "execution.completed" in event_types
     else:
         assert attempt.status == AttemptStatus.SUCCEEDED
         assert operation.status == OperationStatus.SUCCEEDED
         assert execution_row.notebook_projection_status == "FAILED"
         assert execution_row.notebook_projection_attempt_count == 3
         assert execution_row.notebook_projection_error is not None
-        assert "execution.operation_succeeded" in event_types
-        assert "execution.succeeded" in event_types
-    assert ("execution.artifact_failed" in event_types) is artifact_event
+        assert "execution.operation_completed" in event_types
+        assert "execution.completed" in event_types
     assert bool(FailingRuntimeStorageDriver.deleted_sessions) is (
         expected_cleanup == RuntimeSessionCleanupStatus.SUCCEEDED
     )

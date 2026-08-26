@@ -35,7 +35,6 @@ from executor_service.domain.models import (
 )
 from executor_service.domain.ports import UnitOfWork
 from executor_service.domain.results import ExecutionResultStore
-from executor_service.events import build_execution_event
 from executor_service.tracing import capture_trace_carrier
 from executor_service.work_messages import build_work_message
 
@@ -175,32 +174,6 @@ class ExecutionService:
                 await self._snapshot_sources(execution.steps, execution.id)
                 await uow.executions.add(execution)
                 await uow.executions.add_operation(operation)
-                await uow.outbox.add(
-                    build_execution_event(
-                        execution_id=execution.id,
-                        event_type="execution.submitted",
-                        payload={
-                            "task_id": execution.task_id,
-                            "idempotency_key": command.idempotency_key,
-                            "operation_id": str(operation.id),
-                            "steps": [
-                                {
-                                    "sequence": step.sequence,
-                                    "step_id": str(step.id),
-                                }
-                                for step in execution.steps
-                                if step.operation_id == operation.id
-                            ],
-                            "first_sequence": operation.first_sequence,
-                            "last_sequence": operation.last_sequence,
-                            "status": execution.status.value,
-                        },
-                        actor_type=command.actor_type,
-                        actor_id=command.actor_id,
-                        traceparent=execution.traceparent,
-                        tracestate=execution.tracestate,
-                    )
-                )
                 await uow.outbox.add(
                     build_work_message(
                         execution_id=execution.id,
@@ -350,32 +323,6 @@ class ExecutionService:
                     },
                 )
                 await uow.outbox.add(
-                    build_execution_event(
-                        execution_id=execution.id,
-                        event_type="execution.operation_submitted",
-                        payload={
-                            "task_id": execution.task_id,
-                            "idempotency_key": command.idempotency_key,
-                            "operation_id": str(operation.id),
-                            "steps": [
-                                {
-                                    "sequence": step.sequence,
-                                    "step_id": str(step.id),
-                                }
-                                for step in steps
-                            ],
-                            "status": execution.status.value,
-                            "first_sequence": operation.first_sequence,
-                            "last_sequence": operation.last_sequence,
-                            "version": execution.version,
-                        },
-                        actor_type=command.actor_type,
-                        actor_id=command.actor_id,
-                        traceparent=execution.traceparent,
-                        tracestate=execution.tracestate,
-                    )
-                )
-                await uow.outbox.add(
                     build_work_message(
                         execution_id=execution.id,
                         message_type="operation.ready",
@@ -451,21 +398,6 @@ class ExecutionService:
                     command_type,
                     fingerprint,
                     {"execution_id": str(execution.id)},
-                )
-                await uow.outbox.add(
-                    build_execution_event(
-                        execution_id=execution.id,
-                        event_type="execution.finalization_requested",
-                        payload={
-                            "task_id": execution.task_id,
-                            "status": execution.status.value,
-                            "version": execution.version,
-                        },
-                        actor_type=command.actor_type,
-                        actor_id=command.actor_id,
-                        traceparent=execution.traceparent,
-                        tracestate=execution.tracestate,
-                    )
                 )
                 await uow.outbox.add(
                     build_work_message(
@@ -545,20 +477,6 @@ class ExecutionService:
                 _apply_actor(execution, command.actor_type, command.actor_id)
                 _apply_current_trace(execution)
                 await uow.executions.save(execution)
-                await uow.outbox.add(
-                    build_execution_event(
-                        execution_id=execution.id,
-                        event_type="execution.cancel_requested",
-                        payload={
-                            "task_id": execution.task_id,
-                            "status": execution.status.value,
-                        },
-                        actor_type=command.actor_type,
-                        actor_id=command.actor_id,
-                        traceparent=execution.traceparent,
-                        tracestate=execution.tracestate,
-                    )
-                )
                 await uow.outbox.add(
                     build_work_message(
                         execution_id=execution.id,
@@ -641,29 +559,6 @@ class ExecutionService:
                     execution.id,
                     command.idempotency_key,
                     execution.retry_from_sequence,
-                )
-                await uow.outbox.add(
-                    build_execution_event(
-                        execution_id=execution.id,
-                        event_type="execution.retry_requested",
-                        payload={
-                            "task_id": execution.task_id,
-                            "operation_id": str(operation_id),
-                            "status": execution.status.value,
-                            "from_sequence": execution.retry_from_sequence,
-                            "retry_strategy": execution.retry_strategy.value,
-                            "previous_failure_type": (
-                                execution.failure_type.value
-                                if execution.failure_type is not None
-                                else None
-                            ),
-                            "retry_count": execution.retry_count,
-                        },
-                        actor_type=command.actor_type,
-                        actor_id=command.actor_id,
-                        traceparent=execution.traceparent,
-                        tracestate=execution.tracestate,
-                    )
                 )
                 await uow.outbox.add(
                     build_work_message(

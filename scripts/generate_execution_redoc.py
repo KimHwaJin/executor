@@ -164,9 +164,21 @@ def _render_html(spec: dict[str, Any], redoc_js: str) -> str:
 """
 
 
+def _read_redoc_script(path: Path) -> str:
+    content = path.read_text(encoding="utf-8")
+    if "<script>" not in content:
+        return content
+    script_start = content.index("<script>") + len("<script>")
+    script_end = content.index("</script>", script_start)
+    script = content[script_start:script_end]
+    if "Redoc" not in script:
+        raise ValueError("The HTML file does not embed the ReDoc runtime.")
+    return script
+
+
 def main() -> None:
     args = _parse_args()
-    redoc_js = args.redoc_js.read_text(encoding="utf-8")
+    redoc_js = _read_redoc_script(args.redoc_js)
     output = args.output.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(

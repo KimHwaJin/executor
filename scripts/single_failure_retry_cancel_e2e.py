@@ -341,7 +341,7 @@ async def _redis_events(
     return [
         fields
         for _, fields in rows
-        if fields.get("aggregate_id") == execution_id
+        if fields.get("execution_id") == execution_id
     ]
 
 
@@ -370,12 +370,6 @@ async def _assert_event_delivery(
         raise RuntimeError(
             f"Event API contains unpublished events: {api_events}"
         )
-    if {
-        event.payload.get("schema_version") for event in snapshot.outbox_events
-    } != {EXECUTION_EVENT_SCHEMA_VERSION}:
-        raise RuntimeError(
-            "PostgreSQL Outbox contains a non-v2 event payload."
-        )
     redis_rows = await _redis_events(
         redis,
         stream,
@@ -393,7 +387,9 @@ async def _assert_event_delivery(
         envelope.schema_version != EXECUTION_EVENT_SCHEMA_VERSION
         for envelope in envelopes
     ):
-        raise RuntimeError("Redis Stream contains a non-v2 Execution event.")
+        raise RuntimeError(
+            "Redis Stream contains an unsupported event version."
+        )
     return tuple(event.event_type for event in snapshot.outbox_events)
 
 
@@ -723,11 +719,12 @@ async def _run_failure_retry_case(
         scan_limit=scan_limit,
     )
     required_events = {
-        "execution.submitted",
         "execution.started",
-        "execution.failed",
-        "execution.retry_requested",
-        "execution.succeeded",
+        "execution.operation_started",
+        "execution.step_started",
+        "execution.step_completed",
+        "execution.operation_completed",
+        "execution.completed",
     }
     if not required_events.issubset(event_types):
         raise RuntimeError(
@@ -736,28 +733,25 @@ async def _run_failure_retry_case(
     operation_events = [
         event
         for event in snapshot.outbox_events
-        if event.event_type
-        in {
-            "execution.operation_failed",
-            "execution.operation_succeeded",
-        }
+        if event.event_type == "execution.operation_completed"
     ]
-    if [event.event_type for event in operation_events] != [
-        "execution.operation_failed",
-        "execution.operation_succeeded",
+    if [event.payload["status"] for event in operation_events] != [
+        "FAILED",
+        "SUCCEEDED",
     ]:
         raise RuntimeError(
             f"Operation retry event order is inconsistent: {operation_events}"
         )
     if any(
-        event.payload["operation_id"] != operation_id
+        event.payload["operation"]["id"] != operation_id
         for event in operation_events
     ):
         raise RuntimeError(
             "Operation retry events do not share the accepted Operation ID."
         )
     if [
-        event.payload["execution_attempt_id"] for event in operation_events
+        event.payload["step_results"][0]["attempt"]["id"]
+        for event in operation_events
     ] != [
         str(snapshot.attempts[0].id),
         str(snapshot.attempts[1].id),
@@ -978,11 +972,12 @@ async def _run_cancel_case(
         scan_limit=scan_limit,
     )
     required_events = {
-        "execution.submitted",
         "execution.started",
-        "execution.cancel_requested",
-        "execution.artifact_registered",
-        "execution.cancelled",
+        "execution.operation_started",
+        "execution.step_started",
+        "execution.step_completed",
+        "execution.operation_completed",
+        "execution.completed",
     }
     if not required_events.issubset(event_types):
         raise RuntimeError(

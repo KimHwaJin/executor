@@ -451,7 +451,7 @@ owner.
 - A cancellation heartbeat renews only the matching owner, fence, `CANCEL_REQUESTED` state, and
   unexpired lease. Another Worker can claim only after expiry and receives a newer fence.
 - Runtime interruption/deletion starts only after a guarded lease check. Final Attempt, Step,
-  Operation, Execution, cleanup state, and `execution.cancelled` Outbox writes occur in one
+  Operation, Execution, cleanup state, and cancelled `execution.completed` Outbox writes occur in one
   transaction guarded by the same cancellation lease.
 - Duplicate Redis delivery and two-second reconciliation do not replace a live local cancellation
   job. Other replicas may dispatch candidates, but PostgreSQL admits exactly one owner.

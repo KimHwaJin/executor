@@ -565,6 +565,7 @@ class ExecutionStepORM(Base):
     result_manifest_checksum_sha256: Mapped[str | None] = mapped_column(
         String(64)
     )
+    result_manifest_size_bytes: Mapped[int | None] = mapped_column(BigInteger)
     result_fencing_token: Mapped[int | None] = mapped_column(BigInteger)
     result_complete: Mapped[bool | None] = mapped_column(Boolean)
     result_representation_count: Mapped[int] = mapped_column(
@@ -623,6 +624,7 @@ class ExecutionStepORM(Base):
             result_manifest_checksum_sha256=(
                 step.result_manifest_checksum_sha256
             ),
+            result_manifest_size_bytes=step.result_manifest_size_bytes,
             result_fencing_token=step.result_fencing_token,
             result_complete=step.result_complete,
             result_representation_count=step.result_representation_count,
@@ -661,6 +663,7 @@ class ExecutionStepORM(Base):
             result_manifest_checksum_sha256=(
                 self.result_manifest_checksum_sha256
             ),
+            result_manifest_size_bytes=self.result_manifest_size_bytes,
             result_fencing_token=self.result_fencing_token,
             result_complete=self.result_complete,
             result_representation_count=self.result_representation_count,
@@ -1373,6 +1376,7 @@ class ExecutionStepAttemptORM(Base):
     result_manifest_checksum_sha256: Mapped[str | None] = mapped_column(
         String(64)
     )
+    result_manifest_size_bytes: Mapped[int | None] = mapped_column(BigInteger)
     result_fencing_token: Mapped[int | None] = mapped_column(BigInteger)
     result_complete: Mapped[bool | None] = mapped_column(Boolean)
     result_representation_count: Mapped[int] = mapped_column(

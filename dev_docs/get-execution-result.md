@@ -175,6 +175,7 @@ Step metadata로 받은 값을 저장한다.
 | `fencing_token` | integer | 결과를 기록한 Worker lease 세대 번호. 오래된 Worker 결과를 구분하는 데 사용 |
 | `relative_path` | string | 공유 PV 루트 기준 Step 결과 `manifest.json` 경로 |
 | `checksum_sha256` | string | `manifest.json` 파일의 SHA-256 checksum |
+| `size_bytes` | integer | `manifest.json` 파일 자체의 크기 |
 | `complete` | boolean | manifest 기록이 정상적으로 종료됐는지 |
 | `representation_count` | integer | 출력에 저장된 MIME representation 총개수 |
 | `total_size_bytes` | integer | 출력 representation 파일 크기의 합계 |
@@ -219,7 +220,8 @@ manifest 전체 필드와 Agent 검증 절차는
 `text/plain`과 `image/png` 두 가지 표현을 가지면 `output_count`는 1이고
 `representation_count`는 2다.
 
-`total_size_bytes`는 출력 representation 파일 크기의 합이며 코드 파일이나 manifest
+`size_bytes`는 참조 대상인 manifest 자체의 크기다. `total_size_bytes`는 출력
+representation 파일 크기의 합이며 코드 파일이나 manifest
 자체 크기는 포함하지 않는다.
 
 ### `lifecycle`

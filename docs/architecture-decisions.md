@@ -68,20 +68,21 @@ Both REST and MCP expose the same application commands. Submit and Operation cre
 Executor-generated ID receipts immediately. PostgreSQL commits state and Outbox records in one
 transaction. `executor.work` wakes Workers; `executor.events` wakes Agent/frontend consumers.
 
-Step completion events carry only a bounded output summary, `result_available=true`, and a
-structured shared-volume result reference. Full text and image payloads stay in immutable shared
-files and never enter PostgreSQL or Redis.
-After all Step events, Executor publishes the Operation outcome and
-`execution.waiting_for_operation`; the Agent resumes and calls `execution_operation_result_get` or
-`execution_result_get` once for authoritative results. Notebook APIs remain available for audit and
-deep inspection, but the notebook and Redis payload are not the orchestration result store.
+`execution.step_completed` carries only a bounded output summary and a structured shared-volume
+result reference. Full text and image payloads stay in immutable shared files and never enter
+PostgreSQL or Redis. After all Step events, Executor publishes
+`execution.operation_completed`; its `continuation` tells a MULTI Agent whether another Operation
+may be submitted. `execution.completed` is the terminal boundary. The Agent can call
+`execution_operation_result_get` or `execution_result_get` for authoritative reconciliation.
+Notebook APIs remain available for audit and deep inspection, but the notebook and Redis payload
+are not the orchestration result store.
 
 ```text
 Agent -> Executor: submit Execution + initial Operation
 Executor -> Agent: execution_id + operation_id + step_id receipts
 Executor Worker -> Runtime: execute accepted Steps
 Executor -> PostgreSQL: persist Step/Operation result
-Executor -> executor.events: result summaries/references, Operation outcome, waiting notification
+Executor -> executor.events: result references and Operation/Execution boundaries
 Agent consumer -> LangGraph: deduplicate, resume, fetch one consolidated result
 Agent -> Executor: append next Operation or finalize
 ```

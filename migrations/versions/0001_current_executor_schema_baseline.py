@@ -1417,6 +1417,9 @@ def upgrade() -> None:
             sa.String(length=64),
             nullable=True,
         ),
+        sa.Column(
+            "result_manifest_size_bytes", sa.BigInteger(), nullable=True
+        ),
         sa.Column("result_fencing_token", sa.BigInteger(), nullable=True),
         sa.Column("result_complete", sa.Boolean(), nullable=True),
         sa.Column(
@@ -1558,6 +1561,9 @@ def upgrade() -> None:
             "result_manifest_checksum_sha256",
             sa.String(length=64),
             nullable=True,
+        ),
+        sa.Column(
+            "result_manifest_size_bytes", sa.BigInteger(), nullable=True
         ),
         sa.Column("result_fencing_token", sa.BigInteger(), nullable=True),
         sa.Column("result_complete", sa.Boolean(), nullable=True),

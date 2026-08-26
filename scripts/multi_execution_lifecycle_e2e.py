@@ -359,7 +359,7 @@ async def _assert_event_delivery(
     redis_rows = [
         fields
         for _, fields in await redis.xrevrange(stream, count=scan_limit)
-        if fields.get("aggregate_id") == execution_id
+        if fields.get("execution_id") == execution_id
     ]
     if {row["event_id"] for row in redis_rows} != db_event_ids:
         raise RuntimeError(
@@ -374,13 +374,6 @@ async def _assert_event_delivery(
     ):
         raise RuntimeError(
             "Redis Stream contains an unsupported Execution event version."
-        )
-    if any(
-        event.payload.get("schema_version") != EXECUTION_EVENT_SCHEMA_VERSION
-        for event in snapshot.outbox_events
-    ):
-        raise RuntimeError(
-            "PostgreSQL Outbox contains an unsupported Execution event version."
         )
     return tuple(event.event_type for event in snapshot.outbox_events)
 
@@ -854,14 +847,12 @@ async def _run_correction_and_finalization_case(
         scan_limit=scan_limit,
     )
     required_events = {
-        "execution.submitted",
         "execution.started",
-        "execution.operation_submitted",
-        "execution.operation_succeeded",
-        "execution.operation_failed",
-        "execution.finalization_requested",
-        "execution.succeeded",
-        "execution.artifact_registered",
+        "execution.operation_started",
+        "execution.step_started",
+        "execution.step_completed",
+        "execution.operation_completed",
+        "execution.completed",
     }
     if not required_events.issubset(event_types):
         raise RuntimeError(
@@ -1093,11 +1084,12 @@ async def _run_running_cancel_case(
         scan_limit=scan_limit,
     )
     required_events = {
-        "execution.submitted",
         "execution.started",
-        "execution.cancel_requested",
-        "execution.artifact_registered",
-        "execution.cancelled",
+        "execution.operation_started",
+        "execution.step_started",
+        "execution.step_completed",
+        "execution.operation_completed",
+        "execution.completed",
     }
     if not required_events.issubset(event_types):
         raise RuntimeError(

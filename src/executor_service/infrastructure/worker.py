@@ -28,6 +28,7 @@ from executor_service.domain.enums import (
     FailureType,
     OperationMode,
     OperationStatus,
+    OutboxDestination,
     RetryStrategy,
     RuntimeAbortStatus,
     RuntimePool,
@@ -844,7 +845,6 @@ class ExecutionWorker:
                                 lease,
                                 sequence,
                                 artifact_exc,
-                                allow_cancel_requested=True,
                             )
                             logger.warning(
                                 "Cancelled-cell Artifact registration failed",
@@ -1250,12 +1250,6 @@ class ExecutionWorker:
                     operation.execution_attempt_id = waiting_attempt.id
                     operation.started_at = now
                     operation.updated_at = now
-                await _add_outbox(
-                    session,
-                    execution_id,
-                    "execution.resumed",
-                    ExecutionStatus.RUNNING,
-                )
                 return (
                     execution_row.to_domain(),
                     target,
@@ -1382,12 +1376,6 @@ class ExecutionWorker:
             )
             execution_row.updated_at = now
             execution_row.version += 1
-            await _add_outbox(
-                session,
-                execution_id,
-                "execution.started",
-                ExecutionStatus.RUNNING,
-            )
             return (
                 execution_row.to_domain(),
                 target,
@@ -1456,18 +1444,6 @@ class ExecutionWorker:
                 target.last_health_check_at = now
                 target.last_health_error = diagnostic[:500]
                 target.updated_at = now
-            await _add_outbox(
-                session,
-                execution.id,
-                "execution.retry_deferred",
-                ExecutionStatus.QUEUED,
-                {
-                    "failure_type": FailureType.RUNTIME_UNAVAILABLE.value,
-                    "retry_strategy": RetryStrategy.FROM_FAILED_STEP.value,
-                    "reason": "retained_target_temporarily_unavailable",
-                    "runtime_target_id": str(target_id),
-                },
-            )
 
     async def _fail_unavailable_retained_retry(
         self,
@@ -1505,19 +1481,7 @@ class ExecutionWorker:
             now,
             error_message,
         )
-        await _add_outbox(
-            session,
-            execution.id,
-            "execution.failed",
-            ExecutionStatus.FAILED,
-            {
-                "failure_type": FailureType.RUNTIME_UNAVAILABLE.value,
-                "retry_strategy": RetryStrategy.FROM_START.value,
-                "retry_from_sequence": 0,
-                "runtime_session_cleanup_status": RuntimeSessionCleanupStatus.FAILED.value,
-                "reason": "retained_target_unavailable",
-            },
-        )
+        await _add_execution_completed_event(session, execution.id)
 
     async def _select_target(
         self, session: AsyncSession, execution: ExecutionORM
@@ -1748,7 +1712,6 @@ class ExecutionWorker:
                             lease,
                             pending.sequence,
                             artifact_exc,
-                            allow_cancel_requested=True,
                         )
                     raise
                 except (
@@ -1807,7 +1770,6 @@ class ExecutionWorker:
                             lease,
                             operation_id,
                             OperationStatus.FAILED,
-                            failed_sequence=pending.sequence,
                             error_message=str(exc),
                         )
                     else:
@@ -1857,7 +1819,6 @@ class ExecutionWorker:
                         lease,
                         operation_id,
                         OperationStatus.FAILED,
-                        failed_sequence=pending.sequence,
                         error_message=str(exc),
                     )
                     return
@@ -2061,6 +2022,7 @@ class ExecutionWorker:
                     StepResultReference(
                         relative_path=step.result_manifest_path,
                         checksum_sha256=(step.result_manifest_checksum_sha256),
+                        size_bytes=step.result_manifest_size_bytes or 0,
                         execution_attempt_id=(
                             step.result_execution_attempt_id
                         ),
@@ -2171,7 +2133,6 @@ class ExecutionWorker:
         operation_id: UUID,
         operation_status: OperationStatus,
         *,
-        failed_sequence: int | None = None,
         error_message: str | None = None,
     ) -> None:
         now = utc_now()
@@ -2220,40 +2181,8 @@ class ExecutionWorker:
             attempt.status = AttemptStatus.WAITING
             attempt.lease_owner = None
             attempt.lease_expires_at = None
-            await _add_outbox(
-                session,
-                lease.execution_id,
-                f"execution.operation_{operation_status.value.lower()}",
-                ExecutionStatus.WAITING_FOR_OPERATION,
-                {
-                    "execution_attempt_id": str(lease.attempt_id),
-                    "operation_id": str(operation_id),
-                    "operation_status": operation_status.value,
-                    "first_sequence": operation.first_sequence,
-                    "last_sequence": operation.last_sequence,
-                    **(
-                        {"failed_sequence": failed_sequence}
-                        if failed_sequence is not None
-                        else {}
-                    ),
-                    "version": execution.version,
-                    **(
-                        {"error_message": error_message or "Operation failed."}
-                        if operation_status == OperationStatus.FAILED
-                        else {}
-                    ),
-                },
-            )
-            await _add_outbox(
-                session,
-                lease.execution_id,
-                "execution.waiting_for_operation",
-                ExecutionStatus.WAITING_FOR_OPERATION,
-                {
-                    "operation_id": str(operation_id),
-                    "operation_wait_expires_at": execution.operation_wait_expires_at,
-                    "version": execution.version,
-                },
+            await _add_operation_completed_event(
+                session, lease.execution_id, operation_id
             )
 
     async def _skip_operation_steps_after(
@@ -2309,6 +2238,7 @@ class ExecutionWorker:
             execution.notebook_path = notebook_path
             execution.updated_at = utc_now()
             attempt.runtime_session_id = runtime_session_id
+            await _add_start_events(session, lease.execution_id)
 
     async def _step_started(
         self, lease: ExecutionLease, sequence: int
@@ -2329,6 +2259,7 @@ class ExecutionWorker:
             step.result_execution_attempt_id = None
             step.result_manifest_path = None
             step.result_manifest_checksum_sha256 = None
+            step.result_manifest_size_bytes = None
             step.result_fencing_token = None
             step.result_complete = None
             step.result_representation_count = 0
@@ -2371,6 +2302,7 @@ class ExecutionWorker:
                 history.output_summary = empty_output_summary()
                 history.result_manifest_path = None
                 history.result_manifest_checksum_sha256 = None
+                history.result_manifest_size_bytes = None
                 history.result_fencing_token = None
                 history.result_complete = None
                 history.result_representation_count = 0
@@ -2379,19 +2311,7 @@ class ExecutionWorker:
                 raise ValueError(
                     f"Execution Step {sequence} has no Operation."
                 )
-            await _add_outbox(
-                session,
-                lease.execution_id,
-                "execution.step_started",
-                ExecutionStatus.RUNNING,
-                {
-                    "execution_attempt_id": str(lease.attempt_id),
-                    "operation_id": str(step.operation_id),
-                    "step_id": str(step.id),
-                    "sequence": sequence,
-                    "status": StepStatus.RUNNING.value,
-                },
-            )
+            await _add_step_started_event(session, lease, step)
 
     async def _step_succeeded(
         self,
@@ -2435,6 +2355,9 @@ class ExecutionWorker:
                     result_manifest_checksum_sha256=(
                         stored_result.reference.checksum_sha256
                     ),
+                    result_manifest_size_bytes=(
+                        stored_result.reference.size_bytes
+                    ),
                     result_fencing_token=(
                         stored_result.reference.fencing_token
                     ),
@@ -2446,38 +2369,12 @@ class ExecutionWorker:
                     finished_at=now,
                 )
             )
-            await _add_outbox(
+            await _add_step_completed_event(
                 session,
-                lease.execution_id,
-                "execution.step_succeeded",
-                ExecutionStatus.RUNNING,
-                {
-                    "execution_attempt_id": str(lease.attempt_id),
-                    "operation_id": str(step.operation_id),
-                    "step_id": str(step.id),
-                    "sequence": sequence,
-                    "status": StepStatus.SUCCEEDED.value,
-                    "result_available": True,
-                    "result_ref": {
-                        "scope": "STEP",
-                        "operation_id": str(step.operation_id),
-                        "step_id": str(step.id),
-                        "storage": "SHARED_PV",
-                        "relative_path": (
-                            stored_result.reference.relative_path
-                        ),
-                        "checksum_sha256": (
-                            stored_result.reference.checksum_sha256
-                        ),
-                        "execution_attempt_id": str(lease.attempt_id),
-                        "fencing_token": (
-                            stored_result.reference.fencing_token
-                        ),
-                        "complete": stored_result.complete,
-                    },
-                    "output_summary": output_summary,
-                    "execution_count": stored_result.execution_count,
-                },
+                lease,
+                step,
+                StepStatus.SUCCEEDED,
+                stored_result=stored_result,
             )
 
     async def _step_failed(
@@ -2525,6 +2422,9 @@ class ExecutionWorker:
                     result_manifest_checksum_sha256=(
                         stored_result.reference.checksum_sha256
                     ),
+                    result_manifest_size_bytes=(
+                        stored_result.reference.size_bytes
+                    ),
                     result_fencing_token=(
                         stored_result.reference.fencing_token
                     ),
@@ -2537,38 +2437,14 @@ class ExecutionWorker:
                     finished_at=now,
                 )
             )
-            await _add_outbox(
+            await _add_step_completed_event(
                 session,
-                lease.execution_id,
-                "execution.step_failed",
-                ExecutionStatus.RUNNING,
-                {
-                    "execution_attempt_id": str(lease.attempt_id),
-                    "operation_id": str(step.operation_id),
-                    "step_id": str(step.id),
-                    "sequence": sequence,
-                    "status": StepStatus.FAILED.value,
-                    "result_available": True,
-                    "result_ref": {
-                        "scope": "STEP",
-                        "operation_id": str(step.operation_id),
-                        "step_id": str(step.id),
-                        "storage": "SHARED_PV",
-                        "relative_path": (
-                            stored_result.reference.relative_path
-                        ),
-                        "checksum_sha256": (
-                            stored_result.reference.checksum_sha256
-                        ),
-                        "execution_attempt_id": str(lease.attempt_id),
-                        "fencing_token": (
-                            stored_result.reference.fencing_token
-                        ),
-                        "complete": stored_result.complete,
-                    },
-                    "output_summary": output_summary,
-                    "error_message": safe_error,
-                },
+                lease,
+                step,
+                StepStatus.FAILED,
+                stored_result=stored_result,
+                error_message=safe_error,
+                retryable=True,
             )
 
     @staticmethod
@@ -2580,6 +2456,7 @@ class ExecutionWorker:
         step.result_manifest_checksum_sha256 = (
             stored_result.reference.checksum_sha256
         )
+        step.result_manifest_size_bytes = stored_result.reference.size_bytes
         step.result_fencing_token = stored_result.reference.fencing_token
         step.result_complete = stored_result.complete
         step.result_representation_count = stored_result.representation_count
@@ -2787,7 +2664,6 @@ class ExecutionWorker:
             RuntimeAbortStatus.PENDING,
             RuntimeSessionCleanupStatus.PENDING,
             failure_type,
-            session_reusable=False,
         )
         try:
             result = await driver.abort_session(
@@ -2839,8 +2715,6 @@ class ExecutionWorker:
             resolution.abort_status,
             resolution.cleanup_status,
             failure_type,
-            session_reusable=resolution.retain_session,
-            message=result.message,
         )
         return resolution
 
@@ -2850,9 +2724,6 @@ class ExecutionWorker:
         abort_status: RuntimeAbortStatus,
         cleanup_status: RuntimeSessionCleanupStatus,
         failure_type: FailureType,
-        *,
-        session_reusable: bool,
-        message: str | None = None,
     ) -> None:
         now = utc_now()
         async with self._session_factory() as session, session.begin():
@@ -2865,28 +2736,6 @@ class ExecutionWorker:
             attempt.runtime_abort_status = abort_status
             attempt.runtime_session_cleanup_status = cleanup_status
             attempt.failure_type = failure_type
-            event_type = (
-                "execution.runtime_abort_started"
-                if abort_status == RuntimeAbortStatus.PENDING
-                else "execution.runtime_abort_completed"
-                if abort_status != RuntimeAbortStatus.FAILED
-                else "execution.runtime_abort_failed"
-            )
-            await _add_outbox(
-                session,
-                lease.execution_id,
-                event_type,
-                ExecutionStatus.RUNNING,
-                {
-                    "execution_attempt_id": str(lease.attempt_id),
-                    "failure_type": failure_type.value,
-                    "runtime_abort_status": abort_status.value,
-                    "runtime_session_cleanup_status": cleanup_status.value,
-                    "session_reusable": session_reusable,
-                    "message": message,
-                    "version": execution.version,
-                },
-            )
 
     async def _assert_active_lease(
         self,
@@ -3013,40 +2862,15 @@ class ExecutionWorker:
         lease: ExecutionLease,
         sequence: int,
         error: Exception,
-        *,
-        allow_cancel_requested: bool = False,
     ) -> None:
-        try:
-            async with self._session_factory() as session, session.begin():
-                await require_active_lease(
-                    session,
-                    lease,
-                    allowed_statuses=(
-                        (
-                            ExecutionStatus.RUNNING,
-                            ExecutionStatus.CANCEL_REQUESTED,
-                        )
-                        if allow_cancel_requested
-                        else (ExecutionStatus.RUNNING,)
-                    ),
-                )
-                await _add_outbox(
-                    session,
-                    lease.execution_id,
-                    "execution.artifact_failed",
-                    ExecutionStatus.RUNNING,
-                    {
-                        "execution_attempt_id": str(lease.attempt_id),
-                        "sequence": sequence,
-                        "error_type": type(error).__name__,
-                    },
-                )
-        except Exception:
-            # Never replace the original execution or Artifact error with telemetry failure.
-            logger.exception(
-                "Artifact failure event persistence failed",
-                extra={"execution_id": str(lease.execution_id)},
-            )
+        logger.warning(
+            "Artifact registration failed",
+            extra={
+                "execution_id": str(lease.execution_id),
+                "sequence": sequence,
+                "error_type": type(error).__name__,
+            },
+        )
 
     async def _finalize(
         self,
@@ -3065,6 +2889,15 @@ class ExecutionWorker:
         now = utc_now()
         async with self._session_factory() as session, session.begin():
             execution, attempt = await require_active_lease(session, lease)
+            running_step_ids = list(
+                await session.scalars(
+                    select(ExecutionStepAttemptORM.execution_step_id).where(
+                        ExecutionStepAttemptORM.execution_attempt_id
+                        == lease.attempt_id,
+                        ExecutionStepAttemptORM.status == StepStatus.RUNNING,
+                    )
+                )
+            )
             abort_was_pending = (
                 execution.runtime_abort_status == RuntimeAbortStatus.PENDING
             )
@@ -3134,6 +2967,7 @@ class ExecutionWorker:
             if abort_was_pending:
                 attempt.runtime_abort_status = execution.runtime_abort_status
             attempt.finished_at = now
+            completed_operation_id: UUID | None = None
             if execution.active_operation_id is not None:
                 operation_update = await session.execute(
                     update(ExecutionOperationORM)
@@ -3168,36 +3002,7 @@ class ExecutionWorker:
                     operation is not None
                     and getattr(operation_update, "rowcount", None) == 1
                 ):
-                    operation_payload: dict[str, object] = {
-                        "execution_attempt_id": str(lease.attempt_id),
-                        "operation_id": str(operation.id),
-                        "operation_status": (
-                            OperationStatus.SUCCEEDED.value
-                            if status == ExecutionStatus.SUCCEEDED
-                            else OperationStatus.FAILED.value
-                        ),
-                        "first_sequence": operation.first_sequence,
-                        "last_sequence": operation.last_sequence,
-                        "version": execution.version,
-                    }
-                    if status == ExecutionStatus.FAILED:
-                        operation_payload["failed_sequence"] = (
-                            retry_from_sequence
-                        )
-                        operation_payload["error_message"] = (
-                            error_message or "Operation failed."
-                        )
-                    await _add_outbox(
-                        session,
-                        lease.execution_id,
-                        (
-                            "execution.operation_succeeded"
-                            if status == ExecutionStatus.SUCCEEDED
-                            else "execution.operation_failed"
-                        ),
-                        status,
-                        operation_payload,
-                    )
+                    completed_operation_id = operation.id
             if status == ExecutionStatus.FAILED:
                 await session.execute(
                     update(ExecutionStepORM)
@@ -3212,6 +3017,21 @@ class ExecutionWorker:
                         updated_at=now,
                     )
                 )
+                for step_id in running_step_ids:
+                    await _add_step_history_completed_event(
+                        session,
+                        lease.execution_id,
+                        step_id,
+                        lease.attempt_id,
+                        StepStatus.FAILED,
+                        error_message=(
+                            error_message or "Step execution failed."
+                        ),
+                        retryable=(
+                            effective_retry_strategy
+                            != RetryStrategy.NOT_RETRYABLE
+                        ),
+                    )
                 await session.execute(
                     update(ExecutionStepORM)
                     .where(
@@ -3237,52 +3057,11 @@ class ExecutionWorker:
                         finished_at=now,
                     )
                 )
-            if abort_was_pending:
-                await _add_outbox(
-                    session,
-                    lease.execution_id,
-                    (
-                        "execution.runtime_abort_completed"
-                        if execution.runtime_abort_status
-                        == RuntimeAbortStatus.SESSION_DELETED
-                        else "execution.runtime_abort_failed"
-                    ),
-                    status,
-                    {
-                        "execution_attempt_id": str(lease.attempt_id),
-                        "failure_type": (
-                            effective_failure_type
-                            or FailureType.INTERNAL_ERROR
-                        ).value,
-                        "runtime_abort_status": (
-                            execution.runtime_abort_status.value
-                        ),
-                        "runtime_session_cleanup_status": (
-                            runtime_session_cleanup_status.value
-                        ),
-                        "session_reusable": False,
-                        "message": (
-                            "Runtime abort was resolved by terminal cleanup."
-                        ),
-                        "version": execution.version,
-                    },
+            if completed_operation_id is not None:
+                await _add_operation_completed_event(
+                    session, lease.execution_id, completed_operation_id
                 )
-            await _add_outbox(
-                session,
-                lease.execution_id,
-                f"execution.{status.value.lower()}",
-                status,
-                {
-                    "failure_type": (
-                        effective_failure_type.value
-                        if effective_failure_type
-                        else None
-                    ),
-                    "retry_strategy": effective_retry_strategy.value,
-                    "retry_from_sequence": execution.retry_from_sequence,
-                    "runtime_session_cleanup_status": runtime_session_cleanup_status.value,
-                },
-            )
+            await _add_execution_completed_event(session, lease.execution_id)
 
     async def _cancel_execution(self, execution_id: UUID) -> None:
         work = await self._claim_cancellation(execution_id)
@@ -3360,9 +3139,22 @@ class ExecutionWorker:
             abort_was_pending = (
                 execution.runtime_abort_status == RuntimeAbortStatus.PENDING
             )
-            abort_failure_type = (
-                execution.failure_type or FailureType.INTERNAL_ERROR
+            running_step_attempts = list(
+                (
+                    await session.execute(
+                        select(
+                            ExecutionStepAttemptORM.execution_step_id,
+                            ExecutionStepAttemptORM.execution_attempt_id,
+                        ).where(
+                            ExecutionStepAttemptORM.execution_id
+                            == execution_id,
+                            ExecutionStepAttemptORM.status
+                            == StepStatus.RUNNING,
+                        )
+                    )
+                ).all()
             )
+            active_operation_id = execution.active_operation_id
             execution.status = ExecutionStatus.CANCELLED
             execution.finished_at = now
             execution.updated_at = now
@@ -3453,46 +3245,24 @@ class ExecutionWorker:
                 )
                 .values(status=StepStatus.CANCELLED, finished_at=now)
             )
-            latest_attempt_id = None
-            if abort_was_pending:
-                latest_attempt_id = await session.scalar(
-                    select(ExecutionAttemptORM.id)
-                    .where(ExecutionAttemptORM.execution_id == execution_id)
-                    .order_by(ExecutionAttemptORM.attempt_number.desc())
-                    .limit(1)
-                )
-            if abort_was_pending and latest_attempt_id is not None:
-                await _add_outbox(
+            for step_id, attempt_id in running_step_attempts:
+                await _add_step_history_completed_event(
                     session,
                     execution_id,
-                    (
-                        "execution.runtime_abort_completed"
-                        if execution.runtime_abort_status
-                        == RuntimeAbortStatus.SESSION_DELETED
-                        else "execution.runtime_abort_failed"
+                    step_id,
+                    attempt_id,
+                    StepStatus.CANCELLED,
+                    error_message=(
+                        execution.cancellation_reason
+                        or "Step was cancelled by request."
                     ),
-                    ExecutionStatus.CANCELLED,
-                    {
-                        "execution_attempt_id": str(latest_attempt_id),
-                        "failure_type": abort_failure_type.value,
-                        "runtime_abort_status": (
-                            execution.runtime_abort_status.value
-                        ),
-                        "runtime_session_cleanup_status": (
-                            cleanup_status.value
-                        ),
-                        "session_reusable": False,
-                        "message": "Runtime abort was resolved by cancellation.",
-                        "version": execution.version,
-                    },
+                    retryable=False,
                 )
-            await _add_outbox(
-                session,
-                execution_id,
-                "execution.cancelled",
-                ExecutionStatus.CANCELLED,
-                {"runtime_session_cleanup_status": cleanup_status.value},
-            )
+            if active_operation_id is not None:
+                await _add_operation_completed_event(
+                    session, execution_id, active_operation_id
+                )
+            await _add_execution_completed_event(session, execution_id)
 
     async def _audit_multi_lifecycle(self) -> None:
         await self._request_expired_execution_cancellations()
@@ -3597,13 +3367,6 @@ class ExecutionWorker:
                 execution.updated_at = now
                 execution.version += 1
                 expired_ids.append(execution.id)
-                await _add_outbox(
-                    session,
-                    execution.id,
-                    "execution.timeout_requested",
-                    ExecutionStatus.CANCEL_REQUESTED,
-                    {"failure_type": FailureType.EXECUTION_TIMEOUT.value},
-                )
         for execution_id in expired_ids:
             self._dispatch(
                 execution_id,
@@ -3689,18 +3452,7 @@ class ExecutionWorker:
                     execution.runtime_target_id,
                     expected_runtime_session_id,
                 )
-            await _add_outbox(
-                session,
-                execution.id,
-                "execution.failed",
-                ExecutionStatus.FAILED,
-                {
-                    "failure_type": failure_type.value,
-                    "retry_strategy": RetryStrategy.NOT_RETRYABLE.value,
-                    "runtime_session_cleanup_status": cleanup_status.value,
-                    "recovery_count": execution.recovery_count,
-                },
-            )
+            await _add_execution_completed_event(session, execution.id)
         if cleanup_target is not None:
             await self._cleanup_abandoned_session(*cleanup_target)
 
@@ -3719,6 +3471,19 @@ class ExecutionWorker:
                 )
             )
             for execution in expired:
+                running_step_attempts = list(
+                    await session.execute(
+                        select(
+                            ExecutionStepAttemptORM.execution_step_id,
+                            ExecutionStepAttemptORM.execution_attempt_id,
+                        ).where(
+                            ExecutionStepAttemptORM.execution_id
+                            == execution.id,
+                            ExecutionStepAttemptORM.status
+                            == StepStatus.RUNNING,
+                        )
+                    )
+                )
                 recovery_failure_type = (
                     execution.failure_type
                     if execution.runtime_abort_status
@@ -3829,6 +3594,21 @@ class ExecutionWorker:
                         finished_at=now,
                     )
                 )
+                for step_id, step_attempt_id in running_step_attempts:
+                    await _add_step_history_completed_event(
+                        session,
+                        execution.id,
+                        step_id,
+                        step_attempt_id,
+                        StepStatus.FAILED,
+                        error_message=(
+                            execution.error_message
+                            or "Worker lease expired during Step execution."
+                        ),
+                        retryable=(
+                            retry_strategy != RetryStrategy.NOT_RETRYABLE
+                        ),
+                    )
                 await session.execute(
                     update(ExecutionStepORM)
                     .where(
@@ -3863,42 +3643,10 @@ class ExecutionWorker:
                         operation.error_message = execution.error_message
                         operation.finished_at = now
                         operation.updated_at = now
-                        await _add_outbox(
-                            session,
-                            execution.id,
-                            "execution.operation_failed",
-                            ExecutionStatus.FAILED,
-                            {
-                                "execution_attempt_id": (
-                                    str(operation.execution_attempt_id)
-                                    if operation.execution_attempt_id
-                                    is not None
-                                    else None
-                                ),
-                                "operation_id": str(operation.id),
-                                "operation_status": OperationStatus.FAILED.value,
-                                "first_sequence": operation.first_sequence,
-                                "last_sequence": operation.last_sequence,
-                                "version": execution.version,
-                                "error_message": execution.error_message
-                                or "Operation recovery failed.",
-                            },
+                        await _add_operation_completed_event(
+                            session, execution.id, operation.id
                         )
-                await _add_outbox(
-                    session,
-                    execution.id,
-                    "execution.failed",
-                    ExecutionStatus.FAILED,
-                    {
-                        "failure_type": recovery_failure_type.value,
-                        "retry_strategy": retry_strategy.value,
-                        "retry_from_sequence": execution.retry_from_sequence,
-                        "runtime_session_cleanup_status": (
-                            execution.runtime_session_cleanup_status.value
-                        ),
-                        "recovery_count": execution.recovery_count,
-                    },
-                )
+                await _add_execution_completed_event(session, execution.id)
         for (
             execution_id,
             attempt_id,
@@ -4001,50 +3749,6 @@ class ExecutionWorker:
                         ),
                     )
                 )
-            if abort_was_pending and attempt_id is not None:
-                await _add_outbox(
-                    session,
-                    execution_id,
-                    (
-                        "execution.runtime_abort_completed"
-                        if cleanup_status
-                        == RuntimeSessionCleanupStatus.SUCCEEDED
-                        else "execution.runtime_abort_failed"
-                    ),
-                    execution.status,
-                    {
-                        "execution_attempt_id": str(attempt_id),
-                        "failure_type": (
-                            execution.failure_type
-                            or FailureType.INTERNAL_ERROR
-                        ).value,
-                        "runtime_abort_status": (
-                            execution.runtime_abort_status.value
-                        ),
-                        "runtime_session_cleanup_status": (
-                            cleanup_status.value
-                        ),
-                        "session_reusable": False,
-                        "message": (
-                            "Runtime session was deleted during lease recovery."
-                            if cleanup_status
-                            == RuntimeSessionCleanupStatus.SUCCEEDED
-                            else "Runtime session deletion failed during lease recovery."
-                        ),
-                        "version": execution.version,
-                    },
-                )
-            await _add_outbox(
-                session,
-                execution_id,
-                (
-                    "execution.runtime_session_cleanup_completed"
-                    if cleanup_status == RuntimeSessionCleanupStatus.SUCCEEDED
-                    else "execution.runtime_session_cleanup_failed"
-                ),
-                execution.status,
-                {"runtime_session_cleanup_status": cleanup_status.value},
-            )
 
     async def _retry_unresolved_runtime_session_cleanup(self) -> None:
         now = utc_now()
@@ -4227,16 +3931,10 @@ class ExecutionWorker:
                         .where(ExecutionAttemptORM.id == latest_attempt_id)
                         .values(runtime_session_cleanup_status=cleanup_status)
                     )
-                await _add_outbox(
-                    update_session,
-                    current.id,
-                    "execution.retry_window_expired",
-                    ExecutionStatus.FAILED,
-                    {
-                        "runtime_session_cleanup_status": cleanup_status.value,
-                        "retry_was_queued": retry_was_queued,
-                    },
-                )
+                if retry_was_queued:
+                    await _add_execution_completed_event(
+                        update_session, current.id
+                    )
 
     async def _fail_active_operation_without_attempt(
         self,
@@ -4264,30 +3962,16 @@ class ExecutionWorker:
         operation.error_message = error_message[:2000]
         operation.finished_at = now
         operation.updated_at = now
-        await _add_outbox(
-            session,
-            execution.id,
-            "execution.operation_failed",
-            ExecutionStatus.FAILED,
-            {
-                "execution_attempt_id": None,
-                "operation_id": str(operation.id),
-                "operation_status": OperationStatus.FAILED.value,
-                "first_sequence": operation.first_sequence,
-                "last_sequence": operation.last_sequence,
-                "version": execution.version,
-                "error_message": operation.error_message
-                or "Operation failed.",
-            },
+        await _add_operation_completed_event(
+            session, execution.id, operation.id
         )
 
 
-async def _add_outbox(
+async def _persist_execution_event(
     session: AsyncSession,
     execution_id: UUID,
     event_type: str,
-    status: ExecutionStatus,
-    details: dict[str, object] | None = None,
+    payload: dict[str, object],
 ) -> None:
     actor_row = (
         await session.execute(
@@ -4304,30 +3988,6 @@ async def _add_outbox(
     if actor_row is not None:
         actor_type = actor_row.updated_by_type or actor_row.created_by_type
         actor_id = actor_row.updated_by or actor_row.created_by
-    payload: dict[str, object] = {
-        "execution_id": str(execution_id),
-        "status": status.value,
-    }
-    if details:
-        payload.update(details)
-    if event_type in {
-        "execution.operation_succeeded",
-        "execution.operation_failed",
-    }:
-        operation_id = payload.get("operation_id")
-        payload["result_available"] = True
-        payload["result_ref"] = {
-            "scope": "OPERATION",
-            "operation_id": operation_id,
-            "step_id": None,
-        }
-    elif event_type in {"execution.succeeded", "execution.failed"}:
-        payload["result_available"] = True
-        payload["result_ref"] = {
-            "scope": "EXECUTION",
-            "operation_id": None,
-            "step_id": None,
-        }
     carrier = capture_trace_carrier()
     event = build_execution_event(
         execution_id=execution_id,
@@ -4339,6 +3999,491 @@ async def _add_outbox(
         tracestate=carrier.tracestate,
     )
     session.add(OutboxEventORM.from_domain(event))
+
+
+async def _add_start_events(session: AsyncSession, execution_id: UUID) -> None:
+    execution = await session.get(ExecutionORM, execution_id)
+    if (
+        execution is None
+        or execution.runtime_target_id is None
+        or execution.runtime_session_id is None
+    ):
+        return
+    started_count = await session.scalar(
+        select(func.count(OutboxEventORM.id)).where(
+            OutboxEventORM.aggregate_id == execution_id,
+            OutboxEventORM.destination == OutboxDestination.EVENTS,
+            OutboxEventORM.event_type == "execution.started",
+        )
+    )
+    if not started_count:
+        await _persist_execution_event(
+            session,
+            execution_id,
+            "execution.started",
+            {
+                "status": "RUNNING",
+                "runtime": {
+                    "provider": execution.runtime_type.value,
+                    "profile": execution.runtime_profile,
+                    "target_id": str(execution.runtime_target_id),
+                    "session_id": execution.runtime_session_id,
+                },
+            },
+        )
+    operation_id = execution.active_operation_id
+    if operation_id is None or execution.finalization_requested:
+        return
+    operation = await session.get(ExecutionOperationORM, operation_id)
+    if operation is None:
+        return
+    prior_payloads = list(
+        await session.scalars(
+            select(OutboxEventORM.payload).where(
+                OutboxEventORM.aggregate_id == execution_id,
+                OutboxEventORM.destination == OutboxDestination.EVENTS,
+                OutboxEventORM.event_type == "execution.operation_started",
+            )
+        )
+    )
+    if any(
+        str(payload.get("operation", {}).get("id")) == str(operation_id)
+        for payload in prior_payloads
+        if isinstance(payload.get("operation"), dict)
+    ):
+        return
+    step_count = await session.scalar(
+        select(func.count(ExecutionStepORM.id)).where(
+            ExecutionStepORM.operation_id == operation_id
+        )
+    )
+    await _persist_execution_event(
+        session,
+        execution_id,
+        "execution.operation_started",
+        {
+            "status": "RUNNING",
+            "operation": {
+                "id": str(operation.id),
+                "number": operation.operation_number,
+                "step_count": step_count or 0,
+            },
+        },
+    )
+
+
+async def _attempt_payload(
+    session: AsyncSession, attempt_id: UUID
+) -> dict[str, object]:
+    attempt = await session.get(ExecutionAttemptORM, attempt_id)
+    if attempt is None:
+        raise ValueError(f"Execution Attempt {attempt_id} was not found.")
+    return {
+        "id": str(attempt.id),
+        "number": attempt.attempt_number,
+        "reason": ("INITIAL" if attempt.attempt_number == 1 else "RETRY"),
+    }
+
+
+async def _operation_payload(
+    session: AsyncSession, operation_id: UUID
+) -> dict[str, object]:
+    operation = await session.get(ExecutionOperationORM, operation_id)
+    if operation is None:
+        raise ValueError(f"Execution Operation {operation_id} was not found.")
+    return {"id": str(operation.id), "number": operation.operation_number}
+
+
+def _stored_result_reference(
+    stored_result: StepResultDescriptor,
+) -> dict[str, object] | None:
+    if not stored_result.complete:
+        return None
+    return {
+        "storage": "SHARED_PV",
+        "relative_path": stored_result.reference.relative_path,
+        "media_type": "application/json",
+        "size_bytes": stored_result.reference.size_bytes,
+        "checksum_sha256": stored_result.reference.checksum_sha256,
+    }
+
+
+def _row_result_reference(
+    row: ExecutionStepAttemptORM,
+) -> dict[str, object] | None:
+    if not (
+        row.result_complete
+        and row.result_manifest_path is not None
+        and row.result_manifest_checksum_sha256 is not None
+        and row.result_manifest_size_bytes is not None
+    ):
+        return None
+    return {
+        "storage": "SHARED_PV",
+        "relative_path": row.result_manifest_path,
+        "media_type": "application/json",
+        "size_bytes": row.result_manifest_size_bytes,
+        "checksum_sha256": row.result_manifest_checksum_sha256,
+    }
+
+
+def _event_output_summary(
+    stored_result: StepResultDescriptor,
+) -> dict[str, object]:
+    mime_types = stored_result.output_summary.get("mime_types", [])
+    return {
+        "count": stored_result.output_count,
+        "content_types": (
+            sorted(set(mime_types)) if isinstance(mime_types, list) else []
+        ),
+    }
+
+
+async def _add_step_started_event(
+    session: AsyncSession,
+    lease: ExecutionLease,
+    step: ExecutionStepORM,
+) -> None:
+    await _persist_execution_event(
+        session,
+        lease.execution_id,
+        "execution.step_started",
+        {
+            "status": "RUNNING",
+            "operation": await _operation_payload(session, step.operation_id),
+            "step": {"id": str(step.id), "sequence": step.sequence},
+            "attempt": await _attempt_payload(session, lease.attempt_id),
+        },
+    )
+
+
+async def _add_step_completed_event(
+    session: AsyncSession,
+    lease: ExecutionLease,
+    step: ExecutionStepORM,
+    status: StepStatus,
+    *,
+    stored_result: StepResultDescriptor | None,
+    error_message: str | None = None,
+    retryable: bool = False,
+) -> None:
+    result_ref = (
+        _stored_result_reference(stored_result)
+        if stored_result is not None
+        else None
+    )
+    output_summary = (
+        _event_output_summary(stored_result)
+        if stored_result is not None and stored_result.complete
+        else None
+    )
+    error = None
+    if status != StepStatus.SUCCEEDED:
+        error = {
+            "code": (
+                "STEP_CANCELLED"
+                if status == StepStatus.CANCELLED
+                else "STEP_EXECUTION_FAILED"
+            ),
+            "message": error_message or f"Step was {status.value.lower()}.",
+            "retryable": retryable,
+        }
+    await _persist_execution_event(
+        session,
+        lease.execution_id,
+        "execution.step_completed",
+        {
+            "status": status.value,
+            "operation": await _operation_payload(session, step.operation_id),
+            "step": {"id": str(step.id), "sequence": step.sequence},
+            "attempt": await _attempt_payload(session, lease.attempt_id),
+            "result_ref": result_ref,
+            "output_summary": output_summary,
+            "error": error,
+        },
+    )
+
+
+async def _add_step_history_completed_event(
+    session: AsyncSession,
+    execution_id: UUID,
+    step_id: UUID,
+    attempt_id: UUID,
+    status: StepStatus,
+    *,
+    error_message: str,
+    retryable: bool,
+) -> None:
+    step = await session.get(ExecutionStepORM, step_id)
+    history = await session.scalar(
+        select(ExecutionStepAttemptORM).where(
+            ExecutionStepAttemptORM.execution_step_id == step_id,
+            ExecutionStepAttemptORM.execution_attempt_id == attempt_id,
+        )
+    )
+    if step is None or history is None:
+        return
+    output_summary = None
+    if history.result_complete:
+        raw_mime_types = history.output_summary.get("mime_types", [])
+        output_summary = {
+            "count": int(history.output_summary.get("output_count", 0)),
+            "content_types": (
+                sorted(set(raw_mime_types))
+                if isinstance(raw_mime_types, list)
+                else []
+            ),
+        }
+    await _persist_execution_event(
+        session,
+        execution_id,
+        "execution.step_completed",
+        {
+            "status": status.value,
+            "operation": await _operation_payload(session, step.operation_id),
+            "step": {"id": str(step.id), "sequence": step.sequence},
+            "attempt": await _attempt_payload(session, attempt_id),
+            "result_ref": _row_result_reference(history),
+            "output_summary": output_summary,
+            "error": {
+                "code": (
+                    "STEP_CANCELLED"
+                    if status == StepStatus.CANCELLED
+                    else "STEP_EXECUTION_FAILED"
+                ),
+                "message": error_message,
+                "retryable": retryable,
+            },
+        },
+    )
+
+
+async def _latest_step_attempts(
+    session: AsyncSession, operation_id: UUID
+) -> dict[UUID, tuple[ExecutionStepAttemptORM, ExecutionAttemptORM]]:
+    rows = list(
+        (
+            await session.execute(
+                select(ExecutionStepAttemptORM, ExecutionAttemptORM)
+                .join(
+                    ExecutionAttemptORM,
+                    ExecutionAttemptORM.id
+                    == ExecutionStepAttemptORM.execution_attempt_id,
+                )
+                .join(
+                    ExecutionStepORM,
+                    ExecutionStepORM.id
+                    == ExecutionStepAttemptORM.execution_step_id,
+                )
+                .where(ExecutionStepORM.operation_id == operation_id)
+                .order_by(ExecutionAttemptORM.attempt_number)
+            )
+        ).all()
+    )
+    latest: dict[
+        UUID, tuple[ExecutionStepAttemptORM, ExecutionAttemptORM]
+    ] = {}
+    for history, attempt in rows:
+        latest[history.execution_step_id] = (history, attempt)
+    return latest
+
+
+async def _add_operation_completed_event(
+    session: AsyncSession,
+    execution_id: UUID,
+    operation_id: UUID,
+) -> None:
+    execution = await session.get(ExecutionORM, execution_id)
+    operation = await session.get(ExecutionOperationORM, operation_id)
+    if execution is None or operation is None:
+        return
+    steps = list(
+        await session.scalars(
+            select(ExecutionStepORM)
+            .where(ExecutionStepORM.operation_id == operation_id)
+            .order_by(ExecutionStepORM.sequence)
+        )
+    )
+    terminal = {
+        StepStatus.SUCCEEDED,
+        StepStatus.FAILED,
+        StepStatus.CANCELLED,
+    }
+    latest = await _latest_step_attempts(session, operation_id)
+    step_results: list[dict[str, object]] = []
+    for step in steps:
+        attempt_pair = latest.get(step.id)
+        if step.status not in terminal or attempt_pair is None:
+            continue
+        history, attempt = attempt_pair
+        result_ref = _row_result_reference(history)
+        if step.status == StepStatus.SUCCEEDED and result_ref is None:
+            continue
+        step_results.append(
+            {
+                "step_id": str(step.id),
+                "sequence": step.sequence,
+                "status": step.status.value,
+                "attempt": {
+                    "id": str(attempt.id),
+                    "number": attempt.attempt_number,
+                    "reason": (
+                        "INITIAL" if attempt.attempt_number == 1 else "RETRY"
+                    ),
+                },
+                "result_ref": result_ref,
+            }
+        )
+    counts = {
+        status: sum(step.status == status for step in steps)
+        for status in terminal
+    }
+    completed = sum(counts.values())
+    continuation = None
+    if (
+        execution.status == ExecutionStatus.WAITING_FOR_OPERATION
+        and execution.operation_wait_expires_at is not None
+    ):
+        continuation = {
+            "allowed": True,
+            "expected_version": execution.version,
+            "expires_at": execution.operation_wait_expires_at,
+        }
+    error = None
+    if operation.status != OperationStatus.SUCCEEDED:
+        failed_step = next(
+            (step for step in steps if step.status == StepStatus.FAILED),
+            None,
+        )
+        error = {
+            "code": (
+                "OPERATION_CANCELLED"
+                if operation.status == OperationStatus.CANCELLED
+                else "OPERATION_STEP_FAILED"
+            ),
+            "message": operation.error_message
+            or f"Operation was {operation.status.value.lower()}.",
+            "step_id": str(failed_step.id) if failed_step else None,
+            "retryable": (
+                continuation is not None
+                or execution.retry_strategy != RetryStrategy.NOT_RETRYABLE
+            ),
+        }
+    await _persist_execution_event(
+        session,
+        execution_id,
+        "execution.operation_completed",
+        {
+            "status": operation.status.value,
+            "execution_status": execution.status.value,
+            "operation": {
+                "id": str(operation.id),
+                "number": operation.operation_number,
+            },
+            "step_summary": {
+                "total": len(steps),
+                "completed": completed,
+                "succeeded": counts[StepStatus.SUCCEEDED],
+                "failed": counts[StepStatus.FAILED],
+                "cancelled": counts[StepStatus.CANCELLED],
+            },
+            "step_results": step_results,
+            "continuation": continuation,
+            "error": error,
+        },
+    )
+
+
+async def _add_execution_completed_event(
+    session: AsyncSession, execution_id: UUID
+) -> None:
+    execution = await session.get(ExecutionORM, execution_id)
+    if execution is None:
+        return
+    operations = list(
+        await session.scalars(
+            select(ExecutionOperationORM).where(
+                ExecutionOperationORM.execution_id == execution_id
+            )
+        )
+    )
+    operation_counts = {
+        status: sum(operation.status == status for operation in operations)
+        for status in {
+            OperationStatus.SUCCEEDED,
+            OperationStatus.FAILED,
+            OperationStatus.CANCELLED,
+        }
+    }
+    failed_step = None
+    if execution.retry_from_sequence is not None:
+        failed_step = await session.scalar(
+            select(ExecutionStepORM).where(
+                ExecutionStepORM.execution_id == execution_id,
+                ExecutionStepORM.sequence == execution.retry_from_sequence,
+            )
+        )
+    retry = None
+    retry_deadline = (
+        execution.retained_runtime_session_until
+        or execution.execution_expires_at
+    )
+    if (
+        execution.status == ExecutionStatus.FAILED
+        and execution.retry_strategy != RetryStrategy.NOT_RETRYABLE
+        and failed_step is not None
+        and retry_deadline is not None
+    ):
+        retry = {
+            "allowed": True,
+            "from_step_id": str(failed_step.id),
+            "expires_at": retry_deadline,
+        }
+    error = None
+    if execution.status != ExecutionStatus.SUCCEEDED:
+        active_operation = (
+            await session.get(
+                ExecutionOperationORM, execution.active_operation_id
+            )
+            if execution.active_operation_id is not None
+            else None
+        )
+        error = {
+            "code": (
+                "EXECUTION_CANCELLED"
+                if execution.status == ExecutionStatus.CANCELLED
+                else "EXECUTION_"
+                + (
+                    execution.failure_type.value
+                    if execution.failure_type is not None
+                    else "FAILED"
+                )
+            ),
+            "message": execution.error_message
+            or execution.cancellation_reason
+            or f"Execution was {execution.status.value.lower()}.",
+            "operation_id": (
+                str(active_operation.id) if active_operation else None
+            ),
+            "step_id": str(failed_step.id) if failed_step else None,
+            "retryable": retry is not None,
+        }
+    await _persist_execution_event(
+        session,
+        execution_id,
+        "execution.completed",
+        {
+            "status": execution.status.value,
+            "operation_summary": {
+                "total": len(operations),
+                "succeeded": operation_counts[OperationStatus.SUCCEEDED],
+                "failed": operation_counts[OperationStatus.FAILED],
+                "cancelled": operation_counts[OperationStatus.CANCELLED],
+            },
+            "retry": retry,
+            "error": error,
+        },
+    )
 
 
 def _invalid_work_message_reason(fields: dict[str, str]) -> str | None:

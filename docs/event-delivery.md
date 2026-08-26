@@ -20,18 +20,16 @@ Outbox are the source of truth; Redis is not used as an Execution cache.
 Every Executor-produced Stream entry contains:
 
 - `event_id`: UUID of the PostgreSQL Outbox Event and consumer deduplication key
-- `event_type`: `execution.*` command or notification name
-- `schema_version`: event contract version; every event currently uses `2.0`
-- `aggregate_type`: `Execution`
-- `aggregate_id`: Executor-owned Execution UUID
+- `event_type`: one of the six public Execution lifecycle event names
+- `schema_version`: event contract version; every event currently uses `1.0`
+- `execution_id`: Executor-owned Execution UUID
 - `occurred_at`: Outbox creation timestamp
 - `payload`: compact event JSON for downstream consumers
-- optional `traceparent` and `tracestate`: W3C trace propagation fields
 
-The decoded `payload` is a JSON object that also contains `schema_version` and `execution_id`.
-The payload version must equal the Stream field and its `execution_id` must equal `aggregate_id`.
-Executor validates this contract both before Outbox persistence and again immediately before Redis
-publication to `executor.events`. See [Execution Event Contract v2](execution-events-v2.md).
+The decoded `payload` is a JSON object and does not duplicate envelope fields. Executor validates
+this contract both before Outbox persistence and again immediately before Redis publication to
+`executor.events`. Trace context remains internal to Outbox publishing and Phoenix spans. See
+[Redis Execution Event Contract 1.0](../dev_docs/redis-execution-events.md).
 
 ## Internal work contract
 

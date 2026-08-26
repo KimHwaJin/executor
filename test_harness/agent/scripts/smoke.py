@@ -120,9 +120,9 @@ async def main() -> None:
     if len(execution["notebook"]["cells"]) != 3:
         raise RuntimeError("Agent did not retrieve all three executed Jupyter notebook cells.")
     event_types = [event["event_type"] for event in result.get("event_history", [])]
-    if event_types.count("execution.waiting_for_operation") != 2:
+    if event_types.count("execution.operation_completed") != 2:
         raise RuntimeError(f"Agent did not cross two MULTI Operation boundaries: {event_types}")
-    if event_types.count("execution.step_succeeded") != 3:
+    if event_types.count("execution.step_completed") != 3:
         raise RuntimeError(f"Agent did not checkpoint all Step results: {event_types}")
     receipts = result.get("command_receipts", [])
     if len(receipts) != 3:
@@ -171,12 +171,12 @@ async def main() -> None:
     if not isinstance(stream_result, dict) or stream_result.get("phase") != "SUCCEEDED":
         raise RuntimeError(f"Self-contained MULTI stream run failed: {stream_result}")
     stream_event_types = [event["event_type"] for event in stream_result.get("event_history", [])]
-    if stream_event_types.count("execution.waiting_for_operation") != 2:
+    if stream_event_types.count("execution.operation_completed") != 2:
         raise RuntimeError(
             "Self-contained stream run did not cross exactly two current Operation boundaries: "
             f"{stream_event_types}"
         )
-    if stream_event_types.count("execution.step_succeeded") != 2:
+    if stream_event_types.count("execution.step_completed") != 2:
         raise RuntimeError(
             f"Self-contained stream run did not retain both Step results: {stream_event_types}"
         )
@@ -184,7 +184,7 @@ async def main() -> None:
     print("status:", execution["status"])
     print("wake_event_type:", execution["wake_event_type"])
     print("operation_count:", 2)
-    print("step_event_count:", event_types.count("execution.step_succeeded"))
+    print("step_event_count:", event_types.count("execution.step_completed"))
     print("runtime_target_id:", execution["runtime_target_id"])
     print("notebook_path:", execution["notebook_path"])
     print("artifacts:", sorted(artifact_names))

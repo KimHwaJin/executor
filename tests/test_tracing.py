@@ -119,7 +119,7 @@ async def test_trace_context_survives_outbox_redis_and_worker_boundary(
             batch_size=10,
             tracing=tracing,
         )
-        assert await publisher.publish_batch() == 2
+        assert await publisher.publish_batch() == 1
         work_fields = recording_redis.messages["trace-work"]
         assert work_fields.get("traceparent") is not None
 

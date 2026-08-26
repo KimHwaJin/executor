@@ -23,14 +23,16 @@ def _event(
     return {
         "event_id": event_id,
         "event_type": event_type,
-        "schema_version": "2.0",
-        "aggregate_type": "Execution",
-        "aggregate_id": execution_id,
+        "schema_version": "1.0",
+        "execution_id": execution_id,
         "occurred_at": "2026-08-19T00:00:00Z",
         "payload": {
-            "schema_version": "2.0",
-            "execution_id": execution_id,
-            "status": status,
+            "status": ("SUCCEEDED" if event_type == "execution.operation_completed" else status),
+            **(
+                {"execution_status": status}
+                if event_type == "execution.operation_completed"
+                else {}
+            ),
             **payload,
         },
     }
@@ -156,7 +158,7 @@ async def test_planning_agent_requires_approval_before_single_execution(monkeypa
     terminal = _event(
         execution_id,
         "00000000-0000-0000-0000-000000000103",
-        "execution.succeeded",
+        "execution.completed",
         "SUCCEEDED",
     )
 
@@ -270,14 +272,14 @@ async def test_planning_agent_runs_every_approved_multi_operation(monkeypatch) -
             _event(
                 execution_id,
                 "00000000-0000-0000-0000-000000000211",
-                "execution.step_succeeded",
-                "RUNNING",
+                "execution.step_completed",
+                "SUCCEEDED",
                 result={"outputs": []},
             ),
             _event(
                 execution_id,
                 "00000000-0000-0000-0000-000000000212",
-                "execution.waiting_for_operation",
+                "execution.operation_completed",
                 "WAITING_FOR_OPERATION",
             ),
         ),
@@ -285,14 +287,14 @@ async def test_planning_agent_runs_every_approved_multi_operation(monkeypatch) -
             _event(
                 execution_id,
                 "00000000-0000-0000-0000-000000000213",
-                "execution.step_succeeded",
-                "RUNNING",
+                "execution.step_completed",
+                "SUCCEEDED",
                 result={"outputs": []},
             ),
             _event(
                 execution_id,
                 "00000000-0000-0000-0000-000000000214",
-                "execution.waiting_for_operation",
+                "execution.operation_completed",
                 "WAITING_FOR_OPERATION",
             ),
         ),
@@ -300,7 +302,7 @@ async def test_planning_agent_runs_every_approved_multi_operation(monkeypatch) -
             _event(
                 execution_id,
                 "00000000-0000-0000-0000-000000000215",
-                "execution.succeeded",
+                "execution.completed",
                 "SUCCEEDED",
             )
         ),
@@ -364,7 +366,9 @@ async def test_planning_agent_runs_every_approved_multi_operation(monkeypatch) -
             return events.pop(0)
 
     async def fake_reconcile(_execution_id, batch, _settings):
-        status = batch.wake_event.payload["status"]
+        status = batch.wake_event.payload.get(
+            "execution_status", batch.wake_event.payload["status"]
+        )
         version = 2 if calls == ["submit"] else 5 if calls[-1] == "operation" else 7
         return {
             "execution_id": execution_id,
@@ -408,14 +412,14 @@ async def test_planning_agent_reports_multi_operation_error_and_stops(monkeypatc
     failed = _event(
         execution_id,
         "00000000-0000-0000-0000-000000000302",
-        "execution.step_failed",
-        "RUNNING",
+        "execution.step_completed",
+        "FAILED",
         result={"error_message": "division by zero", "outputs": []},
     )
     waiting = _event(
         execution_id,
         "00000000-0000-0000-0000-000000000303",
-        "execution.waiting_for_operation",
+        "execution.operation_completed",
         "WAITING_FOR_OPERATION",
     )
 

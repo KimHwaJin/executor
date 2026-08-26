@@ -166,11 +166,12 @@ async def main() -> None:
             for event in events_result.structured_content["items"]
         }
         required_events = {
-            "execution.submitted",
             "execution.started",
-            "execution.failed",
-            "execution.retry_requested",
-            "execution.succeeded",
+            "execution.operation_started",
+            "execution.step_started",
+            "execution.step_completed",
+            "execution.operation_completed",
+            "execution.completed",
         }
         if not required_events.issubset(event_types):
             raise RuntimeError(

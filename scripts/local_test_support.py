@@ -165,6 +165,7 @@ async def execution_step_outputs(
                     StepResultReference(
                         relative_path=reference["relative_path"],
                         checksum_sha256=reference["checksum_sha256"],
+                        size_bytes=reference["size_bytes"],
                         execution_attempt_id=reference["attempt_id"],
                         fencing_token=reference["fencing_token"],
                     )

@@ -341,8 +341,9 @@ uv run pytest -q tests/test_runtime_storage_failures.py
 The focused regression suite injects failures into workspace preparation, notebook persistence,
 and Artifact discovery. It verifies that Execution, Attempt, Operation, and Step state remains
 consistent; the failure is classified as `RUNTIME_UNAVAILABLE/FROM_START`; Runtime sessions are
-cleaned up when one was created; and `execution.operation_failed`, `execution.failed`, and the
-applicable `execution.artifact_failed` Outbox events are durably recorded.
+cleaned up when one was created; and the corresponding `execution.operation_completed` and
+`execution.completed` Outbox events are durably
+recorded. Artifact discovery state remains queryable from PostgreSQL rather than a separate event.
 
 ## Cleanup and retained evidence
 
