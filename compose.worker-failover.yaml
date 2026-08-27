@@ -1,0 +1,156 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: executor
+      POSTGRES_USER: executor
+      POSTGRES_PASSWORD: executor
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U executor -d executor"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    volumes:
+      - redis-data:/data
+
+  migrate:
+    image: executor-service:failover
+    build:
+      context: .
+      dockerfile: test_harness/Dockerfile.executor-overlay
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://executor:executor@postgres:5432/executor
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  jupyter:
+    image: executor-jupyter:local
+    build:
+      context: .
+      dockerfile: test_harness/jupyter/Dockerfile
+    environment:
+      JUPYTER_TOKEN: ${DOCKER_FAILOVER_JUPYTER_TOKEN:-change-me-failover-only}
+      EXECUTOR_RESOURCE_CPU_CORES: "2"
+      EXECUTOR_RESOURCE_MEMORY_BYTES: "4294967296"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'curl --fail --silent --header "Authorization: token $${JUPYTER_TOKEN}" "http://127.0.0.1:8888/api/status" >/dev/null && curl --fail --silent --header "Authorization: token $${JUPYTER_TOKEN}" "http://127.0.0.1:8888/executor/resource-status" >/dev/null',
+        ]
+      interval: 3s
+      timeout: 5s
+      retries: 40
+      start_period: 10s
+    volumes:
+      - jupyter-workspace:/workspace/pv
+
+  shared-volume-init:
+    image: executor-service:failover
+    user: "0:0"
+    command:
+      [
+        "sh",
+        "-c",
+        "chown 1000:1000 /workspace/shared && chmod 0770 /workspace/shared",
+      ]
+    volumes:
+      - executor-shared:/workspace/shared
+    restart: "no"
+
+  executor-primary:
+    image: executor-service:failover
+    environment: &executor-environment
+      APP_ENV: local
+      LOG_LEVEL: INFO
+      HOST: 0.0.0.0
+      PORT: "8000"
+      DATABASE_URL: postgresql+psycopg://executor:executor@postgres:5432/executor
+      DATABASE_POOL_SIZE: "5"
+      DATABASE_MAX_OVERFLOW: "2"
+      REDIS_URL: redis://redis:6379/0
+      REDIS_WORK_STREAM: executor.work
+      REDIS_EVENT_STREAM: executor.events
+      REDIS_WORK_DEAD_LETTER_STREAM: executor.work.dlq
+      REDIS_EVENT_DEAD_LETTER_STREAM: executor.events.dlq
+      MCP_ALLOWED_HOSTS: localhost:*,127.0.0.1:*,executor-primary:*,executor-secondary:*
+      MCP_ALLOWED_ORIGINS: http://localhost:*,http://127.0.0.1:*
+      RUNTIME_CREDENTIAL_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      SHARED_STORAGE_ROOT: /workspace/shared
+      RUNTIME_ENABLED: "true"
+      RUNTIME_ALLOWED_PROFILES: basic,ml
+      RUNTIME_DEFAULT_MAX_CONCURRENT_EXECUTIONS: "2"
+      RUNTIME_HEALTH_POLL_INTERVAL_SECONDS: "2"
+      RUNTIME_SESSION_COUNT_MAX_AGE_SECONDS: "10"
+      RUNTIME_RESOURCE_MAX_AGE_SECONDS: "10"
+      RUNTIME_CLEANUP_RETRY_INTERVAL_SECONDS: "2"
+      EXECUTION_CONSUMER_GROUP: docker-failover-workers
+      EXECUTION_PENDING_CLAIM_INTERVAL_SECONDS: "2"
+      EXECUTION_PENDING_CLAIM_IDLE_MILLISECONDS: "5000"
+      EXECUTION_LEASE_SECONDS: "30"
+      EXECUTION_HEARTBEAT_SECONDS: "5"
+      EXECUTION_SHUTDOWN_CLEANUP_SECONDS: "5"
+      RUNTIME_ABORT_TIMEOUT_SECONDS: "10"
+      FAILED_SESSION_RETENTION_SECONDS: "300"
+      EXECUTION_MAX_RUNTIME_SECONDS: "3600"
+      TRACING_ENABLED: "false"
+      EXECUTION_CONSUMER_NAME: docker-failover-primary
+    ports:
+      - "${DOCKER_FAILOVER_PRIMARY_PORT:-8010}:8000"
+    healthcheck: &executor-healthcheck
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2)",
+        ]
+      interval: 2s
+      timeout: 5s
+      retries: 40
+      start_period: 5s
+    depends_on: &executor-dependencies
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      jupyter:
+        condition: service_healthy
+      shared-volume-init:
+        condition: service_completed_successfully
+    volumes:
+      - executor-shared:/workspace/shared
+    restart: "no"
+
+  executor-secondary:
+    image: executor-service:failover
+    environment:
+      <<: *executor-environment
+      EXECUTION_CONSUMER_NAME: docker-failover-secondary
+    ports:
+      - "${DOCKER_FAILOVER_SECONDARY_PORT:-8011}:8000"
+    healthcheck: *executor-healthcheck
+    depends_on: *executor-dependencies
+    volumes:
+      - executor-shared:/workspace/shared
+    restart: "no"
+
+volumes:
+  postgres-data:
+  redis-data:
+  jupyter-workspace:
+  executor-shared:

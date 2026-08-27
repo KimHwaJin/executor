@@ -332,6 +332,103 @@ This existing scenario sends SIGKILL to the primary Executor. The surviving proc
 the expired lease as `LEASE_EXPIRED`, delete the abandoned kernel, and complete exactly one
 explicit `FROM_START` retry.
 
+### Isolated Docker Worker loss
+
+This is the repeatable application-level acceptance test for Worker crash recovery. It creates a
+dedicated Compose project with its own PostgreSQL, Redis, Jupyter, shared volumes, and two Executor
+containers. It does not reuse or remove the ordinary local Compose project.
+
+```bash
+uv run python scripts/docker_worker_failover_e2e.py \
+  --allow-container-kill
+```
+
+The command builds `executor-service:failover` by overlaying the current application and migration
+sources on the existing `executor-service:local` dependency image. It reuses
+`executor-jupyter:local` by default, so ordinary source changes need no external registry lookup.
+If dependencies or the main Dockerfile changed, rebuild or load `executor-service:local` first. If
+the Jupyter harness changed, pass `--build-jupyter-image`; in a closed network, pre-load all base
+images from the internal registry before doing so.
+
+The validator registers the isolated Jupyter Target, submits a long SINGLE Execution, identifies
+its owning Worker from the Attempt lease, sends `SIGKILL` to only that container, and uses the
+surviving Executor API to verify recovery and retry. By default it removes only its uniquely named
+Compose project and volumes when the run ends. Use `--keep-stack` only when failed containers,
+logs, PostgreSQL, or result files must be retained for diagnosis.
+
+The default host ports are `8010` and `8011`. Override them when occupied:
+
+```bash
+uv run python scripts/docker_worker_failover_e2e.py \
+  --primary-port 18010 \
+  --secondary-port 18011 \
+  --allow-container-kill
+```
+
+The report is written to `test-results/docker-worker-failover.json`. This Docker gate verifies the
+Executor application invariants listed in the Kubernetes scenario below. It does not verify
+Kubernetes scheduling, Downward API identity injection, Probes, Service/Istio routing, or PVC
+mount behavior.
+
+The isolated Docker baseline validated on 2026-08-26 force-killed the Secondary owner with exit
+code 137. The Primary fenced the lease as `LEASE_EXPIRED`, completed abandoned session cleanup,
+accepted one `FROM_START` retry on a new Runtime session, and reached `SUCCEEDED`. PostgreSQL
+returned ten unique durable events with contiguous `event_sequence` values from 1 through 10. The
+generated Compose project and its four dedicated volumes were removed automatically.
+
+### Kubernetes Worker Pod loss
+
+This optional platform-level scenario is retained for initial cluster qualification and major
+deployment changes. Run it only in an isolated non-production namespace. It submits a long SINGLE
+Execution, finds the owning Pod from the immutable Attempt lease, force deletes that exact Pod,
+and verifies lease fencing, abandoned Runtime cleanup, explicit retry, event ordering, and final
+success.
+
+Prerequisites:
+
+- the release migration Job completed and `alembic_version.version_num` is `0002`;
+- the Executor Deployment and at least one compatible Runtime Target are Ready;
+- the active kubectl identity can get Deployments and Pods and delete the selected Executor Pod;
+- `--base-url` reaches the same Deployment selected by `--namespace`, `--deployment`, and
+  `--selector`; and
+- no production workload shares the namespace, Runtime pool, or Executor database.
+
+Two or more replicas keep the Service continuously available. One replica is also supported; the
+validator tolerates the temporary HTTP outage while the Deployment creates its replacement Pod.
+
+```bash
+uv run python scripts/kubernetes_worker_failover_e2e.py \
+  --base-url https://executor.example.internal \
+  --context non-production-cluster \
+  --namespace executor-test \
+  --deployment executor \
+  --runtime-profile basic \
+  --allow-pod-delete
+```
+
+If the Gateway requires a bearer token, inject it without placing it on the command line:
+
+```bash
+export KUBE_FAILOVER_BEARER_TOKEN='<temporary test token>'
+```
+
+An internal CA can be supplied with `--ca-file`. The script does not provide an insecure TLS
+switch. The default report is written to `test-results/kubernetes-worker-failover.json`, which is
+ignored by Git.
+
+The run passes only when all of these invariants hold:
+
+1. the first Attempt owner exactly matches the Pod that was deleted;
+2. the Execution and first Attempt become `FAILED/LEASE_EXPIRED`;
+3. abandoned Runtime cleanup reaches `SUCCEEDED` and the old session is released;
+4. `execution_retry` creates exactly one second Attempt with a different Runtime session;
+5. the retry succeeds; and
+6. durable events have unique IDs, contiguous Execution-scoped sequences, and exactly one failed
+   followed by one successful `execution.completed` cycle.
+
+The validator deliberately retains the Execution, result files, and event history as audit
+evidence. It does not scale the Deployment or alter maintenance admission state.
+
 ### Runtime-owned storage operation failures
 
 ```bash
