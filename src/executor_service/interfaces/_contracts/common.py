@@ -28,3 +28,8 @@ class ActorInput(ContractModel):
 class PageResponse(ContractModel):
     next_cursor: str | None
     has_more: bool
+
+
+class Lifecycle(ContractModel):
+    started_at: datetime | None
+    finished_at: datetime | None
