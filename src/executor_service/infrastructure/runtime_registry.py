@@ -1,7 +1,5 @@
 """Persistent Runtime Target registry, encrypted credentials, and health monitoring."""
 
-import asyncio
-import logging
 from collections.abc import Sequence
 from uuid import UUID
 
@@ -38,6 +36,7 @@ from executor_service.domain.models import utc_now
 from executor_service.infrastructure._runtime_registry import (
     RuntimeCommandReceipts,
     RuntimeCredentialCipher,
+    RuntimeHealthMonitor,
     RuntimeTargetProber,
     fingerprint,
     normalize_connection_config,
@@ -54,8 +53,6 @@ from executor_service.infrastructure.db.models import (
     RuntimeTargetORM,
     RuntimeTargetPurgeORM,
 )
-
-logger = logging.getLogger(__name__)
 
 
 class RuntimeTargetRegistry:
@@ -75,23 +72,17 @@ class RuntimeTargetRegistry:
             settings,
             self._credentials,
         )
-        self._monitor_task: asyncio.Task[None] | None = None
-        self._stop_event = asyncio.Event()
-
-    async def start(self) -> None:
-        if self._monitor_task is not None:
-            return
-        self._stop_event.clear()
-        self._monitor_task = asyncio.create_task(
-            self._monitor_loop(), name="runtime-fleet-health-monitor"
+        self._monitor = RuntimeHealthMonitor(
+            session_factory,
+            settings.runtime_health_poll_interval_seconds,
+            self._prober,
         )
 
+    async def start(self) -> None:
+        await self._monitor.start()
+
     async def stop(self) -> None:
-        self._stop_event.set()
-        if self._monitor_task is not None:
-            self._monitor_task.cancel()
-            await asyncio.gather(self._monitor_task, return_exceptions=True)
-            self._monitor_task = None
+        await self._monitor.stop()
 
     async def upsert(
         self, command: UpsertRuntimeTargetCommand
@@ -485,33 +476,6 @@ class RuntimeTargetRegistry:
         self, credential_ref: str, credential_ciphertext: str | None
     ) -> str:
         return self._credentials.resolve(credential_ref, credential_ciphertext)
-
-    async def _monitor_loop(self) -> None:
-        while not self._stop_event.is_set():
-            try:
-                async with self._session_factory() as session:
-                    target_ids = list(
-                        await session.scalars(
-                            select(RuntimeTargetORM.id).where(
-                                RuntimeTargetORM.enabled.is_(True)
-                            )
-                        )
-                    )
-                for target_id in target_ids:
-                    try:
-                        await self.probe(target_id)
-                    except Exception:
-                        logger.exception(
-                            "Runtime Target health update failed",
-                            extra={"target_id": target_id},
-                        )
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                logger.exception("Runtime fleet health monitor failed")
-            await asyncio.sleep(
-                self._settings.runtime_health_poll_interval_seconds
-            )
 
     async def _required_target(
         self, session: AsyncSession, target_id: UUID, *, lock: bool = False

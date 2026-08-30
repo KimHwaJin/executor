@@ -16,6 +16,9 @@ from executor_service.infrastructure._runtime_registry.mappers import (
     resource_source,
     runtime_target_view,
 )
+from executor_service.infrastructure._runtime_registry.monitor import (
+    RuntimeHealthMonitor,
+)
 from executor_service.infrastructure._runtime_registry.normalization import (
     normalize_connection_config,
 )
@@ -29,6 +32,7 @@ from executor_service.infrastructure._runtime_registry.targets import (
 __all__ = [
     "RuntimeCommandReceipts",
     "RuntimeCredentialCipher",
+    "RuntimeHealthMonitor",
     "RuntimeTargetProber",
     "as_float",
     "as_int",

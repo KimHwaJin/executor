@@ -115,11 +115,13 @@ def test_runtime_registry_support_does_not_import_public_facade() -> None:
 def test_runtime_registry_delegates_support_responsibilities() -> None:
     imports = _imports(SOURCE_ROOT / "infrastructure" / "runtime_registry.py")
     delegated = {
+        "asyncio",
         "cryptography.fernet",
         "executor_service.infrastructure.runtime_admission",
         "executor_service.infrastructure.runtime_drivers",
         "hashlib",
         "json",
+        "logging",
     }
     assert imports.isdisjoint(delegated)
 
