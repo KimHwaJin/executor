@@ -515,7 +515,7 @@ async def test_execute_streaming_delivers_each_iopub_output(
 
     socket = FakeWebSocket()
     monkeypatch.setattr(
-        "executor_service.infrastructure.jupyter.websockets.connect",
+        "executor_service.infrastructure._jupyter.execution.websockets.connect",
         lambda *_args, **_kwargs: socket,
     )
     records: list[RuntimeOutputRecord] = []
@@ -560,7 +560,7 @@ async def test_execute_rejects_websocket_message_above_safety_limit(
         return OversizedWebSocket()
 
     monkeypatch.setattr(
-        "executor_service.infrastructure.jupyter.websockets.connect",
+        "executor_service.infrastructure._jupyter.execution.websockets.connect",
         connect,
     )
     driver = JupyterRuntimeDriver(
@@ -597,7 +597,7 @@ async def test_execute_recognizes_locally_sent_message_too_big_close(
             raise ConnectionClosedError(None, Close(1009, "message too big"))
 
     monkeypatch.setattr(
-        "executor_service.infrastructure.jupyter.websockets.connect",
+        "executor_service.infrastructure._jupyter.execution.websockets.connect",
         lambda *_args, **_kwargs: ClosedWebSocket(),
     )
     driver = JupyterRuntimeDriver(

@@ -138,6 +138,32 @@ def test_result_storage_facade_delegates_file_format() -> None:
     assert imports.isdisjoint(delegated)
 
 
+def test_jupyter_support_does_not_import_public_facade() -> None:
+    support_package = SOURCE_ROOT / "infrastructure" / "_jupyter"
+    violations = {
+        path.name: sorted(
+            name
+            for name in _imports(path)
+            if name == "executor_service.infrastructure.jupyter"
+        )
+        for path in _python_files(support_package)
+    }
+    assert not {path: names for path, names in violations.items() if names}
+
+
+def test_jupyter_facade_delegates_protocol_and_transport() -> None:
+    imports = _imports(SOURCE_ROOT / "infrastructure" / "jupyter.py")
+    delegated = {
+        "datetime",
+        "json",
+        "urllib.parse",
+        "websockets",
+        "websockets.exceptions",
+        "websockets.typing",
+    }
+    assert imports.isdisjoint(delegated)
+
+
 def test_execution_query_readers_do_not_import_public_facade() -> None:
     query_package = SOURCE_ROOT / "infrastructure" / "_execution_queries"
     violations = {
