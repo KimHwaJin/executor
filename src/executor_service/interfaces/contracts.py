@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
+from pydantic import Field, model_validator
 
 from executor_service.application.commands import (
     MaterializeArtifactCommand,
@@ -24,35 +24,15 @@ from executor_service.application.execution_results import (
     ExecutionResultBundle,
     OperationResultBundle,
 )
-from executor_service.application.maintenance import ExecutorMaintenanceView
-from executor_service.application.maintenance_runs import (
-    MaintenanceRunTargetView,
-    MaintenanceRunView,
-)
-from executor_service.application.notebook_queries import (
-    NotebookCellView,
-    NotebookResponseFormat,
-    NotebookView,
-)
 from executor_service.application.pagination import Page
-from executor_service.application.runtime_targets import (
-    RuntimePoolView,
-    RuntimeTargetView,
-    UpsertRuntimeTargetCommand,
-)
 from executor_service.domain.enums import (
-    ActorType,
     ArtifactStatus,
     ArtifactStorageType,
     ArtifactType,
     AttemptStatus,
     CodeSourceType,
     ExecutionStatus,
-    ExecutorAdmissionState,
     FailureType,
-    MaintenanceRunAction,
-    MaintenanceRunStatus,
-    MaintenanceRunTargetStatus,
     OperationMode,
     OperationStatus,
     OutboxStatus,
@@ -60,7 +40,6 @@ from executor_service.domain.enums import (
     RuntimeAbortStatus,
     RuntimePool,
     RuntimeSessionCleanupStatus,
-    RuntimeTargetStatus,
     RuntimeType,
     StepStatus,
     TriggerType,
@@ -74,192 +53,29 @@ from executor_service.execution_specs import (
     ExecutionSpec,
     ResolvedExecutionSpec,
 )
+from executor_service.interfaces._contracts.common import (
+    ActorInput,
+    AuditFields,
+    ContractModel,
+    PageResponse,
+)
+from executor_service.interfaces._contracts.maintenance import (  # noqa: F401
+    ExecutorMaintenanceResponse,
+    MaintenanceRunResponse,
+    MaintenanceRunTargetPageResponse,
+)
+from executor_service.interfaces._contracts.notebooks import (  # noqa: F401
+    ExecutionNotebookCellResponse,
+    ExecutionNotebookResponse,
+)
+from executor_service.interfaces._contracts.runtimes import (  # noqa: F401
+    RuntimePoolPageResponse,
+    RuntimePoolResponse,
+    RuntimeTargetPageResponse,
+    RuntimeTargetResponse,
+    RuntimeTargetUpsertRequest,
+)
 from executor_service.result_summaries import OutputSummary
-
-
-class ContractModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-
-class AuditFields(ContractModel):
-    created_by_type: ActorType | None
-    created_by: str | None
-    updated_by_type: ActorType | None
-    updated_by: str | None
-    created_at: datetime
-    updated_at: datetime
-
-
-class ExecutorAdmissionResponse(ContractModel):
-    state: ExecutorAdmissionState
-    accepting_new_executions: bool
-    version: int
-
-
-class ExecutorWorkloadResponse(ContractModel):
-    queued_execution_count: int
-    active_execution_count: int
-    cancel_requested_count: int
-
-
-class ExecutorCleanupResponse(ContractModel):
-    unresolved_cleanup_count: int
-    active_runtime_session_count: int
-
-
-class ActiveMaintenanceRunResponse(ContractModel):
-    maintenance_run_id: UUID
-    action: MaintenanceRunAction
-    status: MaintenanceRunStatus
-
-
-class ExecutorMaintenanceResponse(AuditFields):
-    admission: ExecutorAdmissionResponse
-    workload: ExecutorWorkloadResponse
-    cleanup: ExecutorCleanupResponse
-    active_run: ActiveMaintenanceRunResponse | None
-    safe_to_shutdown: bool
-
-    @classmethod
-    def from_view(
-        cls, view: ExecutorMaintenanceView
-    ) -> "ExecutorMaintenanceResponse":
-        return cls(
-            admission=ExecutorAdmissionResponse(
-                state=view.admission_state,
-                accepting_new_executions=(view.accepting_new_executions),
-                version=view.version,
-            ),
-            workload=ExecutorWorkloadResponse(
-                queued_execution_count=view.queued_execution_count,
-                active_execution_count=view.active_execution_count,
-                cancel_requested_count=view.cancel_requested_count,
-            ),
-            cleanup=ExecutorCleanupResponse(
-                unresolved_cleanup_count=view.unresolved_cleanup_count,
-                active_runtime_session_count=(
-                    view.active_runtime_session_count
-                ),
-            ),
-            active_run=(
-                ActiveMaintenanceRunResponse(
-                    maintenance_run_id=view.active_run_id,
-                    action=view.active_run_action,
-                    status=view.active_run_status,
-                )
-                if view.active_run_id is not None
-                and view.active_run_action is not None
-                and view.active_run_status is not None
-                else None
-            ),
-            safe_to_shutdown=view.safe_to_shutdown,
-            created_by_type=view.created_by_type,
-            created_by=view.created_by,
-            updated_by_type=view.updated_by_type,
-            updated_by=view.updated_by,
-            created_at=view.created_at,
-            updated_at=view.updated_at,
-        )
-
-
-class MaintenanceRunTargetCountsResponse(ContractModel):
-    total: int
-    pending: int
-    stop_requested: int
-    stopped: int
-    failed: int
-    remaining: int
-
-
-class MaintenanceRunResponse(AuditFields):
-    maintenance_run_id: UUID
-    action: MaintenanceRunAction
-    status: MaintenanceRunStatus
-    targets: MaintenanceRunTargetCountsResponse
-    error_message: str | None
-    started_at: datetime | None
-    finished_at: datetime | None
-
-    @classmethod
-    def from_view(cls, view: MaintenanceRunView) -> "MaintenanceRunResponse":
-        return cls(
-            maintenance_run_id=view.id,
-            action=view.action,
-            status=view.status,
-            targets=MaintenanceRunTargetCountsResponse(
-                total=view.counts.total,
-                pending=view.counts.pending,
-                stop_requested=view.counts.stop_requested,
-                stopped=view.counts.stopped,
-                failed=view.counts.failed,
-                remaining=view.counts.remaining,
-            ),
-            error_message=view.error_message,
-            created_by_type=view.created_by_type,
-            created_by=view.created_by,
-            updated_by_type=view.updated_by_type,
-            updated_by=view.updated_by,
-            created_at=view.created_at,
-            updated_at=view.updated_at,
-            started_at=view.started_at,
-            finished_at=view.finished_at,
-        )
-
-
-class MaintenanceRunTargetResponse(AuditFields):
-    target_id: UUID
-    maintenance_run_id: UUID
-    execution_id: UUID
-    selected_execution_status: ExecutionStatus
-    status: MaintenanceRunTargetStatus
-    error_message: str | None
-    stop_requested_at: datetime | None
-    completed_at: datetime | None
-
-    @classmethod
-    def from_view(
-        cls, view: MaintenanceRunTargetView
-    ) -> "MaintenanceRunTargetResponse":
-        return cls(
-            target_id=view.id,
-            maintenance_run_id=view.maintenance_run_id,
-            execution_id=view.execution_id,
-            selected_execution_status=view.selected_execution_status,
-            status=view.status,
-            error_message=view.error_message,
-            stop_requested_at=view.stop_requested_at,
-            completed_at=view.completed_at,
-            created_by_type=view.created_by_type,
-            created_by=view.created_by,
-            updated_by_type=view.updated_by_type,
-            updated_by=view.updated_by,
-            created_at=view.created_at,
-            updated_at=view.updated_at,
-        )
-
-
-class MaintenanceRunTargetPageResponse(ContractModel):
-    items: list[MaintenanceRunTargetResponse]
-    next_cursor: str | None
-    has_more: bool
-
-    @classmethod
-    def from_page(
-        cls, page: Page[MaintenanceRunTargetView]
-    ) -> "MaintenanceRunTargetPageResponse":
-        return cls(
-            items=[
-                MaintenanceRunTargetResponse.from_view(item)
-                for item in page.items
-            ],
-            next_cursor=page.next_cursor,
-            has_more=page.next_cursor is not None,
-        )
-
-
-class ActorInput(ContractModel):
-    type: ActorType
-    id: str = Field(min_length=1, max_length=255)
 
 
 class InlineArtifactSource(ContractModel):
@@ -330,101 +146,6 @@ class ExecutionArtifactMaterializeRequest(ContractModel):
         )
 
 
-class NotebookCellSummaryResponse(ContractModel):
-    index: int
-    id: str | None
-    type: str
-    execution_count: int | None
-    source_preview: str
-    source_truncated: bool
-    line_count: int
-    metadata: dict[str, Any]
-    output_summary: OutputSummary
-
-    @classmethod
-    def from_view(
-        cls, view: NotebookCellView
-    ) -> "NotebookCellSummaryResponse":
-        return cls(
-            index=view.index,
-            id=view.id,
-            type=view.type,
-            execution_count=view.execution_count,
-            source_preview=view.source[:500],
-            source_truncated=len(view.source) > 500,
-            line_count=view.line_count,
-            metadata=view.metadata,
-            output_summary=view.output_summary,
-        )
-
-
-class NotebookCellResponse(ContractModel):
-    index: int
-    id: str | None
-    type: str
-    execution_count: int | None
-    source: str
-    line_count: int
-    metadata: dict[str, Any]
-    output_summary: OutputSummary
-    outputs: list[dict[str, Any]]
-
-    @classmethod
-    def from_view(cls, view: NotebookCellView) -> "NotebookCellResponse":
-        return cls(
-            **{field: getattr(view, field) for field in cls.model_fields}
-        )
-
-
-class NotebookPage(ContractModel):
-    start_index: int
-    limit: int
-    total_count: int
-    has_more: bool
-
-
-class ExecutionNotebookResponse(ContractModel):
-    execution_id: UUID
-    view: NotebookResponseFormat
-    metadata: dict[str, Any]
-    cells: list[NotebookCellSummaryResponse | NotebookCellResponse]
-    page: NotebookPage
-
-    @classmethod
-    def from_view(cls, view: NotebookView) -> "ExecutionNotebookResponse":
-        return cls(
-            execution_id=view.execution_id,
-            view=view.view,
-            metadata=view.metadata,
-            cells=[
-                (
-                    NotebookCellSummaryResponse.from_view(cell)
-                    if view.view == "SUMMARY"
-                    else NotebookCellResponse.from_view(cell)
-                )
-                for cell in view.cells
-            ],
-            page=NotebookPage(
-                start_index=view.start_index,
-                limit=view.limit,
-                total_count=view.total_count,
-                has_more=view.start_index + len(view.cells) < view.total_count,
-            ),
-        )
-
-
-class ExecutionNotebookCellResponse(ContractModel):
-    execution_id: UUID
-    cell: NotebookCellResponse
-
-    @classmethod
-    def from_view(
-        cls, execution_id: UUID, view: NotebookCellView
-    ) -> "ExecutionNotebookCellResponse":
-        return cls(
-            execution_id=execution_id,
-            cell=NotebookCellResponse.from_view(view),
-        )
 
 
 class ExecutionContext(ContractModel):
@@ -526,254 +247,6 @@ class ExecutionSubmitRequest(ContractModel):
         )
 
 
-class RuntimeTargetUpsertRequest(ContractModel):
-    idempotency_key: str = Field(min_length=1, max_length=255)
-    name: str = Field(
-        min_length=1, max_length=255, pattern=r"^[a-zA-Z0-9._-]+$"
-    )
-    runtime_type: RuntimeType
-    connection_config: dict[str, Any]
-    credential: SecretStr | None = None
-    pool: RuntimePool
-    max_concurrent_executions: int | None = Field(default=None, ge=1, le=1000)
-    actor: ActorInput
-
-    @model_validator(mode="after")
-    def validate_connection_config(self) -> "RuntimeTargetUpsertRequest":
-        if self.runtime_type == RuntimeType.JUPYTER:
-            endpoint = self.connection_config.get("endpoint")
-            if set(self.connection_config) != {"endpoint"} or not isinstance(
-                endpoint, str
-            ):
-                raise ValueError(
-                    "JUPYTER connection_config must contain only a non-empty endpoint."
-                )
-            if not endpoint.startswith(("http://", "https://")):
-                raise ValueError("JUPYTER endpoint must use http or https.")
-        return self
-
-    def to_command(self) -> UpsertRuntimeTargetCommand:
-        return UpsertRuntimeTargetCommand(
-            idempotency_key=self.idempotency_key,
-            name=self.name,
-            runtime_type=self.runtime_type,
-            connection_config=self.connection_config,
-            credential=(
-                self.credential.get_secret_value() if self.credential else None
-            ),
-            pool=self.pool,
-            max_concurrent_executions=self.max_concurrent_executions,
-            actor_type=self.actor.type,
-            actor_id=self.actor.id,
-        )
-
-
-class RuntimeTargetRuntime(ContractModel):
-    type: RuntimeType
-    pool: RuntimePool
-    connection_config: dict[str, Any]
-    supported_profiles: list[str]
-
-
-class RuntimeTargetState(ContractModel):
-    status: RuntimeTargetStatus
-    enabled: bool
-    accepting_new_executions: bool
-    drain_complete: bool
-
-
-class RuntimeTargetCapacity(ContractModel):
-    max_concurrent_executions: int
-    active_execution_count: int
-    active_session_count: int | None
-    admission_used_count: int
-    available_capacity: int
-    admission_blocked: bool
-    session_count_observed_at: datetime | None
-    session_count_fresh: bool
-
-
-class RuntimeTargetHealth(ContractModel):
-    last_check_at: datetime | None
-    last_error: str | None
-
-
-class CpuResources(ContractModel):
-    used_cores: float | None
-    capacity_cores: float | None
-    utilization: float | None
-
-
-class MemoryResources(ContractModel):
-    used_bytes: int | None
-    capacity_bytes: int | None
-    utilization: float | None
-
-
-class RuntimeTargetResources(ContractModel):
-    observed_at: datetime | None
-    last_check_at: datetime | None
-    last_error: str | None
-    fresh: bool
-    source: str | None
-    estimated: bool | None
-    process_count: int | None
-    pressure_score: float | None
-    cpu: CpuResources
-    memory: MemoryResources
-    errors: list[str]
-
-
-class RuntimeTargetResponse(AuditFields):
-    target_id: UUID
-    name: str
-    runtime: RuntimeTargetRuntime
-    state: RuntimeTargetState
-    capacity: RuntimeTargetCapacity
-    health: RuntimeTargetHealth
-    resources: RuntimeTargetResources
-
-    @classmethod
-    def from_view(cls, view: RuntimeTargetView) -> "RuntimeTargetResponse":
-        return cls(
-            target_id=view.id,
-            name=view.name,
-            runtime=RuntimeTargetRuntime(
-                type=view.runtime_type,
-                pool=view.pool,
-                connection_config=view.connection_config,
-                supported_profiles=list(view.supported_profiles),
-            ),
-            state=RuntimeTargetState(
-                status=view.status,
-                enabled=view.enabled,
-                accepting_new_executions=view.accepting_new_executions,
-                drain_complete=view.drain_complete,
-            ),
-            capacity=RuntimeTargetCapacity(
-                max_concurrent_executions=view.max_concurrent_executions,
-                active_execution_count=view.active_execution_count,
-                active_session_count=view.active_session_count,
-                admission_used_count=view.admission_used_count,
-                available_capacity=view.available_capacity,
-                admission_blocked=view.admission_blocked,
-                session_count_observed_at=view.session_count_observed_at,
-                session_count_fresh=view.session_count_fresh,
-            ),
-            health=RuntimeTargetHealth(
-                last_check_at=view.last_health_check_at,
-                last_error=view.last_health_error,
-            ),
-            resources=RuntimeTargetResources(
-                observed_at=view.resource_observed_at,
-                last_check_at=view.resource_last_check_at,
-                last_error=view.resource_last_error,
-                fresh=view.resource_fresh,
-                source=view.resource_source,
-                estimated=view.resource_estimated,
-                process_count=view.resource_process_count,
-                pressure_score=view.resource_pressure_score,
-                cpu=CpuResources(
-                    used_cores=view.cpu_used_cores,
-                    capacity_cores=view.cpu_capacity_cores,
-                    utilization=view.cpu_utilization,
-                ),
-                memory=MemoryResources(
-                    used_bytes=view.memory_used_bytes,
-                    capacity_bytes=view.memory_capacity_bytes,
-                    utilization=view.memory_utilization,
-                ),
-                errors=list(view.resource_errors),
-            ),
-            created_by_type=view.created_by_type,
-            created_by=view.created_by,
-            updated_by_type=view.updated_by_type,
-            updated_by=view.updated_by,
-            created_at=view.created_at,
-            updated_at=view.updated_at,
-        )
-
-
-class PageResponse(ContractModel):
-    next_cursor: str | None
-    has_more: bool
-
-
-class RuntimeTargetPageResponse(PageResponse):
-    items: list[RuntimeTargetResponse]
-
-    @classmethod
-    def from_page(
-        cls, page: Page[RuntimeTargetView]
-    ) -> "RuntimeTargetPageResponse":
-        return cls(
-            items=[
-                RuntimeTargetResponse.from_view(item) for item in page.items
-            ],
-            next_cursor=page.next_cursor,
-            has_more=page.next_cursor is not None,
-        )
-
-
-class RuntimePoolIdentity(ContractModel):
-    type: RuntimeType
-    pool: RuntimePool
-
-
-class RuntimePoolTargets(ContractModel):
-    total: int
-    enabled: int
-    active: int
-    draining: int
-    offline: int
-
-
-class RuntimePoolCapacity(ContractModel):
-    configured: int
-    schedulable: int
-    reserved_execution_count: int
-    available: int
-
-
-class RuntimePoolState(ContractModel):
-    accepting_new_executions: bool
-    saturated: bool
-
-
-class RuntimePoolResponse(ContractModel):
-    runtime: RuntimePoolIdentity
-    targets: RuntimePoolTargets
-    capacity: RuntimePoolCapacity
-    state: RuntimePoolState
-
-    @classmethod
-    def from_view(cls, view: RuntimePoolView) -> "RuntimePoolResponse":
-        return cls(
-            runtime=RuntimePoolIdentity(
-                type=view.runtime_type, pool=view.pool
-            ),
-            targets=RuntimePoolTargets(
-                total=view.target_count,
-                enabled=view.enabled_target_count,
-                active=view.active_target_count,
-                draining=view.draining_target_count,
-                offline=view.offline_target_count,
-            ),
-            capacity=RuntimePoolCapacity(
-                configured=view.configured_capacity,
-                schedulable=view.schedulable_capacity,
-                reserved_execution_count=view.active_execution_count,
-                available=view.available_capacity,
-            ),
-            state=RuntimePoolState(
-                accepting_new_executions=view.accepting_new_executions,
-                saturated=view.saturated,
-            ),
-        )
-
-
-class RuntimePoolPageResponse(ContractModel):
-    items: list[RuntimePoolResponse]
 
 
 class ToolReference(ContractModel):
