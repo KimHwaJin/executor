@@ -179,12 +179,13 @@ async def test_cleanup_failed_session_reserves_until_maintenance_succeeds(
     worker, redis = _worker(engine, tmp_path, "cleanup-worker")
     try:
         assert await worker._claimer.claim(queued.id) is None
-        view = await worker._registry.get(target.id)
+        registry = RuntimeTargetRegistry(session_factory, worker._settings)
+        view = await registry.get(target.id)
         assert view.active_execution_count == 1
         assert view.admission_used_count == 1
         assert view.admission_blocked is True
 
-        await worker._retry_unresolved_runtime_session_cleanup()
+        await worker._retained_session_cleaner.retry_unresolved()
         claim = await worker._claimer.claim(queued.id)
     finally:
         await redis.aclose()

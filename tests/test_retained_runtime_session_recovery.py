@@ -208,7 +208,8 @@ async def test_offline_retained_retry_waits_then_claims_the_same_target_and_sess
     session_factory = create_session_factory(engine)
     try:
         assert await worker._claimer.claim(execution.id) is None
-        capacity_view = await worker._registry.get(target.id)
+        registry = RuntimeTargetRegistry(session_factory, worker._settings)
+        capacity_view = await registry.get(target.id)
         assert capacity_view.active_execution_count == 1
         async with session_factory() as session:
             waiting = await session.get(ExecutionORM, execution.id)
@@ -488,7 +489,7 @@ async def test_queued_retained_retry_expires_without_switching_targets(
     CleanupGateway.deleted = []
     _patch_runtime_driver(monkeypatch, CleanupGateway)
     try:
-        await worker._cleanup_expired_retained_runtime_sessions()
+        await worker._retained_session_cleaner.cleanup_expired()
     finally:
         await redis.aclose()
 

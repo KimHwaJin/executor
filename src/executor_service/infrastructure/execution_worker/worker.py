@@ -4,20 +4,17 @@ import asyncio
 import logging
 import os
 import socket
-from datetime import UTC, datetime, timedelta
+from datetime import datetime
 from uuid import UUID
 
 from opentelemetry.trace import SpanKind
 from redis.asyncio import Redis
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from executor_service.config import Settings
 from executor_service.domain.enums import (
     ExecutionStatus,
-    RetryStrategy,
-    RuntimeSessionCleanupStatus,
-    StepStatus,
 )
 from executor_service.domain.models import (
     utc_now,
@@ -26,15 +23,11 @@ from executor_service.domain.results import (
     ExecutionResultStore,
 )
 from executor_service.domain.runtime import (
-    RuntimeDriver,
     RuntimeDriverFactory,
 )
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.models import (
-    ExecutionAttemptORM,
     ExecutionORM,
-    ExecutionStepORM,
-    RuntimeTargetORM,
 )
 from executor_service.infrastructure.execution_worker.cancellation import (
     CancellationProcessor,
@@ -44,12 +37,6 @@ from executor_service.infrastructure.execution_worker.claiming import (
 )
 from executor_service.infrastructure.execution_worker.dispatcher import (
     ExecutionJobDispatcher,
-)
-from executor_service.infrastructure.execution_worker.event_writer import (
-    add_execution_completed_event,
-)
-from executor_service.infrastructure.execution_worker.execution_state import (
-    fail_active_operation_without_attempt,
 )
 from executor_service.infrastructure.execution_worker.lease_heartbeat import (
     LeaseHeartbeatManager,
@@ -65,6 +52,9 @@ from executor_service.infrastructure.execution_worker.multi_lifecycle import (
 )
 from executor_service.infrastructure.execution_worker.notebook_projector import (
     NotebookProjector,
+)
+from executor_service.infrastructure.execution_worker.retained_session_cleanup import (
+    RetainedSessionCleaner,
 )
 from executor_service.infrastructure.execution_worker.runner import (
     ExecutionRunner,
@@ -122,13 +112,12 @@ class ExecutionWorker:
     ) -> None:
         self._session_factory = session_factory
         self._settings = settings
-        self._registry = registry
-        self._driver_factory = (
+        resolved_driver_factory = (
             driver_factory or ConfiguredRuntimeDriverFactory(settings)
         )
         self._driver_provider = RuntimeDriverProvider(
             registry,
-            self._driver_factory,
+            resolved_driver_factory,
         )
         self._artifacts = artifact_manager
         self._result_store = result_store or FilesystemExecutionResultStore(
@@ -189,6 +178,12 @@ class ExecutionWorker:
             session_factory,
             self._session_recovery,
         )
+        self._retained_session_cleaner = RetainedSessionCleaner(
+            session_factory,
+            settings,
+            self._driver_provider,
+            self._session_recovery,
+        )
         self._stream_consumer = WorkStreamConsumer(
             redis,
             settings,
@@ -236,14 +231,6 @@ class ExecutionWorker:
     @property
     def startup_cleanup_target_count(self) -> int:
         return self._startup_cleanup_target_count
-
-    def _create_driver(self, target: RuntimeTargetORM) -> RuntimeDriver:
-        credential = self._registry.resolve_credential(
-            target.credential_ref, target.credential_ciphertext
-        )
-        return self._driver_factory.create(
-            target.runtime_type, target.connection_config, credential
-        )
 
     @property
     def lifecycle_state(self) -> str:
@@ -466,8 +453,7 @@ class ExecutionWorker:
     async def _retained_runtime_session_cleanup_loop(self) -> None:
         while not self._stop_event.is_set():
             try:
-                await self._cleanup_expired_retained_runtime_sessions()
-                await self._retry_unresolved_runtime_session_cleanup()
+                await self._retained_session_cleaner.reconcile()
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -497,194 +483,3 @@ class ExecutionWorker:
             except Exception:
                 logger.exception("Maintenance Run reconciliation failed")
             await asyncio.sleep(self._settings.execution_heartbeat_seconds)
-
-    async def _retry_unresolved_runtime_session_cleanup(self) -> None:
-        now = utc_now()
-        retry_before = now - timedelta(
-            seconds=self._settings.runtime_cleanup_retry_interval_seconds
-        )
-        cleanup_targets: list[tuple[UUID, UUID | None, UUID | None, str]] = []
-        async with self._session_factory() as session, session.begin():
-            executions = list(
-                await session.scalars(
-                    select(ExecutionORM)
-                    .where(
-                        ExecutionORM.status.in_(
-                            [
-                                ExecutionStatus.FAILED,
-                                ExecutionStatus.CANCELLED,
-                            ]
-                        ),
-                        ExecutionORM.runtime_session_id.is_not(None),
-                        ExecutionORM.runtime_session_cleanup_status.in_(
-                            [
-                                RuntimeSessionCleanupStatus.PENDING,
-                                RuntimeSessionCleanupStatus.FAILED,
-                            ]
-                        ),
-                        ExecutionORM.updated_at <= retry_before,
-                    )
-                    .order_by(ExecutionORM.updated_at)
-                    .limit(20)
-                    .with_for_update(skip_locked=True)
-                )
-            )
-            for execution in executions:
-                runtime_session_id = execution.runtime_session_id
-                if runtime_session_id is None:
-                    continue
-                attempt_id = await session.scalar(
-                    select(ExecutionAttemptORM.id)
-                    .where(ExecutionAttemptORM.execution_id == execution.id)
-                    .order_by(ExecutionAttemptORM.attempt_number.desc())
-                    .limit(1)
-                )
-                execution.runtime_session_cleanup_status = (
-                    RuntimeSessionCleanupStatus.PENDING
-                )
-                execution.updated_at = now
-                execution.version += 1
-                if attempt_id is not None:
-                    await session.execute(
-                        update(ExecutionAttemptORM)
-                        .where(ExecutionAttemptORM.id == attempt_id)
-                        .values(
-                            runtime_session_cleanup_status=(
-                                RuntimeSessionCleanupStatus.PENDING
-                            )
-                        )
-                    )
-                cleanup_targets.append(
-                    (
-                        execution.id,
-                        attempt_id,
-                        execution.runtime_target_id,
-                        runtime_session_id,
-                    )
-                )
-        for execution_id, attempt_id, target_id, session_id in cleanup_targets:
-            if target_id is None:
-                await self._session_recovery.record_result(
-                    execution_id,
-                    attempt_id,
-                    session_id,
-                    RuntimeSessionCleanupStatus.FAILED,
-                )
-                continue
-            await self._session_recovery.cleanup(
-                execution_id,
-                attempt_id,
-                target_id,
-                session_id,
-            )
-
-    async def _cleanup_expired_retained_runtime_sessions(self) -> None:
-        now = utc_now()
-        async with self._session_factory() as session:
-            rows = list(
-                await session.execute(
-                    select(ExecutionORM, RuntimeTargetORM)
-                    .join(
-                        RuntimeTargetORM,
-                        RuntimeTargetORM.id == ExecutionORM.runtime_target_id,
-                    )
-                    .where(
-                        ExecutionORM.status.in_(
-                            [ExecutionStatus.FAILED, ExecutionStatus.QUEUED]
-                        ),
-                        ExecutionORM.retry_strategy
-                        == RetryStrategy.FROM_FAILED_STEP,
-                        ExecutionORM.retained_runtime_session_until <= now,
-                        ExecutionORM.runtime_session_id.is_not(None),
-                    )
-                )
-            )
-        for execution, target in rows:
-            driver = self._create_driver(target)
-            cleanup_status = RuntimeSessionCleanupStatus.SUCCEEDED
-            try:
-                if execution.runtime_session_id is not None:
-                    await driver.delete_session(execution.runtime_session_id)
-            except Exception:
-                cleanup_status = RuntimeSessionCleanupStatus.FAILED
-                logger.warning(
-                    "Expired retained runtime session cleanup failed",
-                    extra={"execution_id": str(execution.id)},
-                )
-            finally:
-                await driver.close()
-            async with (
-                self._session_factory() as update_session,
-                update_session.begin(),
-            ):
-                current = await update_session.scalar(
-                    select(ExecutionORM)
-                    .where(ExecutionORM.id == execution.id)
-                    .with_for_update()
-                )
-                if (
-                    current is None
-                    or current.status
-                    not in {ExecutionStatus.FAILED, ExecutionStatus.QUEUED}
-                    or current.retry_strategy != RetryStrategy.FROM_FAILED_STEP
-                    or current.retained_runtime_session_until is None
-                    or _as_utc(current.retained_runtime_session_until) > now
-                ):
-                    continue
-                retry_was_queued = current.status == ExecutionStatus.QUEUED
-                if retry_was_queued:
-                    current.status = ExecutionStatus.FAILED
-                    current.error_message = (
-                        "The retained runtime session retry window expired before "
-                        "execution resumed."
-                    )
-                    current.finished_at = now
-                    await update_session.execute(
-                        update(ExecutionStepORM)
-                        .where(
-                            ExecutionStepORM.execution_id == current.id,
-                            ExecutionStepORM.status == StepStatus.PENDING,
-                        )
-                        .values(
-                            status=StepStatus.SKIPPED,
-                            finished_at=now,
-                            updated_at=now,
-                        )
-                    )
-                current.retry_strategy = RetryStrategy.NOT_RETRYABLE
-                current.retry_from_sequence = None
-                current.retained_runtime_session_until = None
-                if cleanup_status == RuntimeSessionCleanupStatus.SUCCEEDED:
-                    current.runtime_session_id = None
-                current.runtime_session_cleanup_status = cleanup_status
-                current.updated_at = now
-                current.version += 1
-                if retry_was_queued:
-                    await fail_active_operation_without_attempt(
-                        update_session,
-                        current,
-                        now,
-                        current.error_message
-                        or "The retained Runtime session retry window expired.",
-                    )
-                latest_attempt_id = await update_session.scalar(
-                    select(ExecutionAttemptORM.id)
-                    .where(ExecutionAttemptORM.execution_id == current.id)
-                    .order_by(ExecutionAttemptORM.attempt_number.desc())
-                    .limit(1)
-                )
-                if latest_attempt_id is not None:
-                    await update_session.execute(
-                        update(ExecutionAttemptORM)
-                        .where(ExecutionAttemptORM.id == latest_attempt_id)
-                        .values(runtime_session_cleanup_status=cleanup_status)
-                    )
-                if retry_was_queued:
-                    await add_execution_completed_event(
-                        update_session, current.id
-                    )
-
-
-def _as_utc(value: datetime) -> datetime:
-    """SQLite tests may return timezone-naive values for aware columns."""
-    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
