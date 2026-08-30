@@ -1,8 +1,6 @@
 """Redis-triggered Runtime execution worker with PostgreSQL leases."""
 
 import asyncio
-import base64
-import json
 import logging
 import os
 import socket
@@ -59,7 +57,6 @@ from executor_service.domain.runtime import (
     RuntimeNotebookSourceCell,
     RuntimeOutputLimitExceededError,
     RuntimeOutputRecord,
-    RuntimeOutputRepresentation,
     RuntimeStreamingExecutor,
 )
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
@@ -91,6 +88,14 @@ from executor_service.infrastructure.execution_worker.failure_policy import (
 )
 from executor_service.infrastructure.execution_worker.failure_policy import (
     safe_error as _safe_error,
+)
+from executor_service.infrastructure.execution_worker.message_validation import (
+    RUN_MESSAGE_TYPES,
+    invalid_work_message_reason,
+    valid_uuid_or_empty,
+)
+from executor_service.infrastructure.execution_worker.output_mapping import (
+    output_record,
 )
 from executor_service.infrastructure.execution_worker.types import (
     CancellationWork,
@@ -128,22 +133,8 @@ from executor_service.tracing import (
     TracingManager,
     extract_trace_context,
 )
-from executor_service.work_messages import (
-    WORK_MESSAGE_SCHEMA_VERSION,
-    WorkStreamEnvelope,
-)
 
 logger = logging.getLogger(__name__)
-
-DISPATCH_MESSAGE_TYPES = frozenset(
-    {
-        "operation.ready",
-        "execution.finalization_ready",
-        "execution.retry_ready",
-        "execution.cancellation_ready",
-    }
-)
-RUN_MESSAGE_TYPES = DISPATCH_MESSAGE_TYPES - {"execution.cancellation_ready"}
 
 
 class ExecutionWorker:
@@ -417,7 +408,7 @@ class ExecutionWorker:
         message_id: str,
         fields: dict[str, str],
     ) -> None:
-        invalid_reason = _invalid_work_message_reason(fields)
+        invalid_reason = invalid_work_message_reason(fields)
         if invalid_reason is not None:
             try:
                 await self._dead_letter(message_id, fields, invalid_reason)
@@ -464,10 +455,10 @@ class ExecutionWorker:
                 {
                     "source_stream": self._settings.redis_work_stream,
                     "source_message_id": message_id,
-                    "message_id": _valid_uuid_or_empty(
+                    "message_id": valid_uuid_or_empty(
                         fields.get("message_id")
                     ),
-                    "aggregate_id": _valid_uuid_or_empty(
+                    "aggregate_id": valid_uuid_or_empty(
                         fields.get("aggregate_id")
                     ),
                     "reason": reason,
@@ -2578,7 +2569,7 @@ class ExecutionWorker:
                     runtime_session_id, code
                 )
                 for output in execution_result.outputs:
-                    await append_output(_output_record(output))
+                    await append_output(output_record(output))
         except RuntimeOutputLimitExceededError as exc:
             stored = await self._result_store.abort_step_result(
                 identity,
@@ -2591,7 +2582,7 @@ class ExecutionWorker:
         except RuntimeExecutionError as exc:
             if not streaming:
                 for output in exc.outputs:
-                    await append_output(_output_record(output))
+                    await append_output(output_record(output))
             stored = await self._result_store.finalize_step_result(
                 identity,
                 execution_count=None,
@@ -4006,162 +3997,6 @@ class ExecutionWorker:
         await add_operation_completed_event(
             session, execution.id, operation.id
         )
-
-
-def _invalid_work_message_reason(fields: dict[str, str]) -> str | None:
-    message_id = fields.get("message_id")
-    if not message_id:
-        return "missing_message_id"
-    try:
-        UUID(message_id)
-    except ValueError:
-        return "invalid_message_id"
-    if fields.get("aggregate_type") != "Execution":
-        return "unsupported_aggregate_type"
-    aggregate_id = fields.get("aggregate_id")
-    if not aggregate_id:
-        return "missing_aggregate_id"
-    try:
-        UUID(aggregate_id)
-    except ValueError:
-        return "invalid_aggregate_id"
-    message_type = fields.get("message_type")
-    if not message_type:
-        return "missing_message_type"
-    if message_type not in DISPATCH_MESSAGE_TYPES:
-        return "unsupported_message_type"
-    schema_version = fields.get("schema_version")
-    if not schema_version:
-        return "missing_schema_version"
-    if schema_version != WORK_MESSAGE_SCHEMA_VERSION:
-        return "unsupported_schema_version"
-    if not fields.get("payload"):
-        return "missing_payload"
-    try:
-        WorkStreamEnvelope.from_redis_fields(fields)
-    except (TypeError, ValueError):
-        return "invalid_work_message_contract"
-    return None
-
-
-def _valid_uuid_or_empty(value: str | None) -> str:
-    if not value:
-        return ""
-    try:
-        return str(UUID(value))
-    except ValueError:
-        return ""
-
-
-def _output_record(output: dict[str, Any]) -> RuntimeOutputRecord:
-    output_type = str(output.get("output_type", ""))
-    if output_type == "stream":
-        return RuntimeOutputRecord(
-            kind="STREAM",
-            stream_name=str(output.get("name", "stdout")),
-            representations=(
-                RuntimeOutputRepresentation(
-                    media_type="text/plain",
-                    encoding="UTF8",
-                    content=str(output.get("text", "")),
-                ),
-            ),
-        )
-    if output_type in {"display_data", "execute_result"}:
-        data = output.get("data", {})
-        if not isinstance(data, dict):
-            raise RuntimeDriverError("Runtime display output is invalid.")
-        representations = tuple(
-            _output_representation(str(media_type), value)
-            for media_type, value in data.items()
-        )
-        if not representations:
-            representations = (
-                RuntimeOutputRepresentation(
-                    media_type="application/json",
-                    encoding="UTF8",
-                    content="{}",
-                ),
-            )
-        metadata = output.get("metadata", {})
-        if not isinstance(metadata, dict):
-            raise RuntimeDriverError("Runtime output metadata is invalid.")
-        execution_count = output.get("execution_count")
-        return RuntimeOutputRecord(
-            kind=("RESULT" if output_type == "execute_result" else "DISPLAY"),
-            execution_count=(
-                int(execution_count) if execution_count is not None else None
-            ),
-            representations=representations,
-            metadata=metadata,
-        )
-    if output_type == "error":
-        traceback = output.get("traceback", [])
-        if not isinstance(traceback, list):
-            traceback = [str(traceback)]
-        return RuntimeOutputRecord(
-            kind="ERROR",
-            representations=(
-                RuntimeOutputRepresentation(
-                    media_type="text/plain",
-                    encoding="UTF8",
-                    content="\n".join(str(line) for line in traceback),
-                ),
-            ),
-            metadata={
-                "ename": str(output.get("ename", "Error")),
-                "evalue": str(output.get("evalue", "")),
-            },
-        )
-    raise RuntimeDriverError(
-        f"Unsupported Runtime output type: {output_type!r}."
-    )
-
-
-def _output_representation(
-    media_type: str, value: Any
-) -> RuntimeOutputRepresentation:
-    normalized = media_type.lower().strip()
-    if normalized.startswith("image/"):
-        if not isinstance(value, str):
-            raise RuntimeDriverError(
-                "Runtime image output must be base64 text."
-            )
-        try:
-            base64.b64decode(value, validate=True)
-        except ValueError as exc:
-            raise RuntimeDriverError(
-                "Runtime image output is invalid."
-            ) from exc
-        return RuntimeOutputRepresentation(
-            media_type=normalized,
-            encoding="BASE64",
-            content=value,
-        )
-    content = (
-        value
-        if isinstance(value, str)
-        else json.dumps(value, ensure_ascii=False, separators=(",", ":"))
-    )
-    return RuntimeOutputRepresentation(
-        media_type=normalized,
-        encoding="UTF8",
-        content=content,
-    )
-
-
-def _required_text(value: str | None, field: str) -> str:
-    if value is None or not value:
-        raise RuntimeDriverError(f"Execution Step has no immutable {field}.")
-    return value
-
-
-def _required_int(value: int | None, field: str) -> int:
-    if value is None or value < 0:
-        raise RuntimeDriverError(
-            f"Execution Step has no valid immutable {field}."
-        )
-    return value
 
 
 async def _best_effort_session_stop(
