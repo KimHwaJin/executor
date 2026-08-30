@@ -1,5 +1,8 @@
 """Internal support components for the Runtime Target registry."""
 
+from executor_service.infrastructure._runtime_registry.commands import (
+    RuntimeTargetCommands,
+)
 from executor_service.infrastructure._runtime_registry.credentials import (
     RuntimeCredentialCipher,
 )
@@ -36,6 +39,7 @@ __all__ = [
     "RuntimeCommandReceipts",
     "RuntimeCredentialCipher",
     "RuntimeHealthMonitor",
+    "RuntimeTargetCommands",
     "RuntimeTargetProber",
     "RuntimeTargetQueries",
     "as_float",

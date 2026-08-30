@@ -124,6 +124,11 @@ def test_runtime_registry_delegates_support_responsibilities() -> None:
         "logging",
     }
     assert imports.isdisjoint(delegated)
+    assert "executor_service.infrastructure.db.models" not in imports
+    assert not any(
+        name == "sqlalchemy" or name.startswith("sqlalchemy.sql")
+        for name in imports
+    )
 
 
 def test_internal_contract_modules_do_not_import_public_facade() -> None:
