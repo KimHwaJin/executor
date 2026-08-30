@@ -25,6 +25,9 @@ from executor_service.infrastructure._runtime_registry.normalization import (
 from executor_service.infrastructure._runtime_registry.probe import (
     RuntimeTargetProber,
 )
+from executor_service.infrastructure._runtime_registry.queries import (
+    RuntimeTargetQueries,
+)
 from executor_service.infrastructure._runtime_registry.targets import (
     required_target,
 )
@@ -34,6 +37,7 @@ __all__ = [
     "RuntimeCredentialCipher",
     "RuntimeHealthMonitor",
     "RuntimeTargetProber",
+    "RuntimeTargetQueries",
     "as_float",
     "as_int",
     "fingerprint",
