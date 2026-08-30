@@ -55,6 +55,23 @@ class StoredRuntimeExecutionError(RuntimeExecutionError):
         self.stored_result = stored_result
 
 
+class StoredStepFailure(Exception):
+    """Transport/storage failure with any successfully sealed partial output.
+
+    Not a RuntimeExecutionError: loss of a channel must not authorize reuse of a
+    possibly still-busy kernel. The original exception determines failure policy.
+    """
+
+    def __init__(
+        self,
+        original: Exception,
+        stored_result: StepResultDescriptor | None,
+    ) -> None:
+        super().__init__(type(original).__name__)
+        self.original = original
+        self.stored_result = stored_result
+
+
 class StoredRuntimeExecutionTimeoutError(RuntimeExecutionTimeoutError):
     def __init__(
         self,

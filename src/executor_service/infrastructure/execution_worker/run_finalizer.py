@@ -19,7 +19,11 @@ from executor_service.domain.enums import (
     StepStatus,
 )
 from executor_service.domain.models import utc_now
-from executor_service.domain.runtime import RuntimeAbortResult, RuntimeDriver
+from executor_service.domain.runtime import (
+    RuntimeAbortResult,
+    RuntimeDriver,
+    RuntimeDriverError,
+)
 from executor_service.infrastructure.db.models import (
     ExecutionOperationORM,
     ExecutionORM,
@@ -37,6 +41,10 @@ from executor_service.infrastructure.execution_worker.event_writer import (
 )
 from executor_service.infrastructure.execution_worker.types import (
     RuntimeAbortResolution,
+)
+from executor_service.infrastructure.runtime_diagnostics import (
+    failure_message,
+    log_runtime_failure,
 )
 
 logger = logging.getLogger(__name__)
@@ -84,9 +92,28 @@ class ExecutionRunFinalizer:
                 self._settings.runtime_abort_timeout_seconds,
             )
         except Exception as exc:
+            log_runtime_failure(
+                logger,
+                exc,
+                phase="RUNTIME_ABORT",
+                execution_id=lease.execution_id,
+                attempt_id=lease.attempt_id,
+                runtime_session_id=runtime_session_id,
+            )
             result = RuntimeAbortResult(
                 RuntimeAbortStatus.FAILED,
-                f"{type(exc).__name__}: Runtime abort request failed.",
+                failure_message(exc),
+            )
+        if result.status == RuntimeAbortStatus.FAILED:
+            log_runtime_failure(
+                logger,
+                RuntimeDriverError(
+                    result.message or "Runtime abort failed without a reason."
+                ),
+                phase="RUNTIME_ABORT_RESULT",
+                execution_id=lease.execution_id,
+                attempt_id=lease.attempt_id,
+                runtime_session_id=runtime_session_id,
             )
         if result.status == RuntimeAbortStatus.IDLE_CONFIRMED:
             resolution = RuntimeAbortResolution(
@@ -106,6 +133,14 @@ class ExecutionRunFinalizer:
             try:
                 await driver.delete_session(runtime_session_id)
             except Exception as exc:
+                log_runtime_failure(
+                    logger,
+                    exc,
+                    phase="RUNTIME_DELETE_AFTER_ABORT",
+                    execution_id=lease.execution_id,
+                    attempt_id=lease.attempt_id,
+                    runtime_session_id=runtime_session_id,
+                )
                 result = RuntimeAbortResult(
                     RuntimeAbortStatus.FAILED,
                     f"{type(exc).__name__}: Runtime session deletion failed.",
@@ -171,13 +206,13 @@ class ExecutionRunFinalizer:
         sequence: int,
         error: Exception,
     ) -> None:
-        logger.warning(
-            "Artifact registration failed",
-            extra={
-                "execution_id": str(lease.execution_id),
-                "sequence": sequence,
-                "error_type": type(error).__name__,
-            },
+        log_runtime_failure(
+            logger,
+            error,
+            phase="ARTIFACT_REGISTER",
+            execution_id=lease.execution_id,
+            attempt_id=lease.attempt_id,
+            sequence=sequence,
         )
 
     async def finalize(

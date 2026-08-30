@@ -52,6 +52,10 @@ from executor_service.infrastructure.execution_worker.types import (
     StoredRuntimeExecutionError,
     StoredRuntimeExecutionTimeoutError,
     StoredRuntimeOutputLimitExceededError,
+    StoredStepFailure,
+)
+from executor_service.infrastructure.runtime_diagnostics import (
+    log_runtime_failure,
 )
 from executor_service.infrastructure.workspace import WorkspaceManager
 from executor_service.tracing import TracingManager
@@ -250,7 +254,7 @@ class MultiExecutionRunner:
                     await self._multi_operation_state.skip_steps_after(
                         lease, operation_id, pending.sequence
                     )
-                    await self._notebook_projector.project(
+                    await self._notebook_projector.project_after_failure(
                         driver,
                         lease,
                         execution.runtime_profile,
@@ -300,7 +304,7 @@ class MultiExecutionRunner:
                     await self._multi_operation_state.skip_steps_after(
                         lease, operation_id, pending.sequence
                     )
-                    await self._notebook_projector.project(
+                    await self._notebook_projector.project_after_failure(
                         driver,
                         lease,
                         execution.runtime_profile,
@@ -328,6 +332,16 @@ class MultiExecutionRunner:
                         error_message=str(exc),
                     )
                     return
+                except StoredStepFailure as exc:
+                    if exc.stored_result is not None:
+                        await self._step_executor.mark_failed(
+                            lease,
+                            pending.sequence,
+                            exc.stored_result,
+                            _safe_error(exc),
+                            retryable=False,
+                        )
+                    raise
                 await self._step_executor.mark_succeeded(
                     lease,
                     pending.sequence,
@@ -369,7 +383,7 @@ class MultiExecutionRunner:
             cleanup_status = RuntimeSessionCleanupStatus.NOT_REQUIRED
             if runtime_session_id is not None:
                 cleanup_status = await best_effort_session_stop(
-                    driver, runtime_session_id
+                    driver, runtime_session_id, lease=lease
                 )
             await self._finalizer.finalize(
                 lease,
@@ -391,10 +405,20 @@ class MultiExecutionRunner:
                 },
             )
         except Exception as exc:
+            log_runtime_failure(
+                logger,
+                exc,
+                phase="EXECUTION_RUN",
+                execution_id=execution.id,
+                attempt_id=lease.attempt_id,
+                operation_id=execution.active_operation_id,
+                target_id=target.id,
+                runtime_session_id=runtime_session_id,
+            )
             cleanup_status = RuntimeSessionCleanupStatus.NOT_REQUIRED
             if runtime_session_id is not None:
                 cleanup_status = await best_effort_session_stop(
-                    driver, runtime_session_id
+                    driver, runtime_session_id, lease=lease
                 )
             await self._finalizer.finalize(
                 lease,

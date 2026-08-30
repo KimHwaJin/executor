@@ -56,6 +56,10 @@ from executor_service.infrastructure.execution_worker.types import (
     StoredRuntimeExecutionError,
     StoredRuntimeExecutionTimeoutError,
     StoredRuntimeOutputLimitExceededError,
+    StoredStepFailure,
+)
+from executor_service.infrastructure.runtime_diagnostics import (
+    log_runtime_failure,
 )
 from executor_service.infrastructure.workspace import WorkspaceManager
 from executor_service.tracing import TracingManager
@@ -249,7 +253,7 @@ class SingleExecutionRunner:
                         exc.stored_result,
                         str(exc),
                     )
-                    await self._notebook_projector.project(
+                    await self._notebook_projector.project_after_failure(
                         driver,
                         lease,
                         execution.runtime_profile,
@@ -273,6 +277,20 @@ class SingleExecutionRunner:
                         logger.warning(
                             "Incomplete Artifact registration failed",
                             extra={"execution_id": str(execution.id)},
+                        )
+                    raise
+                except StoredStepFailure as exc:
+                    failed_sequence = sequence
+                    if exc.stored_result is not None:
+                        await self._step_executor.mark_failed(
+                            lease,
+                            sequence,
+                            exc.stored_result,
+                            _safe_error(exc),
+                            retryable=(
+                                _failure_policy(exc, False)[1]
+                                != RetryStrategy.NOT_RETRYABLE
+                            ),
                         )
                     raise
                 await self._step_executor.mark_succeeded(
@@ -334,7 +352,7 @@ class SingleExecutionRunner:
                         self._settings.execution_shutdown_cleanup_seconds
                     ):
                         cleanup_status = await best_effort_session_stop(
-                            driver, runtime_session_id
+                            driver, runtime_session_id, lease=lease
                         )
                 except TimeoutError:
                     cleanup_status = RuntimeSessionCleanupStatus.FAILED
@@ -380,7 +398,7 @@ class SingleExecutionRunner:
                 exc.stored_result,
                 str(exc),
             )
-            await self._notebook_projector.project(
+            await self._notebook_projector.project_after_failure(
                 driver,
                 lease,
                 execution.runtime_profile,
@@ -426,6 +444,16 @@ class SingleExecutionRunner:
                 },
             )
         except Exception as exc:
+            log_runtime_failure(
+                logger,
+                exc,
+                phase="EXECUTION_RUN",
+                execution_id=execution.id,
+                attempt_id=lease.attempt_id,
+                target_id=target.id,
+                runtime_session_id=runtime_session_id,
+                sequence=failed_sequence,
+            )
             retain_session = (
                 isinstance(exc, RuntimeExecutionError)
                 and runtime_session_id is not None
@@ -435,7 +463,7 @@ class SingleExecutionRunner:
             cleanup_status = RuntimeSessionCleanupStatus.NOT_REQUIRED
             if runtime_session_id is not None and not retain_session:
                 cleanup_status = await best_effort_session_stop(
-                    driver, runtime_session_id
+                    driver, runtime_session_id, lease=lease
                 )
             await self._finalizer.finalize(
                 lease,

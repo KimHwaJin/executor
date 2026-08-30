@@ -32,6 +32,14 @@ from executor_service.infrastructure._jupyter.transport import (
 )
 
 
+class _OutputDeliveryFailure(Exception):
+    """Keep output storage exceptions outside transport exception mapping."""
+
+    def __init__(self, original: Exception) -> None:
+        super().__init__(type(original).__name__)
+        self.original = original
+
+
 class JupyterKernelExecutor:
     def __init__(
         self,
@@ -137,9 +145,14 @@ class JupyterKernelExecutor:
                                     raise RuntimeDriverError(
                                         "Jupyter output mapping is incomplete."
                                     )
-                                await output_handler(record)
+                                try:
+                                    await output_handler(record)
+                                except Exception as exc:
+                                    raise _OutputDeliveryFailure(exc) from exc
                             if output["output_type"] == "error":
                                 error_message = error_summary(output)
+        except _OutputDeliveryFailure as exc:
+            raise exc.original from exc.original.__cause__
         except PayloadTooBig as exc:
             raise RuntimeOutputLimitExceededError(
                 self._max_output_message_bytes
@@ -150,11 +163,14 @@ class JupyterKernelExecutor:
                     self._max_output_message_bytes
                 ) from exc
             raise RuntimeDriverError(
-                "Jupyter kernel channel became unavailable."
+                "Jupyter kernel channel became unavailable: "
+                f"received_close_code={exc.rcvd.code if exc.rcvd else None}, "
+                f"sent_close_code={exc.sent.code if exc.sent else None}."
             ) from exc
         except (OSError, TimeoutError, WebSocketException) as exc:
             raise RuntimeDriverError(
-                "Jupyter kernel channel became unavailable."
+                "Jupyter kernel channel became unavailable: "
+                f"transport={type(exc).__name__}."
             ) from exc
 
         if error_message is not None:

@@ -37,6 +37,9 @@ from executor_service.infrastructure.execution_leases import (
 from executor_service.infrastructure.execution_worker.failure_policy import (
     safe_error,
 )
+from executor_service.infrastructure.runtime_diagnostics import (
+    log_runtime_failure,
+)
 from executor_service.infrastructure.workspace import (
     ExecutionWorkspace,
     WorkspaceManager,
@@ -130,46 +133,62 @@ class NotebookProjector:
                     .order_by(ExecutionStepORM.sequence)
                 )
             )
-        cells: list[str] = []
-        outputs: list[list[dict[str, object]]] = []
-        execution_counts: list[int | None] = []
-        for step in steps:
-            cells.append(
-                await self._result_store.read_source(
-                    ExecutionSourceReference(
-                        relative_path=step.source_snapshot_path,
-                        checksum_sha256=step.source_sha256,
-                        size_bytes=step.source_size_bytes,
+        try:
+            cells: list[str] = []
+            outputs: list[list[dict[str, object]]] = []
+            execution_counts: list[int | None] = []
+            for step in steps:
+                cells.append(
+                    await self._result_store.read_source(
+                        ExecutionSourceReference(
+                            relative_path=step.source_snapshot_path,
+                            checksum_sha256=step.source_sha256,
+                            size_bytes=step.source_size_bytes,
+                        )
                     )
                 )
+                if (
+                    step.result_manifest_path is not None
+                    and step.result_manifest_checksum_sha256 is not None
+                    and step.result_execution_attempt_id is not None
+                    and step.result_fencing_token is not None
+                ):
+                    projection = await self._result_store.read_step_projection(
+                        StepResultReference(
+                            relative_path=step.result_manifest_path,
+                            checksum_sha256=step.result_manifest_checksum_sha256,
+                            size_bytes=step.result_manifest_size_bytes or 0,
+                            execution_attempt_id=step.result_execution_attempt_id,
+                            fencing_token=step.result_fencing_token,
+                        )
+                    )
+                    outputs.append(projection.outputs)
+                    execution_counts.append(projection.execution_count)
+                else:
+                    outputs.append([])
+                    execution_counts.append(None)
+            notebook = self._workspace.notebook_document(
+                workspace,
+                runtime_profile,
+                cells,
+                outputs,
+                execution_counts,
             )
-            if (
-                step.result_manifest_path is not None
-                and step.result_manifest_checksum_sha256 is not None
-                and step.result_execution_attempt_id is not None
-                and step.result_fencing_token is not None
-            ):
-                projection = await self._result_store.read_step_projection(
-                    StepResultReference(
-                        relative_path=step.result_manifest_path,
-                        checksum_sha256=step.result_manifest_checksum_sha256,
-                        size_bytes=step.result_manifest_size_bytes or 0,
-                        execution_attempt_id=step.result_execution_attempt_id,
-                        fencing_token=step.result_fencing_token,
-                    )
-                )
-                outputs.append(projection.outputs)
-                execution_counts.append(projection.execution_count)
-            else:
-                outputs.append([])
-                execution_counts.append(None)
-        notebook = self._workspace.notebook_document(
-            workspace,
-            runtime_profile,
-            cells,
-            outputs,
-            execution_counts,
-        )
+        except Exception as exc:
+            log_runtime_failure(
+                logger,
+                exc,
+                phase="NOTEBOOK_BUILD",
+                execution_id=lease.execution_id,
+                attempt_id=lease.attempt_id,
+            )
+            await self._record_projection(
+                lease,
+                status="FAILED",
+                attempt_count=0,
+                error_message=safe_error(exc),
+            )
+            raise
         last_error: Exception | None = None
         for attempt in range(1, 4):
             try:
@@ -200,11 +219,39 @@ class NotebookProjector:
                 else "Notebook projection failed."
             ),
         )
-        logger.warning(
-            "Notebook projection failed after bounded retries",
-            extra={"execution_id": str(lease.execution_id)},
-        )
+        if last_error is not None:
+            log_runtime_failure(
+                logger,
+                last_error,
+                phase="NOTEBOOK_WRITE",
+                execution_id=lease.execution_id,
+                attempt_id=lease.attempt_id,
+            )
         return False
+
+    async def project_after_failure(
+        self,
+        driver: RuntimeDriver,
+        lease: ExecutionLease,
+        runtime_profile: str,
+        workspace: ExecutionWorkspace,
+    ) -> bool:
+        """Never replace the initiating Step failure with projection failure."""
+        try:
+            return await self.project(
+                driver, lease, runtime_profile, workspace
+            )
+        except ExecutionLeaseLostError:
+            raise
+        except Exception as exc:
+            log_runtime_failure(
+                logger,
+                exc,
+                phase="NOTEBOOK_AFTER_FAILURE",
+                execution_id=lease.execution_id,
+                attempt_id=lease.attempt_id,
+            )
+            return False
 
     async def register_artifact(
         self,
@@ -231,11 +278,14 @@ class NotebookProjector:
             )
         except ExecutionLeaseLostError:
             raise
-        except Exception:
-            logger.warning(
-                "Projected notebook Artifact registration failed",
-                exc_info=True,
-                extra={"execution_id": str(lease.execution_id)},
+        except Exception as exc:
+            log_runtime_failure(
+                logger,
+                exc,
+                phase="NOTEBOOK_ARTIFACT_REGISTER",
+                execution_id=lease.execution_id,
+                attempt_id=lease.attempt_id,
+                sequence=sequence,
             )
 
     async def _record_projection(

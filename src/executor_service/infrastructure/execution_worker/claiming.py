@@ -402,7 +402,7 @@ class ExecutionClaimer:
                 return
             execution.status = ExecutionStatus.QUEUED
             execution.error_message = "The retained Runtime Target is temporarily unavailable; waiting for recovery."
-            execution.failure_type = FailureType.TOOL_ERROR
+            execution.failure_type = FailureType.RUNTIME_UNAVAILABLE
             execution.lease_owner = None
             execution.lease_expires_at = None
             execution.heartbeat_at = None
