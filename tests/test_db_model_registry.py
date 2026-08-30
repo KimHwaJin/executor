@@ -11,9 +11,12 @@ def test_public_module_reexports_auxiliary_orm_models() -> None:
     names = (
         "CommandReceiptORM",
         "EventRetentionLeaseORM",
+        "ExecutionEventORM",
+        "ExecutionEventSequenceORM",
         "ExecutorMaintenanceORM",
         "MaintenanceRunORM",
         "MaintenanceRunTargetORM",
+        "OutboxEventORM",
         "RuntimeTargetORM",
         "RuntimeTargetPurgeORM",
     )

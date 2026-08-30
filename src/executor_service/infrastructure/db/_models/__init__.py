@@ -4,6 +4,11 @@ from executor_service.infrastructure.db._models.common import (
     audit_actor_constraints,
     enum_type,
 )
+from executor_service.infrastructure.db._models.events import (
+    ExecutionEventORM,
+    ExecutionEventSequenceORM,
+    OutboxEventORM,
+)
 from executor_service.infrastructure.db._models.maintenance import (
     EventRetentionLeaseORM,
     ExecutorMaintenanceORM,
@@ -21,9 +26,12 @@ from executor_service.infrastructure.db._models.runtime import (
 __all__ = [
     "CommandReceiptORM",
     "EventRetentionLeaseORM",
+    "ExecutionEventORM",
+    "ExecutionEventSequenceORM",
     "ExecutorMaintenanceORM",
     "MaintenanceRunORM",
     "MaintenanceRunTargetORM",
+    "OutboxEventORM",
     "RuntimeTargetORM",
     "RuntimeTargetPurgeORM",
     "audit_actor_constraints",
