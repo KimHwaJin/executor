@@ -451,7 +451,7 @@ async def test_stale_worker_cannot_write_or_heartbeat_after_takeover(
                 .values(lease_expires_at=expired_at)
             )
 
-        await workers[1]._recover_expired_leases()
+        await workers[1]._lease_recovery.recover()
         await service.retry_result(
             RetryExecutionCommand(
                 execution_id=execution.id,
@@ -519,7 +519,10 @@ async def test_concurrent_startup_reconciliation_fences_expired_lease_once(
             )
 
         recoveries = await asyncio.gather(
-            *(worker._fence_expired_leases() for worker in workers)
+            *(
+                worker._lease_recovery.fence_expired_leases()
+                for worker in workers
+            )
         )
     finally:
         await _close_redis(redis_clients)
