@@ -33,8 +33,8 @@ from executor_service.infrastructure.db.models import (
     OutboxEventORM,
 )
 from executor_service.infrastructure.db.session import create_session_factory
-from executor_service.infrastructure.execution_worker.worker import (
-    _persist_execution_event,
+from executor_service.infrastructure.execution_worker.event_writer import (
+    persist_execution_event,
 )
 from executor_service.infrastructure.outbox import OutboxPublisher
 from executor_service.tracing import TracingManager
@@ -183,13 +183,13 @@ async def test_multiple_events_in_one_transaction_receive_unique_sequences(
     execution = await execution_service.submit(_submit_command())
     session_factory = create_session_factory(engine)
     async with session_factory() as session, session.begin():
-        await _persist_execution_event(
+        await persist_execution_event(
             session,
             execution_id=execution.id,
             event_type="execution.started",
             payload=_started_payload(),
         )
-        await _persist_execution_event(
+        await persist_execution_event(
             session,
             execution_id=execution.id,
             event_type="execution.started",
