@@ -42,6 +42,66 @@ def _text_record(content: str = "hello\n") -> RuntimeOutputRecord:
 
 
 @pytest.mark.asyncio
+async def test_result_disk_layout_is_a_stable_contract(tmp_path: Path) -> None:
+    store = FilesystemExecutionResultStore(tmp_path)
+    identity = _identity()
+    source = await store.snapshot_source(
+        identity.execution_id,
+        identity.step_id,
+        "print('contract')",
+    )
+    assert source.relative_path == (
+        "executions/10000000-0000-0000-0000-000000000001/sources/"
+        "30000000-0000-0000-0000-000000000003/source.py"
+    )
+
+    await store.begin_step_result(identity, source)
+    partial = (
+        tmp_path
+        / "executions/10000000-0000-0000-0000-000000000001/operations/"
+        "20000000-0000-0000-0000-000000000002/steps/"
+        "30000000-0000-0000-0000-000000000003/attempts/"
+        "40000000-0000-0000-0000-000000000004/1.partial"
+    )
+    state = json.loads((partial / ".state.json").read_bytes())
+    assert state["schema_version"] == "1.0"
+    assert state["state"] == "OPEN"
+    assert state["identity"] == {
+        "execution_attempt_id": "40000000-0000-0000-0000-000000000004",
+        "execution_id": "10000000-0000-0000-0000-000000000001",
+        "fencing_token": 1,
+        "operation_id": "20000000-0000-0000-0000-000000000002",
+        "sequence": 0,
+        "step_id": "30000000-0000-0000-0000-000000000003",
+    }
+
+    await store.append_step_outputs(
+        identity,
+        expected_offset=0,
+        batch_id=UUID("50000000-0000-0000-0000-000000000005"),
+        records=(_text_record("contract\n"),),
+    )
+    assert (partial / "outputs/000000-stream-00.txt").read_text() == (
+        "contract\n"
+    )
+
+    result = await store.finalize_step_result(identity, execution_count=7)
+    assert result.reference.relative_path == (
+        "executions/10000000-0000-0000-0000-000000000001/operations/"
+        "20000000-0000-0000-0000-000000000002/steps/"
+        "30000000-0000-0000-0000-000000000003/attempts/"
+        "40000000-0000-0000-0000-000000000004/1/manifest.json"
+    )
+    manifest_path = tmp_path / result.reference.relative_path
+    assert not partial.exists()
+    assert manifest_path.is_file()
+    assert (manifest_path.parent / "source.py").read_text() == (
+        "print('contract')"
+    )
+    assert not (manifest_path.parent / ".state.json").exists()
+
+
+@pytest.mark.asyncio
 async def test_seals_source_text_and_image_as_immutable_files(
     tmp_path: Path,
 ) -> None:
