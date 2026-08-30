@@ -8,7 +8,6 @@ import os
 import socket
 from collections.abc import AsyncIterator, Awaitable, Coroutine
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
@@ -86,6 +85,21 @@ from executor_service.infrastructure.execution_leases import (
     require_active_cancellation_lease,
     require_active_lease,
 )
+from executor_service.infrastructure.execution_worker.failure_policy import (
+    failure_policy as _failure_policy,
+)
+from executor_service.infrastructure.execution_worker.failure_policy import (
+    safe_error as _safe_error,
+)
+from executor_service.infrastructure.execution_worker.types import (
+    CancellationWork,
+    ExpiredLeaseRecovery,
+    RetainedRuntimeSessionLostError,
+    RuntimeAbortResolution,
+    StoredRuntimeExecutionError,
+    StoredRuntimeExecutionTimeoutError,
+    StoredRuntimeOutputLimitExceededError,
+)
 from executor_service.infrastructure.maintenance import (
     ExecutorMaintenanceService,
 )
@@ -130,63 +144,6 @@ DISPATCH_MESSAGE_TYPES = frozenset(
     }
 )
 RUN_MESSAGE_TYPES = DISPATCH_MESSAGE_TYPES - {"execution.cancellation_ready"}
-
-
-class RetainedRuntimeSessionLostError(RuntimeDriverError):
-    """Raised when a retained-session retry reaches its target but the session is gone."""
-
-
-@dataclass(frozen=True, slots=True)
-class RuntimeAbortResolution:
-    abort_status: RuntimeAbortStatus
-    cleanup_status: RuntimeSessionCleanupStatus
-    retry_strategy: RetryStrategy
-    retain_session: bool
-
-
-@dataclass(frozen=True, slots=True)
-class CancellationWork:
-    lease: CancellationLease
-    runtime_target_id: UUID | None
-    runtime_session_id: str | None
-
-
-@dataclass(frozen=True, slots=True)
-class ExpiredLeaseRecovery:
-    execution_count: int
-    cleanup_targets: tuple[tuple[UUID, UUID | None, UUID, str], ...]
-
-
-class StoredRuntimeExecutionError(RuntimeExecutionError):
-    def __init__(
-        self,
-        message: str,
-        outputs: list[dict[str, Any]],
-        stored_result: StepResultDescriptor,
-    ) -> None:
-        super().__init__(message, outputs)
-        self.stored_result = stored_result
-
-
-class StoredRuntimeExecutionTimeoutError(RuntimeExecutionTimeoutError):
-    def __init__(
-        self,
-        scope: str,
-        timeout_seconds: float,
-        stored_result: StepResultDescriptor,
-    ) -> None:
-        super().__init__(scope, timeout_seconds)
-        self.stored_result = stored_result
-
-
-class StoredRuntimeOutputLimitExceededError(RuntimeOutputLimitExceededError):
-    def __init__(
-        self,
-        max_message_bytes: int,
-        stored_result: StepResultDescriptor,
-    ) -> None:
-        super().__init__(max_message_bytes)
-        self.stored_result = stored_result
 
 
 class ExecutionWorker:
@@ -4746,43 +4703,6 @@ def _required_int(value: int | None, field: str) -> int:
             f"Execution Step has no valid immutable {field}."
         )
     return value
-
-
-def _failure_policy(
-    exc: Exception, retain_session: bool
-) -> tuple[FailureType, RetryStrategy]:
-    if isinstance(exc, RetainedRuntimeSessionLostError):
-        return FailureType.RUNTIME_SESSION_LOST, RetryStrategy.FROM_START
-    if isinstance(exc, RuntimeExecutionTimeoutError):
-        failure_type = (
-            FailureType.STEP_TIMEOUT
-            if exc.scope == "Step"
-            else FailureType.OPERATION_TIMEOUT
-        )
-        retry_strategy = (
-            RetryStrategy.FROM_FAILED_STEP
-            if retain_session
-            else RetryStrategy.FROM_START
-        )
-        return failure_type, retry_strategy
-    if isinstance(exc, RuntimeOutputLimitExceededError):
-        retry_strategy = (
-            RetryStrategy.FROM_FAILED_STEP
-            if retain_session
-            else RetryStrategy.FROM_START
-        )
-        return FailureType.OUTPUT_LIMIT_EXCEEDED, retry_strategy
-    if isinstance(exc, RuntimeExecutionError) and retain_session:
-        return FailureType.TOOL_ERROR, RetryStrategy.FROM_FAILED_STEP
-    if isinstance(exc, RuntimeDriverError):
-        return FailureType.RUNTIME_UNAVAILABLE, RetryStrategy.FROM_START
-    return FailureType.INTERNAL_ERROR, RetryStrategy.NOT_RETRYABLE
-
-
-def _safe_error(exc: Exception) -> str:
-    if isinstance(exc, (RuntimeExecutionError, RuntimeDriverError)):
-        return str(exc)[:2000]
-    return f"{type(exc).__name__}: execution failed"[:2000]
 
 
 async def _best_effort_session_stop(
