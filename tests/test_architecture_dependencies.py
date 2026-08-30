@@ -187,6 +187,40 @@ def test_artifact_facade_delegates_validation_and_persistence() -> None:
     )
 
 
+def test_materialized_artifact_support_does_not_import_public_facade() -> None:
+    support_package = (
+        SOURCE_ROOT / "infrastructure" / "_materialized_artifacts"
+    )
+    violations = {
+        path.name: sorted(
+            name
+            for name in _imports(path)
+            if name == "executor_service.infrastructure.materialized_artifacts"
+        )
+        for path in _python_files(support_package)
+    }
+    assert not {path: names for path, names in violations.items() if names}
+
+
+def test_materialized_artifact_facade_delegates_support_logic() -> None:
+    imports = _imports(
+        SOURCE_ROOT / "infrastructure" / "materialized_artifacts.py"
+    )
+    delegated = {
+        "asyncio",
+        "hashlib",
+        "json",
+        "nbformat",
+        "re",
+        "executor_service.infrastructure.db.models",
+    }
+    assert imports.isdisjoint(delegated)
+    assert not any(
+        name == "sqlalchemy" or name.startswith("sqlalchemy.sql")
+        for name in imports
+    )
+
+
 def test_result_storage_facade_delegates_file_format() -> None:
     imports = _imports(SOURCE_ROOT / "infrastructure" / "result_storage.py")
     delegated = {
