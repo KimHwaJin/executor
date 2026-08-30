@@ -3,6 +3,11 @@
 from executor_service.infrastructure.db._models.artifacts import (
     ExecutionArtifactORM,
 )
+from executor_service.infrastructure.db._models.attempts import (
+    ExecutionAttemptORM,
+    ExecutionRetryORM,
+    ExecutionStepAttemptORM,
+)
 from executor_service.infrastructure.db._models.common import (
     audit_actor_constraints,
     enum_type,
@@ -30,8 +35,11 @@ __all__ = [
     "CommandReceiptORM",
     "EventRetentionLeaseORM",
     "ExecutionArtifactORM",
+    "ExecutionAttemptORM",
     "ExecutionEventORM",
     "ExecutionEventSequenceORM",
+    "ExecutionRetryORM",
+    "ExecutionStepAttemptORM",
     "ExecutorMaintenanceORM",
     "MaintenanceRunORM",
     "MaintenanceRunTargetORM",
