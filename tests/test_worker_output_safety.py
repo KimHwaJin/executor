@@ -140,7 +140,7 @@ async def test_output_limit_aborts_runtime_and_persists_incomplete_result(
         ),
     )
     try:
-        await worker._run_execution(execution.id)
+        await worker._runner.run(execution.id)
     finally:
         await redis.aclose()
 

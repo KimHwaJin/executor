@@ -461,7 +461,7 @@ async def test_multi_operation_executes_submitted_steps_until_boundary(
     _patch_runtime_driver(monkeypatch, RecordingMultiDriver)
     worker, redis = _worker(engine, tmp_path)
     try:
-        await worker._run_execution(execution.id)
+        await worker._runner.run(execution.id)
     finally:
         await redis.aclose()
 
@@ -634,7 +634,7 @@ async def test_multi_timeout_requires_confirmed_abort_before_transition(
     _patch_runtime_driver(monkeypatch, RecordingMultiDriver)
     worker, redis = _worker(engine, tmp_path)
     try:
-        await worker._run_execution(execution.id)
+        await worker._runner.run(execution.id)
     finally:
         await redis.aclose()
 
@@ -703,7 +703,7 @@ async def test_multi_output_limit_waits_for_correction_after_safe_abort(
     _patch_runtime_driver(monkeypatch, RecordingMultiDriver)
     worker, redis = _worker(engine, tmp_path)
     try:
-        await worker._run_execution(execution.id)
+        await worker._runner.run(execution.id)
     finally:
         await redis.aclose()
 
@@ -824,7 +824,7 @@ async def test_single_timeout_controls_retry_and_session_reuse(
     _patch_runtime_driver(monkeypatch, RecordingMultiDriver)
     worker, redis = _worker(engine, tmp_path)
     try:
-        await worker._run_execution(execution.id)
+        await worker._runner.run(execution.id)
     finally:
         await redis.aclose()
 
@@ -893,7 +893,7 @@ async def test_multi_correction_resets_resolved_abort_state(
     _patch_runtime_driver(monkeypatch, RecordingMultiDriver)
     worker, redis = _worker(engine, tmp_path)
     try:
-        await worker._run_execution(execution.id)
+        await worker._runner.run(execution.id)
         async with session_factory() as session:
             timed_out = await session.get(ExecutionORM, execution.id)
         assert timed_out is not None
@@ -911,7 +911,7 @@ async def test_multi_correction_resets_resolved_abort_state(
             )
         )
         RecordingMultiDriver.slow_code = None
-        await worker._run_execution(execution.id)
+        await worker._runner.run(execution.id)
     finally:
         await redis.aclose()
 

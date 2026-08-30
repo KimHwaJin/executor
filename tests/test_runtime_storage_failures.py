@@ -194,7 +194,7 @@ async def test_runtime_storage_failure_finalizes_consistent_state_and_events(
         FailingRuntimeStorageDriver,
     )
     try:
-        await worker._run_execution(execution.id)
+        await worker._runner.run(execution.id)
     finally:
         await redis.aclose()
 

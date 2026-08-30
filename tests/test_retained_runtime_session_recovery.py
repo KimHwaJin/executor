@@ -379,7 +379,7 @@ async def test_preflight_connection_failure_defers_the_retained_retry(
     worker, redis = _worker(engine, tmp_path)
     _patch_runtime_driver(monkeypatch, UnavailableKernelGateway)
     try:
-        await worker._run_execution(execution.id)
+        await worker._runner.run(execution.id)
     finally:
         await redis.aclose()
 
@@ -432,7 +432,7 @@ async def test_missing_retained_runtime_session_fails_without_running_on_another
     worker, redis = _worker(engine, tmp_path)
     _patch_runtime_driver(monkeypatch, MissingKernelGateway)
     try:
-        await worker._run_execution(execution.id)
+        await worker._runner.run(execution.id)
     finally:
         await redis.aclose()
 

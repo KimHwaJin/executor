@@ -197,7 +197,7 @@ async def test_worker_does_not_apply_a_process_local_execution_limit(
     ControlledJupyterGateway.configure(blocked_pool)
     _patch_runtime_driver(monkeypatch)
     blocked_tasks = [
-        asyncio.create_task(worker._run_execution(execution.id))
+        asyncio.create_task(worker._runner.run(execution.id))
         for execution in blocked
     ]
     try:
@@ -205,7 +205,7 @@ async def test_worker_does_not_apply_a_process_local_execution_limit(
             lambda: ControlledJupyterGateway.blocked_started == blocked_count
         )
         independent_task = asyncio.create_task(
-            worker._run_execution(independent.id)
+            worker._runner.run(independent.id)
         )
         async with asyncio.timeout(1):
             await ControlledJupyterGateway.independent_finished.wait()
