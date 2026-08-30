@@ -32,21 +32,18 @@ from executor_service.domain.enums import (
 from executor_service.domain.errors import (
     IdempotencyConflictError,
     RuntimeTargetConfigurationError,
-    RuntimeTargetNotFoundError,
     RuntimeTargetPurgeConflictError,
 )
 from executor_service.domain.models import utc_now
-from executor_service.domain.runtime import RuntimeResourceObservation
 from executor_service.infrastructure._runtime_registry import (
     RuntimeCommandReceipts,
     RuntimeCredentialCipher,
-    as_float,
-    as_int,
+    RuntimeTargetProber,
     fingerprint,
     normalize_connection_config,
     pool_summary,
     purge_view,
-    resource_source,
+    required_target,
     runtime_target_view,
     secret_hash,
 )
@@ -56,9 +53,6 @@ from executor_service.infrastructure.db.models import (
     ExecutionORM,
     RuntimeTargetORM,
     RuntimeTargetPurgeORM,
-)
-from executor_service.infrastructure.runtime_drivers import (
-    ConfiguredRuntimeDriverFactory,
 )
 
 logger = logging.getLogger(__name__)
@@ -72,11 +66,15 @@ class RuntimeTargetRegistry:
     ) -> None:
         self._session_factory = session_factory
         self._settings = settings
-        self._driver_factory = ConfiguredRuntimeDriverFactory(settings)
         self._credentials = RuntimeCredentialCipher(
             settings.runtime_credential_encryption_key
         )
         self._receipts = RuntimeCommandReceipts()
+        self._prober = RuntimeTargetProber(
+            session_factory,
+            settings,
+            self._credentials,
+        )
         self._monitor_task: asyncio.Task[None] | None = None
         self._stop_event = asyncio.Event()
 
@@ -285,115 +283,11 @@ class RuntimeTargetRegistry:
         actor_type: ActorType | None = None,
         actor_id: str | None = None,
     ) -> RuntimeTargetView:
-        async with self._session_factory() as session:
-            target = await self._required_target(session, target_id)
-            credential = self.resolve_credential(
-                target.credential_ref, target.credential_ciphertext
-            )
-            enabled = target.enabled
-
-        if not enabled:
-            return await self.get(target_id)
-
-        driver = self._driver_factory.create(
-            target.runtime_type, target.connection_config, credential
+        return await self._prober.probe(
+            target_id,
+            actor_type=actor_type,
+            actor_id=actor_id,
         )
-        profiles: list[str] = []
-        active_session_count: int | None = None
-        error: str | None = None
-        resource: RuntimeResourceObservation | None = None
-        resource_error: str | None = None
-        try:
-            status = await driver.status()
-            reported_profiles = await driver.supported_profiles()
-            allowed_profiles = set(self._settings.runtime_allowed_profiles)
-            profiles = [
-                profile
-                for profile in reported_profiles
-                if profile in allowed_profiles
-            ]
-            if not profiles:
-                raise RuntimeTargetConfigurationError(
-                    "Runtime Target supports none of RUNTIME_ALLOWED_PROFILES."
-                )
-            raw_session_count = status.get("active_session_count")
-            if type(raw_session_count) is not int or raw_session_count < 0:
-                raise RuntimeTargetConfigurationError(
-                    "Runtime Target did not return a non-negative "
-                    "active_session_count."
-                )
-            active_session_count = raw_session_count
-        except Exception as exc:
-            error = f"Probe failed ({type(exc).__name__})"
-        if error is None:
-            try:
-                resource = await driver.resource_status()
-            except Exception as exc:
-                resource_error = (
-                    f"Resource probe failed ({type(exc).__name__})"
-                )
-        else:
-            resource_error = (
-                "Resource probe skipped because health probe failed."
-            )
-        await driver.close()
-
-        async with self._session_factory() as session, session.begin():
-            target = await self._required_target(session, target_id, lock=True)
-            if target.enabled:
-                checked_at = utc_now()
-                if error is None:
-                    if target.status != RuntimeTargetStatus.DRAINING:
-                        target.status = RuntimeTargetStatus.ACTIVE
-                    target.supported_profiles = profiles
-                else:
-                    target.status = RuntimeTargetStatus.OFFLINE
-                target.last_health_check_at = checked_at
-                target.last_health_error = error
-                if error is None and active_session_count is not None:
-                    target.active_session_count = active_session_count
-                    target.session_count_observed_at = checked_at
-                target.resource_last_check_at = utc_now()
-                target.resource_last_error = resource_error
-                if resource is not None:
-                    target.resource_observed_at = resource.observed_at
-                    target.resource_source = resource_source(resource)
-                    target.resource_estimated = bool(
-                        resource.cpu.estimated or resource.memory.estimated
-                    )
-                    target.resource_process_count = resource.process_count
-                    target.cpu_used_cores = as_float(resource.cpu.used)
-                    target.cpu_capacity_cores = as_float(resource.cpu.capacity)
-                    target.cpu_utilization = resource.cpu.utilization
-                    target.memory_used_bytes = as_int(resource.memory.used)
-                    target.memory_capacity_bytes = as_int(
-                        resource.memory.capacity
-                    )
-                    target.memory_utilization = resource.memory.utilization
-                    target.resource_errors = list(
-                        resource.cpu.errors + resource.memory.errors
-                    )
-                target.updated_at = utc_now()
-                if actor_type is not None:
-                    target.updated_by_type = actor_type
-                    target.updated_by = actor_id
-            view = await self._to_view(session, target)
-            if (
-                view.session_count_fresh
-                and view.active_session_count is not None
-                and view.active_session_count > view.active_execution_count
-            ):
-                logger.warning(
-                    "Runtime session count exceeds durable reservations",
-                    extra={
-                        "runtime_target_id": str(view.id),
-                        "active_execution_count": (
-                            view.active_execution_count
-                        ),
-                        "active_session_count": view.active_session_count,
-                    },
-                )
-            return view
 
     async def disable(
         self, command: DisableRuntimeTargetCommand
@@ -622,17 +516,7 @@ class RuntimeTargetRegistry:
     async def _required_target(
         self, session: AsyncSession, target_id: UUID, *, lock: bool = False
     ) -> RuntimeTargetORM:
-        statement = select(RuntimeTargetORM).where(
-            RuntimeTargetORM.id == target_id
-        )
-        if lock:
-            statement = statement.with_for_update()
-        target = await session.scalar(statement)
-        if target is None:
-            raise RuntimeTargetNotFoundError(
-                f"Runtime Target {target_id} was not found."
-            )
-        return target
+        return await required_target(session, target_id, lock=lock)
 
     async def _to_view(
         self, session: AsyncSession, target: RuntimeTargetORM

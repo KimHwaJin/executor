@@ -19,16 +19,24 @@ from executor_service.infrastructure._runtime_registry.mappers import (
 from executor_service.infrastructure._runtime_registry.normalization import (
     normalize_connection_config,
 )
+from executor_service.infrastructure._runtime_registry.probe import (
+    RuntimeTargetProber,
+)
+from executor_service.infrastructure._runtime_registry.targets import (
+    required_target,
+)
 
 __all__ = [
     "RuntimeCommandReceipts",
     "RuntimeCredentialCipher",
+    "RuntimeTargetProber",
     "as_float",
     "as_int",
     "fingerprint",
     "normalize_connection_config",
     "pool_summary",
     "purge_view",
+    "required_target",
     "resource_source",
     "runtime_target_view",
     "secret_hash",
