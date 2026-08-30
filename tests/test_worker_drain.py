@@ -13,12 +13,12 @@ from executor_service.config import Settings
 from executor_service.container import ApplicationContainer
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.session import create_session_factory
-from executor_service.infrastructure.runtime_registry import (
-    RuntimeTargetRegistry,
-)
-from executor_service.infrastructure.worker import (
+from executor_service.infrastructure.execution_worker import (
     ExecutionWorker,
     ExpiredLeaseRecovery,
+)
+from executor_service.infrastructure.runtime_registry import (
+    RuntimeTargetRegistry,
 )
 
 

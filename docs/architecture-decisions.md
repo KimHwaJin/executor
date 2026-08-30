@@ -1,5 +1,44 @@
 # Architecture decisions
 
+## ADR-003: Decompose the Execution Worker by responsibility
+
+- Status: ACCEPTED
+- Recorded on: 2026-08-30
+
+`ExecutionWorker` remains the process-lifecycle facade, but Redis consumption,
+job dispatch, durable claiming, Runtime execution, Step result handling,
+notebook projection, cancellation, recovery, and event persistence are separate
+collaborators below `infrastructure/execution_worker/`. The split is a
+behavior-preserving refactor: REST and MCP contracts, PostgreSQL schema, Redis
+message schemas, state transitions, workspace paths, and Runtime Driver ports do
+not change.
+
+The Worker package follows these dependency rules:
+
+- `worker.py` owns lifecycle and coordinates collaborators; collaborators never
+  import the facade.
+- Redis transport code does not execute Runtime work directly. It validates and
+  acknowledges envelopes around a supplied dispatch callback.
+- Runtime execution orchestration uses the existing domain Runtime ports and
+  shared-result port. Jupyter-specific behavior remains in the Jupyter Driver.
+- Execution event persistence is isolated from Runtime execution and preserves
+  the existing per-Execution sequence and Transactional Outbox transaction.
+- Cancellation and recovery are explicit processors, not alternate branches
+  hidden inside the facade.
+- New mixins, compatibility proxy methods, and generic `utils.py` or `common.py`
+  modules are not used to disguise coupling.
+
+Tests target each collaborator through its public method. Facade tests cover
+only lifecycle, dispatch coordination, and composition. The old flat
+`infrastructure/worker.py` module is removed after all internal imports migrate;
+no compatibility shim is retained because Executor has not published that
+Python import path as a supported external API.
+
+Layer direction remains `domain <- application <- infrastructure` with inbound
+`interfaces` calling application ports. `container.py` is the composition root.
+An architecture test enforces that domain and application code do not import
+concrete infrastructure or interface adapters.
+
 ## ADR-002: Split execution storage ownership
 
 - Status: ACCEPTED

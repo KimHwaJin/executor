@@ -37,10 +37,10 @@ from executor_service.infrastructure.db.session import create_session_factory
 from executor_service.infrastructure.event_retention import (
     EventRetentionManager,
 )
+from executor_service.infrastructure.execution_worker import ExecutionWorker
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
 )
-from executor_service.infrastructure.worker import ExecutionWorker
 from tests.runtime_credentials import runtime_credential_fields
 
 pytestmark = pytest.mark.redis

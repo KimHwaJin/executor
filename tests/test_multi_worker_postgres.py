@@ -78,6 +78,7 @@ from executor_service.infrastructure.event_retention import (
 from executor_service.infrastructure.execution_leases import (
     ExecutionLeaseLostError,
 )
+from executor_service.infrastructure.execution_worker import ExecutionWorker
 from executor_service.infrastructure.maintenance import (
     ExecutorMaintenanceService,
 )
@@ -91,7 +92,6 @@ from executor_service.infrastructure.result_storage import (
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
 )
-from executor_service.infrastructure.worker import ExecutionWorker
 from executor_service.tracing import TracingManager
 from scripts.postgres_query_plan_smoke import (
     ORDERED_EVENT_PUBLICATION_QUERY,

@@ -47,10 +47,10 @@ from executor_service.infrastructure.execution_leases import (
     ExecutionLease,
     ExecutionLeaseLostError,
 )
+from executor_service.infrastructure.execution_worker import ExecutionWorker
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
 )
-from executor_service.infrastructure.worker import ExecutionWorker
 from tests.runtime_credentials import runtime_credential_fields
 
 
