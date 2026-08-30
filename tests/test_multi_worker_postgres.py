@@ -716,9 +716,9 @@ async def test_cancel_and_claim_race_has_one_consistent_terminal_result(
         claims = [task.result() for task in claim_tasks]
         await asyncio.gather(
             *(
-                workers[index % len(workers)]._runner.release_for_cancellation(
-                    claim[2]
-                )
+                workers[
+                    index % len(workers)
+                ]._runner._finalizer.release_for_cancellation(claim[2])
                 for index, claim in enumerate(claims)
                 if claim is not None
             )
