@@ -131,27 +131,44 @@ async def test_openapi_documents_all_execution_routes(
     assert docs.status_code == 200
     assert openapi.status_code == 200
     paths = openapi.json()["paths"]
+    expected_methods = {
+        "/api/v1/executions": {"get", "post"},
+        "/api/v1/executions/{execution_id}": {"get"},
+        "/api/v1/executions/{execution_id}/result": {"get"},
+        "/api/v1/executions/{execution_id}/cancel": {"post"},
+        "/api/v1/executions/{execution_id}/retry": {"post"},
+        "/api/v1/executions/{execution_id}/operations": {"get", "post"},
+        ("/api/v1/executions/{execution_id}/operations/{operation_id}"): {
+            "get"
+        },
+        (
+            "/api/v1/executions/{execution_id}/operations/"
+            "{operation_id}/result"
+        ): {"get"},
+        (
+            "/api/v1/executions/{execution_id}/operations/{operation_id}/steps"
+        ): {"get"},
+        "/api/v1/executions/{execution_id}/finalize": {"post"},
+        "/api/v1/executions/{execution_id}/notebook": {"get"},
+        ("/api/v1/executions/{execution_id}/notebook/cells/{cell_index}"): {
+            "get"
+        },
+        "/api/v1/executions/{execution_id}/steps": {"get"},
+        "/api/v1/executions/{execution_id}/steps/{step_id}": {"get"},
+        "/api/v1/executions/{execution_id}/artifacts": {"get", "post"},
+        "/api/v1/executions/{execution_id}/attempts": {"get"},
+        ("/api/v1/executions/{execution_id}/attempts/{attempt_id}"): {"get"},
+        ("/api/v1/executions/{execution_id}/attempts/{attempt_id}/steps"): {
+            "get"
+        },
+        "/api/v1/executions/{execution_id}/events": {"get"},
+        "/api/v1/artifacts/{artifact_id}": {"get"},
+        "/api/v1/artifacts/{artifact_id}/content": {"get"},
+    }
+    assert expected_methods.keys() <= paths.keys()
     assert {
-        "/api/v1/executions",
-        "/api/v1/executions/{execution_id}",
-        "/api/v1/executions/{execution_id}/result",
-        "/api/v1/executions/{execution_id}/cancel",
-        "/api/v1/executions/{execution_id}/retry",
-        "/api/v1/executions/{execution_id}/operations",
-        "/api/v1/executions/{execution_id}/operations/{operation_id}/result",
-        "/api/v1/executions/{execution_id}/finalize",
-        "/api/v1/executions/{execution_id}/notebook",
-        "/api/v1/executions/{execution_id}/notebook/cells/{cell_index}",
-        "/api/v1/executions/{execution_id}/steps",
-        "/api/v1/executions/{execution_id}/steps/{step_id}",
-        "/api/v1/executions/{execution_id}/artifacts",
-        "/api/v1/executions/{execution_id}/attempts",
-        "/api/v1/executions/{execution_id}/attempts/{attempt_id}",
-        "/api/v1/executions/{execution_id}/attempts/{attempt_id}/steps",
-        "/api/v1/executions/{execution_id}/events",
-        "/api/v1/artifacts/{artifact_id}",
-        "/api/v1/artifacts/{artifact_id}/content",
-    } <= set(paths)
+        path: set(paths[path]) for path in expected_methods
+    } == expected_methods
 
     invalid_payload = _submit_payload()
     invalid_payload["idempotency_key"] = ""

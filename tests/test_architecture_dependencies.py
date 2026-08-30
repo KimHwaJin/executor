@@ -285,6 +285,32 @@ def test_internal_contract_modules_do_not_import_public_facade() -> None:
     assert not {path: names for path, names in violations.items() if names}
 
 
+def test_execution_http_support_does_not_import_public_facade() -> None:
+    support_package = SOURCE_ROOT / "interfaces" / "http" / "_executions"
+    violations = {
+        path.name: sorted(
+            name
+            for name in _imports(path)
+            if name == "executor_service.interfaces.http.executions"
+        )
+        for path in _python_files(support_package)
+    }
+    assert not {path: names for path, names in violations.items() if names}
+
+
+def test_execution_http_facade_delegates_endpoint_contracts() -> None:
+    imports = _imports(SOURCE_ROOT / "interfaces" / "http" / "executions.py")
+    delegated = {
+        "executor_service.application.commands",
+        "executor_service.application.notebook_queries",
+        "executor_service.domain.enums",
+        "executor_service.domain.errors",
+        "executor_service.interfaces.contracts",
+        "executor_service.interfaces.http.schemas",
+    }
+    assert imports.isdisjoint(delegated)
+
+
 def test_public_contract_facade_only_reexports_internal_contracts() -> None:
     facade = SOURCE_ROOT / "interfaces" / "contracts.py"
     tree = ast.parse(facade.read_text(encoding="utf-8"), filename=str(facade))
