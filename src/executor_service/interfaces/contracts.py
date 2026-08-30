@@ -8,8 +8,6 @@ from pydantic import Field, model_validator
 
 from executor_service.application.commands import (
     MaterializeArtifactCommand,
-    StepSpec,
-    SubmitExecutionCommand,
 )
 from executor_service.application.execution_queries import (
     ExecutionArtifactView,
@@ -18,7 +16,6 @@ from executor_service.application.execution_queries import (
     ExecutionEventView,
     ExecutionOperationView,
     ExecutionStepAttemptView,
-    ExecutionSummaryView,
 )
 from executor_service.application.execution_results import (
     ExecutionResultBundle,
@@ -31,33 +28,49 @@ from executor_service.domain.enums import (
     ArtifactType,
     AttemptStatus,
     CodeSourceType,
-    ExecutionStatus,
-    FailureType,
-    OperationMode,
     OperationStatus,
     OutboxStatus,
     RetryStrategy,
     RuntimeAbortStatus,
-    RuntimePool,
     RuntimeSessionCleanupStatus,
     RuntimeType,
     StepStatus,
-    TriggerType,
 )
 from executor_service.domain.models import (
-    Execution,
     ExecutionStep,
-    NotebookProjectionStatus,
-)
-from executor_service.execution_specs import (
-    ExecutionSpec,
-    ResolvedExecutionSpec,
 )
 from executor_service.interfaces._contracts.common import (
     ActorInput,
     AuditFields,
     ContractModel,
+    Lifecycle,
     PageResponse,
+)
+from executor_service.interfaces._contracts.execution_inputs import (  # noqa: F401
+    ExecutionContext,
+    ExecutionLifecycleInput,
+    ExecutionOperationInput,
+    ExecutionRuntimeInput,
+    ExecutionSubmitRequest,
+    ExecutionTriggerInput,
+)
+from executor_service.interfaces._contracts.executions import (  # noqa: F401
+    DeadlinesResponse,
+    ExecutionCommandResponse,
+    ExecutionCommandState,
+    ExecutionLifecycleResponse,
+    ExecutionOperationReceipt,
+    ExecutionPageResponse,
+    ExecutionResponse,
+    ExecutionRuntime,
+    ExecutionState,
+    ExecutionStepReceipt,
+    ExecutionSummaryResponse,
+    FailureResponse,
+    NotebookProjectionResponse,
+    RecoveryResponse,
+    RetryResponse,
+    WorkspaceResponse,
 )
 from executor_service.interfaces._contracts.maintenance import (  # noqa: F401
     ExecutorMaintenanceResponse,
@@ -148,103 +161,6 @@ class ExecutionArtifactMaterializeRequest(ContractModel):
 
 
 
-class ExecutionContext(ContractModel):
-    user_id: str = Field(min_length=1, max_length=255)
-    task_id: str = Field(min_length=1, max_length=255)
-    project_id: str | None = Field(default=None, min_length=1, max_length=255)
-    session_id: str | None = Field(default=None, min_length=1, max_length=255)
-    workflow_id: str | None = Field(default=None, max_length=255)
-
-    @model_validator(mode="after")
-    def validate_scope(self) -> "ExecutionContext":
-        if self.session_id is not None and self.project_id is None:
-            raise ValueError("context.session_id requires context.project_id.")
-        if self.project_id == "unscoped" or self.session_id == "unscoped":
-            raise ValueError(
-                "'unscoped' is reserved for Executor workspace paths."
-            )
-        return self
-
-
-class ExecutionLifecycleInput(ContractModel):
-    operation_mode: OperationMode
-    operation_wait_timeout_seconds: int | None = Field(default=None, ge=30)
-
-    @model_validator(mode="after")
-    def validate_wait_timeout(self) -> "ExecutionLifecycleInput":
-        if self.operation_mode == OperationMode.MULTI:
-            if self.operation_wait_timeout_seconds is None:
-                raise ValueError(
-                    "MULTI lifecycle requires operation_wait_timeout_seconds."
-                )
-        elif self.operation_wait_timeout_seconds is not None:
-            raise ValueError(
-                "SINGLE lifecycle does not accept operation_wait_timeout_seconds."
-            )
-        return self
-
-
-class ExecutionTriggerInput(ContractModel):
-    type: TriggerType
-    actor: ActorInput
-
-
-class ExecutionRuntimeInput(ContractModel):
-    type: RuntimeType
-    profile: str = Field(min_length=1, max_length=128)
-
-
-class ExecutionOperationInput(ContractModel):
-    operation_timeout_seconds: int | None = Field(default=None, ge=1)
-    spec: ExecutionSpec
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-
-class ExecutionSubmitRequest(ContractModel):
-    idempotency_key: str = Field(min_length=1, max_length=255)
-    lifecycle: ExecutionLifecycleInput
-    trigger: ExecutionTriggerInput
-    runtime: ExecutionRuntimeInput
-    context: ExecutionContext
-    operation: ExecutionOperationInput
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-    def to_command(
-        self, resolved: ResolvedExecutionSpec
-    ) -> SubmitExecutionCommand:
-        return SubmitExecutionCommand(
-            idempotency_key=self.idempotency_key,
-            operation_mode=self.lifecycle.operation_mode,
-            operation_wait_timeout_seconds=self.lifecycle.operation_wait_timeout_seconds,
-            trigger_type=self.trigger.type,
-            runtime_type=self.runtime.type,
-            runtime_profile=self.runtime.profile,
-            user_id=self.context.user_id,
-            project_id=self.context.project_id,
-            session_id=self.context.session_id,
-            task_id=self.context.task_id,
-            spec_schema_version=resolved.spec.schema_version,
-            operation_timeout_seconds=self.operation.operation_timeout_seconds,
-            actor_type=self.trigger.actor.type,
-            actor_id=self.trigger.actor.id,
-            workflow_id=self.context.workflow_id,
-            metadata=self.metadata,
-            operation_metadata=self.operation.metadata,
-            steps=tuple(
-                StepSpec(
-                    sequence=step.sequence,
-                    code=step.content,
-                    source_type=step.source_type,
-                    source_path=step.source_path,
-                    source_sha256=step.source_sha256,
-                    step_timeout_seconds=step.step_timeout_seconds,
-                    skill_name=step.skill_name,
-                    tool_name=step.tool_name,
-                    input_parameters=step.input_parameters,
-                )
-                for step in resolved.steps
-            ),
-        )
 
 
 
@@ -279,11 +195,6 @@ class StepResultSummary(ContractModel):
 
 class StepResult(StepResultSummary):
     result_ref: StepResultReference | None
-
-
-class Lifecycle(ContractModel):
-    started_at: datetime | None
-    finished_at: datetime | None
 
 
 class ExecutionStepResponse(AuditFields):
@@ -405,272 +316,6 @@ class StepSourceResponse(ContractModel):
     type: CodeSourceType
     path: str | None
     sha256: str
-
-
-class ExecutionRuntime(ContractModel):
-    type: RuntimeType
-    pool: RuntimePool
-    profile: str
-    target_id: UUID | None
-    session_id: str | None
-
-
-class ExecutionState(ContractModel):
-    status: ExecutionStatus
-    version: int
-    cancellation_reason: str | None
-
-
-class ExecutionCommandState(ContractModel):
-    status: ExecutionStatus
-    version: int
-
-
-class NotebookProjectionResponse(ContractModel):
-    status: NotebookProjectionStatus
-    attempt_count: int
-    error_message: str | None
-    projected_at: datetime | None
-
-
-class WorkspaceResponse(ContractModel):
-    path: str | None
-    notebook_path: str | None
-    notebook_projection: NotebookProjectionResponse
-
-
-class FailureResponse(ContractModel):
-    type: FailureType
-    message: str
-
-
-class RetryResponse(ContractModel):
-    strategy: RetryStrategy
-    count: int
-    from_sequence: int | None
-    retained_runtime_session_until: datetime | None
-
-
-class RecoveryResponse(ContractModel):
-    count: int
-    runtime_session_cleanup_status: RuntimeSessionCleanupStatus
-    runtime_abort_status: RuntimeAbortStatus
-
-
-class DeadlinesResponse(ContractModel):
-    operation_wait_expires_at: datetime | None
-    execution_expires_at: datetime | None
-
-
-class ExecutionLifecycleResponse(ContractModel):
-    operation_mode: OperationMode
-    operation_wait_timeout_seconds: int | None
-    started_at: datetime | None
-    finished_at: datetime | None
-
-
-def _execution_common(
-    execution: Execution | ExecutionDetailView,
-) -> dict[str, Any]:
-    failure = None
-    if (
-        execution.failure_type is not None
-        and execution.error_message is not None
-    ):
-        failure = FailureResponse(
-            type=execution.failure_type, message=execution.error_message
-        )
-    return {
-        "execution_id": execution.id,
-        "lifecycle": ExecutionLifecycleResponse(
-            operation_mode=execution.operation_mode,
-            operation_wait_timeout_seconds=execution.operation_wait_timeout_seconds,
-            started_at=execution.started_at,
-            finished_at=execution.finished_at,
-        ),
-        "trigger_type": execution.trigger_type,
-        "context": ExecutionContext(
-            user_id=execution.user_id,
-            project_id=execution.project_id,
-            session_id=execution.session_id,
-            task_id=execution.task_id,
-            workflow_id=execution.workflow_id,
-        ),
-        "runtime": ExecutionRuntime(
-            type=execution.runtime_type,
-            pool=execution.runtime_pool,
-            profile=execution.runtime_profile,
-            target_id=execution.runtime_target_id,
-            session_id=execution.runtime_session_id,
-        ),
-        "state": ExecutionState(
-            status=execution.status,
-            version=execution.version,
-            cancellation_reason=execution.cancellation_reason,
-        ),
-        "failure": failure,
-        "retry": RetryResponse(
-            strategy=execution.retry_strategy,
-            count=execution.retry_count,
-            from_sequence=execution.retry_from_sequence,
-            retained_runtime_session_until=execution.retained_runtime_session_until,
-        ),
-        "created_by_type": execution.created_by_type,
-        "created_by": execution.created_by,
-        "updated_by_type": execution.updated_by_type,
-        "updated_by": execution.updated_by,
-        "created_at": execution.created_at,
-        "updated_at": execution.updated_at,
-    }
-
-
-class ExecutionStepReceipt(ContractModel):
-    sequence: int
-    step_id: UUID
-
-
-class ExecutionOperationReceipt(ContractModel):
-    operation_id: UUID
-    steps: list[ExecutionStepReceipt]
-
-
-class ExecutionCommandResponse(AuditFields):
-    execution_id: UUID
-    operation: "ExecutionOperationReceipt | None"
-    state: ExecutionCommandState
-
-    @classmethod
-    def from_domain(
-        cls, execution: Execution, *, operation_id: UUID | None = None
-    ) -> "ExecutionCommandResponse":
-        return cls(
-            execution_id=execution.id,
-            operation=(
-                ExecutionOperationReceipt(
-                    operation_id=operation_id,
-                    steps=[
-                        ExecutionStepReceipt(
-                            sequence=step.sequence, step_id=step.id
-                        )
-                        for step in execution.steps
-                        if step.operation_id == operation_id
-                    ],
-                )
-                if operation_id is not None
-                else None
-            ),
-            state=ExecutionCommandState(
-                status=execution.status,
-                version=execution.version,
-            ),
-            created_by_type=execution.created_by_type,
-            created_by=execution.created_by,
-            updated_by_type=execution.updated_by_type,
-            updated_by=execution.updated_by,
-            created_at=execution.created_at,
-            updated_at=execution.updated_at,
-        )
-
-
-class ExecutionResponse(AuditFields):
-    execution_id: UUID
-    trigger_type: TriggerType
-    context: ExecutionContext
-    runtime: ExecutionRuntime
-    state: ExecutionState
-    workspace: WorkspaceResponse
-    failure: FailureResponse | None
-    retry: RetryResponse
-    recovery: RecoveryResponse
-    deadlines: DeadlinesResponse
-    lifecycle: ExecutionLifecycleResponse
-
-    @classmethod
-    def from_view(
-        cls, execution: ExecutionDetailView | Execution
-    ) -> "ExecutionResponse":
-        return cls(
-            **_execution_common(execution),
-            workspace=WorkspaceResponse(
-                path=execution.workspace_path,
-                notebook_path=execution.notebook_path,
-                notebook_projection=NotebookProjectionResponse(
-                    status=execution.notebook_projection_status,
-                    attempt_count=(
-                        execution.notebook_projection_attempt_count
-                    ),
-                    error_message=execution.notebook_projection_error,
-                    projected_at=execution.notebook_projected_at,
-                ),
-            ),
-            recovery=RecoveryResponse(
-                count=execution.recovery_count,
-                runtime_session_cleanup_status=execution.runtime_session_cleanup_status,
-                runtime_abort_status=execution.runtime_abort_status,
-            ),
-            deadlines=DeadlinesResponse(
-                operation_wait_expires_at=execution.operation_wait_expires_at,
-                execution_expires_at=execution.execution_expires_at,
-            ),
-        )
-
-
-class ExecutionSummaryResponse(AuditFields):
-    execution_id: UUID
-    operation_mode: OperationMode
-    trigger_type: TriggerType
-    context: ExecutionContext
-    state: ExecutionCommandState
-    lifecycle: Lifecycle
-    step_count: int
-
-    @classmethod
-    def from_view(
-        cls, execution: ExecutionSummaryView
-    ) -> "ExecutionSummaryResponse":
-        return cls(
-            execution_id=execution.id,
-            operation_mode=execution.operation_mode,
-            trigger_type=execution.trigger_type,
-            context=ExecutionContext(
-                user_id=execution.user_id,
-                project_id=execution.project_id,
-                session_id=execution.session_id,
-                task_id=execution.task_id,
-                workflow_id=execution.workflow_id,
-            ),
-            state=ExecutionCommandState(
-                status=execution.status,
-                version=execution.version,
-            ),
-            lifecycle=Lifecycle(
-                started_at=execution.started_at,
-                finished_at=execution.finished_at,
-            ),
-            step_count=execution.step_count,
-            created_by_type=execution.created_by_type,
-            created_by=execution.created_by,
-            updated_by_type=execution.updated_by_type,
-            updated_by=execution.updated_by,
-            created_at=execution.created_at,
-            updated_at=execution.updated_at,
-        )
-
-
-class ExecutionPageResponse(PageResponse):
-    items: list[ExecutionSummaryResponse]
-
-    @classmethod
-    def from_page(
-        cls, page: Page[ExecutionSummaryView]
-    ) -> "ExecutionPageResponse":
-        return cls(
-            items=[
-                ExecutionSummaryResponse.from_view(item) for item in page.items
-            ],
-            next_cursor=page.next_cursor,
-            has_more=page.next_cursor is not None,
-        )
 
 
 class ExecutionStepAttemptResponse(AuditFields):
