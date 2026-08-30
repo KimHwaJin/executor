@@ -31,6 +31,7 @@ from executor_service.infrastructure.event_retention import (
 from executor_service.infrastructure.execution_queries import (
     SQLAlchemyExecutionQueryService,
 )
+from executor_service.infrastructure.execution_worker import ExecutionWorker
 from executor_service.infrastructure.maintenance import (
     ExecutorMaintenanceService,
 )
@@ -53,7 +54,6 @@ from executor_service.infrastructure.runtime_registry import (
 from executor_service.infrastructure.runtime_storage import (
     FleetRuntimeStorageAccess,
 )
-from executor_service.infrastructure.worker import ExecutionWorker
 from executor_service.tracing import TracingManager
 
 EXPECTED_SCHEMA_REVISION = "0002"

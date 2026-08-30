@@ -37,10 +37,10 @@ from executor_service.infrastructure.db.session import create_session_factory
 from executor_service.infrastructure.event_retention import (
     EventRetentionManager,
 )
+from executor_service.infrastructure.execution_worker import ExecutionWorker
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
 )
-from executor_service.infrastructure.worker import ExecutionWorker
 from tests.runtime_credentials import runtime_credential_fields
 
 pytestmark = pytest.mark.redis
@@ -180,7 +180,7 @@ def _worker(
         artifact_manager=ExecutionArtifactManager(session_factory),
     )
     # These tests exercise active-Worker internals without starting background loops.
-    worker._accepting_work = True
+    worker._dispatcher.set_accepting(True)
     worker._stopped = False
     return worker
 
@@ -259,7 +259,7 @@ async def test_stale_pending_message_is_reclaimed_and_acked_once(
         dispatched.append(dispatched_execution_id)
         coroutine.close()
 
-    monkeypatch.setattr(worker, "_dispatch", record_dispatch)
+    monkeypatch.setattr(worker._dispatcher, "dispatch", record_dispatch)
     try:
         await redis_client.xgroup_create(stream, group, id="0", mkstream=True)
         await redis_client.xadd(
@@ -274,8 +274,8 @@ async def test_stale_pending_message_is_reclaimed_and_acked_once(
         assert delivered
         await asyncio.sleep(0.01)
 
-        assert await worker._recover_pending_messages() == 1
-        assert await worker._recover_pending_messages() == 0
+        assert await worker._stream_consumer.recover_pending_messages() == 1
+        assert await worker._stream_consumer.recover_pending_messages() == 0
         assert dispatched == [execution_id]
         assert (
             await redis_client.xpending_range(stream, group, "-", "+", 10)
@@ -329,7 +329,7 @@ async def test_invalid_message_is_safely_dead_lettered(
             count=1,
         )
         assert delivered
-        await worker._process_stream_message(message_id, fields)
+        await worker._stream_consumer.process_message(message_id, fields)
 
         assert (
             await redis_client.xpending_range(stream, group, "-", "+", 10)
@@ -380,13 +380,13 @@ async def test_duplicate_dispatch_keeps_one_active_job(
     await worker._handle_work_message(fields)
     await started.wait()
     await worker._handle_work_message(fields)
-    assert len(worker._jobs) == 1
+    assert worker.active_job_count == 1
     assert invocations == 1
 
     release.set()
-    await asyncio.gather(*worker._jobs.values())
+    await worker._dispatcher.wait_idle()
     await asyncio.sleep(0)
-    assert worker._jobs == {}
+    assert worker.active_job_count == 0
 
 
 async def test_two_workers_create_only_one_execution_attempt(

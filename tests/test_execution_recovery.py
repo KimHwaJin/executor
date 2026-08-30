@@ -47,10 +47,10 @@ from executor_service.infrastructure.execution_leases import (
     ExecutionLease,
     ExecutionLeaseLostError,
 )
+from executor_service.infrastructure.execution_worker import ExecutionWorker
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
 )
-from executor_service.infrastructure.worker import ExecutionWorker
 from tests.runtime_credentials import runtime_credential_fields
 
 
@@ -194,7 +194,7 @@ async def test_expired_lease_is_failed_once_and_can_restart_from_zero(
         await worker._recover_expired_leases()
         await worker._recover_expired_leases()
         with pytest.raises(ExecutionLeaseLostError):
-            await worker._step_succeeded(
+            await worker._step_executor.mark_succeeded(
                 stale_lease,
                 0,
                 cast(StepResultDescriptor, None),

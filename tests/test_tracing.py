@@ -30,11 +30,11 @@ from executor_service.infrastructure.db.models import (
     OutboxEventORM,
 )
 from executor_service.infrastructure.db.session import create_session_factory
+from executor_service.infrastructure.execution_worker import ExecutionWorker
 from executor_service.infrastructure.outbox import OutboxPublisher
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
 )
-from executor_service.infrastructure.worker import ExecutionWorker
 from executor_service.tracing import (
     TraceContextMiddleware,
     TracingManager,
@@ -146,7 +146,7 @@ async def test_trace_context_survives_outbox_redis_and_worker_boundary(
             with tracing.span("executor.worker.dispatched"):
                 pass
 
-        monkeypatch.setattr(worker, "_dispatch", record_dispatch)
+        monkeypatch.setattr(worker._dispatcher, "dispatch", record_dispatch)
         await worker._handle_work_message(work_fields)
         await redis.aclose()
         assert await tracing.force_flush()

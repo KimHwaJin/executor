@@ -1,24 +1,17 @@
 """Redis-triggered Runtime execution worker with PostgreSQL leases."""
 
 import asyncio
-import base64
-import json
 import logging
 import os
 import socket
-from collections.abc import AsyncIterator, Awaitable, Coroutine
+from collections.abc import AsyncIterator, Awaitable
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any
 from uuid import UUID, uuid4
 
 from opentelemetry.trace import SpanKind
 from redis.asyncio import Redis
-from redis.exceptions import ResponseError
 from sqlalchemy import func, or_, select, update
-from sqlalchemy.dialects.postgresql import insert as postgresql_insert
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
 
@@ -30,7 +23,6 @@ from executor_service.domain.enums import (
     FailureType,
     OperationMode,
     OperationStatus,
-    OutboxDestination,
     RetryStrategy,
     RuntimeAbortStatus,
     RuntimePool,
@@ -40,17 +32,10 @@ from executor_service.domain.enums import (
 )
 from executor_service.domain.models import (
     Execution,
-    ExecutionStep,
-    NotebookProjectionStatus,
-    empty_output_summary,
     utc_now,
 )
 from executor_service.domain.results import (
     ExecutionResultStore,
-    ExecutionSourceReference,
-    StepResultDescriptor,
-    StepResultIdentity,
-    StepResultReference,
 )
 from executor_service.domain.runtime import (
     RuntimeAbortResult,
@@ -58,25 +43,14 @@ from executor_service.domain.runtime import (
     RuntimeDriverError,
     RuntimeDriverFactory,
     RuntimeExecutionError,
-    RuntimeExecutionTimeoutError,
-    RuntimeNotebookPreparer,
-    RuntimeNotebookSourceCell,
-    RuntimeOutputLimitExceededError,
-    RuntimeOutputRecord,
-    RuntimeOutputRepresentation,
-    RuntimeStreamingExecutor,
 )
-from executor_service.events import build_execution_event
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
-    ExecutionEventORM,
-    ExecutionEventSequenceORM,
     ExecutionOperationORM,
     ExecutionORM,
     ExecutionStepAttemptORM,
     ExecutionStepORM,
-    OutboxEventORM,
     RuntimeTargetORM,
 )
 from executor_service.infrastructure.execution_leases import (
@@ -85,6 +59,47 @@ from executor_service.infrastructure.execution_leases import (
     ExecutionLeaseLostError,
     require_active_cancellation_lease,
     require_active_lease,
+)
+from executor_service.infrastructure.execution_worker.dispatcher import (
+    ExecutionJobDispatcher,
+)
+from executor_service.infrastructure.execution_worker.event_writer import (
+    add_execution_completed_event,
+    add_operation_completed_event,
+    add_step_history_completed_event,
+)
+from executor_service.infrastructure.execution_worker.failure_policy import (
+    failure_policy as _failure_policy,
+)
+from executor_service.infrastructure.execution_worker.failure_policy import (
+    safe_error as _safe_error,
+)
+from executor_service.infrastructure.execution_worker.lease_heartbeat import (
+    LeaseHeartbeatManager,
+)
+from executor_service.infrastructure.execution_worker.message_validation import (
+    RUN_MESSAGE_TYPES,
+)
+from executor_service.infrastructure.execution_worker.notebook_projector import (
+    NotebookProjector,
+)
+from executor_service.infrastructure.execution_worker.step_executor import (
+    ExecutionStepExecutor,
+)
+from executor_service.infrastructure.execution_worker.stream_consumer import (
+    WorkStreamConsumer,
+)
+from executor_service.infrastructure.execution_worker.target_selector import (
+    RuntimeTargetSelector,
+)
+from executor_service.infrastructure.execution_worker.types import (
+    CancellationWork,
+    ExpiredLeaseRecovery,
+    RetainedRuntimeSessionLostError,
+    RuntimeAbortResolution,
+    StoredRuntimeExecutionError,
+    StoredRuntimeExecutionTimeoutError,
+    StoredRuntimeOutputLimitExceededError,
 )
 from executor_service.infrastructure.maintenance import (
     ExecutorMaintenanceService,
@@ -95,10 +110,6 @@ from executor_service.infrastructure.maintenance_runs import (
 from executor_service.infrastructure.result_storage import (
     FilesystemExecutionResultStore,
 )
-from executor_service.infrastructure.runtime_admission import (
-    admission_used_count,
-    count_runtime_reservations,
-)
 from executor_service.infrastructure.runtime_drivers import (
     ConfiguredRuntimeDriverFactory,
 )
@@ -106,87 +117,14 @@ from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
 )
 from executor_service.infrastructure.workspace import (
-    ExecutionWorkspace,
     WorkspaceManager,
 )
 from executor_service.tracing import (
     TracingManager,
-    capture_trace_carrier,
     extract_trace_context,
-)
-from executor_service.work_messages import (
-    WORK_MESSAGE_SCHEMA_VERSION,
-    WorkStreamEnvelope,
 )
 
 logger = logging.getLogger(__name__)
-
-DISPATCH_MESSAGE_TYPES = frozenset(
-    {
-        "operation.ready",
-        "execution.finalization_ready",
-        "execution.retry_ready",
-        "execution.cancellation_ready",
-    }
-)
-RUN_MESSAGE_TYPES = DISPATCH_MESSAGE_TYPES - {"execution.cancellation_ready"}
-
-
-class RetainedRuntimeSessionLostError(RuntimeDriverError):
-    """Raised when a retained-session retry reaches its target but the session is gone."""
-
-
-@dataclass(frozen=True, slots=True)
-class RuntimeAbortResolution:
-    abort_status: RuntimeAbortStatus
-    cleanup_status: RuntimeSessionCleanupStatus
-    retry_strategy: RetryStrategy
-    retain_session: bool
-
-
-@dataclass(frozen=True, slots=True)
-class CancellationWork:
-    lease: CancellationLease
-    runtime_target_id: UUID | None
-    runtime_session_id: str | None
-
-
-@dataclass(frozen=True, slots=True)
-class ExpiredLeaseRecovery:
-    execution_count: int
-    cleanup_targets: tuple[tuple[UUID, UUID | None, UUID, str], ...]
-
-
-class StoredRuntimeExecutionError(RuntimeExecutionError):
-    def __init__(
-        self,
-        message: str,
-        outputs: list[dict[str, Any]],
-        stored_result: StepResultDescriptor,
-    ) -> None:
-        super().__init__(message, outputs)
-        self.stored_result = stored_result
-
-
-class StoredRuntimeExecutionTimeoutError(RuntimeExecutionTimeoutError):
-    def __init__(
-        self,
-        scope: str,
-        timeout_seconds: float,
-        stored_result: StepResultDescriptor,
-    ) -> None:
-        super().__init__(scope, timeout_seconds)
-        self.stored_result = stored_result
-
-
-class StoredRuntimeOutputLimitExceededError(RuntimeOutputLimitExceededError):
-    def __init__(
-        self,
-        max_message_bytes: int,
-        stored_result: StepResultDescriptor,
-    ) -> None:
-        super().__init__(max_message_bytes)
-        self.stored_result = stored_result
 
 
 class ExecutionWorker:
@@ -203,7 +141,6 @@ class ExecutionWorker:
         maintenance_runs: MaintenanceRunService | None = None,
     ) -> None:
         self._session_factory = session_factory
-        self._redis = redis
         self._settings = settings
         self._registry = registry
         self._driver_factory = (
@@ -216,26 +153,45 @@ class ExecutionWorker:
         self._tracing = tracing or TracingManager(settings)
         self._maintenance_runs = maintenance_runs
         self._workspace = WorkspaceManager()
+        self._notebook_projector = NotebookProjector(
+            session_factory,
+            self._result_store,
+            self._workspace,
+            artifact_manager,
+            self._tracing,
+        )
+        self._step_executor = ExecutionStepExecutor(
+            session_factory,
+            self._result_store,
+        )
+        self._target_selector = RuntimeTargetSelector(settings)
+        self._lease_heartbeat = LeaseHeartbeatManager(
+            session_factory,
+            settings,
+        )
         self._consumer_name = settings.execution_consumer_name or (
             f"{socket.gethostname()}-{os.getpid()}"
         )
+        self._stream_consumer = WorkStreamConsumer(
+            redis,
+            settings,
+            self._consumer_name,
+            self._tracing,
+            self._handle_work_message,
+        )
+        self._dispatcher = ExecutionJobDispatcher()
         self._stop_event = asyncio.Event()
         self._admission_loops: list[asyncio.Task[None]] = []
         self._maintenance_loops: list[asyncio.Task[None]] = []
-        self._jobs: dict[UUID, asyncio.Task[None]] = {}
-        self._jobs_idle = asyncio.Event()
-        self._jobs_idle.set()
-        self._accepting_work = False
         self._draining = False
         self._stopped = True
-        self._pending_claim_cursor = "0-0"
         self._startup_reconciliation_completed_at: datetime | None = None
         self._startup_recovered_execution_count = 0
         self._startup_cleanup_target_count = 0
 
     @property
     def accepting_work(self) -> bool:
-        return self._accepting_work
+        return self._dispatcher.accepting
 
     @property
     def draining(self) -> bool:
@@ -243,7 +199,7 @@ class ExecutionWorker:
 
     @property
     def active_job_count(self) -> int:
-        return len(self._jobs)
+        return self._dispatcher.active_job_count
 
     @property
     def startup_reconciliation_completed_at(self) -> datetime | None:
@@ -271,7 +227,7 @@ class ExecutionWorker:
             return "STOPPED"
         if self._draining:
             return "DRAINING"
-        if self._accepting_work:
+        if self.accepting_work:
             return "ACCEPTING"
         return "STARTING"
 
@@ -282,11 +238,11 @@ class ExecutionWorker:
             or self._maintenance_loops
         ):
             return
-        await self._ensure_consumer_group()
+        await self._stream_consumer.ensure_group()
         self._stop_event.clear()
         self._stopped = False
         self._draining = False
-        self._accepting_work = False
+        self._dispatcher.set_accepting(False)
         self._startup_reconciliation_completed_at = None
         self._startup_recovered_execution_count = 0
         self._startup_cleanup_target_count = 0
@@ -332,13 +288,14 @@ class ExecutionWorker:
                     name="maintenance-run-reconciler",
                 )
             )
-        self._accepting_work = True
+        self._dispatcher.set_accepting(True)
         self._admission_loops = [
             asyncio.create_task(
-                self._stream_loop(), name="execution-stream-consumer"
+                self._stream_consumer.run(self._stop_event),
+                name="execution-stream-consumer",
             ),
             asyncio.create_task(
-                self._pending_recovery_loop(),
+                self._stream_consumer.pending_recovery_loop(self._stop_event),
                 name="execution-pending-recovery",
             ),
             asyncio.create_task(
@@ -349,7 +306,7 @@ class ExecutionWorker:
     async def begin_drain(self) -> None:
         if self._stopped or self._draining:
             return
-        self._accepting_work = False
+        self._dispatcher.set_accepting(False)
         self._draining = True
         logger.info(
             "Executor Worker drain started",
@@ -358,15 +315,15 @@ class ExecutionWorker:
         await self._cancel_tasks(self._admission_loops)
 
     async def stop(self) -> None:
-        if self._stopped and not self._jobs:
+        if self._stopped and self.active_job_count == 0:
             return
         await self.begin_drain()
-        if self._jobs:
+        if self.active_job_count:
             try:
                 async with asyncio.timeout(
                     self._settings.execution_drain_timeout_seconds
                 ):
-                    await self._jobs_idle.wait()
+                    await self._dispatcher.wait_idle()
             except TimeoutError:
                 logger.warning(
                     "Executor Worker drain deadline exceeded; cancelling remaining jobs",
@@ -374,11 +331,9 @@ class ExecutionWorker:
                 )
         self._stop_event.set()
         await self._cancel_tasks(self._maintenance_loops)
-        if self._jobs:
-            for task in self._jobs.values():
-                task.cancel()
-            await asyncio.gather(*self._jobs.values(), return_exceptions=True)
-        self._accepting_work = False
+        if self.active_job_count:
+            await self._dispatcher.cancel_all()
+        self._dispatcher.set_accepting(False)
         self._draining = False
         self._stopped = True
         logger.info("Executor Worker stopped")
@@ -389,134 +344,6 @@ class ExecutionWorker:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
         tasks.clear()
-
-    async def _ensure_consumer_group(self) -> None:
-        try:
-            await self._redis.xgroup_create(
-                self._settings.redis_work_stream,
-                self._settings.execution_consumer_group,
-                id="0",
-                mkstream=True,
-            )
-        except ResponseError as exc:
-            if "BUSYGROUP" not in str(exc):
-                raise
-
-    async def _stream_loop(self) -> None:
-        while not self._stop_event.is_set():
-            try:
-                batches = await self._redis.xreadgroup(
-                    groupname=self._settings.execution_consumer_group,
-                    consumername=self._consumer_name,
-                    streams={self._settings.redis_work_stream: ">"},
-                    count=20,
-                    block=1000,
-                )
-                for _stream, messages in batches:
-                    for message_id, fields in messages:
-                        await self._process_stream_message(message_id, fields)
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                logger.exception("Execution stream consumer failed")
-                await asyncio.sleep(1)
-
-    async def _pending_recovery_loop(self) -> None:
-        while not self._stop_event.is_set():
-            try:
-                await self._recover_pending_messages()
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                logger.exception("Execution pending-message recovery failed")
-            try:
-                await asyncio.wait_for(
-                    self._stop_event.wait(),
-                    timeout=self._settings.execution_pending_claim_interval_seconds,
-                )
-            except TimeoutError:
-                pass
-
-    async def _recover_pending_messages(self) -> int:
-        result = await self._redis.xautoclaim(
-            self._settings.redis_work_stream,
-            self._settings.execution_consumer_group,
-            self._consumer_name,
-            min_idle_time=self._settings.execution_pending_claim_idle_milliseconds,
-            start_id=self._pending_claim_cursor,
-            count=self._settings.execution_pending_claim_batch_size,
-        )
-        next_cursor = result[0]
-        messages = result[1]
-        self._pending_claim_cursor = str(next_cursor)
-        reclaimed = 0
-        for message_id, fields in messages:
-            reclaimed += 1
-            await self._process_stream_message(message_id, fields)
-        return reclaimed
-
-    async def _process_stream_message(
-        self,
-        message_id: str,
-        fields: dict[str, str],
-    ) -> None:
-        invalid_reason = _invalid_work_message_reason(fields)
-        if invalid_reason is not None:
-            try:
-                await self._dead_letter(message_id, fields, invalid_reason)
-                await self._ack_message(message_id)
-            except Exception:
-                logger.exception(
-                    "Execution work message DLQ delivery failed",
-                    extra={"message_id": message_id, "reason": invalid_reason},
-                )
-                return
-            return
-        try:
-            await self._handle_work_message(fields)
-        except Exception:
-            logger.exception(
-                "Execution work message handling failed",
-                extra={"message_id": message_id},
-            )
-            return
-        await self._ack_message(message_id)
-
-    async def _ack_message(self, message_id: str) -> None:
-        await self._redis.xack(
-            self._settings.redis_work_stream,
-            self._settings.execution_consumer_group,
-            message_id,
-        )
-
-    async def _dead_letter(
-        self,
-        message_id: str,
-        fields: dict[str, str],
-        reason: str,
-    ) -> None:
-        context = extract_trace_context(fields)
-        with self._tracing.span(
-            "executor.redis.dead_letter",
-            context=context,
-            kind=SpanKind.PRODUCER,
-            attributes={"executor.event.failure.reason": reason},
-        ):
-            await self._redis.xadd(
-                self._settings.redis_work_dead_letter_stream,
-                {
-                    "source_stream": self._settings.redis_work_stream,
-                    "source_message_id": message_id,
-                    "message_id": _valid_uuid_or_empty(
-                        fields.get("message_id")
-                    ),
-                    "aggregate_id": _valid_uuid_or_empty(
-                        fields.get("aggregate_id")
-                    ),
-                    "reason": reason,
-                    "dead_lettered_at": utc_now().isoformat(),
-                },
-            )
 
     async def _handle_work_message(self, fields: dict[str, str]) -> bool:
         message_type = fields.get("message_type")
@@ -532,9 +359,11 @@ class ExecutionWorker:
             },
         ):
             if message_type in RUN_MESSAGE_TYPES:
-                self._dispatch(execution_id, self._run_execution(execution_id))
+                self._dispatcher.dispatch(
+                    execution_id, self._run_execution(execution_id)
+                )
             elif message_type == "execution.cancellation_ready":
-                self._dispatch(
+                self._dispatcher.dispatch(
                     execution_id,
                     self._cancel_execution(execution_id),
                     replace=True,
@@ -583,13 +412,13 @@ class ExecutionWorker:
                         },
                     ):
                         if status == ExecutionStatus.CANCEL_REQUESTED:
-                            self._dispatch(
+                            self._dispatcher.dispatch(
                                 execution_id,
                                 self._cancel_execution(execution_id),
                                 replace=True,
                             )
                         else:
-                            self._dispatch(
+                            self._dispatcher.dispatch(
                                 execution_id, self._run_execution(execution_id)
                             )
             except asyncio.CancelledError:
@@ -642,73 +471,6 @@ class ExecutionWorker:
             except Exception:
                 logger.exception("Maintenance Run reconciliation failed")
             await asyncio.sleep(self._settings.execution_heartbeat_seconds)
-
-    def _dispatch(
-        self,
-        execution_id: UUID,
-        coroutine: Coroutine[Any, Any, None],
-        *,
-        replace: bool = False,
-    ) -> None:
-        current = self._jobs.get(execution_id)
-        if not self._accepting_work and not replace:
-            coroutine.close()
-            return
-        if current is not None and not current.done():
-            if replace:
-                if current.get_name() == f"cancellation-{execution_id}":
-                    coroutine.close()
-                    return
-                current.cancel()
-                task = asyncio.create_task(
-                    self._handoff_to_cancellation(current, coroutine),
-                    name=f"cancellation-{execution_id}",
-                )
-                self._jobs[execution_id] = task
-                self._jobs_idle.clear()
-                task.add_done_callback(
-                    lambda done: self._remove_job_if_current(
-                        execution_id, done
-                    )
-                )
-            else:
-                coroutine.close()
-            return
-        task = asyncio.create_task(
-            coroutine,
-            name=(
-                f"cancellation-{execution_id}"
-                if replace
-                else f"execution-{execution_id}"
-            ),
-        )
-        self._jobs[execution_id] = task
-        self._jobs_idle.clear()
-        task.add_done_callback(
-            lambda done: self._remove_job_if_current(execution_id, done)
-        )
-
-    @staticmethod
-    async def _handoff_to_cancellation(
-        previous: asyncio.Task[None],
-        cancellation: Coroutine[Any, Any, None],
-    ) -> None:
-        cancellation_started = False
-        try:
-            await asyncio.gather(previous, return_exceptions=True)
-            cancellation_started = True
-            await cancellation
-        finally:
-            if not cancellation_started:
-                cancellation.close()
-
-    def _remove_job_if_current(
-        self, execution_id: UUID, task: asyncio.Task[None]
-    ) -> None:
-        if self._jobs.get(execution_id) is task:
-            self._jobs.pop(execution_id, None)
-            if not self._jobs:
-                self._jobs_idle.set()
 
     async def _run_execution(self, execution_id: UUID) -> None:
         pool = await self._execution_pool(execution_id)
@@ -769,7 +531,7 @@ class ExecutionWorker:
             driver = self._create_driver(target)
             runtime_session_id: str | None = None
             heartbeat = asyncio.create_task(
-                self._heartbeat(lease),
+                self._lease_heartbeat.run_execution(lease),
                 name=f"heartbeat-{execution.id}",
             )
             failed_sequence: int | None = None
@@ -812,7 +574,7 @@ class ExecutionWorker:
                     step.sequence: step for step in execution.steps
                 }
                 source_references = {
-                    sequence: self._step_source_reference(step)
+                    sequence: self._step_executor.source_reference(step)
                     for sequence, step in steps_by_sequence.items()
                 }
                 cells = [
@@ -821,8 +583,8 @@ class ExecutionWorker:
                     )
                     for sequence in range(len(steps_by_sequence))
                 ]
-                await self._ensure_steps(lease, len(cells))
-                await self._prepare_execution_notebook(
+                await self._step_executor.ensure_count(lease, len(cells))
+                await self._notebook_projector.prepare(
                     driver,
                     lease,
                     execution.id,
@@ -847,7 +609,7 @@ class ExecutionWorker:
                     raise RuntimeError(
                         "Runtime session ID was not established."
                     )
-                await self._record_runtime_session(
+                await self._step_executor.record_runtime_session(
                     lease,
                     runtime_session_id,
                     workspace.runtime_relative_path,
@@ -858,17 +620,17 @@ class ExecutionWorker:
                     artifact_snapshot = await self._artifacts.snapshot(
                         driver, workspace
                     )
-                    await self._step_started(lease, sequence)
+                    await self._step_executor.mark_started(lease, sequence)
                     try:
                         result = await self._trace_runtime(
                             "executor.runtime.code.execute",
-                            self._execute_runtime_step(
+                            self._step_executor.execute(
                                 driver,
                                 runtime_session_id,
                                 code,
                                 execution.id,
                                 sequence,
-                                result_identity=self._step_result_identity(
+                                result_identity=self._step_executor.result_identity(
                                     steps_by_sequence[sequence], lease
                                 ),
                                 source_reference=source_references[sequence],
@@ -910,13 +672,13 @@ class ExecutionWorker:
                         raise
                     except StoredRuntimeExecutionError as exc:
                         failed_sequence = sequence
-                        await self._step_failed(
+                        await self._step_executor.mark_failed(
                             lease,
                             sequence,
                             exc.stored_result,
                             str(exc),
                         )
-                        await self._write_execution_notebook(
+                        await self._notebook_projector.project(
                             driver,
                             lease,
                             execution.runtime_profile,
@@ -942,12 +704,12 @@ class ExecutionWorker:
                                 extra={"execution_id": str(execution.id)},
                             )
                         raise
-                    await self._step_succeeded(
+                    await self._step_executor.mark_succeeded(
                         lease,
                         sequence,
                         result,
                     )
-                    await self._write_execution_notebook(
+                    await self._notebook_projector.project(
                         driver,
                         lease,
                         execution.runtime_profile,
@@ -969,13 +731,13 @@ class ExecutionWorker:
                             artifact_exc,
                         )
                         raise
-                await self._register_notebook_if_projected(
+                await self._notebook_projector.register_artifact(
                     driver=driver,
                     workspace=workspace,
                     lease=lease,
                     sequence=len(cells) - 1,
                 )
-                await self._assert_active_lease(lease)
+                await self._lease_heartbeat.assert_execution(lease)
                 await self._trace_runtime(
                     "executor.runtime.session.delete",
                     driver.delete_session(runtime_session_id),
@@ -1040,13 +802,13 @@ class ExecutionWorker:
                     runtime_session_id,
                     failure_type,
                 )
-                await self._step_failed(
+                await self._step_executor.mark_failed(
                     lease,
                     failed_sequence,
                     exc.stored_result,
                     str(exc),
                 )
-                await self._write_execution_notebook(
+                await self._notebook_projector.project(
                     driver,
                     lease,
                     execution.runtime_profile,
@@ -1354,7 +1116,9 @@ class ExecutionWorker:
                     # session until health monitoring recovers it or the retention window expires.
                     return None
             if not is_resume:
-                target = await self._select_target(session, execution_row)
+                target = await self._target_selector.select(
+                    session, execution_row
+                )
             if target is None:
                 return None
             attempt_number = (
@@ -1532,108 +1296,7 @@ class ExecutionWorker:
             now,
             error_message,
         )
-        await _add_execution_completed_event(session, execution.id)
-
-    async def _select_target(
-        self, session: AsyncSession, execution: ExecutionORM
-    ) -> RuntimeTargetORM | None:
-        targets = list(
-            await session.scalars(
-                select(RuntimeTargetORM)
-                .where(
-                    RuntimeTargetORM.pool == execution.runtime_pool,
-                    RuntimeTargetORM.runtime_type == execution.runtime_type,
-                    RuntimeTargetORM.enabled.is_(True),
-                    RuntimeTargetORM.status == RuntimeTargetStatus.ACTIVE,
-                )
-                .order_by(RuntimeTargetORM.name)
-                .with_for_update(skip_locked=True)
-            )
-        )
-        candidates: list[tuple[RuntimeTargetORM, int]] = []
-        now = utc_now()
-        for target in targets:
-            if execution.runtime_profile not in target.supported_profiles:
-                continue
-            reserved = await count_runtime_reservations(
-                session, target.id, now
-            )
-            effective_usage = admission_used_count(
-                target,
-                reserved,
-                now,
-                self._settings.runtime_session_count_max_age_seconds,
-            )
-            if effective_usage < target.max_concurrent_executions:
-                candidates.append((target, effective_usage))
-        if not candidates:
-            return None
-
-        fresh_candidates = [
-            candidate
-            for candidate in candidates
-            if self._has_fresh_resource_observation(candidate[0], now)
-        ]
-        if fresh_candidates:
-            admitted = [
-                candidate
-                for candidate in fresh_candidates
-                if candidate[0].memory_utilization is None
-                or candidate[0].memory_utilization
-                < self._settings.runtime_memory_admission_limit
-            ]
-            if not admitted:
-                return None
-            return min(admitted, key=self._resource_candidate_key)[0]
-
-        return min(
-            candidates,
-            key=lambda candidate: (
-                candidate[1] / candidate[0].max_concurrent_executions,
-                candidate[1],
-                candidate[0].name,
-            ),
-        )[0]
-
-    def _has_fresh_resource_observation(
-        self, target: RuntimeTargetORM, now: datetime
-    ) -> bool:
-        observed_at = target.resource_observed_at
-        if observed_at is None or target.resource_last_error is not None:
-            return False
-        if (
-            target.cpu_utilization is None
-            and target.memory_utilization is None
-        ):
-            return False
-        if observed_at.tzinfo is None:
-            observed_at = observed_at.replace(tzinfo=UTC)
-        return observed_at >= now - timedelta(
-            seconds=self._settings.runtime_resource_max_age_seconds
-        )
-
-    @staticmethod
-    def _resource_candidate_key(
-        candidate: tuple[RuntimeTargetORM, int],
-    ) -> tuple[float, float, int, str]:
-        target, reserved = candidate
-        pressure = max(
-            reserved / target.max_concurrent_executions,
-            *(
-                value
-                for value in (
-                    target.cpu_utilization,
-                    target.memory_utilization,
-                )
-                if value is not None
-            ),
-        )
-        memory = (
-            target.memory_utilization
-            if target.memory_utilization is not None
-            else float("inf")
-        )
-        return pressure, memory, reserved, target.name
+        await add_execution_completed_event(session, execution.id)
 
     async def _run_multi_execution(
         self,
@@ -1643,7 +1306,7 @@ class ExecutionWorker:
     ) -> None:
         driver = self._create_driver(target)
         heartbeat = asyncio.create_task(
-            self._heartbeat(lease),
+            self._lease_heartbeat.run_execution(lease),
             name=f"heartbeat-{execution.id}",
         )
         runtime_session_id = execution.runtime_session_id
@@ -1665,7 +1328,7 @@ class ExecutionWorker:
                     execution_id=execution.id,
                     target_id=target.id,
                 )
-            await self._record_runtime_session(
+            await self._step_executor.record_runtime_session(
                 lease,
                 runtime_session_id,
                 workspace.runtime_relative_path,
@@ -1675,13 +1338,13 @@ class ExecutionWorker:
                 last_sequence = max(
                     (step.sequence for step in execution.steps), default=0
                 )
-                await self._register_notebook_if_projected(
+                await self._notebook_projector.register_artifact(
                     driver=driver,
                     workspace=workspace,
                     lease=lease,
                     sequence=last_sequence,
                 )
-                await self._assert_active_lease(lease)
+                await self._lease_heartbeat.assert_execution(lease)
                 await self._trace_runtime(
                     "executor.runtime.session.delete",
                     driver.delete_session(runtime_session_id),
@@ -1709,10 +1372,10 @@ class ExecutionWorker:
             if not pending_steps:
                 raise ValueError("Queued MULTI Operation has no pending Step.")
             source_references = {
-                step.sequence: self._step_source_reference(step)
+                step.sequence: self._step_executor.source_reference(step)
                 for step in pending_steps
             }
-            await self._prepare_execution_notebook(
+            await self._notebook_projector.prepare(
                 driver,
                 lease,
                 execution.id,
@@ -1728,17 +1391,17 @@ class ExecutionWorker:
                 artifact_snapshot = await self._artifacts.snapshot(
                     driver, workspace
                 )
-                await self._step_started(lease, pending.sequence)
+                await self._step_executor.mark_started(lease, pending.sequence)
                 try:
                     result = await self._trace_runtime(
                         "executor.runtime.code.execute",
-                        self._execute_runtime_step(
+                        self._step_executor.execute(
                             driver,
                             runtime_session_id,
                             code,
                             execution.id,
                             pending.sequence,
-                            result_identity=self._step_result_identity(
+                            result_identity=self._step_executor.result_identity(
                                 pending, lease
                             ),
                             source_reference=source_reference,
@@ -1786,7 +1449,7 @@ class ExecutionWorker:
                         runtime_session_id,
                         failure_type,
                     )
-                    await self._step_failed(
+                    await self._step_executor.mark_failed(
                         lease,
                         pending.sequence,
                         exc.stored_result,
@@ -1795,7 +1458,7 @@ class ExecutionWorker:
                     await self._skip_operation_steps_after(
                         lease, operation_id, pending.sequence
                     )
-                    await self._write_multi_notebook(
+                    await self._notebook_projector.project(
                         driver,
                         lease,
                         execution.runtime_profile,
@@ -1836,7 +1499,7 @@ class ExecutionWorker:
                         )
                     return
                 except StoredRuntimeExecutionError as exc:
-                    await self._step_failed(
+                    await self._step_executor.mark_failed(
                         lease,
                         pending.sequence,
                         exc.stored_result,
@@ -1845,7 +1508,7 @@ class ExecutionWorker:
                     await self._skip_operation_steps_after(
                         lease, operation_id, pending.sequence
                     )
-                    await self._write_multi_notebook(
+                    await self._notebook_projector.project(
                         driver,
                         lease,
                         execution.runtime_profile,
@@ -1873,12 +1536,12 @@ class ExecutionWorker:
                         error_message=str(exc),
                     )
                     return
-                await self._step_succeeded(
+                await self._step_executor.mark_succeeded(
                     lease,
                     pending.sequence,
                     result,
                 )
-                await self._write_multi_notebook(
+                await self._notebook_projector.project(
                     driver,
                     lease,
                     execution.runtime_profile,
@@ -1969,215 +1632,6 @@ class ExecutionWorker:
             ExecutionStatus.CANCELLED,
         }
 
-    async def _write_multi_notebook(
-        self,
-        driver: RuntimeDriver,
-        lease: ExecutionLease,
-        runtime_profile: str,
-        workspace: ExecutionWorkspace,
-    ) -> bool:
-        return await self._write_execution_notebook(
-            driver,
-            lease,
-            runtime_profile,
-            workspace,
-        )
-
-    async def _prepare_execution_notebook(
-        self,
-        driver: RuntimeDriver,
-        lease: ExecutionLease,
-        execution_id: UUID,
-        runtime_profile: str,
-        workspace: ExecutionWorkspace,
-        steps: list[ExecutionStep],
-        runtime_target_id: UUID,
-        source_references: dict[int, ExecutionSourceReference],
-    ) -> None:
-        if not isinstance(driver, RuntimeNotebookPreparer):
-            return
-        source_cells: list[RuntimeNotebookSourceCell] = []
-        for step in sorted(steps, key=lambda value: value.sequence):
-            if step.operation_id is None:
-                raise ValueError("Execution Step has no owning Operation.")
-            source_cells.append(
-                RuntimeNotebookSourceCell(
-                    sequence=step.sequence,
-                    operation_id=step.operation_id,
-                    step_id=step.id,
-                    source=await self._result_store.read_source(
-                        source_references[step.sequence]
-                    ),
-                )
-            )
-        cells = tuple(source_cells)
-        if not cells:
-            return
-        await self._assert_active_lease(lease)
-        result = await self._trace_runtime(
-            "executor.runtime.notebook.prepare",
-            driver.prepare_notebook(
-                workspace.runtime_relative_path,
-                execution_id,
-                runtime_profile,
-                cells,
-            ),
-            execution_id=execution_id,
-            target_id=runtime_target_id,
-        )
-        if result.notebook_path != workspace.notebook_path:
-            raise RuntimeDriverError(
-                "Runtime prepared an unexpected notebook path."
-            )
-
-    async def _write_execution_notebook(
-        self,
-        driver: RuntimeDriver,
-        lease: ExecutionLease,
-        runtime_profile: str,
-        workspace: ExecutionWorkspace,
-    ) -> bool:
-        await self._assert_active_lease(lease)
-        async with self._session_factory() as session, session.begin():
-            execution, _attempt = await require_active_lease(session, lease)
-            execution.notebook_projection_status = "PENDING"
-            execution.notebook_projection_error = None
-            execution.updated_at = utc_now()
-            steps = list(
-                await session.scalars(
-                    select(ExecutionStepORM)
-                    .where(ExecutionStepORM.execution_id == lease.execution_id)
-                    .order_by(ExecutionStepORM.sequence)
-                )
-            )
-        cells: list[str] = []
-        outputs: list[list[dict[str, object]]] = []
-        execution_counts: list[int | None] = []
-        for step in steps:
-            cells.append(
-                await self._result_store.read_source(
-                    ExecutionSourceReference(
-                        relative_path=step.source_snapshot_path,
-                        checksum_sha256=step.source_sha256,
-                        size_bytes=step.source_size_bytes,
-                    )
-                )
-            )
-            if (
-                step.result_manifest_path is not None
-                and step.result_manifest_checksum_sha256 is not None
-                and step.result_execution_attempt_id is not None
-                and step.result_fencing_token is not None
-            ):
-                projection = await self._result_store.read_step_projection(
-                    StepResultReference(
-                        relative_path=step.result_manifest_path,
-                        checksum_sha256=(step.result_manifest_checksum_sha256),
-                        size_bytes=step.result_manifest_size_bytes or 0,
-                        execution_attempt_id=(
-                            step.result_execution_attempt_id
-                        ),
-                        fencing_token=step.result_fencing_token,
-                    )
-                )
-                outputs.append(projection.outputs)
-                execution_counts.append(projection.execution_count)
-            else:
-                outputs.append([])
-                execution_counts.append(None)
-        notebook = self._workspace.notebook_document(
-            workspace,
-            runtime_profile,
-            cells,
-            outputs,
-            execution_counts,
-        )
-        last_error: Exception | None = None
-        for attempt in range(1, 4):
-            try:
-                await self._assert_active_lease(lease)
-                await driver.write_notebook(workspace.notebook_path, notebook)
-            except ExecutionLeaseLostError:
-                raise
-            except Exception as exc:
-                last_error = exc
-                if attempt < 3:
-                    await asyncio.sleep(0.1 * (2 ** (attempt - 1)))
-                    continue
-            else:
-                await self._record_notebook_projection(
-                    lease,
-                    status="SUCCEEDED",
-                    attempt_count=attempt,
-                )
-                return True
-            break
-        await self._record_notebook_projection(
-            lease,
-            status="FAILED",
-            attempt_count=3,
-            error_message=(
-                _safe_error(last_error)
-                if last_error is not None
-                else "Notebook projection failed."
-            ),
-        )
-        logger.warning(
-            "Notebook projection failed after bounded retries",
-            extra={"execution_id": str(lease.execution_id)},
-        )
-        return False
-
-    async def _record_notebook_projection(
-        self,
-        lease: ExecutionLease,
-        *,
-        status: NotebookProjectionStatus,
-        attempt_count: int,
-        error_message: str | None = None,
-    ) -> None:
-        async with self._session_factory() as session, session.begin():
-            execution, _attempt = await require_active_lease(session, lease)
-            execution.notebook_projection_status = status
-            execution.notebook_projection_attempt_count += attempt_count
-            execution.notebook_projection_error = error_message
-            execution.notebook_projected_at = (
-                utc_now() if status == "SUCCEEDED" else None
-            )
-            execution.updated_at = utc_now()
-
-    async def _register_notebook_if_projected(
-        self,
-        *,
-        driver: RuntimeDriver,
-        workspace: ExecutionWorkspace,
-        lease: ExecutionLease,
-        sequence: int,
-    ) -> None:
-        async with self._session_factory() as session:
-            projection_status = await session.scalar(
-                select(ExecutionORM.notebook_projection_status).where(
-                    ExecutionORM.id == lease.execution_id
-                )
-            )
-        if projection_status != "SUCCEEDED":
-            return
-        try:
-            await self._artifacts.register_notebook(
-                driver=driver,
-                workspace=workspace,
-                lease=lease,
-                sequence=sequence,
-            )
-        except ExecutionLeaseLostError:
-            raise
-        except Exception:
-            logger.warning(
-                "Projected notebook Artifact registration failed",
-                exc_info=True,
-                extra={"execution_id": str(lease.execution_id)},
-            )
-
     async def _complete_multi_operation(
         self,
         lease: ExecutionLease,
@@ -2232,7 +1686,7 @@ class ExecutionWorker:
             attempt.status = AttemptStatus.WAITING
             attempt.lease_owner = None
             attempt.lease_expires_at = None
-            await _add_operation_completed_event(
+            await add_operation_completed_event(
                 session, lease.execution_id, operation_id
             )
 
@@ -2257,451 +1711,6 @@ class ExecutionWorker:
                     status=StepStatus.SKIPPED, finished_at=now, updated_at=now
                 )
             )
-
-    async def _ensure_steps(
-        self, lease: ExecutionLease, cell_count: int
-    ) -> None:
-        async with self._session_factory() as session, session.begin():
-            await require_active_lease(session, lease)
-            steps = list(
-                await session.scalars(
-                    select(ExecutionStepORM)
-                    .where(ExecutionStepORM.execution_id == lease.execution_id)
-                    .order_by(ExecutionStepORM.sequence)
-                )
-            )
-            if len(steps) != cell_count:
-                raise ValueError(
-                    f"Execution has {len(steps)} planned steps but source has {cell_count} cells."
-                )
-
-    async def _record_runtime_session(
-        self,
-        lease: ExecutionLease,
-        runtime_session_id: str,
-        workspace_path: str,
-        notebook_path: str,
-    ) -> None:
-        async with self._session_factory() as session, session.begin():
-            execution, attempt = await require_active_lease(session, lease)
-            execution.runtime_session_id = runtime_session_id
-            execution.workspace_path = workspace_path
-            execution.notebook_path = notebook_path
-            execution.updated_at = utc_now()
-            attempt.runtime_session_id = runtime_session_id
-            await _add_start_events(session, lease.execution_id)
-
-    async def _step_started(
-        self, lease: ExecutionLease, sequence: int
-    ) -> None:
-        now = utc_now()
-        async with self._session_factory() as session, session.begin():
-            await require_active_lease(session, lease)
-            step = await session.scalar(
-                select(ExecutionStepORM).where(
-                    ExecutionStepORM.execution_id == lease.execution_id,
-                    ExecutionStepORM.sequence == sequence,
-                )
-            )
-            if step is None:
-                raise ValueError(f"Execution Step {sequence} was not found.")
-            step.status = StepStatus.RUNNING
-            step.output_summary = empty_output_summary()
-            step.result_execution_attempt_id = None
-            step.result_manifest_path = None
-            step.result_manifest_checksum_sha256 = None
-            step.result_manifest_size_bytes = None
-            step.result_fencing_token = None
-            step.result_complete = None
-            step.result_representation_count = 0
-            step.result_total_size_bytes = 0
-            step.started_at = now
-            step.updated_at = now
-            history = await session.scalar(
-                select(ExecutionStepAttemptORM).where(
-                    ExecutionStepAttemptORM.execution_attempt_id
-                    == lease.attempt_id,
-                    ExecutionStepAttemptORM.sequence == sequence,
-                )
-            )
-            if history is None:
-                session.add(
-                    ExecutionStepAttemptORM(
-                        execution_id=lease.execution_id,
-                        execution_attempt_id=lease.attempt_id,
-                        execution_step_id=step.id,
-                        sequence=sequence,
-                        skill_name=step.skill_name,
-                        tool_name=step.tool_name,
-                        input_parameters=step.input_parameters,
-                        status=StepStatus.RUNNING,
-                        output_summary=empty_output_summary(),
-                        created_by_type=step.updated_by_type
-                        or step.created_by_type,
-                        created_by=step.updated_by or step.created_by,
-                        updated_by_type=step.updated_by_type
-                        or step.created_by_type,
-                        updated_by=step.updated_by or step.created_by,
-                        started_at=now,
-                    )
-                )
-            else:
-                history.status = StepStatus.RUNNING
-                history.started_at = now
-                history.finished_at = None
-                history.error_message = None
-                history.output_summary = empty_output_summary()
-                history.result_manifest_path = None
-                history.result_manifest_checksum_sha256 = None
-                history.result_manifest_size_bytes = None
-                history.result_fencing_token = None
-                history.result_complete = None
-                history.result_representation_count = 0
-                history.result_total_size_bytes = 0
-            if step.operation_id is None:
-                raise ValueError(
-                    f"Execution Step {sequence} has no Operation."
-                )
-            await _add_step_started_event(session, lease, step)
-
-    async def _step_succeeded(
-        self,
-        lease: ExecutionLease,
-        sequence: int,
-        stored_result: StepResultDescriptor,
-    ) -> None:
-        now = utc_now()
-        async with self._session_factory() as session, session.begin():
-            await require_active_lease(session, lease)
-            step = await session.scalar(
-                select(ExecutionStepORM).where(
-                    ExecutionStepORM.execution_id == lease.execution_id,
-                    ExecutionStepORM.sequence == sequence,
-                )
-            )
-            if step is None or step.operation_id is None:
-                raise ValueError(
-                    f"Execution Step {sequence} or its Operation was not found."
-                )
-            output_summary = stored_result.output_summary
-            step.status = StepStatus.SUCCEEDED
-            step.output_summary = output_summary
-            step.result_execution_attempt_id = lease.attempt_id
-            self._assign_step_result(step, stored_result)
-            step.finished_at = now
-            step.updated_at = now
-            await session.execute(
-                update(ExecutionStepAttemptORM)
-                .where(
-                    ExecutionStepAttemptORM.execution_attempt_id
-                    == lease.attempt_id,
-                    ExecutionStepAttemptORM.sequence == sequence,
-                )
-                .values(
-                    status=StepStatus.SUCCEEDED,
-                    output_summary=output_summary,
-                    result_manifest_path=(
-                        stored_result.reference.relative_path
-                    ),
-                    result_manifest_checksum_sha256=(
-                        stored_result.reference.checksum_sha256
-                    ),
-                    result_manifest_size_bytes=(
-                        stored_result.reference.size_bytes
-                    ),
-                    result_fencing_token=(
-                        stored_result.reference.fencing_token
-                    ),
-                    result_complete=stored_result.complete,
-                    result_representation_count=(
-                        stored_result.representation_count
-                    ),
-                    result_total_size_bytes=(stored_result.total_size_bytes),
-                    finished_at=now,
-                )
-            )
-            await _add_step_completed_event(
-                session,
-                lease,
-                step,
-                StepStatus.SUCCEEDED,
-                stored_result=stored_result,
-            )
-
-    async def _step_failed(
-        self,
-        lease: ExecutionLease,
-        sequence: int,
-        stored_result: StepResultDescriptor,
-        error_message: str,
-    ) -> None:
-        now = utc_now()
-        async with self._session_factory() as session, session.begin():
-            await require_active_lease(session, lease)
-            step = await session.scalar(
-                select(ExecutionStepORM).where(
-                    ExecutionStepORM.execution_id == lease.execution_id,
-                    ExecutionStepORM.sequence == sequence,
-                )
-            )
-            if step is None or step.operation_id is None:
-                raise ValueError(
-                    f"Execution Step {sequence} or its Operation was not found."
-                )
-            safe_error = error_message[:2000]
-            output_summary = stored_result.output_summary
-            step.status = StepStatus.FAILED
-            step.output_summary = output_summary
-            step.result_execution_attempt_id = lease.attempt_id
-            self._assign_step_result(step, stored_result)
-            step.error_message = safe_error
-            step.finished_at = now
-            step.updated_at = now
-            await session.execute(
-                update(ExecutionStepAttemptORM)
-                .where(
-                    ExecutionStepAttemptORM.execution_attempt_id
-                    == lease.attempt_id,
-                    ExecutionStepAttemptORM.sequence == sequence,
-                )
-                .values(
-                    status=StepStatus.FAILED,
-                    output_summary=output_summary,
-                    result_manifest_path=(
-                        stored_result.reference.relative_path
-                    ),
-                    result_manifest_checksum_sha256=(
-                        stored_result.reference.checksum_sha256
-                    ),
-                    result_manifest_size_bytes=(
-                        stored_result.reference.size_bytes
-                    ),
-                    result_fencing_token=(
-                        stored_result.reference.fencing_token
-                    ),
-                    result_complete=stored_result.complete,
-                    result_representation_count=(
-                        stored_result.representation_count
-                    ),
-                    result_total_size_bytes=(stored_result.total_size_bytes),
-                    error_message=safe_error,
-                    finished_at=now,
-                )
-            )
-            await _add_step_completed_event(
-                session,
-                lease,
-                step,
-                StepStatus.FAILED,
-                stored_result=stored_result,
-                error_message=safe_error,
-                retryable=True,
-            )
-
-    @staticmethod
-    def _assign_step_result(
-        step: ExecutionStepORM,
-        stored_result: StepResultDescriptor,
-    ) -> None:
-        step.result_manifest_path = stored_result.reference.relative_path
-        step.result_manifest_checksum_sha256 = (
-            stored_result.reference.checksum_sha256
-        )
-        step.result_manifest_size_bytes = stored_result.reference.size_bytes
-        step.result_fencing_token = stored_result.reference.fencing_token
-        step.result_complete = stored_result.complete
-        step.result_representation_count = stored_result.representation_count
-        step.result_total_size_bytes = stored_result.total_size_bytes
-
-    async def _execute_runtime_step(
-        self,
-        driver: RuntimeDriver,
-        runtime_session_id: str,
-        code: str,
-        execution_id: UUID,
-        sequence: int,
-        *,
-        result_identity: StepResultIdentity,
-        source_reference: ExecutionSourceReference,
-    ) -> Any:
-        async with self._session_factory() as session:
-            row = (
-                await session.execute(
-                    select(
-                        ExecutionStepORM.step_timeout_seconds,
-                        ExecutionOperationORM.operation_timeout_seconds,
-                        ExecutionOperationORM.started_at,
-                    )
-                    .join(
-                        ExecutionOperationORM,
-                        ExecutionOperationORM.id
-                        == ExecutionStepORM.operation_id,
-                    )
-                    .where(
-                        ExecutionStepORM.execution_id == execution_id,
-                        ExecutionStepORM.sequence == sequence,
-                    )
-                )
-            ).one()
-        timeouts: list[tuple[float, str]] = []
-        if row.step_timeout_seconds is not None:
-            timeouts.append((float(row.step_timeout_seconds), "Step"))
-        if row.operation_timeout_seconds is not None:
-            started_at = _as_utc(row.started_at or utc_now())
-            remaining = (
-                row.operation_timeout_seconds
-                - (utc_now() - started_at).total_seconds()
-            )
-            if remaining <= 0:
-                raise RuntimeExecutionTimeoutError(
-                    "Operation", float(row.operation_timeout_seconds)
-                )
-            timeouts.append((remaining, "Operation"))
-        execution_call = self._execute_with_result_store(
-            driver,
-            runtime_session_id,
-            code,
-            result_identity,
-            source_reference,
-        )
-        if not timeouts:
-            return await execution_call
-        timeout_seconds, scope = min(timeouts)
-        try:
-            async with asyncio.timeout(timeout_seconds):
-                return await execution_call
-        except TimeoutError as exc:
-            stored = await self._result_store.abort_step_result(
-                result_identity,
-                reason=(
-                    f"{scope} timeout expired after "
-                    f"{timeout_seconds:.3f} seconds."
-                ),
-            )
-            raise StoredRuntimeExecutionTimeoutError(
-                scope, timeout_seconds, stored
-            ) from exc
-
-    async def _execute_with_result_store(
-        self,
-        driver: RuntimeDriver,
-        runtime_session_id: str,
-        code: str,
-        identity: StepResultIdentity,
-        source_reference: ExecutionSourceReference,
-    ) -> StepResultDescriptor:
-        await self._result_store.begin_step_result(identity, source_reference)
-        committed_offset = 0
-
-        async def append_output(record: RuntimeOutputRecord) -> None:
-            nonlocal committed_offset
-            result = await self._result_store.append_step_outputs(
-                identity,
-                expected_offset=committed_offset,
-                batch_id=uuid4(),
-                records=(record,),
-            )
-            expected_committed_offset = committed_offset + 1
-            if result.committed_offset != expected_committed_offset:
-                raise RuntimeDriverError(
-                    "Shared result append acknowledgement is invalid."
-                )
-            committed_offset = result.committed_offset
-
-        streaming = isinstance(driver, RuntimeStreamingExecutor)
-        try:
-            if streaming:
-                execution_result = await driver.execute_streaming(
-                    runtime_session_id,
-                    code,
-                    append_output,
-                )
-            else:
-                execution_result = await driver.execute(
-                    runtime_session_id, code
-                )
-                for output in execution_result.outputs:
-                    await append_output(_output_record(output))
-        except RuntimeOutputLimitExceededError as exc:
-            stored = await self._result_store.abort_step_result(
-                identity,
-                reason=str(exc),
-            )
-            raise StoredRuntimeOutputLimitExceededError(
-                exc.max_message_bytes,
-                stored,
-            ) from exc
-        except RuntimeExecutionError as exc:
-            if not streaming:
-                for output in exc.outputs:
-                    await append_output(_output_record(output))
-            stored = await self._result_store.finalize_step_result(
-                identity,
-                execution_count=None,
-                error_message=str(exc),
-            )
-            raise StoredRuntimeExecutionError(
-                str(exc), exc.outputs, stored
-            ) from exc
-        except asyncio.CancelledError:
-            await self._result_store.abort_step_result(
-                identity,
-                reason=(
-                    "Runtime execution was cancelled before output delivery "
-                    "completed."
-                ),
-            )
-            raise
-        except Exception as exc:
-            await self._result_store.abort_step_result(
-                identity,
-                reason=(
-                    f"{type(exc).__name__}: output delivery did not complete."
-                ),
-            )
-            raise
-        stored = await self._result_store.finalize_step_result(
-            identity,
-            execution_count=execution_result.execution_count,
-        )
-        return stored
-
-    @staticmethod
-    def _step_result_identity(
-        step: ExecutionStep,
-        lease: ExecutionLease,
-    ) -> StepResultIdentity:
-        if step.operation_id is None:
-            raise ValueError(
-                f"Execution Step {step.sequence} has no Operation."
-            )
-        return StepResultIdentity(
-            execution_id=lease.execution_id,
-            operation_id=step.operation_id,
-            step_id=step.id,
-            sequence=step.sequence,
-            execution_attempt_id=lease.attempt_id,
-            fencing_token=lease.fencing_token,
-        )
-
-    @staticmethod
-    def _step_source_reference(
-        step: ExecutionStep,
-    ) -> ExecutionSourceReference:
-        if (
-            step.source_snapshot_path is None
-            or step.source_size_bytes is None
-            or not step.source_sha256
-        ):
-            raise RuntimeDriverError(
-                f"Execution Step {step.sequence} has no immutable source "
-                "snapshot."
-            )
-        return ExecutionSourceReference(
-            relative_path=step.source_snapshot_path,
-            checksum_sha256=step.source_sha256,
-            size_bytes=step.source_size_bytes,
-        )
 
     async def _resolve_runtime_abort(
         self,
@@ -2788,21 +1797,6 @@ class ExecutionWorker:
             attempt.runtime_session_cleanup_status = cleanup_status
             attempt.failure_type = failure_type
 
-    async def _assert_active_lease(
-        self,
-        lease: ExecutionLease,
-        *,
-        allowed_statuses: tuple[ExecutionStatus, ...] = (
-            ExecutionStatus.RUNNING,
-        ),
-    ) -> None:
-        async with self._session_factory() as session, session.begin():
-            await require_active_lease(
-                session,
-                lease,
-                allowed_statuses=allowed_statuses,
-            )
-
     async def _release_execution_for_cancellation(
         self, lease: ExecutionLease
     ) -> None:
@@ -2819,94 +1813,6 @@ class ExecutionWorker:
             execution.updated_at = now
             attempt.lease_owner = None
             attempt.lease_expires_at = None
-
-    async def _heartbeat(self, lease: ExecutionLease) -> None:
-        while True:
-            await asyncio.sleep(self._settings.execution_heartbeat_seconds)
-            await self._renew_lease(lease)
-
-    async def _cancellation_heartbeat(self, lease: CancellationLease) -> None:
-        while True:
-            await asyncio.sleep(self._settings.execution_heartbeat_seconds)
-            await self._renew_cancellation_lease(lease)
-
-    async def _renew_cancellation_lease(
-        self, lease: CancellationLease
-    ) -> None:
-        now = utc_now()
-        lease_expires = now + timedelta(
-            seconds=self._settings.execution_lease_seconds
-        )
-        async with self._session_factory() as session, session.begin():
-            result = await session.execute(
-                update(ExecutionORM)
-                .where(
-                    ExecutionORM.id == lease.execution_id,
-                    ExecutionORM.status == ExecutionStatus.CANCEL_REQUESTED,
-                    ExecutionORM.cancellation_lease_owner == lease.owner,
-                    ExecutionORM.fencing_token == lease.fencing_token,
-                    ExecutionORM.cancellation_lease_expires_at.is_not(None),
-                    ExecutionORM.cancellation_lease_expires_at > now,
-                )
-                .values(
-                    cancellation_heartbeat_at=now,
-                    cancellation_lease_expires_at=lease_expires,
-                    updated_at=now,
-                )
-            )
-            if getattr(result, "rowcount", None) != 1:
-                raise ExecutionLeaseLostError(
-                    f"Execution {lease.execution_id} cancellation heartbeat "
-                    f"lost fence {lease.fencing_token}."
-                )
-
-    async def _renew_lease(self, lease: ExecutionLease) -> None:
-        now = utc_now()
-        lease_expires = now + timedelta(
-            seconds=self._settings.execution_lease_seconds
-        )
-        async with self._session_factory() as session, session.begin():
-            execution_update = await session.execute(
-                update(ExecutionORM)
-                .where(
-                    ExecutionORM.id == lease.execution_id,
-                    ExecutionORM.status == ExecutionStatus.RUNNING,
-                    ExecutionORM.lease_owner == lease.owner,
-                    ExecutionORM.fencing_token == lease.fencing_token,
-                    ExecutionORM.lease_expires_at.is_not(None),
-                    ExecutionORM.lease_expires_at > now,
-                )
-                .values(
-                    heartbeat_at=now,
-                    lease_expires_at=lease_expires,
-                    updated_at=now,
-                )
-            )
-            if getattr(execution_update, "rowcount", None) != 1:
-                raise ExecutionLeaseLostError(
-                    f"Execution {lease.execution_id} heartbeat lost fence "
-                    f"{lease.fencing_token}."
-                )
-            attempt_update = await session.execute(
-                update(ExecutionAttemptORM)
-                .where(
-                    ExecutionAttemptORM.id == lease.attempt_id,
-                    ExecutionAttemptORM.status == AttemptStatus.RUNNING,
-                    ExecutionAttemptORM.lease_owner == lease.owner,
-                    ExecutionAttemptORM.fencing_token == lease.fencing_token,
-                    ExecutionAttemptORM.lease_expires_at.is_not(None),
-                    ExecutionAttemptORM.lease_expires_at > now,
-                )
-                .values(
-                    heartbeat_at=now,
-                    lease_expires_at=lease_expires,
-                )
-            )
-            if getattr(attempt_update, "rowcount", None) != 1:
-                raise ExecutionLeaseLostError(
-                    f"Execution Attempt {lease.attempt_id} heartbeat lost "
-                    f"fence {lease.fencing_token}."
-                )
 
     async def _record_artifact_failure(
         self,
@@ -3069,7 +1975,7 @@ class ExecutionWorker:
                     )
                 )
                 for step_id in running_step_ids:
-                    await _add_step_history_completed_event(
+                    await add_step_history_completed_event(
                         session,
                         lease.execution_id,
                         step_id,
@@ -3109,17 +2015,17 @@ class ExecutionWorker:
                     )
                 )
             if completed_operation_id is not None:
-                await _add_operation_completed_event(
+                await add_operation_completed_event(
                     session, lease.execution_id, completed_operation_id
                 )
-            await _add_execution_completed_event(session, lease.execution_id)
+            await add_execution_completed_event(session, lease.execution_id)
 
     async def _cancel_execution(self, execution_id: UUID) -> None:
         work = await self._claim_cancellation(execution_id)
         if work is None:
             return
         heartbeat = asyncio.create_task(
-            self._cancellation_heartbeat(work.lease),
+            self._lease_heartbeat.run_cancellation(work.lease),
             name=f"cancellation-heartbeat-{execution_id}",
         )
         try:
@@ -3150,7 +2056,7 @@ class ExecutionWorker:
             return RuntimeSessionCleanupStatus.NOT_REQUIRED
         if work.runtime_target_id is None:
             return RuntimeSessionCleanupStatus.FAILED
-        await self._assert_active_cancellation_lease(work.lease)
+        await self._lease_heartbeat.assert_cancellation(work.lease)
         async with self._session_factory() as session:
             target = await session.get(
                 RuntimeTargetORM, work.runtime_target_id
@@ -3171,12 +2077,6 @@ class ExecutionWorker:
             )
         finally:
             await driver.close()
-
-    async def _assert_active_cancellation_lease(
-        self, lease: CancellationLease
-    ) -> None:
-        async with self._session_factory() as session, session.begin():
-            await require_active_cancellation_lease(session, lease)
 
     async def _finalize_cancellation(
         self,
@@ -3297,7 +2197,7 @@ class ExecutionWorker:
                 .values(status=StepStatus.CANCELLED, finished_at=now)
             )
             for step_id, attempt_id in running_step_attempts:
-                await _add_step_history_completed_event(
+                await add_step_history_completed_event(
                     session,
                     execution_id,
                     step_id,
@@ -3310,10 +2210,10 @@ class ExecutionWorker:
                     retryable=False,
                 )
             if active_operation_id is not None:
-                await _add_operation_completed_event(
+                await add_operation_completed_event(
                     session, execution_id, active_operation_id
                 )
-            await _add_execution_completed_event(session, execution_id)
+            await add_execution_completed_event(session, execution_id)
 
     async def _audit_multi_lifecycle(self) -> None:
         await self._request_expired_execution_cancellations()
@@ -3419,7 +2319,7 @@ class ExecutionWorker:
                 execution.version += 1
                 expired_ids.append(execution.id)
         for execution_id in expired_ids:
-            self._dispatch(
+            self._dispatcher.dispatch(
                 execution_id,
                 self._cancel_execution(execution_id),
                 replace=True,
@@ -3503,7 +2403,7 @@ class ExecutionWorker:
                     execution.runtime_target_id,
                     expected_runtime_session_id,
                 )
-            await _add_execution_completed_event(session, execution.id)
+            await add_execution_completed_event(session, execution.id)
         if cleanup_target is not None:
             await self._cleanup_abandoned_session(*cleanup_target)
 
@@ -3656,7 +2556,7 @@ class ExecutionWorker:
                     )
                 )
                 for step_id, step_attempt_id in running_step_attempts:
-                    await _add_step_history_completed_event(
+                    await add_step_history_completed_event(
                         session,
                         execution.id,
                         step_id,
@@ -3704,10 +2604,10 @@ class ExecutionWorker:
                         operation.error_message = execution.error_message
                         operation.finished_at = now
                         operation.updated_at = now
-                        await _add_operation_completed_event(
+                        await add_operation_completed_event(
                             session, execution.id, operation.id
                         )
-                await _add_execution_completed_event(session, execution.id)
+                await add_execution_completed_event(session, execution.id)
         return ExpiredLeaseRecovery(
             execution_count=recovered_count,
             cleanup_targets=tuple(cleanup_targets),
@@ -4016,7 +2916,7 @@ class ExecutionWorker:
                         .values(runtime_session_cleanup_status=cleanup_status)
                     )
                 if retry_was_queued:
-                    await _add_execution_completed_event(
+                    await add_execution_completed_event(
                         update_session, current.id
                     )
 
@@ -4046,743 +2946,9 @@ class ExecutionWorker:
         operation.error_message = error_message[:2000]
         operation.finished_at = now
         operation.updated_at = now
-        await _add_operation_completed_event(
+        await add_operation_completed_event(
             session, execution.id, operation.id
         )
-
-
-async def _persist_execution_event(
-    session: AsyncSession,
-    execution_id: UUID,
-    event_type: str,
-    payload: dict[str, object],
-) -> None:
-    execution = await session.get(ExecutionORM, execution_id)
-    if execution is None:
-        raise ValueError(f"Execution {execution_id} was not found.")
-    event_sequence = await _next_execution_event_sequence(
-        session, execution_id
-    )
-    actor_type = execution.updated_by_type or execution.created_by_type
-    actor_id = execution.updated_by or execution.created_by
-    carrier = capture_trace_carrier()
-    event = build_execution_event(
-        execution_id=execution_id,
-        event_sequence=event_sequence,
-        event_type=event_type,
-        payload=payload,
-        actor_type=actor_type,
-        actor_id=actor_id,
-        traceparent=carrier.traceparent,
-        tracestate=carrier.tracestate,
-    )
-    session.add(ExecutionEventORM.from_domain(event))
-    session.add(OutboxEventORM.from_execution_event(event))
-
-
-async def _next_execution_event_sequence(
-    session: AsyncSession,
-    execution_id: UUID,
-) -> int:
-    table = ExecutionEventSequenceORM.__table__
-    dialect_name = session.get_bind().dialect.name
-    if dialect_name == "postgresql":
-        statement = postgresql_insert(ExecutionEventSequenceORM)
-    elif dialect_name == "sqlite":
-        statement = sqlite_insert(ExecutionEventSequenceORM)
-    else:
-        raise RuntimeError(
-            f"Unsupported event sequence dialect: {dialect_name}"
-        )
-    result = await session.execute(
-        statement.values(
-            execution_id=execution_id,
-            last_sequence=1,
-        )
-        .on_conflict_do_update(
-            index_elements=[table.c.execution_id],
-            set_={"last_sequence": table.c.last_sequence + 1},
-        )
-        .returning(table.c.last_sequence)
-    )
-    return int(result.scalar_one())
-
-
-async def _add_start_events(session: AsyncSession, execution_id: UUID) -> None:
-    execution = await session.get(ExecutionORM, execution_id)
-    if (
-        execution is None
-        or execution.runtime_target_id is None
-        or execution.runtime_session_id is None
-    ):
-        return
-    started_count = await session.scalar(
-        select(func.count(OutboxEventORM.id)).where(
-            OutboxEventORM.aggregate_id == execution_id,
-            OutboxEventORM.destination == OutboxDestination.EVENTS,
-            OutboxEventORM.event_type == "execution.started",
-        )
-    )
-    if not started_count:
-        await _persist_execution_event(
-            session,
-            execution_id,
-            "execution.started",
-            {
-                "status": "RUNNING",
-                "runtime": {
-                    "provider": execution.runtime_type.value,
-                    "profile": execution.runtime_profile,
-                    "target_id": str(execution.runtime_target_id),
-                    "session_id": execution.runtime_session_id,
-                },
-            },
-        )
-    operation_id = execution.active_operation_id
-    if operation_id is None or execution.finalization_requested:
-        return
-    operation = await session.get(ExecutionOperationORM, operation_id)
-    if operation is None:
-        return
-    prior_payloads = list(
-        await session.scalars(
-            select(ExecutionEventORM.payload).where(
-                ExecutionEventORM.execution_id == execution_id,
-                ExecutionEventORM.event_type == "execution.operation_started",
-            )
-        )
-    )
-    if any(
-        str(payload.get("operation", {}).get("id")) == str(operation_id)
-        for payload in prior_payloads
-        if isinstance(payload.get("operation"), dict)
-    ):
-        return
-    step_count = await session.scalar(
-        select(func.count(ExecutionStepORM.id)).where(
-            ExecutionStepORM.operation_id == operation_id
-        )
-    )
-    await _persist_execution_event(
-        session,
-        execution_id,
-        "execution.operation_started",
-        {
-            "status": "RUNNING",
-            "operation": {
-                "id": str(operation.id),
-                "number": operation.operation_number,
-                "step_count": step_count or 0,
-            },
-        },
-    )
-
-
-async def _attempt_payload(
-    session: AsyncSession, attempt_id: UUID
-) -> dict[str, object]:
-    attempt = await session.get(ExecutionAttemptORM, attempt_id)
-    if attempt is None:
-        raise ValueError(f"Execution Attempt {attempt_id} was not found.")
-    return {
-        "id": str(attempt.id),
-        "number": attempt.attempt_number,
-        "reason": ("INITIAL" if attempt.attempt_number == 1 else "RETRY"),
-    }
-
-
-async def _operation_payload(
-    session: AsyncSession, operation_id: UUID
-) -> dict[str, object]:
-    operation = await session.get(ExecutionOperationORM, operation_id)
-    if operation is None:
-        raise ValueError(f"Execution Operation {operation_id} was not found.")
-    return {"id": str(operation.id), "number": operation.operation_number}
-
-
-def _stored_result_reference(
-    stored_result: StepResultDescriptor,
-) -> dict[str, object] | None:
-    if not stored_result.complete:
-        return None
-    return {
-        "storage": "SHARED_PV",
-        "relative_path": stored_result.reference.relative_path,
-        "media_type": "application/json",
-        "size_bytes": stored_result.reference.size_bytes,
-        "checksum_sha256": stored_result.reference.checksum_sha256,
-    }
-
-
-def _row_result_reference(
-    row: ExecutionStepAttemptORM,
-) -> dict[str, object] | None:
-    if not (
-        row.result_complete
-        and row.result_manifest_path is not None
-        and row.result_manifest_checksum_sha256 is not None
-        and row.result_manifest_size_bytes is not None
-    ):
-        return None
-    return {
-        "storage": "SHARED_PV",
-        "relative_path": row.result_manifest_path,
-        "media_type": "application/json",
-        "size_bytes": row.result_manifest_size_bytes,
-        "checksum_sha256": row.result_manifest_checksum_sha256,
-    }
-
-
-def _event_output_summary(
-    stored_result: StepResultDescriptor,
-) -> dict[str, object]:
-    mime_types = stored_result.output_summary.get("mime_types", [])
-    return {
-        "count": stored_result.output_count,
-        "content_types": (
-            sorted(set(mime_types)) if isinstance(mime_types, list) else []
-        ),
-    }
-
-
-async def _add_step_started_event(
-    session: AsyncSession,
-    lease: ExecutionLease,
-    step: ExecutionStepORM,
-) -> None:
-    await _persist_execution_event(
-        session,
-        lease.execution_id,
-        "execution.step_started",
-        {
-            "status": "RUNNING",
-            "operation": await _operation_payload(session, step.operation_id),
-            "step": {"id": str(step.id), "sequence": step.sequence},
-            "attempt": await _attempt_payload(session, lease.attempt_id),
-        },
-    )
-
-
-async def _add_step_completed_event(
-    session: AsyncSession,
-    lease: ExecutionLease,
-    step: ExecutionStepORM,
-    status: StepStatus,
-    *,
-    stored_result: StepResultDescriptor | None,
-    error_message: str | None = None,
-    retryable: bool = False,
-) -> None:
-    result_ref = (
-        _stored_result_reference(stored_result)
-        if stored_result is not None
-        else None
-    )
-    output_summary = (
-        _event_output_summary(stored_result)
-        if stored_result is not None and stored_result.complete
-        else None
-    )
-    error = None
-    if status != StepStatus.SUCCEEDED:
-        error = {
-            "code": (
-                "STEP_CANCELLED"
-                if status == StepStatus.CANCELLED
-                else "STEP_EXECUTION_FAILED"
-            ),
-            "message": error_message or f"Step was {status.value.lower()}.",
-            "retryable": retryable,
-        }
-    await _persist_execution_event(
-        session,
-        lease.execution_id,
-        "execution.step_completed",
-        {
-            "status": status.value,
-            "operation": await _operation_payload(session, step.operation_id),
-            "step": {"id": str(step.id), "sequence": step.sequence},
-            "attempt": await _attempt_payload(session, lease.attempt_id),
-            "result_ref": result_ref,
-            "output_summary": output_summary,
-            "error": error,
-        },
-    )
-
-
-async def _add_step_history_completed_event(
-    session: AsyncSession,
-    execution_id: UUID,
-    step_id: UUID,
-    attempt_id: UUID,
-    status: StepStatus,
-    *,
-    error_message: str,
-    retryable: bool,
-) -> None:
-    step = await session.get(ExecutionStepORM, step_id)
-    history = await session.scalar(
-        select(ExecutionStepAttemptORM).where(
-            ExecutionStepAttemptORM.execution_step_id == step_id,
-            ExecutionStepAttemptORM.execution_attempt_id == attempt_id,
-        )
-    )
-    if step is None or history is None:
-        return
-    output_summary = None
-    if history.result_complete:
-        raw_mime_types = history.output_summary.get("mime_types", [])
-        output_summary = {
-            "count": int(history.output_summary.get("output_count", 0)),
-            "content_types": (
-                sorted(set(raw_mime_types))
-                if isinstance(raw_mime_types, list)
-                else []
-            ),
-        }
-    await _persist_execution_event(
-        session,
-        execution_id,
-        "execution.step_completed",
-        {
-            "status": status.value,
-            "operation": await _operation_payload(session, step.operation_id),
-            "step": {"id": str(step.id), "sequence": step.sequence},
-            "attempt": await _attempt_payload(session, attempt_id),
-            "result_ref": _row_result_reference(history),
-            "output_summary": output_summary,
-            "error": {
-                "code": (
-                    "STEP_CANCELLED"
-                    if status == StepStatus.CANCELLED
-                    else "STEP_EXECUTION_FAILED"
-                ),
-                "message": error_message,
-                "retryable": retryable,
-            },
-        },
-    )
-
-
-async def _latest_step_attempts(
-    session: AsyncSession, operation_id: UUID
-) -> dict[UUID, tuple[ExecutionStepAttemptORM, ExecutionAttemptORM]]:
-    rows = list(
-        (
-            await session.execute(
-                select(ExecutionStepAttemptORM, ExecutionAttemptORM)
-                .join(
-                    ExecutionAttemptORM,
-                    ExecutionAttemptORM.id
-                    == ExecutionStepAttemptORM.execution_attempt_id,
-                )
-                .join(
-                    ExecutionStepORM,
-                    ExecutionStepORM.id
-                    == ExecutionStepAttemptORM.execution_step_id,
-                )
-                .where(ExecutionStepORM.operation_id == operation_id)
-                .order_by(ExecutionAttemptORM.attempt_number)
-            )
-        ).all()
-    )
-    latest: dict[
-        UUID, tuple[ExecutionStepAttemptORM, ExecutionAttemptORM]
-    ] = {}
-    for history, attempt in rows:
-        latest[history.execution_step_id] = (history, attempt)
-    return latest
-
-
-async def _add_operation_completed_event(
-    session: AsyncSession,
-    execution_id: UUID,
-    operation_id: UUID,
-) -> None:
-    execution = await session.get(ExecutionORM, execution_id)
-    operation = await session.get(ExecutionOperationORM, operation_id)
-    if execution is None or operation is None:
-        return
-    steps = list(
-        await session.scalars(
-            select(ExecutionStepORM)
-            .where(ExecutionStepORM.operation_id == operation_id)
-            .order_by(ExecutionStepORM.sequence)
-        )
-    )
-    terminal = {
-        StepStatus.SUCCEEDED,
-        StepStatus.FAILED,
-        StepStatus.CANCELLED,
-    }
-    latest = await _latest_step_attempts(session, operation_id)
-    step_results: list[dict[str, object]] = []
-    for step in steps:
-        attempt_pair = latest.get(step.id)
-        if step.status not in terminal or attempt_pair is None:
-            continue
-        history, attempt = attempt_pair
-        result_ref = _row_result_reference(history)
-        if step.status == StepStatus.SUCCEEDED and result_ref is None:
-            continue
-        step_results.append(
-            {
-                "step_id": str(step.id),
-                "sequence": step.sequence,
-                "status": step.status.value,
-                "attempt": {
-                    "id": str(attempt.id),
-                    "number": attempt.attempt_number,
-                    "reason": (
-                        "INITIAL" if attempt.attempt_number == 1 else "RETRY"
-                    ),
-                },
-                "result_ref": result_ref,
-            }
-        )
-    counts = {
-        status: sum(step.status == status for step in steps)
-        for status in terminal
-    }
-    completed = sum(counts.values())
-    continuation = None
-    if (
-        execution.status == ExecutionStatus.WAITING_FOR_OPERATION
-        and execution.operation_wait_expires_at is not None
-    ):
-        continuation = {
-            "allowed": True,
-            "expected_version": execution.version,
-            "expires_at": execution.operation_wait_expires_at,
-        }
-    error = None
-    if operation.status != OperationStatus.SUCCEEDED:
-        failed_step = next(
-            (step for step in steps if step.status == StepStatus.FAILED),
-            None,
-        )
-        error = {
-            "code": (
-                "OPERATION_CANCELLED"
-                if operation.status == OperationStatus.CANCELLED
-                else "OPERATION_STEP_FAILED"
-            ),
-            "message": operation.error_message
-            or f"Operation was {operation.status.value.lower()}.",
-            "step_id": str(failed_step.id) if failed_step else None,
-            "retryable": (
-                continuation is not None
-                or execution.retry_strategy != RetryStrategy.NOT_RETRYABLE
-            ),
-        }
-    await _persist_execution_event(
-        session,
-        execution_id,
-        "execution.operation_completed",
-        {
-            "status": operation.status.value,
-            "execution_status": execution.status.value,
-            "operation": {
-                "id": str(operation.id),
-                "number": operation.operation_number,
-            },
-            "step_summary": {
-                "total": len(steps),
-                "completed": completed,
-                "succeeded": counts[StepStatus.SUCCEEDED],
-                "failed": counts[StepStatus.FAILED],
-                "cancelled": counts[StepStatus.CANCELLED],
-            },
-            "step_results": step_results,
-            "continuation": continuation,
-            "error": error,
-        },
-    )
-
-
-async def _add_execution_completed_event(
-    session: AsyncSession, execution_id: UUID
-) -> None:
-    execution = await session.get(ExecutionORM, execution_id)
-    if execution is None:
-        return
-    operations = list(
-        await session.scalars(
-            select(ExecutionOperationORM).where(
-                ExecutionOperationORM.execution_id == execution_id
-            )
-        )
-    )
-    operation_counts = {
-        status: sum(operation.status == status for operation in operations)
-        for status in {
-            OperationStatus.SUCCEEDED,
-            OperationStatus.FAILED,
-            OperationStatus.CANCELLED,
-        }
-    }
-    failed_step = None
-    if execution.retry_from_sequence is not None:
-        failed_step = await session.scalar(
-            select(ExecutionStepORM).where(
-                ExecutionStepORM.execution_id == execution_id,
-                ExecutionStepORM.sequence == execution.retry_from_sequence,
-            )
-        )
-    retry = None
-    retry_deadline = (
-        execution.retained_runtime_session_until
-        or execution.execution_expires_at
-    )
-    if (
-        execution.status == ExecutionStatus.FAILED
-        and execution.retry_strategy != RetryStrategy.NOT_RETRYABLE
-        and failed_step is not None
-        and retry_deadline is not None
-    ):
-        retry = {
-            "allowed": True,
-            "from_step_id": str(failed_step.id),
-            "expires_at": retry_deadline,
-        }
-    error = None
-    if execution.status != ExecutionStatus.SUCCEEDED:
-        active_operation = (
-            await session.get(
-                ExecutionOperationORM, execution.active_operation_id
-            )
-            if execution.active_operation_id is not None
-            else None
-        )
-        error = {
-            "code": (
-                "EXECUTION_CANCELLED"
-                if execution.status == ExecutionStatus.CANCELLED
-                else "EXECUTION_"
-                + (
-                    execution.failure_type.value
-                    if execution.failure_type is not None
-                    else "FAILED"
-                )
-            ),
-            "message": execution.error_message
-            or execution.cancellation_reason
-            or f"Execution was {execution.status.value.lower()}.",
-            "operation_id": (
-                str(active_operation.id) if active_operation else None
-            ),
-            "step_id": str(failed_step.id) if failed_step else None,
-            "retryable": retry is not None,
-        }
-    await _persist_execution_event(
-        session,
-        execution_id,
-        "execution.completed",
-        {
-            "status": execution.status.value,
-            "operation_summary": {
-                "total": len(operations),
-                "succeeded": operation_counts[OperationStatus.SUCCEEDED],
-                "failed": operation_counts[OperationStatus.FAILED],
-                "cancelled": operation_counts[OperationStatus.CANCELLED],
-            },
-            "retry": retry,
-            "error": error,
-        },
-    )
-
-
-def _invalid_work_message_reason(fields: dict[str, str]) -> str | None:
-    message_id = fields.get("message_id")
-    if not message_id:
-        return "missing_message_id"
-    try:
-        UUID(message_id)
-    except ValueError:
-        return "invalid_message_id"
-    if fields.get("aggregate_type") != "Execution":
-        return "unsupported_aggregate_type"
-    aggregate_id = fields.get("aggregate_id")
-    if not aggregate_id:
-        return "missing_aggregate_id"
-    try:
-        UUID(aggregate_id)
-    except ValueError:
-        return "invalid_aggregate_id"
-    message_type = fields.get("message_type")
-    if not message_type:
-        return "missing_message_type"
-    if message_type not in DISPATCH_MESSAGE_TYPES:
-        return "unsupported_message_type"
-    schema_version = fields.get("schema_version")
-    if not schema_version:
-        return "missing_schema_version"
-    if schema_version != WORK_MESSAGE_SCHEMA_VERSION:
-        return "unsupported_schema_version"
-    if not fields.get("payload"):
-        return "missing_payload"
-    try:
-        WorkStreamEnvelope.from_redis_fields(fields)
-    except (TypeError, ValueError):
-        return "invalid_work_message_contract"
-    return None
-
-
-def _valid_uuid_or_empty(value: str | None) -> str:
-    if not value:
-        return ""
-    try:
-        return str(UUID(value))
-    except ValueError:
-        return ""
-
-
-def _output_record(output: dict[str, Any]) -> RuntimeOutputRecord:
-    output_type = str(output.get("output_type", ""))
-    if output_type == "stream":
-        return RuntimeOutputRecord(
-            kind="STREAM",
-            stream_name=str(output.get("name", "stdout")),
-            representations=(
-                RuntimeOutputRepresentation(
-                    media_type="text/plain",
-                    encoding="UTF8",
-                    content=str(output.get("text", "")),
-                ),
-            ),
-        )
-    if output_type in {"display_data", "execute_result"}:
-        data = output.get("data", {})
-        if not isinstance(data, dict):
-            raise RuntimeDriverError("Runtime display output is invalid.")
-        representations = tuple(
-            _output_representation(str(media_type), value)
-            for media_type, value in data.items()
-        )
-        if not representations:
-            representations = (
-                RuntimeOutputRepresentation(
-                    media_type="application/json",
-                    encoding="UTF8",
-                    content="{}",
-                ),
-            )
-        metadata = output.get("metadata", {})
-        if not isinstance(metadata, dict):
-            raise RuntimeDriverError("Runtime output metadata is invalid.")
-        execution_count = output.get("execution_count")
-        return RuntimeOutputRecord(
-            kind=("RESULT" if output_type == "execute_result" else "DISPLAY"),
-            execution_count=(
-                int(execution_count) if execution_count is not None else None
-            ),
-            representations=representations,
-            metadata=metadata,
-        )
-    if output_type == "error":
-        traceback = output.get("traceback", [])
-        if not isinstance(traceback, list):
-            traceback = [str(traceback)]
-        return RuntimeOutputRecord(
-            kind="ERROR",
-            representations=(
-                RuntimeOutputRepresentation(
-                    media_type="text/plain",
-                    encoding="UTF8",
-                    content="\n".join(str(line) for line in traceback),
-                ),
-            ),
-            metadata={
-                "ename": str(output.get("ename", "Error")),
-                "evalue": str(output.get("evalue", "")),
-            },
-        )
-    raise RuntimeDriverError(
-        f"Unsupported Runtime output type: {output_type!r}."
-    )
-
-
-def _output_representation(
-    media_type: str, value: Any
-) -> RuntimeOutputRepresentation:
-    normalized = media_type.lower().strip()
-    if normalized.startswith("image/"):
-        if not isinstance(value, str):
-            raise RuntimeDriverError(
-                "Runtime image output must be base64 text."
-            )
-        try:
-            base64.b64decode(value, validate=True)
-        except ValueError as exc:
-            raise RuntimeDriverError(
-                "Runtime image output is invalid."
-            ) from exc
-        return RuntimeOutputRepresentation(
-            media_type=normalized,
-            encoding="BASE64",
-            content=value,
-        )
-    content = (
-        value
-        if isinstance(value, str)
-        else json.dumps(value, ensure_ascii=False, separators=(",", ":"))
-    )
-    return RuntimeOutputRepresentation(
-        media_type=normalized,
-        encoding="UTF8",
-        content=content,
-    )
-
-
-def _required_text(value: str | None, field: str) -> str:
-    if value is None or not value:
-        raise RuntimeDriverError(f"Execution Step has no immutable {field}.")
-    return value
-
-
-def _required_int(value: int | None, field: str) -> int:
-    if value is None or value < 0:
-        raise RuntimeDriverError(
-            f"Execution Step has no valid immutable {field}."
-        )
-    return value
-
-
-def _failure_policy(
-    exc: Exception, retain_session: bool
-) -> tuple[FailureType, RetryStrategy]:
-    if isinstance(exc, RetainedRuntimeSessionLostError):
-        return FailureType.RUNTIME_SESSION_LOST, RetryStrategy.FROM_START
-    if isinstance(exc, RuntimeExecutionTimeoutError):
-        failure_type = (
-            FailureType.STEP_TIMEOUT
-            if exc.scope == "Step"
-            else FailureType.OPERATION_TIMEOUT
-        )
-        retry_strategy = (
-            RetryStrategy.FROM_FAILED_STEP
-            if retain_session
-            else RetryStrategy.FROM_START
-        )
-        return failure_type, retry_strategy
-    if isinstance(exc, RuntimeOutputLimitExceededError):
-        retry_strategy = (
-            RetryStrategy.FROM_FAILED_STEP
-            if retain_session
-            else RetryStrategy.FROM_START
-        )
-        return FailureType.OUTPUT_LIMIT_EXCEEDED, retry_strategy
-    if isinstance(exc, RuntimeExecutionError) and retain_session:
-        return FailureType.TOOL_ERROR, RetryStrategy.FROM_FAILED_STEP
-    if isinstance(exc, RuntimeDriverError):
-        return FailureType.RUNTIME_UNAVAILABLE, RetryStrategy.FROM_START
-    return FailureType.INTERNAL_ERROR, RetryStrategy.NOT_RETRYABLE
-
-
-def _safe_error(exc: Exception) -> str:
-    if isinstance(exc, (RuntimeExecutionError, RuntimeDriverError)):
-        return str(exc)[:2000]
-    return f"{type(exc).__name__}: execution failed"[:2000]
 
 
 async def _best_effort_session_stop(

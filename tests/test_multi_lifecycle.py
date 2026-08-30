@@ -55,10 +55,10 @@ from executor_service.infrastructure.db.models import (
     RuntimeTargetORM,
 )
 from executor_service.infrastructure.db.session import create_session_factory
+from executor_service.infrastructure.execution_worker import ExecutionWorker
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
 )
-from executor_service.infrastructure.worker import ExecutionWorker
 from tests.runtime_credentials import runtime_credential_fields
 from tests.runtime_storage_fake import InMemoryRuntimeStorage
 
@@ -362,7 +362,7 @@ async def test_runtime_step_enforces_operation_and_step_timeouts(
             fencing_token=1,
         )
         with pytest.raises(RuntimeExecutionTimeoutError) as operation_error:
-            await worker._execute_runtime_step(
+            await worker._step_executor.execute(
                 RecordingMultiDriver(),
                 "runtime-session",
                 "slow()",
@@ -380,7 +380,7 @@ async def test_runtime_step_enforces_operation_and_step_timeouts(
                 .values(operation_timeout_seconds=None, started_at=utc_now())
             )
         with pytest.raises(RuntimeExecutionTimeoutError) as step_error:
-            await worker._execute_runtime_step(
+            await worker._step_executor.execute(
                 SlowExecutionDriver(),
                 "runtime-session",
                 "slow()",
@@ -1108,8 +1108,8 @@ async def test_running_execution_deadline_requests_cancel_and_reclaims_kernel(
     worker, redis = _worker(engine, tmp_path)
     try:
         await worker._audit_multi_lifecycle()
-        if worker._jobs:
-            await asyncio.gather(*list(worker._jobs.values()))
+        if worker.active_job_count:
+            await worker._dispatcher.wait_idle()
     finally:
         await redis.aclose()
 

@@ -40,10 +40,10 @@ from executor_service.infrastructure.execution_leases import (
     ExecutionLeaseLostError,
     require_active_lease,
 )
+from executor_service.infrastructure.execution_worker import ExecutionWorker
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
 )
-from executor_service.infrastructure.worker import ExecutionWorker
 from tests.runtime_credentials import runtime_credential_fields
 
 
@@ -207,7 +207,7 @@ async def test_duplicate_local_cancellation_dispatch_keeps_the_live_job(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     worker = _worker(engine, tmp_path, "local-cancellation-worker")
-    worker._accepting_work = True
+    worker._dispatcher.set_accepting(True)
     execution_id = uuid4()
     started = asyncio.Event()
     release = asyncio.Event()
@@ -220,26 +220,23 @@ async def test_duplicate_local_cancellation_dispatch_keeps_the_live_job(
         await release.wait()
 
     monkeypatch.setattr(worker, "_cancel_execution", blocked_cancellation)
-    worker._dispatch(
+    worker._dispatcher.dispatch(
         execution_id,
         worker._cancel_execution(execution_id),
         replace=True,
     )
     await started.wait()
-    first_task = worker._jobs[execution_id]
-
-    worker._dispatch(
+    worker._dispatcher.dispatch(
         execution_id,
         worker._cancel_execution(execution_id),
         replace=True,
     )
     await asyncio.sleep(0)
 
-    assert worker._jobs[execution_id] is first_task
-    assert not first_task.cancelled()
+    assert worker.active_job_count == 1
     assert invocations == 1
     release.set()
-    await first_task
+    await worker._dispatcher.wait_idle()
 
 
 async def test_local_cancellation_waits_for_execution_evidence_handoff(
@@ -247,7 +244,7 @@ async def test_local_cancellation_waits_for_execution_evidence_handoff(
     tmp_path: Path,
 ) -> None:
     worker = _worker(engine, tmp_path, "handoff-worker")
-    worker._accepting_work = True
+    worker._dispatcher.set_accepting(True)
     execution_id = uuid4()
     execution_started = asyncio.Event()
     allow_evidence_commit = asyncio.Event()
@@ -267,13 +264,13 @@ async def test_local_cancellation_waits_for_execution_evidence_handoff(
         assert evidence_committed.is_set()
         cancellation_started.set()
 
-    worker._dispatch(execution_id, active_execution())
+    worker._dispatcher.dispatch(execution_id, active_execution())
     await execution_started.wait()
-    worker._dispatch(execution_id, cancellation(), replace=True)
+    worker._dispatcher.dispatch(execution_id, cancellation(), replace=True)
     await asyncio.sleep(0)
     assert not cancellation_started.is_set()
 
     allow_evidence_commit.set()
-    await worker._jobs[execution_id]
+    await worker._dispatcher.wait_idle()
     assert evidence_committed.is_set()
     assert cancellation_started.is_set()
