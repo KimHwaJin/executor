@@ -99,6 +99,30 @@ def test_execution_query_readers_do_not_import_public_facade() -> None:
     assert not {path: names for path, names in violations.items() if names}
 
 
+def test_runtime_registry_support_does_not_import_public_facade() -> None:
+    support_package = SOURCE_ROOT / "infrastructure" / "_runtime_registry"
+    violations = {
+        path.name: sorted(
+            name
+            for name in _imports(path)
+            if name == "executor_service.infrastructure.runtime_registry"
+        )
+        for path in _python_files(support_package)
+    }
+    assert not {path: names for path, names in violations.items() if names}
+
+
+def test_runtime_registry_delegates_support_responsibilities() -> None:
+    imports = _imports(SOURCE_ROOT / "infrastructure" / "runtime_registry.py")
+    delegated = {
+        "cryptography.fernet",
+        "executor_service.infrastructure.runtime_admission",
+        "hashlib",
+        "json",
+    }
+    assert imports.isdisjoint(delegated)
+
+
 def test_internal_contract_modules_do_not_import_public_facade() -> None:
     contract_package = SOURCE_ROOT / "interfaces" / "_contracts"
     violations = {
