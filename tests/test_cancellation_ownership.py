@@ -131,7 +131,9 @@ async def test_cancellation_claim_fences_the_running_worker(
         await cancellation_worker._claimer.claim_cancellation(execution.id)
         is None
     )
-    await running_worker._runner.release_for_cancellation(stale_lease)
+    await running_worker._runner._finalizer.release_for_cancellation(
+        stale_lease
+    )
     cancellation = await cancellation_worker._claimer.claim_cancellation(
         execution.id
     )
