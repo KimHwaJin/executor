@@ -243,7 +243,9 @@ class RuntimePoolResponse(ContractModel):
     @classmethod
     def from_view(cls, view: RuntimePoolView) -> "RuntimePoolResponse":
         return cls(
-            runtime=RuntimePoolIdentity(type=view.runtime_type, pool=view.pool),
+            runtime=RuntimePoolIdentity(
+                type=view.runtime_type, pool=view.pool
+            ),
             targets=RuntimePoolTargets(
                 total=view.target_count,
                 enabled=view.enabled_target_count,

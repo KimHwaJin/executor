@@ -1,4 +1,5 @@
 """Public facade for REST and MCP transport contracts."""
+
 from executor_service.interfaces._contracts.artifacts import (  # noqa: F401
     ArtifactLineage,
     ArtifactProducer,

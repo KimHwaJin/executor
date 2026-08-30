@@ -130,6 +130,11 @@ class SQLAlchemyExecutionRepository:
 
     async def add_operation(self, operation: ExecutionOperation) -> None:
         self._session.add(ExecutionOperationORM.from_domain(operation))
+        # A follow-up MULTI Operation and its Steps are independent ORM
+        # instances. Flush the parent before the caller adds child Steps so
+        # PostgreSQL never observes an execution_steps.operation_id whose
+        # Operation has not been inserted yet.
+        await self._session.flush()
 
     async def next_operation_number(self, execution_id: UUID) -> int:
         current = await self._session.scalar(

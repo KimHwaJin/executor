@@ -129,7 +129,13 @@ async def _rest_json(
     json_body: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     response = await client.request(method, path.lstrip("/"), json=json_body)
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        raise RuntimeError(
+            f"{method} {path} returned {response.status_code}: "
+            f"{response.text[:2000]}"
+        ) from exc
     return response.json()
 
 
@@ -351,7 +357,11 @@ async def _assert_event_delivery(
     api_events = await _page(
         transport, execution_id, "events", mcp=mcp, rest=rest
     )
-    db_event_ids = {str(event.id) for event in snapshot.outbox_events}
+    db_event_ids = {
+        str(event.execution_event_id)
+        for event in snapshot.outbox_events
+        if event.execution_event_id is not None
+    }
     if {str(event["event_id"]) for event in api_events} != db_event_ids:
         raise RuntimeError(
             "Public Event history and PostgreSQL Outbox IDs differ."

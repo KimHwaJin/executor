@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from executor_service.application.commands import (
     CancelExecutionCommand,
+    CreateOperationCommand,
     RetryExecutionCommand,
     StepSpec,
     SubmitExecutionCommand,
@@ -255,6 +256,63 @@ async def test_concurrent_workers_create_exactly_one_attempt_for_an_execution(
             )
         )
     assert attempt_count == 1
+
+
+async def test_followup_multi_operation_flushes_parent_before_steps(
+    postgres_engine: AsyncEngine,
+    tmp_path: Path,
+) -> None:
+    service = _service(postgres_engine, tmp_path)
+    execution = await service.submit(
+        SubmitExecutionCommand(
+            idempotency_key=f"postgres-multi-submit-{uuid4().hex}",
+            operation_mode=OperationMode.MULTI,
+            operation_wait_timeout_seconds=600,
+            trigger_type=TriggerType.INTERACTIVE,
+            runtime_profile="basic",
+            user_id="postgres-multi-user",
+            project_id="postgres-multi-project",
+            session_id="postgres-multi-session",
+            task_id="postgres-multi-task",
+            steps=(StepSpec(sequence=0, code="value = 40"),),
+        )
+    )
+    session_factory = create_session_factory(postgres_engine)
+    async with session_factory() as session, session.begin():
+        await session.execute(
+            update(ExecutionORM)
+            .where(ExecutionORM.id == execution.id)
+            .values(status=ExecutionStatus.WAITING_FOR_OPERATION, version=1)
+        )
+
+    continued = await service.create_operation(
+        CreateOperationCommand(
+            execution_id=execution.id,
+            idempotency_key=f"postgres-multi-continue-{uuid4().hex}",
+            expected_version=1,
+            steps=(StepSpec(sequence=1, code="print(value + 2)"),),
+        )
+    )
+
+    async with session_factory() as session:
+        operation_count = await session.scalar(
+            select(func.count(ExecutionOperationORM.id)).where(
+                ExecutionOperationORM.execution_id == execution.id
+            )
+        )
+        steps = tuple(
+            await session.scalars(
+                select(ExecutionStepORM)
+                .where(ExecutionStepORM.execution_id == execution.id)
+                .order_by(ExecutionStepORM.sequence)
+            )
+        )
+
+    assert continued.status == ExecutionStatus.QUEUED
+    assert continued.version == 2
+    assert operation_count == 2
+    assert [step.sequence for step in steps] == [0, 1]
+    assert steps[1].operation_id == continued.active_operation_id
 
 
 async def test_persistent_drain_blocks_every_worker_until_activate(

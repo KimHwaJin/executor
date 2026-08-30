@@ -757,15 +757,21 @@ async def _run_failure_retry_case(
         raise RuntimeError(
             "Operation retry events do not share the accepted Operation ID."
         )
-    if [
-        event.payload["step_results"][0]["attempt"]["id"]
-        for event in operation_events
-    ] != [
-        str(snapshot.attempts[0].id),
-        str(snapshot.attempts[1].id),
-    ]:
+    first_attempt_ids = {
+        result["attempt"]["id"]
+        for result in operation_events[0].payload["step_results"]
+    }
+    retried_attempt_ids = {
+        result["attempt"]["id"]
+        for result in operation_events[1].payload["step_results"]
+    }
+    if first_attempt_ids != {str(snapshot.attempts[0].id)} or (
+        retried_attempt_ids
+        != {str(snapshot.attempts[0].id), str(snapshot.attempts[1].id)}
+    ):
         raise RuntimeError(
-            "Operation retry events do not identify their distinct Attempts."
+            "Operation retry events do not preserve successful results from "
+            "the first Attempt alongside retried Step results."
         )
     return CaseResult(
         name="MCP failure -> retry",

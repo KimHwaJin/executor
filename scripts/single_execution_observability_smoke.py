@@ -332,7 +332,11 @@ async def _database_snapshot(
             _enum_value(row.status) for row in step_attempts
         ),
         artifact_names=tuple(row.name for row in artifacts),
-        outbox_event_ids=frozenset(str(row.id) for row in events),
+        outbox_event_ids=frozenset(
+            str(row.execution_event_id)
+            for row in events
+            if row.execution_event_id is not None
+        ),
         outbox_event_types=tuple(row.event_type for row in events),
         outbox_statuses=tuple(_enum_value(row.status) for row in events),
     )
