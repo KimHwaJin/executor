@@ -76,6 +76,9 @@ from executor_service.infrastructure.execution_worker.runner import (
 from executor_service.infrastructure.execution_worker.runtime_calls import (
     RuntimeDriverProvider,
 )
+from executor_service.infrastructure.execution_worker.session_recovery import (
+    RuntimeSessionRecovery,
+)
 from executor_service.infrastructure.execution_worker.step_executor import (
     ExecutionStepExecutor,
 )
@@ -183,6 +186,10 @@ class ExecutionWorker:
             session_factory,
             self._claimer,
             self._lease_heartbeat,
+            self._driver_provider,
+        )
+        self._session_recovery = RuntimeSessionRecovery(
+            session_factory,
             self._driver_provider,
         )
         self._stream_consumer = WorkStreamConsumer(
@@ -675,7 +682,7 @@ class ExecutionWorker:
                 )
             await add_execution_completed_event(session, execution.id)
         if cleanup_target is not None:
-            await self._cleanup_abandoned_session(*cleanup_target)
+            await self._session_recovery.cleanup(*cleanup_target)
 
     async def _recover_expired_leases(self) -> int:
         recovery = await self._fence_expired_leases()
@@ -893,116 +900,9 @@ class ExecutionWorker:
             target_id,
             runtime_session_id,
         ) in cleanup_targets:
-            await self._cleanup_abandoned_session(
+            await self._session_recovery.cleanup(
                 execution_id, attempt_id, target_id, runtime_session_id
             )
-
-    async def _cleanup_abandoned_session(
-        self,
-        execution_id: UUID,
-        attempt_id: UUID | None,
-        target_id: UUID,
-        runtime_session_id: str,
-    ) -> None:
-        async with self._session_factory() as session:
-            target = await session.get(RuntimeTargetORM, target_id)
-        if target is None:
-            await self._record_cleanup_result(
-                execution_id,
-                attempt_id,
-                runtime_session_id,
-                RuntimeSessionCleanupStatus.FAILED,
-            )
-            return
-        try:
-            driver = self._create_driver(target)
-        except Exception:
-            logger.warning(
-                "Abandoned runtime session cleanup could not create a driver",
-                extra={"execution_id": str(execution_id)},
-                exc_info=True,
-            )
-            await self._record_cleanup_result(
-                execution_id,
-                attempt_id,
-                runtime_session_id,
-                RuntimeSessionCleanupStatus.FAILED,
-            )
-            return
-        try:
-            await driver.delete_session(runtime_session_id)
-        except Exception:
-            logger.warning(
-                "Abandoned runtime session cleanup failed",
-                extra={"execution_id": str(execution_id)},
-            )
-            cleanup_status = RuntimeSessionCleanupStatus.FAILED
-        else:
-            cleanup_status = RuntimeSessionCleanupStatus.SUCCEEDED
-        finally:
-            await driver.close()
-        await self._record_cleanup_result(
-            execution_id, attempt_id, runtime_session_id, cleanup_status
-        )
-
-    async def _record_cleanup_result(
-        self,
-        execution_id: UUID,
-        attempt_id: UUID | None,
-        runtime_session_id: str,
-        cleanup_status: RuntimeSessionCleanupStatus,
-    ) -> None:
-        async with self._session_factory() as session, session.begin():
-            execution = await session.scalar(
-                select(ExecutionORM)
-                .where(
-                    ExecutionORM.id == execution_id,
-                    ExecutionORM.status.in_(
-                        [
-                            ExecutionStatus.FAILED,
-                            ExecutionStatus.CANCELLED,
-                        ]
-                    ),
-                    ExecutionORM.runtime_session_id == runtime_session_id,
-                )
-                .with_for_update()
-            )
-            if execution is None:
-                return
-            abort_was_pending = (
-                execution.runtime_abort_status == RuntimeAbortStatus.PENDING
-            )
-            if cleanup_status == RuntimeSessionCleanupStatus.SUCCEEDED:
-                execution.runtime_session_id = None
-            execution.runtime_session_cleanup_status = cleanup_status
-            if abort_was_pending:
-                execution.runtime_abort_status = (
-                    RuntimeAbortStatus.SESSION_DELETED
-                    if cleanup_status == RuntimeSessionCleanupStatus.SUCCEEDED
-                    else RuntimeAbortStatus.FAILED
-                )
-            execution.updated_at = utc_now()
-            execution.version += 1
-            if attempt_id is not None:
-                await session.execute(
-                    update(ExecutionAttemptORM)
-                    .where(ExecutionAttemptORM.id == attempt_id)
-                    .values(
-                        runtime_session_cleanup_status=cleanup_status,
-                        **(
-                            {
-                                "runtime_abort_status": (
-                                    RuntimeAbortStatus.SESSION_DELETED
-                                    if cleanup_status
-                                    == RuntimeSessionCleanupStatus.SUCCEEDED
-                                    else RuntimeAbortStatus.FAILED
-                                )
-                            }
-                            if abort_was_pending
-                            else {}
-                        ),
-                    )
-                )
 
     async def _retry_unresolved_runtime_session_cleanup(self) -> None:
         now = utc_now()
@@ -1070,14 +970,14 @@ class ExecutionWorker:
                 )
         for execution_id, attempt_id, target_id, session_id in cleanup_targets:
             if target_id is None:
-                await self._record_cleanup_result(
+                await self._session_recovery.record_result(
                     execution_id,
                     attempt_id,
                     session_id,
                     RuntimeSessionCleanupStatus.FAILED,
                 )
                 continue
-            await self._cleanup_abandoned_session(
+            await self._session_recovery.cleanup(
                 execution_id,
                 attempt_id,
                 target_id,
