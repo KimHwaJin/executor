@@ -2,12 +2,12 @@
 
 from sqlalchemy.orm import configure_mappers
 
-from executor_service.infrastructure.db import _models as auxiliary_models
+from executor_service.infrastructure.db import _models as internal_models
 from executor_service.infrastructure.db import models as public_models
 from executor_service.infrastructure.db.base import Base
 
 
-def test_public_module_reexports_auxiliary_orm_models() -> None:
+def test_public_module_reexports_internal_orm_models() -> None:
     names = (
         "CommandReceiptORM",
         "EventRetentionLeaseORM",
@@ -15,9 +15,11 @@ def test_public_module_reexports_auxiliary_orm_models() -> None:
         "ExecutionAttemptORM",
         "ExecutionEventORM",
         "ExecutionEventSequenceORM",
+        "ExecutionORM",
         "ExecutionOperationORM",
         "ExecutionRetryORM",
         "ExecutionStepAttemptORM",
+        "ExecutionStepORM",
         "ExecutorMaintenanceORM",
         "MaintenanceRunORM",
         "MaintenanceRunTargetORM",
@@ -27,7 +29,14 @@ def test_public_module_reexports_auxiliary_orm_models() -> None:
     )
 
     for name in names:
-        assert getattr(public_models, name) is getattr(auxiliary_models, name)
+        assert getattr(public_models, name) is getattr(internal_models, name)
+
+    assert (
+        public_models.audit_actor_constraints
+        is internal_models.audit_actor_constraints
+    )
+    assert public_models.enum_type is internal_models.enum_type
+    assert public_models.__all__ == internal_models.__all__
 
 
 def test_public_module_registers_complete_model_metadata() -> None:

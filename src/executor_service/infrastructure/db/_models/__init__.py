@@ -1,4 +1,4 @@
-"""Auxiliary SQLAlchemy ORM models split from the public model facade."""
+"""Internal SQLAlchemy ORM model registry."""
 
 from executor_service.infrastructure.db._models.artifacts import (
     ExecutionArtifactORM,
@@ -16,6 +16,10 @@ from executor_service.infrastructure.db._models.events import (
     ExecutionEventORM,
     ExecutionEventSequenceORM,
     OutboxEventORM,
+)
+from executor_service.infrastructure.db._models.executions import (
+    ExecutionORM,
+    ExecutionStepORM,
 )
 from executor_service.infrastructure.db._models.maintenance import (
     EventRetentionLeaseORM,
@@ -41,9 +45,11 @@ __all__ = [
     "ExecutionAttemptORM",
     "ExecutionEventORM",
     "ExecutionEventSequenceORM",
+    "ExecutionORM",
     "ExecutionOperationORM",
     "ExecutionRetryORM",
     "ExecutionStepAttemptORM",
+    "ExecutionStepORM",
     "ExecutorMaintenanceORM",
     "MaintenanceRunORM",
     "MaintenanceRunTargetORM",

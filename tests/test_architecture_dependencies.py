@@ -347,9 +347,19 @@ def test_auxiliary_orm_models_do_not_import_public_facade() -> None:
     assert not {path: names for path, names in violations.items() if names}
 
 
-def test_public_orm_module_loads_auxiliary_models() -> None:
-    imports = _imports(SOURCE_ROOT / "infrastructure" / "db" / "models.py")
-    assert "executor_service.infrastructure.db._models" in imports
+def test_public_orm_module_only_reexports_internal_models() -> None:
+    facade = SOURCE_ROOT / "infrastructure" / "db" / "models.py"
+    tree = ast.parse(facade.read_text(encoding="utf-8"), filename=str(facade))
+    definitions = [
+        node.name
+        for node in tree.body
+        if isinstance(
+            node,
+            (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef),
+        )
+    ]
+    assert definitions == []
+    assert _imports(facade) == {"executor_service.infrastructure.db._models"}
 
 
 def test_internal_contract_modules_do_not_import_public_facade() -> None:
