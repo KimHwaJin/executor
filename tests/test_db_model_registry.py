@@ -11,6 +11,7 @@ def test_public_module_reexports_auxiliary_orm_models() -> None:
     names = (
         "CommandReceiptORM",
         "EventRetentionLeaseORM",
+        "ExecutionArtifactORM",
         "ExecutionEventORM",
         "ExecutionEventSequenceORM",
         "ExecutorMaintenanceORM",

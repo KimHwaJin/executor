@@ -1,5 +1,8 @@
 """Auxiliary SQLAlchemy ORM models split from the public model facade."""
 
+from executor_service.infrastructure.db._models.artifacts import (
+    ExecutionArtifactORM,
+)
 from executor_service.infrastructure.db._models.common import (
     audit_actor_constraints,
     enum_type,
@@ -26,6 +29,7 @@ from executor_service.infrastructure.db._models.runtime import (
 __all__ = [
     "CommandReceiptORM",
     "EventRetentionLeaseORM",
+    "ExecutionArtifactORM",
     "ExecutionEventORM",
     "ExecutionEventSequenceORM",
     "ExecutorMaintenanceORM",
