@@ -13,7 +13,7 @@ import pytest_asyncio
 from alembic import command
 from alembic.config import Config
 from redis.asyncio import Redis
-from sqlalchemy import func, select, text, update
+from sqlalchemy import func, inspect, select, text, update
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
@@ -33,6 +33,7 @@ from executor_service.application.maintenance_runs import (
 )
 from executor_service.application.services import ExecutionService
 from executor_service.config import Settings
+from executor_service.container import EXPECTED_SCHEMA_REVISION
 from executor_service.domain.enums import (
     ActorType,
     AttemptStatus,
@@ -55,6 +56,7 @@ from executor_service.domain.enums import (
 from executor_service.domain.models import utc_now
 from executor_service.events import build_execution_event
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
+from executor_service.infrastructure.db.base import Base
 from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
     ExecutionEventORM,
@@ -111,6 +113,12 @@ def _upgrade_and_check_baseline(database_url: str) -> None:
     config.attributes["database_url"] = database_url
     command.upgrade(config, "head")
     command.check(config)
+
+
+def _downgrade_baseline(database_url: str) -> None:
+    config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+    config.attributes["database_url"] = database_url
+    command.downgrade(config, "base")
 
 
 @pytest_asyncio.fixture
@@ -1094,12 +1102,12 @@ async def test_event_retention_has_one_postgres_lease_owner(
         await _close_redis(redis_clients)
 
 
-async def test_earlier_0001_event_outbox_is_bridged_without_data_loss(
+async def test_current_baseline_repeated_upgrade_preserves_events(
     postgres_engine: AsyncEngine,
     tmp_path: Path,
 ) -> None:
     service = _service(postgres_engine, tmp_path)
-    execution = await service.submit(_command("0001-event-bridge"))
+    execution = await service.submit(_command("baseline-repeat-upgrade"))
     event = build_execution_event(
         execution_id=execution.id,
         event_sequence=1,
@@ -1110,7 +1118,7 @@ async def test_earlier_0001_event_outbox_is_bridged_without_data_loss(
                 "provider": "JUPYTER",
                 "profile": "basic",
                 "target_id": str(uuid4()),
-                "session_id": "legacy-session",
+                "session_id": "baseline-session",
             },
         },
     )
@@ -1120,53 +1128,7 @@ async def test_earlier_0001_event_outbox_is_bridged_without_data_loss(
         session.add(ExecutionEventORM.from_domain(event))
         session.add(outbox)
         await session.flush()
-        legacy_event_id = outbox.id
-
-    async with postgres_engine.begin() as connection:
-        await connection.execute(
-            text(
-                "ALTER TABLE outbox_events DROP CONSTRAINT "
-                "fk_outbox_events_execution_event_id_execution_events"
-            )
-        )
-        await connection.execute(
-            text(
-                "ALTER TABLE outbox_events DROP CONSTRAINT "
-                "uq_outbox_execution_event_id"
-            )
-        )
-        await connection.execute(
-            text(
-                "ALTER TABLE outbox_events DROP CONSTRAINT "
-                "ck_outbox_events_valid_outbox_content"
-            )
-        )
-        await connection.execute(
-            text(
-                "UPDATE outbox_events AS outbox SET payload = events.payload "
-                "FROM execution_events AS events "
-                "WHERE outbox.execution_event_id = events.id"
-            )
-        )
-        await connection.execute(
-            text("ALTER TABLE outbox_events ALTER COLUMN payload SET NOT NULL")
-        )
-        await connection.execute(
-            text("ALTER TABLE outbox_events DROP COLUMN execution_event_id")
-        )
-        await connection.execute(text("DROP TABLE execution_events"))
-        await connection.execute(text("DROP TABLE event_retention_lease"))
-        await connection.execute(
-            text(
-                "ALTER TABLE outbox_events ADD CONSTRAINT "
-                "ck_outbox_events_valid_outbox_event_sequence CHECK ("
-                "(destination = 'EVENTS' AND event_sequence >= 1) OR "
-                "(destination = 'WORK' AND event_sequence IS NULL))"
-            )
-        )
-        await connection.execute(
-            text("UPDATE alembic_version SET version_num = '0001'")
-        )
+        outbox_id = outbox.id
 
     database_url = postgres_engine.url.render_as_string(hide_password=False)
     await asyncio.to_thread(_upgrade_and_check_baseline, database_url)
@@ -1174,25 +1136,68 @@ async def test_earlier_0001_event_outbox_is_bridged_without_data_loss(
     async with session_factory() as session:
         migrated_event = await session.get(
             ExecutionEventORM,
-            legacy_event_id,
+            event.id,
         )
         migrated_outbox = await session.scalar(
             select(OutboxEventORM).where(
-                OutboxEventORM.execution_event_id == legacy_event_id
+                OutboxEventORM.execution_event_id == event.id
             )
         )
         revision = await session.scalar(
             text("SELECT version_num FROM alembic_version")
         )
 
-    assert revision == "0002"
+        maintenance_count = await session.scalar(
+            text("SELECT count(*) FROM executor_maintenance")
+        )
+        retention_count = await session.scalar(
+            text("SELECT count(*) FROM event_retention_lease")
+        )
+
+    assert revision == EXPECTED_SCHEMA_REVISION == "0001"
+    assert maintenance_count == retention_count == 1
     assert migrated_event is not None
     assert migrated_event.execution_id == execution.id
     assert migrated_event.event_sequence == 1
     assert migrated_event.payload == event.payload
     assert migrated_outbox is not None
-    assert migrated_outbox.id == legacy_event_id
+    assert migrated_outbox.id == outbox_id
     assert migrated_outbox.payload is None
+
+
+async def test_current_baseline_downgrade_and_recreate(
+    postgres_engine: AsyncEngine,
+) -> None:
+    database_url = postgres_engine.url.render_as_string(hide_password=False)
+    await asyncio.to_thread(_downgrade_baseline, database_url)
+    async with postgres_engine.connect() as connection:
+        tables = await connection.run_sync(
+            lambda sync: set(inspect(sync).get_table_names())
+        )
+        revision_count = await connection.scalar(
+            text("SELECT count(*) FROM alembic_version")
+        )
+    assert tables == {"alembic_version"}
+    assert revision_count == 0
+
+    await asyncio.to_thread(_upgrade_and_check_baseline, database_url)
+    async with postgres_engine.connect() as connection:
+        tables = await connection.run_sync(
+            lambda sync: set(inspect(sync).get_table_names())
+        )
+        revision = await connection.scalar(
+            text("SELECT version_num FROM alembic_version")
+        )
+        admission = await connection.scalar(
+            text("SELECT admission_state FROM executor_maintenance")
+        )
+        retention_key = await connection.scalar(
+            text("SELECT singleton_key FROM event_retention_lease")
+        )
+    assert tables == set(Base.metadata.tables) | {"alembic_version"}
+    assert revision == EXPECTED_SCHEMA_REVISION == "0001"
+    assert admission == "ACTIVE"
+    assert retention_key == "events"
 
 
 async def test_bounded_pool_times_out_instead_of_opening_unlimited_connections(

@@ -648,9 +648,12 @@ operations requirements determine the production values.
 
 ### Verified baseline
 
-- Static/unit gate: Ruff passed, format passed, ty passed, 205 tests passed.
+- Verified again on 2026-08-31 against the reset `0001` baseline; see
+  [baseline reset validation](schema-baseline-validation.md).
+- Static/unit gate: Ruff passed, format passed, ty passed, 251 tests passed.
 - Redis integration gate: 10 tests passed.
-- PostgreSQL concurrency and migration gate: 16 tests passed.
+- PostgreSQL concurrency and migration gate: 18 tests passed, including repeated upgrade and
+  downgrade/recreate checks on disposable databases.
 
 ### Remaining CI-platform work
 

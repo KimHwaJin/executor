@@ -268,10 +268,10 @@ uv run alembic current
 uv run alembic check
 ```
 
-Revision `0001` is the complete 2026-08-26 pre-release schema baseline. Revision `0002` is the
-current head and bridges databases initialized from the earlier deployed `0001` shape to durable
-Execution event history. Databases on a discarded pre-baseline development revision must still be
-recreated; there is no compatibility or data-preserving upgrade path for those revisions. See
+Revision `0001` is the complete 2026-08-31 schema baseline and the only current revision.
+It includes durable Execution event history and all current operational tables. All databases
+created before this reset must be recreated, including databases already stamped `0001`;
+there is no compatibility or data-preserving upgrade path from the discarded revisions. See
 [Database Operations](docs/database-operations.md).
 
 ## Tool contracts

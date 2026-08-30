@@ -6,7 +6,7 @@ consume an application pool.
 
 ## Schema baseline
 
-Revision `0001` is a complete snapshot of the Executor schema recorded on 2026-08-26. It creates
+Revision `0001` is a complete snapshot of the Executor schema recorded on 2026-08-31. It creates
 all current tables, foreign keys, check/unique constraints, and operational indexes in one step.
 The earlier incremental development revisions were deliberately removed; this is a pre-release
 baseline reset, not a data-preserving upgrade from that discarded chain.
@@ -21,14 +21,21 @@ uv run alembic check
 
 Revision `0001` includes internal monotonic fencing tokens, exclusive cancellation ownership,
 Runtime abort state and observations, the shared-result reference contract, Executor-wide
-maintenance admission, and durable leased Maintenance Runs with per-Execution targets. Revision
-`0002` bridges an already initialized earlier `0001` database to durable Execution event history
-and is the current head. `current` must report `0002 (head)`, and `check` must report that no new
-upgrade operations are detected. A development database carrying one of the removed
-pre-baseline revisions must be backed up if its data matters, then recreated as an empty database
-before `upgrade head`. Clear the four Executor Redis Streams at the same time so stale work
+maintenance admission, durable leased Maintenance Runs with per-Execution targets, durable
+Execution event history, and the event-retention lease. It is the only current revision;
+the former compatibility bridge has been removed. `current` must report `0001 (head)`, and
+`check` must report that no new upgrade operations are detected. Every database created before
+this reset must be backed up if its data matters, then recreated as an empty database before
+`upgrade head`, even if it is already stamped `0001`. Revision equality alone does not prove
+that an older database has this schema. Clear the four Executor Redis Streams at the same time so stale work
 messages cannot reference rows removed by the reset. Do not use this reset procedure for a
 production database.
+
+Stop Executor processes before resetting local data. Reset only the selected Executor database
+and its configured Redis keys/logical databases; do not flush unrelated Redis applications or
+delete PostgreSQL volumes shared with other databases. Runtime registrations are database rows
+and must be registered again after reset. Shared results and Jupyter workspace files are separate
+from PostgreSQL/Redis and are not removed by this procedure.
 
 The opt-in PostgreSQL suite creates a fresh database per test, applies the real Alembic baseline,
 runs `alembic check`, and only then executes the concurrency scenario:
@@ -36,6 +43,9 @@ runs `alembic check`, and only then executes the concurrency scenario:
 ```bash
 EXECUTOR_RUN_POSTGRES_TESTS=1 uv run pytest tests/test_multi_worker_postgres.py
 ```
+
+See [2026-08-31 baseline reset validation](schema-baseline-validation.md) for the local reset,
+container startup, SINGLE/MULTI execution, and result-integrity evidence.
 
 ## Pool settings
 

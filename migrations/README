@@ -1,9 +1,9 @@
 Single-database Alembic environment for the Executor PostgreSQL schema.
 
-Revision `0001` is the complete pre-release schema baseline recorded on 2026-08-26. Revision
-`0002` is the current head and safely bridges databases created from the earlier deployed `0001`
-shape to durable Execution events. The baseline replaces the former incremental development chain.
-Databases stamped with a removed pre-baseline development revision must still be recreated.
+Revision `0001` is the complete schema baseline recorded on 2026-08-31 and the only current
+revision. It includes durable Execution events and replaces all previous development migrations,
+including the former compatibility bridge. Databases created before this reset must be recreated,
+even if they were stamped `0001`. Do not stamp an old database to bypass schema creation.
 
 Create or verify a database with:
 

@@ -56,7 +56,7 @@ from executor_service.infrastructure.runtime_storage import (
 )
 from executor_service.tracing import TracingManager
 
-EXPECTED_SCHEMA_REVISION = "0002"
+EXPECTED_SCHEMA_REVISION = "0001"
 
 
 class ApplicationContainer:

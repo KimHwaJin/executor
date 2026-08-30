@@ -2,10 +2,11 @@
 
 Revision ID: 0001
 Revises:
-Create Date: 2026-08-26
+Create Date: 2026-08-31
 
-This pre-release baseline replaces the discarded incremental development chain and must be
-applied to an empty database.
+This baseline snapshots the current schema, including durable Execution events.
+It replaces all previous development revisions and must be applied to an empty
+database. Existing databases must be recreated, not stamped or upgraded in place.
 """
 
 from collections.abc import Sequence

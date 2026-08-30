@@ -386,7 +386,7 @@ success.
 
 Prerequisites:
 
-- the release migration Job completed and `alembic_version.version_num` is `0002`;
+- the release migration Job completed and `alembic_version.version_num` is `0001`;
 - the Executor Deployment and at least one compatible Runtime Target are Ready;
 - the active kubectl identity can get Deployments and Pods and delete the selected Executor Pod;
 - `--base-url` reaches the same Deployment selected by `--namespace`, `--deployment`, and
