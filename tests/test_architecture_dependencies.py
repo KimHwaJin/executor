@@ -77,6 +77,28 @@ def test_worker_facade_does_not_own_persistence_queries() -> None:
     assert "executor_service.infrastructure.db.models" not in imports
 
 
+def test_execution_query_facade_does_not_own_persistence_queries() -> None:
+    imports = _imports(SOURCE_ROOT / "infrastructure" / "execution_queries.py")
+    assert "executor_service.infrastructure.db.models" not in imports
+    assert not any(
+        name == "sqlalchemy" or name.startswith("sqlalchemy.sql")
+        for name in imports
+    )
+
+
+def test_execution_query_readers_do_not_import_public_facade() -> None:
+    query_package = SOURCE_ROOT / "infrastructure" / "_execution_queries"
+    violations = {
+        path.name: sorted(
+            name
+            for name in _imports(path)
+            if name == "executor_service.infrastructure.execution_queries"
+        )
+        for path in _python_files(query_package)
+    }
+    assert not {path: names for path, names in violations.items() if names}
+
+
 def test_internal_contract_modules_do_not_import_public_facade() -> None:
     contract_package = SOURCE_ROOT / "interfaces" / "_contracts"
     violations = {
