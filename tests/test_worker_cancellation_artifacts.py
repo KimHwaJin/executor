@@ -129,7 +129,7 @@ async def test_cancelled_cell_registers_partial_file_as_incomplete_artifact(
         "executor_service.infrastructure.runtime_drivers.JupyterRuntimeDriver",
         FileWritingBlockedDriver,
     )
-    task = asyncio.create_task(worker._run_execution(execution.id))
+    task = asyncio.create_task(worker._runner.run(execution.id))
     try:
         await asyncio.wait_for(
             FileWritingBlockedDriver.started.wait(), timeout=1

@@ -375,7 +375,7 @@ async def test_duplicate_dispatch_keeps_one_active_job(
         started.set()
         await release.wait()
 
-    monkeypatch.setattr(worker, "_run_execution", blocking_execution)
+    monkeypatch.setattr(worker._runner, "run", blocking_execution)
     fields = _work_fields(execution_id)
     await worker._handle_work_message(fields)
     await started.wait()
