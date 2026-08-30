@@ -942,8 +942,8 @@ async def test_expired_multi_wait_fails_and_cleans_kernel_once(
     _patch_runtime_driver(monkeypatch, FakeJupyterGateway)
     worker, redis = _worker(engine, tmp_path)
     try:
-        await worker._audit_multi_lifecycle()
-        await worker._audit_multi_lifecycle()
+        await worker._multi_lifecycle.audit()
+        await worker._multi_lifecycle.audit()
     finally:
         await redis.aclose()
 
@@ -1002,7 +1002,7 @@ async def test_restart_audit_detects_missing_kernel_without_cleanup(
     _patch_runtime_driver(monkeypatch, FakeJupyterGateway)
     worker, redis = _worker(engine, tmp_path)
     try:
-        await worker._audit_multi_lifecycle()
+        await worker._multi_lifecycle.audit()
     finally:
         await redis.aclose()
 
@@ -1031,7 +1031,7 @@ async def test_disabled_target_fails_waiting_execution(
     _patch_runtime_driver(monkeypatch, FakeJupyterGateway)
     worker, redis = _worker(engine, tmp_path)
     try:
-        await worker._audit_multi_lifecycle()
+        await worker._multi_lifecycle.audit()
     finally:
         await redis.aclose()
 
@@ -1062,7 +1062,7 @@ async def test_execution_deadline_precedes_step_wait_deadline(
     _patch_runtime_driver(monkeypatch, FakeJupyterGateway)
     worker, redis = _worker(engine, tmp_path)
     try:
-        await worker._audit_multi_lifecycle()
+        await worker._multi_lifecycle.audit()
     finally:
         await redis.aclose()
 
@@ -1107,7 +1107,7 @@ async def test_running_execution_deadline_requests_cancel_and_reclaims_kernel(
     _patch_runtime_driver(monkeypatch, FakeJupyterGateway)
     worker, redis = _worker(engine, tmp_path)
     try:
-        await worker._audit_multi_lifecycle()
+        await worker._multi_lifecycle.audit()
         if worker.active_job_count:
             await worker._dispatcher.wait_idle()
     finally:
