@@ -159,6 +159,34 @@ def test_result_storage_support_does_not_import_public_facade() -> None:
     assert not {path: names for path, names in violations.items() if names}
 
 
+def test_artifact_support_does_not_import_public_facade() -> None:
+    support_package = SOURCE_ROOT / "infrastructure" / "_artifacts"
+    violations = {
+        path.name: sorted(
+            name
+            for name in _imports(path)
+            if name == "executor_service.infrastructure.artifacts"
+        )
+        for path in _python_files(support_package)
+    }
+    assert not {path: names for path, names in violations.items() if names}
+
+
+def test_artifact_facade_delegates_validation_and_persistence() -> None:
+    imports = _imports(SOURCE_ROOT / "infrastructure" / "artifacts.py")
+    delegated = {
+        "hashlib",
+        "json",
+        "pydantic",
+        "executor_service.infrastructure.db.models",
+    }
+    assert imports.isdisjoint(delegated)
+    assert not any(
+        name == "sqlalchemy" or name.startswith("sqlalchemy.sql")
+        for name in imports
+    )
+
+
 def test_result_storage_facade_delegates_file_format() -> None:
     imports = _imports(SOURCE_ROOT / "infrastructure" / "result_storage.py")
     delegated = {
