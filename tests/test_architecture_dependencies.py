@@ -111,6 +111,33 @@ def test_execution_query_facade_does_not_own_persistence_queries() -> None:
     )
 
 
+def test_result_storage_support_does_not_import_public_facade() -> None:
+    support_package = SOURCE_ROOT / "infrastructure" / "_result_storage"
+    violations = {
+        path.name: sorted(
+            name
+            for name in _imports(path)
+            if name == "executor_service.infrastructure.result_storage"
+        )
+        for path in _python_files(support_package)
+    }
+    assert not {path: names for path, names in violations.items() if names}
+
+
+def test_result_storage_facade_delegates_file_format() -> None:
+    imports = _imports(SOURCE_ROOT / "infrastructure" / "result_storage.py")
+    delegated = {
+        "base64",
+        "binascii",
+        "hashlib",
+        "json",
+        "os",
+        "re",
+        "shutil",
+    }
+    assert imports.isdisjoint(delegated)
+
+
 def test_execution_query_readers_do_not_import_public_facade() -> None:
     query_package = SOURCE_ROOT / "infrastructure" / "_execution_queries"
     violations = {
