@@ -1,5 +1,8 @@
 # Expanded output validation — 2026-08-31
 
+Follow-up: [Runtime Diagnostics Hardening](runtime-diagnostics-hardening.md) repairs failure
+evidence propagation. Its Phase 1 does **not** resolve the IOPub suppression finding below.
+
 ## Outcome: output preservation is not ready
 
 The current local configuration loses large stdout output at the Jupyter IOPub rate limiter.

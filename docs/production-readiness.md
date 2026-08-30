@@ -678,3 +678,38 @@ failure. It must retain Runtime release evidence and inject all service credenti
   retain its generated summary and logs.
 - Every PR-001 through PR-006C implementation adds its new concurrency, recovery, output, or
   retention cases to the appropriate required gate.
+
+## PR-008: Trustworthy Runtime diagnostics and completion reporting
+
+- Priority: P0 for known output loss reported as complete; P1 for diagnostic consistency
+- Status: IMPLEMENTING — Phase 1 complete, overall item remains open
+- Area: Runtime adapters, Worker errors, shared results, projection, cleanup, operator logs
+- Public API impact: Phase 1 has none; common diagnostic fields require a subsequent contract update
+- Details: [Runtime Diagnostics Hardening](runtime-diagnostics-hardening.md)
+
+### Implemented Phase 1
+
+- Preserve transport/OS causes and partial result references through SINGLE and MULTI failures.
+- Keep output-handler storage exceptions separate from Jupyter transport failures.
+- Emit bounded, sanitized failure-chain and stack-location logs with execution context.
+- Retain initiating failure when evidence persistence, notebook projection or cleanup also fails.
+- Record notebook construction failure instead of leaving projection `PENDING`.
+- Correct inconsistent retained-target outage classification.
+- Verified 290 local regression tests, 28 PostgreSQL/Redis integration tests, Ruff, format and ty;
+  real local basic/ML Jupyter REST/WebSocket gateway smoke passed.
+
+### Completion criteria still open
+
+- Known output suppression is never reported as a complete captured result. Do not classify
+  arbitrary user stderr as an authoritative Runtime signal or disable limits to hide this issue.
+- Execution failure, result incompleteness and secondary projection/cleanup problems are
+  independently attributable and consistently queryable, without overwriting earlier causes.
+- Common diagnostic code, phase, origin, severity, time and scope rules cover DB, API, event and
+  manifest representations while keeping payloads bounded.
+- Mandatory output/projection/artifact completion policy is explicit; consumers cannot confuse
+  code success with successful delivery of all mandatory outputs.
+- Remaining lifecycle and persistence-outage paths are covered by failure-injection tests;
+  unknown remote causes remain explicitly unknown and correlate with operational logs.
+
+The output-loss blocker in [expanded output validation](output-expansion-validation.md) is not
+resolved by Phase 1. No full production-readiness claim should be made from these test counts.
