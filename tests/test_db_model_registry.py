@@ -15,6 +15,7 @@ def test_public_module_reexports_auxiliary_orm_models() -> None:
         "ExecutionAttemptORM",
         "ExecutionEventORM",
         "ExecutionEventSequenceORM",
+        "ExecutionOperationORM",
         "ExecutionRetryORM",
         "ExecutionStepAttemptORM",
         "ExecutorMaintenanceORM",

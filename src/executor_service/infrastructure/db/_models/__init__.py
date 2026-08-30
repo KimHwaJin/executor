@@ -23,6 +23,9 @@ from executor_service.infrastructure.db._models.maintenance import (
     MaintenanceRunORM,
     MaintenanceRunTargetORM,
 )
+from executor_service.infrastructure.db._models.operations import (
+    ExecutionOperationORM,
+)
 from executor_service.infrastructure.db._models.receipts import (
     CommandReceiptORM,
 )
@@ -38,6 +41,7 @@ __all__ = [
     "ExecutionAttemptORM",
     "ExecutionEventORM",
     "ExecutionEventSequenceORM",
+    "ExecutionOperationORM",
     "ExecutionRetryORM",
     "ExecutionStepAttemptORM",
     "ExecutorMaintenanceORM",
