@@ -165,6 +165,6 @@ async def test_cancelled_cell_registers_partial_file_as_incomplete_artifact(
 
     cancel_requested = await execution_service.get(execution.id)
     assert cancel_requested.status == ExecutionStatus.CANCEL_REQUESTED
-    await worker._cancel_execution(execution.id)
+    await worker._cancellation.cancel(execution.id)
     cancelled = await execution_service.get(execution.id)
     assert cancelled.status == ExecutionStatus.CANCELLED

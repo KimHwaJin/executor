@@ -177,11 +177,11 @@ async def test_expired_cancellation_lease_is_taken_over_and_stale_final_is_rejec
     assert second_work is not None
     assert second_work.lease.fencing_token > first_work.lease.fencing_token
     with pytest.raises(ExecutionLeaseLostError):
-        await first._finalize_cancellation(
+        await first._cancellation.finalize(
             first_work.lease,
             RuntimeSessionCleanupStatus.NOT_REQUIRED,
         )
-    await second._finalize_cancellation(
+    await second._cancellation.finalize(
         second_work.lease,
         RuntimeSessionCleanupStatus.NOT_REQUIRED,
     )
@@ -226,16 +226,16 @@ async def test_duplicate_local_cancellation_dispatch_keeps_the_live_job(
         started.set()
         await release.wait()
 
-    monkeypatch.setattr(worker, "_cancel_execution", blocked_cancellation)
+    monkeypatch.setattr(worker._cancellation, "cancel", blocked_cancellation)
     worker._dispatcher.dispatch(
         execution_id,
-        worker._cancel_execution(execution_id),
+        worker._cancellation.cancel(execution_id),
         replace=True,
     )
     await started.wait()
     worker._dispatcher.dispatch(
         execution_id,
-        worker._cancel_execution(execution_id),
+        worker._cancellation.cancel(execution_id),
         replace=True,
     )
     await asyncio.sleep(0)

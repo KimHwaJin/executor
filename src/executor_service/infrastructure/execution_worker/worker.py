@@ -44,10 +44,8 @@ from executor_service.infrastructure.db.models import (
     ExecutionStepORM,
     RuntimeTargetORM,
 )
-from executor_service.infrastructure.execution_leases import (
-    CancellationLease,
-    ExecutionLeaseLostError,
-    require_active_cancellation_lease,
+from executor_service.infrastructure.execution_worker.cancellation import (
+    CancellationProcessor,
 )
 from executor_service.infrastructure.execution_worker.claiming import (
     ExecutionClaimer,
@@ -75,8 +73,8 @@ from executor_service.infrastructure.execution_worker.notebook_projector import 
 from executor_service.infrastructure.execution_worker.runner import (
     ExecutionRunner,
 )
-from executor_service.infrastructure.execution_worker.runtime_cleanup import (
-    best_effort_session_stop,
+from executor_service.infrastructure.execution_worker.runtime_calls import (
+    RuntimeDriverProvider,
 )
 from executor_service.infrastructure.execution_worker.step_executor import (
     ExecutionStepExecutor,
@@ -88,7 +86,6 @@ from executor_service.infrastructure.execution_worker.target_selector import (
     RuntimeTargetSelector,
 )
 from executor_service.infrastructure.execution_worker.types import (
-    CancellationWork,
     ExpiredLeaseRecovery,
 )
 from executor_service.infrastructure.maintenance_runs import (
@@ -133,6 +130,10 @@ class ExecutionWorker:
         self._driver_factory = (
             driver_factory or ConfiguredRuntimeDriverFactory(settings)
         )
+        self._driver_provider = RuntimeDriverProvider(
+            registry,
+            self._driver_factory,
+        )
         self._artifacts = artifact_manager
         self._result_store = result_store or FilesystemExecutionResultStore(
             settings.shared_storage_root
@@ -168,8 +169,7 @@ class ExecutionWorker:
         self._runner = ExecutionRunner(
             session_factory,
             settings,
-            registry,
-            self._driver_factory,
+            self._driver_provider,
             artifact_manager,
             self._result_store,
             self._workspace,
@@ -178,6 +178,12 @@ class ExecutionWorker:
             self._notebook_projector,
             self._step_executor,
             self._tracing,
+        )
+        self._cancellation = CancellationProcessor(
+            session_factory,
+            self._claimer,
+            self._lease_heartbeat,
+            self._driver_provider,
         )
         self._stream_consumer = WorkStreamConsumer(
             redis,
@@ -372,7 +378,7 @@ class ExecutionWorker:
             elif message_type == "execution.cancellation_ready":
                 self._dispatcher.dispatch(
                     execution_id,
-                    self._cancel_execution(execution_id),
+                    self._cancellation.cancel(execution_id),
                     replace=True,
                 )
             else:
@@ -421,7 +427,7 @@ class ExecutionWorker:
                         if status == ExecutionStatus.CANCEL_REQUESTED:
                             self._dispatcher.dispatch(
                                 execution_id,
-                                self._cancel_execution(execution_id),
+                                self._cancellation.cancel(execution_id),
                                 replace=True,
                             )
                         else:
@@ -478,201 +484,6 @@ class ExecutionWorker:
             except Exception:
                 logger.exception("Maintenance Run reconciliation failed")
             await asyncio.sleep(self._settings.execution_heartbeat_seconds)
-
-    async def _cancel_execution(self, execution_id: UUID) -> None:
-        work = await self._claimer.claim_cancellation(execution_id)
-        if work is None:
-            return
-        heartbeat = asyncio.create_task(
-            self._lease_heartbeat.run_cancellation(work.lease),
-            name=f"cancellation-heartbeat-{execution_id}",
-        )
-        try:
-            cleanup_status = await self._stop_cancelled_runtime(work)
-            await self._finalize_cancellation(work.lease, cleanup_status)
-        except ExecutionLeaseLostError:
-            logger.info(
-                "Cancellation Worker lost ownership; discarding its result",
-                extra={
-                    "execution_id": str(execution_id),
-                    "fencing_token": work.lease.fencing_token,
-                },
-            )
-        except Exception:
-            logger.exception(
-                "Cancellation Worker failed; another Worker may recover "
-                "after its lease expires",
-                extra={"execution_id": str(execution_id)},
-            )
-        finally:
-            heartbeat.cancel()
-            await asyncio.gather(heartbeat, return_exceptions=True)
-
-    async def _stop_cancelled_runtime(
-        self, work: CancellationWork
-    ) -> RuntimeSessionCleanupStatus:
-        if work.runtime_session_id is None:
-            return RuntimeSessionCleanupStatus.NOT_REQUIRED
-        if work.runtime_target_id is None:
-            return RuntimeSessionCleanupStatus.FAILED
-        await self._lease_heartbeat.assert_cancellation(work.lease)
-        async with self._session_factory() as session:
-            target = await session.get(
-                RuntimeTargetORM, work.runtime_target_id
-            )
-        if target is None:
-            return RuntimeSessionCleanupStatus.FAILED
-        try:
-            driver = self._create_driver(target)
-        except Exception:
-            logger.exception(
-                "Cancellation could not create the assigned Runtime Driver",
-                extra={"execution_id": str(work.lease.execution_id)},
-            )
-            return RuntimeSessionCleanupStatus.FAILED
-        try:
-            return await best_effort_session_stop(
-                driver, work.runtime_session_id
-            )
-        finally:
-            await driver.close()
-
-    async def _finalize_cancellation(
-        self,
-        lease: CancellationLease,
-        cleanup_status: RuntimeSessionCleanupStatus,
-    ) -> None:
-        now = utc_now()
-        async with self._session_factory() as session, session.begin():
-            execution = await require_active_cancellation_lease(session, lease)
-            execution_id = lease.execution_id
-            abort_was_pending = (
-                execution.runtime_abort_status == RuntimeAbortStatus.PENDING
-            )
-            running_step_attempts = list(
-                (
-                    await session.execute(
-                        select(
-                            ExecutionStepAttemptORM.execution_step_id,
-                            ExecutionStepAttemptORM.execution_attempt_id,
-                        ).where(
-                            ExecutionStepAttemptORM.execution_id
-                            == execution_id,
-                            ExecutionStepAttemptORM.status
-                            == StepStatus.RUNNING,
-                        )
-                    )
-                ).all()
-            )
-            active_operation_id = execution.active_operation_id
-            execution.status = ExecutionStatus.CANCELLED
-            execution.finished_at = now
-            execution.updated_at = now
-            execution.lease_owner = None
-            execution.lease_expires_at = None
-            execution.heartbeat_at = None
-            execution.cancellation_lease_owner = None
-            execution.cancellation_lease_expires_at = None
-            execution.cancellation_heartbeat_at = None
-            execution.operation_wait_expires_at = None
-            execution.failure_type = None
-            execution.retry_strategy = RetryStrategy.NOT_RETRYABLE
-            execution.retry_from_sequence = None
-            execution.retained_runtime_session_until = None
-            execution.runtime_session_cleanup_status = cleanup_status
-            if abort_was_pending:
-                execution.runtime_abort_status = (
-                    RuntimeAbortStatus.SESSION_DELETED
-                    if cleanup_status == RuntimeSessionCleanupStatus.SUCCEEDED
-                    else RuntimeAbortStatus.FAILED
-                )
-            if cleanup_status == RuntimeSessionCleanupStatus.SUCCEEDED:
-                execution.runtime_session_id = None
-            execution.version += 1
-            await session.execute(
-                update(ExecutionAttemptORM)
-                .where(
-                    ExecutionAttemptORM.execution_id == execution_id,
-                    ExecutionAttemptORM.status.in_(
-                        [AttemptStatus.RUNNING, AttemptStatus.WAITING]
-                    ),
-                )
-                .values(
-                    status=AttemptStatus.CANCELLED,
-                    failure_type=None,
-                    retry_strategy=RetryStrategy.NOT_RETRYABLE,
-                    runtime_session_cleanup_status=cleanup_status,
-                    lease_owner=None,
-                    lease_expires_at=None,
-                    **(
-                        {
-                            "runtime_abort_status": (
-                                RuntimeAbortStatus.SESSION_DELETED
-                                if cleanup_status
-                                == RuntimeSessionCleanupStatus.SUCCEEDED
-                                else RuntimeAbortStatus.FAILED
-                            )
-                        }
-                        if abort_was_pending
-                        else {}
-                    ),
-                    finished_at=now,
-                )
-            )
-            await session.execute(
-                update(ExecutionStepORM)
-                .where(
-                    ExecutionStepORM.execution_id == execution_id,
-                    ExecutionStepORM.status.in_(
-                        [StepStatus.PENDING, StepStatus.RUNNING]
-                    ),
-                )
-                .values(
-                    status=StepStatus.CANCELLED,
-                    finished_at=now,
-                    updated_at=now,
-                )
-            )
-            await session.execute(
-                update(ExecutionOperationORM)
-                .where(
-                    ExecutionOperationORM.execution_id == execution_id,
-                    ExecutionOperationORM.status.in_(
-                        [OperationStatus.QUEUED, OperationStatus.RUNNING]
-                    ),
-                )
-                .values(
-                    status=OperationStatus.CANCELLED,
-                    finished_at=now,
-                    updated_at=now,
-                )
-            )
-            await session.execute(
-                update(ExecutionStepAttemptORM)
-                .where(
-                    ExecutionStepAttemptORM.execution_id == execution_id,
-                    ExecutionStepAttemptORM.status == StepStatus.RUNNING,
-                )
-                .values(status=StepStatus.CANCELLED, finished_at=now)
-            )
-            for step_id, attempt_id in running_step_attempts:
-                await add_step_history_completed_event(
-                    session,
-                    execution_id,
-                    step_id,
-                    attempt_id,
-                    StepStatus.CANCELLED,
-                    error_message=(
-                        execution.cancellation_reason
-                        or "Step was cancelled by request."
-                    ),
-                    retryable=False,
-                )
-            if active_operation_id is not None:
-                await add_operation_completed_event(
-                    session, execution_id, active_operation_id
-                )
-            await add_execution_completed_event(session, execution_id)
 
     async def _audit_multi_lifecycle(self) -> None:
         await self._request_expired_execution_cancellations()
@@ -780,7 +591,7 @@ class ExecutionWorker:
         for execution_id in expired_ids:
             self._dispatcher.dispatch(
                 execution_id,
-                self._cancel_execution(execution_id),
+                self._cancellation.cancel(execution_id),
                 replace=True,
             )
 
