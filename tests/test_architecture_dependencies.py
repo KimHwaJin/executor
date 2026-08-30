@@ -88,3 +88,21 @@ def test_internal_contract_modules_do_not_import_public_facade() -> None:
         for path in _python_files(contract_package)
     }
     assert not {path: names for path, names in violations.items() if names}
+
+
+def test_public_contract_facade_only_reexports_internal_contracts() -> None:
+    facade = SOURCE_ROOT / "interfaces" / "contracts.py"
+    tree = ast.parse(facade.read_text(encoding="utf-8"), filename=str(facade))
+    definitions = [
+        node.name
+        for node in tree.body
+        if isinstance(
+            node,
+            (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef),
+        )
+    ]
+    assert definitions == []
+    assert all(
+        name.startswith("executor_service.interfaces._contracts")
+        for name in _imports(facade)
+    )
