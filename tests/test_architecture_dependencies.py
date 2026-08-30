@@ -117,6 +117,7 @@ def test_runtime_registry_delegates_support_responsibilities() -> None:
     delegated = {
         "cryptography.fernet",
         "executor_service.infrastructure.runtime_admission",
+        "executor_service.infrastructure.runtime_drivers",
         "hashlib",
         "json",
     }
