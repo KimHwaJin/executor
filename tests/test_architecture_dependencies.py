@@ -67,3 +67,11 @@ def test_worker_collaborators_do_not_import_facade() -> None:
         if path.name not in {"__init__.py", "worker.py"}
     }
     assert not {path: names for path, names in violations.items() if names}
+
+
+def test_worker_facade_does_not_own_persistence_queries() -> None:
+    imports = _imports(
+        SOURCE_ROOT / "infrastructure" / "execution_worker" / "worker.py"
+    )
+    assert "sqlalchemy" not in imports
+    assert "executor_service.infrastructure.db.models" not in imports
