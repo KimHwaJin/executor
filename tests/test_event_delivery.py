@@ -274,8 +274,8 @@ async def test_stale_pending_message_is_reclaimed_and_acked_once(
         assert delivered
         await asyncio.sleep(0.01)
 
-        assert await worker._recover_pending_messages() == 1
-        assert await worker._recover_pending_messages() == 0
+        assert await worker._stream_consumer.recover_pending_messages() == 1
+        assert await worker._stream_consumer.recover_pending_messages() == 0
         assert dispatched == [execution_id]
         assert (
             await redis_client.xpending_range(stream, group, "-", "+", 10)
@@ -329,7 +329,7 @@ async def test_invalid_message_is_safely_dead_lettered(
             count=1,
         )
         assert delivered
-        await worker._process_stream_message(message_id, fields)
+        await worker._stream_consumer.process_message(message_id, fields)
 
         assert (
             await redis_client.xpending_range(stream, group, "-", "+", 10)
