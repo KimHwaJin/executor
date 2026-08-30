@@ -461,7 +461,7 @@ async def test_stale_worker_cannot_write_or_heartbeat_after_takeover(
         assert current_lease.fencing_token > stale_lease.fencing_token
 
         with pytest.raises(ExecutionLeaseLostError):
-            await workers[0]._step_started(stale_lease, 0)
+            await workers[0]._step_executor.mark_started(stale_lease, 0)
         with pytest.raises(ExecutionLeaseLostError):
             await workers[0]._renew_lease(stale_lease)
 

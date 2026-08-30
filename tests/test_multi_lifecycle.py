@@ -362,7 +362,7 @@ async def test_runtime_step_enforces_operation_and_step_timeouts(
             fencing_token=1,
         )
         with pytest.raises(RuntimeExecutionTimeoutError) as operation_error:
-            await worker._execute_runtime_step(
+            await worker._step_executor.execute(
                 RecordingMultiDriver(),
                 "runtime-session",
                 "slow()",
@@ -380,7 +380,7 @@ async def test_runtime_step_enforces_operation_and_step_timeouts(
                 .values(operation_timeout_seconds=None, started_at=utc_now())
             )
         with pytest.raises(RuntimeExecutionTimeoutError) as step_error:
-            await worker._execute_runtime_step(
+            await worker._step_executor.execute(
                 SlowExecutionDriver(),
                 "runtime-session",
                 "slow()",

@@ -194,7 +194,7 @@ async def test_expired_lease_is_failed_once_and_can_restart_from_zero(
         await worker._recover_expired_leases()
         await worker._recover_expired_leases()
         with pytest.raises(ExecutionLeaseLostError):
-            await worker._step_succeeded(
+            await worker._step_executor.mark_succeeded(
                 stale_lease,
                 0,
                 cast(StepResultDescriptor, None),
