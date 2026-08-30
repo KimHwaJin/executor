@@ -54,6 +54,31 @@ def test_application_does_not_depend_on_adapters() -> None:
     assert not {path: names for path, names in violations.items() if names}
 
 
+def test_execution_service_support_does_not_import_public_facade() -> None:
+    support_package = SOURCE_ROOT / "application" / "_execution_service"
+    violations = {
+        path.name: sorted(
+            name
+            for name in _imports(path)
+            if name == "executor_service.application.services"
+        )
+        for path in _python_files(support_package)
+    }
+    assert not {path: names for path, names in violations.items() if names}
+
+
+def test_execution_service_delegates_command_responsibilities() -> None:
+    imports = _imports(SOURCE_ROOT / "application" / "services.py")
+    delegated = {
+        "executor_service.domain.errors",
+        "executor_service.tracing",
+        "executor_service.work_messages",
+        "hashlib",
+        "json",
+    }
+    assert imports.isdisjoint(delegated)
+
+
 def test_worker_collaborators_do_not_import_facade() -> None:
     worker_package = SOURCE_ROOT / "infrastructure" / "execution_worker"
     violations = {
