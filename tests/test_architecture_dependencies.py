@@ -102,6 +102,41 @@ def test_worker_facade_does_not_own_persistence_queries() -> None:
     assert "executor_service.infrastructure.db.models" not in imports
 
 
+def test_event_writer_support_does_not_import_public_facade() -> None:
+    support_package = (
+        SOURCE_ROOT / "infrastructure" / "execution_worker" / "_event_writer"
+    )
+    violations = {
+        path.name: sorted(
+            name
+            for name in _imports(path)
+            if name
+            == "executor_service.infrastructure.execution_worker.event_writer"
+        )
+        for path in _python_files(support_package)
+    }
+    assert not {path: names for path, names in violations.items() if names}
+
+
+def test_event_writer_facade_only_reexports_internal_builders() -> None:
+    facade = (
+        SOURCE_ROOT / "infrastructure" / "execution_worker" / "event_writer.py"
+    )
+    tree = ast.parse(facade.read_text(encoding="utf-8"), filename=str(facade))
+    definitions = [
+        node.name
+        for node in tree.body
+        if isinstance(
+            node,
+            (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef),
+        )
+    ]
+    assert definitions == []
+    assert _imports(facade) == {
+        "executor_service.infrastructure.execution_worker._event_writer"
+    }
+
+
 def test_execution_query_facade_does_not_own_persistence_queries() -> None:
     imports = _imports(SOURCE_ROOT / "infrastructure" / "execution_queries.py")
     assert "executor_service.infrastructure.db.models" not in imports
