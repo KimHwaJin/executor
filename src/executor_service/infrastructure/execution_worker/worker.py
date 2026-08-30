@@ -74,6 +74,9 @@ from executor_service.infrastructure.execution_worker.failure_policy import (
 from executor_service.infrastructure.execution_worker.failure_policy import (
     safe_error as _safe_error,
 )
+from executor_service.infrastructure.execution_worker.lease_heartbeat import (
+    LeaseHeartbeatManager,
+)
 from executor_service.infrastructure.execution_worker.message_validation import (
     RUN_MESSAGE_TYPES,
 )
@@ -162,6 +165,10 @@ class ExecutionWorker:
             self._result_store,
         )
         self._target_selector = RuntimeTargetSelector(settings)
+        self._lease_heartbeat = LeaseHeartbeatManager(
+            session_factory,
+            settings,
+        )
         self._consumer_name = settings.execution_consumer_name or (
             f"{socket.gethostname()}-{os.getpid()}"
         )
@@ -524,7 +531,7 @@ class ExecutionWorker:
             driver = self._create_driver(target)
             runtime_session_id: str | None = None
             heartbeat = asyncio.create_task(
-                self._heartbeat(lease),
+                self._lease_heartbeat.run_execution(lease),
                 name=f"heartbeat-{execution.id}",
             )
             failed_sequence: int | None = None
@@ -730,7 +737,7 @@ class ExecutionWorker:
                     lease=lease,
                     sequence=len(cells) - 1,
                 )
-                await self._assert_active_lease(lease)
+                await self._lease_heartbeat.assert_execution(lease)
                 await self._trace_runtime(
                     "executor.runtime.session.delete",
                     driver.delete_session(runtime_session_id),
@@ -1299,7 +1306,7 @@ class ExecutionWorker:
     ) -> None:
         driver = self._create_driver(target)
         heartbeat = asyncio.create_task(
-            self._heartbeat(lease),
+            self._lease_heartbeat.run_execution(lease),
             name=f"heartbeat-{execution.id}",
         )
         runtime_session_id = execution.runtime_session_id
@@ -1337,7 +1344,7 @@ class ExecutionWorker:
                     lease=lease,
                     sequence=last_sequence,
                 )
-                await self._assert_active_lease(lease)
+                await self._lease_heartbeat.assert_execution(lease)
                 await self._trace_runtime(
                     "executor.runtime.session.delete",
                     driver.delete_session(runtime_session_id),
@@ -1790,21 +1797,6 @@ class ExecutionWorker:
             attempt.runtime_session_cleanup_status = cleanup_status
             attempt.failure_type = failure_type
 
-    async def _assert_active_lease(
-        self,
-        lease: ExecutionLease,
-        *,
-        allowed_statuses: tuple[ExecutionStatus, ...] = (
-            ExecutionStatus.RUNNING,
-        ),
-    ) -> None:
-        async with self._session_factory() as session, session.begin():
-            await require_active_lease(
-                session,
-                lease,
-                allowed_statuses=allowed_statuses,
-            )
-
     async def _release_execution_for_cancellation(
         self, lease: ExecutionLease
     ) -> None:
@@ -1821,94 +1813,6 @@ class ExecutionWorker:
             execution.updated_at = now
             attempt.lease_owner = None
             attempt.lease_expires_at = None
-
-    async def _heartbeat(self, lease: ExecutionLease) -> None:
-        while True:
-            await asyncio.sleep(self._settings.execution_heartbeat_seconds)
-            await self._renew_lease(lease)
-
-    async def _cancellation_heartbeat(self, lease: CancellationLease) -> None:
-        while True:
-            await asyncio.sleep(self._settings.execution_heartbeat_seconds)
-            await self._renew_cancellation_lease(lease)
-
-    async def _renew_cancellation_lease(
-        self, lease: CancellationLease
-    ) -> None:
-        now = utc_now()
-        lease_expires = now + timedelta(
-            seconds=self._settings.execution_lease_seconds
-        )
-        async with self._session_factory() as session, session.begin():
-            result = await session.execute(
-                update(ExecutionORM)
-                .where(
-                    ExecutionORM.id == lease.execution_id,
-                    ExecutionORM.status == ExecutionStatus.CANCEL_REQUESTED,
-                    ExecutionORM.cancellation_lease_owner == lease.owner,
-                    ExecutionORM.fencing_token == lease.fencing_token,
-                    ExecutionORM.cancellation_lease_expires_at.is_not(None),
-                    ExecutionORM.cancellation_lease_expires_at > now,
-                )
-                .values(
-                    cancellation_heartbeat_at=now,
-                    cancellation_lease_expires_at=lease_expires,
-                    updated_at=now,
-                )
-            )
-            if getattr(result, "rowcount", None) != 1:
-                raise ExecutionLeaseLostError(
-                    f"Execution {lease.execution_id} cancellation heartbeat "
-                    f"lost fence {lease.fencing_token}."
-                )
-
-    async def _renew_lease(self, lease: ExecutionLease) -> None:
-        now = utc_now()
-        lease_expires = now + timedelta(
-            seconds=self._settings.execution_lease_seconds
-        )
-        async with self._session_factory() as session, session.begin():
-            execution_update = await session.execute(
-                update(ExecutionORM)
-                .where(
-                    ExecutionORM.id == lease.execution_id,
-                    ExecutionORM.status == ExecutionStatus.RUNNING,
-                    ExecutionORM.lease_owner == lease.owner,
-                    ExecutionORM.fencing_token == lease.fencing_token,
-                    ExecutionORM.lease_expires_at.is_not(None),
-                    ExecutionORM.lease_expires_at > now,
-                )
-                .values(
-                    heartbeat_at=now,
-                    lease_expires_at=lease_expires,
-                    updated_at=now,
-                )
-            )
-            if getattr(execution_update, "rowcount", None) != 1:
-                raise ExecutionLeaseLostError(
-                    f"Execution {lease.execution_id} heartbeat lost fence "
-                    f"{lease.fencing_token}."
-                )
-            attempt_update = await session.execute(
-                update(ExecutionAttemptORM)
-                .where(
-                    ExecutionAttemptORM.id == lease.attempt_id,
-                    ExecutionAttemptORM.status == AttemptStatus.RUNNING,
-                    ExecutionAttemptORM.lease_owner == lease.owner,
-                    ExecutionAttemptORM.fencing_token == lease.fencing_token,
-                    ExecutionAttemptORM.lease_expires_at.is_not(None),
-                    ExecutionAttemptORM.lease_expires_at > now,
-                )
-                .values(
-                    heartbeat_at=now,
-                    lease_expires_at=lease_expires,
-                )
-            )
-            if getattr(attempt_update, "rowcount", None) != 1:
-                raise ExecutionLeaseLostError(
-                    f"Execution Attempt {lease.attempt_id} heartbeat lost "
-                    f"fence {lease.fencing_token}."
-                )
 
     async def _record_artifact_failure(
         self,
@@ -2121,7 +2025,7 @@ class ExecutionWorker:
         if work is None:
             return
         heartbeat = asyncio.create_task(
-            self._cancellation_heartbeat(work.lease),
+            self._lease_heartbeat.run_cancellation(work.lease),
             name=f"cancellation-heartbeat-{execution_id}",
         )
         try:
@@ -2152,7 +2056,7 @@ class ExecutionWorker:
             return RuntimeSessionCleanupStatus.NOT_REQUIRED
         if work.runtime_target_id is None:
             return RuntimeSessionCleanupStatus.FAILED
-        await self._assert_active_cancellation_lease(work.lease)
+        await self._lease_heartbeat.assert_cancellation(work.lease)
         async with self._session_factory() as session:
             target = await session.get(
                 RuntimeTargetORM, work.runtime_target_id
@@ -2173,12 +2077,6 @@ class ExecutionWorker:
             )
         finally:
             await driver.close()
-
-    async def _assert_active_cancellation_lease(
-        self, lease: CancellationLease
-    ) -> None:
-        async with self._session_factory() as session, session.begin():
-            await require_active_cancellation_lease(session, lease)
 
     async def _finalize_cancellation(
         self,

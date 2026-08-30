@@ -463,7 +463,7 @@ async def test_stale_worker_cannot_write_or_heartbeat_after_takeover(
         with pytest.raises(ExecutionLeaseLostError):
             await workers[0]._step_executor.mark_started(stale_lease, 0)
         with pytest.raises(ExecutionLeaseLostError):
-            await workers[0]._renew_lease(stale_lease)
+            await workers[0]._lease_heartbeat.renew_execution(stale_lease)
 
         async with session_factory() as session:
             persisted = await session.get(ExecutionORM, execution.id)
