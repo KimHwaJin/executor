@@ -94,11 +94,11 @@ async def main() -> None:
                     operation_wait_expires_at=utc_now() - timedelta(seconds=1)
                 )
             )
-        await container.execution_worker._audit_multi_lifecycle()
+        await container.execution_worker._multi_lifecycle.audit()
         failed = await _wait_for(
             container, submitted.id, ExecutionStatus.FAILED
         )
-        await container.execution_worker._audit_multi_lifecycle()
+        await container.execution_worker._multi_lifecycle.audit()
 
         async with container.session_factory() as session:
             server = await session.get(RuntimeTargetORM, server_id)

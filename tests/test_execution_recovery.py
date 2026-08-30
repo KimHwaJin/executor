@@ -191,8 +191,8 @@ async def test_expired_lease_is_failed_once_and_can_restart_from_zero(
         fencing_token=fencing_token,
     )
     try:
-        await worker._recover_expired_leases()
-        await worker._recover_expired_leases()
+        await worker._lease_recovery.recover()
+        await worker._lease_recovery.recover()
         with pytest.raises(ExecutionLeaseLostError):
             await worker._step_executor.mark_succeeded(
                 stale_lease,
@@ -355,7 +355,7 @@ async def test_orphan_running_execution_without_attempt_is_fenced_and_cleaned(
         artifact_manager=ExecutionArtifactManager(session_factory),
     )
     try:
-        recovered_count = await worker._recover_expired_leases()
+        recovered_count = await worker._lease_recovery.recover()
     finally:
         await redis.aclose()
 
@@ -483,7 +483,7 @@ async def test_expired_lease_resolves_pending_runtime_abort(
         artifact_manager=ExecutionArtifactManager(session_factory),
     )
     try:
-        await worker._recover_expired_leases()
+        await worker._lease_recovery.recover()
     finally:
         await redis.aclose()
 

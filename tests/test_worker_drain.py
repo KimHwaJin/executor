@@ -110,7 +110,11 @@ async def test_startup_reconciliation_blocks_admission_until_fencing_finishes(
         await release_reconciliation.wait()
         return ExpiredLeaseRecovery(execution_count=2, cleanup_targets=())
 
-    monkeypatch.setattr(worker, "_fence_expired_leases", reconcile)
+    monkeypatch.setattr(
+        worker._lease_recovery,
+        "fence_expired_leases",
+        reconcile,
+    )
     start_task = asyncio.create_task(worker.start())
     await reconciliation_started.wait()
 
@@ -141,8 +145,8 @@ async def test_startup_reconciliation_failure_keeps_worker_stopped(
         raise RuntimeError("expected startup recovery failure")
 
     monkeypatch.setattr(
-        worker,
-        "_fence_expired_leases",
+        worker._lease_recovery,
+        "fence_expired_leases",
         fail_reconciliation,
     )
 
