@@ -1,15 +1,10 @@
 """Persistent Runtime Target registry, encrypted credentials, and health monitoring."""
 
 import asyncio
-import hashlib
-import json
 import logging
 from collections.abc import Sequence
-from datetime import UTC, timedelta
-from typing import Any
 from uuid import UUID
 
-from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -42,17 +37,25 @@ from executor_service.domain.errors import (
 )
 from executor_service.domain.models import utc_now
 from executor_service.domain.runtime import RuntimeResourceObservation
+from executor_service.infrastructure._runtime_registry import (
+    RuntimeCommandReceipts,
+    RuntimeCredentialCipher,
+    as_float,
+    as_int,
+    fingerprint,
+    normalize_connection_config,
+    pool_summary,
+    purge_view,
+    resource_source,
+    runtime_target_view,
+    secret_hash,
+)
 from executor_service.infrastructure.db.models import (
     CommandReceiptORM,
     ExecutionAttemptORM,
     ExecutionORM,
     RuntimeTargetORM,
     RuntimeTargetPurgeORM,
-)
-from executor_service.infrastructure.runtime_admission import (
-    admission_used_count,
-    count_runtime_reservations,
-    session_count_is_fresh,
 )
 from executor_service.infrastructure.runtime_drivers import (
     ConfiguredRuntimeDriverFactory,
@@ -70,14 +73,10 @@ class RuntimeTargetRegistry:
         self._session_factory = session_factory
         self._settings = settings
         self._driver_factory = ConfiguredRuntimeDriverFactory(settings)
-        try:
-            self._fernet = Fernet(
-                settings.runtime_credential_encryption_key.encode("ascii")
-            )
-        except (ValueError, UnicodeEncodeError) as exc:
-            raise RuntimeTargetConfigurationError(
-                "RUNTIME_CREDENTIAL_KEY must be a valid Fernet key."
-            ) from exc
+        self._credentials = RuntimeCredentialCipher(
+            settings.runtime_credential_encryption_key
+        )
+        self._receipts = RuntimeCommandReceipts()
         self._monitor_task: asyncio.Task[None] | None = None
         self._stop_event = asyncio.Event()
 
@@ -99,15 +98,15 @@ class RuntimeTargetRegistry:
     async def upsert(
         self, command: UpsertRuntimeTargetCommand
     ) -> RuntimeTargetView:
-        connection_config = _normalize_connection_config(
+        connection_config = normalize_connection_config(
             command.runtime_type, command.connection_config
         )
-        fingerprint = _fingerprint(
+        request_fingerprint = fingerprint(
             {
                 "name": command.name,
                 "runtime_type": command.runtime_type.value,
                 "connection_config": connection_config,
-                "credential_sha256": _secret_hash(command.credential),
+                "credential_sha256": secret_hash(command.credential),
                 "pool": command.pool.value,
                 "max_concurrent_executions": command.max_concurrent_executions,
                 "actor_type": command.actor_type.value
@@ -117,11 +116,11 @@ class RuntimeTargetRegistry:
             }
         )
         async with self._session_factory() as session, session.begin():
-            repeated_id = await self._repeated_result(
+            repeated_id = await self._receipts.repeated_result(
                 session,
                 command.idempotency_key,
                 "runtime_target.upsert",
-                fingerprint,
+                request_fingerprint,
             )
             if repeated_id is not None:
                 target = await self._required_target(session, repeated_id)
@@ -142,7 +141,9 @@ class RuntimeTargetRegistry:
                     runtime_type=command.runtime_type,
                     connection_config=connection_config,
                     credential_ref="encrypted:database",
-                    credential_ciphertext=self._encrypt(command.credential),
+                    credential_ciphertext=self._credentials.encrypt(
+                        command.credential
+                    ),
                     pool=command.pool,
                     status=RuntimeTargetStatus.OFFLINE,
                     enabled=True,
@@ -173,18 +174,18 @@ class RuntimeTargetRegistry:
                     )
                 if command.credential is not None:
                     target.credential_ref = "encrypted:database"
-                    target.credential_ciphertext = self._encrypt(
+                    target.credential_ciphertext = self._credentials.encrypt(
                         command.credential
                     )
                 target.updated_at = utc_now()
                 if command.actor_type is not None:
                     target.updated_by_type = command.actor_type
                     target.updated_by = command.actor_id
-            self._add_receipt(
+            self._receipts.add(
                 session,
                 command.idempotency_key,
                 "runtime_target.upsert",
-                fingerprint,
+                request_fingerprint,
                 target.id,
             )
             target_id = target.id
@@ -269,56 +270,8 @@ class RuntimeTargetRegistry:
                     for view in views
                     if view.runtime_type == runtime_type and view.pool == pool
                 ]
-                summaries.append(
-                    self._pool_summary(runtime_type, pool, pool_views)
-                )
+                summaries.append(pool_summary(runtime_type, pool, pool_views))
         return summaries
-
-    @staticmethod
-    def _pool_summary(
-        runtime_type: RuntimeType,
-        pool: RuntimePool,
-        pool_views: Sequence[RuntimeTargetView],
-    ) -> RuntimePoolView:
-        enabled_views = [view for view in pool_views if view.enabled]
-        active_views = [
-            view
-            for view in enabled_views
-            if view.status == RuntimeTargetStatus.ACTIVE
-        ]
-        health_checks = [
-            view.last_health_check_at
-            for view in pool_views
-            if view.last_health_check_at is not None
-        ]
-        return RuntimePoolView(
-            runtime_type=runtime_type,
-            pool=pool,
-            target_count=len(pool_views),
-            enabled_target_count=len(enabled_views),
-            active_target_count=len(active_views),
-            draining_target_count=sum(
-                view.status == RuntimeTargetStatus.DRAINING
-                for view in pool_views
-            ),
-            offline_target_count=sum(
-                view.status == RuntimeTargetStatus.OFFLINE
-                for view in pool_views
-            ),
-            configured_capacity=sum(
-                view.max_concurrent_executions for view in enabled_views
-            ),
-            schedulable_capacity=sum(
-                view.max_concurrent_executions for view in active_views
-            ),
-            active_execution_count=sum(
-                view.active_execution_count for view in pool_views
-            ),
-            available_capacity=sum(
-                view.available_capacity for view in active_views
-            ),
-            last_health_check_at=max(health_checks) if health_checks else None,
-        )
 
     async def get(self, target_id: UUID) -> RuntimeTargetView:
         async with self._session_factory() as session:
@@ -404,18 +357,16 @@ class RuntimeTargetRegistry:
                 target.resource_last_error = resource_error
                 if resource is not None:
                     target.resource_observed_at = resource.observed_at
-                    target.resource_source = _resource_source(resource)
+                    target.resource_source = resource_source(resource)
                     target.resource_estimated = bool(
                         resource.cpu.estimated or resource.memory.estimated
                     )
                     target.resource_process_count = resource.process_count
-                    target.cpu_used_cores = _as_float(resource.cpu.used)
-                    target.cpu_capacity_cores = _as_float(
-                        resource.cpu.capacity
-                    )
+                    target.cpu_used_cores = as_float(resource.cpu.used)
+                    target.cpu_capacity_cores = as_float(resource.cpu.capacity)
                     target.cpu_utilization = resource.cpu.utilization
-                    target.memory_used_bytes = _as_int(resource.memory.used)
-                    target.memory_capacity_bytes = _as_int(
+                    target.memory_used_bytes = as_int(resource.memory.used)
+                    target.memory_capacity_bytes = as_int(
                         resource.memory.capacity
                     )
                     target.memory_utilization = resource.memory.utilization
@@ -447,7 +398,7 @@ class RuntimeTargetRegistry:
     async def disable(
         self, command: DisableRuntimeTargetCommand
     ) -> RuntimeTargetView:
-        fingerprint = _fingerprint(
+        request_fingerprint = fingerprint(
             {
                 "target_id": str(command.target_id),
                 "actor_type": command.actor_type.value
@@ -457,11 +408,11 @@ class RuntimeTargetRegistry:
             }
         )
         async with self._session_factory() as session, session.begin():
-            repeated_id = await self._repeated_result(
+            repeated_id = await self._receipts.repeated_result(
                 session,
                 command.idempotency_key,
                 "runtime_target.disable",
-                fingerprint,
+                request_fingerprint,
             )
             if repeated_id is not None:
                 target = await self._required_target(session, repeated_id)
@@ -475,11 +426,11 @@ class RuntimeTargetRegistry:
             if command.actor_type is not None:
                 target.updated_by_type = command.actor_type
                 target.updated_by = command.actor_id
-            self._add_receipt(
+            self._receipts.add(
                 session,
                 command.idempotency_key,
                 "runtime_target.disable",
-                fingerprint,
+                request_fingerprint,
                 target.id,
             )
             return await self._to_view(session, target)
@@ -494,7 +445,7 @@ class RuntimeTargetRegistry:
             raise RuntimeTargetConfigurationError(
                 "desired_state must be ACTIVE or DRAINING. Use disable for durable disablement."
             )
-        fingerprint = _fingerprint(
+        request_fingerprint = fingerprint(
             {
                 "target_id": str(command.target_id),
                 "desired_state": command.desired_state.value,
@@ -505,11 +456,11 @@ class RuntimeTargetRegistry:
             }
         )
         async with self._session_factory() as session, session.begin():
-            repeated_id = await self._repeated_result(
+            repeated_id = await self._receipts.repeated_result(
                 session,
                 command.idempotency_key,
                 "runtime_target.set_state",
-                fingerprint,
+                request_fingerprint,
             )
             if repeated_id is not None:
                 target = await self._required_target(session, repeated_id)
@@ -529,11 +480,11 @@ class RuntimeTargetRegistry:
             if command.actor_type is not None:
                 target.updated_by_type = command.actor_type
                 target.updated_by = command.actor_id
-            self._add_receipt(
+            self._receipts.add(
                 session,
                 command.idempotency_key,
                 "runtime_target.set_state",
-                fingerprint,
+                request_fingerprint,
                 target.id,
             )
             target_id = target.id
@@ -548,7 +499,7 @@ class RuntimeTargetRegistry:
     async def purge(
         self, command: PurgeRuntimeTargetCommand
     ) -> RuntimeTargetPurgeView:
-        fingerprint = _fingerprint(
+        request_fingerprint = fingerprint(
             {
                 "target_id": str(command.target_id),
                 "confirmation_name": command.confirmation_name,
@@ -568,7 +519,7 @@ class RuntimeTargetRegistry:
             if receipt is not None:
                 if (
                     receipt.command_type != "runtime_target.purge"
-                    or receipt.request_fingerprint != fingerprint
+                    or receipt.request_fingerprint != request_fingerprint
                 ):
                     raise IdempotencyConflictError(
                         "idempotency_key was already used with a different command."
@@ -582,7 +533,7 @@ class RuntimeTargetRegistry:
                     raise RuntimeTargetPurgeConflictError(
                         "The purge receipt exists without its audit tombstone."
                     )
-                return self._purge_view(tombstone)
+                return purge_view(tombstone)
 
             target = await self._required_target(
                 session, command.target_id, lock=True
@@ -617,7 +568,7 @@ class RuntimeTargetRegistry:
                 connection_config=target.connection_config,
                 pool=target.pool,
                 idempotency_key=command.idempotency_key,
-                request_fingerprint=fingerprint,
+                request_fingerprint=request_fingerprint,
                 created_by_type=command.actor_type,
                 created_by=command.actor_id,
                 updated_by_type=command.actor_type,
@@ -626,58 +577,20 @@ class RuntimeTargetRegistry:
             session.add(tombstone)
             await session.flush()
             await session.delete(target)
-            self._add_receipt(
+            self._receipts.add(
                 session,
                 command.idempotency_key,
                 "runtime_target.purge",
-                fingerprint,
+                request_fingerprint,
                 command.target_id,
             )
             await session.flush()
-            return self._purge_view(tombstone)
+            return purge_view(tombstone)
 
     def resolve_credential(
         self, credential_ref: str, credential_ciphertext: str | None
     ) -> str:
-        if credential_ref == "encrypted:database" and credential_ciphertext:
-            try:
-                return self._fernet.decrypt(
-                    credential_ciphertext.encode("ascii")
-                ).decode()
-            except (InvalidToken, UnicodeDecodeError) as exc:
-                raise RuntimeTargetConfigurationError(
-                    "Stored Runtime Target credential cannot be decrypted."
-                ) from exc
-        raise RuntimeTargetConfigurationError(
-            "Unsupported Runtime Target credential reference."
-        )
-
-    def _encrypt(self, credential: str) -> str:
-        return self._fernet.encrypt(credential.encode()).decode("ascii")
-
-    @staticmethod
-    def _purge_view(
-        tombstone: RuntimeTargetPurgeORM,
-    ) -> RuntimeTargetPurgeView:
-        created_at = tombstone.created_at
-        updated_at = tombstone.updated_at
-        if created_at.tzinfo is None:
-            created_at = created_at.replace(tzinfo=UTC)
-        if updated_at.tzinfo is None:
-            updated_at = updated_at.replace(tzinfo=UTC)
-        return RuntimeTargetPurgeView(
-            target_id=tombstone.target_id,
-            name=tombstone.target_name,
-            runtime_type=tombstone.runtime_type,
-            connection_config=tombstone.connection_config,
-            pool=tombstone.pool,
-            created_by_type=tombstone.created_by_type,
-            created_by=tombstone.created_by,
-            updated_by_type=tombstone.updated_by_type,
-            updated_by=tombstone.updated_by,
-            created_at=created_at,
-            updated_at=updated_at,
-        )
+        return self._credentials.resolve(credential_ref, credential_ciphertext)
 
     async def _monitor_loop(self) -> None:
         while not self._stop_event.is_set():
@@ -724,177 +637,8 @@ class RuntimeTargetRegistry:
     async def _to_view(
         self, session: AsyncSession, target: RuntimeTargetORM
     ) -> RuntimeTargetView:
-        now = utc_now()
-        active_execution_count = await count_runtime_reservations(
-            session, target.id, now
-        )
-        session_count_fresh = session_count_is_fresh(
+        return await runtime_target_view(
+            session,
             target,
-            now,
-            self._settings.runtime_session_count_max_age_seconds,
+            self._settings,
         )
-        effective_usage = admission_used_count(
-            target,
-            active_execution_count,
-            now,
-            self._settings.runtime_session_count_max_age_seconds,
-        )
-        resource_fresh = self._resource_is_fresh(target)
-        resource_pressure_score = None
-        if resource_fresh:
-            pressure_components = [
-                effective_usage / target.max_concurrent_executions,
-                *(
-                    [target.cpu_utilization]
-                    if target.cpu_utilization is not None
-                    else []
-                ),
-                *(
-                    [target.memory_utilization]
-                    if target.memory_utilization is not None
-                    else []
-                ),
-            ]
-            resource_pressure_score = max(pressure_components)
-        return RuntimeTargetView(
-            id=target.id,
-            name=target.name,
-            runtime_type=target.runtime_type,
-            connection_config=target.connection_config,
-            pool=target.pool,
-            status=target.status,
-            enabled=target.enabled,
-            max_concurrent_executions=target.max_concurrent_executions,
-            supported_profiles=tuple(target.supported_profiles),
-            active_execution_count=active_execution_count,
-            active_session_count=target.active_session_count,
-            admission_used_count=effective_usage,
-            session_count_observed_at=target.session_count_observed_at,
-            session_count_fresh=session_count_fresh,
-            last_health_check_at=target.last_health_check_at,
-            last_health_error=target.last_health_error,
-            resource_observed_at=target.resource_observed_at,
-            resource_last_check_at=target.resource_last_check_at,
-            resource_last_error=target.resource_last_error,
-            resource_fresh=resource_fresh,
-            resource_source=target.resource_source,
-            resource_estimated=target.resource_estimated,
-            resource_process_count=target.resource_process_count,
-            cpu_used_cores=target.cpu_used_cores,
-            cpu_capacity_cores=target.cpu_capacity_cores,
-            cpu_utilization=target.cpu_utilization,
-            memory_used_bytes=target.memory_used_bytes,
-            memory_capacity_bytes=target.memory_capacity_bytes,
-            memory_utilization=target.memory_utilization,
-            resource_pressure_score=resource_pressure_score,
-            resource_errors=tuple(target.resource_errors),
-            created_by_type=target.created_by_type,
-            created_by=target.created_by,
-            updated_by_type=target.updated_by_type,
-            updated_by=target.updated_by,
-            created_at=target.created_at,
-            updated_at=target.updated_at,
-        )
-
-    def _resource_is_fresh(self, target: RuntimeTargetORM) -> bool:
-        observed_at = target.resource_observed_at
-        if observed_at is None or target.resource_last_error is not None:
-            return False
-        if (
-            target.cpu_utilization is None
-            and target.memory_utilization is None
-        ):
-            return False
-        if observed_at.tzinfo is None:
-            observed_at = observed_at.replace(tzinfo=UTC)
-        return observed_at >= utc_now() - timedelta(
-            seconds=self._settings.runtime_resource_max_age_seconds
-        )
-
-    async def _repeated_result(
-        self,
-        session: AsyncSession,
-        idempotency_key: str,
-        command_type: str,
-        fingerprint: str,
-    ) -> UUID | None:
-        receipt = await session.scalar(
-            select(CommandReceiptORM).where(
-                CommandReceiptORM.idempotency_key == idempotency_key
-            )
-        )
-        if receipt is None:
-            return None
-        if (
-            receipt.command_type != command_type
-            or receipt.request_fingerprint != fingerprint
-        ):
-            raise IdempotencyConflictError(
-                "idempotency_key was already used with a different command."
-            )
-        return UUID(receipt.result["target_id"])
-
-    @staticmethod
-    def _add_receipt(
-        session: AsyncSession,
-        idempotency_key: str,
-        command_type: str,
-        fingerprint: str,
-        target_id: UUID,
-    ) -> None:
-        session.add(
-            CommandReceiptORM(
-                idempotency_key=idempotency_key,
-                command_type=command_type,
-                request_fingerprint=fingerprint,
-                result={"target_id": str(target_id)},
-            )
-        )
-
-
-def _fingerprint(payload: dict[str, Any]) -> str:
-    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(canonical.encode()).hexdigest()
-
-
-def _normalize_connection_config(
-    runtime_type: RuntimeType, connection_config: dict[str, Any]
-) -> dict[str, Any]:
-    """Validate driver-owned connection data before it reaches persistent storage."""
-    if runtime_type == RuntimeType.JUPYTER:
-        endpoint = connection_config.get("endpoint")
-        if (
-            set(connection_config) != {"endpoint"}
-            or not isinstance(endpoint, str)
-            or not endpoint.startswith(("http://", "https://"))
-        ):
-            raise RuntimeTargetConfigurationError(
-                "JUPYTER connection_config must contain only an http(s) endpoint."
-            )
-        return {"endpoint": endpoint.rstrip("/")}
-    raise RuntimeTargetConfigurationError(
-        f"Unsupported runtime_type: {runtime_type.value}"
-    )
-
-
-def _secret_hash(secret: str | None) -> str | None:
-    if secret is None:
-        return None
-    return hashlib.sha256(secret.encode()).hexdigest()
-
-
-def _resource_source(resource: RuntimeResourceObservation) -> str | None:
-    sources = {
-        source
-        for source in (resource.cpu.source, resource.memory.source)
-        if source
-    }
-    return ",".join(sorted(sources)) or None
-
-
-def _as_float(value: float | int | None) -> float | None:
-    return float(value) if value is not None else None
-
-
-def _as_int(value: float | int | None) -> int | None:
-    return int(value) if value is not None else None
