@@ -11,10 +11,8 @@ from executor_service.application.commands import (
 )
 from executor_service.application.execution_queries import (
     ExecutionArtifactView,
-    ExecutionAttemptView,
     ExecutionDetailView,
     ExecutionEventView,
-    ExecutionOperationView,
 )
 from executor_service.application.execution_results import (
     ExecutionResultBundle,
@@ -25,17 +23,20 @@ from executor_service.domain.enums import (
     ArtifactStatus,
     ArtifactStorageType,
     ArtifactType,
-    AttemptStatus,
     CodeSourceType,
-    OperationStatus,
     OutboxStatus,
-    RetryStrategy,
-    RuntimeAbortStatus,
-    RuntimeSessionCleanupStatus,
-    RuntimeType,
 )
 from executor_service.domain.models import (
     ExecutionStep,
+)
+from executor_service.interfaces._contracts.attempts import (  # noqa: F401
+    AttemptLease,
+    AttemptRecovery,
+    AttemptRuntime,
+    AttemptState,
+    ExecutionAttemptDetailResponse,
+    ExecutionAttemptPageResponse,
+    ExecutionAttemptResponse,
 )
 from executor_service.interfaces._contracts.common import (
     ActorInput,
@@ -78,6 +79,13 @@ from executor_service.interfaces._contracts.maintenance import (  # noqa: F401
 from executor_service.interfaces._contracts.notebooks import (  # noqa: F401
     ExecutionNotebookCellResponse,
     ExecutionNotebookResponse,
+)
+from executor_service.interfaces._contracts.operations import (  # noqa: F401
+    ExecutionOperationPageResponse,
+    ExecutionOperationResponse,
+    ExecutionOperationSummaryResponse,
+    OperationResult,
+    OperationSequenceRange,
 )
 from executor_service.interfaces._contracts.runtimes import (  # noqa: F401
     RuntimePoolPageResponse,
@@ -173,218 +181,6 @@ class ExecutionArtifactMaterializeRequest(ContractModel):
 
 
 
-
-
-class AttemptState(ContractModel):
-    status: AttemptStatus
-
-
-class AttemptRuntime(ContractModel):
-    type: RuntimeType
-    profile: str
-    target_id: UUID
-    session_id: str | None
-
-
-class AttemptLease(ContractModel):
-    owner: str | None
-    expires_at: datetime | None
-    heartbeat_at: datetime | None
-
-
-class AttemptRecovery(ContractModel):
-    retry_strategy: RetryStrategy
-    runtime_session_cleanup_status: RuntimeSessionCleanupStatus
-    runtime_abort_status: RuntimeAbortStatus
-
-
-class ExecutionAttemptResponse(AuditFields):
-    attempt_id: UUID
-    execution_id: UUID
-    attempt_number: int
-    state: AttemptState
-    failure: FailureResponse | None
-    lifecycle: Lifecycle
-    step_count: int
-
-    @classmethod
-    def from_view(
-        cls, view: ExecutionAttemptView
-    ) -> "ExecutionAttemptResponse":
-        failure = None
-        if view.failure_type is not None and view.error_message is not None:
-            failure = FailureResponse(
-                type=view.failure_type, message=view.error_message
-            )
-        return cls(
-            attempt_id=view.id,
-            execution_id=view.execution_id,
-            attempt_number=view.attempt_number,
-            state=AttemptState(status=view.status),
-            failure=failure,
-            lifecycle=Lifecycle(
-                started_at=view.started_at, finished_at=view.finished_at
-            ),
-            step_count=view.step_count,
-            created_by_type=view.created_by_type,
-            created_by=view.created_by,
-            updated_by_type=view.updated_by_type,
-            updated_by=view.updated_by,
-            created_at=view.created_at,
-            updated_at=view.updated_at,
-        )
-
-
-class ExecutionAttemptDetailResponse(ExecutionAttemptResponse):
-    runtime: AttemptRuntime
-    lease: AttemptLease
-    recovery: AttemptRecovery
-
-    @classmethod
-    def from_view(
-        cls, view: ExecutionAttemptView
-    ) -> "ExecutionAttemptDetailResponse":
-        summary = ExecutionAttemptResponse.from_view(view)
-        return cls(
-            **summary.model_dump(),
-            runtime=AttemptRuntime(
-                type=view.runtime_type,
-                profile=view.runtime_profile,
-                target_id=view.runtime_target_id,
-                session_id=view.runtime_session_id,
-            ),
-            lease=AttemptLease(
-                owner=view.lease_owner,
-                expires_at=view.lease_expires_at,
-                heartbeat_at=view.heartbeat_at,
-            ),
-            recovery=AttemptRecovery(
-                retry_strategy=view.retry_strategy,
-                runtime_session_cleanup_status=view.runtime_session_cleanup_status,
-                runtime_abort_status=view.runtime_abort_status,
-            ),
-        )
-
-
-class ExecutionAttemptPageResponse(PageResponse):
-    items: list[ExecutionAttemptResponse]
-
-    @classmethod
-    def from_page(
-        cls, page: Page[ExecutionAttemptView]
-    ) -> "ExecutionAttemptPageResponse":
-        return cls(
-            items=[
-                ExecutionAttemptResponse.from_view(item) for item in page.items
-            ],
-            next_cursor=page.next_cursor,
-            has_more=page.next_cursor is not None,
-        )
-
-
-class OperationSequenceRange(ContractModel):
-    first: int
-    last: int
-
-
-class OperationResult(ContractModel):
-    status: OperationStatus
-    error_message: str | None
-
-
-class ExecutionOperationResponse(AuditFields):
-    operation_id: UUID
-    execution_id: UUID
-    operation_number: int
-    schema_version: str
-    sequence_range: OperationSequenceRange
-    operation_timeout_seconds: int | None
-    metadata: dict[str, Any]
-    execution_attempt_id: UUID | None
-    result: OperationResult
-    lifecycle: Lifecycle
-    step_count: int
-
-    @classmethod
-    def from_view(
-        cls, view: ExecutionOperationView
-    ) -> "ExecutionOperationResponse":
-        return cls(
-            operation_id=view.id,
-            execution_id=view.execution_id,
-            operation_number=view.operation_number,
-            schema_version=view.schema_version,
-            sequence_range=OperationSequenceRange(
-                first=view.first_sequence, last=view.last_sequence
-            ),
-            operation_timeout_seconds=view.operation_timeout_seconds,
-            metadata=view.metadata,
-            execution_attempt_id=view.execution_attempt_id,
-            result=OperationResult(
-                status=view.status, error_message=view.error_message
-            ),
-            lifecycle=Lifecycle(
-                started_at=view.started_at, finished_at=view.finished_at
-            ),
-            step_count=view.step_count,
-            created_by_type=view.created_by_type,
-            created_by=view.created_by,
-            updated_by_type=view.updated_by_type,
-            updated_by=view.updated_by,
-            created_at=view.created_at,
-            updated_at=view.updated_at,
-        )
-
-
-class ExecutionOperationPageResponse(PageResponse):
-    items: list["ExecutionOperationSummaryResponse"]
-
-    @classmethod
-    def from_page(
-        cls, page: Page[ExecutionOperationView]
-    ) -> "ExecutionOperationPageResponse":
-        return cls(
-            items=[
-                ExecutionOperationSummaryResponse.from_view(item)
-                for item in page.items
-            ],
-            next_cursor=page.next_cursor,
-            has_more=page.next_cursor is not None,
-        )
-
-
-class ExecutionOperationSummaryResponse(AuditFields):
-    operation_id: UUID
-    operation_number: int
-    sequence_range: OperationSequenceRange
-    result: OperationResult
-    lifecycle: Lifecycle
-    step_count: int
-
-    @classmethod
-    def from_view(
-        cls, view: ExecutionOperationView
-    ) -> "ExecutionOperationSummaryResponse":
-        return cls(
-            operation_id=view.id,
-            operation_number=view.operation_number,
-            sequence_range=OperationSequenceRange(
-                first=view.first_sequence, last=view.last_sequence
-            ),
-            result=OperationResult(
-                status=view.status, error_message=view.error_message
-            ),
-            lifecycle=Lifecycle(
-                started_at=view.started_at, finished_at=view.finished_at
-            ),
-            step_count=view.step_count,
-            created_by_type=view.created_by_type,
-            created_by=view.created_by,
-            updated_by_type=view.updated_by_type,
-            updated_by=view.updated_by,
-            created_at=view.created_at,
-            updated_at=view.updated_at,
-        )
 
 
 class EventDelivery(ContractModel):
