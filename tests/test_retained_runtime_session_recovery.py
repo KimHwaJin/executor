@@ -207,7 +207,7 @@ async def test_offline_retained_retry_waits_then_claims_the_same_target_and_sess
     worker, redis = _worker(engine, tmp_path)
     session_factory = create_session_factory(engine)
     try:
-        assert await worker._claim(execution.id) is None
+        assert await worker._claimer.claim(execution.id) is None
         capacity_view = await worker._registry.get(target.id)
         assert capacity_view.active_execution_count == 1
         async with session_factory() as session:
@@ -238,7 +238,7 @@ async def test_offline_retained_retry_waits_then_claims_the_same_target_and_sess
                 .values(status=RuntimeTargetStatus.ACTIVE)
             )
 
-        claimed = await worker._claim(execution.id)
+        claimed = await worker._claimer.claim(execution.id)
         assert claimed is not None
         claimed_execution, claimed_target, _attempt_id = claimed
         assert claimed_target.id == target.id
@@ -268,7 +268,7 @@ async def test_disabled_retained_target_requires_an_explicit_from_start_retry(
     worker, redis = _worker(engine, tmp_path)
     session_factory = create_session_factory(engine)
     try:
-        assert await worker._claim(execution.id) is None
+        assert await worker._claimer.claim(execution.id) is None
     finally:
         await redis.aclose()
 
@@ -312,7 +312,7 @@ async def test_draining_target_allows_its_retained_runtime_session_to_finish(
     )
     worker, redis = _worker(engine, tmp_path)
     try:
-        claimed = await worker._claim(execution.id)
+        claimed = await worker._claimer.claim(execution.id)
     finally:
         await redis.aclose()
 

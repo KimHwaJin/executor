@@ -132,7 +132,7 @@ async def test_fresh_observed_session_count_blocks_admission(
     )
     worker, redis = _worker(engine, tmp_path, "observed-worker")
     try:
-        assert await worker._claim(execution.id) is None
+        assert await worker._claimer.claim(execution.id) is None
     finally:
         await redis.aclose()
 
@@ -178,14 +178,14 @@ async def test_cleanup_failed_session_reserves_until_maintenance_succeeds(
     )
     worker, redis = _worker(engine, tmp_path, "cleanup-worker")
     try:
-        assert await worker._claim(queued.id) is None
+        assert await worker._claimer.claim(queued.id) is None
         view = await worker._registry.get(target.id)
         assert view.active_execution_count == 1
         assert view.admission_used_count == 1
         assert view.admission_blocked is True
 
         await worker._retry_unresolved_runtime_session_cleanup()
-        claim = await worker._claim(queued.id)
+        claim = await worker._claimer.claim(queued.id)
     finally:
         await redis.aclose()
 
@@ -238,7 +238,7 @@ async def test_scheduler_requires_explicit_profile_support(
     )
     worker, redis = _worker(engine, tmp_path, "profile-worker")
     try:
-        assert await worker._claim(execution.id) is None
+        assert await worker._claimer.claim(execution.id) is None
     finally:
         await redis.aclose()
 
@@ -271,7 +271,7 @@ async def test_scheduler_prefers_lower_fresh_resource_pressure(
     )
     worker, redis = _worker(engine, tmp_path, "resource-worker")
     try:
-        claim = await worker._claim(execution.id)
+        claim = await worker._claimer.claim(execution.id)
     finally:
         await redis.aclose()
     assert claim is not None
@@ -300,7 +300,7 @@ async def test_scheduler_does_not_use_stale_target_when_fresh_memory_is_full(
     )
     worker, redis = _worker(engine, tmp_path, "memory-worker")
     try:
-        assert await worker._claim(execution.id) is None
+        assert await worker._claimer.claim(execution.id) is None
     finally:
         await redis.aclose()
 
@@ -330,9 +330,9 @@ async def test_interactive_and_batch_claims_are_isolated_and_batch_uses_two_targ
     )
     worker, redis = _worker(engine, tmp_path, "pool-worker")
     try:
-        interactive_claim = await worker._claim(interactive.id)
-        first_batch_claim = await worker._claim(first_batch.id)
-        second_batch_claim = await worker._claim(second_batch.id)
+        interactive_claim = await worker._claimer.claim(interactive.id)
+        first_batch_claim = await worker._claimer.claim(first_batch.id)
+        second_batch_claim = await worker._claimer.claim(second_batch.id)
     finally:
         await redis.aclose()
 
@@ -375,10 +375,10 @@ async def test_full_batch_pool_keeps_work_queued_until_capacity_is_released(
     )
     worker, redis = _worker(engine, tmp_path, "capacity-worker")
     try:
-        first_claim = await worker._claim(first.id)
-        second_claim = await worker._claim(second.id)
+        first_claim = await worker._claimer.claim(first.id)
+        second_claim = await worker._claimer.claim(second.id)
         assert first_claim is not None and second_claim is not None
-        assert await worker._claim(waiting.id) is None
+        assert await worker._claimer.claim(waiting.id) is None
         assert (
             await execution_service.get(waiting.id)
         ).status == ExecutionStatus.QUEUED
@@ -403,7 +403,7 @@ async def test_full_batch_pool_keeps_work_queued_until_capacity_is_released(
                 )
             )
 
-        waiting_claim = await worker._claim(waiting.id)
+        waiting_claim = await worker._claimer.claim(waiting.id)
     finally:
         await redis.aclose()
 
@@ -437,7 +437,7 @@ async def test_batch_never_falls_back_to_interactive_or_draining_target(
     )
     worker, redis = _worker(engine, tmp_path, "no-fallback-worker")
     try:
-        assert await worker._claim(batch.id) is None
+        assert await worker._claimer.claim(batch.id) is None
     finally:
         await redis.aclose()
     assert (
@@ -460,10 +460,10 @@ async def test_queued_batch_claims_a_target_added_during_scale_up(
     )
     worker, redis = _worker(engine, tmp_path, "scale-up-worker")
     try:
-        assert await worker._claim(batch.id) is None
+        assert await worker._claimer.claim(batch.id) is None
         async with session_factory() as session, session.begin():
             session.add(_target("scale-batch-new", RuntimePool.BATCH))
-        claim = await worker._claim(batch.id)
+        claim = await worker._claimer.claim(batch.id)
     finally:
         await redis.aclose()
 

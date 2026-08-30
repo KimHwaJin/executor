@@ -210,12 +210,14 @@ async def test_worker_claim_obeys_drain_and_activate(
         "/api/v1/maintenance/drain", json=_mutation("claim-drain")
     )
 
-    assert await container.execution_worker._claim(execution_id) is None
+    assert (
+        await container.execution_worker._claimer.claim(execution_id) is None
+    )
 
     await client.post(
         "/api/v1/maintenance/activate", json=_mutation("claim-activate")
     )
-    claimed = await container.execution_worker._claim(execution_id)
+    claimed = await container.execution_worker._claimer.claim(execution_id)
     assert claimed is not None
 
 
