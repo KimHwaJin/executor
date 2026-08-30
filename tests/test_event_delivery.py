@@ -431,8 +431,8 @@ async def test_two_workers_create_only_one_execution_attempt(
         consumer="second-worker",
     )
 
-    assert await first_worker._claim(execution.id) is not None
-    assert await second_worker._claim(execution.id) is None
+    assert await first_worker._claimer.claim(execution.id) is not None
+    assert await second_worker._claimer.claim(execution.id) is None
     async with session_factory() as session:
         attempts = await session.scalar(
             select(func.count(ExecutionAttemptORM.id)).where(

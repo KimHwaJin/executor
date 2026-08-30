@@ -242,7 +242,7 @@ async def test_concurrent_workers_create_exactly_one_attempt_for_an_execution(
     workers, redis_clients = _workers(postgres_engine, tmp_path, count=8)
     try:
         claims = await asyncio.gather(
-            *(worker._claim(execution.id) for worker in workers)
+            *(worker._claimer.claim(execution.id) for worker in workers)
         )
     finally:
         await _close_redis(redis_clients)
@@ -282,7 +282,7 @@ async def test_persistent_drain_blocks_every_worker_until_activate(
     try:
         blocked = await asyncio.gather(
             *(
-                workers[index]._claim(execution.id)
+                workers[index]._claimer.claim(execution.id)
                 for index, execution in enumerate(executions)
             )
         )
@@ -299,7 +299,7 @@ async def test_persistent_drain_blocks_every_worker_until_activate(
         # intentionally defer contenders to reconciliation. Claim sequentially
         # here to isolate global admission from target-lock contention.
         admitted = [
-            await workers[index]._claim(execution.id)
+            await workers[index]._claimer.claim(execution.id)
             for index, execution in enumerate(executions)
         ]
     finally:
@@ -391,7 +391,10 @@ async def test_concurrent_workers_claim_exactly_one_cancellation_owner(
     workers, redis_clients = _workers(postgres_engine, tmp_path, count=8)
     try:
         claims = await asyncio.gather(
-            *(worker._claim_cancellation(execution.id) for worker in workers)
+            *(
+                worker._claimer.claim_cancellation(execution.id)
+                for worker in workers
+            )
         )
         winners = [claim for claim in claims if claim is not None]
         assert len(winners) == 1
@@ -432,7 +435,7 @@ async def test_stale_worker_cannot_write_or_heartbeat_after_takeover(
     execution = await service.submit(_command("lease-fence-takeover"))
     workers, redis_clients = _workers(postgres_engine, tmp_path, count=2)
     try:
-        first_claim = await workers[0]._claim(execution.id)
+        first_claim = await workers[0]._claimer.claim(execution.id)
         assert first_claim is not None
         stale_lease = first_claim[2]
         expired_at = utc_now() - timedelta(seconds=1)
@@ -455,7 +458,7 @@ async def test_stale_worker_cannot_write_or_heartbeat_after_takeover(
                 idempotency_key=f"fence-retry-{execution.id}",
             )
         )
-        second_claim = await workers[1]._claim(execution.id)
+        second_claim = await workers[1]._claimer.claim(execution.id)
         assert second_claim is not None
         current_lease = second_claim[2]
         assert current_lease.fencing_token > stale_lease.fencing_token
@@ -499,7 +502,7 @@ async def test_concurrent_startup_reconciliation_fences_expired_lease_once(
     execution = await service.submit(_command("startup-fence-race"))
     workers, redis_clients = _workers(postgres_engine, tmp_path, count=8)
     try:
-        claimed = await workers[0]._claim(execution.id)
+        claimed = await workers[0]._claimer.claim(execution.id)
         assert claimed is not None
         stale_lease = claimed[2]
         expired_at = utc_now() - timedelta(seconds=1)
@@ -571,7 +574,7 @@ async def test_concurrent_workers_create_one_attempt_for_a_requeued_operation(
     workers, redis_clients = _workers(postgres_engine, tmp_path, count=8)
     try:
         claims = await asyncio.gather(
-            *(worker._claim(execution.id) for worker in workers)
+            *(worker._claimer.claim(execution.id) for worker in workers)
         )
     finally:
         await _close_redis(redis_clients)
@@ -620,7 +623,7 @@ async def test_concurrent_workers_never_oversubscribe_jupyter_capacity(
                 break
             await asyncio.gather(
                 *(
-                    workers[index % len(workers)]._claim(execution_id)
+                    workers[index % len(workers)]._claimer.claim(execution_id)
                     for index, execution_id in enumerate(queued_ids)
                 )
             )
@@ -660,7 +663,7 @@ async def test_concurrent_workers_respect_fresh_observed_session_capacity(
     try:
         claims = await asyncio.gather(
             *(
-                workers[index % len(workers)]._claim(execution.id)
+                workers[index % len(workers)]._claimer.claim(execution.id)
                 for index, execution in enumerate(executions)
             )
         )
@@ -693,7 +696,7 @@ async def test_cancel_and_claim_race_has_one_consistent_terminal_result(
     try:
         claim_tasks = [
             asyncio.create_task(
-                workers[index % len(workers)]._claim(execution.id)
+                workers[index % len(workers)]._claimer.claim(execution.id)
             )
             for index, execution in enumerate(executions)
         ]

@@ -122,14 +122,19 @@ async def test_cancellation_claim_fences_the_running_worker(
     running_worker = _worker(engine, tmp_path, "running-worker")
     cancellation_worker = _worker(engine, tmp_path, "cancellation-worker")
 
-    claimed = await running_worker._claim(execution.id)
+    claimed = await running_worker._claimer.claim(execution.id)
     assert claimed is not None
     stale_lease = claimed[2]
     await _request_cancel(execution_service, execution.id)
 
-    assert await cancellation_worker._claim_cancellation(execution.id) is None
+    assert (
+        await cancellation_worker._claimer.claim_cancellation(execution.id)
+        is None
+    )
     await running_worker._release_execution_for_cancellation(stale_lease)
-    cancellation = await cancellation_worker._claim_cancellation(execution.id)
+    cancellation = await cancellation_worker._claimer.claim_cancellation(
+        execution.id
+    )
     assert cancellation is not None
     assert cancellation.lease.fencing_token > stale_lease.fencing_token
 
@@ -152,9 +157,9 @@ async def test_expired_cancellation_lease_is_taken_over_and_stale_final_is_rejec
     first = _worker(engine, tmp_path, "cancellation-worker-a")
     second = _worker(engine, tmp_path, "cancellation-worker-b")
 
-    first_work = await first._claim_cancellation(execution.id)
+    first_work = await first._claimer.claim_cancellation(execution.id)
     assert first_work is not None
-    assert await second._claim_cancellation(execution.id) is None
+    assert await second._claimer.claim_cancellation(execution.id) is None
 
     session_factory = create_session_factory(engine)
     async with session_factory() as session, session.begin():
@@ -166,7 +171,7 @@ async def test_expired_cancellation_lease_is_taken_over_and_stale_final_is_rejec
             )
         )
 
-    second_work = await second._claim_cancellation(execution.id)
+    second_work = await second._claimer.claim_cancellation(execution.id)
     assert second_work is not None
     assert second_work.lease.fencing_token > first_work.lease.fencing_token
     with pytest.raises(ExecutionLeaseLostError):

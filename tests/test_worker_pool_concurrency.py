@@ -236,9 +236,9 @@ async def test_cancel_remains_available_when_batch_runtime_capacity_is_full(
     )
     worker, redis = _worker(engine, tmp_path)
     try:
-        assert await worker._claim(running[0].id) is not None
-        assert await worker._claim(running[1].id) is not None
-        assert await worker._claim(waiting.id) is None
+        assert await worker._claimer.claim(running[0].id) is not None
+        assert await worker._claimer.claim(running[1].id) is not None
+        assert await worker._claimer.claim(waiting.id) is None
         assert (
             await execution_service.get(waiting.id)
         ).status == ExecutionStatus.QUEUED
