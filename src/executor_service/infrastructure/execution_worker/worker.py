@@ -4,7 +4,7 @@ import asyncio
 import logging
 import os
 import socket
-from collections.abc import AsyncIterator, Awaitable, Coroutine
+from collections.abc import AsyncIterator, Awaitable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -69,6 +69,9 @@ from executor_service.infrastructure.execution_leases import (
     ExecutionLeaseLostError,
     require_active_cancellation_lease,
     require_active_lease,
+)
+from executor_service.infrastructure.execution_worker.dispatcher import (
+    ExecutionJobDispatcher,
 )
 from executor_service.infrastructure.execution_worker.event_writer import (
     add_execution_completed_event,
@@ -178,13 +181,10 @@ class ExecutionWorker:
             self._tracing,
             self._handle_work_message,
         )
+        self._dispatcher = ExecutionJobDispatcher()
         self._stop_event = asyncio.Event()
         self._admission_loops: list[asyncio.Task[None]] = []
         self._maintenance_loops: list[asyncio.Task[None]] = []
-        self._jobs: dict[UUID, asyncio.Task[None]] = {}
-        self._jobs_idle = asyncio.Event()
-        self._jobs_idle.set()
-        self._accepting_work = False
         self._draining = False
         self._stopped = True
         self._startup_reconciliation_completed_at: datetime | None = None
@@ -193,7 +193,7 @@ class ExecutionWorker:
 
     @property
     def accepting_work(self) -> bool:
-        return self._accepting_work
+        return self._dispatcher.accepting
 
     @property
     def draining(self) -> bool:
@@ -201,7 +201,7 @@ class ExecutionWorker:
 
     @property
     def active_job_count(self) -> int:
-        return len(self._jobs)
+        return self._dispatcher.active_job_count
 
     @property
     def startup_reconciliation_completed_at(self) -> datetime | None:
@@ -229,7 +229,7 @@ class ExecutionWorker:
             return "STOPPED"
         if self._draining:
             return "DRAINING"
-        if self._accepting_work:
+        if self.accepting_work:
             return "ACCEPTING"
         return "STARTING"
 
@@ -244,7 +244,7 @@ class ExecutionWorker:
         self._stop_event.clear()
         self._stopped = False
         self._draining = False
-        self._accepting_work = False
+        self._dispatcher.set_accepting(False)
         self._startup_reconciliation_completed_at = None
         self._startup_recovered_execution_count = 0
         self._startup_cleanup_target_count = 0
@@ -290,7 +290,7 @@ class ExecutionWorker:
                     name="maintenance-run-reconciler",
                 )
             )
-        self._accepting_work = True
+        self._dispatcher.set_accepting(True)
         self._admission_loops = [
             asyncio.create_task(
                 self._stream_consumer.run(self._stop_event),
@@ -308,7 +308,7 @@ class ExecutionWorker:
     async def begin_drain(self) -> None:
         if self._stopped or self._draining:
             return
-        self._accepting_work = False
+        self._dispatcher.set_accepting(False)
         self._draining = True
         logger.info(
             "Executor Worker drain started",
@@ -317,15 +317,15 @@ class ExecutionWorker:
         await self._cancel_tasks(self._admission_loops)
 
     async def stop(self) -> None:
-        if self._stopped and not self._jobs:
+        if self._stopped and self.active_job_count == 0:
             return
         await self.begin_drain()
-        if self._jobs:
+        if self.active_job_count:
             try:
                 async with asyncio.timeout(
                     self._settings.execution_drain_timeout_seconds
                 ):
-                    await self._jobs_idle.wait()
+                    await self._dispatcher.wait_idle()
             except TimeoutError:
                 logger.warning(
                     "Executor Worker drain deadline exceeded; cancelling remaining jobs",
@@ -333,11 +333,9 @@ class ExecutionWorker:
                 )
         self._stop_event.set()
         await self._cancel_tasks(self._maintenance_loops)
-        if self._jobs:
-            for task in self._jobs.values():
-                task.cancel()
-            await asyncio.gather(*self._jobs.values(), return_exceptions=True)
-        self._accepting_work = False
+        if self.active_job_count:
+            await self._dispatcher.cancel_all()
+        self._dispatcher.set_accepting(False)
         self._draining = False
         self._stopped = True
         logger.info("Executor Worker stopped")
@@ -363,9 +361,11 @@ class ExecutionWorker:
             },
         ):
             if message_type in RUN_MESSAGE_TYPES:
-                self._dispatch(execution_id, self._run_execution(execution_id))
+                self._dispatcher.dispatch(
+                    execution_id, self._run_execution(execution_id)
+                )
             elif message_type == "execution.cancellation_ready":
-                self._dispatch(
+                self._dispatcher.dispatch(
                     execution_id,
                     self._cancel_execution(execution_id),
                     replace=True,
@@ -414,13 +414,13 @@ class ExecutionWorker:
                         },
                     ):
                         if status == ExecutionStatus.CANCEL_REQUESTED:
-                            self._dispatch(
+                            self._dispatcher.dispatch(
                                 execution_id,
                                 self._cancel_execution(execution_id),
                                 replace=True,
                             )
                         else:
-                            self._dispatch(
+                            self._dispatcher.dispatch(
                                 execution_id, self._run_execution(execution_id)
                             )
             except asyncio.CancelledError:
@@ -473,73 +473,6 @@ class ExecutionWorker:
             except Exception:
                 logger.exception("Maintenance Run reconciliation failed")
             await asyncio.sleep(self._settings.execution_heartbeat_seconds)
-
-    def _dispatch(
-        self,
-        execution_id: UUID,
-        coroutine: Coroutine[Any, Any, None],
-        *,
-        replace: bool = False,
-    ) -> None:
-        current = self._jobs.get(execution_id)
-        if not self._accepting_work and not replace:
-            coroutine.close()
-            return
-        if current is not None and not current.done():
-            if replace:
-                if current.get_name() == f"cancellation-{execution_id}":
-                    coroutine.close()
-                    return
-                current.cancel()
-                task = asyncio.create_task(
-                    self._handoff_to_cancellation(current, coroutine),
-                    name=f"cancellation-{execution_id}",
-                )
-                self._jobs[execution_id] = task
-                self._jobs_idle.clear()
-                task.add_done_callback(
-                    lambda done: self._remove_job_if_current(
-                        execution_id, done
-                    )
-                )
-            else:
-                coroutine.close()
-            return
-        task = asyncio.create_task(
-            coroutine,
-            name=(
-                f"cancellation-{execution_id}"
-                if replace
-                else f"execution-{execution_id}"
-            ),
-        )
-        self._jobs[execution_id] = task
-        self._jobs_idle.clear()
-        task.add_done_callback(
-            lambda done: self._remove_job_if_current(execution_id, done)
-        )
-
-    @staticmethod
-    async def _handoff_to_cancellation(
-        previous: asyncio.Task[None],
-        cancellation: Coroutine[Any, Any, None],
-    ) -> None:
-        cancellation_started = False
-        try:
-            await asyncio.gather(previous, return_exceptions=True)
-            cancellation_started = True
-            await cancellation
-        finally:
-            if not cancellation_started:
-                cancellation.close()
-
-    def _remove_job_if_current(
-        self, execution_id: UUID, task: asyncio.Task[None]
-    ) -> None:
-        if self._jobs.get(execution_id) is task:
-            self._jobs.pop(execution_id, None)
-            if not self._jobs:
-                self._jobs_idle.set()
 
     async def _run_execution(self, execution_id: UUID) -> None:
         pool = await self._execution_pool(execution_id)
@@ -3041,7 +2974,7 @@ class ExecutionWorker:
                 execution.version += 1
                 expired_ids.append(execution.id)
         for execution_id in expired_ids:
-            self._dispatch(
+            self._dispatcher.dispatch(
                 execution_id,
                 self._cancel_execution(execution_id),
                 replace=True,

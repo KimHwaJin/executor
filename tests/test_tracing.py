@@ -146,7 +146,7 @@ async def test_trace_context_survives_outbox_redis_and_worker_boundary(
             with tracing.span("executor.worker.dispatched"):
                 pass
 
-        monkeypatch.setattr(worker, "_dispatch", record_dispatch)
+        monkeypatch.setattr(worker._dispatcher, "dispatch", record_dispatch)
         await worker._handle_work_message(work_fields)
         await redis.aclose()
         assert await tracing.force_flush()

@@ -1108,8 +1108,8 @@ async def test_running_execution_deadline_requests_cancel_and_reclaims_kernel(
     worker, redis = _worker(engine, tmp_path)
     try:
         await worker._audit_multi_lifecycle()
-        if worker._jobs:
-            await asyncio.gather(*list(worker._jobs.values()))
+        if worker.active_job_count:
+            await worker._dispatcher.wait_idle()
     finally:
         await redis.aclose()
 

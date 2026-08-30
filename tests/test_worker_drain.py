@@ -75,7 +75,7 @@ async def test_stop_drains_active_job_and_rejects_new_dispatch(
     async def rejected_job() -> None:
         rejected_started.set()
 
-    worker._dispatch(uuid4(), active_job())
+    worker._dispatcher.dispatch(uuid4(), active_job())
     await asyncio.sleep(0)
     stop_task = asyncio.create_task(worker.stop())
     await asyncio.sleep(0)
@@ -83,7 +83,7 @@ async def test_stop_drains_active_job_and_rejects_new_dispatch(
     assert worker.lifecycle_state == "DRAINING"
     assert not worker.accepting_work
     assert worker.active_job_count == 1
-    worker._dispatch(uuid4(), rejected_job())
+    worker._dispatcher.dispatch(uuid4(), rejected_job())
     await asyncio.sleep(0)
     assert not rejected_started.is_set()
     assert not stop_task.done()
@@ -173,7 +173,7 @@ async def test_stop_cancels_remaining_job_after_drain_deadline(
             cancelled.set()
             raise
 
-    worker._dispatch(uuid4(), blocked_job())
+    worker._dispatcher.dispatch(uuid4(), blocked_job())
     await started.wait()
     await worker.stop()
 
@@ -202,7 +202,7 @@ async def test_readiness_fails_as_soon_as_worker_enters_drain(
         )
     monkeypatch.setattr(container.redis, "ping", AsyncMock(return_value=True))
     container.execution_worker._stopped = False
-    container.execution_worker._accepting_work = True
+    container.execution_worker._dispatcher.set_accepting(True)
 
     try:
         initial_checks = await container.readiness()

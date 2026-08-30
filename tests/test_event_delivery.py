@@ -180,7 +180,7 @@ def _worker(
         artifact_manager=ExecutionArtifactManager(session_factory),
     )
     # These tests exercise active-Worker internals without starting background loops.
-    worker._accepting_work = True
+    worker._dispatcher.set_accepting(True)
     worker._stopped = False
     return worker
 
@@ -259,7 +259,7 @@ async def test_stale_pending_message_is_reclaimed_and_acked_once(
         dispatched.append(dispatched_execution_id)
         coroutine.close()
 
-    monkeypatch.setattr(worker, "_dispatch", record_dispatch)
+    monkeypatch.setattr(worker._dispatcher, "dispatch", record_dispatch)
     try:
         await redis_client.xgroup_create(stream, group, id="0", mkstream=True)
         await redis_client.xadd(
@@ -380,13 +380,13 @@ async def test_duplicate_dispatch_keeps_one_active_job(
     await worker._handle_work_message(fields)
     await started.wait()
     await worker._handle_work_message(fields)
-    assert len(worker._jobs) == 1
+    assert worker.active_job_count == 1
     assert invocations == 1
 
     release.set()
-    await asyncio.gather(*worker._jobs.values())
+    await worker._dispatcher.wait_idle()
     await asyncio.sleep(0)
-    assert worker._jobs == {}
+    assert worker.active_job_count == 0
 
 
 async def test_two_workers_create_only_one_execution_attempt(
