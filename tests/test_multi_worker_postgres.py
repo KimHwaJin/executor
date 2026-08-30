@@ -401,7 +401,7 @@ async def test_concurrent_workers_claim_exactly_one_cancellation_owner(
         winner = winners[0]
         await workers[
             next(index for index, claim in enumerate(claims) if claim)
-        ]._finalize_cancellation(
+        ]._cancellation.finalize(
             winner.lease,
             RuntimeSessionCleanupStatus.NOT_REQUIRED,
         )
@@ -725,7 +725,9 @@ async def test_cancel_and_claim_race_has_one_consistent_terminal_result(
         )
         await asyncio.gather(
             *(
-                workers[index % len(workers)]._cancel_execution(execution.id)
+                workers[index % len(workers)]._cancellation.cancel(
+                    execution.id
+                )
                 for index, execution in enumerate(executions)
             )
         )

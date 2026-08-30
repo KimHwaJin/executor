@@ -249,7 +249,7 @@ async def test_cancel_remains_available_when_batch_runtime_capacity_is_full(
                 reason="verify cancellation bypass",
             )
         )
-        await worker._cancel_execution(waiting.id)
+        await worker._cancellation.cancel(waiting.id)
     finally:
         await redis.aclose()
 

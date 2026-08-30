@@ -9,7 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from executor_service.config import Settings
 from executor_service.domain.enums import OperationMode, RuntimePool
 from executor_service.domain.results import ExecutionResultStore
-from executor_service.domain.runtime import RuntimeDriverFactory
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.models import ExecutionORM
 from executor_service.infrastructure.execution_worker.claiming import (
@@ -39,9 +38,6 @@ from executor_service.infrastructure.execution_worker.single_runner import (
 from executor_service.infrastructure.execution_worker.step_executor import (
     ExecutionStepExecutor,
 )
-from executor_service.infrastructure.runtime_registry import (
-    RuntimeTargetRegistry,
-)
 from executor_service.infrastructure.workspace import WorkspaceManager
 from executor_service.tracing import TracingManager
 
@@ -53,8 +49,7 @@ class ExecutionRunner:
         self,
         session_factory: async_sessionmaker[AsyncSession],
         settings: Settings,
-        registry: RuntimeTargetRegistry,
-        driver_factory: RuntimeDriverFactory,
+        driver_provider: RuntimeDriverProvider,
         artifacts: ExecutionArtifactManager,
         result_store: ExecutionResultStore,
         workspace: WorkspaceManager,
@@ -67,7 +62,6 @@ class ExecutionRunner:
         self._session_factory = session_factory
         self._claimer = claimer
         self._tracing = tracing
-        driver_provider = RuntimeDriverProvider(registry, driver_factory)
         self._finalizer = ExecutionRunFinalizer(session_factory, settings)
         operation_state = MultiOperationState(session_factory)
         self._single = SingleExecutionRunner(
