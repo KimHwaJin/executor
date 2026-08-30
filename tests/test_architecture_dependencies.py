@@ -334,6 +334,24 @@ def test_maintenance_run_facade_delegates_persistence() -> None:
     )
 
 
+def test_auxiliary_orm_models_do_not_import_public_facade() -> None:
+    support_package = SOURCE_ROOT / "infrastructure" / "db" / "_models"
+    violations = {
+        path.name: sorted(
+            name
+            for name in _imports(path)
+            if name == "executor_service.infrastructure.db.models"
+        )
+        for path in _python_files(support_package)
+    }
+    assert not {path: names for path, names in violations.items() if names}
+
+
+def test_public_orm_module_loads_auxiliary_models() -> None:
+    imports = _imports(SOURCE_ROOT / "infrastructure" / "db" / "models.py")
+    assert "executor_service.infrastructure.db._models" in imports
+
+
 def test_internal_contract_modules_do_not_import_public_facade() -> None:
     contract_package = SOURCE_ROOT / "interfaces" / "_contracts"
     violations = {

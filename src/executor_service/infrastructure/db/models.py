@@ -1,7 +1,6 @@
 """Persistence-only SQLAlchemy models."""
 
 from datetime import datetime
-from enum import Enum as PythonEnum
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -11,8 +10,6 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     DateTime,
-    Enum,
-    Float,
     ForeignKey,
     Index,
     Integer,
@@ -32,11 +29,7 @@ from executor_service.domain.enums import (
     AttemptStatus,
     CodeSourceType,
     ExecutionStatus,
-    ExecutorAdmissionState,
     FailureType,
-    MaintenanceRunAction,
-    MaintenanceRunStatus,
-    MaintenanceRunTargetStatus,
     OperationMode,
     OperationStatus,
     OutboxDestination,
@@ -45,7 +38,6 @@ from executor_service.domain.enums import (
     RuntimeAbortStatus,
     RuntimePool,
     RuntimeSessionCleanupStatus,
-    RuntimeTargetStatus,
     RuntimeType,
     StepStatus,
     TriggerType,
@@ -60,38 +52,20 @@ from executor_service.domain.models import (
     empty_output_summary,
     utc_now,
 )
+from executor_service.infrastructure.db import _models as auxiliary_models
+from executor_service.infrastructure.db._models import (
+    audit_actor_constraints,
+    enum_type,
+)
 from executor_service.infrastructure.db.base import Base
 
-
-def enum_type(enum_class: type[PythonEnum], name: str) -> Enum:
-    return Enum(
-        enum_class,
-        name=name,
-        native_enum=False,
-        create_constraint=False,
-        length=32,
-    )
-
-
-def audit_actor_constraints() -> tuple[CheckConstraint, ...]:
-    return (
-        CheckConstraint(
-            "created_by_type IS NULL OR created_by_type IN ('AGENT', 'USER', 'BATCH')",
-            name="valid_created_by_type",
-        ),
-        CheckConstraint(
-            "updated_by_type IS NULL OR updated_by_type IN ('AGENT', 'USER', 'BATCH')",
-            name="valid_updated_by_type",
-        ),
-        CheckConstraint(
-            "(created_by_type IS NULL) = (created_by IS NULL)",
-            name="complete_created_by",
-        ),
-        CheckConstraint(
-            "(updated_by_type IS NULL) = (updated_by IS NULL)",
-            name="complete_updated_by",
-        ),
-    )
+CommandReceiptORM = auxiliary_models.CommandReceiptORM
+EventRetentionLeaseORM = auxiliary_models.EventRetentionLeaseORM
+ExecutorMaintenanceORM = auxiliary_models.ExecutorMaintenanceORM
+MaintenanceRunORM = auxiliary_models.MaintenanceRunORM
+MaintenanceRunTargetORM = auxiliary_models.MaintenanceRunTargetORM
+RuntimeTargetORM = auxiliary_models.RuntimeTargetORM
+RuntimeTargetPurgeORM = auxiliary_models.RuntimeTargetPurgeORM
 
 
 class ExecutionORM(Base):
@@ -804,394 +778,6 @@ class ExecutionOperationORM(Base):
             started_at=operation.started_at,
             finished_at=operation.finished_at,
         )
-
-
-class RuntimeTargetORM(Base):
-    __tablename__ = "runtime_targets"
-    __table_args__ = (
-        *audit_actor_constraints(),
-        CheckConstraint(
-            "status IN ('ACTIVE', 'DRAINING', 'OFFLINE')",
-            name="valid_runtime_target_status",
-        ),
-        CheckConstraint(
-            "runtime_type IN ('JUPYTER')", name="valid_runtime_type"
-        ),
-        CheckConstraint(
-            "max_concurrent_executions > 0", name="positive_max_concurrency"
-        ),
-        CheckConstraint(
-            "active_session_count IS NULL OR active_session_count >= 0",
-            name="non_negative_active_session_count",
-        ),
-        Index("ix_runtime_targets_pool_status", "pool", "enabled", "status"),
-        Index("ix_runtime_targets_created_cursor", "created_at", "id"),
-    )
-
-    id: Mapped[UUID] = mapped_column(
-        Uuid(as_uuid=True), primary_key=True, default=uuid4
-    )
-    name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
-    runtime_type: Mapped[RuntimeType] = mapped_column(
-        enum_type(RuntimeType, "runtime_target_type"),
-        nullable=False,
-        default=RuntimeType.JUPYTER,
-    )
-    connection_config: Mapped[dict[str, Any]] = mapped_column(
-        JSON, nullable=False
-    )
-    credential_ref: Mapped[str] = mapped_column(String(255), nullable=False)
-    credential_ciphertext: Mapped[str | None] = mapped_column(
-        Text, nullable=True
-    )
-    pool: Mapped[RuntimePool] = mapped_column(
-        enum_type(RuntimePool, "runtime_target_pool"), nullable=False
-    )
-    status: Mapped[RuntimeTargetStatus] = mapped_column(
-        enum_type(RuntimeTargetStatus, "runtime_target_status"), nullable=False
-    )
-    max_concurrent_executions: Mapped[int] = mapped_column(
-        Integer, nullable=False
-    )
-    supported_profiles: Mapped[list[str]] = mapped_column(
-        JSON, nullable=False, default=list
-    )
-    enabled: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True
-    )
-    last_health_check_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True)
-    )
-    last_health_error: Mapped[str | None] = mapped_column(String(500))
-    active_session_count: Mapped[int | None] = mapped_column(Integer)
-    session_count_observed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True)
-    )
-    resource_observed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True)
-    )
-    resource_last_check_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True)
-    )
-    resource_last_error: Mapped[str | None] = mapped_column(String(500))
-    resource_source: Mapped[str | None] = mapped_column(String(64))
-    resource_estimated: Mapped[bool | None] = mapped_column(Boolean)
-    resource_process_count: Mapped[int | None] = mapped_column(Integer)
-    cpu_used_cores: Mapped[float | None] = mapped_column(Float)
-    cpu_capacity_cores: Mapped[float | None] = mapped_column(Float)
-    cpu_utilization: Mapped[float | None] = mapped_column(Float)
-    memory_used_bytes: Mapped[int | None] = mapped_column(BigInteger)
-    memory_capacity_bytes: Mapped[int | None] = mapped_column(BigInteger)
-    memory_utilization: Mapped[float | None] = mapped_column(Float)
-    resource_errors: Mapped[list[str]] = mapped_column(
-        JSON, nullable=False, default=list
-    )
-    created_by_type: Mapped[ActorType | None] = mapped_column(
-        enum_type(ActorType, "actor_type"), nullable=True
-    )
-    created_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    updated_by_type: Mapped[ActorType | None] = mapped_column(
-        enum_type(ActorType, "actor_type"), nullable=True
-    )
-    updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utc_now
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utc_now, onupdate=utc_now
-    )
-
-
-class RuntimeTargetPurgeORM(Base):
-    """Immutable audit tombstone for a physically removed, never-used target."""
-
-    __tablename__ = "runtime_target_purges"
-    __table_args__ = (
-        *audit_actor_constraints(),
-        CheckConstraint("pool IN ('INTERACTIVE', 'BATCH')", name="valid_pool"),
-        CheckConstraint(
-            "runtime_type IN ('JUPYTER')", name="valid_runtime_type"
-        ),
-    )
-
-    id: Mapped[UUID] = mapped_column(
-        Uuid(as_uuid=True), primary_key=True, default=uuid4
-    )
-    target_id: Mapped[UUID] = mapped_column(
-        Uuid(as_uuid=True), nullable=False, unique=True
-    )
-    target_name: Mapped[str] = mapped_column(String(255), nullable=False)
-    runtime_type: Mapped[RuntimeType] = mapped_column(
-        enum_type(RuntimeType, "runtime_target_purge_type"), nullable=False
-    )
-    connection_config: Mapped[dict[str, Any]] = mapped_column(
-        JSON, nullable=False
-    )
-    pool: Mapped[RuntimePool] = mapped_column(
-        enum_type(RuntimePool, "runtime_target_purge_pool"), nullable=False
-    )
-    idempotency_key: Mapped[str] = mapped_column(
-        String(255), nullable=False, unique=True
-    )
-    request_fingerprint: Mapped[str] = mapped_column(
-        String(64), nullable=False
-    )
-    created_by_type: Mapped[ActorType | None] = mapped_column(
-        enum_type(ActorType, "actor_type"), nullable=True
-    )
-    created_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    updated_by_type: Mapped[ActorType | None] = mapped_column(
-        enum_type(ActorType, "actor_type"), nullable=True
-    )
-    updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utc_now
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        default=utc_now,
-        onupdate=utc_now,
-    )
-
-
-class CommandReceiptORM(Base):
-    """Idempotency receipt shared by non-execution mutating commands."""
-
-    __tablename__ = "command_receipts"
-
-    id: Mapped[UUID] = mapped_column(
-        Uuid(as_uuid=True), primary_key=True, default=uuid4
-    )
-    idempotency_key: Mapped[str] = mapped_column(
-        String(255), nullable=False, unique=True
-    )
-    command_type: Mapped[str] = mapped_column(String(128), nullable=False)
-    request_fingerprint: Mapped[str] = mapped_column(
-        String(64), nullable=False
-    )
-    result: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utc_now
-    )
-
-
-class ExecutorMaintenanceORM(Base):
-    """Singleton state shared by every Executor Worker replica."""
-
-    __tablename__ = "executor_maintenance"
-    __table_args__ = (
-        *audit_actor_constraints(),
-        CheckConstraint("singleton_key = 'executor'", name="singleton_key"),
-        CheckConstraint(
-            "admission_state IN ('ACTIVE', 'DRAINING')",
-            name="valid_admission_state",
-        ),
-        CheckConstraint("version >= 0", name="non_negative_version"),
-    )
-
-    singleton_key: Mapped[str] = mapped_column(
-        String(32), primary_key=True, default="executor"
-    )
-    admission_state: Mapped[ExecutorAdmissionState] = mapped_column(
-        enum_type(ExecutorAdmissionState, "executor_admission_state"),
-        nullable=False,
-        default=ExecutorAdmissionState.ACTIVE,
-    )
-    version: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
-    created_by_type: Mapped[ActorType | None] = mapped_column(
-        enum_type(ActorType, "actor_type"), nullable=True
-    )
-    created_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    updated_by_type: Mapped[ActorType | None] = mapped_column(
-        enum_type(ActorType, "actor_type"), nullable=True
-    )
-    updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utc_now
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        default=utc_now,
-        onupdate=utc_now,
-    )
-
-
-class EventRetentionLeaseORM(Base):
-    __tablename__ = "event_retention_lease"
-    __table_args__ = (
-        CheckConstraint(
-            "(lease_owner IS NULL) = (lease_expires_at IS NULL)",
-            name="complete_lease",
-        ),
-    )
-
-    singleton_key: Mapped[str] = mapped_column(String(32), primary_key=True)
-    lease_owner: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    lease_expires_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    last_started_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    last_completed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    last_error: Mapped[str | None] = mapped_column(String(1000), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utc_now
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        default=utc_now,
-        onupdate=utc_now,
-    )
-
-
-class MaintenanceRunORM(Base):
-    __tablename__ = "maintenance_runs"
-    __table_args__ = (
-        *audit_actor_constraints(),
-        CheckConstraint(
-            "action IN ('STOP_ACTIVE_EXECUTIONS')", name="valid_action"
-        ),
-        CheckConstraint(
-            "status IN ('REQUESTED', 'RUNNING', 'SUCCEEDED', 'FAILED')",
-            name="valid_status",
-        ),
-        CheckConstraint(
-            "fencing_token >= 0", name="non_negative_fencing_token"
-        ),
-        Index("ix_maintenance_runs_recovery", "status", "lease_expires_at"),
-        Index("ix_maintenance_runs_created", "created_at", "id"),
-    )
-
-    id: Mapped[UUID] = mapped_column(
-        Uuid(as_uuid=True), primary_key=True, default=uuid4
-    )
-    idempotency_key: Mapped[str] = mapped_column(
-        String(255), nullable=False, unique=True
-    )
-    request_fingerprint: Mapped[str] = mapped_column(
-        String(64), nullable=False
-    )
-    action: Mapped[MaintenanceRunAction] = mapped_column(
-        enum_type(MaintenanceRunAction, "maintenance_run_action"),
-        nullable=False,
-    )
-    status: Mapped[MaintenanceRunStatus] = mapped_column(
-        enum_type(MaintenanceRunStatus, "maintenance_run_status"),
-        nullable=False,
-    )
-    lease_owner: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    lease_expires_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    heartbeat_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    fencing_token: Mapped[int] = mapped_column(
-        BigInteger, nullable=False, default=0
-    )
-    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_by_type: Mapped[ActorType | None] = mapped_column(
-        enum_type(ActorType, "actor_type"), nullable=True
-    )
-    created_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    updated_by_type: Mapped[ActorType | None] = mapped_column(
-        enum_type(ActorType, "actor_type"), nullable=True
-    )
-    updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utc_now
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        default=utc_now,
-        onupdate=utc_now,
-    )
-    started_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    finished_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-
-
-class MaintenanceRunTargetORM(Base):
-    __tablename__ = "maintenance_run_targets"
-    __table_args__ = (
-        *audit_actor_constraints(),
-        UniqueConstraint(
-            "maintenance_run_id",
-            "execution_id",
-            name="uq_maintenance_run_targets_run_execution",
-        ),
-        CheckConstraint(
-            "status IN ('PENDING', 'STOP_REQUESTED', 'STOPPED', 'FAILED')",
-            name="valid_status",
-        ),
-        Index(
-            "ix_maintenance_run_targets_run_status",
-            "maintenance_run_id",
-            "status",
-        ),
-        Index(
-            "ix_maintenance_run_targets_cursor",
-            "maintenance_run_id",
-            "created_at",
-            "id",
-        ),
-    )
-
-    id: Mapped[UUID] = mapped_column(
-        Uuid(as_uuid=True), primary_key=True, default=uuid4
-    )
-    maintenance_run_id: Mapped[UUID] = mapped_column(
-        Uuid(as_uuid=True),
-        ForeignKey("maintenance_runs.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    execution_id: Mapped[UUID] = mapped_column(
-        Uuid(as_uuid=True),
-        ForeignKey("executions.id"),
-        nullable=False,
-    )
-    selected_execution_status: Mapped[ExecutionStatus] = mapped_column(
-        enum_type(ExecutionStatus, "maintenance_selected_execution_status"),
-        nullable=False,
-    )
-    status: Mapped[MaintenanceRunTargetStatus] = mapped_column(
-        enum_type(MaintenanceRunTargetStatus, "maintenance_run_target_status"),
-        nullable=False,
-    )
-    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    stop_requested_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    completed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    created_by_type: Mapped[ActorType | None] = mapped_column(
-        enum_type(ActorType, "actor_type"), nullable=True
-    )
-    created_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    updated_by_type: Mapped[ActorType | None] = mapped_column(
-        enum_type(ActorType, "actor_type"), nullable=True
-    )
-    updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utc_now
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        default=utc_now,
-        onupdate=utc_now,
-    )
 
 
 class ExecutionRetryORM(Base):
