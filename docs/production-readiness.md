@@ -320,6 +320,14 @@ plot artifacts remain on Jupyter-owned storage and use the separate Artifact con
 
 ### Measurement before thresholds
 
+Blocking observation on 2026-08-31: the current local Jupyter IOPub data-rate limit suppresses
+5/10/25 MiB stdout output, but Executor still reports `SUCCEEDED` and `result_ref.complete=true`.
+Only the rate-limit stderr warning is retained. The T35 harness now validates shared output
+checksums, workload markers, and expected byte counts and fails these cases. Runtime behavior
+has not been fixed. Resolve this loss/completeness mismatch before treating larger-output or
+concurrency measurements as production evidence. See
+[expanded output validation](output-expansion-validation.md) for results and follow-up scope.
+
 T35 must measure 1, 5, 10, 25, 50, and 100 MiB text output; 1, 10, 25, and 50 MiB image output;
 and concurrency levels 1, 5, 10, and 20. Record Executor RSS, Runtime memory, PostgreSQL growth,
 notebook size, result-reference API latency, and Agent retrieval calls. Final message, buffer, preview, and
