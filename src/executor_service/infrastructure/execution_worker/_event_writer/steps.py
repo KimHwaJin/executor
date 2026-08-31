@@ -59,7 +59,7 @@ async def add_step_completed_event(
     )
     output_summary = (
         event_output_summary(stored_result)
-        if stored_result is not None and stored_result.complete
+        if stored_result is not None
         else None
     )
     error = None
@@ -108,8 +108,9 @@ async def add_step_history_completed_event(
     )
     if step is None or history is None:
         return
+    result_ref = row_result_reference(history)
     output_summary = None
-    if history.result_complete:
+    if result_ref is not None:
         raw_mime_types = history.output_summary.get("mime_types", [])
         output_summary = {
             "count": int(history.output_summary.get("output_count", 0)),
@@ -128,7 +129,7 @@ async def add_step_history_completed_event(
             "operation": await operation_payload(session, step.operation_id),
             "step": {"id": str(step.id), "sequence": step.sequence},
             "attempt": await attempt_payload(session, attempt_id),
-            "result_ref": row_result_reference(history),
+            "result_ref": result_ref,
             "output_summary": output_summary,
             "error": {
                 "code": (

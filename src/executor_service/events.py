@@ -56,11 +56,14 @@ class AttemptReference(ContractModel):
 
 
 class ResultReference(ContractModel):
+    """Sealed manifest; complete describes output, not execution success."""
+
     storage: Literal["SHARED_PV"]
     relative_path: str = Field(min_length=1, max_length=4096)
     media_type: str = Field(min_length=1, max_length=255)
     size_bytes: int = Field(ge=0)
     checksum_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    complete: bool = Field(strict=True)
 
     @model_validator(mode="after")
     def validate_relative_path(self) -> Self:
@@ -173,10 +176,14 @@ class StepCompletedPayload(ContractModel):
                 raise ValueError(
                     "A successful Step requires its persisted result."
                 )
+            if not self.result_ref.complete:
+                raise ValueError("A successful Step requires complete output.")
             if self.error is not None:
                 raise ValueError("A successful Step cannot contain an error.")
         elif self.error is None:
             raise ValueError("A failed or cancelled Step requires an error.")
+        if (self.result_ref is None) != (self.output_summary is None):
+            raise ValueError("Result reference and output summary must agree.")
         return self
 
 
@@ -191,6 +198,12 @@ class StepResult(ContractModel):
     def validate_outcome(self) -> Self:
         if self.status == "SUCCEEDED" and self.result_ref is None:
             raise ValueError("A successful Step result requires a reference.")
+        if (
+            self.status == "SUCCEEDED"
+            and self.result_ref is not None
+            and not self.result_ref.complete
+        ):
+            raise ValueError("A successful Step requires complete output.")
         return self
 
 

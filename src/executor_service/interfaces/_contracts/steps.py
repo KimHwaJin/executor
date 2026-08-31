@@ -204,7 +204,12 @@ def _step_attempt_common(view: ExecutionStepAttemptView) -> dict[str, Any]:
                     total_size_bytes=view.result_total_size_bytes,
                 )
                 if (
-                    view.status in {StepStatus.SUCCEEDED, StepStatus.FAILED}
+                    view.status
+                    in {
+                        StepStatus.SUCCEEDED,
+                        StepStatus.FAILED,
+                        StepStatus.CANCELLED,
+                    }
                     and view.result_fencing_token is not None
                     and view.result_manifest_path is not None
                     and view.result_manifest_checksum_sha256 is not None

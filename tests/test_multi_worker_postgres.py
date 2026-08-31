@@ -3,6 +3,7 @@
 import asyncio
 import os
 from collections.abc import AsyncIterator
+from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
 from time import perf_counter
@@ -55,7 +56,10 @@ from executor_service.domain.enums import (
     TriggerType,
 )
 from executor_service.domain.models import utc_now
-from executor_service.events import build_execution_event
+from executor_service.events import (
+    ExecutionStreamEnvelope,
+    build_execution_event,
+)
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.background_diagnostics import (
     BackgroundDiagnosticRecorder,
@@ -112,7 +116,9 @@ from executor_service.tracing import TracingManager
 from scripts.postgres_query_plan_smoke import (
     ORDERED_EVENT_PUBLICATION_QUERY,
 )
+from tests.result_evidence_assertions import assert_result_evidence_surfaces
 from tests.runtime_credentials import runtime_credential_fields
+from tests.test_runtime_failure_evidence import EvidenceDriver
 
 pytestmark = pytest.mark.postgres
 
@@ -643,6 +649,17 @@ async def test_stale_worker_cannot_write_or_heartbeat_after_takeover(
         first_claim = await workers[0]._claimer.claim(execution.id)
         assert first_claim is not None
         stale_lease = first_claim[2]
+        store = FilesystemExecutionResultStore(tmp_path)
+        identity = workers[0]._step_executor.result_identity(
+            first_claim[0].steps[0], stale_lease
+        )
+        source = workers[0]._step_executor.source_reference(
+            first_claim[0].steps[0]
+        )
+        await store.begin_step_result(identity, source)
+        interrupted_result = await store.abort_step_result(
+            identity, reason="stale cancellation evidence"
+        )
         expired_at = utc_now() - timedelta(seconds=1)
         async with session_factory() as session, session.begin():
             await session.execute(
@@ -672,6 +689,10 @@ async def test_stale_worker_cannot_write_or_heartbeat_after_takeover(
             await workers[0]._step_executor.mark_started(stale_lease, 0)
         with pytest.raises(ExecutionLeaseLostError):
             await workers[0]._lease_heartbeat.renew_execution(stale_lease)
+        with pytest.raises(ExecutionLeaseLostError):
+            await workers[0]._step_executor._record_interrupted_result(
+                stale_lease, 0, interrupted_result
+            )
 
         async with session_factory() as session:
             persisted = await session.get(ExecutionORM, execution.id)
@@ -691,9 +712,89 @@ async def test_stale_worker_cannot_write_or_heartbeat_after_takeover(
         assert persisted.fencing_token == current_lease.fencing_token
         assert step is not None
         assert step.status == StepStatus.PENDING
+        assert step.result_manifest_path is None
         assert stale_step_events == 0
     finally:
         await _close_redis(redis_clients)
+
+
+@pytest.mark.parametrize("mode", [OperationMode.SINGLE, OperationMode.MULTI])
+async def test_partial_result_outbox_redis_and_history_agree(
+    postgres_engine: AsyncEngine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mode: OperationMode,
+) -> None:
+    service = _service(postgres_engine, tmp_path)
+    factory = create_session_factory(postgres_engine)
+    async with factory() as session, session.begin():
+        session.add(_server(capacity=1))
+    command = replace(
+        _command("partial-result-redis"),
+        operation_mode=mode,
+        operation_wait_timeout_seconds=600
+        if mode == OperationMode.MULTI
+        else None,
+    )
+    execution = await service.submit(command)
+    driver = EvidenceDriver("disconnect", False)
+    monkeypatch.setattr(
+        "executor_service.infrastructure.runtime_drivers.JupyterRuntimeDriver",
+        lambda *_args, **_kwargs: driver,
+    )
+    redis = Redis.from_url(_redis_test_url(), decode_responses=True)
+    unique = f"test:partial-results:{uuid4().hex}"
+    work_stream, event_stream = f"{unique}:work", f"{unique}:events"
+    settings = Settings(runtime_enabled=False, shared_storage_root=tmp_path)
+    worker = ExecutionWorker(
+        session_factory=factory,
+        redis=redis,
+        settings=settings,
+        registry=RuntimeTargetRegistry(factory, settings),
+        artifact_manager=ExecutionArtifactManager(factory),
+    )
+    try:
+        await worker._runner.run(execution.id)
+        await assert_result_evidence_surfaces(factory, execution.id, tmp_path)
+        publisher = OutboxPublisher(
+            session_factory=factory,
+            redis=redis,
+            work_stream_name=work_stream,
+            event_stream_name=event_stream,
+            poll_interval_seconds=0.01,
+            batch_size=100,
+            tracing=TracingManager(settings),
+        )
+        assert await publisher.publish_batch() > 0
+        assert await publisher.publish_batch() == 0
+        messages = await redis.xrange(event_stream)
+        envelopes = [
+            ExecutionStreamEnvelope.from_redis_fields(fields)
+            for _, fields in messages
+        ]
+        assert [event.event_sequence for event in envelopes] == list(
+            range(1, len(envelopes) + 1)
+        )
+        assert len(envelopes) == 6
+        async with factory() as session:
+            for envelope in envelopes:
+                history = await session.get(
+                    ExecutionEventORM, envelope.event_id
+                )
+                assert history is not None
+                assert envelope.payload == history.payload
+        step_event = next(
+            item
+            for item in envelopes
+            if item.event_type == "execution.step_completed"
+        )
+        assert step_event.payload["result_ref"]["complete"] is False
+        assert step_event.payload["output_summary"]["count"] == 1
+        assert step_event.payload["status"] == "FAILED"
+        assert "partial evidence" not in step_event.model_dump_json()
+    finally:
+        await redis.delete(work_stream, event_stream)
+        await redis.aclose()
 
 
 async def test_concurrent_startup_reconciliation_fences_expired_lease_once(

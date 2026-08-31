@@ -24,16 +24,25 @@ from executor_service.domain.enums import (
     RuntimeTargetStatus,
     TriggerType,
 )
+from executor_service.domain.runtime import (
+    RuntimeOutputHandler,
+    RuntimeOutputRecord,
+    RuntimeOutputRepresentation,
+)
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.models import (
     ExecutionArtifactORM,
     RuntimeTargetORM,
 )
 from executor_service.infrastructure.db.session import create_session_factory
+from executor_service.infrastructure.diagnostic_store import (
+    SQLAlchemyDiagnosticQueryService,
+)
 from executor_service.infrastructure.execution_worker import ExecutionWorker
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
 )
+from tests.result_evidence_assertions import assert_result_evidence_surfaces
 from tests.runtime_credentials import runtime_credential_fields
 from tests.runtime_storage_fake import InMemoryRuntimeStorage
 
@@ -60,6 +69,22 @@ class FileWritingBlockedDriver(InMemoryRuntimeStorage):
         type(self).started.set()
         await asyncio.Event().wait()
 
+    async def execute_streaming(
+        self, session_id: str, code: str, handler: RuntimeOutputHandler
+    ) -> Any:
+        await handler(
+            RuntimeOutputRecord(
+                kind="stream",
+                stream_name="stdout",
+                representations=(
+                    RuntimeOutputRepresentation(
+                        "text/plain", "UTF8", "before cancellation\n"
+                    ),
+                ),
+            )
+        )
+        return await self.execute(session_id, code)
+
     async def interrupt_session(self, _runtime_session_id: str) -> None:
         pass
 
@@ -71,12 +96,18 @@ class FileWritingBlockedDriver(InMemoryRuntimeStorage):
 
 
 @pytest.mark.parametrize("mode", [OperationMode.SINGLE, OperationMode.MULTI])
+@pytest.mark.parametrize(
+    "result_fault", [None, "seal", "reference", "reference_timeout"]
+)
+@pytest.mark.parametrize("step_timeout", [None, 600])
 async def test_cancelled_cell_registers_partial_file_as_incomplete_artifact(
     execution_service: ExecutionService,
     engine: AsyncEngine,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     mode: OperationMode,
+    result_fault: str | None,
+    step_timeout: int | None,
 ) -> None:
     session_factory = create_session_factory(engine)
     async with session_factory() as session, session.begin():
@@ -111,7 +142,9 @@ async def test_cancelled_cell_registers_partial_file_as_incomplete_artifact(
                     sequence=0,
                     code=code,
                     tool_name="write_partial",
+                    step_timeout_seconds=step_timeout,
                 ),
+                StepSpec(sequence=1, code="print('must not run')"),
             ),
         )
     )
@@ -125,6 +158,24 @@ async def test_cancelled_cell_registers_partial_file_as_incomplete_artifact(
         artifact_manager=ExecutionArtifactManager(session_factory),
     )
     FileWritingBlockedDriver.configure(tmp_path)
+    if result_fault == "seal":
+
+        async def fail_seal(*_args: object, **_kwargs: object) -> Any:
+            raise PermissionError("cannot seal cancelled evidence")
+
+        monkeypatch.setattr(
+            worker._result_store, "abort_step_result", fail_seal
+        )
+    elif result_fault is not None:
+
+        async def fail_reference(*_args: object, **_kwargs: object) -> None:
+            if result_fault == "reference_timeout":
+                await asyncio.sleep(30)
+            raise PermissionError("cannot attach cancelled reference")
+
+        monkeypatch.setattr(
+            worker._step_executor, "_record_interrupted_result", fail_reference
+        )
     monkeypatch.setattr(
         "executor_service.infrastructure.runtime_drivers.JupyterRuntimeDriver",
         FileWritingBlockedDriver,
@@ -142,7 +193,8 @@ async def test_cancelled_cell_registers_partial_file_as_incomplete_artifact(
             )
         )
         task.cancel()
-        interrupted = await asyncio.gather(task, return_exceptions=True)
+        async with asyncio.timeout(5):
+            interrupted = await asyncio.gather(task, return_exceptions=True)
     finally:
         if not task.done():
             task.cancel()
@@ -168,3 +220,23 @@ async def test_cancelled_cell_registers_partial_file_as_incomplete_artifact(
     await worker._cancellation.cancel(execution.id)
     cancelled = await execution_service.get(execution.id)
     assert cancelled.status == ExecutionStatus.CANCELLED
+    assert cancelled.steps[0].result_complete is (
+        None if result_fault else False
+    )
+    if result_fault:
+        diagnostics = await SQLAlchemyDiagnosticQueryService(
+            session_factory
+        ).list(execution.id)
+        assert any(
+            item.diagnostic.phase
+            == (
+                "RESULT_FAILURE_SAVE"
+                if result_fault == "seal"
+                else "RESULT_REFERENCE_PERSIST"
+            )
+            for item in diagnostics.items
+        )
+    assert cancelled.steps[1].result_manifest_path is None
+    await assert_result_evidence_surfaces(
+        session_factory, execution.id, tmp_path
+    )

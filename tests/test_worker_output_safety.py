@@ -53,6 +53,7 @@ from executor_service.infrastructure.execution_worker import ExecutionWorker
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
 )
+from tests.result_evidence_assertions import assert_result_evidence_surfaces
 from tests.runtime_credentials import runtime_credential_fields
 from tests.runtime_storage_fake import InMemoryRuntimeStorage
 from tests.test_jupyter_output_limits import rate_warning
@@ -252,6 +253,9 @@ async def test_output_limit_aborts_runtime_and_persists_incomplete_result(
     manifest = json.loads((tmp_path / step.result_manifest_path).read_bytes())
     assert manifest["state"] == "ABORTED"
     assert manifest["complete"] is False
+    await assert_result_evidence_surfaces(
+        session_factory, execution.id, tmp_path
+    )
     if kind == "MESSAGE_SIZE":
         assert "safety limit" in manifest["error_message"]
     else:
