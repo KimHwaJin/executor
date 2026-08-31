@@ -406,6 +406,11 @@ async def run_case(
                 await probe(compose, survivor, "snapshot", execution_id)
                 == snapshot
             )
+            after_resume = await request(api, "GET", path)
+            assert (
+                after_resume["workspace"]["notebook_projection"] == projection
+            )
+            assert after_resume["state"] == detail["state"]
             assert await kernels(compose) == []
             evidence["stale_worker_observed_seconds"] = 12
     if action in {"shutdown", "kill"}:
