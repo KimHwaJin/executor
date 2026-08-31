@@ -78,7 +78,7 @@ def case_request(mode: str, profile: str, unique: str) -> dict[str, Any]:
         trigger_type="INTERACTIVE",
         actor=ACTOR,
         runtime_profile=profile,
-        context={"task_id": unique},
+        context={"user_id": ACTOR["id"], "task_id": unique},
         operation_wait_timeout_seconds=300 if mode == "MULTI" else None,
         operation_timeout_seconds=300,
         spec=inline_spec(
@@ -255,6 +255,40 @@ async def run_case(
         )
         if action == "shutdown":
             assert detail["failure"]["type"] == "WORKER_SHUTDOWN"
+            assert attempt["recovery"]["retry_strategy"] == (
+                "FROM_START" if mode == "SINGLE" else "NOT_RETRYABLE"
+            )
+        histories = await request(
+            api, "GET", f"{path}/attempts/{attempt_id}/steps"
+        )
+        logical = {
+            step["step_id"]: step
+            for op in result["operations"]
+            for step in op["steps"]
+        }
+        assert not histories["has_more"]
+        assert {h["sequence"] for h in histories["items"]} == {0, 1}
+        for history in histories["items"]:
+            current = logical[history["execution_step_id"]]
+            assert (
+                history["result"]["result_ref"]
+                == (current["result"]["result_ref"])
+            )
+        projection = detail["workspace"]["notebook_projection"]
+        assert projection["status"] == "FAILED"
+        assert "may be stale" in projection["error_message"]
+        assert projection["projected_at"] is None
+        diagnostics = await request(api, "GET", f"{path}/diagnostics")
+        assert any(
+            item["diagnostic"]["phase"] == "NOTEBOOK_INTERRUPTED"
+            for item in diagnostics["items"]
+        )
+        notebook = await request(api, "GET", f"{path}/notebook")
+        assert notebook["page"]["total_count"] == 3
+        assert notebook["cells"][0]["output_summary"]["output_count"] == 1
+        # Partial output is authoritative in shared results, not yet projected
+        # into this notebook. The API must report that explicitly above.
+        assert notebook["cells"][1]["output_summary"]["output_count"] == 0
         assert await kernels(compose) == [], "Runtime kernel leaked"
         evidence = {
             "action": action,
@@ -268,6 +302,8 @@ async def run_case(
             "notebook_projection": detail["workspace"]["notebook_projection"],
             "events": events,
             "snapshot": snapshot,
+            "diagnostics": diagnostics,
+            "notebook": notebook,
             "remaining_kernels": 0,
         }
     if action == "shutdown":

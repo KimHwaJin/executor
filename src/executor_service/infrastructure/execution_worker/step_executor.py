@@ -23,6 +23,7 @@ from executor_service.domain.results import (
     StepResultIdentity,
 )
 from executor_service.domain.runtime import (
+    NotebookProjectionInterruptedError,
     RuntimeDriver,
     RuntimeDriverError,
     RuntimeExecutionError,
@@ -394,23 +395,29 @@ class ExecutionStepExecutor:
             stored = await self._preserve_failure_result(
                 observations, result_identity, exc
             )
-            if stored is not None:
-                try:
-                    async with asyncio.timeout(2):
-                        await self._record_interrupted_result(
-                            lease, sequence, stored
-                        )
-                except ExecutionLeaseLostError:
-                    # The new owner alone may decide the terminal outcome.
-                    # Never attach this file to a later Attempt or fence.
-                    pass
-                except Exception as persist_error:
+            try:
+                async with asyncio.timeout(2):
+                    notebook_stale = await self._record_interrupted_result(
+                        lease, sequence, stored
+                    )
+                if notebook_stale:
                     self._log_failure(
                         observations,
                         result_identity,
-                        persist_error,
-                        "RESULT_REFERENCE_PERSIST",
+                        NotebookProjectionInterruptedError(),
+                        "NOTEBOOK_INTERRUPTED",
                     )
+            except ExecutionLeaseLostError:
+                # The new owner alone may decide the terminal outcome.
+                # Never attach this file to a later Attempt or fence.
+                pass
+            except Exception as persist_error:
+                self._log_failure(
+                    observations,
+                    result_identity,
+                    persist_error,
+                    "RESULT_REFERENCE_PERSIST",
+                )
             raise
         finally:
             # Diagnostic I/O is outside the execution deadline. A slow DB must
@@ -422,7 +429,9 @@ class ExecutionStepExecutor:
                     phase=phase,
                     sequence=result_identity.sequence,
                     occurred_at=occurred_at,
-                    category=DiagnosticCategory.OUTPUT
+                    category=DiagnosticCategory.NOTEBOOK
+                    if phase.startswith("NOTEBOOK_")
+                    else DiagnosticCategory.OUTPUT
                     if phase.startswith("RESULT_")
                     or isinstance(error, RuntimeOutputLimitExceededError)
                     else DiagnosticCategory.EXECUTION,
@@ -432,12 +441,12 @@ class ExecutionStepExecutor:
         self,
         lease: ExecutionLease,
         sequence: int,
-        stored: StepResultDescriptor,
-    ) -> None:
+        stored: StepResultDescriptor | None,
+    ) -> bool:
         """Attach evidence before releasing ownership, without a transition."""
 
         async with self._session_factory() as session, session.begin():
-            await require_active_lease(
+            execution, _attempt = await require_active_lease(
                 session,
                 lease,
                 allowed_statuses=(
@@ -445,7 +454,7 @@ class ExecutionStepExecutor:
                     ExecutionStatus.CANCEL_REQUESTED,
                 ),
             )
-            if (
+            if stored is not None and (
                 stored.reference.execution_attempt_id != lease.attempt_id
                 or stored.reference.fencing_token != lease.fencing_token
             ):
@@ -469,11 +478,27 @@ class ExecutionStepExecutor:
                 )
             ).one()
             step, history = rows
-            step.result_execution_attempt_id = lease.attempt_id
-            step.updated_at = utc_now()
-            for row in (step, history):
-                row.output_summary = stored.output_summary
-                _assign_step_result(row, stored)
+            if stored is not None:
+                step.result_execution_attempt_id = lease.attempt_id
+                step.updated_at = utc_now()
+                for row in (step, history):
+                    row.output_summary = stored.output_summary
+                    _assign_step_result(row, stored)
+            # Cancellation skips normal projection. Never present an older
+            # successful notebook snapshot as covering this interrupted Step.
+            # Keep any earlier, more specific projection failure intact.
+            stale = (
+                execution.notebook_path is not None
+                and execution.notebook_projection_status != "FAILED"
+            )
+            if stale:
+                execution.notebook_projection_status = "FAILED"
+                execution.notebook_projection_error = str(
+                    NotebookProjectionInterruptedError()
+                )
+                execution.notebook_projected_at = None
+                execution.updated_at = utc_now()
+            return stale
 
     @staticmethod
     def result_identity(

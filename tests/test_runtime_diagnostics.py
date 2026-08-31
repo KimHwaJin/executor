@@ -7,10 +7,13 @@ from uuid import uuid4
 
 import pytest
 
+from executor_service.domain.diagnostics import DiagnosticCategory
 from executor_service.domain.runtime import (
+    NotebookProjectionInterruptedError,
     RuntimeDriverError,
     RuntimeExecutionError,
 )
+from executor_service.infrastructure.diagnostic_mapping import diagnostic_for
 from executor_service.infrastructure.execution_worker.failure_policy import (
     safe_error,
 )
@@ -32,6 +35,27 @@ def test_safe_error_preserves_errno_without_private_filename() -> None:
         safe_error(ResultStorageError("Step result manifest checksum failed."))
         == "Step result manifest checksum failed."
     )
+
+
+def test_interrupted_notebook_diagnostic_preserves_primary_retry_policy(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    error = NotebookProjectionInterruptedError()
+    detail = diagnostic_for(
+        error,
+        phase="NOTEBOOK_INTERRUPTED",
+        category=DiagnosticCategory.NOTEBOOK,
+    )
+    assert detail.code == "NOTEBOOK_NOT_REFRESHED"
+    assert detail.origin == "EXECUTOR"
+    assert "may be stale" in detail.message
+    assert "retry" not in detail.message.lower()
+    log_runtime_failure(
+        logging.getLogger("diagnostic-test"),
+        error,
+        phase="NOTEBOOK_INTERRUPTED",
+    )
+    assert "may be stale" in caplog.text
 
 
 @pytest.mark.parametrize(
