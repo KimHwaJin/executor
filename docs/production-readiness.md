@@ -685,7 +685,7 @@ failure. It must retain Runtime release evidence and inject all service credenti
 ## PR-008: Trustworthy Runtime diagnostics and completion reporting
 
 - Priority: P0 for known output loss reported as complete; P1 for diagnostic consistency
-- Status: IMPLEMENTING — Phases 1–6 delivered; broader failure/load coverage open
+- Status: IMPLEMENTING — Phases 1–8 delivered; broader failure/load coverage open
 - Area: Runtime adapters, Worker errors, shared results, projection, cleanup, operator logs
 - Public API impact: Phase 3 adds diagnostic REST reads; Phase 6 adds event result_ref.complete; manifest unchanged
 - Details: [Runtime Diagnostics Hardening](runtime-diagnostics-hardening.md)
@@ -779,6 +779,19 @@ failure. It must retain Runtime release evidence and inject all service credenti
 - No API/event field changes, migration, remote notebook rewrite, or changes to
   the normal local deployment. See [Docker interruption validation](docker-interrupted-result-validation.md).
 
+### Implemented Phase 8
+
+- Reproduce a stale notebook success flag after actual SIGKILL, then invalidate
+  the last projection during expired-lease recovery. Keep the primary failure,
+  earlier projection errors, complete Step references and retry policy intact.
+- Persist `NOTEBOOK_NOT_REFRESHED / NOTEBOOK_LEASE_EXPIRED` in the same locked
+  transaction as fencing and terminal events; emit a safe log after commit.
+  No notebook rewrite, private partial-file adoption, API schema or migration.
+- Extend isolated Docker validation to SIGKILL and paused/stale Worker return
+  across SINGLE/MULTI and basic/ml. Add diagnostic-insert rollback and concurrent
+  eight-Worker recovery checks. See [hard-loss validation](hard-loss-result-validation.md)
+  for actual results and limits; this is not a full outage/soak certification.
+
 ### Completion criteria still open
 
 - Maintain the no-false-completeness rule across supported Runtime variants.
@@ -798,6 +811,7 @@ diagnostics; Phase 4 implements mandatory delivery policy and Phase 5 covers
 background cleanup/probe observations. Phase 6 aligns partial evidence references
 across events/REST/manifests. Phase 7 validates real cancellation/SIGTERM and
 marks unrefreshed interrupted notebooks explicitly. Full lifecycle coverage,
+including storage/DB outage timing beyond the Phase 8 hard-loss cases,
 diagnostic links and broader
 load/failure validation remain open. These test
 counts alone are not a full production-readiness claim.

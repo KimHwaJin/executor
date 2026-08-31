@@ -98,8 +98,10 @@ DB 장애, lease 상실, 프로세스 강제 종료에서는 이 상태/진단 �
 ## 실행 방법
 
 Docker와 로컬 `executor-service:local`, `executor-jupyter:local` 이미지가 필요하다.
-Executor 의존성이 들어 있는 로컬 이미지를 바탕으로 현재 src/migrations만 교체해
-테스트 이미지를 빌드한다. 의존성이 바뀌었다면 기본 이미지를 먼저 최신화해야 한다.
+Executor 의존성이 들어 있는 로컬 이미지를 바탕으로 현재 src/migrations를 교체하고,
+Jupyter도 기존 커널·의존성을 재사용하며 현재 확장을 로드하는 테스트 전용 이미지를
+빌드한다. 일반 서비스의 이미지 태그는 바꾸지 않는다. 의존성이 바뀌었다면 기본
+이미지를 먼저 최신화해야 한다. 이 테스트용 overlay는 운영 이미지 빌드를 대체하지 않는다.
 
 ```bash
 uv run python scripts/docker_interrupted_result_e2e.py \
@@ -134,3 +136,7 @@ JSON 리포트는 케이스마다 원자적으로 갱신하며 API/이벤트/DB 
 현재 부분 결과 계약 기준으로 검증한다. 특히 공유 파일 봉인과 DB commit 사이에
 강제 종료되면 참조 없는 파일이 남을 수 있으며 이번 작업은 이를 자동 복구하지 않는다.
 노트북 재생성은 별도 보류 항목으로 유지한다.
+
+후속 SIGKILL/일시 정지 후 복귀 검증은
+[강제 종료 결과 검증](hard-loss-result-validation.md)에 기록한다.
+`--actions kill pause`로 실행하며, 위 표는 기존 취소·정상 종료의 역사적 결과다.

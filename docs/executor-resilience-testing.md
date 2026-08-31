@@ -487,6 +487,19 @@ redis-cli XRANGE <stream-name> - +
 
 ## Validated baseline
 
+Current SIGKILL and stale-Worker return checks, including notebook freshness and
+Linux shared-reader permissions, use the same isolated harness:
+
+```bash
+uv run python scripts/docker_interrupted_result_e2e.py \
+  --actions kill pause --report test-results/hard-loss-results.json
+```
+
+See [hard-loss validation](hard-loss-result-validation.md) for the recovery
+contract, explicit missing-result semantics, current measurements and gaps.
+This does not automatically restart user code or reconstruct an interrupted
+Step from unpublished private files.
+
 Current text/PNG partial-result checks for real cancellation and cooperative
 SIGTERM use an isolated Docker stack, without changing the normal local service:
 
