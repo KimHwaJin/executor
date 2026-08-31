@@ -3,6 +3,9 @@
 이 폴더만으로 JupyterLab, basic·ml 커널, Executor 연동 확장이 포함된 이미지를 빌드한다.
 원본 저장소나 테스트 하네스는 필요 없다.
 
+**배포 전 Dockerfile 상단의 `JUPYTER_ROOT_DIR`, `JUPYTER_TOKEN`과
+아래 4번 배포 설정을 확인한다. 토큰을 주입하지 않으면 서버는 시작하지 않는다.**
+
 ## 1. 파일 구성과 수정할 곳
 
 | 파일 | 역할 | 수정이 필요한 경우 |
@@ -70,7 +73,16 @@ docker push harbor.example.com/team/executor-jupyter:delivery
 
 ## 4. 배포할 때 지정할 값
 
-루트와 토큰 때문에 소스를 수정할 필요는 없다. 배포 환경변수로 주입한다.
+Dockerfile 상단에 두 설정의 이미지 기본값을 모아 두었다.
+
+```dockerfile
+ENV JUPYTER_ROOT_DIR=/workspace/pv \
+    JUPYTER_TOKEN=""
+```
+
+루트는 기본 경로이며, 토큰의 빈 값은 **배포 시 반드시 입력해야 한다는 표시**다.
+인증 없이 실행한다는 뜻이 아니다. 실제 토큰을 Dockerfile에 적어 빌드하지 않는다.
+루트와 토큰은 이미지 재빌드 없이 배포 환경변수로 지정할 수 있다.
 
 | 항목 | 설정 |
 |---|---|
@@ -81,6 +93,31 @@ docker push harbor.example.com/team/executor-jupyter:delivery
 | 실행 사용자 | UID/GID `1000:1000`. PVC에 디렉토리·파일 생성 및 수정 권한 필요 |
 | 시작 명령 | 이미지 ENTRYPOINT 그대로 사용 |
 | 서버 구성 | 서버별 replicas `1`, Executor가 접근할 수 있는 고유 Service 주소 |
+
+Kubernetes에서는 같은 namespace에 `jupyter-config` ConfigMap과
+`jupyter-secret` Secret을 만들고 Deployment의 컨테이너에 아래처럼 연결한다.
+각 리소스에는 아래 `key`와 동일한 이름으로 값을 등록한다.
+리소스를 만들기만 하거나 파일로 마운트하는 것으로는 환경변수가 주입되지 않는다.
+
+```yaml
+# Deployment의 spec.template.spec.containers[] 항목 아래
+env:
+  - name: JUPYTER_ROOT_DIR
+    valueFrom:
+      configMapKeyRef:
+        name: jupyter-config
+        key: JUPYTER_ROOT_DIR
+  - name: JUPYTER_TOKEN
+    valueFrom:
+      secretKeyRef:
+        name: jupyter-secret
+        key: JUPYTER_TOKEN
+```
+
+이렇게 주입한 값이 Dockerfile 기본값보다 우선한다. 루트를 변경하면
+`volumeMounts.mountPath`도 동일하게 지정하고 쓰기 권한을 확인한다.
+환경변수만 변경한다고 PVC 마운트 위치가 자동으로 바뀌지는 않는다.
+ConfigMap·Secret 값 변경 후에는 Pod를 재생성해야 새 환경변수가 적용된다.
 
 여러 Jupyter 서버는 동일한 공유 스토리지의 동일한 작업공간을 바라보도록 배포한다.
 이 스토리지는 Agent/Executor 공유 스토리지와 별개다. 서로 다른 서버의 커널 세션이

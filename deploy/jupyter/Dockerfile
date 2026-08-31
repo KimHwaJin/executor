@@ -1,12 +1,18 @@
 FROM python:3.12-slim-bookworm
 
+# Deployment settings: override these with container environment variables.
+# ROOT_DIR must match the shared PVC mount path and be writable by UID 1000.
+# TOKEN is intentionally empty: inject via Secret; never bake a real token.
+# An empty token prevents startup. See README.md section 4 before deployment.
+ENV JUPYTER_ROOT_DIR=/workspace/pv \
+    JUPYTER_TOKEN=""
+
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PATH="/opt/venvs/jupyter/bin:${PATH}" \
     HOME=/home/jovyan \
     JUPYTER_CONFIG_DIR=/home/jovyan/.jupyter \
-    JUPYTER_PATH=/opt/venvs/jupyter/share/jupyter \
-    JUPYTER_ROOT_DIR=/workspace/pv
+    JUPYTER_PATH=/opt/venvs/jupyter/share/jupyter
 
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends \

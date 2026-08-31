@@ -9,8 +9,15 @@ EXTENSION_ROOT = Path("extension/src/executor_resource_extension")
 def test_standalone_dockerfile_uses_only_local_copy_sources() -> None:
     dockerfile = (PACKAGE / "Dockerfile").read_text()
     assert "test_harness/" not in dockerfile
-    assert dockerfile == (HARNESS / "Dockerfile").read_text().replace(
-        "test_harness/jupyter/", ""
+    harness_dockerfile = (
+        (HARNESS / "Dockerfile")
+        .read_text()
+        .replace("test_harness/jupyter/", "")
+    )
+    # Delivery-specific defaults are documented above the shared build steps.
+    assert (
+        dockerfile.partition("RUN apt-get update")[2]
+        == (harness_dockerfile.partition("RUN apt-get update")[2])
     )
     for line in dockerfile.splitlines():
         if not line.startswith("COPY "):
@@ -22,6 +29,17 @@ def test_standalone_dockerfile_uses_only_local_copy_sources() -> None:
             assert not Path(source).is_absolute()
             assert ".." not in Path(source).parts
             assert (PACKAGE / source).exists()
+
+
+def test_deployment_defaults_are_visible_and_token_is_empty() -> None:
+    dockerfile = (PACKAGE / "Dockerfile").read_text()
+    preamble = dockerfile.partition("RUN apt-get update")[0]
+    assert (
+        'ENV JUPYTER_ROOT_DIR=/workspace/pv \\\n    JUPYTER_TOKEN=""'
+        in preamble
+    )
+    assert dockerfile.count("JUPYTER_ROOT_DIR=") == 1
+    assert dockerfile.count("JUPYTER_TOKEN=") == 1
 
 
 def test_delivery_extension_matches_executor_runtime_contract() -> None:
