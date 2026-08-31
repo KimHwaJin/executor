@@ -1,6 +1,6 @@
 """Public Jupyter implementation of the RuntimeDriver contract."""
 
-from collections.abc import AsyncIterator
+from contextlib import AbstractAsyncContextManager
 from typing import Any
 from uuid import UUID
 
@@ -9,6 +9,7 @@ import httpx
 from executor_service.domain.runtime import (
     RuntimeAbortResult,
     RuntimeExecutionResult,
+    RuntimeFileContent,
     RuntimeFileMetadata,
     RuntimeNotebookPreparationResult,
     RuntimeNotebookSourceCell,
@@ -147,11 +148,10 @@ class JupyterRuntimeDriver:
     async def write_text(self, path: str, content: str) -> None:
         await self._storage.write_text(path, content)
 
-    async def stream_file(
-        self, path: str, start: int, end: int
-    ) -> AsyncIterator[bytes]:
-        async for chunk in self._storage.stream_file(path, start, end):
-            yield chunk
+    def open_file(
+        self, path: str, range_header: str | None
+    ) -> AbstractAsyncContextManager[RuntimeFileContent]:
+        return self._storage.open_file(path, range_header)
 
 
 _as_output_record = as_output_record

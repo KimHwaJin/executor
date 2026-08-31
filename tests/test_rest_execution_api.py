@@ -1,5 +1,6 @@
 import hashlib
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from copy import deepcopy
 from datetime import timedelta
 from pathlib import Path
@@ -11,7 +12,6 @@ import pytest_asyncio
 from sqlalchemy import update
 
 from executor_service.application.artifact_content import (
-    ArtifactByteRange,
     ArtifactContent,
 )
 from executor_service.config import Settings
@@ -29,6 +29,7 @@ from executor_service.domain.enums import (
 from executor_service.domain.errors import ArtifactRangeNotSatisfiableError
 from executor_service.domain.models import utc_now
 from executor_service.domain.runtime import (
+    RuntimeByteRange,
     RuntimeFileMetadata,
     RuntimeStorageAccess,
 )
@@ -186,20 +187,21 @@ async def test_artifact_content_endpoint_streams_ranges_with_metadata(
     artifact_id = uuid4()
 
     class _ContentService:
+        @asynccontextmanager
         async def open(
             self, requested_id: UUID, range_header: str | None
-        ) -> ArtifactContent:
+        ) -> AsyncIterator[ArtifactContent]:
             assert requested_id == artifact_id
             assert range_header == "bytes=2-5"
 
             async def body() -> AsyncIterator[bytes]:
                 yield b"2345"
 
-            return ArtifactContent(
+            yield ArtifactContent(
                 name="plot image.png",
                 media_type="image/png",
                 checksum_sha256="b" * 64,
-                byte_range=ArtifactByteRange(
+                byte_range=RuntimeByteRange(
                     start=2,
                     end=5,
                     size=10,
@@ -230,10 +232,12 @@ async def test_artifact_content_endpoint_returns_range_contract(
     client, container = rest_client
 
     class _RejectingContentService:
+        @asynccontextmanager
         async def open(
             self, _artifact_id: UUID, _range_header: str | None
-        ) -> ArtifactContent:
+        ) -> AsyncIterator[ArtifactContent]:
             raise ArtifactRangeNotSatisfiableError("invalid range", 10)
+            yield  # pragma: no cover
 
     cast(Any, container).artifact_content = _RejectingContentService()
     response = await client.get(

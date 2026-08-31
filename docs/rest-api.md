@@ -164,6 +164,24 @@ registered PV Artifact without buffering the complete body and supports one `Ran
 request. S3 content has a stable unsupported response until an S3 adapter or redirect policy is
 configured. Raw Artifact byte download is intentionally REST-only; MCP returns metadata.
 
+Omitting `Range` returns the **current complete file** (`200`), not the byte count captured when
+the Artifact was registered. A valid single range returns `206`; an unsatisfiable/unsupported
+range returns `416` with `Content-Range: bytes */<current-size>`. Empty files return an empty `200`
+without Range. Length, range, SHA-256 and ETag come from one opened Runtime file, not DB metadata.
+Artifact list/detail metadata remains the registration observation; downloading does not mutate
+historical evidence, audit fields, or Execution events. No DB migration is required.
+
+The Runtime hashes that descriptor with bounded reads before sending headers, then streams the
+requested bytes from the same descriptor. This preserves a full-file SHA-256/strong ETag but adds
+one full-file read before **each** request (including small Range requests); no entire-file RAM
+buffer or download copy is created. Atomic notebook replacement preserves an existing reader on
+POSIX. Arbitrary in-place writes by users/tools are not snapshot-isolated: detected changes fail
+setup or abort an incomplete stream. Finish saving before downloading such files. Multiple Range
+requests open independently; compare ETags and discard/restart parts if they differ.
+
+For BFF proxy requirements, error handling and examples, see
+[`dev_docs/get-artifact-content.md`](../dev_docs/get-artifact-content.md).
+
 Notebook reads are audit and convenience APIs, not the authoritative Agent result channel.
 `view=SUMMARY` is the default and returns source previews and output summaries without raw output
 bodies. `view=FULL` returns complete source and every notebook output for each cell in the requested
