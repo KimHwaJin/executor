@@ -2,7 +2,7 @@
 
 ## Status and scope
 
-**Phases 1–4 delivered and tested; overall hardening is still open.**
+**Phases 1–5 delivered and tested; overall hardening is still open.**
 
 Phase 2: [Runtime Output Completeness](runtime-output-completeness.md) fixes the
 observed native Jupyter IOPub rate-suppression completeness mismatch. This document's
@@ -13,6 +13,9 @@ adds bounded DB history and a cursor REST API through additive Alembic `0002`.
 Existing result/event shapes stay unchanged. Phase 4 implements
 [required-result completion](required-result-completion.md); remaining lifecycle
 paths and MCP exposure remain follow-up work.
+
+Phase 5 adds [background cleanup/probe diagnostics](background-runtime-diagnostics.md)
+with stale-observation checks and bounded duplicate suppression. No new migration.
 
 This phase repairs lost operational evidence without changing REST/MCP request or response
 schemas, Redis event schemas, database columns, or Alembic revision `0001`.

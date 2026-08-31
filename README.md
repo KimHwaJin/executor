@@ -277,6 +277,9 @@ failures when required post-code delivery fails. Neither upgrade deletes data.
 Databases built from that baseline can run `alembic upgrade head` directly;
 current head is `0003`. See [required-result completion](docs/required-result-completion.md)
 for Step versus Operation/Execution success semantics.
+Background cleanup/probe failures use the existing diagnostics API; see
+[Background Runtime Diagnostics](docs/background-runtime-diagnostics.md) for
+stale-observation protection and five-minute duplicate suppression.
 Databases from older, discarded development baselines still require separate
 recreation after backup, even when their revision string happens to be `0001`. See
 [Database Operations](docs/database-operations.md).
