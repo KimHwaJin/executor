@@ -1,8 +1,12 @@
 """Expired Execution lease fencing and recovery."""
 
+import logging
+from dataclasses import asdict
+
 from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from executor_service.domain.diagnostics import DiagnosticCategory
 from executor_service.domain.enums import (
     AttemptStatus,
     ExecutionStatus,
@@ -15,16 +19,19 @@ from executor_service.domain.enums import (
     StepStatus,
 )
 from executor_service.domain.models import utc_now
+from executor_service.domain.runtime import NotebookProjectionInterruptedError
 from executor_service.infrastructure.background_diagnostics import (
     RuntimeObservation,
 )
 from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
+    ExecutionDiagnosticORM,
     ExecutionOperationORM,
     ExecutionORM,
     ExecutionStepAttemptORM,
     ExecutionStepORM,
 )
+from executor_service.infrastructure.diagnostic_mapping import diagnostic_for
 from executor_service.infrastructure.execution_worker.event_writer import (
     add_execution_completed_event,
     add_operation_completed_event,
@@ -36,6 +43,11 @@ from executor_service.infrastructure.execution_worker.session_recovery import (
 from executor_service.infrastructure.execution_worker.types import (
     ExpiredLeaseRecovery,
 )
+from executor_service.infrastructure.runtime_diagnostics import (
+    log_runtime_failure,
+)
+
+logger = logging.getLogger(__name__)
 
 
 class LeaseRecoveryProcessor:
@@ -57,6 +69,7 @@ class LeaseRecoveryProcessor:
     async def fence_expired_leases(self) -> ExpiredLeaseRecovery:
         now = utc_now()
         cleanup_targets: list[RuntimeObservation] = []
+        stale_notebooks: list[RuntimeObservation] = []
         recovered_count = 0
         async with self._session_factory() as session, session.begin():
             expired = list(
@@ -142,6 +155,46 @@ class LeaseRecoveryProcessor:
                     else RuntimeSessionCleanupStatus.NOT_REQUIRED
                 )
                 execution.version += 1
+                # A dead/frozen Worker cannot run its interruption handler.
+                # A previous successful projection says nothing about the
+                # latest Step or an interrupted projection. Invalidate it in
+                # the same fenced transaction as the failed state/events.
+                # Never scan private partial files or rewrite the notebook.
+                if (
+                    execution.notebook_path is not None
+                    and execution.notebook_projection_status != "FAILED"
+                ):
+                    error = NotebookProjectionInterruptedError(
+                        "Worker lease expiry"
+                    )
+                    execution.notebook_projection_status = "FAILED"
+                    execution.notebook_projection_error = str(error)
+                    execution.notebook_projected_at = None
+                    session.add(
+                        ExecutionDiagnosticORM(
+                            execution_id=execution.id,
+                            attempt_id=attempt.id if attempt else None,
+                            operation_id=execution.active_operation_id,
+                            fencing_token=execution.fencing_token,
+                            detail=asdict(
+                                diagnostic_for(
+                                    error,
+                                    phase="NOTEBOOK_LEASE_EXPIRED",
+                                    category=DiagnosticCategory.NOTEBOOK,
+                                )
+                            ),
+                            occurred_at=now,
+                            created_at=now,
+                            updated_at=now,
+                            created_by_type=execution.updated_by_type,
+                            created_by=execution.updated_by,
+                            updated_by_type=execution.updated_by_type,
+                            updated_by=execution.updated_by,
+                        )
+                    )
+                    stale_notebooks.append(
+                        RuntimeObservation.capture(execution)
+                    )
                 await session.execute(
                     update(ExecutionAttemptORM)
                     .where(
@@ -241,6 +294,17 @@ class LeaseRecoveryProcessor:
                     cleanup_targets.append(
                         RuntimeObservation.capture(execution)
                     )
+        for observation in stale_notebooks:
+            log_runtime_failure(
+                logger,
+                NotebookProjectionInterruptedError("Worker lease expiry"),
+                phase="NOTEBOOK_LEASE_EXPIRED",
+                execution_id=observation.execution_id,
+                fencing_token=observation.fencing_token,
+                operation_id=observation.operation_id,
+                target_id=observation.target_id,
+                runtime_session_id=observation.session_id,
+            )
         return ExpiredLeaseRecovery(
             execution_count=recovered_count,
             cleanup_targets=tuple(cleanup_targets),

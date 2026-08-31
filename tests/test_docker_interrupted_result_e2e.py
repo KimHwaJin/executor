@@ -41,6 +41,36 @@ async def test_stop_owner_rejects_unmanaged_service() -> None:
         await HARNESS["stop_owner"](None, "executor")
 
 
+@pytest.mark.parametrize(
+    "service,action",
+    [
+        ("executor", "kill"),
+        ("postgres", "pause"),
+        ("executor-primary", "unknown"),
+    ],
+)
+async def test_hard_loss_rejects_unmanaged_targets(
+    service: str, action: str
+) -> None:
+    with pytest.raises(ValueError, match="unmanaged"):
+        await HARNESS["interrupt_owner"](None, service, action)
+
+
+@pytest.mark.parametrize("action", ["kill", "pause"])
+async def test_hard_loss_uses_only_owned_compose_service(action: str) -> None:
+    calls = []
+
+    class Compose:
+        async def kill(self, service: str) -> None:
+            calls.append(("kill", service))
+
+        async def run(self, *arguments: str) -> None:
+            calls.append(arguments)
+
+    await HARNESS["interrupt_owner"](Compose(), "executor-secondary", action)
+    assert calls == [(action, "executor-secondary")]
+
+
 async def test_cleanup_errors_are_not_silently_ignored() -> None:
     class BrokenCompose(HARNESS["InterruptionCompose"]):
         async def run(self, *arguments: str, **kwargs: object) -> str:

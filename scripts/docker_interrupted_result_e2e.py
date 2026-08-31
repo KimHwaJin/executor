@@ -40,6 +40,26 @@ request = urllib.request.Request(
 with urllib.request.urlopen(request, timeout=5) as response:
     print(json.dumps(json.load(response)))
 """
+NOTEBOOK_READ_PROBE = """
+import json, os, stat, sys, tempfile
+from pathlib import Path
+import nbformat
+from nbconvert import HTMLExporter
+root = Path(os.environ['JUPYTER_ROOT_DIR']).resolve()
+path = (root / sys.argv[1]).resolve()
+assert path.is_relative_to(root)
+mode = stat.S_IMODE(path.stat().st_mode)
+assert mode == 0o644, oct(mode)
+assert os.getuid() == 65534
+with tempfile.TemporaryDirectory() as home:
+    os.environ['HOME'] = home
+    notebook = nbformat.read(path, as_version=4)
+    nbformat.validate(notebook)
+    html, _ = HTMLExporter().from_notebook_node(notebook)
+    assert 'completed-before-interrupt' in html
+print(json.dumps({'mode': oct(mode), 'reader_uid': os.getuid(),
+                  'cell_count': len(notebook.cells), 'rendered': True}))
+"""
 
 
 class InterruptionCompose(Compose):
@@ -317,7 +337,12 @@ async def run_case(
         assert projection["projected_at"] is None
         diagnostics = await request(api, "GET", f"{path}/diagnostics")
         assert any(
-            item["diagnostic"]["phase"] == "NOTEBOOK_INTERRUPTED"
+            item["diagnostic"]["phase"]
+            == (
+                "NOTEBOOK_LEASE_EXPIRED"
+                if action in {"kill", "pause"}
+                else "NOTEBOOK_INTERRUPTED"
+            )
             for item in diagnostics["items"]
         )
         notebook = await request(api, "GET", f"{path}/notebook")
@@ -326,6 +351,20 @@ async def run_case(
         # Partial output is authoritative in shared results, not yet projected
         # into this notebook. The API must report that explicitly above.
         assert notebook["cells"][1]["output_summary"]["output_count"] == 0
+        shared_read = json.loads(
+            await compose.run(
+                "exec",
+                "-T",
+                "--user",
+                "65534:65534",
+                "jupyter",
+                "python",
+                "-B",
+                "-c",
+                NOTEBOOK_READ_PROBE,
+                detail["workspace"]["notebook_path"],
+            )
+        )
         assert await kernels(compose) == [], "Runtime kernel leaked"
         evidence.update(
             {
@@ -344,6 +383,7 @@ async def run_case(
                 "snapshot": snapshot,
                 "diagnostics": diagnostics,
                 "notebook": notebook,
+                "notebook_shared_read": shared_read,
                 "remaining_kernels": 0,
             }
         )
