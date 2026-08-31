@@ -886,6 +886,11 @@ async def test_multi_operation_create_and_finalize_rest_api(
             .where(ExecutionORM.id == execution_id)
             .values(status=ExecutionStatus.WAITING_FOR_OPERATION, version=3)
         )
+        await session.execute(
+            update(ExecutionStepORM)
+            .where(ExecutionStepORM.execution_id == execution_id)
+            .values(status=StepStatus.SUCCEEDED)
+        )
 
     finished = await client.post(
         f"/api/v1/executions/{execution_id}/finalize",

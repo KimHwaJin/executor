@@ -120,7 +120,7 @@ class FailingRuntimeStorageDriver(InMemoryRuntimeStorage):
         ),
         (
             "write_notebook",
-            ExecutionStatus.SUCCEEDED,
+            ExecutionStatus.FAILED,
             StepStatus.SUCCEEDED,
             RuntimeSessionCleanupStatus.SUCCEEDED,
             False,
@@ -202,9 +202,20 @@ async def test_runtime_storage_failure_finalizes_consistent_state_and_events(
     assert finished.status == expected_execution_status
     assert finished.runtime_session_cleanup_status == expected_cleanup
     if expected_execution_status == ExecutionStatus.FAILED:
-        assert finished.failure_type == FailureType.RUNTIME_UNAVAILABLE
-        assert finished.retry_strategy == RetryStrategy.FROM_START
-        assert finished.retry_from_sequence == 0
+        completion_failure = failure_point != "prepare_workspace"
+        assert finished.failure_type == (
+            FailureType.COMPLETION_FAILED
+            if completion_failure
+            else FailureType.RUNTIME_UNAVAILABLE
+        )
+        assert finished.retry_strategy == (
+            RetryStrategy.NOT_RETRYABLE
+            if completion_failure
+            else RetryStrategy.FROM_START
+        )
+        assert finished.retry_from_sequence == (
+            None if completion_failure else 0
+        )
     else:
         assert finished.failure_type is None
         assert finished.retry_strategy == RetryStrategy.NOT_RETRYABLE
@@ -241,14 +252,12 @@ async def test_runtime_storage_failure_finalizes_consistent_state_and_events(
     assert step.status == expected_step_status
     if expected_execution_status == ExecutionStatus.FAILED:
         assert attempt.status == AttemptStatus.FAILED
-        assert attempt.failure_type == FailureType.RUNTIME_UNAVAILABLE
-        assert attempt.retry_strategy == RetryStrategy.FROM_START
+        assert attempt.failure_type == finished.failure_type
+        assert attempt.retry_strategy == finished.retry_strategy
         assert operation.status == OperationStatus.FAILED
         assert "execution.operation_completed" in event_types
         assert "execution.completed" in event_types
-    else:
-        assert attempt.status == AttemptStatus.SUCCEEDED
-        assert operation.status == OperationStatus.SUCCEEDED
+    if failure_point == "write_notebook":
         assert execution_row.notebook_projection_status == "FAILED"
         assert execution_row.notebook_projection_attempt_count == 3
         assert execution_row.notebook_projection_error is not None

@@ -290,6 +290,11 @@ async def test_multi_continue_and_finish_are_versioned_and_idempotent(
             .where(ExecutionORM.id == execution.id)
             .values(status=ExecutionStatus.WAITING_FOR_OPERATION, version=4)
         )
+        await session.execute(
+            update(ExecutionStepORM)
+            .where(ExecutionStepORM.execution_id == execution.id)
+            .values(status=StepStatus.SUCCEEDED)
+        )
 
     finish = FinalizeExecutionCommand(
         execution_id=execution.id,

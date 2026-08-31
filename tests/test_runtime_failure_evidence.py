@@ -267,6 +267,8 @@ async def test_failures_preserve_state_reason_partial_refs_and_operator_logs(
         if fault == "timeout"
         else FailureType.TOOL_ERROR
         if fault == "tool"
+        else FailureType.COMPLETION_FAILED
+        if storage_fault == "read_step_projection"
         else FailureType.INTERNAL_ERROR
     )
     assert execution.failure_type == (None if waiting else expected_failure)
@@ -276,7 +278,11 @@ async def test_failures_preserve_state_reason_partial_refs_and_operator_logs(
             "disconnect": "ConnectionResetError",
             "timeout": "Step timeout",
             "tool": "primary tool failure",
-            "success": "errno=13",
+            "success": (
+                "NOTEBOOK_BUILD"
+                if storage_fault == "read_step_projection"
+                else "errno=13"
+            ),
         }[fault]
         assert expected_message in execution.error_message
     if cleanup_failure:

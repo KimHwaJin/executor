@@ -451,6 +451,24 @@ Operation이 `SUCCEEDED`, `FAILED` 또는 `CANCELLED`로 종료될 때 발행한
 파일을 만들지 않고 실제 수행된 Step의 최종 결과 참조를 `step_results`에 포함한다.
 Operation당 최대 Step 수는 Executor 설정으로 제한한다.
 
+성공 범위는 구분한다. `execution.step_completed`의 `SUCCEEDED`는 코드와 공유
+출력 저장의 성공이며, 노트북·아티팩트 전달까지의 성공을 의미하지 않는다.
+Operation 성공은 소속 Step 결과, 노트북 저장, 실제 발견된 아티팩트 등록까지
+확인한 뒤 발행한다. 최종 Execution 성공은 노트북 Artifact 등록과 런타임 해제도
+완료되어야 한다. 이 후처리가 실패하면 성공한 Step/result_ref는 그대로 보존한다.
+
+- Operation 후처리 실패: `error.code=OPERATION_COMPLETION_FAILED`, `retryable=false`.
+- 최종 후처리 실패: `execution.completed`의 `status=FAILED`,
+  `error.code=EXECUTION_COMPLETION_FAILED`, `retryable=false`.
+- MULTI에서 이미 성공 통지한 Operation은 이후 finalize 실패 때문에 소급 변경하지
+  않는다. Execution의 terminal 이벤트가 전체 종료 결과다.
+- 마지막 Operation이 실패했으면 finalize 요청은 409이며, 보정 Operation을 성공시킨
+  뒤 finalize하거나 cancel한다. 이전 실패 Operation 이력은 삭제하지 않는다.
+
+이벤트 envelope와 schema_version `1.0`, 기존 result_ref 형식은 유지한다.
+원인 조사는 diagnostics API로 하고, 이 실패를 코드 retry로 복구하지 않는다.
+자동 노트북 재생성/후처리 복구 API는 아직 제공하지 않는다.
+
 MULTI 성공 예시:
 
 ```json

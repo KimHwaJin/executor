@@ -13,6 +13,18 @@ class RuntimeDriverError(RuntimeError):
     """An execution runtime could not be reached or used."""
 
 
+class ExecutionCompletionError(RuntimeError):
+    """Required post-code delivery failed; replaying code is not a repair."""
+
+    def __init__(self, phase: str) -> None:
+        self.phase = phase
+        super().__init__(
+            f"Required execution completion failed at {phase}; "
+            "successful Step results are preserved. Code retry is disabled. "
+            "Inspect execution diagnostics for the underlying cause."
+        )
+
+
 class RuntimeExecutionError(RuntimeDriverError):
     def __init__(self, message: str, outputs: list[dict[str, Any]]) -> None:
         super().__init__(message)

@@ -267,6 +267,18 @@ class Execution:
             raise ExecutionVersionConflictError(
                 f"Execution version is {self.version}, expected {expected_version}."
             )
+        active_steps = [
+            step
+            for step in self.steps
+            if step.operation_id == self.active_operation_id
+        ]
+        if not active_steps or any(
+            step.status != StepStatus.SUCCEEDED for step in active_steps
+        ):
+            raise InvalidStateTransitionError(
+                "Finalization requires a successful last Operation; "
+                "append a corrective Operation or cancel the Execution."
+            )
         self.status = ExecutionStatus.FINALIZING
         self.finalization_requested = True
         self.operation_wait_expires_at = None

@@ -272,8 +272,11 @@ uv run alembic check
 ```
 
 Revision `0001` is the complete 2026-08-31 schema baseline. Revision `0002` adds
-execution diagnostic history without deleting existing data. Databases built from
-that baseline can run `alembic upgrade head` directly; current head is `0002`.
+execution diagnostic history; `0003` permits non-retryable `COMPLETION_FAILED`
+failures when required post-code delivery fails. Neither upgrade deletes data.
+Databases built from that baseline can run `alembic upgrade head` directly;
+current head is `0003`. See [required-result completion](docs/required-result-completion.md)
+for Step versus Operation/Execution success semantics.
 Databases from older, discarded development baselines still require separate
 recreation after backup, even when their revision string happens to be `0001`. See
 [Database Operations](docs/database-operations.md).

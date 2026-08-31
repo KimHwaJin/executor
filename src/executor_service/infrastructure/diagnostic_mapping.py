@@ -7,6 +7,7 @@ from executor_service.domain.diagnostics import (
     RuntimeDiagnostic,
 )
 from executor_service.domain.runtime import (
+    ExecutionCompletionError,
     RuntimeDriverError,
     RuntimeExecutionError,
     RuntimeExecutionTimeoutError,
@@ -41,7 +42,11 @@ def diagnostic_for(
         origin = DiagnosticOrigin.RUNTIME
     elif phase in {"NOTEBOOK_BUILD", "ARTIFACT_REGISTER"}:
         origin = DiagnosticOrigin.EXECUTOR
-    if isinstance(error, RuntimeOutputLimitExceededError):
+    if isinstance(error, ExecutionCompletionError):
+        code = "COMPLETION_FAILED"
+        origin = DiagnosticOrigin.EXECUTOR
+        phase = error.phase
+    elif isinstance(error, RuntimeOutputLimitExceededError):
         code = f"OUTPUT_{error.kind}_LIMIT_EXCEEDED"
     elif isinstance(error, RuntimeExecutionTimeoutError):
         code = f"{error.scope.upper()}_TIMEOUT"

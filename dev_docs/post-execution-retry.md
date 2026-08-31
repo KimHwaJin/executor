@@ -18,6 +18,11 @@ POST /api/v1/executions/{execution_id}/retry
 - `FROM_START`는 버려진 Runtime session cleanup이 해결된 뒤 호출할 수 있다.
 - MULTI Tool 실패는 retry 대신 수정한 다음 Operation을 제출하는 방식으로 처리한다.
 
+`failure.type=COMPLETION_FAILED`는 코드 성공 후 노트북/아티팩트 전달 또는 최종
+런타임 정리가 실패한 경우다. `retry.strategy=NOT_RETRYABLE`이며 retry는 409다.
+저장 문제를 고치기 위해 성공한 코드를 재실행하지 않는다. 기존 result_ref로 결과를
+읽고 diagnostics로 원인을 확인한다. 코드 실행 없는 후처리 복구 API는 아직 없다.
+
 ## Request Body
 
 | 필드 | 필수 | 의미 |
@@ -55,4 +60,3 @@ POST /api/v1/executions/{execution_id}/retry
 
 응답 `Location`은 Execution 상태조회 API를 가리킨다. 이후 Redis에서 retry 및 terminal
 이벤트를 기다리고 timeout이면 상태조회 API로 복구한다.
-

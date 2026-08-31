@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from traceback import walk_tb
 
 from executor_service.domain.runtime import (
+    ExecutionCompletionError,
     RuntimeDriverError,
     RuntimeExecutionError,
     RuntimeExecutionTimeoutError,
@@ -40,7 +41,10 @@ def redact_message(message: str) -> str:
 
 def failure_message(error: BaseException) -> str:
     """Safe operational message; full user-code errors live in result files."""
-    if isinstance(error, (RuntimeDriverError, ResultStorageError)):
+    if isinstance(
+        error,
+        (RuntimeDriverError, ResultStorageError, ExecutionCompletionError),
+    ):
         return redact_message(str(error))
     if isinstance(error, OSError) and error.errno is not None:
         # filename/filename2 may contain credentials or user data.
