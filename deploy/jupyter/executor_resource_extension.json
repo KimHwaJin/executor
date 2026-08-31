@@ -1,0 +1,7 @@
+{
+  "ServerApp": {
+    "jpserver_extensions": {
+      "executor_resource_extension": true
+    }
+  }
+}

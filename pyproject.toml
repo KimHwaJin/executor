@@ -77,5 +77,6 @@ extra-paths = ["test_harness/jupyter/extension/src"]
 exclude = [
     "shared_dir",
     "test_harness/jupyter/jupyter_server_config.py",
+    "deploy/jupyter/jupyter_server_config.py",
     "test_harness/agent",
 ]
