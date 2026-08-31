@@ -1,0 +1,18 @@
+# Overlay for the isolated interruption E2E; never the normal local stack.
+services:
+  migrate:
+    image: executor-service:interruption-e2e
+  shared-volume-init:
+    image: executor-service:interruption-e2e
+  executor-primary:
+    image: executor-service:interruption-e2e
+    environment:
+      EXECUTION_DRAIN_TIMEOUT_SECONDS: "5"
+    volumes:
+      - ./scripts/interrupted_result_probe.py:/opt/tests/probe.py:ro
+  executor-secondary:
+    image: executor-service:interruption-e2e
+    environment:
+      EXECUTION_DRAIN_TIMEOUT_SECONDS: "5"
+    volumes:
+      - ./scripts/interrupted_result_probe.py:/opt/tests/probe.py:ro
