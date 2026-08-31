@@ -34,6 +34,7 @@ from executor_service.application.maintenance_runs import (
 from executor_service.application.services import ExecutionService
 from executor_service.config import Settings
 from executor_service.container import EXPECTED_SCHEMA_REVISION
+from executor_service.domain.diagnostics import DiagnosticCategory
 from executor_service.domain.enums import (
     ActorType,
     AttemptStatus,
@@ -59,6 +60,7 @@ from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.base import Base
 from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
+    ExecutionDiagnosticORM,
     ExecutionEventORM,
     ExecutionEventSequenceORM,
     ExecutionOperationORM,
@@ -74,6 +76,10 @@ from executor_service.infrastructure.db.repositories import (
 from executor_service.infrastructure.db.session import (
     create_engine,
     create_session_factory,
+)
+from executor_service.infrastructure.diagnostic_store import (
+    DiagnosticRecorder,
+    SQLAlchemyDiagnosticQueryService,
 )
 from executor_service.infrastructure.event_retention import (
     EventRetentionManager,
@@ -119,6 +125,79 @@ def _downgrade_baseline(database_url: str) -> None:
     config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
     config.attributes["database_url"] = database_url
     command.downgrade(config, "base")
+
+
+def _downgrade_to_pre_diagnostics(database_url: str) -> None:
+    config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+    config.attributes["database_url"] = database_url
+    command.downgrade(config, "0001")
+
+
+async def test_diagnostics_upgrade_preserves_existing_execution_and_cascades(
+    postgres_engine: AsyncEngine, tmp_path: Path
+) -> None:
+    url = postgres_engine.url.render_as_string(hide_password=False)
+    await asyncio.to_thread(_downgrade_to_pre_diagnostics, url)
+    service = _service(postgres_engine, tmp_path)
+    execution = await service.submit(_command("preserve-before-upgrade"))
+    await asyncio.to_thread(_upgrade_and_check_baseline, url)
+    assert (await service.get(execution.id)).task_id == execution.task_id
+    factory = create_session_factory(postgres_engine)
+    async with factory() as session, session.begin():
+        session.add(_server(capacity=2))
+    workers, clients = _workers(postgres_engine, tmp_path, count=1)
+    try:
+        claim = await workers[0]._claimer.claim(execution.id)
+        assert claim is not None
+        lease = claim[2]
+        recorder = DiagnosticRecorder(factory)
+        assert all(
+            await asyncio.gather(
+                *(
+                    recorder.record(
+                        lease,
+                        PermissionError(13, "private"),
+                        phase="RESULT_APPEND",
+                        category=DiagnosticCategory.OUTPUT,
+                        sequence=0,
+                    )
+                    for _ in range(4)
+                )
+            )
+        )
+        query = SQLAlchemyDiagnosticQueryService(factory)
+        page = await query.list(execution.id, limit=2)
+        assert page.next_cursor is not None
+        tail = await query.list(execution.id, cursor=page.next_cursor)
+        assert len(page.items) == len(tail.items) == 2
+        assert len({item.id for item in page.items + tail.items}) == 4
+        async with factory() as session, session.begin():
+            await session.execute(
+                update(ExecutionORM)
+                .where(ExecutionORM.id == execution.id)
+                .values(fencing_token=lease.fencing_token + 1)
+            )
+        assert not await recorder.record(
+            lease,
+            ValueError("stale"),
+            phase="EXECUTION_RUN",
+            category=DiagnosticCategory.EXECUTION,
+        )
+        from sqlalchemy import delete
+
+        async with factory() as session, session.begin():
+            await session.execute(
+                delete(ExecutionORM).where(ExecutionORM.id == execution.id)
+            )
+        async with factory() as session:
+            assert (
+                await session.scalar(
+                    select(func.count()).select_from(ExecutionDiagnosticORM)
+                )
+                == 0
+            )
+    finally:
+        await _close_redis(clients)
 
 
 @pytest_asyncio.fixture
@@ -1154,7 +1233,7 @@ async def test_current_baseline_repeated_upgrade_preserves_events(
             text("SELECT count(*) FROM event_retention_lease")
         )
 
-    assert revision == EXPECTED_SCHEMA_REVISION == "0001"
+    assert revision == EXPECTED_SCHEMA_REVISION == "0002"
     assert maintenance_count == retention_count == 1
     assert migrated_event is not None
     assert migrated_event.execution_id == execution.id
@@ -1195,7 +1274,7 @@ async def test_current_baseline_downgrade_and_recreate(
             text("SELECT singleton_key FROM event_retention_lease")
         )
     assert tables == set(Base.metadata.tables) | {"alembic_version"}
-    assert revision == EXPECTED_SCHEMA_REVISION == "0001"
+    assert revision == EXPECTED_SCHEMA_REVISION == "0002"
     assert admission == "ACTIVE"
     assert retention_key == "events"
 

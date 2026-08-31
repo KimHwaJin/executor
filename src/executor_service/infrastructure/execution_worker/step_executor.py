@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from executor_service.domain.diagnostics import DiagnosticCategory
 from executor_service.domain.enums import StepStatus
 from executor_service.domain.models import (
     ExecutionStep,
@@ -35,6 +36,7 @@ from executor_service.infrastructure.db.models import (
     ExecutionStepAttemptORM,
     ExecutionStepORM,
 )
+from executor_service.infrastructure.diagnostic_store import DiagnosticRecorder
 from executor_service.infrastructure.execution_leases import (
     ExecutionLease,
     require_active_lease,
@@ -73,6 +75,7 @@ class ExecutionStepExecutor:
     ) -> None:
         self._session_factory = session_factory
         self._result_store = result_store
+        self._diagnostics = DiagnosticRecorder(session_factory)
 
     async def ensure_count(
         self, lease: ExecutionLease, cell_count: int
@@ -321,6 +324,7 @@ class ExecutionStepExecutor:
         *,
         result_identity: StepResultIdentity,
         source_reference: ExecutionSourceReference,
+        lease: ExecutionLease,
     ) -> Any:
         async with self._session_factory() as session:
             row = (
@@ -355,7 +359,9 @@ class ExecutionStepExecutor:
                     "Operation", float(row.operation_timeout_seconds)
                 )
             timeouts.append((remaining, "Operation"))
+        observations: list[tuple[BaseException, str, datetime]] = []
         execution_call = self._execute_with_result_store(
+            observations,
             driver,
             runtime_session_id,
             code,
@@ -363,17 +369,21 @@ class ExecutionStepExecutor:
             source_reference,
             seal_on_cancel=not timeouts,
         )
-        if not timeouts:
-            return await execution_call
-        timeout_seconds, scope = min(timeouts)
         try:
+            if not timeouts:
+                return await execution_call
+            timeout_seconds, scope = min(timeouts)
             async with asyncio.timeout(timeout_seconds):
                 return await execution_call
         except TimeoutError as exc:
+            if not timeouts:
+                raise
             failure = RuntimeExecutionTimeoutError(scope, timeout_seconds)
-            self._log_failure(result_identity, failure, "RUNTIME_TIMEOUT")
+            self._log_failure(
+                observations, result_identity, failure, "RUNTIME_TIMEOUT"
+            )
             stored = await self._preserve_failure_result(
-                result_identity, failure
+                observations, result_identity, failure
             )
             if stored is None:
                 raise StoredStepFailure(failure, None) from exc
@@ -381,8 +391,26 @@ class ExecutionStepExecutor:
                 scope, timeout_seconds, stored
             ) from exc
         except asyncio.CancelledError as exc:
-            await self._preserve_failure_result(result_identity, exc)
+            if timeouts:
+                await self._preserve_failure_result(
+                    observations, result_identity, exc
+                )
             raise
+        finally:
+            # Diagnostic I/O is outside the execution deadline. A slow DB must
+            # not transform a code/storage failure into a Step timeout.
+            for error, phase, occurred_at in observations:
+                await self._diagnostics.record(
+                    lease,
+                    error,
+                    phase=phase,
+                    sequence=result_identity.sequence,
+                    occurred_at=occurred_at,
+                    category=DiagnosticCategory.OUTPUT
+                    if phase.startswith("RESULT_")
+                    or isinstance(error, RuntimeOutputLimitExceededError)
+                    else DiagnosticCategory.EXECUTION,
+                )
 
     @staticmethod
     def result_identity(
@@ -421,6 +449,7 @@ class ExecutionStepExecutor:
 
     async def _execute_with_result_store(
         self,
+        observations: list[tuple[BaseException, str, datetime]],
         driver: RuntimeDriver,
         runtime_session_id: str,
         code: str,
@@ -473,16 +502,21 @@ class ExecutionStepExecutor:
                 execution_count=execution_result.execution_count,
             )
         except RuntimeOutputLimitExceededError as exc:
-            self._log_failure(identity, exc, phase)
+            self._log_failure(observations, identity, exc, phase)
             if not streaming:
                 try:
                     for output in exc.outputs:
                         await append_output(output_record(output))
                 except Exception as storage_error:
                     self._log_failure(
-                        identity, storage_error, "RESULT_FAILURE_SAVE"
+                        observations,
+                        identity,
+                        storage_error,
+                        "RESULT_FAILURE_SAVE",
                     )
-            stored = await self._preserve_failure_result(identity, exc)
+            stored = await self._preserve_failure_result(
+                observations, identity, exc
+            )
             if stored is None:
                 raise StoredStepFailure(exc, None) from exc
             raise StoredRuntimeOutputLimitExceededError(
@@ -490,7 +524,7 @@ class ExecutionStepExecutor:
                 stored,
             ) from exc
         except RuntimeExecutionError as exc:
-            self._log_failure(identity, exc, phase)
+            self._log_failure(observations, identity, exc, phase)
             try:
                 if not streaming:
                     for output in exc.outputs:
@@ -502,10 +536,13 @@ class ExecutionStepExecutor:
                 )
             except Exception as storage_error:
                 self._log_failure(
-                    identity, storage_error, "RESULT_FAILURE_SAVE"
+                    observations,
+                    identity,
+                    storage_error,
+                    "RESULT_FAILURE_SAVE",
                 )
                 stored = await self._preserve_failure_result(
-                    identity, storage_error
+                    observations, identity, storage_error
                 )
                 raise StoredStepFailure(exc, stored) from exc
             raise StoredRuntimeExecutionError(
@@ -515,15 +552,20 @@ class ExecutionStepExecutor:
             # With deadlines the outer handler distinguishes timeout from
             # user/Worker cancellation before writing the terminal manifest.
             if seal_on_cancel:
-                await self._preserve_failure_result(identity, exc)
+                await self._preserve_failure_result(
+                    observations, identity, exc
+                )
             raise
         except Exception as exc:
-            self._log_failure(identity, exc, phase)
-            stored = await self._preserve_failure_result(identity, exc)
+            self._log_failure(observations, identity, exc, phase)
+            stored = await self._preserve_failure_result(
+                observations, identity, exc
+            )
             raise StoredStepFailure(exc, stored) from exc
 
     async def _preserve_failure_result(
         self,
+        observations: list[tuple[BaseException, str, datetime]],
         identity: StepResultIdentity,
         error: BaseException,
     ) -> StepResultDescriptor | None:
@@ -541,12 +583,17 @@ class ExecutionStepExecutor:
         except Exception as storage_error:
             # A full/unwritable filesystem cannot save a manifest. Preserve the
             # initiating error and log the secondary failure independently.
-            self._log_failure(identity, storage_error, "RESULT_FAILURE_SAVE")
+            self._log_failure(
+                observations, identity, storage_error, "RESULT_FAILURE_SAVE"
+            )
             return None
 
-    @staticmethod
     def _log_failure(
-        identity: StepResultIdentity, error: BaseException, phase: str
+        self,
+        observations: list[tuple[BaseException, str, datetime]],
+        identity: StepResultIdentity,
+        error: BaseException,
+        phase: str,
     ) -> None:
         log_runtime_failure(
             logger,
@@ -559,6 +606,7 @@ class ExecutionStepExecutor:
             attempt_id=identity.execution_attempt_id,
             fencing_token=identity.fencing_token,
         )
+        observations.append((error, phase, utc_now()))
 
 
 def _assign_step_result(

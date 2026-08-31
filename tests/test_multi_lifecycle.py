@@ -55,6 +55,7 @@ from executor_service.infrastructure.db.models import (
     RuntimeTargetORM,
 )
 from executor_service.infrastructure.db.session import create_session_factory
+from executor_service.infrastructure.execution_leases import ExecutionLease
 from executor_service.infrastructure.execution_worker import ExecutionWorker
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
@@ -370,6 +371,12 @@ async def test_runtime_step_enforces_operation_and_step_timeouts(
                 0,
                 result_identity=result_identity,
                 source_reference=source_reference,
+                lease=ExecutionLease(
+                    execution.id,
+                    result_identity.execution_attempt_id,
+                    "test",
+                    1,
+                ),
             )
         assert operation_error.value.scope == "Operation"
 
@@ -388,6 +395,12 @@ async def test_runtime_step_enforces_operation_and_step_timeouts(
                 0,
                 result_identity=result_identity,
                 source_reference=source_reference,
+                lease=ExecutionLease(
+                    execution.id,
+                    result_identity.execution_attempt_id,
+                    "test",
+                    1,
+                ),
             )
         assert step_error.value.scope == "Step"
     finally:

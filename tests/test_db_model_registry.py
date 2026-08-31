@@ -49,6 +49,7 @@ def test_public_module_registers_complete_model_metadata() -> None:
         "execution_attempts",
         "execution_event_sequences",
         "execution_events",
+        "execution_diagnostics",
         "execution_operations",
         "execution_retries",
         "execution_step_attempts",

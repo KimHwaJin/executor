@@ -208,6 +208,7 @@ class SingleExecutionRunner:
                             result_identity=self._step_executor.result_identity(
                                 steps_by_sequence[sequence], lease
                             ),
+                            lease=lease,
                             source_reference=source_references[sequence],
                         ),
                         execution_id=execution.id,
@@ -352,7 +353,10 @@ class SingleExecutionRunner:
                         self._settings.execution_shutdown_cleanup_seconds
                     ):
                         cleanup_status = await best_effort_session_stop(
-                            driver, runtime_session_id, lease=lease
+                            driver,
+                            runtime_session_id,
+                            lease=lease,
+                            diagnostics=self._finalizer.diagnostics,
                         )
                 except TimeoutError:
                     cleanup_status = RuntimeSessionCleanupStatus.FAILED
@@ -444,6 +448,7 @@ class SingleExecutionRunner:
                 },
             )
         except Exception as exc:
+            await self._finalizer.record_execution_failure(lease, exc)
             log_runtime_failure(
                 logger,
                 exc,
@@ -463,7 +468,10 @@ class SingleExecutionRunner:
             cleanup_status = RuntimeSessionCleanupStatus.NOT_REQUIRED
             if runtime_session_id is not None and not retain_session:
                 cleanup_status = await best_effort_session_stop(
-                    driver, runtime_session_id, lease=lease
+                    driver,
+                    runtime_session_id,
+                    lease=lease,
+                    diagnostics=self._finalizer.diagnostics,
                 )
             await self._finalizer.finalize(
                 lease,

@@ -8,6 +8,7 @@ from executor_service.container import ApplicationContainer
 from executor_service.interfaces.contracts import (
     ExecutionAttemptDetailResponse,
     ExecutionAttemptPageResponse,
+    ExecutionDiagnosticPageResponse,
     ExecutionEventPageResponse,
     ExecutionOperationPageResponse,
     ExecutionOperationResponse,
@@ -31,6 +32,30 @@ def build_history_router(container: ApplicationContainer) -> APIRouter:
     router = execution_router()
     execution_queries = container.execution_queries
     execution_results = container.execution_results
+
+    @router.get(
+        "/executions/{execution_id}/diagnostics",
+        response_model=ExecutionDiagnosticPageResponse,
+        responses=DOMAIN_ERROR_RESPONSES,
+        summary="List failure observations, including secondary delivery errors",
+    )
+    async def list_execution_diagnostics(
+        execution_id: UUID,
+        attempt_id: UUID | None = None,
+        operation_id: UUID | None = None,
+        step_id: UUID | None = None,
+        cursor: Cursor = None,
+        limit: ExecutionLimit = 100,
+    ) -> ExecutionDiagnosticPageResponse:
+        page = await container.diagnostic_queries.list(
+            execution_id,
+            attempt_id=attempt_id,
+            operation_id=operation_id,
+            step_id=step_id,
+            cursor=cursor,
+            limit=limit,
+        )
+        return ExecutionDiagnosticPageResponse.from_page(page)
 
     @router.get(
         "/executions/{execution_id}/steps",

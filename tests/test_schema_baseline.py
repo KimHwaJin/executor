@@ -8,12 +8,16 @@ from alembic.script import ScriptDirectory
 from executor_service.container import EXPECTED_SCHEMA_REVISION
 
 
-def test_current_schema_is_a_single_initial_revision() -> None:
+def test_current_schema_keeps_baseline_and_additive_diagnostics_upgrade() -> (
+    None
+):
     config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
     scripts = ScriptDirectory.from_config(config)
     revisions = list(scripts.walk_revisions())
 
     assert scripts.get_heads() == [EXPECTED_SCHEMA_REVISION]
-    assert len(revisions) == 1
-    assert revisions[0].revision == EXPECTED_SCHEMA_REVISION == "0001"
-    assert revisions[0].down_revision is None
+    assert len(revisions) == 2
+    assert revisions[0].revision == EXPECTED_SCHEMA_REVISION == "0002"
+    assert revisions[0].down_revision == "0001"
+    assert revisions[1].revision == "0001"
+    assert revisions[1].down_revision is None
