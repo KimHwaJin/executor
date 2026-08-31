@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import json
+import os
+import stat
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from executor_resource_extension.storage import (
     RuntimeStorage,
     StoragePathError,
+    _atomic_json_write,
 )
 
 
@@ -36,6 +40,12 @@ class RuntimeStorageTests(unittest.TestCase):
             )
             notebook_path = root / result["notebook_path"]
             notebook = json.loads(notebook_path.read_text(encoding="utf-8"))
+            if os.name == "posix":
+                self.assertEqual(
+                    stat.S_IMODE(notebook_path.stat().st_mode), 0o644
+                )
+                # Reproduce already-generated private notebooks on the PV.
+                notebook_path.chmod(0o600)
 
             self.assertEqual(notebook["cells"][0]["source"], "print('hello')")
             self.assertEqual(notebook["cells"][0]["outputs"], [])
@@ -63,6 +73,10 @@ class RuntimeStorageTests(unittest.TestCase):
             self.assertEqual(
                 persisted["cells"][0]["outputs"][0]["text"], "hello\n"
             )
+            if os.name == "posix":
+                self.assertEqual(
+                    stat.S_IMODE(notebook_path.stat().st_mode), 0o644
+                )
             self.assertFalse(
                 (root / workspace / "notebooks/.ipynb_checkpoints").exists()
             )
@@ -141,6 +155,97 @@ class RuntimeStorageTests(unittest.TestCase):
             )
 
             self.assertEqual(resolved, file_path.resolve())
+
+
+@unittest.skipUnless(
+    os.name == "posix", "POSIX file modes do not model NTFS ACLs"
+)
+class NotebookPermissionTests(unittest.TestCase):
+    def test_sets_read_permissions_before_replace_regardless_of_umask(
+        self,
+    ) -> None:
+        document = {"cells": [], "metadata": {"title": "노트북"}}
+        replace = os.replace
+        for original_mode in (None, 0o600, 0o644, 0o744):
+            with (
+                self.subTest(original_mode=original_mode),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                root = Path(directory)
+                path = root / "execution.ipynb"
+                if original_mode is not None:
+                    path.write_bytes(b"old notebook")
+                    path.chmod(original_mode)
+                unrelated = root / "private-data.csv"
+                unrelated.write_bytes(b"private")
+                unrelated.chmod(0o600)
+                original_directory_mode = stat.S_IMODE(root.stat().st_mode)
+
+                def checked_replace(
+                    source: Path,
+                    target: Path,
+                    mode: int | None = original_mode,
+                ) -> None:
+                    self.assertEqual(
+                        stat.S_IMODE(source.stat().st_mode), 0o644
+                    )
+                    self.assertEqual(json.loads(source.read_bytes()), document)
+                    if mode is None:
+                        self.assertFalse(target.exists())
+                    else:
+                        self.assertEqual(target.read_bytes(), b"old notebook")
+                    replace(source, target)
+
+                old_umask = os.umask(0o077)
+                try:
+                    with patch(
+                        "executor_resource_extension.storage.os.replace",
+                        side_effect=checked_replace,
+                    ) as replaced:
+                        _atomic_json_write(path, document)
+                    replaced.assert_called_once()
+                finally:
+                    os.umask(old_umask)
+                self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o644)
+                self.assertEqual(json.loads(path.read_bytes()), document)
+                self.assertEqual(stat.S_IMODE(unrelated.stat().st_mode), 0o600)
+                self.assertEqual(
+                    stat.S_IMODE(root.stat().st_mode), original_directory_mode
+                )
+                self.assertEqual(list(root.glob(".execution.ipynb.*")), [])
+
+    def test_failed_write_does_not_publish_or_leave_temporary_files(
+        self,
+    ) -> None:
+        for operation in ("fchmod", "fsync", "replace"):
+            for existing in (False, True):
+                with (
+                    self.subTest(operation=operation, existing=existing),
+                    tempfile.TemporaryDirectory() as directory,
+                ):
+                    root = Path(directory)
+                    path = root / "execution.ipynb"
+                    if existing:
+                        path.write_bytes(b"old notebook")
+                        path.chmod(0o600)
+                    with (
+                        patch(
+                            f"executor_resource_extension.storage.os.{operation}",
+                            side_effect=PermissionError(
+                                "injected write failure"
+                            ),
+                        ),
+                        self.assertRaises(PermissionError),
+                    ):
+                        _atomic_json_write(path, {"cells": []})
+                    if existing:
+                        self.assertEqual(path.read_bytes(), b"old notebook")
+                        self.assertEqual(
+                            stat.S_IMODE(path.stat().st_mode), 0o600
+                        )
+                    else:
+                        self.assertFalse(path.exists())
+                    self.assertEqual(list(root.glob(".execution.ipynb.*")), [])
 
 
 if __name__ == "__main__":

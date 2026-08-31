@@ -79,7 +79,8 @@ variables, or credentials.
 
 The authenticated extension prepares workspaces, creates the initial notebook, snapshots
 Runtime-produced artifacts, computes file metadata and SHA-256 on the Jupyter side, and reads
-append-only artifact manifests. Notebook reads and writes use Jupyter's standard Contents API.
+append-only artifact manifests. Notebook reads use Jupyter's standard Contents API;
+Executor-managed notebook writes use the extension's `prepare` and `project` endpoints below.
 File scans and hashing run in a worker thread so they do not block Jupyter's server event loop;
 Executor applies `JUPYTER_STORAGE_TIMEOUT_SECONDS` (default 300) to these potentially slower calls.
 
@@ -97,6 +98,45 @@ Agents never receive the Jupyter token and do not call extension-internal endpoi
 The file-content operation streams only an inclusive byte range below the configured Jupyter root.
 Executor uses it for registered PV Artifact downloads; it rejects absolute paths, traversal, and
 non-files. This route is internal and is not a replacement for the public Artifact API.
+
+### Notebook permissions and nbviewer
+
+On POSIX systems, Executor-managed notebooks are written with mode `0644`: the owner can read
+and write, and other users can read. This lets a separate nbviewer process, including
+UID 65534 (`nobody`), read the notebook on a shared PV. Notebook execution does not require an
+executable file bit. Only grant access to this PV to services allowed to read its notebook code
+and outputs; preferably mount it read-only in nbviewer.
+
+The extension sets `0644` on the temporary file before the atomic replacement, both for initial
+creation and subsequent projection. A previous `0600` notebook becomes `0644` when rewritten.
+If setting permissions or saving fails, the existing notebook is not replaced. This policy does
+not change directory permissions, ownership, other artifacts, or shared result files. All parent
+directories must also allow nbviewer's user to traverse them (`x` permission). On Windows,
+access is still controlled by NTFS ACLs; the POSIX permission operation is skipped.
+
+To deploy this change, rebuild and redeploy the **Jupyter image**, or reinstall the updated
+extension in the actual Jupyter server environment and restart Jupyter. Updating only the
+Executor service image does not update the Jupyter extension.
+
+Existing files are not scanned or changed at startup. For an already-generated `0600` notebook,
+an operator can run the following as its owner inside the Jupyter container, replacing the
+example with the exact absolute path of the affected file:
+
+```bash
+stat -c '%a %u:%g %n' '/actual/jupyter/root/users/u/projects/p/sessions/s/executions/e/notebooks/execution.ipynb'
+chmod 0644 '/actual/jupyter/root/users/u/projects/p/sessions/s/executions/e/notebooks/execution.ipynb'
+stat -c '%a %u:%g %n' '/actual/jupyter/root/users/u/projects/p/sessions/s/executions/e/notebooks/execution.ipynb'
+```
+
+Do not recursively change permissions on the whole PV. A one-time `chmod` alone is insufficient
+if the old extension remains deployed: its next atomic rewrite can recreate the file as `0600`.
+
+Regression tests cover new files, replacement of existing files, restrictive umasks, preservation
+of unrelated permissions, and failures during publication. The opt-in Linux/root test
+`extension/tests/test_notebook_shared_read.py` additionally checks a UID 1000:GID 100 writer
+and a UID 65534:GID 65534 reader, including nbformat validation and nbconvert HTML rendering.
+Run this identity-switching test only in a disposable container; it is skipped by default on
+non-Linux or non-root hosts and is not an image build step.
 
 ## Verification
 
