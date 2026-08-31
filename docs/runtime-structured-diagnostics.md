@@ -8,6 +8,8 @@ SINGLE/MULTI semantics, emit new Redis events, modify result manifests, or chang
 the notebook/artifact mandatory-completion policy. MCP exposure remains deferred.
 
 See [API contract](../dev_docs/execution-diagnostics.md) for all fields.
+This document records Phase 3. The subsequent [Phase 4 completion policy](required-result-completion.md)
+now rejects success on required post-code delivery failures and adds migration `0003`.
 
 ## Architecture and persistence
 

@@ -60,6 +60,14 @@ Redis 처리 세부사항은 LLM이나 LangGraph 업무 노드가 아니라 Agen
 
 ## 3. Agent Subscriber 처리 알고리즘
 
+성공 판단 범위도 구분한다. Step 성공은 코드와 공유 출력 저장의 성공이고,
+Operation 성공은 해당 결과의 노트북 저장/실제 발견 Artifact 등록까지의 성공이다.
+Execution terminal 성공은 최종 노트북 Artifact와 런타임 해제까지 완료된 상태다.
+후처리가 실패하면 `EXECUTION_COMPLETION_FAILED`를 받으며, 성공했던 Step 결과를
+버리거나 코드 retry를 호출하지 않는다. 기존 ref와 diagnostics를 확인한다.
+MULTI의 마지막 Operation이 실패했다면 finalize는 409이므로 보정 Operation을
+성공시킨 뒤 finalize하거나 cancel한다.
+
 Execution의 저장된 `last_event_sequence`를 `last`, 수신한 순번을 `received`라 한다.
 
 ### 정상 순번: `received == last + 1`

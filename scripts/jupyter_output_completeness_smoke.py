@@ -18,6 +18,8 @@ from redis.asyncio import Redis
 from sqlalchemy import select
 
 from executor_service.application.commands import (
+    CreateOperationCommand,
+    FinalizeExecutionCommand,
     StepSpec,
     SubmitExecutionCommand,
 )
@@ -81,7 +83,13 @@ def workload(scenario: str, size_mib: int = 5) -> str:
             "ServerApp.rate_limit_window=3.0 (secs)\n\n"
         )
         return f"import sys\nsys.stderr.write({warning!r})\nsys.stderr.flush()"
-    return "print('complete-output-control')"
+    return (
+        "print('complete-output-control')\n"
+        "import matplotlib.pyplot as plt\n"
+        "plt.figure(figsize=(3, 2))\n"
+        "plt.plot([1, 2, 3], [1, 4, 9])\n"
+        "plt.title('Completion check')\nplt.show()\nplt.close('all')"
+    )
 
 
 async def run_case(
@@ -284,6 +292,75 @@ async def run_case(
         assert sum(
             event.event_type == "execution.completed" for event in events
         ) == (1 if mode == OperationMode.SINGLE else 0)
+        if scenario == "normal":
+            assert any(
+                isinstance(data := output.get("data"), dict)
+                and "image/png" in data
+                for output in outputs
+            )
+        finalized = False
+        if mode == OperationMode.MULTI and scenario != "data_limit":
+            # Exercise an additional Operation and terminal delivery without
+            # replaying earlier code or using the running Executor database.
+            await service.create_operation(
+                CreateOperationCommand(
+                    execution_id=execution.id,
+                    idempotency_key=str(uuid4()),
+                    expected_version=result.version,
+                    steps=(StepSpec(2, "print('multi-completion-control')"),),
+                )
+            )
+            async with asyncio.timeout(90):
+                await worker._runner.run(execution.id)
+            waiting = await service.get(execution.id)
+            assert waiting.status == ExecutionStatus.WAITING_FOR_OPERATION
+            await service.finalize_execution(
+                FinalizeExecutionCommand(
+                    execution_id=execution.id,
+                    idempotency_key=str(uuid4()),
+                    expected_version=waiting.version,
+                )
+            )
+            async with asyncio.timeout(90):
+                await worker._runner.run(execution.id)
+            result = await service.get(execution.id)
+            runtime_session_id = result.runtime_session_id
+            assert result.status == ExecutionStatus.SUCCEEDED
+            assert runtime_session_id is None
+            assert all(
+                item.status == StepStatus.SUCCEEDED for item in result.steps
+            )
+            assert result.notebook_path is not None
+            gateway = JupyterRuntimeDriver(endpoint, token)
+            try:
+                notebook = await gateway.read_notebook(result.notebook_path)
+            finally:
+                await gateway.close()
+            assert len(notebook["cells"]) == 3
+            assert notebook["cells"][0]["outputs"] == outputs
+            async with factory() as session:
+                events = list(
+                    await session.scalars(
+                        select(OutboxEventORM).where(
+                            OutboxEventORM.aggregate_id == execution.id,
+                        )
+                    )
+                )
+            assert (
+                sum(
+                    event.event_type == "execution.operation_completed"
+                    for event in events
+                )
+                == 2
+            )
+            assert (
+                sum(
+                    event.event_type == "execution.completed"
+                    for event in events
+                )
+                == 1
+            )
+            finalized = True
         return {
             "mode": mode.value,
             "scenario": scenario,
@@ -293,6 +370,7 @@ async def run_case(
             "step_status": step.status.value,
             "operation_status": operation.status.value,
             "complete": ref.complete,
+            "multi_finalized": finalized,
             "failure": result.failure_type,
             "reason": step.error_message,
             "saved_output_bytes": ref.total_size_bytes,

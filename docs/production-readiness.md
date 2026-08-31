@@ -685,7 +685,7 @@ failure. It must retain Runtime release evidence and inject all service credenti
 ## PR-008: Trustworthy Runtime diagnostics and completion reporting
 
 - Priority: P0 for known output loss reported as complete; P1 for diagnostic consistency
-- Status: IMPLEMENTING — Phases 1–3 delivered; completion policy and remaining paths open
+- Status: IMPLEMENTING — Phases 1–4 delivered; broader failure/lifecycle coverage open
 - Area: Runtime adapters, Worker errors, shared results, projection, cleanup, operator logs
 - Public API impact: Phase 3 adds diagnostic history REST reads; existing API/event/manifest fields unchanged
 - Details: [Runtime Diagnostics Hardening](runtime-diagnostics-hardening.md)
@@ -725,6 +725,19 @@ failure. It must retain Runtime release evidence and inject all service credenti
 - Verified 347 regression tests, 29 PostgreSQL/Redis integration tests and 12
   live basic/ML Jupyter cases; see [structured diagnostics](runtime-structured-diagnostics.md).
 
+### Implemented Phase 4
+
+- Require shared Step result references, successful notebook projection and discovered
+  Artifact registration before Operation success. Require final notebook Artifact
+  registration and Runtime release before Execution success.
+- Preserve successful Step evidence on post-code failure; classify it as
+  `COMPLETION_FAILED / NOT_RETRYABLE` instead of allowing successful-code replay.
+- Reject MULTI finalize after a failed last Operation; allow a later successful
+  corrective Operation without rewriting historical failures.
+- Guard terminal transitions under the active lease and row lock; keep file work
+  outside DB locks. Add data-preserving migration `0003`.
+- Scope and validation: [required-result completion](required-result-completion.md).
+
 ### Completion criteria still open
 
 - Maintain the no-false-completeness rule across supported Runtime variants.
@@ -735,13 +748,11 @@ failure. It must retain Runtime release evidence and inject all service credenti
   independently attributable and consistently queryable, without overwriting earlier causes.
 - Common diagnostic code, phase, origin, severity, time and scope rules cover DB, API, event and
   manifest representations while keeping payloads bounded.
-- Mandatory output/projection/artifact completion policy is explicit; consumers cannot confuse
-  code success with successful delivery of all mandatory outputs.
 - Remaining lifecycle and persistence-outage paths are covered by failure-injection tests;
   unknown remote causes remain explicitly unknown and correlate with operational logs.
 
 Phase 2 resolves the reproduced native-warning false-success case in
 [expanded output validation](output-expansion-validation.md). Phase 3 adds DB/REST
-diagnostics; full lifecycle coverage, cross-surface references, mandatory
-delivery policy and broader load/failure validation remain open. These test
+diagnostics; Phase 4 implements mandatory delivery policy. Full lifecycle coverage,
+cross-surface references and broader load/failure validation remain open. These test
 counts alone are not a full production-readiness claim.

@@ -23,12 +23,19 @@ Revision `0001` includes internal monotonic fencing tokens, exclusive cancellati
 Runtime abort state and observations, the shared-result reference contract, Executor-wide
 maintenance admission, durable leased Maintenance Runs with per-Execution targets, durable
 Execution event history, and the event-retention lease. Revision `0002` adds the
-`execution_diagnostics` table and its indexes; current head is `0002`. For a DB built
+`execution_diagnostics` table and its indexes. Revision `0003` expands the Execution
+and Attempt failure-type check constraints to accept `COMPLETION_FAILED`; current
+head is `0003`. For a DB built
 from the actual 2026-08-31 baseline, `upgrade head` preserves existing rows and
 requires no Redis reset. `check` must report no new upgrade operations.
 
+`0003` downgrade validates existing failure rows. If `COMPLETION_FAILED` is present,
+PostgreSQL rejects the downgrade and rolls back the transaction rather than deleting
+or reclassifying diagnostic evidence. Stop and plan an explicit data-preserving
+rollback; do not bypass the check with `stamp` or silently rewrite failure types.
+
 The following reset instructions apply only to discarded older baselines, not to
-the `0001` → `0002` diagnostic upgrade. Every database created before
+the `0001` → `0002` → `0003` upgrades. Every database created before
 this reset must be backed up if its data matters, then recreated as an empty database before
 `upgrade head`, even if it is already stamped `0001`. Revision equality alone does not prove
 that an older database has this schema. Clear the four Executor Redis Streams at the same time so stale work

@@ -65,10 +65,13 @@ API다. `execution_id`는 Execution 제출 응답에서 받은 UUID다.
 | 필드 | 의미 |
 |---|---|
 | `failure` | 실패하지 않았거나 아직 실패가 확정되지 않으면 `null` |
-| `failure.type` | 실패 분류: `TOOL_ERROR`, `INFRASTRUCTURE_ERROR`, `WORKER_SHUTDOWN`, `RUNTIME_UNAVAILABLE`, `LEASE_EXPIRED`, `INTERNAL_ERROR`, `OPERATION_WAIT_TIMEOUT`, `OPERATION_TIMEOUT`, `STEP_TIMEOUT`, `EXECUTION_TIMEOUT`, `OUTPUT_LIMIT_EXCEEDED`, `RUNTIME_SESSION_LOST` |
+| `failure.type` | 실패 분류: `TOOL_ERROR`, `INFRASTRUCTURE_ERROR`, `WORKER_SHUTDOWN`, `RUNTIME_UNAVAILABLE`, `LEASE_EXPIRED`, `INTERNAL_ERROR`, `OPERATION_WAIT_TIMEOUT`, `OPERATION_TIMEOUT`, `STEP_TIMEOUT`, `EXECUTION_TIMEOUT`, `OUTPUT_LIMIT_EXCEEDED`, `RUNTIME_SESSION_LOST`, `COMPLETION_FAILED` |
 | `failure.message` | 실패 상세 메시지 |
 
 ### `retry`
+
+`COMPLETION_FAILED`는 필수 결과 전달/최종 정리 실패이며 `NOT_RETRYABLE`이다.
+코드가 성공한 Step과 해당 result_ref는 유지한다. 원인은 diagnostics에서 확인한다.
 
 | 필드 | 의미 |
 |---|---|
@@ -114,4 +117,3 @@ session 처리 상태다.
 - MULTI가 `WAITING_FOR_OPERATION`이면 응답의 최신 `state.version`을 operations 또는
   finalize 요청의 `expected_version`으로 사용한다.
 - `SUCCEEDED`, `FAILED`, `CANCELLED`는 terminal 상태다.
-
