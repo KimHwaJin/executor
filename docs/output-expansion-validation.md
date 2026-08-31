@@ -1,11 +1,12 @@
 # Expanded output validation — 2026-08-31
 
-Follow-up: [Runtime Diagnostics Hardening](runtime-diagnostics-hardening.md) repairs failure
-evidence propagation. Its Phase 1 does **not** resolve the IOPub suppression finding below.
+Follow-up: [Runtime Output Completeness](runtime-output-completeness.md) now detects native
+Jupyter suppression and records failure/incomplete output. The original measurements below
+remain unchanged as historical evidence; they are not current success claims.
 
-## Outcome: output preservation is not ready
+## Original measurement outcome: output preservation was not ready
 
-The current local configuration loses large stdout output at the Jupyter IOPub rate limiter.
+The measured local configuration loses large stdout output at the Jupyter IOPub rate limiter.
 Executions still report success and complete results. This is a blocking correctness finding,
 not a successful performance result. No Executor runtime or Jupyter configuration changes were
 made in this work; only the measurement harness and regression tests were corrected.
@@ -131,7 +132,13 @@ uv run python scripts/t35_output_measurement.py --scenario IMAGE:10:1
 uv run python scripts/t35_output_measurement.py --scenario IMAGE:25:1 --expect-output-limit
 ```
 
-## Next work — not implemented here
+## Follow-up status
+
+The supported native Jupyter data-rate warning now produces explicit incomplete failure evidence.
+Live basic 5/10/25 MiB and ML 5 MiB checks passed; see the linked completeness validation. This
+accepts the safety limit, not the loss as a successful result. It does not recover suppressed bytes.
+
+## Original next-work list (historical)
 
 1. Define a Jupyter configuration/transport policy that does not silently suppress Executor-bound
    output while retaining explicit size limits and resource controls.

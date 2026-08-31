@@ -2,13 +2,17 @@
 
 ## Status and scope
 
-**Phase 1 implemented and tested; overall hardening is still open.**
+**Phases 1 and 2 implemented and tested; overall hardening is still open.**
+
+Phase 2: [Runtime Output Completeness](runtime-output-completeness.md) fixes the
+observed native Jupyter IOPub rate-suppression completeness mismatch. This document's
+implementation details and test counts below describe Phase 1.
 
 This phase repairs lost operational evidence without changing REST/MCP request or response
 schemas, Redis event schemas, database columns, or Alembic revision `0001`.
-It is not a production-readiness sign-off. In particular, the known Jupyter IOPub suppression
-case can still report `SUCCEEDED` / `complete=true`; that correctness issue remains open in
-[expanded output validation](output-expansion-validation.md).
+It is not a production-readiness sign-off. The initial IOPub suppression failure is preserved as
+historical evidence in [expanded output validation](output-expansion-validation.md); its supported
+native-server detection path is now implemented in Phase 2.
 
 ## Implemented
 
@@ -112,9 +116,9 @@ network, filesystem or platform failure mode.
 
 ## Next phases — not implemented by Phase 1
 
-1. **Reliable output-loss detection and completion semantics.** Keep configured limits. Detect
-   observable loss without treating arbitrary user stderr as an authoritative server warning;
-   known loss must not be reported as complete. Unknown remote losses cannot be inferred safely.
+1. **Native Jupyter rate-limit detection — implemented in Phase 2.** Server-origin warnings now
+   produce incomplete failure evidence without disabling limits or misclassifying ordinary
+   kernel stderr. Other server variants and unknown remote losses still need separate validation.
 2. **Durable structured diagnostics.** Define common code, phase, origin, severity and timestamp,
    plus scope IDs. Keep primary failure separate from output and secondary cleanup/projection
    diagnostics; align DB, REST/MCP, events and manifest semantics without unbounded payloads.

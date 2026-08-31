@@ -19,6 +19,9 @@ from executor_service.domain.runtime import (
     RuntimeOutputHandler,
     RuntimeOutputLimitExceededError,
 )
+from executor_service.infrastructure._jupyter.output_limits import (
+    server_output_limit,
+)
 from executor_service.infrastructure._jupyter.protocol import (
     as_notebook_output,
     as_output_record,
@@ -151,16 +154,29 @@ class JupyterKernelExecutor:
                                     raise _OutputDeliveryFailure(exc) from exc
                             if output["output_type"] == "error":
                                 error_message = error_summary(output)
+                            limit_kind = server_output_limit(
+                                channel,
+                                message,
+                                connection_session=websocket_session_id,
+                                request_id=message_id,
+                            )
+                            if limit_kind is not None:
+                                # Preserve the warning as evidence, then use
+                                # the existing interrupt/confirm workflow.
+                                raise RuntimeOutputLimitExceededError(
+                                    kind=limit_kind,
+                                    outputs=outputs,
+                                )
         except _OutputDeliveryFailure as exc:
             raise exc.original from exc.original.__cause__
         except PayloadTooBig as exc:
             raise RuntimeOutputLimitExceededError(
-                self._max_output_message_bytes
+                self._max_output_message_bytes, outputs=outputs
             ) from exc
         except ConnectionClosedError as exc:
             if message_limit_closed(exc):
                 raise RuntimeOutputLimitExceededError(
-                    self._max_output_message_bytes
+                    self._max_output_message_bytes, outputs=outputs
                 ) from exc
             raise RuntimeDriverError(
                 "Jupyter kernel channel became unavailable: "

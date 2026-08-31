@@ -79,6 +79,12 @@ rounds, 1.66초, 약 1,203 events/s였고, 30개 Execution의 총 3,000개가 21
 
 ## Runtime release gate
 
+For changes to Jupyter output collection or completeness detection, also run
+`uv run python scripts/jupyter_output_completeness_smoke.py` against a test Jupyter.
+Environment setup, safety bounds and interpretation are documented in
+[Runtime Output Completeness](runtime-output-completeness.md). This test does not
+require rebuilding the running Executor container or resetting its DB/Redis.
+
 Real Jupyter execution is intentionally separate from the fast pull-request
 gate. Start the local test topology described in
 [Executor Resilience Testing](executor-resilience-testing.md), then run:

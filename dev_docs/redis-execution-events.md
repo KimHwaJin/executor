@@ -70,6 +70,26 @@ Operation과 Execution의 전체 결과 인덱스는 PostgreSQL을 기준으로 
 GET /api/v1/executions/{execution_id}/result
 ```
 
+### 출력 제한 실패와 부분 결과
+
+Jupyter가 IOPub 데이터/메시지 전송량 제한으로 출력을 차단한 경우에도 기존
+`OUTPUT_LIMIT_EXCEEDED` 실패 체계를 사용한다. 이벤트 스키마 변경은 없다.
+
+- Step / Operation 완료 이벤트의 `status`는 `FAILED`이며, `error.message`에
+  출력 제한 사유가 남는다. 일반 사용자 코드가 같은 경고 문구를 출력하는 것은
+  서버의 제한 신호로 취급하지 않는다.
+- SINGLE은 `execution.completed`의 `status=FAILED`,
+  `error.code=EXECUTION_OUTPUT_LIMIT_EXCEEDED`로 종료한다.
+- MULTI는 런타임 유휴 상태 확인에 성공하면 Execution이
+  `WAITING_FOR_OPERATION`이 될 수 있다. 이는 해당 Operation의 성공을 뜻하지 않는다.
+- 기존 계약상 불완전한 `result_ref`는 이벤트에 포함하지 않는다. 부분 증거가
+  필요하면 Step 상세 또는 위 Result API에서 참조를 조회한다.
+  참조의 `complete=false`와 실패 사유를 확인하고, 보존된 경고/출력을 전체 결과로
+  해석하지 않는다. 이미 서버가 버린 출력을 복원하는 기능은 아니다.
+
+검증 범위와 운영상 주의점은
+[Runtime output completeness](../docs/runtime-output-completeness.md)를 참고한다.
+
 ## 4. 공통 이벤트 Envelope
 
 모든 외부 실행 이벤트는 다음 일곱 필드를 최상위에 가진다.

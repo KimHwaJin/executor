@@ -3,7 +3,7 @@
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Literal, Protocol, runtime_checkable
 from uuid import UUID
 
 from executor_service.domain.enums import RuntimeAbortStatus, RuntimeType
@@ -29,17 +29,43 @@ class RuntimeExecutionTimeoutError(RuntimeExecutionError):
         self.timeout_seconds = timeout_seconds
 
 
-class RuntimeOutputLimitExceededError(RuntimeExecutionError):
-    """A Runtime message exceeded Executor's bounded receive capacity."""
+RuntimeOutputLimitKind = Literal["MESSAGE_SIZE", "DATA_RATE", "MESSAGE_RATE"]
 
-    def __init__(self, max_message_bytes: int) -> None:
+
+class RuntimeOutputLimitExceededError(RuntimeExecutionError):
+    """A receive ceiling or Runtime rate limiter prevented full delivery."""
+
+    def __init__(
+        self,
+        max_message_bytes: int | None = None,
+        *,
+        kind: RuntimeOutputLimitKind = "MESSAGE_SIZE",
+        outputs: list[dict[str, Any]] | None = None,
+    ) -> None:
+        if kind == "MESSAGE_SIZE":
+            if max_message_bytes is None or max_message_bytes <= 0:
+                raise ValueError("A positive message size limit is required.")
+            message = (
+                "Runtime output message exceeded the configured "
+                f"{max_message_bytes}-byte safety limit; the Step result is "
+                "incomplete."
+            )
+        elif kind in {"DATA_RATE", "MESSAGE_RATE"}:
+            if max_message_bytes is not None:
+                raise ValueError("Rate limits do not specify a message size.")
+            message = (
+                f"Runtime output {kind.lower().replace('_', ' ')} limit "
+                "was exceeded; the Runtime suppressed output delivery. "
+                "The Step result is incomplete; reduce displayed output "
+                "or write large results to artifacts."
+            )
+        else:
+            raise ValueError("Unsupported Runtime output limit kind.")
         super().__init__(
-            "Runtime output message exceeded the configured "
-            f"{max_message_bytes}-byte safety limit; the Step result is "
-            "incomplete.",
-            outputs=[],
+            message, outputs=outputs if outputs is not None else []
         )
         self.max_message_bytes = max_message_bytes
+        self.kind: RuntimeOutputLimitKind = kind
 
 
 @dataclass(frozen=True, slots=True)

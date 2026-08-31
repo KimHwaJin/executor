@@ -474,11 +474,19 @@ class ExecutionStepExecutor:
             )
         except RuntimeOutputLimitExceededError as exc:
             self._log_failure(identity, exc, phase)
+            if not streaming:
+                try:
+                    for output in exc.outputs:
+                        await append_output(output_record(output))
+                except Exception as storage_error:
+                    self._log_failure(
+                        identity, storage_error, "RESULT_FAILURE_SAVE"
+                    )
             stored = await self._preserve_failure_result(identity, exc)
             if stored is None:
                 raise StoredStepFailure(exc, None) from exc
             raise StoredRuntimeOutputLimitExceededError(
-                exc.max_message_bytes,
+                exc,
                 stored,
             ) from exc
         except RuntimeExecutionError as exc:
