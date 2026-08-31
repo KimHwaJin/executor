@@ -92,6 +92,20 @@ class BackgroundDiagnosticRecorder:
         while len(self._recent) > _CACHE_LIMIT:
             self._recent.popitem(last=False)
 
+    def log_loop_failure(self, error: BaseException, *, phase: str) -> None:
+        """A failed batch query has no trustworthy Execution scope to persist."""
+        detail = diagnostic_for(
+            error, phase=phase, category=DiagnosticCategory.EXECUTION
+        )
+        signature = hashlib.sha256(
+            json.dumps(asdict(detail), sort_keys=True).encode()
+        ).hexdigest()
+        key = ("background-loop", phase, signature)
+        if self._recent.get(key, 0) > monotonic():
+            return
+        self._remember(key)
+        log_runtime_failure(logger, error, phase=phase)
+
     async def record(
         self,
         observation: RuntimeObservation,

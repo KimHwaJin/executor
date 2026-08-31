@@ -555,3 +555,21 @@ async def test_one_probe_factory_failure_does_not_skip_other_waiting_deadlines(
             second_row.runtime_session_cleanup_status
             == RuntimeSessionCleanupStatus.FAILED
         )
+
+
+def test_unscoped_loop_logs_are_safe_and_bounded(
+    engine: AsyncEngine, caplog: pytest.LogCaptureFixture
+) -> None:
+    recorder = BackgroundDiagnosticRecorder(create_session_factory(engine))
+    for _ in range(10):
+        recorder.log_loop_failure(
+            ValueError("SQL parameters password=do-not-log"),
+            phase="RETAINED_CLEANUP_SCAN",
+        )
+    assert len(caplog.records) == 1
+    assert "RETAINED_CLEANUP_SCAN" in caplog.text
+    assert "do-not-log" not in caplog.text
+    assert "SQL parameters" not in caplog.text
+    for index in range(1100):
+        recorder._remember((index,))
+    assert len(recorder._recent) == 1024

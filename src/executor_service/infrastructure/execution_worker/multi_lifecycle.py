@@ -1,6 +1,5 @@
 """Audit and timeout handling for retained MULTI executions."""
 
-import logging
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -41,11 +40,6 @@ from executor_service.infrastructure.execution_worker.runtime_calls import (
 from executor_service.infrastructure.execution_worker.session_recovery import (
     RuntimeSessionRecovery,
 )
-from executor_service.infrastructure.runtime_diagnostics import (
-    log_runtime_failure,
-)
-
-logger = logging.getLogger(__name__)
 
 
 class MultiLifecycleAuditor:
@@ -90,12 +84,11 @@ class MultiLifecycleAuditor:
             try:
                 await self._audit_waiting(execution, target, observation, now)
             except Exception as exc:
-                log_runtime_failure(
-                    logger,
+                await self._session_recovery.diagnostics.record(
+                    observation,
                     exc,
                     phase="MULTI_AUDIT",
-                    execution_id=execution.id,
-                    fencing_token=observation.fencing_token,
+                    category=DiagnosticCategory.EXECUTION,
                 )
 
     async def _audit_waiting(
