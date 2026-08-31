@@ -14,6 +14,7 @@ from executor_service.domain.enums import (
 )
 from executor_service.domain.models import Execution
 from executor_service.domain.results import ExecutionResultStore
+from executor_service.domain.runtime import ExecutionCompletionError
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.models import RuntimeTargetORM
 from executor_service.infrastructure.execution_leases import (
@@ -132,6 +133,9 @@ class MultiExecutionRunner:
                 last_sequence = max(
                     (step.sequence for step in execution.steps), default=0
                 )
+                await self._notebook_projector.project_required(
+                    driver, lease, execution.runtime_profile, workspace
+                )
                 await self._notebook_projector.register_artifact(
                     driver=driver,
                     workspace=workspace,
@@ -142,7 +146,9 @@ class MultiExecutionRunner:
                 await trace_runtime(
                     self._tracing,
                     "executor.runtime.session.delete",
-                    driver.delete_session(runtime_session_id),
+                    self._finalizer.release_completed_session(
+                        lease, driver, runtime_session_id
+                    ),
                     execution_id=execution.id,
                     target_id=target.id,
                 )
@@ -348,7 +354,7 @@ class MultiExecutionRunner:
                     pending.sequence,
                     result,
                 )
-                await self._notebook_projector.project(
+                await self._notebook_projector.project_required(
                     driver,
                     lease,
                     execution.runtime_profile,
@@ -363,13 +369,17 @@ class MultiExecutionRunner:
                         sequence=pending.sequence,
                         status=ArtifactStatus.AVAILABLE,
                     )
+                except ExecutionLeaseLostError:
+                    raise
                 except Exception as artifact_exc:
                     await self._finalizer.record_artifact_failure(
                         lease,
                         pending.sequence,
                         artifact_exc,
                     )
-                    raise
+                    raise ExecutionCompletionError(
+                        "ARTIFACT_REGISTER"
+                    ) from artifact_exc
             await self._multi_operation_state.complete(
                 lease,
                 operation_id,

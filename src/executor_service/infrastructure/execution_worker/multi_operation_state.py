@@ -21,6 +21,9 @@ from executor_service.infrastructure.execution_leases import (
     ExecutionLease,
     require_active_lease,
 )
+from executor_service.infrastructure.execution_worker.completion_policy import (
+    require_completed_results,
+)
 from executor_service.infrastructure.execution_worker.event_writer import (
     add_operation_completed_event,
 )
@@ -58,6 +61,13 @@ class MultiOperationState:
                 or operation.status != OperationStatus.RUNNING
             ):
                 return
+            if operation_status == OperationStatus.SUCCEEDED:
+                await require_completed_results(
+                    session,
+                    execution,
+                    operation_id,
+                    require_notebook_artifact=False,
+                )
             execution.status = ExecutionStatus.WAITING_FOR_OPERATION
             execution.lease_owner = None
             execution.lease_expires_at = None

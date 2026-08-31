@@ -88,6 +88,9 @@ from executor_service.infrastructure.execution_leases import (
     ExecutionLeaseLostError,
 )
 from executor_service.infrastructure.execution_worker import ExecutionWorker
+from executor_service.infrastructure.execution_worker.run_finalizer import (
+    ExecutionRunFinalizer,
+)
 from executor_service.infrastructure.maintenance import (
     ExecutorMaintenanceService,
 )
@@ -131,6 +134,59 @@ def _downgrade_to_pre_diagnostics(database_url: str) -> None:
     config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
     config.attributes["database_url"] = database_url
     command.downgrade(config, "0001")
+
+
+def _downgrade_to_diagnostics(database_url: str) -> None:
+    config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+    config.attributes["database_url"] = database_url
+    command.downgrade(config, "0002")
+
+
+async def test_completion_upgrade_preserves_rows_and_blocks_lossy_downgrade(
+    postgres_engine: AsyncEngine, tmp_path: Path
+) -> None:
+    from sqlalchemy.exc import IntegrityError
+
+    url = postgres_engine.url.render_as_string(hide_password=False)
+    await asyncio.to_thread(_downgrade_to_diagnostics, url)
+    service = _service(postgres_engine, tmp_path)
+    execution = await service.submit(_command("before-completion-upgrade"))
+    factory = create_session_factory(postgres_engine)
+    async with factory() as session, session.begin():
+        session.add(_server(capacity=1))
+    workers, clients = _workers(postgres_engine, tmp_path, count=1)
+    try:
+        claim = await workers[0]._claimer.claim(execution.id)
+        assert claim is not None
+        lease = claim[2]
+        await asyncio.to_thread(_upgrade_and_check_baseline, url)
+        await ExecutionRunFinalizer(factory, Settings()).finalize(
+            lease,
+            ExecutionStatus.FAILED,
+            "Required completion failed.",
+            failure_type=FailureType.COMPLETION_FAILED,
+            retry_strategy=RetryStrategy.NOT_RETRYABLE,
+        )
+        with pytest.raises(IntegrityError):
+            await asyncio.to_thread(_downgrade_to_diagnostics, url)
+        async with factory() as session:
+            row = await session.get(ExecutionORM, execution.id)
+            attempt = await session.get(ExecutionAttemptORM, lease.attempt_id)
+            revision = await session.scalar(
+                text("SELECT version_num FROM alembic_version")
+            )
+            assert revision == "0003"
+            assert (
+                row is not None
+                and row.failure_type == FailureType.COMPLETION_FAILED
+            )
+            assert (
+                attempt is not None
+                and attempt.failure_type == FailureType.COMPLETION_FAILED
+            )
+            assert row.task_id == execution.task_id
+    finally:
+        await _close_redis(clients)
 
 
 async def test_diagnostics_upgrade_preserves_existing_execution_and_cascades(
@@ -1233,7 +1289,7 @@ async def test_current_baseline_repeated_upgrade_preserves_events(
             text("SELECT count(*) FROM event_retention_lease")
         )
 
-    assert revision == EXPECTED_SCHEMA_REVISION == "0002"
+    assert revision == EXPECTED_SCHEMA_REVISION == "0003"
     assert maintenance_count == retention_count == 1
     assert migrated_event is not None
     assert migrated_event.execution_id == execution.id
@@ -1274,7 +1330,7 @@ async def test_current_baseline_downgrade_and_recreate(
             text("SELECT singleton_key FROM event_retention_lease")
         )
     assert tables == set(Base.metadata.tables) | {"alembic_version"}
-    assert revision == EXPECTED_SCHEMA_REVISION == "0002"
+    assert revision == EXPECTED_SCHEMA_REVISION == "0003"
     assert admission == "ACTIVE"
     assert retention_key == "events"
 

@@ -20,6 +20,7 @@ from executor_service.domain.results import (
     StepResultReference,
 )
 from executor_service.domain.runtime import (
+    ExecutionCompletionError,
     RuntimeDriver,
     RuntimeDriverError,
     RuntimeNotebookPreparer,
@@ -236,6 +237,26 @@ class NotebookProjector:
             )
         return False
 
+    async def project_required(
+        self,
+        driver: RuntimeDriver,
+        lease: ExecutionLease,
+        runtime_profile: str,
+        workspace: ExecutionWorkspace,
+    ) -> None:
+        """A successful code path cannot ignore failed notebook delivery."""
+        try:
+            projected = await self.project(
+                driver, lease, runtime_profile, workspace
+            )
+        except ExecutionLeaseLostError:
+            raise
+        except Exception as exc:
+            raise ExecutionCompletionError("NOTEBOOK_BUILD") from exc
+        if not projected:
+            # project() has already persisted the original write failure.
+            raise ExecutionCompletionError("NOTEBOOK_WRITE")
+
     async def project_after_failure(
         self,
         driver: RuntimeDriver,
@@ -275,7 +296,7 @@ class NotebookProjector:
                 )
             )
         if projection_status != "SUCCEEDED":
-            return
+            raise ExecutionCompletionError("NOTEBOOK_ARTIFACT_REGISTER")
         try:
             await self._artifacts.register_notebook(
                 driver=driver,
@@ -301,6 +322,9 @@ class NotebookProjector:
                 category=DiagnosticCategory.ARTIFACT,
                 sequence=sequence,
             )
+            raise ExecutionCompletionError(
+                "NOTEBOOK_ARTIFACT_REGISTER"
+            ) from exc
 
     async def _record_projection(
         self,

@@ -21,6 +21,7 @@ from executor_service.domain.enums import (
 )
 from executor_service.domain.models import utc_now
 from executor_service.domain.runtime import (
+    ExecutionCompletionError,
     RuntimeAbortResult,
     RuntimeDriver,
     RuntimeDriverError,
@@ -34,7 +35,11 @@ from executor_service.infrastructure.db.models import (
 from executor_service.infrastructure.diagnostic_store import DiagnosticRecorder
 from executor_service.infrastructure.execution_leases import (
     ExecutionLease,
+    ExecutionLeaseLostError,
     require_active_lease,
+)
+from executor_service.infrastructure.execution_worker.completion_policy import (
+    require_completed_results,
 )
 from executor_service.infrastructure.execution_worker.event_writer import (
     add_execution_completed_event,
@@ -76,6 +81,26 @@ class ExecutionRunFinalizer:
                 phase="EXECUTION_RUN",
                 category=DiagnosticCategory.EXECUTION,
             )
+
+    async def release_completed_session(
+        self,
+        lease: ExecutionLease,
+        driver: RuntimeDriver,
+        runtime_session_id: str,
+    ) -> None:
+        """A cleanup failure must never authorize replay of successful code."""
+        try:
+            await driver.delete_session(runtime_session_id)
+        except ExecutionLeaseLostError:
+            raise
+        except Exception as exc:
+            await self.diagnostics.record(
+                lease,
+                exc,
+                phase="RUNTIME_RELEASE",
+                category=DiagnosticCategory.CLEANUP,
+            )
+            raise ExecutionCompletionError("RUNTIME_RELEASE") from exc
 
     async def cancellation_owns_terminal(self, execution_id: UUID) -> bool:
         async with self._session_factory() as session:
@@ -275,6 +300,13 @@ class ExecutionRunFinalizer:
         now = utc_now()
         async with self._session_factory() as session, session.begin():
             execution, attempt = await require_active_lease(session, lease)
+            if requested_status == ExecutionStatus.SUCCEEDED:
+                await require_completed_results(
+                    session,
+                    execution,
+                    execution.active_operation_id,
+                    finalizing=execution.finalization_requested,
+                )
             running_step_ids = list(
                 await session.scalars(
                     select(ExecutionStepAttemptORM.execution_step_id).where(

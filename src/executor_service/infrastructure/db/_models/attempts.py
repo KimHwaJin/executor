@@ -87,7 +87,7 @@ class ExecutionAttemptORM(Base):
             "'LEASE_EXPIRED', 'INTERNAL_ERROR', 'OPERATION_WAIT_TIMEOUT', "
             "'OPERATION_TIMEOUT', 'STEP_TIMEOUT', 'EXECUTION_TIMEOUT', "
             "'OUTPUT_LIMIT_EXCEEDED', "
-            "'RUNTIME_SESSION_LOST')",
+            "'RUNTIME_SESSION_LOST', 'COMPLETION_FAILED')",
             name="valid_attempt_failure_type",
         ),
         CheckConstraint(

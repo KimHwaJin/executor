@@ -2,6 +2,7 @@
 
 from executor_service.domain.enums import FailureType, RetryStrategy
 from executor_service.domain.runtime import (
+    ExecutionCompletionError,
     RuntimeDriverError,
     RuntimeExecutionError,
     RuntimeExecutionTimeoutError,
@@ -19,6 +20,8 @@ def failure_policy(
 ) -> tuple[FailureType, RetryStrategy]:
     if isinstance(exc, StoredStepFailure):
         return failure_policy(exc.original, retain_session)
+    if isinstance(exc, ExecutionCompletionError):
+        return FailureType.COMPLETION_FAILED, RetryStrategy.NOT_RETRYABLE
     if isinstance(exc, RetainedRuntimeSessionLostError):
         return FailureType.RUNTIME_SESSION_LOST, RetryStrategy.FROM_START
     if isinstance(exc, RuntimeExecutionTimeoutError):

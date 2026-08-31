@@ -14,6 +14,7 @@ from executor_service.domain.enums import (
 from executor_service.domain.models import Execution
 from executor_service.domain.results import ExecutionResultStore
 from executor_service.domain.runtime import (
+    ExecutionCompletionError,
     RuntimeDriverError,
     RuntimeExecutionError,
 )
@@ -299,7 +300,7 @@ class SingleExecutionRunner:
                     sequence,
                     result,
                 )
-                await self._notebook_projector.project(
+                await self._notebook_projector.project_required(
                     driver,
                     lease,
                     execution.runtime_profile,
@@ -314,13 +315,17 @@ class SingleExecutionRunner:
                         sequence=sequence,
                         status=ArtifactStatus.AVAILABLE,
                     )
+                except ExecutionLeaseLostError:
+                    raise
                 except Exception as artifact_exc:
                     await self._finalizer.record_artifact_failure(
                         lease,
                         sequence,
                         artifact_exc,
                     )
-                    raise
+                    raise ExecutionCompletionError(
+                        "ARTIFACT_REGISTER"
+                    ) from artifact_exc
             await self._notebook_projector.register_artifact(
                 driver=driver,
                 workspace=workspace,
@@ -331,7 +336,9 @@ class SingleExecutionRunner:
             await trace_runtime(
                 self._tracing,
                 "executor.runtime.session.delete",
-                driver.delete_session(runtime_session_id),
+                self._finalizer.release_completed_session(
+                    lease, driver, runtime_session_id
+                ),
                 execution_id=execution.id,
                 target_id=target.id,
             )

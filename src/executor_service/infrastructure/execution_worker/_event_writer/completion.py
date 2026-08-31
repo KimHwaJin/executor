@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from executor_service.domain.enums import (
     ExecutionStatus,
+    FailureType,
     OperationStatus,
     RetryStrategy,
     StepStatus,
@@ -127,6 +128,8 @@ async def add_operation_completed_event(
             "code": (
                 "OPERATION_CANCELLED"
                 if operation.status == OperationStatus.CANCELLED
+                else "OPERATION_COMPLETION_FAILED"
+                if execution.failure_type == FailureType.COMPLETION_FAILED
                 else "OPERATION_STEP_FAILED"
             ),
             "message": operation.error_message
