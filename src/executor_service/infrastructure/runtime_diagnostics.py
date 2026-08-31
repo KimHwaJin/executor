@@ -14,6 +14,7 @@ from traceback import walk_tb
 
 from executor_service.domain.runtime import (
     ExecutionCompletionError,
+    NotebookProjectionInterruptedError,
     RuntimeDriverError,
     RuntimeExecutionError,
     RuntimeExecutionTimeoutError,
@@ -43,7 +44,12 @@ def failure_message(error: BaseException) -> str:
     """Safe operational message; full user-code errors live in result files."""
     if isinstance(
         error,
-        (RuntimeDriverError, ResultStorageError, ExecutionCompletionError),
+        (
+            RuntimeDriverError,
+            ResultStorageError,
+            ExecutionCompletionError,
+            NotebookProjectionInterruptedError,
+        ),
     ):
         return redact_message(str(error))
     if isinstance(error, OSError) and error.errno is not None:

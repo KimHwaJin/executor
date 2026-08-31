@@ -69,6 +69,7 @@ Execution 자체가 없으면 404, 잘못된 UUID/커서/limit이면 422다. 존
 - `STEP_TIMEOUT`, `OPERATION_TIMEOUT`, `CODE_EXECUTION_FAILED`
 - `PERMISSION_DENIED`, `FILE_NOT_FOUND`, `OS_ERROR`, `TIMEOUT`
 - `RUNTIME_UNAVAILABLE`, `INTERNAL_ERROR`
+- `NOTEBOOK_NOT_REFRESHED`: 취소/협조적 Worker 종료로 최신 노트북 반영이 중단됨
 
 `code`는 관측된 예외 기준이고, `causes`가 하위 원인을 보완한다. 예를 들어
 `RUNTIME_UNAVAILABLE` 아래 `ConnectionResetError`와 errno가 있을 수 있다.
@@ -84,6 +85,18 @@ DB/API에 복제하지 않는다. Stack 위치는 기존 `runtime.failure` 로�
 `RESULT_REFERENCE_PERSIST`는 취소/Worker 중단 때 봉인된 파일을 Step·StepAttempt DB에
 연결하지 못한 경우다. 원래 취소를 일반 실행 실패로 바꾸지 않고 별도 원인을 남긴다.
 DB가 계속 불가용하면 안전한 운영 로그만 남을 수 있다.
+
+`NOTEBOOK_INTERRUPTED`는 실행 중 취소/정상 종료로 노트북의 최신 결과 반영을
+건너뛴 경우다. `code=NOTEBOOK_NOT_REFRESHED`, `category=NOTEBOOK`,
+`origin=EXECUTOR`로 구분한다. Execution 상세의
+`workspace.notebook_projection`은 이전 `SUCCEEDED` 대신 `FAILED`, 사유,
+`projected_at=null`을 반환한다. 실제 노트북 쓰기를 시도한 것이 아니므로
+`attempt_count`를 늘리지 않는다. 앞선 구체적인 노트북 실패가 있으면 보존한다.
+
+이는 실행 결과가 유실됐다는 뜻이 아니다. 보존된 부분 출력은 공유 PV의
+`result_ref.complete=false`를 읽는다. Jupyter 노트북은 마지막 반영본이며,
+자동 재생성은 이번 범위에 없다. 원래 `CANCELLED`/`WORKER_SHUTDOWN` 상태와
+재시도 정책도 유지한다. DB 장애/소유권 상실 시 상태·진단 저장은 보장할 수 없다.
 
 백그라운드 관측에는 `RECOVERY_TARGET`, `RECOVERY_DRIVER_CREATE`,
 `RECOVERY_SESSION_DELETE`, `RECOVERY_DRIVER_CLOSE`, `RECOVERY_RESULT_PERSIST`,

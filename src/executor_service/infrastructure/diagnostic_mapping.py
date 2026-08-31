@@ -8,6 +8,7 @@ from executor_service.domain.diagnostics import (
 )
 from executor_service.domain.runtime import (
     ExecutionCompletionError,
+    NotebookProjectionInterruptedError,
     RuntimeDriverError,
     RuntimeExecutionError,
     RuntimeExecutionTimeoutError,
@@ -42,7 +43,10 @@ def diagnostic_for(
         origin = DiagnosticOrigin.RUNTIME
     elif phase in {"NOTEBOOK_BUILD", "ARTIFACT_REGISTER"}:
         origin = DiagnosticOrigin.EXECUTOR
-    if isinstance(error, ExecutionCompletionError):
+    if isinstance(error, NotebookProjectionInterruptedError):
+        code = "NOTEBOOK_NOT_REFRESHED"
+        origin = DiagnosticOrigin.EXECUTOR
+    elif isinstance(error, ExecutionCompletionError):
         code = "COMPLETION_FAILED"
         origin = DiagnosticOrigin.EXECUTOR
         phase = error.phase

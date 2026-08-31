@@ -24,6 +24,7 @@ from executor_service.domain.enums import (
     RuntimeTargetStatus,
     TriggerType,
 )
+from executor_service.domain.models import NotebookProjectionStatus
 from executor_service.domain.runtime import (
     RuntimeOutputHandler,
     RuntimeOutputRecord,
@@ -32,6 +33,7 @@ from executor_service.domain.runtime import (
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.models import (
     ExecutionArtifactORM,
+    ExecutionORM,
     RuntimeTargetORM,
 )
 from executor_service.infrastructure.db.session import create_session_factory
@@ -100,6 +102,7 @@ class FileWritingBlockedDriver(InMemoryRuntimeStorage):
     "result_fault", [None, "seal", "reference", "reference_timeout"]
 )
 @pytest.mark.parametrize("step_timeout", [None, 600])
+@pytest.mark.parametrize("prior_projection", ["SUCCEEDED", "FAILED"])
 async def test_cancelled_cell_registers_partial_file_as_incomplete_artifact(
     execution_service: ExecutionService,
     engine: AsyncEngine,
@@ -108,6 +111,7 @@ async def test_cancelled_cell_registers_partial_file_as_incomplete_artifact(
     mode: OperationMode,
     result_fault: str | None,
     step_timeout: int | None,
+    prior_projection: NotebookProjectionStatus,
 ) -> None:
     session_factory = create_session_factory(engine)
     async with session_factory() as session, session.begin():
@@ -185,6 +189,15 @@ async def test_cancelled_cell_registers_partial_file_as_incomplete_artifact(
         await asyncio.wait_for(
             FileWritingBlockedDriver.started.wait(), timeout=1
         )
+        async with session_factory() as session, session.begin():
+            row = await session.get(ExecutionORM, execution.id)
+            assert row is not None
+            row.notebook_projection_status = prior_projection
+            row.notebook_projection_error = (
+                "Earlier notebook failure"
+                if prior_projection == "FAILED"
+                else None
+            )
         await execution_service.cancel(
             CancelExecutionCommand(
                 execution_id=execution.id,
@@ -223,6 +236,24 @@ async def test_cancelled_cell_registers_partial_file_as_incomplete_artifact(
     assert cancelled.steps[0].result_complete is (
         None if result_fault else False
     )
+    if result_fault in {None, "seal"}:
+        assert cancelled.notebook_projection_status == "FAILED"
+        if prior_projection == "FAILED":
+            assert cancelled.notebook_projection_error == (
+                "Earlier notebook failure"
+            )
+        else:
+            assert cancelled.notebook_projection_error is not None
+            assert "may be stale" in cancelled.notebook_projection_error
+            assert cancelled.notebook_projected_at is None
+            diagnostics = await SQLAlchemyDiagnosticQueryService(
+                session_factory
+            ).list(execution.id)
+            assert any(
+                item.diagnostic.phase == "NOTEBOOK_INTERRUPTED"
+                and item.diagnostic.category == "NOTEBOOK"
+                for item in diagnostics.items
+            )
     if result_fault:
         diagnostics = await SQLAlchemyDiagnosticQueryService(
             session_factory

@@ -13,6 +13,17 @@ class RuntimeDriverError(RuntimeError):
     """An execution runtime could not be reached or used."""
 
 
+class NotebookProjectionInterruptedError(RuntimeError):
+    """Interrupted execution did not project the latest notebook snapshot."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Notebook projection was not refreshed after Step interruption. "
+            "The notebook may be stale; inspect the Step result reference "
+            "for any preserved output."
+        )
+
+
 class ExecutionCompletionError(RuntimeError):
     """Required post-code delivery failed; replaying code is not a repair."""
 
