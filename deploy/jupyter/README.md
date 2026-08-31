@@ -16,16 +16,18 @@
 | `Dockerfile` | OS·Python 설치, 가상환경 생성, 커널 등록, 실행 사용자 설정 | 베이스 이미지, apt 미러, OS 패키지, Python 버전, UID/GID 변경 |
 | `environments/server/requirements.txt` | Jupyter 서버용 패키지 | JupyterLab·Jupyter Server 버전 변경 |
 | `environments/basic/requirements.txt` | basic 커널용 분석 패키지 | 분석 라이브러리 추가·버전 변경 |
-| `environments/ml/requirements.txt` | ml 커널용 추가 ML 패키지 | ML 라이브러리 추가·버전 변경 |
+| `environments/ml/requirements.txt` | ml 커널에서 사용할 전체 패키지 목록 | ml 환경의 라이브러리 추가·삭제·버전 변경 |
 | `jupyter_server_config.py` | 루트·토큰 적용, 포트, 허용 커널, 기본 커널 설정 | 포트나 커널 정책 변경. 루트·토큰은 파일 수정 없이 환경변수로 지정 |
 | `start-jupyter.sh` | 필수 환경변수 확인 후 JupyterLab 실행 | 일반적으로 수정하지 않음 |
 | `executor_resource_extension.json` | Executor 연동 확장 활성화 | 그대로 유지 |
 | `extension/pyproject.toml`, `extension/src/` | 자원 조회, 작업공간 준비, 노트북 작성, 파일 다운로드 기능 | Executor 연동 코드이므로 일반 배포 시 수정하지 않음 |
 | `.dockerignore` | 비밀 설정·캐시·작업 데이터를 빌드 컨텍스트에서 제외 | 일반적으로 수정하지 않음 |
 
-`ml/requirements.txt`는 `-r ../basic/requirements.txt`로 basic 목록도 설치한다.
-공통 분석 패키지는 basic에, ml에서만 쓸 패키지는 ml에 추가한다.
-이 상대 디렉토리 구조는 유지해야 한다.
+**basic과 ml은 서로 독립적인 커널이다. ml이 basic을 상속하거나 확장하지 않는다.**
+각 `requirements.txt`에 해당 커널에서 사용할 전체 패키지 목록을 따로 작성한다.
+두 커널에서 같은 라이브러리를 쓰더라도 각 파일에 명시하고 버전도 별도로 지정할 수 있다.
+basic 목록을 변경해도 ml 목록에는 반영되지 않으며 반대도 마찬가지다.
+현재 목록은 기존 설치 패키지를 유지하도록 분리한 것이며 담당자가 각 환경에 맞게 조정한다.
 
 `extension/pyproject.toml`은 커스텀 확장을 pip로 설치하기 위한 필수 파일이다.
 uv나 별도 패키징 도구를 실행할 필요는 없다.
@@ -36,7 +38,8 @@ uv나 별도 패키징 도구를 실행할 필요는 없다.
 
 1. `python:3.12-slim-bookworm`을 기반으로 Python 3.11, 폰트, 시스템 라이브러리,
    프로세스 종료 신호 처리를 위한 `tini` 등을 apt로 설치한다.
-2. 아래 세 가상환경을 만들고 각 `requirements.txt`를 pip로 설치한다.
+2. 아래 세 가상환경을 각각 독립적으로 만들고, 각 환경의 `requirements.txt`만 pip로 설치한다.
+   basic은 Python 3.11, ml은 Python 3.12이며 서로의 패키지 설치 경로를 공유하지 않는다.
 
    | 용도 | Python | 이미지 내부 경로 |
    |---|---|---|

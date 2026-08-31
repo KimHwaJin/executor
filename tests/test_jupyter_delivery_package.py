@@ -46,6 +46,26 @@ def test_deployment_defaults_are_visible() -> None:
     assert 'WORKDIR "${JUPYTER_ROOT_DIR}"' in dockerfile
 
 
+def test_kernel_environments_are_independent() -> None:
+    dockerfile = (PACKAGE / "Dockerfile").read_text()
+    for kernel, python in [("basic", "3.11"), ("ml", "3.12")]:
+        requirements = (
+            PACKAGE / "environments" / kernel / "requirements.txt"
+        ).read_text()
+        packages = [
+            line.strip()
+            for line in requirements.splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        ]
+        assert packages
+        assert all(not line.startswith("-") for line in packages)
+        assert any(line.startswith("ipykernel") for line in packages)
+        assert f"python{python} -m venv /opt/venvs/{kernel}" in dockerfile
+        assert f"/opt/venvs/{kernel}/bin/pip install" in dockerfile
+        assert f"-r /opt/jupyter-env/{kernel}/requirements.txt" in dockerfile
+    assert "--system-site-packages" not in dockerfile
+
+
 def test_delivery_extension_matches_executor_runtime_contract() -> None:
     source_root = HARNESS / EXTENSION_ROOT
     files = list(source_root.rglob("*.py"))
