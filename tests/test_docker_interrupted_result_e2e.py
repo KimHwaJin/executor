@@ -41,6 +41,17 @@ async def test_stop_owner_rejects_unmanaged_service() -> None:
         await HARNESS["stop_owner"](None, "executor")
 
 
+async def test_cleanup_errors_are_not_silently_ignored() -> None:
+    class BrokenCompose(HARNESS["InterruptionCompose"]):
+        async def run(self, *arguments: str, **kwargs: object) -> str:
+            assert arguments[:2] == ("down", "--volumes")
+            assert kwargs.get("tolerate_failure") is not True
+            raise RuntimeError("Docker unavailable")
+
+    with pytest.raises(RuntimeError, match="Docker unavailable"):
+        await BrokenCompose(None).down()
+
+
 def write_ref(root: Path, name: str, content: bytes) -> dict[str, Any]:
     path = root / name
     path.parent.mkdir(parents=True, exist_ok=True)

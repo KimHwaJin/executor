@@ -142,3 +142,8 @@ users/diagnostics-smoke/projects/output-completeness/sessions/773f892b-dc46-4f75
 DB/Stream만 정리한다. 실제 Jupyter 테스트의 노트북은 Jupyter PV에 남고 자기 커널만
 정리한다. 임시 공유 결과/DB가 종료 시 사라지므로 해당 테스트 Execution은 기존 서비스
 API에서 조회할 수 없다. 프로세스 강제 종료 모든 시점이나 장기 soak 검증은 아니다.
+
+후속 Phase 7에서는 실제 사용자 취소·SIGTERM을 별도 Docker 스택의 8조합으로
+검증했다. 부분 출력 참조는 일치했으나 노트북의 이전 성공 표시가 남는 문제를
+발견해 상태·진단을 보완했다. 범위와 재현 방법은
+[Docker 중단 검증](docker-interrupted-result-validation.md)을 참고한다.

@@ -50,6 +50,12 @@ class InterruptionCompose(Compose):
             *arguments,
         )
 
+    async def down(self) -> None:
+        # Do not report successful cleanup if Docker rejected the operation.
+        await self.run(
+            "down", "--volumes", "--remove-orphans", "--timeout", "45"
+        )
+
 
 def available_ports() -> tuple[int, int]:
     with socket.socket() as first, socket.socket() as second:
@@ -347,6 +353,7 @@ async def run(report_path: Path, keep_stack: bool) -> int:
         "started_at": datetime.now(UTC).isoformat(),
         "status": "RUNNING",
         "cases": [],
+        "ports": {"primary": first, "secondary": second},
         "git_commit": (
             await asyncio.to_thread(
                 subprocess.check_output,
@@ -356,10 +363,12 @@ async def run(report_path: Path, keep_stack: bool) -> int:
             )
         ).strip(),
     }
+    owned = False
     checkpoint(report_path, report)
     try:
         # UUID scope is generated here, not accepted from user input.
         assert not await compose.run("ps", "--all", "--quiet")
+        owned = True
         print(f"Starting isolated project {config.project_name}", flush=True)
         await compose.up()
         await asyncio.gather(_wait_ready(first), _wait_ready(second))
@@ -391,10 +400,15 @@ async def run(report_path: Path, keep_stack: bool) -> int:
         report["traceback"] = traceback.format_exc()
         print(report["error"], file=sys.stderr, flush=True)
     finally:
-        if not keep_stack:
-            await compose.down()
+        report["stack_retained"] = owned
+        if owned and not keep_stack:
+            try:
+                await compose.down()
+                report["stack_retained"] = False
+            except Exception as error:
+                report["status"] = "FAILED"
+                report["cleanup_error"] = f"{type(error).__name__}: {error}"
         report["finished_at"] = datetime.now(UTC).isoformat()
-        report["stack_retained"] = keep_stack
         checkpoint(report_path, report)
     print(f"Report: {report_path}", flush=True)
     return 0 if report["status"] == "PASSED" else 1

@@ -766,6 +766,19 @@ failure. It must retain Runtime release evidence and inject all service credenti
   contract cutover and do not fabricate completeness for old events.
 - Scope and validation: [partial-result event references](partial-result-event-references.md).
 
+### Implemented Phase 7
+
+- Validate real user cancellation and cooperative SIGTERM in an isolated
+  two-Executor Docker stack: SINGLE/MULTI × basic/ml, with text and PNG output.
+- Cross-check terminal DB state, REST result/Step/Attempt reads, actual Redis
+  delivery, sealed shared files, and Jupyter kernel cleanup.
+- Fix an observed stale notebook success flag: when Step interruption skips
+  projection, mark it FAILED with an explicit reason and a bounded
+  `NOTEBOOK_NOT_REFRESHED / NOTEBOOK_INTERRUPTED` diagnostic. Preserve original
+  Execution status, retry policy, and any earlier notebook failure.
+- No API/event field changes, migration, remote notebook rewrite, or changes to
+  the normal local deployment. See [Docker interruption validation](docker-interrupted-result-validation.md).
+
 ### Completion criteria still open
 
 - Maintain the no-false-completeness rule across supported Runtime variants.
@@ -783,6 +796,8 @@ Phase 2 resolves the reproduced native-warning false-success case in
 [expanded output validation](output-expansion-validation.md). Phase 3 adds DB/REST
 diagnostics; Phase 4 implements mandatory delivery policy and Phase 5 covers
 background cleanup/probe observations. Phase 6 aligns partial evidence references
-across events/REST/manifests. Full lifecycle coverage, diagnostic links and broader
+across events/REST/manifests. Phase 7 validates real cancellation/SIGTERM and
+marks unrefreshed interrupted notebooks explicitly. Full lifecycle coverage,
+diagnostic links and broader
 load/failure validation remain open. These test
 counts alone are not a full production-readiness claim.

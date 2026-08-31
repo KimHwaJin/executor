@@ -487,6 +487,18 @@ redis-cli XRANGE <stream-name> - +
 
 ## Validated baseline
 
+Current text/PNG partial-result checks for real cancellation and cooperative
+SIGTERM use an isolated Docker stack, without changing the normal local service:
+
+```bash
+uv run python scripts/docker_interrupted_result_e2e.py
+```
+
+See [Docker interruption validation](docker-interrupted-result-validation.md)
+for the SINGLE/MULTI × basic/ml matrix, storage/event assertions, notebook
+freshness fix, cleanup rules, and explicit limitations. The older baselines
+below describe their historical contracts and are not current event schemas.
+
 The API contract v2 regression baseline validated on 2026-08-19 produced:
 
 - REST and MCP SINGLE success: two Steps, one immutable Attempt, matching PostgreSQL integration

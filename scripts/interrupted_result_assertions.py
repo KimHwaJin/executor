@@ -60,6 +60,9 @@ def validate_evidence(
         assert event_id not in published or published[event_id] == event
         published[event_id] = event
     assert published == {e["event_id"]: e for e in envelopes}
+    assert [e["event_sequence"] for e in published.values()] == list(
+        range(1, len(envelopes) + 1)
+    ), "Redis first deliveries are not in Execution sequence order"
     for name in ("execution.operation_completed", "execution.completed"):
         terminal = [e for e in envelopes if e["event_type"] == name]
         assert len(terminal) == 1

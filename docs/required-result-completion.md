@@ -29,6 +29,10 @@ WAITING_FOR_OPERATION으로 돌아가며, 노트북 파일은 계속 갱신한�
 - 코드 자체의 오류/timeout/output-limit 뒤 best-effort 노트북 작성도 실패했다면
   원래 실행 실패 유형을 유지하고, 후속 실패는 별도 진단 이력에 남긴다.
 - Lease 소유권 상실/취소는 기존 fencing/cancellation 경로를 유지한다.
+- 협조적 취소/Worker 종료 시 노트북은 마지막 반영본에 머물 수 있다. 최신 Step을
+  미반영한 상태로 이전 projection 성공 표시를 유지하지 않고 `FAILED`와 사유를
+  남긴다(`NOTEBOOK_NOT_REFRESHED / NOTEBOOK_INTERRUPTED`). 부분 출력 원본은
+  공유 PV result_ref에서 읽으며, 취소·종료 중 자동 노트북 재생성은 하지 않는다.
 - 최종 정리가 처음 실패했지만 best-effort 정리가 성공해도 해당 Execution은 보수적으로
   FAILED다. cleanup_status는 실제 정리 결과를 표시하고 원래 실패 진단은 보존한다.
 
