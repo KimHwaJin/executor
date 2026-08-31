@@ -60,7 +60,7 @@ The notebook contains the actually retained warning/partial outputs, not invente
 missing output. `complete=false` describes delivery, not whether Python finished
 some or all of its computation before the limit was observed.
 
-Redis behavior remains compatible:
+Redis event lifecycle remains unchanged:
 
 - `execution.step_completed`: `status=FAILED`, generic Step error code and the
   specific rate/size failure message.
@@ -68,8 +68,9 @@ Redis behavior remains compatible:
   must not interpret `WAITING_FOR_OPERATION` as Operation success.
 - SINGLE `execution.completed`: `status=FAILED`, error code
   `EXECUTION_OUTPUT_LIMIT_EXCEEDED`.
-- Incomplete `result_ref` is still omitted from events by the existing contract.
-  Retrieve Step detail or Execution result to locate partial evidence in shared PV.
+- Since [Phase 6](partial-result-event-references.md), sealed incomplete results
+  are also exposed in Step and Operation events with `result_ref.complete=false`.
+  Read their manifest directly; only missing/unattached references require further diagnosis.
 
 ## Validation
 

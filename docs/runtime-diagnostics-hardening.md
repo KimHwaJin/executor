@@ -2,7 +2,7 @@
 
 ## Status and scope
 
-**Phases 1–5 delivered and tested; overall hardening is still open.**
+**Phases 1–6 delivered; overall hardening is still open.**
 
 Phase 2: [Runtime Output Completeness](runtime-output-completeness.md) fixes the
 observed native Jupyter IOPub rate-suppression completeness mismatch. This document's
@@ -16,6 +16,10 @@ paths and MCP exposure remain follow-up work.
 
 Phase 5 adds [background cleanup/probe diagnostics](background-runtime-diagnostics.md)
 with stale-observation checks and bounded duplicate suppression. No new migration.
+
+Phase 6 adds [partial-result event references](partial-result-event-references.md),
+including guarded DB attachment of cooperatively interrupted output. Step and
+Operation event references now contain an explicit `complete` boolean.
 
 This phase repairs lost operational evidence without changing REST/MCP request or response
 schemas, Redis event schemas, database columns, or Alembic revision `0001`.
@@ -97,8 +101,8 @@ Traced calls additionally record their existing `executor.runtime.*` operation n
    its output files; `complete=false` does not mean no useful output was preserved.
 4. Search `runtime.failure` logs by Execution ID for phase, exception chain and secondary failures.
 
-Do not interpret absence of a Redis result reference as absence of evidence. The existing event
-contract still omits incomplete references; REST can expose them when the descriptor was saved.
+Do not interpret absence of a Redis result reference as absence of evidence. As of Phase 6,
+sealed partial references are exposed in events too; unavailable/unattached evidence is still null.
 The result API is not yet a unified operational diagnostic endpoint.
 
 ## Validation

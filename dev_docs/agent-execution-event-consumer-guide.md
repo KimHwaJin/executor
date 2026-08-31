@@ -193,12 +193,20 @@ Operation 실패라도 `continuation.allowed=true`이면 실패 결과를 바탕
 - Redis에는 전체 코드, 전체 텍스트 출력, 이미지 Base64를 넣지 않는다.
 - `execution.step_completed`의 `result_ref.relative_path`를 공유 PV 루트에 안전하게
   결합한다.
-- Manifest의 checksum, 크기 및 `complete=true`를 검증한 뒤 표현 파일을 읽는다.
+- Manifest의 checksum·크기·실행/Step/Attempt 식별정보와
+  `manifest.complete == result_ref.complete`를 검증한 뒤 표현 파일을 읽는다.
+- `complete=false`도 읽을 수 있는 봉인된 부분 결과다. Agent에는 부분 결과라는 사실과
+  이벤트의 status/error를 함께 전달한다. 파일 읽기에 `complete=true`를 강제하지 않는다.
+- `complete=true`인 코드 오류도 있으므로 완전성만으로 성공을 판단하지 않는다.
+- 각 표현 파일은 manifest 기준 크기/checksum을 확인한다. 전체 출력이 불완전해도 이미
+  보존된 개별 이미지·텍스트 파일의 `complete=true`와 모순되지 않는다.
 - 텍스트와 이미지는 결과 파일에서 읽고, Redis는 결과가 준비됐음을 알리는 wake-up으로
   사용한다.
 - 개별 Step 이벤트를 모두 처리했다면 `execution.operation_completed.step_results` 때문에
   추가 API를 호출할 필요는 없다.
 - 전체 정합성이 의심되거나 Agent가 오래 중단되었다가 복구되면 Result API를 사용한다.
+- `result_ref=null`이면 경로를 추측하지 않는다. 기존 diagnostics API/로그로 결과 저장
+  실패 등을 확인한다. Result API를 다시 호출해도 없는 참조가 생성되는 것은 아니다.
 
 ## 8. 금지사항과 장애 처리
 

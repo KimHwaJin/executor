@@ -25,14 +25,21 @@ from executor_service.events import (
     EVENT_PAYLOAD_MODELS,
     EXECUTION_EVENT_SCHEMA_VERSION,
     ExecutionStreamEnvelope,
+    ResultReference,
+    StepCompletedPayload,
+    StepResult,
     build_execution_event,
 )
 from executor_service.infrastructure.db.models import (
     ExecutionEventORM,
     ExecutionEventSequenceORM,
+    ExecutionStepAttemptORM,
     OutboxEventORM,
 )
 from executor_service.infrastructure.db.session import create_session_factory
+from executor_service.infrastructure.execution_worker._event_writer.payloads import (
+    row_result_reference,
+)
 from executor_service.infrastructure.execution_worker.event_writer import (
     persist_execution_event,
 )
@@ -372,3 +379,93 @@ def test_successful_step_requires_persisted_result() -> None:
                 "error": None,
             },
         )
+
+
+def _result_reference(complete: bool) -> dict[str, object]:
+    return {
+        "storage": "SHARED_PV",
+        "relative_path": "executions/example/manifest.json",
+        "media_type": "application/json",
+        "size_bytes": 256,
+        "checksum_sha256": "a" * 64,
+        "complete": complete,
+    }
+
+
+@pytest.mark.parametrize("status", ["SUCCEEDED", "FAILED", "CANCELLED"])
+@pytest.mark.parametrize("complete", [True, False])
+def test_step_event_separates_success_from_output_completeness(
+    status: str, complete: bool
+) -> None:
+    payload = {
+        "status": status,
+        "operation": {"id": str(uuid4()), "number": 1},
+        "step": {"id": str(uuid4()), "sequence": 0},
+        "attempt": {"id": str(uuid4()), "number": 1, "reason": "INITIAL"},
+        "result_ref": _result_reference(complete),
+        "output_summary": {"count": 0, "content_types": []},
+        "error": None
+        if status == "SUCCEEDED"
+        else {"code": "TEST_FAILURE", "message": "test", "retryable": False},
+    }
+    operation_item = {
+        "step_id": payload["step"]["id"],
+        "sequence": 0,
+        "status": status,
+        "attempt": payload["attempt"],
+        "result_ref": payload["result_ref"],
+    }
+    if status == "SUCCEEDED" and not complete:
+        for model, value in (
+            (StepCompletedPayload, payload),
+            (StepResult, operation_item),
+        ):
+            with pytest.raises(ValidationError, match="complete output"):
+                model.model_validate(value)
+    else:
+        assert (
+            StepCompletedPayload.model_validate(payload).model_dump(
+                mode="json"
+            )
+            == payload
+        )
+        assert StepResult.model_validate(operation_item).result_ref is not None
+
+
+@pytest.mark.parametrize("complete", [None, 0, 1, "true", "false", "missing"])
+def test_result_reference_requires_explicit_boolean_completeness(
+    complete: object,
+) -> None:
+    reference = _result_reference(True)
+    if complete == "missing":
+        del reference["complete"]
+    else:
+        reference["complete"] = complete
+    with pytest.raises(ValidationError):
+        ResultReference.model_validate(reference)
+
+
+@pytest.mark.parametrize(
+    "missing",
+    [
+        None,
+        "result_complete",
+        "result_manifest_path",
+        "result_manifest_size_bytes",
+        "result_manifest_checksum_sha256",
+    ],
+)
+def test_history_reference_requires_persisted_manifest_metadata(
+    missing: str | None,
+) -> None:
+    row = ExecutionStepAttemptORM(
+        result_complete=False,
+        result_manifest_path="executions/example/manifest.json",
+        result_manifest_size_bytes=256,
+        result_manifest_checksum_sha256="a" * 64,
+    )
+    if missing:
+        setattr(row, missing, None)
+        assert row_result_reference(row) is None
+    else:
+        assert row_result_reference(row) == _result_reference(False)

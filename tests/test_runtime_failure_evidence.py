@@ -62,6 +62,7 @@ from executor_service.interfaces._contracts.diagnostics import (
     ExecutionDiagnosticPageResponse,
 )
 from executor_service.interfaces._contracts.steps import ExecutionStepResponse
+from tests.result_evidence_assertions import assert_result_evidence_surfaces
 from tests.runtime_credentials import runtime_credential_fields
 from tests.runtime_storage_fake import InMemoryRuntimeStorage
 
@@ -339,6 +340,7 @@ async def test_failures_preserve_state_reason_partial_refs_and_operator_logs(
         if event.event_type == "execution.step_completed"
     ]
     assert len(step_events) == 1
+    await assert_result_evidence_surfaces(factory, submitted.id, tmp_path)
     assert len(
         [
             event

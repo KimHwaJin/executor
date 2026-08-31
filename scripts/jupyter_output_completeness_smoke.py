@@ -6,6 +6,7 @@ selected stdout workload (5 MiB by default); server limits are never changed.
 """
 
 import asyncio
+import hashlib
 import json
 import os
 from datetime import timedelta
@@ -87,13 +88,18 @@ def workload(scenario: str, size_mib: int = 5) -> str:
             "ServerApp.rate_limit_window=3.0 (secs)\n\n"
         )
         return f"import sys\nsys.stderr.write({warning!r})\nsys.stderr.flush()"
-    return (
+    visual = (
         "print('complete-output-control')\n"
         "import matplotlib.pyplot as plt\n"
         "plt.figure(figsize=(3, 2))\n"
         "plt.plot([1, 2, 3], [1, 4, 9])\n"
         "plt.title('Completion check')\nplt.show()\nplt.close('all')"
     )
+    if scenario == "tool_error":
+        return visual + "\nraise ValueError('expected after image')"
+    if scenario == "timeout":
+        return visual + "\nimport time\ntime.sleep(120)"
+    return visual
 
 
 async def run_case(
@@ -159,7 +165,9 @@ async def run_case(
                     StepSpec(
                         sequence=0,
                         code=workload(scenario, size_mib),
-                        step_timeout_seconds=30,
+                        step_timeout_seconds=10
+                        if scenario == "timeout"
+                        else 30,
                     ),
                     StepSpec(
                         sequence=1,
@@ -228,6 +236,27 @@ async def run_case(
                 if mode == OperationMode.SINGLE
                 else ExecutionStatus.WAITING_FOR_OPERATION
             )
+        elif scenario in {"tool_error", "timeout"}:
+            assert step.status == StepStatus.FAILED
+            assert operation.status == OperationStatus.FAILED
+            assert ref.complete is (scenario == "tool_error")
+            assert result.steps[1].status == StepStatus.SKIPPED
+            assert result.status == (
+                ExecutionStatus.FAILED
+                if mode == OperationMode.SINGLE
+                else ExecutionStatus.WAITING_FOR_OPERATION
+            )
+            if mode == OperationMode.SINGLE:
+                assert result.failure_type == (
+                    FailureType.TOOL_ERROR
+                    if scenario == "tool_error"
+                    else FailureType.STEP_TIMEOUT
+                )
+            assert (
+                "expected after image"
+                if scenario == "tool_error"
+                else "Step timeout"
+            ) in (step.error_message or "")
         else:
             assert step.status == StepStatus.SUCCEEDED
             assert operation.status == OperationStatus.SUCCEEDED
@@ -256,6 +285,8 @@ async def run_case(
                 and item.step_id == step.id
                 for item in diagnostics.items
             )
+        elif scenario in {"tool_error", "timeout"}:
+            assert diagnostics.items
         else:
             assert not diagnostics.items
         assert result.notebook_path is not None
@@ -279,13 +310,36 @@ async def run_case(
         )
         assert first_step_event is not None
         assert first_step_event.payload["status"] == step.status.value
+        event_ref = first_step_event.payload["result_ref"]
+        assert event_ref["relative_path"] == ref.relative_path
+        assert event_ref["complete"] is ref.complete
+        manifest_bytes = (root / ref.relative_path).read_bytes()
+        assert event_ref["size_bytes"] == len(manifest_bytes)
+        assert (
+            event_ref["checksum_sha256"]
+            == hashlib.sha256(manifest_bytes).hexdigest()
+        )
+        manifest = json.loads(manifest_bytes)
+        assert manifest["complete"] is event_ref["complete"]
+        assert first_step_event.payload["output_summary"]["count"] == len(
+            manifest["outputs"]
+        )
+        operation_event = next(
+            item.execution_event
+            for item in events
+            if item.event_type == "execution.operation_completed"
+        )
+        assert operation_event is not None
+        assert operation_event.payload["step_results"][0]["result_ref"] == (
+            event_ref
+        )
         if scenario == "data_limit":
             assert notebook["cells"][1]["outputs"] == []
             assert (
                 first_step_event.payload["error"]["message"]
                 == step.error_message
             )
-            assert first_step_event.payload["result_ref"] is None
+            assert event_ref["complete"] is False
         assert (
             sum(
                 event.event_type == "execution.operation_completed"
@@ -296,7 +350,7 @@ async def run_case(
         assert sum(
             event.event_type == "execution.completed" for event in events
         ) == (1 if mode == OperationMode.SINGLE else 0)
-        if scenario == "normal":
+        if scenario in {"normal", "tool_error", "timeout"}:
             assert any(
                 isinstance(data := output.get("data"), dict)
                 and "image/png" in data
@@ -397,9 +451,13 @@ async def run_case(
             runtime_session_id = result.runtime_session_id
             assert result.status == ExecutionStatus.SUCCEEDED
             assert runtime_session_id is None
-            assert all(
-                item.status == StepStatus.SUCCEEDED for item in result.steps
+            assert [item.status for item in result.steps] == (
+                [StepStatus.FAILED, StepStatus.SKIPPED, StepStatus.SUCCEEDED]
+                if scenario in {"tool_error", "timeout"}
+                else [StepStatus.SUCCEEDED] * 3
             )
+            assert result.steps[0].result_manifest_path == ref.relative_path
+            assert result.steps[0].result_complete is ref.complete
             assert result.notebook_path is not None
             gateway = JupyterRuntimeDriver(endpoint, token)
             try:
@@ -488,7 +546,13 @@ async def main() -> None:
         )
     with TemporaryDirectory(prefix="executor-output-check-") as temporary:
         for mode in (OperationMode.SINGLE, OperationMode.MULTI):
-            scenarios = ("normal", "kernel_warning", "data_limit")
+            scenarios = (
+                "normal",
+                "kernel_warning",
+                "data_limit",
+                "tool_error",
+                "timeout",
+            )
             if mode == OperationMode.MULTI:
                 scenarios += ("background",)
             for scenario in scenarios:

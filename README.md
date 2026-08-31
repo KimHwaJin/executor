@@ -280,6 +280,9 @@ for Step versus Operation/Execution success semantics.
 Background cleanup/probe failures use the existing diagnostics API; see
 [Background Runtime Diagnostics](docs/background-runtime-diagnostics.md) for
 stale-observation protection and five-minute duplicate suppression.
+Sealed partial output is available through Step/Operation event references;
+see [Partial Result Event References](docs/partial-result-event-references.md)
+for `complete` semantics, cancellation evidence and development contract cutover.
 Databases from older, discarded development baselines still require separate
 recreation after backup, even when their revision string happens to be `0001`. See
 [Database Operations](docs/database-operations.md).

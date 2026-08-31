@@ -36,15 +36,14 @@ async def operation_payload(
 
 def stored_result_reference(
     stored_result: StepResultDescriptor,
-) -> dict[str, object] | None:
-    if not stored_result.complete:
-        return None
+) -> dict[str, object]:
     return {
         "storage": "SHARED_PV",
         "relative_path": stored_result.reference.relative_path,
         "media_type": "application/json",
         "size_bytes": stored_result.reference.size_bytes,
         "checksum_sha256": stored_result.reference.checksum_sha256,
+        "complete": stored_result.complete,
     }
 
 
@@ -52,7 +51,7 @@ def row_result_reference(
     row: ExecutionStepAttemptORM,
 ) -> dict[str, object] | None:
     if not (
-        row.result_complete
+        row.result_complete is not None
         and row.result_manifest_path is not None
         and row.result_manifest_checksum_sha256 is not None
         and row.result_manifest_size_bytes is not None
@@ -64,6 +63,7 @@ def row_result_reference(
         "media_type": "application/json",
         "size_bytes": row.result_manifest_size_bytes,
         "checksum_sha256": row.result_manifest_checksum_sha256,
+        "complete": row.result_complete,
     }
 
 

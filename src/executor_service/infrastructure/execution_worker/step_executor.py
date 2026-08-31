@@ -10,7 +10,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from executor_service.domain.diagnostics import DiagnosticCategory
-from executor_service.domain.enums import StepStatus
+from executor_service.domain.enums import ExecutionStatus, StepStatus
 from executor_service.domain.models import (
     ExecutionStep,
     empty_output_summary,
@@ -39,6 +39,7 @@ from executor_service.infrastructure.db.models import (
 from executor_service.infrastructure.diagnostic_store import DiagnosticRecorder
 from executor_service.infrastructure.execution_leases import (
     ExecutionLease,
+    ExecutionLeaseLostError,
     require_active_lease,
 )
 from executor_service.infrastructure.execution_worker.event_writer import (
@@ -367,7 +368,6 @@ class ExecutionStepExecutor:
             code,
             result_identity,
             source_reference,
-            seal_on_cancel=not timeouts,
         )
         try:
             if not timeouts:
@@ -391,10 +391,26 @@ class ExecutionStepExecutor:
                 scope, timeout_seconds, stored
             ) from exc
         except asyncio.CancelledError as exc:
-            if timeouts:
-                await self._preserve_failure_result(
-                    observations, result_identity, exc
-                )
+            stored = await self._preserve_failure_result(
+                observations, result_identity, exc
+            )
+            if stored is not None:
+                try:
+                    async with asyncio.timeout(2):
+                        await self._record_interrupted_result(
+                            lease, sequence, stored
+                        )
+                except ExecutionLeaseLostError:
+                    # The new owner alone may decide the terminal outcome.
+                    # Never attach this file to a later Attempt or fence.
+                    pass
+                except Exception as persist_error:
+                    self._log_failure(
+                        observations,
+                        result_identity,
+                        persist_error,
+                        "RESULT_REFERENCE_PERSIST",
+                    )
             raise
         finally:
             # Diagnostic I/O is outside the execution deadline. A slow DB must
@@ -411,6 +427,53 @@ class ExecutionStepExecutor:
                     or isinstance(error, RuntimeOutputLimitExceededError)
                     else DiagnosticCategory.EXECUTION,
                 )
+
+    async def _record_interrupted_result(
+        self,
+        lease: ExecutionLease,
+        sequence: int,
+        stored: StepResultDescriptor,
+    ) -> None:
+        """Attach evidence before releasing ownership, without a transition."""
+
+        async with self._session_factory() as session, session.begin():
+            await require_active_lease(
+                session,
+                lease,
+                allowed_statuses=(
+                    ExecutionStatus.RUNNING,
+                    ExecutionStatus.CANCEL_REQUESTED,
+                ),
+            )
+            if (
+                stored.reference.execution_attempt_id != lease.attempt_id
+                or stored.reference.fencing_token != lease.fencing_token
+            ):
+                raise ValueError("Interrupted result ownership conflicts.")
+            rows = (
+                await session.execute(
+                    select(ExecutionStepORM, ExecutionStepAttemptORM)
+                    .join(
+                        ExecutionStepAttemptORM,
+                        ExecutionStepAttemptORM.execution_step_id
+                        == ExecutionStepORM.id,
+                    )
+                    .where(
+                        ExecutionStepORM.execution_id == lease.execution_id,
+                        ExecutionStepORM.sequence == sequence,
+                        ExecutionStepORM.status == StepStatus.RUNNING,
+                        ExecutionStepAttemptORM.execution_attempt_id
+                        == lease.attempt_id,
+                        ExecutionStepAttemptORM.status == StepStatus.RUNNING,
+                    )
+                )
+            ).one()
+            step, history = rows
+            step.result_execution_attempt_id = lease.attempt_id
+            step.updated_at = utc_now()
+            for row in (step, history):
+                row.output_summary = stored.output_summary
+                _assign_step_result(row, stored)
 
     @staticmethod
     def result_identity(
@@ -455,8 +518,6 @@ class ExecutionStepExecutor:
         code: str,
         identity: StepResultIdentity,
         source_reference: ExecutionSourceReference,
-        *,
-        seal_on_cancel: bool = True,
     ) -> StepResultDescriptor:
         committed_offset = 0
         phase = "RESULT_PREPARE"
@@ -548,14 +609,6 @@ class ExecutionStepExecutor:
             raise StoredRuntimeExecutionError(
                 str(exc), exc.outputs, stored
             ) from exc
-        except asyncio.CancelledError as exc:
-            # With deadlines the outer handler distinguishes timeout from
-            # user/Worker cancellation before writing the terminal manifest.
-            if seal_on_cancel:
-                await self._preserve_failure_result(
-                    observations, identity, exc
-                )
-            raise
         except Exception as exc:
             self._log_failure(observations, identity, exc, phase)
             stored = await self._preserve_failure_result(
@@ -610,7 +663,7 @@ class ExecutionStepExecutor:
 
 
 def _assign_step_result(
-    step: ExecutionStepORM,
+    step: ExecutionStepORM | ExecutionStepAttemptORM,
     stored_result: StepResultDescriptor,
 ) -> None:
     step.result_manifest_path = stored_result.reference.relative_path

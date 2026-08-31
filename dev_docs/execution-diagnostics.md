@@ -81,6 +81,10 @@ DB/API에 복제하지 않는다. Stack 위치는 기존 `runtime.failure` 로�
 `RUNTIME_ABORT`, `RUNTIME_ABORT_RESULT`, `RUNTIME_DELETE_AFTER_ABORT`,
 `RUNTIME_INTERRUPT`, `RUNTIME_DELETE`, `EXECUTION_RUN`이다.
 
+`RESULT_REFERENCE_PERSIST`는 취소/Worker 중단 때 봉인된 파일을 Step·StepAttempt DB에
+연결하지 못한 경우다. 원래 취소를 일반 실행 실패로 바꾸지 않고 별도 원인을 남긴다.
+DB가 계속 불가용하면 안전한 운영 로그만 남을 수 있다.
+
 백그라운드 관측에는 `RECOVERY_TARGET`, `RECOVERY_DRIVER_CREATE`,
 `RECOVERY_SESSION_DELETE`, `RECOVERY_DRIVER_CLOSE`, `RECOVERY_RESULT_PERSIST`,
 `MULTI_DRIVER_CREATE`, `MULTI_SESSION_PROBE`, `MULTI_DRIVER_CLOSE`도 포함된다.
