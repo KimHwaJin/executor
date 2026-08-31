@@ -685,9 +685,9 @@ failure. It must retain Runtime release evidence and inject all service credenti
 ## PR-008: Trustworthy Runtime diagnostics and completion reporting
 
 - Priority: P0 for known output loss reported as complete; P1 for diagnostic consistency
-- Status: IMPLEMENTING — Phases 1–5 delivered; broader failure/load coverage open
+- Status: IMPLEMENTING — Phases 1–6 delivered; broader failure/load coverage open
 - Area: Runtime adapters, Worker errors, shared results, projection, cleanup, operator logs
-- Public API impact: Phase 3 adds diagnostic history REST reads; existing API/event/manifest fields unchanged
+- Public API impact: Phase 3 adds diagnostic REST reads; Phase 6 adds event result_ref.complete; manifest unchanged
 - Details: [Runtime Diagnostics Hardening](runtime-diagnostics-hardening.md)
 
 ### Implemented Phase 1
@@ -752,6 +752,20 @@ failure. It must retain Runtime release evidence and inject all service credenti
 - No new API, event fields or migration. Details and validation:
   [background Runtime diagnostics](background-runtime-diagnostics.md).
 
+### Implemented Phase 6
+
+- Expose sealed incomplete Step results in Step and Operation events with a
+  required `result_ref.complete` boolean. Preserve bounded summaries, event
+  order and version `1.0`; success still requires complete output.
+- Attach cooperatively interrupted results to Step/StepAttempt under the
+  existing live lease before cancellation/shutdown releases it. Bound this DB
+  write to two seconds and preserve secondary failure diagnostics.
+- Expose cancelled StepAttempt references in existing REST reads. No migration.
+- Compare event/REST/result/manifest evidence, actual Redis publication and
+  stale-write rejection. Developer docs explicitly cover the development
+  contract cutover and do not fabricate completeness for old events.
+- Scope and validation: [partial-result event references](partial-result-event-references.md).
+
 ### Completion criteria still open
 
 - Maintain the no-false-completeness rule across supported Runtime variants.
@@ -768,6 +782,7 @@ failure. It must retain Runtime release evidence and inject all service credenti
 Phase 2 resolves the reproduced native-warning false-success case in
 [expanded output validation](output-expansion-validation.md). Phase 3 adds DB/REST
 diagnostics; Phase 4 implements mandatory delivery policy and Phase 5 covers
-background cleanup/probe observations. Full lifecycle coverage,
-cross-surface references and broader load/failure validation remain open. These test
+background cleanup/probe observations. Phase 6 aligns partial evidence references
+across events/REST/manifests. Full lifecycle coverage, diagnostic links and broader
+load/failure validation remain open. These test
 counts alone are not a full production-readiness claim.

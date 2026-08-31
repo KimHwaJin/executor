@@ -12,6 +12,11 @@
 manifest는 Agent/Executor 공유 PV에 존재한다. Agent는 자신의 공유 PV 마운트 루트에
 `result_ref.relative_path`를 결합해 파일을 읽는다.
 
+Redis Step 완료 이벤트와 Operation 완료 이벤트의 `step_results[].result_ref`도
+같은 manifest를 가리킨다. 참조의 `complete`와 manifest의 `complete`를 대조한다.
+`false`인 봉인된 manifest도 부분 증거로 읽을 수 있으며 Result API를 추가 호출할
+필요는 없다. 개별 표현 파일의 checksum/크기는 별도로 검증한다.
+
 ## 전체 예시
 
 ```json

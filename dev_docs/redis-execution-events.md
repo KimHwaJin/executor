@@ -12,6 +12,11 @@
 - 상태 원본: PostgreSQL
 - 결과 원본: 공유 PV의 Step 결과 파일
 
+2026-08-31 개선: 모든 비-null `result_ref`에 필수 boolean `complete`를 추가하고
+불완전한 봉인 결과도 제공한다. 버전 문자열은 1.0을 유지하지만, 이전 참조 이벤트의
+자동 변환/호환 처리는 없다. 기존 pending Outbox와 과거 이력 재처리 전환 주의사항은
+[부분 결과 참조 전환 가이드](../docs/partial-result-event-references.md#개발-계약-전환-주의)를 참고한다.
+
 이벤트는 상태 원본이 아니다. 이벤트는 상태 변경을 알리고, 실행 중 생성된 Step 결과
 파일을 찾을 수 있게 하는 통합 계약이다. 상태 충돌, 이벤트 누락 또는 재처리 시에는
 Executor API와 PostgreSQL 상태를 기준으로 조회/복구한다.
@@ -73,7 +78,7 @@ GET /api/v1/executions/{execution_id}/result
 ### 출력 제한 실패와 부분 결과
 
 Jupyter가 IOPub 데이터/메시지 전송량 제한으로 출력을 차단한 경우에도 기존
-`OUTPUT_LIMIT_EXCEEDED` 실패 체계를 사용한다. 이벤트 스키마 변경은 없다.
+`OUTPUT_LIMIT_EXCEEDED` 실패 체계를 사용한다. 이벤트 종류와 envelope는 유지한다.
 
 - Step / Operation 완료 이벤트의 `status`는 `FAILED`이며, `error.message`에
   출력 제한 사유가 남는다. 일반 사용자 코드가 같은 경고 문구를 출력하는 것은
@@ -82,10 +87,13 @@ Jupyter가 IOPub 데이터/메시지 전송량 제한으로 출력을 차단한 
   `error.code=EXECUTION_OUTPUT_LIMIT_EXCEEDED`로 종료한다.
 - MULTI는 런타임 유휴 상태 확인에 성공하면 Execution이
   `WAITING_FOR_OPERATION`이 될 수 있다. 이는 해당 Operation의 성공을 뜻하지 않는다.
-- 기존 계약상 불완전한 `result_ref`는 이벤트에 포함하지 않는다. 부분 증거가
-  필요하면 Step 상세 또는 위 Result API에서 참조를 조회한다.
+- 부분 결과의 manifest가 봉인되고 DB 참조까지 저장됐다면 Step 이벤트의
+  `result_ref`와 Operation 이벤트의 `step_results[].result_ref`로 직접 제공한다.
   참조의 `complete=false`와 실패 사유를 확인하고, 보존된 경고/출력을 전체 결과로
   해석하지 않는다. 이미 서버가 버린 출력을 복원하는 기능은 아니다.
+- 봉인 또는 DB 참조 저장에 실패하면 `result_ref=null`일 수 있다. 파일이 전혀 없다는
+  뜻이 아니라 소비자에게 제공할 확정 참조가 없다는 뜻이다. 이 경우 기존 diagnostics
+  API와 운영 로그에서 원인을 확인한다. `.partial` 디렉토리를 추측해서 읽지 않는다.
 
 검증 범위와 운영상 주의점은
 [Runtime output completeness](../docs/runtime-output-completeness.md)를 참고한다.
@@ -201,7 +209,8 @@ Attempt는 PostgreSQL에서 Execution의 실행 시도 이력으로 관리한다
   "relative_path": "executions/.../manifest.json",
   "media_type": "application/json",
   "size_bytes": 1842,
-  "checksum_sha256": "f7b6..."
+  "checksum_sha256": "f7b6...",
+  "complete": true
 }
 ```
 
@@ -212,6 +221,21 @@ Attempt는 PostgreSQL에서 Execution의 실행 시도 이력으로 관리한다
 | `media_type` | string | 참조 파일의 MIME type |
 | `size_bytes` | integer, 0 이상 | 참조 파일 크기 |
 | `checksum_sha256` | string | 파일 무결성 확인용 SHA-256 |
+| `complete` | boolean, 필수 | 출력 스트림의 완전 수집 여부. 실행 성공 여부와 다름 |
+
+`size_bytes`와 checksum은 **manifest 파일** 기준이며 출력 파일 총량이 아니다.
+참조가 있다는 것은 manifest가 봉인되고 DB에 연결됐다는 뜻이다. `complete=false`라도
+보존된 코드·텍스트·이미지는 읽을 수 있다. `output_summary`도 보존된 출력만 집계한다.
+
+| Step status | result_ref | 의미 |
+|---|---|---|
+| `SUCCEEDED` | `complete=true` | 코드와 출력 저장 모두 성공 |
+| `FAILED` | `complete=true` | 코드 오류가 정상 수신되어 오류까지 수집됨 |
+| `FAILED` / `CANCELLED` | `complete=false` | 출력 중단. 보존된 파일은 부분 증거로 사용 |
+| `FAILED` / `CANCELLED` | `null` | 제공할 확정 manifest 참조가 없음 |
+
+`complete=true`만 보고 실행 성공으로 판단하지 않는다. 실제 status와 error를 함께 본다.
+`complete=false`를 이유로 파일을 폐기하거나 자동으로 코드를 재실행하지 않는다.
 
 `relative_path`는 반드시 상대경로여야 한다. `..`, 절대경로 및 공유 PV 루트 이탈은
 허용하지 않는다.
@@ -228,7 +252,7 @@ Attempt는 PostgreSQL에서 Execution의 실행 시도 이력으로 관리한다
 }
 ```
 
-- `count`: Runtime이 생성한 출력 record 수
+- `count`: manifest에 실제 보존된 출력 record 수(완전한 출력 총량을 뜻하지 않음)
 - `content_types`: 출력 representation의 중복 없는 MIME type 목록
 - `content_types`는 오름차순으로 정렬
 - 전체 텍스트, 이미지 Base64 및 traceback은 포함하지 않음
@@ -401,7 +425,8 @@ Step 실행 종료
       "relative_path": "executions/.../manifest.json",
       "media_type": "application/json",
       "size_bytes": 1842,
-      "checksum_sha256": "f7b6..."
+      "checksum_sha256": "f7b6...",
+      "complete": true
     },
     "output_summary": {
       "count": 2,
@@ -435,13 +460,17 @@ Step 실행 종료
 | `operation` | object | O | Operation ID와 순번 |
 | `step` | Step | O | 종료된 Step |
 | `attempt` | Attempt | O | 이번 수행 시도 |
-| `result_ref` | ResultReference 또는 null | O | 완성된 Step Manifest 참조 |
+| `result_ref` | ResultReference 또는 null | O | 봉인된 Step Manifest 참조. 부분 결과 포함 |
 | `output_summary` | OutputSummary 또는 null | O | 저장된 출력 요약 |
 | `error` | ErrorSummary 또는 null | O | 실패 또는 취소 요약 |
 
-- `SUCCEEDED`이면 `result_ref`와 `output_summary`가 반드시 존재한다.
-- `FAILED`라도 실행 오류와 부분 출력이 저장됐다면 참조를 제공한다.
-- 결과 저장 자체가 실패하면 `result_ref`와 `output_summary`는 `null`이다.
+- `SUCCEEDED`이면 `result_ref.complete=true`이며 `output_summary`도 반드시 존재한다.
+- `FAILED` / `CANCELLED`도 확정된 manifest가 저장됐다면 완전성 여부와 무관하게 참조한다.
+- `result_ref`와 `output_summary`는 함께 존재하거나 함께 `null`이다.
+- 출력을 하나도 수집하지 못했어도 코드가 포함된 manifest가 봉인됐다면 참조가 존재하고
+  요약은 `count=0`, `content_types=[]`이다.
+- 취소 시 원래 Worker가 유효한 lease 안에서 저장한 참조를 취소 담당 Worker가 읽어
+  완료 이벤트에 싣는다. lease를 잃었거나 강제 종료돼 DB 연결에 실패하면 `null`일 수 있다.
 - `CANCELLED`는 완전한 결과가 보존된 경우에만 참조를 제공한다.
 - 성공이면 `error`는 `null`이다.
 
@@ -465,7 +494,7 @@ Operation 성공은 소속 Step 결과, 노트북 저장, 실제 발견된 아�
 - 마지막 Operation이 실패했으면 finalize 요청은 409이며, 보정 Operation을 성공시킨
   뒤 finalize하거나 cancel한다. 이전 실패 Operation 이력은 삭제하지 않는다.
 
-이벤트 envelope와 schema_version `1.0`, 기존 result_ref 형식은 유지한다.
+이벤트 envelope와 schema_version `1.0`은 유지한다. `result_ref.complete`로 완전성을 구분한다.
 원인 조사는 diagnostics API로 하고, 이 실패를 코드 retry로 복구하지 않는다.
 자동 노트북 재생성/후처리 복구 API는 아직 제공하지 않는다.
 
@@ -507,7 +536,8 @@ MULTI 성공 예시:
           "relative_path": "executions/.../manifest.json",
           "media_type": "application/json",
           "size_bytes": 1842,
-          "checksum_sha256": "f7b6..."
+          "checksum_sha256": "f7b6...",
+          "complete": true
         }
       }
     ],

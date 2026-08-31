@@ -176,9 +176,16 @@ Step metadata로 받은 값을 저장한다.
 | `relative_path` | string | 공유 PV 루트 기준 Step 결과 `manifest.json` 경로 |
 | `checksum_sha256` | string | `manifest.json` 파일의 SHA-256 checksum |
 | `size_bytes` | integer | `manifest.json` 파일 자체의 크기 |
-| `complete` | boolean | manifest 기록이 정상적으로 종료됐는지 |
+| `complete` | boolean | Runtime 출력 스트림을 완전히 수집했는지. 실행 성공 여부와 다름 |
 | `representation_count` | integer | 출력에 저장된 MIME representation 총개수 |
 | `total_size_bytes` | integer | 출력 representation 파일 크기의 합계 |
+
+`result_ref`는 이미 봉인된 manifest를 가리킨다. `complete=false`도 파일 기록 중이라는
+뜻이 아니며 보존된 코드·텍스트·이미지를 부분 증거로 읽을 수 있다. 실행 오류를 끝까지
+수집하면 Step이 `FAILED`여도 `complete=true`다. 성공 판단은 Step status로 한다.
+
+Step/Operation 완료 이벤트의 경량 `result_ref`에도 동일한 `complete`와 파일 경로,
+크기/checksum이 제공되므로 이벤트 참조가 있으면 이 API를 반드시 추가 호출할 필요는 없다.
 
 `relative_path`는 절대경로가 아니다. Agent는 자신의 공유 PV 마운트 루트에
 `relative_path`를 결합해야 한다.
