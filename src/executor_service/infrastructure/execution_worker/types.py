@@ -16,6 +16,9 @@ from executor_service.domain.runtime import (
     RuntimeExecutionTimeoutError,
     RuntimeOutputLimitExceededError,
 )
+from executor_service.infrastructure.background_diagnostics import (
+    RuntimeObservation,
+)
 from executor_service.infrastructure.execution_leases import CancellationLease
 
 
@@ -41,7 +44,7 @@ class CancellationWork:
 @dataclass(frozen=True, slots=True)
 class ExpiredLeaseRecovery:
     execution_count: int
-    cleanup_targets: tuple[tuple[UUID, UUID | None, UUID, str], ...]
+    cleanup_targets: tuple[RuntimeObservation, ...]
 
 
 class StoredRuntimeExecutionError(RuntimeExecutionError):

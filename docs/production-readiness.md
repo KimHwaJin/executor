@@ -685,7 +685,7 @@ failure. It must retain Runtime release evidence and inject all service credenti
 ## PR-008: Trustworthy Runtime diagnostics and completion reporting
 
 - Priority: P0 for known output loss reported as complete; P1 for diagnostic consistency
-- Status: IMPLEMENTING — Phases 1–4 delivered; broader failure/lifecycle coverage open
+- Status: IMPLEMENTING — Phases 1–5 delivered; broader failure/load coverage open
 - Area: Runtime adapters, Worker errors, shared results, projection, cleanup, operator logs
 - Public API impact: Phase 3 adds diagnostic history REST reads; existing API/event/manifest fields unchanged
 - Details: [Runtime Diagnostics Hardening](runtime-diagnostics-hardening.md)
@@ -738,6 +738,20 @@ failure. It must retain Runtime release evidence and inject all service credenti
   outside DB locks. Add data-preserving migration `0003`.
 - Scope and validation: [required-result completion](required-result-completion.md).
 
+### Implemented Phase 5
+
+- Record bounded background session cleanup and MULTI probe failures through the
+  existing diagnostic API, preserving primary execution errors.
+- Compare captured Execution version/fence/Operation/target/session before writes
+  and terminal transitions; keep active-lease diagnostic validation unchanged.
+- Reserve expired retained sessions in the DB before remote deletion, block
+  concurrent retry admission and isolate individual target/driver/close failures.
+- Deduplicate stable observations across processes in a five-minute window;
+  bound local cache, recent-history reads and diagnostic DB deadlines. Use safe,
+  rate-limited logs for batch-query failures without a trustworthy Execution scope.
+- No new API, event fields or migration. Details and validation:
+  [background Runtime diagnostics](background-runtime-diagnostics.md).
+
 ### Completion criteria still open
 
 - Maintain the no-false-completeness rule across supported Runtime variants.
@@ -753,6 +767,7 @@ failure. It must retain Runtime release evidence and inject all service credenti
 
 Phase 2 resolves the reproduced native-warning false-success case in
 [expanded output validation](output-expansion-validation.md). Phase 3 adds DB/REST
-diagnostics; Phase 4 implements mandatory delivery policy. Full lifecycle coverage,
+diagnostics; Phase 4 implements mandatory delivery policy and Phase 5 covers
+background cleanup/probe observations. Full lifecycle coverage,
 cross-surface references and broader load/failure validation remain open. These test
 counts alone are not a full production-readiness claim.

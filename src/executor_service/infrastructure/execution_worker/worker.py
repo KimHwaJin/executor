@@ -171,7 +171,6 @@ class ExecutionWorker:
         self._retained_session_cleaner = RetainedSessionCleaner(
             session_factory,
             settings,
-            self._driver_provider,
             self._session_recovery,
         )
         self._dispatcher = ExecutionJobDispatcher()
@@ -371,8 +370,10 @@ class ExecutionWorker:
                 await self._lease_recovery.recover()
             except asyncio.CancelledError:
                 raise
-            except Exception:
-                logger.exception("Execution lease recovery failed")
+            except Exception as exc:
+                self._session_recovery.diagnostics.log_loop_failure(
+                    exc, phase="LEASE_RECOVERY_SCAN"
+                )
             await asyncio.sleep(self._settings.execution_heartbeat_seconds)
 
     async def _retained_runtime_session_cleanup_loop(self) -> None:
@@ -381,8 +382,10 @@ class ExecutionWorker:
                 await self._retained_session_cleaner.reconcile()
             except asyncio.CancelledError:
                 raise
-            except Exception:
-                logger.exception("Retained runtime session cleanup failed")
+            except Exception as exc:
+                self._session_recovery.diagnostics.log_loop_failure(
+                    exc, phase="RETAINED_CLEANUP_SCAN"
+                )
             await asyncio.sleep(self._settings.execution_heartbeat_seconds)
 
     async def _multi_lifecycle_loop(self) -> None:
@@ -391,8 +394,10 @@ class ExecutionWorker:
                 await self._multi_lifecycle.audit()
             except asyncio.CancelledError:
                 raise
-            except Exception:
-                logger.exception("MULTI execution lifecycle audit failed")
+            except Exception as exc:
+                self._session_recovery.diagnostics.log_loop_failure(
+                    exc, phase="MULTI_LIFECYCLE_SCAN"
+                )
             await asyncio.sleep(self._settings.execution_heartbeat_seconds)
 
     async def _maintenance_run_loop(self) -> None:

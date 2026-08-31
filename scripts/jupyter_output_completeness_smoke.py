@@ -8,6 +8,7 @@ selected stdout workload (5 MiB by default); server limits are never changed.
 import asyncio
 import json
 import os
+from datetime import timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from uuid import uuid4
@@ -31,16 +32,19 @@ from executor_service.domain.enums import (
     OperationMode,
     OperationStatus,
     RuntimePool,
+    RuntimeSessionCleanupStatus,
     RuntimeTargetStatus,
     RuntimeType,
     StepStatus,
     TriggerType,
 )
+from executor_service.domain.models import utc_now
 from executor_service.domain.results import StepResultReference
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.base import Base
 from executor_service.infrastructure.db.models import (
     ExecutionOperationORM,
+    ExecutionORM,
     OutboxEventORM,
     RuntimeTargetORM,
 )
@@ -299,7 +303,73 @@ async def run_case(
                 for output in outputs
             )
         finalized = False
-        if mode == OperationMode.MULTI and scenario != "data_limit":
+        if scenario == "background":
+            assert mode == OperationMode.MULTI
+            # Fault only this disposable DB's target, never the shared server.
+            async with factory() as session, session.begin():
+                target = await session.scalar(select(RuntimeTargetORM))
+                assert target is not None
+                original_connection = dict(target.connection_config)
+                target.connection_config = {"endpoint": "http://127.0.0.1:9"}
+            try:
+                await worker._multi_lifecycle.audit()
+                await worker._multi_lifecycle.audit()
+                observed = await service.get(execution.id)
+                assert observed.status == ExecutionStatus.WAITING_FOR_OPERATION
+                assert observed.version == result.version
+                diagnostics = await SQLAlchemyDiagnosticQueryService(
+                    factory
+                ).list(execution.id)
+                assert len(diagnostics.items) == 1
+                assert (
+                    diagnostics.items[0].diagnostic.phase
+                    == "MULTI_SESSION_PROBE"
+                )
+                assert (
+                    diagnostics.items[0].diagnostic.code
+                    == "RUNTIME_UNAVAILABLE"
+                )
+            finally:
+                async with factory() as session, session.begin():
+                    target = await session.scalar(select(RuntimeTargetORM))
+                    assert target is not None
+                    target.connection_config = original_connection
+            # Natural wait-expiry path must delete the actual retained kernel.
+            async with factory() as session, session.begin():
+                row = await session.get(ExecutionORM, execution.id)
+                assert row is not None
+                row.operation_wait_expires_at = utc_now() - timedelta(
+                    seconds=1
+                )
+            await worker._multi_lifecycle.audit()
+            result = await service.get(execution.id)
+            runtime_session_id = result.runtime_session_id
+            assert result.status == ExecutionStatus.FAILED
+            assert result.failure_type == FailureType.OPERATION_WAIT_TIMEOUT
+            assert (
+                result.runtime_session_cleanup_status
+                == RuntimeSessionCleanupStatus.SUCCEEDED
+            )
+            assert runtime_session_id is None
+            async with factory() as session:
+                events = list(
+                    await session.scalars(
+                        select(OutboxEventORM).where(
+                            OutboxEventORM.aggregate_id == execution.id,
+                        )
+                    )
+                )
+            assert (
+                sum(
+                    event.event_type == "execution.completed"
+                    for event in events
+                )
+                == 1
+            )
+        if mode == OperationMode.MULTI and scenario not in {
+            "data_limit",
+            "background",
+        }:
             # Exercise an additional Operation and terminal delivery without
             # replaying earlier code or using the running Executor database.
             await service.create_operation(
@@ -418,7 +488,10 @@ async def main() -> None:
         )
     with TemporaryDirectory(prefix="executor-output-check-") as temporary:
         for mode in (OperationMode.SINGLE, OperationMode.MULTI):
-            for scenario in ("normal", "kernel_warning", "data_limit"):
+            scenarios = ("normal", "kernel_warning", "data_limit")
+            if mode == OperationMode.MULTI:
+                scenarios += ("background",)
+            for scenario in scenarios:
                 report = await run_case(
                     Path(temporary), endpoint, token, mode, scenario, size_mib
                 )

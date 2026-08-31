@@ -6,6 +6,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from executor_service.domain.diagnostics import DiagnosticCategory
 from executor_service.domain.enums import (
     AttemptStatus,
     ExecutionStatus,
@@ -15,7 +16,10 @@ from executor_service.domain.enums import (
     RuntimeSessionCleanupStatus,
 )
 from executor_service.domain.models import utc_now
-from executor_service.domain.runtime import RuntimeDriverError
+from executor_service.domain.runtime import RuntimeDriver
+from executor_service.infrastructure.background_diagnostics import (
+    RuntimeObservation,
+)
 from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
     ExecutionORM,
@@ -62,7 +66,7 @@ class MultiLifecycleAuditor:
             waiting = list(
                 await session.execute(
                     select(ExecutionORM, RuntimeTargetORM)
-                    .join(
+                    .outerjoin(
                         RuntimeTargetORM,
                         RuntimeTargetORM.id == ExecutionORM.runtime_target_id,
                     )
@@ -76,61 +80,92 @@ class MultiLifecycleAuditor:
                 )
             )
         for execution, target in waiting:
-            if (
-                execution.execution_expires_at is not None
-                and _as_utc(execution.execution_expires_at) <= now
-            ):
-                await self._fail_waiting_execution(
-                    execution.id,
-                    execution.runtime_session_id,
-                    FailureType.EXECUTION_TIMEOUT,
-                    "Execution exceeded its maximum runtime while waiting for the Agent.",
-                )
-                continue
-            if (
-                execution.operation_wait_expires_at is not None
-                and _as_utc(execution.operation_wait_expires_at) <= now
-            ):
-                await self._fail_waiting_execution(
-                    execution.id,
-                    execution.runtime_session_id,
-                    FailureType.OPERATION_WAIT_TIMEOUT,
-                    "The next Operation was not provided before the wait deadline.",
-                )
-                continue
-            if not target.enabled:
-                await self._fail_waiting_execution(
-                    execution.id,
-                    execution.runtime_session_id,
-                    FailureType.RUNTIME_UNAVAILABLE,
-                    "The assigned Runtime Target was disabled while waiting for the Agent.",
-                )
-                continue
-            if execution.runtime_session_id is None:
-                await self._fail_waiting_execution(
-                    execution.id,
-                    None,
-                    FailureType.RUNTIME_SESSION_LOST,
-                    "The retained MULTI Runtime session reference was lost.",
-                )
-                continue
-            driver = self._driver_provider.create(target)
+            observation = RuntimeObservation.capture(execution)
             try:
-                session_exists = await driver.session_exists(
-                    execution.runtime_session_id
+                await self._audit_waiting(execution, target, observation, now)
+            except Exception as exc:
+                await self._session_recovery.diagnostics.record(
+                    observation,
+                    exc,
+                    phase="MULTI_AUDIT",
+                    category=DiagnosticCategory.EXECUTION,
                 )
-            except RuntimeDriverError:
-                # OFFLINE can be temporary. The persisted deadlines remain the terminal guard.
-                continue
-            finally:
-                await driver.close()
-            if not session_exists:
-                await self._fail_waiting_execution(
-                    execution.id,
-                    execution.runtime_session_id,
-                    FailureType.RUNTIME_SESSION_LOST,
-                    "The retained MULTI Runtime session no longer exists.",
-                )
+
+    async def _audit_waiting(
+        self,
+        execution: ExecutionORM,
+        target: RuntimeTargetORM | None,
+        observation: RuntimeObservation,
+        now: datetime,
+    ) -> None:
+        if (
+            execution.execution_expires_at is not None
+            and _as_utc(execution.execution_expires_at) <= now
+        ):
+            await self._fail_waiting_execution(
+                observation,
+                FailureType.EXECUTION_TIMEOUT,
+                "Execution exceeded its maximum runtime while waiting for the Agent.",
+            )
+            return
+        if (
+            execution.operation_wait_expires_at is not None
+            and _as_utc(execution.operation_wait_expires_at) <= now
+        ):
+            await self._fail_waiting_execution(
+                observation,
+                FailureType.OPERATION_WAIT_TIMEOUT,
+                "The next Operation was not provided before the wait deadline.",
+            )
+            return
+        if target is None or not target.enabled:
+            await self._fail_waiting_execution(
+                observation,
+                FailureType.RUNTIME_UNAVAILABLE,
+                "The assigned Runtime Target is missing or disabled while waiting for the Agent.",
+            )
+            return
+        if execution.runtime_session_id is None:
+            await self._fail_waiting_execution(
+                observation,
+                FailureType.RUNTIME_SESSION_LOST,
+                "The retained MULTI Runtime session reference was lost.",
+            )
+            return
+        driver: RuntimeDriver | None = None
+        phase = "MULTI_DRIVER_CREATE"
+        try:
+            driver = self._driver_provider.create(target)
+            phase = "MULTI_SESSION_PROBE"
+            session_exists = await driver.session_exists(
+                execution.runtime_session_id
+            )
+        except Exception as exc:
+            # Keep the existing temporary-outage policy and original deadline.
+            await self._session_recovery.diagnostics.record(
+                observation,
+                exc,
+                phase=phase,
+                category=DiagnosticCategory.EXECUTION,
+            )
+            return
+        finally:
+            if driver is not None:
+                try:
+                    await driver.close()
+                except Exception as exc:
+                    await self._session_recovery.diagnostics.record(
+                        observation,
+                        exc,
+                        phase="MULTI_DRIVER_CLOSE",
+                        category=DiagnosticCategory.CLEANUP,
+                    )
+        if not session_exists:
+            await self._fail_waiting_execution(
+                observation,
+                FailureType.RUNTIME_SESSION_LOST,
+                "The retained MULTI Runtime session no longer exists.",
+            )
 
     async def _request_expired_execution_cancellations(self) -> None:
         now = utc_now()
@@ -167,29 +202,24 @@ class MultiLifecycleAuditor:
 
     async def _fail_waiting_execution(
         self,
-        execution_id: UUID,
-        expected_runtime_session_id: str | None,
+        observation: RuntimeObservation,
         failure_type: FailureType,
         error_message: str,
     ) -> None:
         now = utc_now()
-        cleanup_target: tuple[UUID, UUID | None, UUID, str] | None = None
+        cleanup_target: RuntimeObservation | None = None
         async with self._session_factory() as session, session.begin():
-            execution = await session.scalar(
-                select(ExecutionORM)
-                .where(ExecutionORM.id == execution_id)
-                .with_for_update()
-            )
+            execution = await observation.current(session, lock=True)
             if (
                 execution is None
                 or execution.status != ExecutionStatus.WAITING_FOR_OPERATION
-                or execution.runtime_session_id != expected_runtime_session_id
             ):
                 return
             attempt = await session.scalar(
                 select(ExecutionAttemptORM)
                 .where(
-                    ExecutionAttemptORM.execution_id == execution_id,
+                    ExecutionAttemptORM.execution_id
+                    == observation.execution_id,
                     ExecutionAttemptORM.status == AttemptStatus.WAITING,
                 )
                 .with_for_update()
@@ -197,7 +227,6 @@ class MultiLifecycleAuditor:
             cleanup_required = (
                 failure_type != FailureType.RUNTIME_SESSION_LOST
                 and execution.runtime_session_id is not None
-                and execution.runtime_target_id is not None
             )
             cleanup_status = (
                 RuntimeSessionCleanupStatus.PENDING
@@ -230,22 +259,10 @@ class MultiLifecycleAuditor:
                 attempt.runtime_session_cleanup_status = cleanup_status
                 attempt.finished_at = now
             if cleanup_required:
-                if (
-                    execution.runtime_target_id is None
-                    or expected_runtime_session_id is None
-                ):
-                    raise RuntimeError(
-                        "Retained Runtime cleanup target unexpectedly missing."
-                    )
-                cleanup_target = (
-                    execution.id,
-                    attempt.id if attempt is not None else None,
-                    execution.runtime_target_id,
-                    expected_runtime_session_id,
-                )
+                cleanup_target = RuntimeObservation.capture(execution)
             await add_execution_completed_event(session, execution.id)
         if cleanup_target is not None:
-            await self._session_recovery.cleanup(*cleanup_target)
+            await self._session_recovery.cleanup(cleanup_target)
 
 
 def _as_utc(value: datetime) -> datetime:

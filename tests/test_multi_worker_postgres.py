@@ -57,6 +57,10 @@ from executor_service.domain.enums import (
 from executor_service.domain.models import utc_now
 from executor_service.events import build_execution_event
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
+from executor_service.infrastructure.background_diagnostics import (
+    BackgroundDiagnosticRecorder,
+    RuntimeObservation,
+)
 from executor_service.infrastructure.db.base import Base
 from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
@@ -1333,6 +1337,139 @@ async def test_current_baseline_downgrade_and_recreate(
     assert revision == EXPECTED_SCHEMA_REVISION == "0003"
     assert admission == "ACTIVE"
     assert retention_key == "events"
+
+
+async def test_background_diagnostics_deduplicate_across_workers(
+    postgres_engine: AsyncEngine,
+    tmp_path: Path,
+) -> None:
+    service = _service(postgres_engine, tmp_path)
+    execution = await service.submit(_command("background-diagnostics"))
+    factory = create_session_factory(postgres_engine)
+    async with factory() as session, session.begin():
+        session.add(_server(capacity=1))
+    workers, clients = _workers(postgres_engine, tmp_path, count=1)
+    try:
+        claim = await workers[0]._claimer.claim(execution.id)
+        assert claim is not None
+        async with factory() as session, session.begin():
+            row = await session.get(ExecutionORM, execution.id)
+            assert row is not None
+            row.status = ExecutionStatus.WAITING_FOR_OPERATION
+            row.runtime_session_id = "waiting-background-kernel"
+            row.version += 1
+            observation = RuntimeObservation.capture(row)
+        outcomes = await asyncio.gather(
+            *(
+                BackgroundDiagnosticRecorder(factory).record(
+                    observation,
+                    PermissionError(13, "private"),
+                    phase="MULTI_SESSION_PROBE",
+                    category=DiagnosticCategory.EXECUTION,
+                )
+                for _ in range(8)
+            )
+        )
+        assert sum(outcomes) == 1
+        items = (
+            await SQLAlchemyDiagnosticQueryService(factory).list(execution.id)
+        ).items
+        assert len(items) == 1 and items[0].attempt_id == claim[2].attempt_id
+        async with factory() as session, session.begin():
+            row = await observation.current(session, lock=True)
+            assert row is not None
+            row.fencing_token += 1
+            row.version += 1
+        assert not await BackgroundDiagnosticRecorder(factory).record(
+            observation,
+            PermissionError(13, "private"),
+            phase="MULTI_SESSION_PROBE",
+            category=DiagnosticCategory.EXECUTION,
+        )
+    finally:
+        await _close_redis(clients)
+
+
+async def test_expired_cleanup_is_reserved_once_across_workers(
+    postgres_engine: AsyncEngine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = _service(postgres_engine, tmp_path)
+    execution = await service.submit(_command("reserve-expired-cleanup"))
+    factory = create_session_factory(postgres_engine)
+    async with factory() as session, session.begin():
+        session.add(_server(capacity=1))
+    workers, clients = _workers(postgres_engine, tmp_path, count=2)
+    started, release = asyncio.Event(), asyncio.Event()
+    deleted: list[str] = []
+
+    class Driver:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        async def delete_session(self, session_id):
+            deleted.append(session_id)
+            started.set()
+            await release.wait()
+
+        async def close(self):
+            pass
+
+    monkeypatch.setattr(
+        "executor_service.infrastructure.runtime_drivers.JupyterRuntimeDriver",
+        Driver,
+    )
+    task = None
+    try:
+        claim = await workers[0]._claimer.claim(execution.id)
+        assert claim is not None
+        async with factory() as session, session.begin():
+            row = await session.get(ExecutionORM, execution.id)
+            attempt = await session.get(
+                ExecutionAttemptORM, claim[2].attempt_id
+            )
+            assert row is not None and attempt is not None
+            row.status = ExecutionStatus.FAILED
+            row.runtime_session_id = "expired-reserved-kernel"
+            row.retry_strategy = RetryStrategy.FROM_FAILED_STEP
+            row.retry_from_sequence = 0
+            row.retained_runtime_session_until = utc_now() - timedelta(
+                seconds=1
+            )
+            attempt.status = AttemptStatus.FAILED
+            attempt.runtime_session_id = row.runtime_session_id
+        task = asyncio.create_task(
+            workers[0]._retained_session_cleaner.reconcile()
+        )
+        async with asyncio.timeout(5):
+            await started.wait()
+            await workers[1]._retained_session_cleaner.reconcile()
+        async with factory() as session:
+            row = await session.get(ExecutionORM, execution.id)
+            assert (
+                row is not None
+                and row.retry_strategy == RetryStrategy.NOT_RETRYABLE
+            )
+            assert (
+                row.runtime_session_cleanup_status
+                == RuntimeSessionCleanupStatus.PENDING
+            )
+        assert deleted == ["expired-reserved-kernel"]
+        release.set()
+        await task
+        async with factory() as session:
+            row = await session.get(ExecutionORM, execution.id)
+            assert row is not None and row.runtime_session_id is None
+            assert (
+                row.runtime_session_cleanup_status
+                == RuntimeSessionCleanupStatus.SUCCEEDED
+            )
+    finally:
+        release.set()
+        if task is not None:
+            await task
+        await _close_redis(clients)
 
 
 async def test_bounded_pool_times_out_instead_of_opening_unlimited_connections(

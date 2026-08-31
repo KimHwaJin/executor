@@ -37,11 +37,11 @@ Execution 자체가 없으면 404, 잘못된 UUID/커서/limit이면 422다. 존
 | --- | --- |
 | `id` | 진단 관측의 UUID. 실행/이벤트 ID가 아님 |
 | `execution_id` | 소속 실행 |
-| `attempt_id` | 기록한 Worker의 실행 Attempt. 취소 전용 소유권은 null |
+| `attempt_id` | 기록한 Worker의 실행 Attempt. 백그라운드 관측은 검증된 실행의 최신 Attempt, 취소 전용 소유권이나 Attempt가 없으면 null |
 | `operation_id` | 발생 시점의 Operation. 없는 경우 null |
 | `step_id` | Step에 귀속 가능한 경우 해당 ID, 아니면 null |
 | `step_sequence` | 위 Step의 실행 내 sequence. 없는 경우 null |
-| `fencing_token` | 기록 당시 Worker 소유권 세대. 실행 이벤트 순번이 아님 |
+| `fencing_token` | 기록 당시 소유권/Execution 세대. 백그라운드는 현재 Execution 세대를 사용하며 실행 이벤트 순번이 아님 |
 | `occurred_at` | Executor가 오류를 관측한 시각. 원격 서버 내부 발생시각을 추측하지 않음 |
 | `created_at`, `updated_at` | DB 기록 시각. 추가 전용 이력이므로 두 값이 같음 |
 | `created_by_type`, `created_by` | 당시 실행의 actor 정보. Worker 자체 계정이라는 의미는 아님 |
@@ -80,6 +80,17 @@ DB/API에 복제하지 않는다. Stack 위치는 기존 `runtime.failure` 로�
 `NOTEBOOK_WRITE`, `ARTIFACT_REGISTER`, `NOTEBOOK_ARTIFACT_REGISTER`,
 `RUNTIME_ABORT`, `RUNTIME_ABORT_RESULT`, `RUNTIME_DELETE_AFTER_ABORT`,
 `RUNTIME_INTERRUPT`, `RUNTIME_DELETE`, `EXECUTION_RUN`이다.
+
+백그라운드 관측에는 `RECOVERY_TARGET`, `RECOVERY_DRIVER_CREATE`,
+`RECOVERY_SESSION_DELETE`, `RECOVERY_DRIVER_CLOSE`, `RECOVERY_RESULT_PERSIST`,
+`MULTI_DRIVER_CREATE`, `MULTI_SESSION_PROBE`, `MULTI_DRIVER_CLOSE`도 포함된다.
+세부 운영 기준은 [백그라운드 Runtime 진단](../docs/background-runtime-diagnostics.md)을 참고한다.
+
+일시적인 MULTI 연결 오류는 WAITING 상태를 유지하면서 ERROR 관측을 남긴다.
+이력 존재만으로 실행이 실패했다는 의미는 아니다. 반복 백그라운드 오류는 5분 단위로
+중복을 제한하므로 이력 건수가 실제 오류 발생 횟수와 일치하지 않는다. 새 Operation이나
+커널로 바뀐 뒤 도착한 오래된 관측은 저장하지 않는다. 기존 이벤트 소비/결과 읽기
+방식에 새 필수 API 호출은 없다.
 
 ## 소비 방법과 주의점
 
