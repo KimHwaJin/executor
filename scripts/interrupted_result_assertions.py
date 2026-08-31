@@ -29,17 +29,27 @@ def validate_evidence(
     assert steps[2]["result"]["status"] in {"SKIPPED", "CANCELLED"}
     assert steps[2]["result"]["result_ref"] is None
     files = snapshot["files"]
-    assert [item["sequence"] for item in files] == [0, 1]
+    hard_loss = action in {"kill", "pause"}
+    assert [item["sequence"] for item in files] == (
+        [0] if hard_loss else [0, 1]
+    )
     assert files[0]["complete"] is True
     assert "completed-before-interrupt" in files[0]["text"]
-    partial = files[1]
-    assert partial["complete"] is False
-    assert partial["state"] == "ABORTED"
-    assert partial["error_message"], "Interruption reason missing"
-    assert "before-interrupt" in partial["text"]
-    assert "after-interrupt" not in partial["text"]
-    assert partial["png_sizes"] and min(partial["png_sizes"]) > 1000
-    assert partial["output_summary"] == steps[1]["result"]["output_summary"]
+    if hard_loss:
+        # No seal/DB commit is possible in a killed process. Mutable files
+        # are not a substitute for a published, checksum-validated result.
+        assert steps[1]["result"]["result_ref"] is None
+    else:
+        partial = files[1]
+        assert partial["complete"] is False
+        assert partial["state"] == "ABORTED"
+        assert partial["error_message"], "Interruption reason missing"
+        assert "before-interrupt" in partial["text"]
+        assert "after-interrupt" not in partial["text"]
+        assert partial["png_sizes"] and min(partial["png_sizes"]) > 1000
+        assert (
+            partial["output_summary"] == steps[1]["result"]["output_summary"]
+        )
 
     envelopes = [
         ExecutionStreamEnvelope.model_validate(
@@ -73,6 +83,9 @@ def validate_evidence(
         if event["event_type"] == "execution.step_completed"
     }
     assert set(completed) == {0, 1}
+    if hard_loss:
+        assert completed[1]["status"] == "FAILED"
+        assert completed[1]["result_ref"] is None
     for item in files:
         event = completed[item["sequence"]]
         ref = event["result_ref"]

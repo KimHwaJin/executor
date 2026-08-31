@@ -816,7 +816,13 @@ async def test_concurrent_startup_reconciliation_fences_expired_lease_once(
             await session.execute(
                 update(ExecutionORM)
                 .where(ExecutionORM.id == execution.id)
-                .values(lease_expires_at=expired_at)
+                .values(
+                    lease_expires_at=expired_at,
+                    notebook_path="executions/test/notebooks/execution.ipynb",
+                    notebook_projection_status="SUCCEEDED",
+                    notebook_projection_attempt_count=1,
+                    notebook_projected_at=utc_now(),
+                )
             )
             await session.execute(
                 update(ExecutionAttemptORM)
@@ -849,6 +855,20 @@ async def test_concurrent_startup_reconciliation_fences_expired_lease_once(
     assert persisted.fencing_token == stale_lease.fencing_token + 1
     assert persisted.recovery_count == 1
     assert completed_event_count == 1
+    assert persisted.notebook_projection_status == "FAILED"
+    assert persisted.notebook_projected_at is None
+    assert persisted.notebook_projection_attempt_count == 1
+    async with session_factory() as session:
+        diagnostics = list(
+            await session.scalars(
+                select(ExecutionDiagnosticORM).where(
+                    ExecutionDiagnosticORM.execution_id == execution.id
+                )
+            )
+        )
+    assert len(diagnostics) == 1
+    assert diagnostics[0].detail["phase"] == "NOTEBOOK_LEASE_EXPIRED"
+    assert diagnostics[0].fencing_token == stale_lease.fencing_token + 1
 
 
 async def test_concurrent_workers_create_one_attempt_for_a_requeued_operation(

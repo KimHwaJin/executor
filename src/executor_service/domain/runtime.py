@@ -16,9 +16,9 @@ class RuntimeDriverError(RuntimeError):
 class NotebookProjectionInterruptedError(RuntimeError):
     """Interrupted execution did not project the latest notebook snapshot."""
 
-    def __init__(self) -> None:
+    def __init__(self, reason: str = "Step interruption") -> None:
         super().__init__(
-            "Notebook projection was not refreshed after Step interruption. "
+            f"Notebook projection was not refreshed after {reason}. "
             "The notebook may be stale; inspect the Step result reference "
             "for any preserved output."
         )

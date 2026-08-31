@@ -1,5 +1,12 @@
 # Overlay for the isolated interruption E2E; never the normal local stack.
 services:
+  jupyter:
+    image: executor-jupyter:interruption-e2e
+    build:
+      context: .
+      dockerfile: test_harness/Dockerfile.jupyter-overlay
+    volumes:
+      - ./test_harness/jupyter/extension/tests/test_notebook_shared_read.py:/opt/tests/notebook_shared_read.py:ro
   migrate:
     image: executor-service:interruption-e2e
   shared-volume-init:

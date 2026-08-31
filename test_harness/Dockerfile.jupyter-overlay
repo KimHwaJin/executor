@@ -1,0 +1,7 @@
+ARG JUPYTER_BASE_IMAGE=executor-jupyter:local
+FROM ${JUPYTER_BASE_IMAGE}
+
+# Test-only offline overlay. Reuse installed kernels and dependencies while
+# loading precisely the checked-out extension, not the base image's old copy.
+COPY test_harness/jupyter/extension/src /opt/executor-extension-under-test
+ENV PYTHONPATH=/opt/executor-extension-under-test

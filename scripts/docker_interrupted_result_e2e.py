@@ -1,4 +1,4 @@
-"""Isolated real-process cancel / SIGTERM E2E with text and PNG evidence.
+"""Isolated cancel / SIGTERM / SIGKILL / stale-Worker result E2E.
 
 Requires the existing executor-service:local and executor-jupyter:local images.
 Never stops normal local services. The generated project owns all its volumes.
@@ -40,9 +40,33 @@ request = urllib.request.Request(
 with urllib.request.urlopen(request, timeout=5) as response:
     print(json.dumps(json.load(response)))
 """
+NOTEBOOK_READ_PROBE = """
+import json, os, stat, sys, tempfile
+from pathlib import Path
+import nbformat
+from nbconvert import HTMLExporter
+root = Path(os.environ['JUPYTER_ROOT_DIR']).resolve()
+path = (root / sys.argv[1]).resolve()
+assert path.is_relative_to(root)
+mode = stat.S_IMODE(path.stat().st_mode)
+assert mode == 0o644, oct(mode)
+assert os.getuid() == 65534
+with tempfile.TemporaryDirectory() as home:
+    os.environ['HOME'] = home
+    notebook = nbformat.read(path, as_version=4)
+    nbformat.validate(notebook)
+    html, _ = HTMLExporter().from_notebook_node(notebook)
+    assert 'completed-before-interrupt' in html
+print(json.dumps({'mode': oct(mode), 'reader_uid': os.getuid(),
+                  'cell_count': len(notebook.cells), 'rendered': True}))
+"""
 
 
 class InterruptionCompose(Compose):
+    async def up(self) -> None:
+        await self.run("build", "migrate", "jupyter")
+        await self.run("up", "--detach")
+
     def _command(self, *arguments: str) -> list[str]:
         return super()._command(
             "--file",
@@ -168,8 +192,22 @@ async def stop_owner(compose: Compose, service: str) -> None:
         raise RuntimeError(f"Executor did not exit gracefully: {state}")
 
 
+async def interrupt_owner(compose: Compose, service: str, action: str) -> None:
+    if service not in SERVICES or action not in {"kill", "pause"}:
+        raise ValueError("Refusing to interrupt an unmanaged service/action")
+    if action == "kill":
+        await compose.kill(service)
+    else:
+        await compose.run("pause", service)
+
+
 async def run_case(
-    compose: Compose, config: Config, action: str, mode: str, profile: str
+    compose: Compose,
+    config: Config,
+    action: str,
+    mode: str,
+    profile: str,
+    evidence: dict[str, Any],
 ) -> dict[str, Any]:
     start = time.monotonic()
     unique = f"interrupt-{uuid4().hex}"
@@ -188,6 +226,7 @@ async def run_case(
             json=case_request(mode, profile, unique),
         )
         execution_id = submitted["execution_id"]
+        evidence["execution_id"] = execution_id
         path = f"/api/v1/executions/{execution_id}"
         print(f"  {action}/{mode}/{profile}: {execution_id}", flush=True)
         async with asyncio.timeout(100):
@@ -219,8 +258,10 @@ async def run_case(
                 },
             )
             assert accepted["state"]["status"] == "CANCEL_REQUESTED"
-        else:
+        elif action == "shutdown":
             await stop_owner(compose, owner)
+        else:
+            await interrupt_owner(compose, owner, action)
 
     async with httpx.AsyncClient(base_url=urls[survivor], timeout=10) as api:
         async with asyncio.timeout(90):
@@ -229,6 +270,9 @@ async def run_case(
                 events = await event_history(api, execution_id)
                 if (
                     detail["state"]["status"] in {"FAILED", "CANCELLED"}
+                    and detail["recovery"]["runtime_session_cleanup_status"]
+                    == "SUCCEEDED"
+                    and events
                     and events[-1]["event_type"] == "execution.completed"
                     and all(
                         e["delivery"]["status"] == "PUBLISHED" for e in events
@@ -238,6 +282,9 @@ async def run_case(
                 await asyncio.sleep(0.5)
         result = await request(api, "GET", f"{path}/result")
         snapshot = await probe(compose, survivor, "snapshot", execution_id)
+        evidence.update(
+            detail=detail, result=result, snapshot=snapshot, events=events
+        )
         validate_evidence(snapshot, result, events, action)
         # Check the same reference across operation, step, and attempt reads.
         for operation in result["operations"]:
@@ -259,8 +306,10 @@ async def run_case(
         assert attempt["recovery"]["runtime_session_cleanup_status"] == (
             "SUCCEEDED"
         )
-        if action == "shutdown":
-            assert detail["failure"]["type"] == "WORKER_SHUTDOWN"
+        if action in {"shutdown", "kill", "pause"}:
+            assert detail["failure"]["type"] == (
+                "WORKER_SHUTDOWN" if action == "shutdown" else "LEASE_EXPIRED"
+            )
             assert attempt["recovery"]["retry_strategy"] == (
                 "FROM_START" if mode == "SINGLE" else "NOT_RETRYABLE"
             )
@@ -281,12 +330,19 @@ async def run_case(
                 == (current["result"]["result_ref"])
             )
         projection = detail["workspace"]["notebook_projection"]
-        assert projection["status"] == "FAILED"
+        assert projection["status"] == "FAILED", (
+            f"Notebook falsely current after {action}: {projection}"
+        )
         assert "may be stale" in projection["error_message"]
         assert projection["projected_at"] is None
         diagnostics = await request(api, "GET", f"{path}/diagnostics")
         assert any(
-            item["diagnostic"]["phase"] == "NOTEBOOK_INTERRUPTED"
+            item["diagnostic"]["phase"]
+            == (
+                "NOTEBOOK_LEASE_EXPIRED"
+                if action in {"kill", "pause"}
+                else "NOTEBOOK_INTERRUPTED"
+            )
             for item in diagnostics["items"]
         )
         notebook = await request(api, "GET", f"{path}/notebook")
@@ -295,24 +351,69 @@ async def run_case(
         # Partial output is authoritative in shared results, not yet projected
         # into this notebook. The API must report that explicitly above.
         assert notebook["cells"][1]["output_summary"]["output_count"] == 0
+        shared_read = json.loads(
+            await compose.run(
+                "exec",
+                "-T",
+                "--user",
+                "65534:65534",
+                "jupyter",
+                "python",
+                "-B",
+                "-c",
+                NOTEBOOK_READ_PROBE,
+                detail["workspace"]["notebook_path"],
+            )
+        )
         assert await kernels(compose) == [], "Runtime kernel leaked"
-        evidence = {
-            "action": action,
-            "mode": mode,
-            "profile": profile,
-            "execution_id": execution_id,
-            "owner": owner,
-            "elapsed_seconds": round(time.monotonic() - start, 2),
-            "status": detail["state"]["status"],
-            "failure": detail["failure"],
-            "notebook_projection": detail["workspace"]["notebook_projection"],
-            "events": events,
-            "snapshot": snapshot,
-            "diagnostics": diagnostics,
-            "notebook": notebook,
-            "remaining_kernels": 0,
-        }
-    if action == "shutdown":
+        evidence.update(
+            {
+                "action": action,
+                "mode": mode,
+                "profile": profile,
+                "execution_id": execution_id,
+                "owner": owner,
+                "elapsed_seconds": round(time.monotonic() - start, 2),
+                "status": detail["state"]["status"],
+                "failure": detail["failure"],
+                "notebook_projection": detail["workspace"][
+                    "notebook_projection"
+                ],
+                "events": events,
+                "snapshot": snapshot,
+                "diagnostics": diagnostics,
+                "notebook": notebook,
+                "notebook_shared_read": shared_read,
+                "remaining_kernels": 0,
+            }
+        )
+        if action == "pause":
+            await compose.run("unpause", owner)
+            port = (
+                config.primary_port
+                if owner == SERVICES[0]
+                else config.secondary_port
+            )
+            await _wait_ready(port)
+            # Observe beyond two heartbeats: old coroutines must not attach
+            # their late seal, change state or publish an additional event.
+            for _ in range(24):
+                await asyncio.sleep(0.5)
+                assert await request(api, "GET", f"{path}/result") == result
+                current_events = await event_history(api, execution_id)
+                assert current_events == events
+            assert (
+                await probe(compose, survivor, "snapshot", execution_id)
+                == snapshot
+            )
+            after_resume = await request(api, "GET", path)
+            assert (
+                after_resume["workspace"]["notebook_projection"] == projection
+            )
+            assert after_resume["state"] == detail["state"]
+            assert await kernels(compose) == []
+            evidence["stale_worker_observed_seconds"] = 12
+    if action in {"shutdown", "kill"}:
         await compose.run("start", owner)
         port = (
             config.primary_port
@@ -330,7 +431,13 @@ def checkpoint(path: Path, report: dict[str, Any]) -> None:
     temporary.replace(path)
 
 
-async def run(report_path: Path, keep_stack: bool) -> int:
+async def run(
+    report_path: Path,
+    keep_stack: bool,
+    actions: tuple[str, ...] = ("cancel", "shutdown"),
+    profiles: tuple[str, ...] = ("basic", "ml"),
+    modes: tuple[str, ...] = ("SINGLE", "MULTI"),
+) -> int:
     first, second = available_ports()
     config = Config(
         compose_file=REPOSITORY / "compose.worker-failover.yaml",
@@ -372,6 +479,20 @@ async def run(report_path: Path, keep_stack: bool) -> int:
         print(f"Starting isolated project {config.project_name}", flush=True)
         await compose.up()
         await asyncio.gather(_wait_ready(first), _wait_ready(second))
+        # Linux identity regression: writer 1000, reader nobody, initial and
+        # repeated writes, including a pre-existing 0600 notebook. Core HTML
+        # rendering is tested, not a deployed nbviewer HTTP service.
+        await compose.run(
+            "exec",
+            "-T",
+            "--user",
+            "0:0",
+            "jupyter",
+            "python",
+            "-B",
+            "/opt/tests/notebook_shared_read.py",
+        )
+        report["notebook_644_identity_test"] = "PASSED"
         async with Client(f"http://127.0.0.1:{first}/mcp") as client:
             await upsert_runtime_target(
                 client,
@@ -382,15 +503,20 @@ async def run(report_path: Path, keep_stack: bool) -> int:
                 token=config.jupyter_token,
                 capacity=2,
             )
-        for action in ("cancel", "shutdown"):
-            for profile in ("basic", "ml"):
-                for mode in ("SINGLE", "MULTI"):
+        for action in actions:
+            for profile in profiles:
+                for mode in modes:
                     report["current_case"] = [action, mode, profile]
                     checkpoint(report_path, report)
-                    evidence = await run_case(
-                        compose, config, action, mode, profile
-                    )
+                    evidence: dict[str, Any] = {
+                        "action": action,
+                        "mode": mode,
+                        "profile": profile,
+                    }
                     report["cases"].append(evidence)
+                    await run_case(
+                        compose, config, action, mode, profile, evidence
+                    )
                     checkpoint(report_path, report)
                     print("  PASS", flush=True)
         report["status"] = "PASSED"
@@ -403,6 +529,11 @@ async def run(report_path: Path, keep_stack: bool) -> int:
         report["stack_retained"] = owned
         if owned and not keep_stack:
             try:
+                # A failed assertion may leave one owned test Worker frozen.
+                for service in SERVICES:
+                    await compose.run(
+                        "unpause", service, tolerate_failure=True
+                    )
                 await compose.down()
                 report["stack_retained"] = False
             except Exception as error:
@@ -422,8 +553,34 @@ def main() -> int:
         default=REPOSITORY / "test-results/docker-interrupted-results.json",
     )
     parser.add_argument("--keep-stack", action="store_true")
+    parser.add_argument(
+        "--actions",
+        nargs="+",
+        choices=("cancel", "shutdown", "kill", "pause"),
+        default=["cancel", "shutdown"],
+    )
+    parser.add_argument(
+        "--profiles",
+        nargs="+",
+        choices=("basic", "ml"),
+        default=["basic", "ml"],
+    )
+    parser.add_argument(
+        "--modes",
+        nargs="+",
+        choices=("SINGLE", "MULTI"),
+        default=["SINGLE", "MULTI"],
+    )
     args = parser.parse_args()
-    return asyncio.run(run(args.report.resolve(), args.keep_stack))
+    return asyncio.run(
+        run(
+            args.report.resolve(),
+            args.keep_stack,
+            tuple(args.actions),
+            tuple(args.profiles),
+            tuple(args.modes),
+        )
+    )
 
 
 if __name__ == "__main__":

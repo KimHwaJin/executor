@@ -5,7 +5,7 @@ from typing import Any, ClassVar, cast
 
 import pytest
 from redis.asyncio import Redis
-from sqlalchemy import func, select, update
+from sqlalchemy import event, func, select, update
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from executor_service.application.commands import (
@@ -35,6 +35,7 @@ from executor_service.domain.results import StepResultDescriptor
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
+    ExecutionDiagnosticORM,
     ExecutionEventORM,
     ExecutionOperationORM,
     ExecutionORM,
@@ -90,10 +91,23 @@ def _command() -> SubmitExecutionCommand:
     )
 
 
+@pytest.mark.parametrize(
+    "projection_status,has_notebook,fail_diagnostic_insert",
+    [
+        ("SUCCEEDED", True, False),
+        ("PENDING", True, False),
+        ("FAILED", True, False),
+        ("NOT_STARTED", False, False),
+        ("SUCCEEDED", True, True),
+    ],
+)
 async def test_expired_lease_is_failed_once_and_can_restart_from_zero(
     execution_service: ExecutionService,
     engine: AsyncEngine,
     tmp_path: Path,
+    projection_status: str,
+    has_notebook: bool,
+    fail_diagnostic_insert: bool,
 ) -> None:
     execution = await execution_service.submit(_command())
     now = utc_now()
@@ -149,6 +163,17 @@ async def test_expired_lease_is_failed_once_and_can_restart_from_zero(
                 heartbeat_at=now - timedelta(minutes=1),
                 fencing_token=fencing_token,
                 started_at=now - timedelta(minutes=2),
+                notebook_path="executions/test/notebooks/execution.ipynb"
+                if has_notebook
+                else None,
+                notebook_projection_status=projection_status,
+                notebook_projection_error="earlier permission failure"
+                if projection_status == "FAILED"
+                else None,
+                notebook_projected_at=now
+                if projection_status == "SUCCEEDED"
+                else None,
+                notebook_projection_attempt_count=1 if has_notebook else 0,
             )
         )
         await session.execute(
@@ -191,6 +216,49 @@ async def test_expired_lease_is_failed_once_and_can_restart_from_zero(
         fencing_token=fencing_token,
     )
     try:
+        if fail_diagnostic_insert:
+
+            def reject_diagnostic_insert(
+                _connection: Any,
+                _cursor: Any,
+                statement: str,
+                _parameters: Any,
+                _context: Any,
+                _many: bool,
+            ) -> None:
+                if statement.startswith("INSERT INTO execution_diagnostics"):
+                    raise OSError("injected diagnostic storage outage")
+
+            event.listen(
+                engine.sync_engine,
+                "before_cursor_execute",
+                reject_diagnostic_insert,
+            )
+            try:
+                with pytest.raises(OSError, match="injected diagnostic"):
+                    await worker._lease_recovery.fence_expired_leases()
+            finally:
+                event.remove(
+                    engine.sync_engine,
+                    "before_cursor_execute",
+                    reject_diagnostic_insert,
+                )
+            async with session_factory() as session:
+                unchanged = await session.get(ExecutionORM, execution.id)
+                assert unchanged is not None
+                assert unchanged.status == ExecutionStatus.RUNNING
+                assert unchanged.fencing_token == fencing_token
+                assert (
+                    unchanged.notebook_projection_status == projection_status
+                )
+                assert (
+                    await session.scalar(
+                        select(func.count(ExecutionEventORM.id)).where(
+                            ExecutionEventORM.execution_id == execution.id
+                        )
+                    )
+                    == 0
+                )
         await worker._lease_recovery.recover()
         await worker._lease_recovery.recover()
         with pytest.raises(ExecutionLeaseLostError):
@@ -271,6 +339,38 @@ async def test_expired_lease_is_failed_once_and_can_restart_from_zero(
     assert failed_events == 1
     assert stale_step_events == 0
     assert stale_terminal_events == 0
+    async with session_factory() as session:
+        diagnostics = list(
+            await session.scalars(
+                select(ExecutionDiagnosticORM).where(
+                    ExecutionDiagnosticORM.execution_id == execution.id
+                )
+            )
+        )
+    if has_notebook:
+        assert recovered.notebook_projection_status == "FAILED"
+        assert recovered.notebook_projected_at is None
+        assert recovered.notebook_projection_attempt_count == 1
+        if projection_status == "FAILED":
+            assert (
+                recovered.notebook_projection_error
+                == "earlier permission failure"
+            )
+            assert diagnostics == []
+        else:
+            assert "Worker lease expiry" in (
+                recovered.notebook_projection_error or ""
+            )
+            assert len(diagnostics) == 1
+            observation = diagnostics[0]
+            assert observation.attempt_id == recovered_attempt.id
+            assert observation.fencing_token == fencing_token + 1
+            assert observation.detail["code"] == "NOTEBOOK_NOT_REFRESHED"
+            assert observation.detail["phase"] == "NOTEBOOK_LEASE_EXPIRED"
+    else:
+        assert recovered.notebook_projection_status == projection_status
+        assert recovered.notebook_projection_attempt_count == 0
+        assert diagnostics == []
 
 
 async def test_orphan_running_execution_without_attempt_is_fenced_and_cleaned(
