@@ -320,13 +320,16 @@ plot artifacts remain on Jupyter-owned storage and use the separate Artifact con
 
 ### Measurement before thresholds
 
-Blocking observation on 2026-08-31: the current local Jupyter IOPub data-rate limit suppresses
-5/10/25 MiB stdout output, but Executor still reports `SUCCEEDED` and `result_ref.complete=true`.
-Only the rate-limit stderr warning is retained. The T35 harness now validates shared output
-checksums, workload markers, and expected byte counts and fails these cases. Runtime behavior
-has not been fixed. Resolve this loss/completeness mismatch before treating larger-output or
-concurrency measurements as production evidence. See
-[expanded output validation](output-expansion-validation.md) for results and follow-up scope.
+Initial observation on 2026-08-31: the local Jupyter IOPub data-rate limit suppressed
+5/10/25 MiB stdout while Executor incorrectly reported `SUCCEEDED` and
+`result_ref.complete=true`. Only the server warning was retained. Phase 2 now
+recognizes native Jupyter rate-limit warnings, preserves that evidence and fails
+the Step with `OUTPUT_LIMIT_EXCEEDED`, `complete=false`. The supported path passed
+live basic 5/10/25 MiB and ML 5 MiB checks; this does not recover dropped output.
+See [expanded output validation](output-expansion-validation.md) for historical
+measurements and [output completeness](runtime-output-completeness.md) for the
+fix, compatibility boundary and validation scope. Full T35 load measurements and
+production threshold selection remain open.
 
 T35 must measure 1, 5, 10, 25, 50, and 100 MiB text output; 1, 10, 25, and 50 MiB image output;
 and concurrency levels 1, 5, 10, and 20. Record Executor RSS, Runtime memory, PostgreSQL growth,
@@ -682,9 +685,9 @@ failure. It must retain Runtime release evidence and inject all service credenti
 ## PR-008: Trustworthy Runtime diagnostics and completion reporting
 
 - Priority: P0 for known output loss reported as complete; P1 for diagnostic consistency
-- Status: IMPLEMENTING — Phase 1 complete, overall item remains open
+- Status: IMPLEMENTING — Phases 1 and 2 complete, overall item remains open
 - Area: Runtime adapters, Worker errors, shared results, projection, cleanup, operator logs
-- Public API impact: Phase 1 has none; common diagnostic fields require a subsequent contract update
+- Public API impact: Phases 1 and 2 have none; common diagnostic fields require a subsequent contract update
 - Details: [Runtime Diagnostics Hardening](runtime-diagnostics-hardening.md)
 
 ### Implemented Phase 1
@@ -698,10 +701,23 @@ failure. It must retain Runtime release evidence and inject all service credenti
 - Verified 290 local regression tests, 28 PostgreSQL/Redis integration tests, Ruff, format and ty;
   real local basic/ML Jupyter REST/WebSocket gateway smoke passed.
 
+### Implemented Phase 2
+
+- Recognize native Jupyter data/message rate warnings by connection session,
+  request parent, channel and known warning format, not arbitrary user stderr.
+- Fail affected Steps with `OUTPUT_LIMIT_EXCEEDED`, preserving warning/partial
+  output with `complete=false`; reuse existing interrupt and retry safeguards.
+- Preserve collected non-streaming output on message-size failures as well.
+- Keep rate limits, API/event schemas and database schema unchanged.
+- Verified 337 regression tests, 28 PostgreSQL/Redis integration tests and 24 live
+  Jupyter case runs. See [output completeness](runtime-output-completeness.md).
+
 ### Completion criteria still open
 
-- Known output suppression is never reported as a complete captured result. Do not classify
-  arbitrary user stderr as an authoritative Runtime signal or disable limits to hide this issue.
+- Maintain the no-false-completeness rule across supported Runtime variants.
+  Native Jupyter 2.20.0 warnings are covered; unknown output loss and changed
+  remote warning formats remain explicit compatibility limits. Do not classify
+  arbitrary user stderr as authoritative or disable limits to hide this issue.
 - Execution failure, result incompleteness and secondary projection/cleanup problems are
   independently attributable and consistently queryable, without overwriting earlier causes.
 - Common diagnostic code, phase, origin, severity, time and scope rules cover DB, API, event and
@@ -711,5 +727,7 @@ failure. It must retain Runtime release evidence and inject all service credenti
 - Remaining lifecycle and persistence-outage paths are covered by failure-injection tests;
   unknown remote causes remain explicitly unknown and correlate with operational logs.
 
-The output-loss blocker in [expanded output validation](output-expansion-validation.md) is not
-resolved by Phase 1. No full production-readiness claim should be made from these test counts.
+Phase 2 resolves the reproduced native-warning false-success case in
+[expanded output validation](output-expansion-validation.md). Common diagnostics,
+delivery policy and broader load/failure validation remain open; these test
+counts alone are not a full production-readiness claim.
