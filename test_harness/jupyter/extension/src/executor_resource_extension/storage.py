@@ -234,17 +234,26 @@ def _sha256(path: Path) -> str:
 
 
 def _atomic_json_write(path: Path, value: dict[str, Any]) -> None:
+    """Publish notebook JSON atomically, readable by shared-volume viewers."""
+
     body = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode(
         "utf-8"
     )
-    with tempfile.NamedTemporaryFile(
-        mode="wb", dir=path.parent, prefix=f".{path.name}.", delete=False
-    ) as handle:
-        temporary = Path(handle.name)
-        handle.write(body)
-        handle.flush()
-        os.fsync(handle.fileno())
+    temporary: Path | None = None
     try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb", dir=path.parent, prefix=f".{path.name}.", delete=False
+        ) as handle:
+            temporary = Path(handle.name)
+            handle.write(body)
+            handle.flush()
+            if os.name == "posix":
+                # NamedTemporaryFile starts at 0600. Set the final notebook
+                # policy before publishing, including replacements of old
+                # 0600 files. NTFS access remains governed by Windows ACLs.
+                os.fchmod(handle.fileno(), 0o644)
+            os.fsync(handle.fileno())
         os.replace(temporary, path)
     finally:
-        temporary.unlink(missing_ok=True)
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
