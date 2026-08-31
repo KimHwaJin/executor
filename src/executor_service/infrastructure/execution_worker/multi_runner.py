@@ -200,6 +200,7 @@ class MultiExecutionRunner:
                             result_identity=self._step_executor.result_identity(
                                 pending, lease
                             ),
+                            lease=lease,
                             source_reference=source_reference,
                         ),
                         execution_id=execution.id,
@@ -383,7 +384,10 @@ class MultiExecutionRunner:
             cleanup_status = RuntimeSessionCleanupStatus.NOT_REQUIRED
             if runtime_session_id is not None:
                 cleanup_status = await best_effort_session_stop(
-                    driver, runtime_session_id, lease=lease
+                    driver,
+                    runtime_session_id,
+                    lease=lease,
+                    diagnostics=self._finalizer.diagnostics,
                 )
             await self._finalizer.finalize(
                 lease,
@@ -405,6 +409,7 @@ class MultiExecutionRunner:
                 },
             )
         except Exception as exc:
+            await self._finalizer.record_execution_failure(lease, exc)
             log_runtime_failure(
                 logger,
                 exc,
@@ -418,7 +423,10 @@ class MultiExecutionRunner:
             cleanup_status = RuntimeSessionCleanupStatus.NOT_REQUIRED
             if runtime_session_id is not None:
                 cleanup_status = await best_effort_session_stop(
-                    driver, runtime_session_id, lease=lease
+                    driver,
+                    runtime_session_id,
+                    lease=lease,
+                    diagnostics=self._finalizer.diagnostics,
                 )
             await self._finalizer.finalize(
                 lease,

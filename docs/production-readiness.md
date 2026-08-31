@@ -685,9 +685,9 @@ failure. It must retain Runtime release evidence and inject all service credenti
 ## PR-008: Trustworthy Runtime diagnostics and completion reporting
 
 - Priority: P0 for known output loss reported as complete; P1 for diagnostic consistency
-- Status: IMPLEMENTING — Phases 1 and 2 complete, overall item remains open
+- Status: IMPLEMENTING — Phases 1–3 delivered; completion policy and remaining paths open
 - Area: Runtime adapters, Worker errors, shared results, projection, cleanup, operator logs
-- Public API impact: Phases 1 and 2 have none; common diagnostic fields require a subsequent contract update
+- Public API impact: Phase 3 adds diagnostic history REST reads; existing API/event/manifest fields unchanged
 - Details: [Runtime Diagnostics Hardening](runtime-diagnostics-hardening.md)
 
 ### Implemented Phase 1
@@ -712,6 +712,19 @@ failure. It must retain Runtime release evidence and inject all service credenti
 - Verified 337 regression tests, 28 PostgreSQL/Redis integration tests and 24 live
   Jupyter case runs. See [output completeness](runtime-output-completeness.md).
 
+### Implemented Phase 3
+
+- Add fenced, bounded `execution_diagnostics` history and filtered cursor REST
+  reads for execution/output/notebook/artifact/cleanup observations.
+- Preserve primary and secondary failures separately across retries, with safe
+  code/phase/category/origin/severity/message/cause fields and actor timestamps.
+- Move diagnostic persistence outside the Step execution deadline; a slow
+  diagnostic store cannot recategorize an observed code failure as a timeout.
+- Add data-preserving Alembic `0002`, readiness revision checks and deployment
+  guidance. Actual service DB/Redis and running containers are not reset.
+- Verified 347 regression tests, 29 PostgreSQL/Redis integration tests and 12
+  live basic/ML Jupyter cases; see [structured diagnostics](runtime-structured-diagnostics.md).
+
 ### Completion criteria still open
 
 - Maintain the no-false-completeness rule across supported Runtime variants.
@@ -728,6 +741,7 @@ failure. It must retain Runtime release evidence and inject all service credenti
   unknown remote causes remain explicitly unknown and correlate with operational logs.
 
 Phase 2 resolves the reproduced native-warning false-success case in
-[expanded output validation](output-expansion-validation.md). Common diagnostics,
-delivery policy and broader load/failure validation remain open; these test
+[expanded output validation](output-expansion-validation.md). Phase 3 adds DB/REST
+diagnostics; full lifecycle coverage, cross-surface references, mandatory
+delivery policy and broader load/failure validation remain open. These test
 counts alone are not a full production-readiness claim.

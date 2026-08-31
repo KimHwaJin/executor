@@ -46,6 +46,9 @@ from executor_service.infrastructure.db.models import (
     RuntimeTargetORM,
 )
 from executor_service.infrastructure.db.session import create_session_factory
+from executor_service.infrastructure.diagnostic_store import (
+    SQLAlchemyDiagnosticQueryService,
+)
 from executor_service.infrastructure.execution_worker import ExecutionWorker
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
@@ -185,6 +188,15 @@ async def test_output_limit_aborts_runtime_and_persists_incomplete_result(
         await redis.aclose()
 
     finished = await execution_service.get(execution.id)
+    diagnostics = await SQLAlchemyDiagnosticQueryService(session_factory).list(
+        execution.id
+    )
+    assert any(
+        item.diagnostic.code == f"OUTPUT_{kind}_LIMIT_EXCEEDED"
+        and item.diagnostic.category == "OUTPUT"
+        and item.step_id == finished.steps[0].id
+        for item in diagnostics.items
+    )
     retained = abort_status == RuntimeAbortStatus.IDLE_CONFIRMED
     waiting = mode == OperationMode.MULTI and retained
     assert finished.status == (

@@ -7,6 +7,7 @@ from uuid import UUID
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from executor_service.domain.diagnostics import DiagnosticCategory
 from executor_service.domain.enums import (
     AttemptStatus,
     ExecutionStatus,
@@ -17,6 +18,7 @@ from executor_service.domain.enums import (
     StepStatus,
 )
 from executor_service.domain.models import utc_now
+from executor_service.domain.runtime import RuntimeDriverError
 from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
     ExecutionOperationORM,
@@ -24,6 +26,7 @@ from executor_service.infrastructure.db.models import (
     ExecutionStepORM,
     RuntimeTargetORM,
 )
+from executor_service.infrastructure.diagnostic_store import DiagnosticRecorder
 from executor_service.infrastructure.execution_leases import (
     CancellationLease,
     ExecutionLeaseLostError,
@@ -49,6 +52,9 @@ from executor_service.infrastructure.execution_worker.runtime_cleanup import (
 from executor_service.infrastructure.execution_worker.types import (
     CancellationWork,
 )
+from executor_service.infrastructure.runtime_diagnostics import (
+    log_runtime_failure,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +73,7 @@ class CancellationProcessor:
         self._claimer = claimer
         self._lease_heartbeat = lease_heartbeat
         self._driver_provider = driver_provider
+        self._diagnostics = DiagnosticRecorder(session_factory)
 
     async def cancel(self, execution_id: UUID) -> None:
         work = await self._claimer.claim_cancellation(execution_id)
@@ -103,6 +110,12 @@ class CancellationProcessor:
         if work.runtime_session_id is None:
             return RuntimeSessionCleanupStatus.NOT_REQUIRED
         if work.runtime_target_id is None:
+            await self._diagnostics.record(
+                work.lease,
+                RuntimeDriverError("Runtime target is not assigned."),
+                phase="CANCELLATION_TARGET",
+                category=DiagnosticCategory.CLEANUP,
+            )
             return RuntimeSessionCleanupStatus.FAILED
         await self._lease_heartbeat.assert_cancellation(work.lease)
         async with self._session_factory() as session:
@@ -110,18 +123,36 @@ class CancellationProcessor:
                 RuntimeTargetORM, work.runtime_target_id
             )
         if target is None:
+            await self._diagnostics.record(
+                work.lease,
+                RuntimeDriverError("Assigned Runtime target is missing."),
+                phase="CANCELLATION_TARGET",
+                category=DiagnosticCategory.CLEANUP,
+            )
             return RuntimeSessionCleanupStatus.FAILED
         try:
             driver = self._driver_provider.create(target)
-        except Exception:
-            logger.exception(
-                "Cancellation could not create the assigned Runtime Driver",
-                extra={"execution_id": str(work.lease.execution_id)},
+        except Exception as exc:
+            log_runtime_failure(
+                logger,
+                exc,
+                phase="CANCELLATION_DRIVER",
+                execution_id=work.lease.execution_id,
+                fencing_token=work.lease.fencing_token,
+            )
+            await self._diagnostics.record(
+                work.lease,
+                exc,
+                phase="CANCELLATION_DRIVER",
+                category=DiagnosticCategory.CLEANUP,
             )
             return RuntimeSessionCleanupStatus.FAILED
         try:
             return await best_effort_session_stop(
-                driver, work.runtime_session_id, lease=work.lease
+                driver,
+                work.runtime_session_id,
+                lease=work.lease,
+                diagnostics=self._diagnostics,
             )
         finally:
             await driver.close()

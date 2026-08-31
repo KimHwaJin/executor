@@ -48,12 +48,18 @@ from executor_service.infrastructure.db.models import (
     RuntimeTargetORM,
 )
 from executor_service.infrastructure.db.session import create_session_factory
+from executor_service.infrastructure.diagnostic_store import (
+    SQLAlchemyDiagnosticQueryService,
+)
 from executor_service.infrastructure.execution_worker import ExecutionWorker
 from executor_service.infrastructure.result_storage import (
     FilesystemExecutionResultStore,
 )
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
+)
+from executor_service.interfaces._contracts.diagnostics import (
+    ExecutionDiagnosticPageResponse,
 )
 from executor_service.interfaces._contracts.steps import ExecutionStepResponse
 from tests.runtime_credentials import runtime_credential_fields
@@ -214,6 +220,36 @@ async def test_failures_preserve_state_reason_partial_refs_and_operator_logs(
     finally:
         await redis.aclose()
     execution = await execution_service.get(submitted.id)
+    diagnostics = await SQLAlchemyDiagnosticQueryService(factory).list(
+        submitted.id
+    )
+    assert diagnostics.items
+    response = ExecutionDiagnosticPageResponse.from_page(diagnostics)
+    serialized = response.model_dump_json()
+    assert "/secret-private-path" not in serialized
+    assert "primary tool failure" not in serialized
+    phases = {item.diagnostic.phase for item in diagnostics.items}
+    if fault == "disconnect":
+        transport = next(
+            item
+            for item in diagnostics.items
+            if item.diagnostic.phase == "RUNTIME_EXECUTE"
+        )
+        assert transport.diagnostic.code == "RUNTIME_UNAVAILABLE"
+        assert any(
+            cause.errno == errno.ECONNRESET
+            for cause in transport.diagnostic.causes
+        )
+    if fault == "timeout":
+        assert "RUNTIME_TIMEOUT" in phases
+    if storage_fault == "read_step_projection":
+        assert "NOTEBOOK_BUILD" in phases
+    if storage_fault in {"abort_step_result", "finalize_step_result"}:
+        assert phases & {"RESULT_FINALIZE", "RESULT_FAILURE_SAVE"}
+    if cleanup_failure:
+        assert any(
+            item.diagnostic.category == "CLEANUP" for item in diagnostics.items
+        )
     waiting = (
         mode == OperationMode.MULTI
         and fault == "tool"

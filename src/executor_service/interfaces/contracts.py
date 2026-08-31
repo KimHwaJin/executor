@@ -29,6 +29,12 @@ from executor_service.interfaces._contracts.common import (  # noqa: F401
     Lifecycle,
     PageResponse,
 )
+from executor_service.interfaces._contracts.diagnostics import (  # noqa: F401
+    DiagnosticCauseResponse,
+    ExecutionDiagnosticPageResponse,
+    ExecutionDiagnosticResponse,
+    RuntimeDiagnosticResponse,
+)
 from executor_service.interfaces._contracts.events import (  # noqa: F401
     EventDelivery,
     ExecutionEventPageResponse,

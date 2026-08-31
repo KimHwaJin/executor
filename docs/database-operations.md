@@ -7,7 +7,7 @@ consume an application pool.
 ## Schema baseline
 
 Revision `0001` is a complete snapshot of the Executor schema recorded on 2026-08-31. It creates
-all current tables, foreign keys, check/unique constraints, and operational indexes in one step.
+the baseline tables, foreign keys, check/unique constraints, and operational indexes in one step.
 The earlier incremental development revisions were deliberately removed; this is a pre-release
 baseline reset, not a data-preserving upgrade from that discarded chain.
 
@@ -22,9 +22,13 @@ uv run alembic check
 Revision `0001` includes internal monotonic fencing tokens, exclusive cancellation ownership,
 Runtime abort state and observations, the shared-result reference contract, Executor-wide
 maintenance admission, durable leased Maintenance Runs with per-Execution targets, durable
-Execution event history, and the event-retention lease. It is the only current revision;
-the former compatibility bridge has been removed. `current` must report `0001 (head)`, and
-`check` must report that no new upgrade operations are detected. Every database created before
+Execution event history, and the event-retention lease. Revision `0002` adds the
+`execution_diagnostics` table and its indexes; current head is `0002`. For a DB built
+from the actual 2026-08-31 baseline, `upgrade head` preserves existing rows and
+requires no Redis reset. `check` must report no new upgrade operations.
+
+The following reset instructions apply only to discarded older baselines, not to
+the `0001` → `0002` diagnostic upgrade. Every database created before
 this reset must be backed up if its data matters, then recreated as an empty database before
 `upgrade head`, even if it is already stamped `0001`. Revision equality alone does not prove
 that an older database has this schema. Clear the four Executor Redis Streams at the same time so stale work

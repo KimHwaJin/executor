@@ -8,6 +8,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from executor_service.config import Settings
+from executor_service.domain.diagnostics import DiagnosticCategory
 from executor_service.domain.enums import (
     AttemptStatus,
     ExecutionStatus,
@@ -30,6 +31,7 @@ from executor_service.infrastructure.db.models import (
     ExecutionStepAttemptORM,
     ExecutionStepORM,
 )
+from executor_service.infrastructure.diagnostic_store import DiagnosticRecorder
 from executor_service.infrastructure.execution_leases import (
     ExecutionLease,
     require_active_lease,
@@ -41,6 +43,7 @@ from executor_service.infrastructure.execution_worker.event_writer import (
 )
 from executor_service.infrastructure.execution_worker.types import (
     RuntimeAbortResolution,
+    StoredStepFailure,
 )
 from executor_service.infrastructure.runtime_diagnostics import (
     failure_message,
@@ -60,6 +63,19 @@ class ExecutionRunFinalizer:
     ) -> None:
         self._session_factory = session_factory
         self._settings = settings
+        self.diagnostics = DiagnosticRecorder(session_factory)
+
+    async def record_execution_failure(
+        self, lease: ExecutionLease, error: Exception
+    ) -> None:
+        # Stored Step failures already retain the precise failing phase.
+        if not isinstance(error, StoredStepFailure):
+            await self.diagnostics.record(
+                lease,
+                error,
+                phase="EXECUTION_RUN",
+                category=DiagnosticCategory.EXECUTION,
+            )
 
     async def cancellation_owns_terminal(self, execution_id: UUID) -> bool:
         async with self._session_factory() as session:
@@ -92,6 +108,12 @@ class ExecutionRunFinalizer:
                 self._settings.runtime_abort_timeout_seconds,
             )
         except Exception as exc:
+            await self.diagnostics.record(
+                lease,
+                exc,
+                phase="RUNTIME_ABORT",
+                category=DiagnosticCategory.CLEANUP,
+            )
             log_runtime_failure(
                 logger,
                 exc,
@@ -105,6 +127,14 @@ class ExecutionRunFinalizer:
                 failure_message(exc),
             )
         if result.status == RuntimeAbortStatus.FAILED:
+            await self.diagnostics.record(
+                lease,
+                RuntimeDriverError(
+                    result.message or "Runtime abort failed without a reason."
+                ),
+                phase="RUNTIME_ABORT_RESULT",
+                category=DiagnosticCategory.CLEANUP,
+            )
             log_runtime_failure(
                 logger,
                 RuntimeDriverError(
@@ -133,6 +163,12 @@ class ExecutionRunFinalizer:
             try:
                 await driver.delete_session(runtime_session_id)
             except Exception as exc:
+                await self.diagnostics.record(
+                    lease,
+                    exc,
+                    phase="RUNTIME_DELETE_AFTER_ABORT",
+                    category=DiagnosticCategory.CLEANUP,
+                )
                 log_runtime_failure(
                     logger,
                     exc,
@@ -206,6 +242,13 @@ class ExecutionRunFinalizer:
         sequence: int,
         error: Exception,
     ) -> None:
+        await self.diagnostics.record(
+            lease,
+            error,
+            phase="ARTIFACT_REGISTER",
+            category=DiagnosticCategory.ARTIFACT,
+            sequence=sequence,
+        )
         log_runtime_failure(
             logger,
             error,

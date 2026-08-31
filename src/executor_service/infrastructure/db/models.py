@@ -6,6 +6,7 @@ CommandReceiptORM = internal_models.CommandReceiptORM
 EventRetentionLeaseORM = internal_models.EventRetentionLeaseORM
 ExecutionArtifactORM = internal_models.ExecutionArtifactORM
 ExecutionAttemptORM = internal_models.ExecutionAttemptORM
+ExecutionDiagnosticORM = internal_models.ExecutionDiagnosticORM
 ExecutionEventORM = internal_models.ExecutionEventORM
 ExecutionEventSequenceORM = internal_models.ExecutionEventSequenceORM
 ExecutionORM = internal_models.ExecutionORM

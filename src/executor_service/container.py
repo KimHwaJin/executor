@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from executor_service.application.artifact_content import (
     ArtifactContentService,
 )
+from executor_service.application.diagnostics import DiagnosticQueryService
 from executor_service.application.execution_results import (
     ExecutionResultQueryService,
 )
@@ -24,6 +25,9 @@ from executor_service.infrastructure.db.repositories import (
 from executor_service.infrastructure.db.session import (
     create_engine,
     create_session_factory,
+)
+from executor_service.infrastructure.diagnostic_store import (
+    SQLAlchemyDiagnosticQueryService,
 )
 from executor_service.infrastructure.event_retention import (
     EventRetentionManager,
@@ -56,7 +60,7 @@ from executor_service.infrastructure.runtime_storage import (
 )
 from executor_service.tracing import TracingManager
 
-EXPECTED_SCHEMA_REVISION = "0001"
+EXPECTED_SCHEMA_REVISION = "0002"
 
 
 class ApplicationContainer:
@@ -91,6 +95,9 @@ class ApplicationContainer:
         )
         self.execution_queries = SQLAlchemyExecutionQueryService(
             self.session_factory
+        )
+        self.diagnostic_queries: DiagnosticQueryService = (
+            SQLAlchemyDiagnosticQueryService(self.session_factory)
         )
         self.execution_results = ExecutionResultQueryService(
             self.execution_queries

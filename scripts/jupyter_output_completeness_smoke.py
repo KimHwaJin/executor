@@ -49,6 +49,9 @@ from executor_service.infrastructure.db.session import (
     create_engine,
     create_session_factory,
 )
+from executor_service.infrastructure.diagnostic_store import (
+    SQLAlchemyDiagnosticQueryService,
+)
 from executor_service.infrastructure.execution_worker import ExecutionWorker
 from executor_service.infrastructure.jupyter import JupyterRuntimeDriver
 from executor_service.infrastructure.result_storage import (
@@ -232,6 +235,17 @@ async def run_case(
                 expected in str(output.get("text")) for output in outputs
             )
         assert result.notebook_projection_status == "SUCCEEDED"
+        diagnostics = await SQLAlchemyDiagnosticQueryService(factory).list(
+            execution.id
+        )
+        if scenario == "data_limit":
+            assert any(
+                item.diagnostic.code == "OUTPUT_DATA_RATE_LIMIT_EXCEEDED"
+                and item.step_id == step.id
+                for item in diagnostics.items
+            )
+        else:
+            assert not diagnostics.items
         assert result.notebook_path is not None
         gateway = JupyterRuntimeDriver(endpoint, token)
         try:
@@ -287,6 +301,9 @@ async def run_case(
             else None,
             "notebook_path": result.notebook_path,
             "outbox_event_count": len(events),
+            "diagnostic_codes": [
+                item.diagnostic.code for item in diagnostics.items
+            ],
         }
     finally:
         # Includes failed assertions and aborted probes; never clean another

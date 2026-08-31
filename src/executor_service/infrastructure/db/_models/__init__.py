@@ -12,6 +12,9 @@ from executor_service.infrastructure.db._models.common import (
     audit_actor_constraints,
     enum_type,
 )
+from executor_service.infrastructure.db._models.diagnostics import (
+    ExecutionDiagnosticORM,
+)
 from executor_service.infrastructure.db._models.events import (
     ExecutionEventORM,
     ExecutionEventSequenceORM,
@@ -43,6 +46,7 @@ __all__ = [
     "EventRetentionLeaseORM",
     "ExecutionArtifactORM",
     "ExecutionAttemptORM",
+    "ExecutionDiagnosticORM",
     "ExecutionEventORM",
     "ExecutionEventSequenceORM",
     "ExecutionORM",

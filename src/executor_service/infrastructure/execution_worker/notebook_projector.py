@@ -8,6 +8,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from executor_service.domain.diagnostics import DiagnosticCategory
 from executor_service.domain.models import (
     ExecutionStep,
     NotebookProjectionStatus,
@@ -29,6 +30,7 @@ from executor_service.infrastructure.db.models import (
     ExecutionORM,
     ExecutionStepORM,
 )
+from executor_service.infrastructure.diagnostic_store import DiagnosticRecorder
 from executor_service.infrastructure.execution_leases import (
     ExecutionLease,
     ExecutionLeaseLostError,
@@ -65,6 +67,7 @@ class NotebookProjector:
         self._workspace = workspace
         self._artifacts = artifacts
         self._tracing = tracing
+        self._diagnostics = DiagnosticRecorder(session_factory)
 
     async def prepare(
         self,
@@ -187,6 +190,8 @@ class NotebookProjector:
                 status="FAILED",
                 attempt_count=0,
                 error_message=safe_error(exc),
+                error=exc,
+                phase="NOTEBOOK_BUILD",
             )
             raise
         last_error: Exception | None = None
@@ -213,6 +218,8 @@ class NotebookProjector:
             lease,
             status="FAILED",
             attempt_count=3,
+            error=last_error,
+            phase="NOTEBOOK_WRITE",
             error_message=(
                 safe_error(last_error)
                 if last_error is not None
@@ -287,6 +294,13 @@ class NotebookProjector:
                 attempt_id=lease.attempt_id,
                 sequence=sequence,
             )
+            await self._diagnostics.record(
+                lease,
+                exc,
+                phase="NOTEBOOK_ARTIFACT_REGISTER",
+                category=DiagnosticCategory.ARTIFACT,
+                sequence=sequence,
+            )
 
     async def _record_projection(
         self,
@@ -295,6 +309,8 @@ class NotebookProjector:
         status: NotebookProjectionStatus,
         attempt_count: int,
         error_message: str | None = None,
+        error: Exception | None = None,
+        phase: str = "NOTEBOOK_WRITE",
     ) -> None:
         async with self._session_factory() as session, session.begin():
             execution, _attempt = await require_active_lease(session, lease)
@@ -305,6 +321,11 @@ class NotebookProjector:
                 utc_now() if status == "SUCCEEDED" else None
             )
             execution.updated_at = utc_now()
+
+        if error is not None:
+            await self._diagnostics.record(
+                lease, error, phase=phase, category=DiagnosticCategory.NOTEBOOK
+            )
 
     async def _assert_active_lease(self, lease: ExecutionLease) -> None:
         async with self._session_factory() as session:
