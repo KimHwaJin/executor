@@ -23,6 +23,7 @@ authoritative state store and execution happens asynchronously through the Worke
 | GET | `/executions/{execution_id}/attempts/{attempt_id}` | One immutable Attempt detail |
 | GET | `/executions/{execution_id}/attempts/{attempt_id}/steps` | Immutable Step results for one Attempt |
 | GET | `/executions/{execution_id}/events` | Integration event history |
+| GET | `/executions/{execution_id}/diagnostics` | Cursor-paginated failure observations; [field contract](../dev_docs/execution-diagnostics.md) |
 | GET | `/executions/{execution_id}/artifacts` | Artifact history |
 | POST | `/executions/{execution_id}/artifacts` | Materialize Agent-authored text on Runtime storage |
 | GET | `/artifacts/{artifact_id}` | One registered Artifact and lineage |
