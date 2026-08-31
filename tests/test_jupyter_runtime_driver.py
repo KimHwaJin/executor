@@ -593,16 +593,34 @@ async def test_execute_rejects_websocket_message_above_safety_limit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class OversizedWebSocket:
+        def __init__(self) -> None:
+            self.message_id: str | None = None
+            self.sent_output = False
+
         async def __aenter__(self) -> "OversizedWebSocket":
             return self
 
         async def __aexit__(self, *_args: object) -> None:
             pass
 
-        async def send(self, _raw: bytes) -> None:
-            pass
+        async def send(self, raw: bytes) -> None:
+            _, message = _deserialize_v1(raw)
+            self.message_id = message["header"]["msg_id"]
 
         async def recv(self) -> str:
+            if not self.sent_output:
+                self.sent_output = True
+                return json.dumps(
+                    {
+                        "channel": "iopub",
+                        "header": {"msg_type": "stream"},
+                        "parent_header": {"msg_id": self.message_id},
+                        "content": {
+                            "name": "stdout",
+                            "text": "before limit\n",
+                        },
+                    }
+                )
             raise PayloadTooBig(2048, 1024)
 
     connect_options: dict[str, Any] = {}
@@ -624,8 +642,9 @@ async def test_execute_rejects_websocket_message_above_safety_limit(
         with pytest.raises(
             RuntimeOutputLimitExceededError,
             match="1024-byte safety limit",
-        ):
+        ) as raised:
             await driver.execute("kernel-1", "print('large')")
+        assert raised.value.outputs[0]["text"] == "before limit\n"
     finally:
         await driver.close()
 

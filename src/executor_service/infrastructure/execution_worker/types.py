@@ -86,8 +86,8 @@ class StoredRuntimeExecutionTimeoutError(RuntimeExecutionTimeoutError):
 class StoredRuntimeOutputLimitExceededError(RuntimeOutputLimitExceededError):
     def __init__(
         self,
-        max_message_bytes: int,
+        original: RuntimeOutputLimitExceededError,
         stored_result: StepResultDescriptor,
     ) -> None:
-        super().__init__(max_message_bytes)
+        super().__init__(original.max_message_bytes, kind=original.kind)
         self.stored_result = stored_result
