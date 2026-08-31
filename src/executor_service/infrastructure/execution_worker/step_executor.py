@@ -1,6 +1,7 @@
 """Execution Step state transitions and durable output delivery."""
 
 import asyncio
+import logging
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
@@ -43,6 +44,9 @@ from executor_service.infrastructure.execution_worker.event_writer import (
     add_step_completed_event,
     add_step_started_event,
 )
+from executor_service.infrastructure.execution_worker.failure_policy import (
+    safe_error,
+)
 from executor_service.infrastructure.execution_worker.output_mapping import (
     output_record,
 )
@@ -50,7 +54,13 @@ from executor_service.infrastructure.execution_worker.types import (
     StoredRuntimeExecutionError,
     StoredRuntimeExecutionTimeoutError,
     StoredRuntimeOutputLimitExceededError,
+    StoredStepFailure,
 )
+from executor_service.infrastructure.runtime_diagnostics import (
+    log_runtime_failure,
+)
+
+logger = logging.getLogger(__name__)
 
 
 class ExecutionStepExecutor:
@@ -238,6 +248,8 @@ class ExecutionStepExecutor:
         sequence: int,
         stored_result: StepResultDescriptor,
         error_message: str,
+        *,
+        retryable: bool = True,
     ) -> None:
         now = utc_now()
         async with self._session_factory() as session, session.begin():
@@ -296,7 +308,7 @@ class ExecutionStepExecutor:
                 StepStatus.FAILED,
                 stored_result=stored_result,
                 error_message=safe_message,
-                retryable=True,
+                retryable=retryable,
             )
 
     async def execute(
@@ -349,6 +361,7 @@ class ExecutionStepExecutor:
             code,
             result_identity,
             source_reference,
+            seal_on_cancel=not timeouts,
         )
         if not timeouts:
             return await execution_call
@@ -357,16 +370,19 @@ class ExecutionStepExecutor:
             async with asyncio.timeout(timeout_seconds):
                 return await execution_call
         except TimeoutError as exc:
-            stored = await self._result_store.abort_step_result(
-                result_identity,
-                reason=(
-                    f"{scope} timeout expired after "
-                    f"{timeout_seconds:.3f} seconds."
-                ),
+            failure = RuntimeExecutionTimeoutError(scope, timeout_seconds)
+            self._log_failure(result_identity, failure, "RUNTIME_TIMEOUT")
+            stored = await self._preserve_failure_result(
+                result_identity, failure
             )
+            if stored is None:
+                raise StoredStepFailure(failure, None) from exc
             raise StoredRuntimeExecutionTimeoutError(
                 scope, timeout_seconds, stored
             ) from exc
+        except asyncio.CancelledError as exc:
+            await self._preserve_failure_result(result_identity, exc)
+            raise
 
     @staticmethod
     def result_identity(
@@ -410,12 +426,15 @@ class ExecutionStepExecutor:
         code: str,
         identity: StepResultIdentity,
         source_reference: ExecutionSourceReference,
+        *,
+        seal_on_cancel: bool = True,
     ) -> StepResultDescriptor:
-        await self._result_store.begin_step_result(identity, source_reference)
         committed_offset = 0
+        phase = "RESULT_PREPARE"
 
         async def append_output(record: RuntimeOutputRecord) -> None:
-            nonlocal committed_offset
+            nonlocal committed_offset, phase
+            phase = "RESULT_APPEND"
             result = await self._result_store.append_step_outputs(
                 identity,
                 expected_offset=committed_offset,
@@ -428,9 +447,14 @@ class ExecutionStepExecutor:
                     "Shared result append acknowledgement is invalid."
                 )
             committed_offset = result.committed_offset
+            phase = "RUNTIME_EXECUTE"
 
         streaming = isinstance(driver, RuntimeStreamingExecutor)
         try:
+            await self._result_store.begin_step_result(
+                identity, source_reference
+            )
+            phase = "RUNTIME_EXECUTE"
             if streaming:
                 execution_result = await driver.execute_streaming(
                     runtime_session_id,
@@ -443,47 +467,89 @@ class ExecutionStepExecutor:
                 )
                 for output in execution_result.outputs:
                     await append_output(output_record(output))
-        except RuntimeOutputLimitExceededError as exc:
-            stored = await self._result_store.abort_step_result(
+            phase = "RESULT_FINALIZE"
+            return await self._result_store.finalize_step_result(
                 identity,
-                reason=str(exc),
+                execution_count=execution_result.execution_count,
             )
+        except RuntimeOutputLimitExceededError as exc:
+            self._log_failure(identity, exc, phase)
+            stored = await self._preserve_failure_result(identity, exc)
+            if stored is None:
+                raise StoredStepFailure(exc, None) from exc
             raise StoredRuntimeOutputLimitExceededError(
                 exc.max_message_bytes,
                 stored,
             ) from exc
         except RuntimeExecutionError as exc:
-            if not streaming:
-                for output in exc.outputs:
-                    await append_output(output_record(output))
-            stored = await self._result_store.finalize_step_result(
-                identity,
-                execution_count=None,
-                error_message=str(exc),
-            )
+            self._log_failure(identity, exc, phase)
+            try:
+                if not streaming:
+                    for output in exc.outputs:
+                        await append_output(output_record(output))
+                stored = await self._result_store.finalize_step_result(
+                    identity,
+                    execution_count=None,
+                    error_message=safe_error(exc),
+                )
+            except Exception as storage_error:
+                self._log_failure(
+                    identity, storage_error, "RESULT_FAILURE_SAVE"
+                )
+                stored = await self._preserve_failure_result(
+                    identity, storage_error
+                )
+                raise StoredStepFailure(exc, stored) from exc
             raise StoredRuntimeExecutionError(
                 str(exc), exc.outputs, stored
             ) from exc
-        except asyncio.CancelledError:
-            await self._result_store.abort_step_result(
-                identity,
-                reason=(
-                    "Runtime execution was cancelled before output delivery "
-                    "completed."
-                ),
-            )
+        except asyncio.CancelledError as exc:
+            # With deadlines the outer handler distinguishes timeout from
+            # user/Worker cancellation before writing the terminal manifest.
+            if seal_on_cancel:
+                await self._preserve_failure_result(identity, exc)
             raise
         except Exception as exc:
-            await self._result_store.abort_step_result(
+            self._log_failure(identity, exc, phase)
+            stored = await self._preserve_failure_result(identity, exc)
+            raise StoredStepFailure(exc, stored) from exc
+
+    async def _preserve_failure_result(
+        self,
+        identity: StepResultIdentity,
+        error: BaseException,
+    ) -> StepResultDescriptor | None:
+        try:
+            return await self._result_store.abort_step_result(
                 identity,
                 reason=(
-                    f"{type(exc).__name__}: output delivery did not complete."
+                    "Runtime execution was cancelled before output delivery completed."
+                    if isinstance(error, asyncio.CancelledError)
+                    else safe_error(error)
+                    if isinstance(error, Exception)
+                    else type(error).__name__
                 ),
             )
-            raise
-        return await self._result_store.finalize_step_result(
-            identity,
-            execution_count=execution_result.execution_count,
+        except Exception as storage_error:
+            # A full/unwritable filesystem cannot save a manifest. Preserve the
+            # initiating error and log the secondary failure independently.
+            self._log_failure(identity, storage_error, "RESULT_FAILURE_SAVE")
+            return None
+
+    @staticmethod
+    def _log_failure(
+        identity: StepResultIdentity, error: BaseException, phase: str
+    ) -> None:
+        log_runtime_failure(
+            logger,
+            error,
+            phase=phase,
+            execution_id=identity.execution_id,
+            operation_id=identity.operation_id,
+            step_id=identity.step_id,
+            sequence=identity.sequence,
+            attempt_id=identity.execution_attempt_id,
+            fencing_token=identity.fencing_token,
         )
 
 

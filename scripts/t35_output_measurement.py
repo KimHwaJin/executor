@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
+import binascii
 import os
 from dataclasses import asdict, dataclass
 from time import monotonic
@@ -20,13 +22,18 @@ import httpx
 from execution_spec_payload import execution_request, inline_spec
 from local_test_support import (
     executor_http_url,
+    local_shared_storage_root,
     write_report,
 )
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from executor_service.config import get_settings
+from executor_service.domain.results import StepResultReference
 from executor_service.infrastructure.db.session import create_engine
+from executor_service.infrastructure.result_storage import (
+    FilesystemExecutionResultStore,
+)
 
 MIB = 1024 * 1024
 TERMINAL_STATUSES = {"SUCCEEDED", "FAILED", "CANCELLED"}
@@ -37,6 +44,8 @@ MEASURED_TABLES = (
     "execution_attempts",
     "execution_step_attempts",
     "execution_artifacts",
+    "execution_events",
+    "execution_event_sequences",
     "outbox_events",
 )
 FULL_TEXT_SIZES_MIB = (1, 5, 10, 25, 50, 100)
@@ -478,11 +487,107 @@ def _notebook_size(result: dict[str, Any]) -> int | None:
     return None
 
 
+def validate_workload_output(
+    outputs: list[dict[str, object]],
+    scenario: Scenario,
+    *,
+    run_id: str,
+    index: int,
+) -> dict[str, Any]:
+    """Check the controlled workload, not just the Execution success flag."""
+    expected_bytes = scenario.size_mib * MIB
+    marker = f"T35:{run_id}:{scenario.name}:{index}".encode()
+    errors: list[str] = []
+    if scenario.output_type == "TEXT":
+        body = "".join(
+            str(output.get("text", ""))
+            for output in outputs
+            if output.get("output_type") == "stream"
+            and output.get("name") == "stdout"
+        ).encode()
+        if not body.startswith(marker + b":"):
+            errors.append("stdout workload marker is missing")
+    else:
+        images = [
+            data["image/png"]
+            for output in outputs
+            if isinstance(data := output.get("data"), dict)
+            and "image/png" in data
+        ]
+        body = b""
+        if len(images) != 1:
+            errors.append("expected exactly one PNG output")
+        else:
+            try:
+                body = base64.b64decode(str(images[0]), validate=True)
+            except (ValueError, binascii.Error):
+                errors.append("invalid base64 PNG output")
+        if not body.startswith(b"\x89PNG\r\n\x1a\n") or marker not in body:
+            errors.append("PNG signature or workload marker is missing")
+    if len(body) != expected_bytes:
+        errors.append(f"expected {expected_bytes} bytes, retained {len(body)}")
+    if any(output.get("output_type") == "error" for output in outputs):
+        errors.append("unexpected error output")
+    return {
+        "status": "FAILED" if errors else "PASSED",
+        "expected_bytes": expected_bytes,
+        "retained_bytes": len(body),
+        "errors": errors,
+    }
+
+
+async def _validate_shared_result(
+    references: list[dict[str, Any]],
+    scenario: Scenario,
+    *,
+    run_id: str,
+    index: int,
+) -> dict[str, Any]:
+    try:
+        root = await asyncio.to_thread(local_shared_storage_root)
+        store = FilesystemExecutionResultStore(root)
+        outputs: list[dict[str, object]] = []
+        if len(references) != 1 or references[0].get("complete") is not True:
+            return {
+                "status": "FAILED",
+                "errors": ["expected one complete shared Step result"],
+            }
+        reference = references[0]
+        if reference.get("storage") != "SHARED_PV":
+            return {"status": "FAILED", "errors": ["expected SHARED_PV"]}
+        outputs.extend(
+            await store.read_step_outputs(
+                StepResultReference(
+                    relative_path=reference["relative_path"],
+                    checksum_sha256=reference["checksum_sha256"],
+                    size_bytes=reference["size_bytes"],
+                    execution_attempt_id=reference["attempt_id"],
+                    fencing_token=reference["fencing_token"],
+                )
+            )
+        )
+        return validate_workload_output(
+            outputs, scenario, run_id=run_id, index=index
+        )
+    except Exception as exc:
+        return {
+            "status": "FAILED",
+            "errors": [
+                f"shared result verification failed: {type(exc).__name__}"
+            ],
+        }
+
+
 async def _retrieve_results(
-    client: httpx.AsyncClient, execution_ids: list[str]
+    client: httpx.AsyncClient,
+    execution_ids: list[str],
+    *,
+    scenario: Scenario,
+    run_id: str,
+    expect_output_limit: bool,
 ) -> list[dict[str, Any]]:
     measurements: list[dict[str, Any]] = []
-    for execution_id in execution_ids:
+    for index, execution_id in enumerate(execution_ids):
         started = monotonic()
         response = await client.get(
             f"/api/v1/executions/{execution_id}/result",
@@ -508,6 +613,19 @@ async def _retrieve_results(
                 "incomplete_step_result_ref_count": sum(
                     reference["complete"] is False
                     for reference in step_result_refs
+                ),
+                "output_validation": (
+                    {
+                        "status": "NOT_APPLICABLE",
+                        "reason": "expected output limit",
+                    }
+                    if expect_output_limit
+                    else await _validate_shared_result(
+                        step_result_refs,
+                        scenario,
+                        run_id=run_id,
+                        index=index,
+                    )
                 ),
             }
         )
@@ -717,7 +835,22 @@ async def run_scenario(
             }
             if failures:
                 raise RuntimeError(f"T35 Executions failed: {failures}")
-        retrievals = await _retrieve_results(client, execution_ids)
+        retrievals = await _retrieve_results(
+            client,
+            execution_ids,
+            scenario=scenario,
+            run_id=run_id,
+            expect_output_limit=expect_output_limit,
+        )
+        invalid_outputs = [
+            item["execution_id"]
+            for item in retrievals
+            if item["output_validation"]["status"] == "FAILED"
+        ]
+        if invalid_outputs:
+            validation_error = (
+                f"T35 output content mismatch: {invalid_outputs}"
+            )
         if expect_output_limit:
             missing_incomplete_references = [
                 item["execution_id"]
@@ -751,6 +884,7 @@ async def run_scenario(
     latencies = [float(item["latency_seconds"]) for item in retrievals]
     return {
         "name": scenario.name,
+        "validation_error": validation_error,
         "configuration": asdict(scenario),
         "operation_mode": operation_mode,
         "requested_output_bytes_per_execution": scenario.size_mib * MIB,
@@ -1032,6 +1166,8 @@ async def main() -> None:
                         "results": results,
                     },
                 )
+                if results[-1]["validation_error"] is not None:
+                    raise RuntimeError(results[-1]["validation_error"])
                 if index < len(scenarios):
                     await asyncio.sleep(args.cooldown_seconds)
     except Exception as exc:

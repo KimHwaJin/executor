@@ -1,3 +1,4 @@
+import errno
 import json
 from typing import Any
 from uuid import UUID
@@ -475,8 +476,17 @@ def test_output_record_mapping_preserves_jupyter_mime_semantics() -> None:
     assert error.representations[0].content == "line 1\nline 2"
 
 
+@pytest.mark.parametrize(
+    "output_error",
+    [
+        None,
+        PermissionError(errno.EACCES, "permission denied"),
+        TimeoutError("storage timeout"),
+    ],
+)
 async def test_execute_streaming_delivers_each_iopub_output(
     monkeypatch: pytest.MonkeyPatch,
+    output_error: Exception | None,
 ) -> None:
     class FakeWebSocket:
         def __init__(self) -> None:
@@ -521,10 +531,19 @@ async def test_execute_streaming_delivers_each_iopub_output(
     records: list[RuntimeOutputRecord] = []
 
     async def collect(record: RuntimeOutputRecord) -> None:
+        if output_error is not None:
+            raise output_error
         records.append(record)
 
     driver = JupyterRuntimeDriver("http://jupyter.invalid", "secret")
     try:
+        if output_error is not None:
+            with pytest.raises(type(output_error)) as raised:
+                await driver.execute_streaming(
+                    "kernel-1", "print('one')", collect
+                )
+            assert raised.value is output_error
+            return
         result = await driver.execute_streaming(
             "kernel-1", "print('one')", collect
         )
@@ -535,6 +554,39 @@ async def test_execute_streaming_delivers_each_iopub_output(
     assert result.outputs == []
     assert len(records) == 1
     assert records[0].kind == "STREAM"
+
+
+async def test_channel_disconnect_preserves_close_codes_without_peer_reason(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class ClosedWebSocket:
+        async def __aenter__(self) -> "ClosedWebSocket":
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            pass
+
+        async def send(self, _raw: bytes) -> None:
+            pass
+
+        async def recv(self) -> str:
+            raise ConnectionClosedError(
+                Close(1011, "unlabelled-private-data"), None
+            )
+
+    monkeypatch.setattr(
+        "executor_service.infrastructure._jupyter.execution.websockets.connect",
+        lambda *_args, **_kwargs: ClosedWebSocket(),
+    )
+    driver = JupyterRuntimeDriver("http://jupyter.invalid", "secret")
+    try:
+        with pytest.raises(RuntimeDriverError) as raised:
+            await driver.execute("kernel-1", "print('one')")
+        assert "received_close_code=1011" in str(raised.value)
+        assert "private-data" not in str(raised.value)
+        assert isinstance(raised.value.__cause__, ConnectionClosedError)
+    finally:
+        await driver.close()
 
 
 async def test_execute_rejects_websocket_message_above_safety_limit(

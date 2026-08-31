@@ -1,14 +1,20 @@
 """Runtime Driver construction and traced call helpers."""
 
+import logging
 from collections.abc import Awaitable
 from uuid import UUID
 
 from executor_service.domain.runtime import RuntimeDriver, RuntimeDriverFactory
 from executor_service.infrastructure.db.models import RuntimeTargetORM
+from executor_service.infrastructure.runtime_diagnostics import (
+    log_runtime_failure,
+)
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
 )
 from executor_service.tracing import TracingManager
+
+logger = logging.getLogger(__name__)
 
 
 class RuntimeDriverProvider:
@@ -50,4 +56,15 @@ async def trace_runtime[T](
     if sequence is not None:
         attributes["executor.step.sequence"] = sequence
     with tracing.span(name, attributes=attributes):
-        return await operation
+        try:
+            return await operation
+        except Exception as exc:
+            log_runtime_failure(
+                logger,
+                exc,
+                phase=name,
+                execution_id=execution_id,
+                target_id=target_id,
+                sequence=sequence,
+            )
+            raise

@@ -320,6 +320,14 @@ plot artifacts remain on Jupyter-owned storage and use the separate Artifact con
 
 ### Measurement before thresholds
 
+Blocking observation on 2026-08-31: the current local Jupyter IOPub data-rate limit suppresses
+5/10/25 MiB stdout output, but Executor still reports `SUCCEEDED` and `result_ref.complete=true`.
+Only the rate-limit stderr warning is retained. The T35 harness now validates shared output
+checksums, workload markers, and expected byte counts and fails these cases. Runtime behavior
+has not been fixed. Resolve this loss/completeness mismatch before treating larger-output or
+concurrency measurements as production evidence. See
+[expanded output validation](output-expansion-validation.md) for results and follow-up scope.
+
 T35 must measure 1, 5, 10, 25, 50, and 100 MiB text output; 1, 10, 25, and 50 MiB image output;
 and concurrency levels 1, 5, 10, and 20. Record Executor RSS, Runtime memory, PostgreSQL growth,
 notebook size, result-reference API latency, and Agent retrieval calls. Final message, buffer, preview, and
@@ -670,3 +678,38 @@ failure. It must retain Runtime release evidence and inject all service credenti
   retain its generated summary and logs.
 - Every PR-001 through PR-006C implementation adds its new concurrency, recovery, output, or
   retention cases to the appropriate required gate.
+
+## PR-008: Trustworthy Runtime diagnostics and completion reporting
+
+- Priority: P0 for known output loss reported as complete; P1 for diagnostic consistency
+- Status: IMPLEMENTING — Phase 1 complete, overall item remains open
+- Area: Runtime adapters, Worker errors, shared results, projection, cleanup, operator logs
+- Public API impact: Phase 1 has none; common diagnostic fields require a subsequent contract update
+- Details: [Runtime Diagnostics Hardening](runtime-diagnostics-hardening.md)
+
+### Implemented Phase 1
+
+- Preserve transport/OS causes and partial result references through SINGLE and MULTI failures.
+- Keep output-handler storage exceptions separate from Jupyter transport failures.
+- Emit bounded, sanitized failure-chain and stack-location logs with execution context.
+- Retain initiating failure when evidence persistence, notebook projection or cleanup also fails.
+- Record notebook construction failure instead of leaving projection `PENDING`.
+- Correct inconsistent retained-target outage classification.
+- Verified 290 local regression tests, 28 PostgreSQL/Redis integration tests, Ruff, format and ty;
+  real local basic/ML Jupyter REST/WebSocket gateway smoke passed.
+
+### Completion criteria still open
+
+- Known output suppression is never reported as a complete captured result. Do not classify
+  arbitrary user stderr as an authoritative Runtime signal or disable limits to hide this issue.
+- Execution failure, result incompleteness and secondary projection/cleanup problems are
+  independently attributable and consistently queryable, without overwriting earlier causes.
+- Common diagnostic code, phase, origin, severity, time and scope rules cover DB, API, event and
+  manifest representations while keeping payloads bounded.
+- Mandatory output/projection/artifact completion policy is explicit; consumers cannot confuse
+  code success with successful delivery of all mandatory outputs.
+- Remaining lifecycle and persistence-outage paths are covered by failure-injection tests;
+  unknown remote causes remain explicitly unknown and correlate with operational logs.
+
+The output-loss blocker in [expanded output validation](output-expansion-validation.md) is not
+resolved by Phase 1. No full production-readiness claim should be made from these test counts.

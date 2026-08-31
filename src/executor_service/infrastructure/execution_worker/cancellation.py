@@ -121,7 +121,7 @@ class CancellationProcessor:
             return RuntimeSessionCleanupStatus.FAILED
         try:
             return await best_effort_session_stop(
-                driver, work.runtime_session_id
+                driver, work.runtime_session_id, lease=work.lease
             )
         finally:
             await driver.close()

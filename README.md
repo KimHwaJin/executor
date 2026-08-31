@@ -84,6 +84,9 @@ Confirmed hardening work that must be completed before production is tracked in
 [Production Readiness](docs/production-readiness.md). These items are implementation requirements,
 not deferred product decisions.
 
+Runtime error evidence, operator log fields, validation and remaining diagnostic work are tracked
+in [Runtime Diagnostics Hardening](docs/runtime-diagnostics-hardening.md).
+
 ## Local setup
 
 The only universal prerequisite is `uv`, which installs the pinned CPython 3.12 runtime when it is

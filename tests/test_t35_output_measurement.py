@@ -26,6 +26,7 @@ parse_scenario = T35["parse_scenario"]
 require_safe_executor_url = T35["_require_safe_executor_url"]
 scenario_matrix = T35["scenario_matrix"]
 workload_code = T35["workload_code"]
+validate_workload_output = T35["validate_workload_output"]
 
 
 def test_full_matrix_has_every_required_size_and_concurrency() -> None:
@@ -61,6 +62,19 @@ def test_text_workload_emits_the_requested_number_of_bytes() -> None:
 
     assert len(output.getvalue().encode()) == 1024 * 1024
     assert output.getvalue().startswith("T35:text-run:")
+    validation = validate_workload_output(
+        [
+            {
+                "output_type": "stream",
+                "name": "stdout",
+                "text": output.getvalue(),
+            }
+        ],
+        scenario,
+        run_id="text-run",
+        index=0,
+    )
+    assert validation["status"] == "PASSED"
 
 
 def test_image_workload_emits_an_exact_valid_png_payload(
@@ -87,6 +101,63 @@ def test_image_workload_emits_an_exact_valid_png_payload(
     assert len(image) == 1024 * 1024
     assert image.startswith(b"\x89PNG\r\n\x1a\n")
     assert b"T35:image-run:" in image
+    validation = validate_workload_output(
+        [{"output_type": "display_data", "data": captured}],
+        Scenario("IMAGE", 1, 1),
+        run_id="image-run",
+        index=0,
+    )
+    assert validation["status"] == "PASSED"
+
+
+def test_successful_execution_with_only_rate_warning_is_not_a_pass() -> None:
+    validation = validate_workload_output(
+        [
+            {
+                "output_type": "stream",
+                "name": "stderr",
+                "text": "IOPub data rate exceeded.",
+            }
+        ],
+        Scenario("TEXT", 5, 1),
+        run_id="rate-limited",
+        index=0,
+    )
+    assert validation["status"] == "FAILED"
+    assert validation["retained_bytes"] == 0
+    assert validation["expected_bytes"] == 5 * 1024 * 1024
+
+
+def test_truncated_text_with_correct_marker_is_not_a_pass() -> None:
+    validation = validate_workload_output(
+        [
+            {
+                "output_type": "stream",
+                "name": "stdout",
+                "text": "T35:short:text-5mib-concurrency-1:0:x",
+            }
+        ],
+        Scenario("TEXT", 5, 1),
+        run_id="short",
+        index=0,
+    )
+    assert validation["status"] == "FAILED"
+    assert any("retained" in error for error in validation["errors"])
+
+
+def test_invalid_png_is_not_a_pass() -> None:
+    validation = validate_workload_output(
+        [
+            {
+                "output_type": "display_data",
+                "data": {"image/png": "!not-base64!"},
+            }
+        ],
+        Scenario("IMAGE", 5, 1),
+        run_id="invalid-image",
+        index=0,
+    )
+    assert validation["status"] == "FAILED"
 
 
 def test_database_delta_reports_storage_and_row_growth() -> None:
@@ -106,6 +177,14 @@ def test_database_delta_reports_storage_and_row_growth() -> None:
     assert delta["database_bytes"] == 60
     assert set(delta["table_bytes"].values()) == {10}
     assert set(delta["table_rows"].values()) == {2}
+
+
+def test_measurement_includes_durable_events_and_outbox() -> None:
+    assert {
+        "execution_events",
+        "execution_event_sequences",
+        "outbox_events",
+    }.issubset(T35["MEASURED_TABLES"])
 
 
 def test_t35_rejects_remote_executor_without_explicit_opt_in(
