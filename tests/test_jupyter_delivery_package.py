@@ -1,3 +1,4 @@
+from configparser import ConfigParser
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -15,9 +16,10 @@ def test_standalone_dockerfile_uses_only_local_copy_sources() -> None:
         .replace("test_harness/jupyter/", "")
         .replace("/workspace/pv", '"${JUPYTER_ROOT_DIR}"')
     )
-    # Delivery-specific defaults are documented above the shared build steps.
+    # The delivery adds its own defaults and package-index configuration.
+    shared_build = dockerfile.replace("COPY pip.conf /etc/pip.conf\n", "")
     assert (
-        dockerfile.partition("RUN apt-get update")[2]
+        shared_build.partition("RUN apt-get update")[2]
         == (harness_dockerfile.partition("RUN apt-get update")[2])
     )
     for line in dockerfile.splitlines():
@@ -30,6 +32,17 @@ def test_standalone_dockerfile_uses_only_local_copy_sources() -> None:
             assert not Path(source).is_absolute()
             assert ".." not in Path(source).parts
             assert (PACKAGE / source).exists()
+
+
+def test_pip_config_is_installed_before_package_installation() -> None:
+    config = ConfigParser()
+    config.read(PACKAGE / "pip.conf", encoding="utf-8")
+    assert config["global"]["index-url"].endswith("/simple/")
+    assert not config.has_option("global", "extra-index-url")
+    dockerfile = (PACKAGE / "Dockerfile").read_text()
+    assert dockerfile.index("COPY pip.conf /etc/pip.conf") < dockerfile.index(
+        "/bin/pip install"
+    )
 
 
 def test_deployment_defaults_are_visible() -> None:

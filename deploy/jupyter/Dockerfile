@@ -28,6 +28,7 @@ RUN apt-get update \
 COPY environments/server/requirements.txt /opt/jupyter-env/server/requirements.txt
 COPY environments/basic/requirements.txt /opt/jupyter-env/basic/requirements.txt
 COPY environments/ml/requirements.txt /opt/jupyter-env/ml/requirements.txt
+COPY pip.conf /etc/pip.conf
 
 RUN /usr/local/bin/python3.12 -m venv /opt/venvs/jupyter \
     && /usr/bin/python3.11 -m venv /opt/venvs/basic \
