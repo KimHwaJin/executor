@@ -1,6 +1,7 @@
 """Runtime driver contracts shared by the application and infrastructure layers."""
 
 from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Literal, Protocol, runtime_checkable
@@ -11,6 +12,35 @@ from executor_service.domain.enums import RuntimeAbortStatus, RuntimeType
 
 class RuntimeDriverError(RuntimeError):
     """An execution runtime could not be reached or used."""
+
+
+class RuntimeFileRangeError(RuntimeDriverError):
+    def __init__(self, size: int) -> None:
+        super().__init__("Requested Runtime file range is not satisfiable.")
+        self.size = size
+
+
+class RuntimeFileUnavailableError(RuntimeDriverError):
+    """The registered file is missing or changed during download setup."""
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeByteRange:
+    start: int
+    end: int
+    size: int
+    partial: bool
+
+    @property
+    def length(self) -> int:
+        return max(self.end - self.start + 1, 0)
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeFileContent:
+    byte_range: RuntimeByteRange
+    checksum_sha256: str
+    body: AsyncIterator[bytes]
 
 
 class NotebookProjectionInterruptedError(RuntimeError):
@@ -252,9 +282,9 @@ class RuntimeDriver(RuntimeStorage, Protocol):
 
 @runtime_checkable
 class RuntimeFileStreamer(Protocol):
-    def stream_file(
-        self, path: str, start: int, end: int
-    ) -> AsyncIterator[bytes]: ...
+    def open_file(
+        self, path: str, range_header: str | None
+    ) -> AbstractAsyncContextManager[RuntimeFileContent]: ...
 
 
 class RuntimeDriverFactory(Protocol):
@@ -292,11 +322,10 @@ class RuntimeStorageAccess(Protocol):
 
 
 class RuntimeArtifactContentAccess(Protocol):
-    def stream_file(
+    def open_file(
         self,
         runtime_type: RuntimeType,
         preferred_target_id: UUID | None,
         path: str,
-        start: int,
-        end: int,
-    ) -> AsyncIterator[bytes]: ...
+        range_header: str | None,
+    ) -> AbstractAsyncContextManager[RuntimeFileContent]: ...

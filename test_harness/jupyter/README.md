@@ -88,16 +88,30 @@ The extension exposes Executor-only notebook preparation and file-content operat
 
 - `POST /executor/storage/notebooks/prepare`
 - `POST /executor/storage/notebooks/project`
-- `GET /executor/storage/files/content?path=...&start=...&end=...`
+- `GET /executor/storage/files/content?path=...` (optional HTTP `Range` header)
 
 `prepare` atomically creates stable Executor-managed code cells before their Operation runs;
 `project` atomically replaces that notebook with the latest sealed shared-volume results. Neither
 operation uses NbModelClient, YDoc, RTC, or Jupyter checkpoints, so an already open JupyterLab
 document may require a reload. Complete Step outputs are not stored separately by this extension.
 Agents never receive the Jupyter token and do not call extension-internal endpoints.
-The file-content operation streams only an inclusive byte range below the configured Jupyter root.
+The file-content operation streams the current whole file (`200`) when Range is omitted, or an
+inclusive single byte range (`206`). Invalid ranges return `416` and the current file size.
 Executor uses it for registered PV Artifact downloads; it rejects absolute paths, traversal, and
 non-files. This route is internal and is not a replacement for the public Artifact API.
+
+The handler opens the file **before** obtaining its size (`fstat`). Size, SHA-256, range validation
+and body reads use that same descriptor, held until download completion/disconnect. SHA-256 is
+calculated by a full-file bounded scan before headers, including for Range requests; plan storage
+I/O and setup timeouts accordingly. No additional persistent metadata/download copy is written.
+Atomic replacement of the path keeps POSIX readers on the originally opened file. In-place writes
+are only detected on a best-effort basis; this is not a filesystem snapshot or a lock on manual
+Jupyter/analysis-tool saves. Windows open-file replacement behavior depends on filesystem/sharing
+rules and is not given the POSIX guarantee. Download after saving when using those writers.
+
+Deploy the updated Executor **and** rebuilt Jupyter extension/image together. The old `start`/`end`
+query bounds are removed; old clients are rejected rather than silently receiving a full file.
+An old extension lacking current-file download metadata is also rejected by the new Executor.
 
 ### Notebook permissions and nbviewer
 

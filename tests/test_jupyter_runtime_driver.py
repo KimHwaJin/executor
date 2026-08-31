@@ -202,7 +202,15 @@ async def test_runtime_storage_contract_uses_jupyter_server_apis() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
         if request.url.path.endswith("/files/content"):
-            return httpx.Response(200, content=b"artifact")
+            return httpx.Response(
+                206,
+                content=b"2345",
+                headers={
+                    "Content-Range": "bytes 2-5/10",
+                    "X-Checksum-SHA256": "a" * 64,
+                    "ETag": '"' + "a" * 64 + '"',
+                },
+            )
         if request.url.path.endswith("/artifacts/snapshot"):
             return httpx.Response(
                 200,
@@ -270,14 +278,10 @@ async def test_runtime_storage_contract_uses_jupyter_server_apis() -> None:
         notebook = await driver.read_notebook(
             "users/u/executions/e/notebooks/execution.ipynb"
         )
-        streamed = b"".join(
-            [
-                chunk
-                async for chunk in driver.stream_file(
-                    "users/u/executions/e/artifacts/plots/a.png", 2, 5
-                )
-            ]
-        )
+        async with driver.open_file(
+            "users/u/executions/e/artifacts/plots/a.png", "bytes=2-5"
+        ) as opened:
+            streamed = b"".join([chunk async for chunk in opened.body])
     finally:
         await driver.close()
 
@@ -285,7 +289,7 @@ async def test_runtime_storage_contract_uses_jupyter_server_apis() -> None:
     assert metadata.checksum_sha256 == "a" * 64
     assert manifest == b"{}\n"
     assert notebook == {"cells": []}
-    assert streamed == b"artifact"
+    assert streamed == b"2345"
     text_request = next(
         request
         for request in requests
@@ -307,9 +311,8 @@ async def test_runtime_storage_contract_uses_jupyter_server_apis() -> None:
     assert content_request.url.path.endswith("/storage/files/content")
     assert dict(content_request.url.params) == {
         "path": "users/u/executions/e/artifacts/plots/a.png",
-        "start": "2",
-        "end": "5",
     }
+    assert content_request.headers["Range"] == "bytes=2-5"
 
 
 async def test_request_reports_safe_http_failure_context() -> None:

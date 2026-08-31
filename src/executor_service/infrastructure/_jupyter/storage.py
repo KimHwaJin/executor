@@ -1,6 +1,6 @@
 """Jupyter notebook, workspace, and artifact storage APIs."""
 
-from collections.abc import AsyncIterator
+from contextlib import AbstractAsyncContextManager
 from pathlib import PurePosixPath
 from typing import Any
 from urllib.parse import quote
@@ -8,6 +8,7 @@ from uuid import UUID
 
 from executor_service.domain.runtime import (
     RuntimeDriverError,
+    RuntimeFileContent,
     RuntimeFileMetadata,
     RuntimeFileState,
     RuntimeNotebookPreparationResult,
@@ -203,11 +204,10 @@ class JupyterStorageClient:
             json={"type": "file", "format": "text", "content": content},
         )
 
-    async def stream_file(
-        self, path: str, start: int, end: int
-    ) -> AsyncIterator[bytes]:
-        async for chunk in self._transport.stream_file(path, start, end):
-            yield chunk
+    def open_file(
+        self, path: str, range_header: str | None
+    ) -> AbstractAsyncContextManager[RuntimeFileContent]:
+        return self._transport.open_file(path, range_header)
 
 
 def contents_path(path: str) -> str:

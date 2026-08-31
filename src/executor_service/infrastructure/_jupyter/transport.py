@@ -1,12 +1,18 @@
 """HTTP and URL transport primitives for Jupyter Runtime Targets."""
 
-from collections.abc import AsyncIterator
+from contextlib import AbstractAsyncContextManager
 from typing import Any
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
 import httpx
 
-from executor_service.domain.runtime import RuntimeDriverError
+from executor_service.domain.runtime import (
+    RuntimeDriverError,
+    RuntimeFileContent,
+)
+from executor_service.infrastructure._jupyter.file_content import (
+    open_file_response,
+)
 
 
 class JupyterHttpTransport:
@@ -58,30 +64,12 @@ class JupyterHttpTransport:
                 f"transport={type(exc).__name__}."
             ) from exc
 
-    async def stream_file(
-        self, path: str, start: int, end: int
-    ) -> AsyncIterator[bytes]:
-        try:
-            async with self.client.stream(
-                "GET",
-                "/executor/storage/files/content",
-                params={"path": path, "start": start, "end": end},
-                timeout=self.storage_timeout_seconds,
-            ) as response:
-                response.raise_for_status()
-                async for chunk in response.aiter_bytes():
-                    if chunk:
-                        yield chunk
-        except httpx.HTTPStatusError as exc:
-            raise RuntimeDriverError(
-                "Jupyter file content request failed: "
-                f"status={exc.response.status_code}."
-            ) from exc
-        except httpx.RequestError as exc:
-            raise RuntimeDriverError(
-                "Jupyter file content request failed: "
-                f"transport={type(exc).__name__}."
-            ) from exc
+    def open_file(
+        self, path: str, range_header: str | None
+    ) -> AbstractAsyncContextManager[RuntimeFileContent]:
+        return open_file_response(
+            self.client, path, range_header, self.storage_timeout_seconds
+        )
 
     def channels_uri(self, runtime_session_id: str, session_id: str) -> str:
         parsed = urlsplit(self.endpoint)

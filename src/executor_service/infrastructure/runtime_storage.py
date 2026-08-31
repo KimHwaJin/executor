@@ -2,6 +2,7 @@
 
 import logging
 from collections.abc import AsyncIterator
+from contextlib import AsyncExitStack, asynccontextmanager
 from uuid import UUID
 
 from sqlalchemy import case, select
@@ -10,8 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from executor_service.domain.enums import RuntimeTargetStatus, RuntimeType
 from executor_service.domain.runtime import (
     RuntimeDriverError,
+    RuntimeFileContent,
     RuntimeFileMetadata,
+    RuntimeFileRangeError,
     RuntimeFileStreamer,
+    RuntimeFileUnavailableError,
 )
 from executor_service.infrastructure.db.models import RuntimeTargetORM
 from executor_service.infrastructure.runtime_drivers import (
@@ -140,14 +144,14 @@ class FleetRuntimeStorageAccess:
             "All Runtime Targets failed to write shared storage."
         ) from last_error
 
-    async def stream_file(
+    @asynccontextmanager
+    async def open_file(
         self,
         runtime_type: RuntimeType,
         preferred_target_id: UUID | None,
         path: str,
-        start: int,
-        end: int,
-    ) -> AsyncIterator[bytes]:
+        range_header: str | None,
+    ) -> AsyncIterator[RuntimeFileContent]:
         targets = await self._candidates(runtime_type, preferred_target_id)
         if not targets:
             raise RuntimeDriverError(
@@ -167,24 +171,25 @@ class FleetRuntimeStorageAccess:
                     "Runtime Driver does not support Artifact content streaming."
                 )
                 continue
-            yielded = False
-            try:
-                async for chunk in driver.stream_file(path, start, end):
-                    yielded = True
-                    yield chunk
+            async with AsyncExitStack() as stack:
+                stack.push_async_callback(driver.close)
+                try:
+                    opened = await stack.enter_async_context(
+                        driver.open_file(path, range_header)
+                    )
+                except (RuntimeFileRangeError, RuntimeFileUnavailableError):
+                    raise
+                except Exception as exc:
+                    last_error = exc
+                    logger.warning(
+                        "Runtime download setup failed; trying another target",
+                        extra={"runtime_target_id": str(target.id)},
+                    )
+                    continue
+                # Once metadata is handed to HTTP, never switch to another
+                # target, even if zero body bytes have been emitted yet.
+                yield opened
                 return
-            except Exception as exc:
-                last_error = exc
-                if yielded:
-                    raise RuntimeDriverError(
-                        "Runtime storage stream failed after response bytes were emitted."
-                    ) from exc
-                logger.warning(
-                    "Runtime storage stream failed; trying another shared-storage target",
-                    extra={"runtime_target_id": str(target.id)},
-                )
-            finally:
-                await driver.close()
         raise RuntimeDriverError(
             "All Runtime Targets failed to stream shared storage."
         ) from last_error

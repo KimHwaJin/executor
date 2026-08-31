@@ -1,7 +1,6 @@
 """Execution Artifact metadata and content routes."""
 
 from typing import Annotated
-from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import APIRouter, Header, Response, status
@@ -18,6 +17,9 @@ from executor_service.interfaces.http._executions.common import (
     ArtifactLimit,
     Cursor,
     execution_router,
+)
+from executor_service.interfaces.http._executions.file_response import (
+    ArtifactStreamingResponse,
 )
 
 
@@ -85,32 +87,8 @@ def build_artifact_router(container: ApplicationContainer) -> APIRouter:
         artifact_id: UUID,
         range_header: Annotated[str | None, Header(alias="Range")] = None,
     ) -> StreamingResponse:
-        content = await container.artifact_content.open(
-            artifact_id, range_header
-        )
-        byte_range = content.byte_range
-        headers = {
-            "Accept-Ranges": "bytes",
-            "Content-Length": str(byte_range.length),
-            "Content-Disposition": (
-                "attachment; filename*=UTF-8''" + quote(content.name, safe="")
-            ),
-            "ETag": f'"{content.checksum_sha256}"',
-            "X-Checksum-SHA256": content.checksum_sha256,
-        }
-        if byte_range.partial:
-            headers["Content-Range"] = (
-                f"bytes {byte_range.start}-{byte_range.end}/{byte_range.size}"
-            )
-        return StreamingResponse(
-            content.body,
-            status_code=(
-                status.HTTP_206_PARTIAL_CONTENT
-                if byte_range.partial
-                else status.HTTP_200_OK
-            ),
-            media_type=content.media_type,
-            headers=headers,
+        return await ArtifactStreamingResponse.open(
+            container.artifact_content.open(artifact_id, range_header)
         )
 
     return router

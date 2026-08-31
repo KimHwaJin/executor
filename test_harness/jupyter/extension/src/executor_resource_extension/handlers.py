@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, BinaryIO, cast
+from typing import Any
 
 from jupyter_server.base.handlers import (  # ty: ignore[unresolved-import]
     APIHandler,
@@ -9,6 +9,12 @@ from jupyter_server.base.handlers import (  # ty: ignore[unresolved-import]
 from tornado import web  # ty: ignore[unresolved-import]
 
 from executor_resource_extension.collector import ResourceCollector
+from executor_resource_extension.file_download import (
+    FileChangedError,
+    FileRangeError,
+    OpenedFileDownload,
+    open_download,
+)
 from executor_resource_extension.storage import (
     RuntimeStorage,
     StoragePathError,
@@ -100,48 +106,65 @@ class FileMetadataHandler(StorageHandler):
 class FileContentHandler(StorageHandler):
     @web.authenticated
     async def get(self) -> None:
-        handle: BinaryIO | None = None
+        download: OpenedFileDownload | None = None
         try:
             path = await asyncio.to_thread(
                 self.storage.resolve_file,
                 self.get_query_argument("path"),
             )
-            size = path.stat().st_size
-            start = int(self.get_query_argument("start", "0"))
-            end = int(self.get_query_argument("end", str(size - 1)))
-            if start < 0 or end < start or end >= size:
-                raise StoragePathError("Requested file range is invalid.")
+            # Retired query bounds must not silently become full downloads.
+            if (
+                "start" in self.request.arguments
+                or "end" in self.request.arguments
+            ):
+                raise web.HTTPError(400, reason="Use the Range header.")
+            download = await open_download(
+                path, self.request.headers.get("Range")
+            )
+            self.set_status(206 if download.partial else 200)
             self.set_header("Content-Type", "application/octet-stream")
-            self.set_header("Content-Length", str(end - start + 1))
+            self.set_header("Content-Length", str(download.length))
             self.set_header("Cache-Control", "no-store")
-            opened = await asyncio.to_thread(_open_binary, path)
-            handle = opened
-            await asyncio.to_thread(opened.seek, start)
-            remaining = end - start + 1
-            while remaining:
-                chunk = await asyncio.to_thread(
-                    _read_chunk, opened, min(1024 * 1024, remaining)
+            self.set_header("Accept-Ranges", "bytes")
+            self.set_header("ETag", f'"{download.checksum_sha256}"')
+            self.set_header("X-Checksum-SHA256", download.checksum_sha256)
+            if download.partial:
+                self.set_header(
+                    "Content-Range",
+                    f"bytes {download.start}-{download.end}/{download.size}",
                 )
+            while True:
+                chunk = await asyncio.to_thread(download.read_chunk)
                 if not chunk:
-                    raise StoragePathError(
-                        "Runtime file ended before the requested range."
-                    )
+                    break
                 self.write(chunk)
                 await self.flush()
-                remaining -= len(chunk)
+        except FileRangeError as exc:
+            self.set_status(416)
+            self.set_header("Accept-Ranges", "bytes")
+            self.set_header("Content-Range", f"bytes */{exc.size}")
+            self.finish({"message": str(exc)})
         except Exception as exc:
+            if self._headers_written:
+                # A JSON error or another file must never be appended to bytes
+                # already sent as a download. Close the incomplete response.
+                self.log.warning(
+                    "Runtime file download interrupted: %s",
+                    type(exc).__name__,
+                )
+                if self.request.connection is not None:
+                    self.request.connection.close()
+                return
+            if isinstance(exc, FileChangedError):
+                self.log.warning("Runtime file download setup failed: %s", exc)
+                raise web.HTTPError(
+                    409,
+                    reason="File changed during download; retry after saving.",
+                ) from exc
             self.write_storage_error(exc)
         finally:
-            if handle is not None:
-                await asyncio.to_thread(handle.close)
-
-
-def _read_chunk(handle: BinaryIO, size: int) -> bytes:
-    return handle.read(size)
-
-
-def _open_binary(path: Any) -> BinaryIO:
-    return cast(BinaryIO, path.open("rb"))
+            if download is not None:
+                await asyncio.to_thread(download.close)
 
 
 class ManifestReadHandler(StorageHandler):
