@@ -4,7 +4,7 @@ FROM python:3.12-slim-bookworm
 # ROOT_DIR must match the shared PVC mount path and be writable by UID 1000.
 # TOKEN defaults to "default" for testing; override via Secret in production.
 # See README.md section 4 before deployment.
-ENV JUPYTER_ROOT_DIR=/workspace/pv \
+ENV JUPYTER_ROOT_DIR=/workspace/jupyter \
     JUPYTER_TOKEN=default
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -63,15 +63,15 @@ RUN rm -rf /home/jovyan \
         --create-home \
         --shell /bin/bash \
         jovyan \
-    && mkdir -p /workspace/pv /home/jovyan/.jupyter \
-    && chown -R 1000:1000 /workspace/pv /home/jovyan
+    && mkdir -p "${JUPYTER_ROOT_DIR}" /home/jovyan/.jupyter \
+    && chown -R 1000:1000 "${JUPYTER_ROOT_DIR}" /home/jovyan
 
 COPY --chown=1000:1000 jupyter_server_config.py \
     /home/jovyan/.jupyter/jupyter_server_config.py
 COPY --chmod=755 start-jupyter.sh /usr/local/bin/start-jupyter
 
 USER 1000:1000
-WORKDIR /workspace/pv
+WORKDIR "${JUPYTER_ROOT_DIR}"
 
 EXPOSE 8888
 

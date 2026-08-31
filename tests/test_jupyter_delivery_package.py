@@ -13,6 +13,7 @@ def test_standalone_dockerfile_uses_only_local_copy_sources() -> None:
         (HARNESS / "Dockerfile")
         .read_text()
         .replace("test_harness/jupyter/", "")
+        .replace("/workspace/pv", '"${JUPYTER_ROOT_DIR}"')
     )
     # Delivery-specific defaults are documented above the shared build steps.
     assert (
@@ -35,11 +36,14 @@ def test_deployment_defaults_are_visible() -> None:
     dockerfile = (PACKAGE / "Dockerfile").read_text()
     preamble = dockerfile.partition("RUN apt-get update")[0]
     assert (
-        "ENV JUPYTER_ROOT_DIR=/workspace/pv \\\n    JUPYTER_TOKEN=default"
+        "ENV JUPYTER_ROOT_DIR=/workspace/jupyter \\\n    JUPYTER_TOKEN=default"
         in preamble
     )
     assert dockerfile.count("JUPYTER_ROOT_DIR=") == 1
     assert dockerfile.count("JUPYTER_TOKEN=") == 1
+    assert 'mkdir -p "${JUPYTER_ROOT_DIR}"' in dockerfile
+    assert 'chown -R 1000:1000 "${JUPYTER_ROOT_DIR}"' in dockerfile
+    assert 'WORKDIR "${JUPYTER_ROOT_DIR}"' in dockerfile
 
 
 def test_delivery_extension_matches_executor_runtime_contract() -> None:

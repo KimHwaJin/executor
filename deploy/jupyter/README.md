@@ -6,6 +6,9 @@
 **배포 전 Dockerfile 상단의 `JUPYTER_ROOT_DIR`, `JUPYTER_TOKEN`과
 아래 4번 배포 설정을 확인한다. 별도 주입이 없으면 토큰은 `default`로 실행된다.**
 
+이 문서에서 작업공간 루트는 `${JUPYTER_ROOT_DIR}`로 표시한다.
+배포 환경에 따라 달라질 수 있는 경로이며, 이미지 기본값은 `/workspace/jupyter`다.
+
 ## 1. 파일 구성과 수정할 곳
 
 | 파일 | 역할 | 수정이 필요한 경우 |
@@ -45,7 +48,8 @@ uv나 별도 패키징 도구를 실행할 필요는 없다.
 4. `basic`, `ml` kernelspec을 서버에 등록하고 불필요한 기본 `python3` kernelspec을 제거한다.
    허용 커널은 basic·ml, 기본 선택은 basic이다.
 5. UID/GID `1000:1000` 사용자를 만들고 설정 파일과 시작 스크립트를 복사한다.
-6. 해당 사용자로 `/workspace/pv`에서 실행하도록 설정한다.
+6. `${JUPYTER_ROOT_DIR}` 디렉토리를 생성하고 해당 사용자에게 권한을 부여한다.
+   이미지의 기본 작업 디렉토리(`WORKDIR`)도 빌드 시 이 값을 사용한다.
 
 컨테이너 시작 시 `tini`가 `start-jupyter.sh`를 실행한다. 스크립트는 토큰과 루트 경로가
 비어 있지 않은지 확인한 뒤 JupyterLab을 실행한다. 서버 설정 파일은 환경변수를 읽고
@@ -76,11 +80,12 @@ docker push harbor.example.com/team/executor-jupyter:delivery
 Dockerfile 상단에 두 설정의 이미지 기본값을 모아 두었다.
 
 ```dockerfile
-ENV JUPYTER_ROOT_DIR=/workspace/pv \
+ENV JUPYTER_ROOT_DIR=/workspace/jupyter \
     JUPYTER_TOKEN=default
 ```
 
-별도 환경변수 주입 없이도 루트 `/workspace/pv`, 토큰 `default`로 실행된다.
+별도 환경변수 주입이 없으면 `${JUPYTER_ROOT_DIR}`은 위 기본값을 사용하고,
+토큰은 `default`로 실행된다.
 이는 인증 없는 실행이 아니라 `default`를 인증 토큰으로 사용하는 것이다.
 공개된 테스트용 기본값이므로 운영 배포 시에는 Secret으로 별도 토큰을 주입한다.
 운영 토큰을 Dockerfile에 직접 기록할 필요는 없다. 루트와 토큰 모두 이미지 재빌드 없이
@@ -90,7 +95,7 @@ ENV JUPYTER_ROOT_DIR=/workspace/pv \
 |---|---|
 | 이미지 | 위에서 빌드·업로드한 태그 |
 | `JUPYTER_TOKEN` | 기본 `default`. 운영에서는 플랫폼 Secret으로 덮어씀. 빈 값이면 시작 실패 |
-| `JUPYTER_ROOT_DIR` | 기본 `/workspace/pv`. 변경 시 실제 공유 PVC 마운트 경로와 일치시킴 |
+| `JUPYTER_ROOT_DIR` | 작업공간 루트 `${JUPYTER_ROOT_DIR}`. 실제 공유 PVC 마운트 경로와 일치시킴 |
 | 포트 | 기본 `8888`. Service 대상 포트도 일치시킴 |
 | 실행 사용자 | UID/GID `1000:1000`. PVC에 디렉토리·파일 생성 및 수정 권한 필요 |
 | 시작 명령 | 이미지 ENTRYPOINT 그대로 사용 |
@@ -117,8 +122,11 @@ env:
 ```
 
 이렇게 주입한 값이 Dockerfile 기본값보다 우선한다. 루트를 변경하면
-`volumeMounts.mountPath`도 동일하게 지정하고 쓰기 권한을 확인한다.
+`volumeMounts.mountPath`에도 `${JUPYTER_ROOT_DIR}`의 실제 경로 값을 지정하고
+쓰기 권한을 확인한다. YAML에 변수 표기를 그대로 넣는 것이 아니라 실제 경로를 입력한다.
 환경변수만 변경한다고 PVC 마운트 위치가 자동으로 바뀌지는 않는다.
+Jupyter의 작업공간 루트는 실행 시 환경변수를 읽지만 이미지 `WORKDIR`은 빌드 시
+정해진다. 프로세스 시작 디렉토리까지 변경하려면 컨테이너 `workingDir`도 실제 경로로 지정한다.
 ConfigMap·Secret 값 변경 후에는 Pod를 재생성해야 새 환경변수가 적용된다.
 
 여러 Jupyter 서버는 동일한 공유 스토리지의 동일한 작업공간을 바라보도록 배포한다.
