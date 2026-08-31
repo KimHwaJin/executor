@@ -4,7 +4,7 @@
 원본 저장소나 테스트 하네스는 필요 없다.
 
 **배포 전 Dockerfile 상단의 `JUPYTER_ROOT_DIR`, `JUPYTER_TOKEN`과
-아래 4번 배포 설정을 확인한다. 토큰을 주입하지 않으면 서버는 시작하지 않는다.**
+아래 4번 배포 설정을 확인한다. 별도 주입이 없으면 토큰은 `default`로 실행된다.**
 
 ## 1. 파일 구성과 수정할 곳
 
@@ -77,24 +77,26 @@ Dockerfile 상단에 두 설정의 이미지 기본값을 모아 두었다.
 
 ```dockerfile
 ENV JUPYTER_ROOT_DIR=/workspace/pv \
-    JUPYTER_TOKEN=""
+    JUPYTER_TOKEN=default
 ```
 
-루트는 기본 경로이며, 토큰의 빈 값은 **배포 시 반드시 입력해야 한다는 표시**다.
-인증 없이 실행한다는 뜻이 아니다. 실제 토큰을 Dockerfile에 적어 빌드하지 않는다.
-루트와 토큰은 이미지 재빌드 없이 배포 환경변수로 지정할 수 있다.
+별도 환경변수 주입 없이도 루트 `/workspace/pv`, 토큰 `default`로 실행된다.
+이는 인증 없는 실행이 아니라 `default`를 인증 토큰으로 사용하는 것이다.
+공개된 테스트용 기본값이므로 운영 배포 시에는 Secret으로 별도 토큰을 주입한다.
+운영 토큰을 Dockerfile에 직접 기록할 필요는 없다. 루트와 토큰 모두 이미지 재빌드 없이
+배포 환경변수로 덮어쓸 수 있다. 토큰을 명시적으로 빈 값으로 덮어쓰면 시작에 실패한다.
 
 | 항목 | 설정 |
 |---|---|
 | 이미지 | 위에서 빌드·업로드한 태그 |
-| `JUPYTER_TOKEN` | 필수. 플랫폼 Secret으로 주입. 빈 값이면 시작 실패 |
+| `JUPYTER_TOKEN` | 기본 `default`. 운영에서는 플랫폼 Secret으로 덮어씀. 빈 값이면 시작 실패 |
 | `JUPYTER_ROOT_DIR` | 기본 `/workspace/pv`. 변경 시 실제 공유 PVC 마운트 경로와 일치시킴 |
 | 포트 | 기본 `8888`. Service 대상 포트도 일치시킴 |
 | 실행 사용자 | UID/GID `1000:1000`. PVC에 디렉토리·파일 생성 및 수정 권한 필요 |
 | 시작 명령 | 이미지 ENTRYPOINT 그대로 사용 |
 | 서버 구성 | 서버별 replicas `1`, Executor가 접근할 수 있는 고유 Service 주소 |
 
-Kubernetes에서는 같은 namespace에 `jupyter-config` ConfigMap과
+기본값을 변경하려면 Kubernetes의 같은 namespace에 `jupyter-config` ConfigMap과
 `jupyter-secret` Secret을 만들고 Deployment의 컨테이너에 아래처럼 연결한다.
 각 리소스에는 아래 `key`와 동일한 이름으로 값을 등록한다.
 리소스를 만들기만 하거나 파일로 마운트하는 것으로는 환경변수가 주입되지 않는다.

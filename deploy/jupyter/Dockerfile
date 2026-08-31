@@ -2,10 +2,10 @@ FROM python:3.12-slim-bookworm
 
 # Deployment settings: override these with container environment variables.
 # ROOT_DIR must match the shared PVC mount path and be writable by UID 1000.
-# TOKEN is intentionally empty: inject via Secret; never bake a real token.
-# An empty token prevents startup. See README.md section 4 before deployment.
+# TOKEN defaults to "default" for testing; override via Secret in production.
+# See README.md section 4 before deployment.
 ENV JUPYTER_ROOT_DIR=/workspace/pv \
-    JUPYTER_TOKEN=""
+    JUPYTER_TOKEN=default
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \

@@ -31,11 +31,11 @@ def test_standalone_dockerfile_uses_only_local_copy_sources() -> None:
             assert (PACKAGE / source).exists()
 
 
-def test_deployment_defaults_are_visible_and_token_is_empty() -> None:
+def test_deployment_defaults_are_visible() -> None:
     dockerfile = (PACKAGE / "Dockerfile").read_text()
     preamble = dockerfile.partition("RUN apt-get update")[0]
     assert (
-        'ENV JUPYTER_ROOT_DIR=/workspace/pv \\\n    JUPYTER_TOKEN=""'
+        "ENV JUPYTER_ROOT_DIR=/workspace/pv \\\n    JUPYTER_TOKEN=default"
         in preamble
     )
     assert dockerfile.count("JUPYTER_ROOT_DIR=") == 1
