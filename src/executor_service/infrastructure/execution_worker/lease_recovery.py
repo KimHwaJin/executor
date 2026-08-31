@@ -1,7 +1,5 @@
 """Expired Execution lease fencing and recovery."""
 
-from uuid import UUID
-
 from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -17,6 +15,9 @@ from executor_service.domain.enums import (
     StepStatus,
 )
 from executor_service.domain.models import utc_now
+from executor_service.infrastructure.background_diagnostics import (
+    RuntimeObservation,
+)
 from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
     ExecutionOperationORM,
@@ -55,7 +56,7 @@ class LeaseRecoveryProcessor:
 
     async def fence_expired_leases(self) -> ExpiredLeaseRecovery:
         now = utc_now()
-        cleanup_targets: list[tuple[UUID, UUID | None, UUID, str]] = []
+        cleanup_targets: list[RuntimeObservation] = []
         recovered_count = 0
         async with self._session_factory() as session, session.begin():
             expired = list(
@@ -111,18 +112,6 @@ class LeaseRecoveryProcessor:
                     )
                     .with_for_update()
                 )
-                if (
-                    execution.runtime_target_id is not None
-                    and execution.runtime_session_id is not None
-                ):
-                    cleanup_targets.append(
-                        (
-                            execution.id,
-                            attempt.id if attempt is not None else None,
-                            execution.runtime_target_id,
-                            execution.runtime_session_id,
-                        )
-                    )
                 execution.status = ExecutionStatus.FAILED
                 execution.error_message = (
                     "Worker lease expired while Runtime abort was pending; "
@@ -149,8 +138,7 @@ class LeaseRecoveryProcessor:
                 execution.recovery_count += 1
                 execution.runtime_session_cleanup_status = (
                     RuntimeSessionCleanupStatus.PENDING
-                    if cleanup_targets
-                    and cleanup_targets[-1][0] == execution.id
+                    if execution.runtime_session_id is not None
                     else RuntimeSessionCleanupStatus.NOT_REQUIRED
                 )
                 execution.version += 1
@@ -249,6 +237,10 @@ class LeaseRecoveryProcessor:
                             session, execution.id, operation.id
                         )
                 await add_execution_completed_event(session, execution.id)
+                if execution.runtime_session_id is not None:
+                    cleanup_targets.append(
+                        RuntimeObservation.capture(execution)
+                    )
         return ExpiredLeaseRecovery(
             execution_count=recovered_count,
             cleanup_targets=tuple(cleanup_targets),
@@ -256,14 +248,7 @@ class LeaseRecoveryProcessor:
 
     async def cleanup_targets(
         self,
-        cleanup_targets: tuple[tuple[UUID, UUID | None, UUID, str], ...],
+        cleanup_targets: tuple[RuntimeObservation, ...],
     ) -> None:
-        for (
-            execution_id,
-            attempt_id,
-            target_id,
-            runtime_session_id,
-        ) in cleanup_targets:
-            await self._session_recovery.cleanup(
-                execution_id, attempt_id, target_id, runtime_session_id
-            )
+        for observation in cleanup_targets:
+            await self._session_recovery.cleanup(observation)

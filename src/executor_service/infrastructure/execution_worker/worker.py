@@ -171,7 +171,6 @@ class ExecutionWorker:
         self._retained_session_cleaner = RetainedSessionCleaner(
             session_factory,
             settings,
-            self._driver_provider,
             self._session_recovery,
         )
         self._dispatcher = ExecutionJobDispatcher()
