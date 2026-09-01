@@ -685,7 +685,7 @@ failure. It must retain Runtime release evidence and inject all service credenti
 ## PR-008: Trustworthy Runtime diagnostics and completion reporting
 
 - Priority: P0 for known output loss reported as complete; P1 for diagnostic consistency
-- Status: IMPLEMENTING — Phases 1–8 delivered; broader failure/load coverage open
+- Status: IMPLEMENTING — Phases 1–9 delivered; broader failure/load coverage open
 - Area: Runtime adapters, Worker errors, shared results, projection, cleanup, operator logs
 - Public API impact: Phase 3 adds diagnostic REST reads; Phase 6 adds event result_ref.complete; manifest unchanged
 - Details: [Runtime Diagnostics Hardening](runtime-diagnostics-hardening.md)
@@ -792,6 +792,22 @@ failure. It must retain Runtime release evidence and inject all service credenti
   eight-Worker recovery checks. See [hard-loss validation](hard-loss-result-validation.md)
   for actual results and limits; this is not a full outage/soak certification.
 
+### Implemented Phase 9
+
+- Treat a sealed successful Step result followed by a failed result-reference/event
+  transaction as `COMPLETION_FAILED / NOT_RETRYABLE`, not a generic internal error.
+  Roll back the canonical result reference and success event together and never
+  replay the successful code as a storage repair.
+- Preserve the sealed fence-scoped file as unreferenced evidence, close the current
+  Step as failed, skip later Steps and record the underlying DB/OS cause under
+  `RESULT_REFERENCE_PERSIST` diagnostics.
+- Verify atomic result writes do not publish a final file or leave a temporary file
+  when file `fsync` fails with ENOSPC or `replace` fails with a permission error.
+- Reuse the transactional Outbox ordering contract: Redis delay does not change the
+  PostgreSQL result, and a failed sequence blocks later sequences until retry.
+- No API, event schema or migration change. Scope, validation and remaining real
+  outage limits: [Result persistence failure boundaries](result-persistence-failure-boundaries.md).
+
 ### Completion criteria still open
 
 - Maintain the no-false-completeness rule across supported Runtime variants.
@@ -811,7 +827,7 @@ diagnostics; Phase 4 implements mandatory delivery policy and Phase 5 covers
 background cleanup/probe observations. Phase 6 aligns partial evidence references
 across events/REST/manifests. Phase 7 validates real cancellation/SIGTERM and
 marks unrefreshed interrupted notebooks explicitly. Full lifecycle coverage,
-including storage/DB outage timing beyond the Phase 8 hard-loss cases,
+including prolonged storage/DB outage timing beyond the Phase 8–9 cases,
 diagnostic links and broader
 load/failure validation remain open. These test
 counts alone are not a full production-readiness claim.

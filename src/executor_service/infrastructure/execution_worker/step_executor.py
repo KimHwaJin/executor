@@ -23,6 +23,7 @@ from executor_service.domain.results import (
     StepResultIdentity,
 )
 from executor_service.domain.runtime import (
+    ExecutionCompletionError,
     NotebookProjectionInterruptedError,
     RuntimeDriver,
     RuntimeDriverError,
@@ -193,59 +194,72 @@ class ExecutionStepExecutor:
         stored_result: StepResultDescriptor,
     ) -> None:
         now = utc_now()
-        async with self._session_factory() as session, session.begin():
-            await require_active_lease(session, lease)
-            step = await session.scalar(
-                select(ExecutionStepORM).where(
-                    ExecutionStepORM.execution_id == lease.execution_id,
-                    ExecutionStepORM.sequence == sequence,
+        try:
+            async with self._session_factory() as session, session.begin():
+                await require_active_lease(session, lease)
+                step = await session.scalar(
+                    select(ExecutionStepORM).where(
+                        ExecutionStepORM.execution_id == lease.execution_id,
+                        ExecutionStepORM.sequence == sequence,
+                    )
                 )
-            )
-            if step is None or step.operation_id is None:
-                raise ValueError(
-                    f"Execution Step {sequence} or its Operation was not "
-                    "found."
+                if step is None or step.operation_id is None:
+                    raise ValueError(
+                        f"Execution Step {sequence} or its Operation was not "
+                        "found."
+                    )
+                output_summary = stored_result.output_summary
+                step.status = StepStatus.SUCCEEDED
+                step.output_summary = output_summary
+                step.result_execution_attempt_id = lease.attempt_id
+                _assign_step_result(step, stored_result)
+                step.finished_at = now
+                step.updated_at = now
+                await session.execute(
+                    update(ExecutionStepAttemptORM)
+                    .where(
+                        ExecutionStepAttemptORM.execution_attempt_id
+                        == lease.attempt_id,
+                        ExecutionStepAttemptORM.sequence == sequence,
+                    )
+                    .values(
+                        status=StepStatus.SUCCEEDED,
+                        output_summary=output_summary,
+                        result_manifest_path=(
+                            stored_result.reference.relative_path
+                        ),
+                        result_manifest_checksum_sha256=(
+                            stored_result.reference.checksum_sha256
+                        ),
+                        result_manifest_size_bytes=(
+                            stored_result.reference.size_bytes
+                        ),
+                        result_fencing_token=(
+                            stored_result.reference.fencing_token
+                        ),
+                        result_complete=stored_result.complete,
+                        result_representation_count=(
+                            stored_result.representation_count
+                        ),
+                        result_total_size_bytes=(
+                            stored_result.total_size_bytes
+                        ),
+                        finished_at=now,
+                    )
                 )
-            output_summary = stored_result.output_summary
-            step.status = StepStatus.SUCCEEDED
-            step.output_summary = output_summary
-            step.result_execution_attempt_id = lease.attempt_id
-            _assign_step_result(step, stored_result)
-            step.finished_at = now
-            step.updated_at = now
-            await session.execute(
-                update(ExecutionStepAttemptORM)
-                .where(
-                    ExecutionStepAttemptORM.execution_attempt_id
-                    == lease.attempt_id,
-                    ExecutionStepAttemptORM.sequence == sequence,
+                await add_step_completed_event(
+                    session,
+                    lease,
+                    step,
+                    StepStatus.SUCCEEDED,
+                    stored_result=stored_result,
                 )
-                .values(
-                    status=StepStatus.SUCCEEDED,
-                    output_summary=output_summary,
-                    result_manifest_path=stored_result.reference.relative_path,
-                    result_manifest_checksum_sha256=(
-                        stored_result.reference.checksum_sha256
-                    ),
-                    result_manifest_size_bytes=(
-                        stored_result.reference.size_bytes
-                    ),
-                    result_fencing_token=stored_result.reference.fencing_token,
-                    result_complete=stored_result.complete,
-                    result_representation_count=(
-                        stored_result.representation_count
-                    ),
-                    result_total_size_bytes=stored_result.total_size_bytes,
-                    finished_at=now,
-                )
-            )
-            await add_step_completed_event(
-                session,
-                lease,
-                step,
-                StepStatus.SUCCEEDED,
-                stored_result=stored_result,
-            )
+        except ExecutionLeaseLostError:
+            raise
+        except Exception as exc:
+            # Code and result sealing already succeeded. Replaying the code is
+            # not a safe repair for a failed DB reference/event transaction.
+            raise ExecutionCompletionError("RESULT_REFERENCE_PERSIST") from exc
 
     async def mark_failed(
         self,

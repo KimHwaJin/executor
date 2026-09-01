@@ -1,5 +1,6 @@
 """Post-code delivery failures cannot emit success or authorize code replay."""
 
+import asyncio
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, ClassVar
@@ -76,6 +77,10 @@ class CompletionDriver(RecordingMultiDriver):
         if self.fault == "artifacts":
             raise RuntimeDriverError("injected artifact discovery outage")
         return await super().read_manifest(workspace_path, start)
+
+
+def _sealed_manifest_bodies(root: Path) -> list[str]:
+    return [path.read_text() for path in root.rglob("manifest.json")]
 
 
 async def setup_runtime(
@@ -227,6 +232,92 @@ async def test_required_delivery_and_retry_policy(
             item.diagnostic.code == "COMPLETION_FAILED"
             for item in diagnostics.items
         )
+    finally:
+        await redis.aclose()
+
+
+@pytest.mark.parametrize("mode", [OperationMode.SINGLE, OperationMode.MULTI])
+async def test_step_result_transaction_failure_never_replays_successful_code(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mode: OperationMode,
+) -> None:
+    """A sealed result and its DB reference form one completion boundary."""
+
+    await setup_runtime(engine, monkeypatch)
+    worker, redis = _worker(engine, tmp_path)
+    command = replace(
+        _multi_command(str(uuid4())),
+        operation_mode=mode,
+        operation_wait_timeout_seconds=(
+            600 if mode == OperationMode.MULTI else None
+        ),
+        steps=(StepSpec(0, "value = 1"), StepSpec(1, "print(value)")),
+    )
+    execution = await execution_service.submit(command)
+
+    async def fail_step_event(*_args: Any, **_kwargs: Any) -> None:
+        raise OSError("injected Step result transaction failure")
+
+    monkeypatch.setattr(
+        "executor_service.infrastructure.execution_worker.step_executor."
+        "add_step_completed_event",
+        fail_step_event,
+    )
+    try:
+        await worker._runner.run(execution.id)
+        finished = await execution_service.get(execution.id)
+        factory = create_session_factory(engine)
+        async with factory() as session:
+            events = list(
+                await session.scalars(
+                    select(ExecutionEventORM).where(
+                        ExecutionEventORM.execution_id == execution.id,
+                        ExecutionEventORM.event_type
+                        == "execution.step_completed",
+                    )
+                )
+            )
+        diagnostics = await SQLAlchemyDiagnosticQueryService(factory).list(
+            execution.id
+        )
+
+        assert finished.status == ExecutionStatus.FAILED
+        assert finished.failure_type == FailureType.COMPLETION_FAILED
+        assert finished.retry_strategy == RetryStrategy.NOT_RETRYABLE
+        assert CompletionDriver.executed == ["value = 1"]
+        assert finished.steps[0].status == StepStatus.FAILED
+        assert finished.steps[0].result_manifest_path is None
+        assert finished.steps[1].status == StepStatus.SKIPPED
+        assert len(events) == 1
+        assert events[0].payload["status"] == "FAILED"
+        assert not any(
+            event.payload["status"] == "SUCCEEDED" for event in events
+        )
+        completion = next(
+            item
+            for item in diagnostics.items
+            if item.diagnostic.code == "COMPLETION_FAILED"
+        )
+        assert completion.diagnostic.phase == "RESULT_REFERENCE_PERSIST"
+        assert any(
+            cause.exception_type == "OSError"
+            for cause in completion.diagnostic.causes
+        )
+        sealed_manifests = await asyncio.to_thread(
+            _sealed_manifest_bodies, tmp_path
+        )
+        assert len(sealed_manifests) == 1
+        assert '"state":"FINALIZED"' in sealed_manifests[0]
+        with pytest.raises(InvalidStateTransitionError):
+            await execution_service.retry(
+                RetryExecutionCommand(
+                    execution_id=execution.id,
+                    idempotency_key=str(uuid4()),
+                )
+            )
     finally:
         await redis.aclose()
 

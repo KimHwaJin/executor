@@ -1,3 +1,4 @@
+import errno
 import hashlib
 import json
 from pathlib import Path
@@ -10,6 +11,7 @@ from executor_service.domain.runtime import (
     RuntimeOutputRecord,
     RuntimeOutputRepresentation,
 )
+from executor_service.infrastructure._result_storage.io import atomic_write
 from executor_service.infrastructure.result_storage import (
     FilesystemExecutionResultStore,
     ResultStorageError,
@@ -39,6 +41,35 @@ def _text_record(content: str = "hello\n") -> RuntimeOutputRecord:
             ),
         ),
     )
+
+
+@pytest.mark.parametrize(
+    ("failure_point", "error_number"),
+    [("fsync", errno.ENOSPC), ("replace", errno.EACCES)],
+)
+def test_atomic_write_does_not_publish_partial_file_on_os_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure_point: str,
+    error_number: int,
+) -> None:
+    target = tmp_path / "manifest.json"
+
+    def fail(*_args: object, **_kwargs: object) -> None:
+        raise OSError(error_number, "injected storage failure")
+
+    monkeypatch.setattr(
+        "executor_service.infrastructure._result_storage.io.os."
+        f"{failure_point}",
+        fail,
+    )
+
+    with pytest.raises(OSError) as raised:
+        atomic_write(target, b'{"complete":true}')
+
+    assert raised.value.errno == error_number
+    assert not target.exists()
+    assert list(tmp_path.glob(".*.tmp")) == []
 
 
 @pytest.mark.asyncio
