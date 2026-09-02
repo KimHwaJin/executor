@@ -6,8 +6,10 @@ extension are documented here rather than in the Executor service README.
 
 ## Image layout
 
-The final image is built from `python:3.11-slim-bookworm` and runs JupyterLab as the non-root
-`jovyan` user (UID/GID 1000). Python 3.10.11 is copied from an official, pinned build stage.
+The final image is built from `python:3.11-slim-bullseye` and runs JupyterLab as the non-root
+`jovyan` user (UID/GID 1000). Python 3.10.11 is copied from an official, pinned bullseye build
+stage. Using the same Debian generation removes the former OpenSSL/libffi compatibility copy and
+`LD_LIBRARY_PATH` override.
 Three isolated virtual environments are created:
 
 | Environment | Python | Purpose | Package list |
@@ -20,6 +22,10 @@ Only the `default` and `3102311` kernelspecs are exposed. The default kernel is 
 The two environments are independent. `3102311/requirements.txt` is intentionally empty so the
 approved package list can be pasted directly. Kernel bootstrap dependency `ipykernel` is installed
 by the Docker/native setup and must not be added to either user package list.
+
+Debian 11 bullseye reached LTS end-of-life on 2026-08-31. The harness deliberately mirrors the
+project's bullseye-based deployment image; production use requires the organization's approved
+image scanning and extended-support policy.
 
 ## Build
 

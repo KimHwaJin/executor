@@ -10,15 +10,9 @@ RUN python3.10 -m venv --copies /opt/venvs/3102311 \
     && if [ -s /opt/jupyter-env/3102311/requirements.txt ]; then \
         /opt/venvs/3102311/bin/pip install --no-cache-dir \
             -r /opt/jupyter-env/3102311/requirements.txt; \
-    fi \
-    && mkdir -p /opt/python310-compat \
-    && cp -L \
-        /usr/lib/*-linux-gnu/libcrypto.so.1.1 \
-        /usr/lib/*-linux-gnu/libffi.so.7 \
-        /usr/lib/*-linux-gnu/libssl.so.1.1 \
-        /opt/python310-compat/
+    fi
 
-FROM python:3.11-slim-bookworm
+FROM python:3.11-slim-bullseye
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
@@ -26,7 +20,6 @@ ENV DEBIAN_FRONTEND=noninteractive \
     HOME=/home/jovyan \
     JUPYTER_CONFIG_DIR=/home/jovyan/.jupyter \
     JUPYTER_PATH=/opt/venvs/jupyter/share/jupyter \
-    LD_LIBRARY_PATH=/opt/python310-compat \
     JUPYTER_ROOT_DIR=/workspace/pv
 
 RUN apt-get update \
@@ -55,7 +48,6 @@ COPY --from=python310 /usr/local/bin/python3.10 /usr/local/bin/python3.10
 COPY --from=python310 /usr/local/lib/libpython3.10.so.1.0 /usr/local/lib/libpython3.10.so.1.0
 COPY --from=python310 /usr/local/lib/python3.10 /usr/local/lib/python3.10
 COPY --from=python310 /opt/venvs/3102311 /opt/venvs/3102311
-COPY --from=python310 /opt/python310-compat /opt/python310-compat
 
 COPY test_harness/jupyter/environments/server/requirements.txt /opt/jupyter-env/server/requirements.txt
 COPY test_harness/jupyter/environments/default/requirements.txt /opt/jupyter-env/default/requirements.txt
