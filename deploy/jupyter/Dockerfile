@@ -1,5 +1,5 @@
 ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.12.8
-ARG UV_DEFAULT_INDEX=https://nexus.example.com/repository/pypi-group/simple/
+ARG UV_DEFAULT_INDEX=https://pypi.org/simple
 
 FROM ${UV_IMAGE} AS uv
 
@@ -13,16 +13,12 @@ ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
     UV_NO_CACHE=1
 
-COPY environments/3102311/requirements.txt /opt/jupyter-env/3102311/requirements.txt
+COPY environments/3102311 /opt/jupyter-env/3102311
 
-RUN uv venv --no-project --clear \
-        --python /usr/local/bin/python3.10 /opt/venvs/3102311 \
-    && uv pip install --strict --python /opt/venvs/3102311/bin/python \
-        "ipykernel>=6.30,<7" \
-    && if [ -s /opt/jupyter-env/3102311/requirements.txt ]; then \
-        uv pip install --strict --python /opt/venvs/3102311/bin/python \
-            --requirements /opt/jupyter-env/3102311/requirements.txt; \
-    fi
+RUN UV_PROJECT_ENVIRONMENT=/opt/venvs/3102311 \
+    uv sync --project /opt/jupyter-env/3102311 \
+        --locked --no-dev --no-install-project \
+        --python /usr/local/bin/python3.10
 
 FROM python:3.11-slim-bullseye
 
@@ -33,7 +29,7 @@ COPY --from=uv /uv /uvx /bin/
 # Deployment settings: override these with container environment variables.
 # ROOT_DIR must match the shared PVC mount path and be writable by UID 1000.
 # TOKEN defaults to "default" for testing; override via Secret in production.
-# See README.md section 4 before deployment.
+# See README.md section 5 before deployment.
 ENV JUPYTER_ROOT_DIR=/workspace/jupyter \
     JUPYTER_TOKEN=default
 
@@ -73,20 +69,18 @@ COPY --from=python310 /usr/local/lib/libpython3.10.so.1.0 /usr/local/lib/libpyth
 COPY --from=python310 /usr/local/lib/python3.10 /usr/local/lib/python3.10
 COPY --from=python310 /opt/venvs/3102311 /opt/venvs/3102311
 
-COPY environments/server/requirements.txt /opt/jupyter-env/server/requirements.txt
-COPY environments/default/requirements.txt /opt/jupyter-env/default/requirements.txt
+COPY environments/server /opt/jupyter-env/server
+COPY environments/default /opt/jupyter-env/default
 
 RUN ldconfig \
-    && uv venv --no-project --clear \
-        --python /usr/local/bin/python3.11 /opt/venvs/jupyter \
-    && uv venv --no-project --clear \
-        --python /usr/local/bin/python3.11 /opt/venvs/default \
-    && uv pip install --strict --python /opt/venvs/jupyter/bin/python \
-        --requirements /opt/jupyter-env/server/requirements.txt \
-    && uv pip install --strict --python /opt/venvs/default/bin/python \
-        "ipykernel>=6.30,<7" \
-    && uv pip install --strict --python /opt/venvs/default/bin/python \
-        --requirements /opt/jupyter-env/default/requirements.txt
+    && UV_PROJECT_ENVIRONMENT=/opt/venvs/jupyter \
+        uv sync --project /opt/jupyter-env/server \
+            --locked --no-dev --no-install-project \
+            --python /usr/local/bin/python3.11 \
+    && UV_PROJECT_ENVIRONMENT=/opt/venvs/default \
+        uv sync --project /opt/jupyter-env/default \
+            --locked --no-dev --no-install-project \
+            --python /usr/local/bin/python3.11
 
 COPY extension /opt/jupyter-resource-extension
 COPY executor_resource_extension.json \

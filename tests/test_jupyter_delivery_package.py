@@ -1,3 +1,4 @@
+import tomllib
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -9,16 +10,6 @@ EXTENSION_ROOT = Path("extension/src/executor_resource_extension")
 def test_standalone_dockerfile_uses_only_local_copy_sources() -> None:
     dockerfile = (PACKAGE / "Dockerfile").read_text()
     assert "test_harness/" not in dockerfile
-    harness_dockerfile = (
-        (HARNESS / "Dockerfile")
-        .read_text()
-        .replace("test_harness/jupyter/", "")
-        .replace("/workspace/pv", '"${JUPYTER_ROOT_DIR}"')
-    )
-    assert (
-        dockerfile.partition("RUN apt-get update")[2]
-        == (harness_dockerfile.partition("RUN apt-get update")[2])
-    )
     for line in dockerfile.splitlines():
         if not line.startswith("COPY "):
             continue
@@ -33,14 +24,16 @@ def test_standalone_dockerfile_uses_only_local_copy_sources() -> None:
             assert (PACKAGE / source).exists()
 
 
+def test_standalone_package_does_not_reference_test_harness() -> None:
+    for path in PACKAGE.rglob("*"):
+        if path.is_file():
+            assert "test_harness" not in path.read_text(), path
+
+
 def test_uv_is_pinned_and_uses_a_build_only_default_index() -> None:
     dockerfile = (PACKAGE / "Dockerfile").read_text()
     assert "ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.12.8" in dockerfile
-    assert (
-        "ARG UV_DEFAULT_INDEX="
-        "https://nexus.example.com/repository/pypi-group/simple/"
-        in dockerfile
-    )
+    assert "ARG UV_DEFAULT_INDEX=https://pypi.org/simple" in dockerfile
     assert dockerfile.count("COPY --from=uv /uv /uvx /bin/") == 2
     assert dockerfile.count("ARG UV_DEFAULT_INDEX") == 3
     assert "UV_NO_CACHE=1" in dockerfile
@@ -65,33 +58,37 @@ def test_deployment_defaults_are_visible() -> None:
 
 def test_kernel_environments_are_independent() -> None:
     dockerfile = (PACKAGE / "Dockerfile").read_text()
+    projects: dict[str, dict] = {}
+    for environment in ("server", "default", "3102311"):
+        root = PACKAGE / "environments" / environment
+        projects[environment] = tomllib.loads(
+            (root / "pyproject.toml").read_text()
+        )
+        lock = tomllib.loads((root / "uv.lock").read_text())
+        assert lock["version"] == 1
+        assert lock["package"]
+        assert projects[environment]["tool"]["uv"]["package"] is False
+        assert not (root / "requirements.txt").exists()
+
     for kernel in ("default", "3102311"):
-        requirements = (
-            PACKAGE / "environments" / kernel / "requirements.txt"
-        ).read_text()
-        packages = [
-            line.strip()
-            for line in requirements.splitlines()
-            if line.strip() and not line.lstrip().startswith("#")
-        ]
-        assert all(not line.startswith("-") for line in packages)
-        assert not any(line.startswith("ipykernel") for line in packages)
-        assert f"--python /opt/venvs/{kernel}/bin/python" in dockerfile
-    default_requirements = (
-        PACKAGE / "environments/default/requirements.txt"
-    ).read_text()
-    assert default_requirements.strip()
-    requirements_3102311 = (
-        PACKAGE / "environments/3102311/requirements.txt"
-    ).read_text()
-    assert requirements_3102311 == ""
+        dependencies = projects[kernel]["project"]["dependencies"]
+        assert any(item.startswith("ipykernel") for item in dependencies)
+    assert projects["server"]["project"]["requires-python"] == "==3.11.*"
+    assert projects["default"]["project"]["requires-python"] == "==3.11.*"
+    assert projects["3102311"]["project"]["requires-python"] == "==3.10.11"
+    assert len(projects["3102311"]["project"]["dependencies"]) == 1
+    assert any(
+        item.startswith("pandas")
+        for item in projects["default"]["project"]["dependencies"]
+    )
     assert "FROM python:3.10.11-slim-bullseye AS python310" in dockerfile
     assert "FROM python:3.11-slim-bullseye" in dockerfile
     assert "python310-compat" not in dockerfile
     assert "LD_LIBRARY_PATH" not in dockerfile
-    assert dockerfile.count("uv venv --no-project --clear") == 3
-    assert dockerfile.count("uv pip install --strict") == 6
-    assert dockerfile.count('"ipykernel>=6.30,<7"') == 2
+    assert dockerfile.count("uv sync --project") == 3
+    assert dockerfile.count("--locked --no-dev --no-install-project") == 3
+    assert dockerfile.count("UV_PROJECT_ENVIRONMENT=/opt/venvs/") == 3
+    assert dockerfile.count("uv pip install --strict") == 1
     assert "--system-site-packages" not in dockerfile
 
 

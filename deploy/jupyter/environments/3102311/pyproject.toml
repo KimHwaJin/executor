@@ -1,0 +1,11 @@
+[project]
+name = "executor-jupyter-3102311-environment"
+version = "0.1.0"
+requires-python = "==3.10.11"
+dependencies = [
+    "ipykernel>=6.30,<7",
+    # 승인된 Python 3.10.11 패키지를 이 아래에 추가한다.
+]
+
+[tool.uv]
+package = false
