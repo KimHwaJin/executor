@@ -38,7 +38,7 @@ async def main() -> None:
                 "phase": "BOOTSTRAP",
                 "execution_id": None,
                 "execution_request": {
-                    "runtime_profile": os.getenv("TEST_AGENT_RUNTIME_PROFILE", "basic"),
+                    "runtime_profile": os.getenv("TEST_AGENT_RUNTIME_PROFILE", "default"),
                     "user_id": "agent-e2e-user",
                     "project_id": "agent-e2e-project",
                     "session_id": f"agent-e2e-session-{unique}",
@@ -146,7 +146,7 @@ async def main() -> None:
             ],
             "wait_strategy": "STREAM",
             "execution_request": {
-                "runtime_profile": os.getenv("TEST_AGENT_RUNTIME_PROFILE", "basic"),
+                "runtime_profile": os.getenv("TEST_AGENT_RUNTIME_PROFILE", "default"),
                 "user_id": "agent-stream-user",
                 "project_id": "agent-stream-project",
                 "session_id": f"agent-stream-session-{stream_unique}",

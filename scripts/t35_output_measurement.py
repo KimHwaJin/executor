@@ -404,7 +404,7 @@ async def _submit_execution(
         operation_mode=operation_mode,
         trigger_type="INTERACTIVE",
         actor={"type": "USER", "id": "t35-user"},
-        runtime_profile="basic",
+        runtime_profile="default",
         operation_wait_timeout_seconds=(
             300 if operation_mode == "MULTI" else None
         ),
@@ -1056,14 +1056,14 @@ async def _eligible_targets(
         for item in response.json()["items"]
         if item["runtime"]["type"] == "JUPYTER"
         and item["runtime"]["pool"] == "INTERACTIVE"
-        and "basic" in item["runtime"]["supported_profiles"]
+        and "default" in item["runtime"]["supported_profiles"]
         and item["state"]["status"] == "ACTIVE"
         and item["state"]["enabled"] is True
         and (not configured_ids or str(item["target_id"]) in configured_ids)
     ]
     if not targets:
         raise RuntimeError(
-            "No ACTIVE INTERACTIVE JUPYTER Runtime Target supporting basic "
+            "No ACTIVE INTERACTIVE JUPYTER Runtime Target supporting default "
             "was found. Run local_test_preflight.py or set "
             "T35_RUNTIME_TARGET_IDS."
         )

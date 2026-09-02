@@ -180,7 +180,7 @@ async def main() -> None:
                         operation_mode="SINGLE",
                         trigger_type="INTERACTIVE",
                         actor={"type": "USER", "id": "multi-executor-user"},
-                        runtime_profile="basic",
+                        runtime_profile="default",
                         spec=inline_spec(
                             [
                                 {

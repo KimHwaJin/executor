@@ -57,7 +57,7 @@ async def _submit(client: Client, unique: str, index: int, sleep: int) -> str:
                 operation_mode="SINGLE",
                 trigger_type="INTERACTIVE",
                 actor={"type": "USER", "id": "drain-user"},
-                runtime_profile="basic",
+                runtime_profile="default",
                 spec=inline_spec(
                     [
                         {

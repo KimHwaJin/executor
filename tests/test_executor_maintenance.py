@@ -67,7 +67,7 @@ def _execution(key: str) -> dict[str, Any]:
             "type": "INTERACTIVE",
             "actor": {"type": "USER", "id": "user-1"},
         },
-        "runtime": {"type": "JUPYTER", "profile": "basic"},
+        "runtime": {"type": "JUPYTER", "profile": "default"},
         "operation": {
             "spec": {
                 "schema_version": "1.0",
@@ -198,7 +198,7 @@ async def test_worker_claim_obeys_drain_and_activate(
                 pool=RuntimePool.INTERACTIVE,
                 status=RuntimeTargetStatus.ACTIVE,
                 max_concurrent_executions=1,
-                supported_profiles=["basic"],
+                supported_profiles=["default"],
                 enabled=True,
             )
         )

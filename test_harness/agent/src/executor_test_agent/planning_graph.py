@@ -56,7 +56,7 @@ PLANNER_PROMPT = """
 Create a complete, user-reviewable Python execution plan for the latest request.
 
 Rules:
-- Use runtime_profile basic unless the request clearly requires the ml profile.
+- Use runtime_profile default unless the request explicitly requires 3102311.
 - Use SINGLE when every Step can be planned now and run as one Operation.
 - Use MULTI only when later Operations must reuse the retained Runtime state or are intentionally
   separated into observable boundaries. Put every already-known Operation in order.

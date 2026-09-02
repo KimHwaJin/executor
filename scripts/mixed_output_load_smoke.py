@@ -231,7 +231,7 @@ async def main() -> None:
 
         for index in range(execution_count):
             workload_type = WORKLOAD_TYPES[index % len(WORKLOAD_TYPES)]
-            profile = "ml" if index % 2 else "basic"
+            profile = "default"
             submitted_at = monotonic()
             submitted = await required_tool_result(
                 client,

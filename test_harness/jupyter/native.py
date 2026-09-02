@@ -24,8 +24,10 @@ HARNESS_ROOT = REPOSITORY_ROOT / "test_harness/jupyter"
 DEFAULT_INSTALL_ROOT = HARNESS_ROOT / ".native"
 DEFAULT_CONTENTS_ROOT = HARNESS_ROOT / "workspace"
 JUPYTER_REQUIREMENTS = HARNESS_ROOT / "environments/server/requirements.txt"
-BASIC_REQUIREMENTS = HARNESS_ROOT / "environments/basic/requirements.txt"
-ML_REQUIREMENTS = HARNESS_ROOT / "environments/ml/requirements.txt"
+DEFAULT_REQUIREMENTS = HARNESS_ROOT / "environments/default/requirements.txt"
+PYTHON_3102311_REQUIREMENTS = (
+    HARNESS_ROOT / "environments/3102311/requirements.txt"
+)
 EXTENSION_ROOT = HARNESS_ROOT / "extension"
 SERVER_CONFIG = HARNESS_ROOT / "jupyter_server_config.py"
 EXTENSION_CONFIG = {
@@ -107,8 +109,8 @@ def _required_uv() -> str:
 def _environment_roots(install_root: Path) -> dict[str, Path]:
     return {
         "server": install_root / "server",
-        "basic": install_root / "basic",
-        "ml": install_root / "ml",
+        "default": install_root / "default",
+        "3102311": install_root / "3102311",
     }
 
 
@@ -135,13 +137,13 @@ def setup(args: argparse.Namespace) -> None:
 
     python_selectors = {
         "3.11": _python_selector(args.python_311, "3.11"),
-        "3.12": _python_selector(args.python_312, "3.12"),
+        "3.10.11": _python_selector(args.python_310, "3.10.11"),
     }
     versions_to_install = [
         version
         for version, explicit_path in (
             ("3.11", args.python_311),
-            ("3.12", args.python_312),
+            ("3.10.11", args.python_310),
         )
         if explicit_path is None
     ]
@@ -152,9 +154,9 @@ def setup(args: argparse.Namespace) -> None:
         )
 
     for name, version in (
-        ("server", "3.12"),
-        ("basic", "3.11"),
-        ("ml", "3.12"),
+        ("server", "3.11"),
+        ("default", "3.11"),
+        ("3102311", "3.10.11"),
     ):
         _run(
             [
@@ -171,13 +173,28 @@ def setup(args: argparse.Namespace) -> None:
         )
 
     server_python = environment_python(environments["server"])
-    basic_python = environment_python(environments["basic"])
-    ml_python = environment_python(environments["ml"])
+    default_python = environment_python(environments["default"])
+    python_3102311 = environment_python(environments["3102311"])
     for python, requirements in (
         (server_python, JUPYTER_REQUIREMENTS),
-        (basic_python, BASIC_REQUIREMENTS),
-        (ml_python, ML_REQUIREMENTS),
+        (default_python, DEFAULT_REQUIREMENTS),
+        (python_3102311, PYTHON_3102311_REQUIREMENTS),
     ):
+        if python != server_python:
+            _run(
+                [
+                    uv,
+                    "pip",
+                    "install",
+                    "--strict",
+                    "--python",
+                    str(python),
+                    "ipykernel>=6.30,<7",
+                ],
+                environment=setup_environment,
+            )
+        if not requirements.read_text(encoding="utf-8").strip():
+            continue
         _run(
             [
                 uv,
@@ -207,28 +224,28 @@ def setup(args: argparse.Namespace) -> None:
     )
     _run(
         [
-            str(basic_python),
+            str(default_python),
             "-m",
             "ipykernel",
             "install",
             "--prefix",
             str(environments["server"]),
             "--name",
-            "basic",
-            "--display-name=Basic (Python 3.11)",
+            "default",
+            "--display-name=Default (Python 3.11)",
         ]
     )
     _run(
         [
-            str(ml_python),
+            str(python_3102311),
             "-m",
             "ipykernel",
             "install",
             "--prefix",
             str(environments["server"]),
             "--name",
-            "ml",
-            "--display-name=ML (Python 3.12)",
+            "3102311",
+            "--display-name=3102311 (Python 3.10.11)",
         ]
     )
 
@@ -247,7 +264,11 @@ def setup(args: argparse.Namespace) -> None:
 
 
 def _verify_local_install(environments: dict[str, Path]) -> None:
-    expected = {"server": (3, 12), "basic": (3, 11), "ml": (3, 12)}
+    expected = {
+        "server": (3, 11),
+        "default": (3, 11),
+        "3102311": (3, 10, 11),
+    }
     for name, version in expected.items():
         python = environment_python(environments[name])
         if not python.is_file():
@@ -259,14 +280,15 @@ def _verify_local_install(environments: dict[str, Path]) -> None:
                 str(python),
                 "-c",
                 "import json,sys; "
-                "print(json.dumps([sys.version_info.major,sys.version_info.minor]))",
+                "print(json.dumps([sys.version_info.major,sys.version_info.minor,"
+                "sys.version_info.micro]))",
             ],
             check=True,
             capture_output=True,
             text=True,
         )
         actual = tuple(json.loads(result.stdout))
-        if actual != version:
+        if actual[: len(version)] != version:
             raise NativeJupyterError(
                 f"{name} requires Python {version}, found {actual}."
             )
@@ -281,9 +303,10 @@ def _verify_local_install(environments: dict[str, Path]) -> None:
     )
     kernels = environments["server"] / "share/jupyter/kernels"
     advertised = {path.name for path in kernels.iterdir() if path.is_dir()}
-    if advertised != {"basic", "ml"}:
+    if advertised != {"default", "3102311"}:
         raise NativeJupyterError(
-            f"Expected exactly basic and ml kernelspecs, found: {sorted(advertised)}"
+            "Expected exactly default and 3102311 kernelspecs, "
+            f"found: {sorted(advertised)}"
         )
 
 
@@ -351,9 +374,10 @@ def verify(args: argparse.Namespace) -> None:
         endpoint, token, "GET", "/executor/resource-status"
     )
     advertised = set(kernelspecs.get("kernelspecs", {}))
-    if advertised != {"basic", "ml"}:
+    if advertised != {"default", "3102311"}:
         raise NativeJupyterError(
-            f"Expected exactly basic and ml kernelspecs, found: {sorted(advertised)}"
+            "Expected exactly default and 3102311 kernelspecs, "
+            f"found: {sorted(advertised)}"
         )
     if resources.get("schema_version") != "1.0":
         raise NativeJupyterError(
@@ -362,7 +386,7 @@ def verify(args: argparse.Namespace) -> None:
 
     started_kernels: list[str] = []
     try:
-        for profile in ("basic", "ml"):
+        for profile in ("default", "3102311"):
             kernel = _json_request(
                 endpoint,
                 token,
@@ -505,7 +529,7 @@ def parser() -> argparse.ArgumentParser:
     subcommands = root.add_subparsers(dest="action", required=True)
 
     setup_parser = subcommands.add_parser(
-        "setup", help="Install server/basic/ml environments."
+        "setup", help="Install server/default/3102311 environments."
     )
     setup_parser.add_argument(
         "--install-root", default=str(DEFAULT_INSTALL_ROOT)
@@ -515,8 +539,11 @@ def parser() -> argparse.ArgumentParser:
         help="Existing Python 3.11 executable; skips its uv-managed Python download.",
     )
     setup_parser.add_argument(
-        "--python-312",
-        help="Existing Python 3.12 executable; skips its uv-managed Python download.",
+        "--python-310",
+        help=(
+            "Existing Python 3.10.11 executable; skips its uv-managed "
+            "Python download."
+        ),
     )
     setup_parser.add_argument(
         "--index-url",

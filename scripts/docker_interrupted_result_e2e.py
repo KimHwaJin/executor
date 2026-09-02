@@ -435,7 +435,7 @@ async def run(
     report_path: Path,
     keep_stack: bool,
     actions: tuple[str, ...] = ("cancel", "shutdown"),
-    profiles: tuple[str, ...] = ("basic", "ml"),
+    profiles: tuple[str, ...] = ("default", "3102311"),
     modes: tuple[str, ...] = ("SINGLE", "MULTI"),
 ) -> int:
     first, second = available_ports()
@@ -444,7 +444,7 @@ async def run(
         project_name=f"executor-interruption-{uuid4().hex[:12]}",
         primary_port=first,
         secondary_port=second,
-        runtime_profile="basic",
+        runtime_profile="default",
         step_duration_seconds=180,
         lease_timeout_seconds=90,
         completion_timeout_seconds=90,
@@ -562,8 +562,8 @@ def main() -> int:
     parser.add_argument(
         "--profiles",
         nargs="+",
-        choices=("basic", "ml"),
-        default=["basic", "ml"],
+        choices=("default", "3102311"),
+        default=["default", "3102311"],
     )
     parser.add_argument(
         "--modes",

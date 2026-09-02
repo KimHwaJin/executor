@@ -44,7 +44,7 @@ class HealthyGateway:
         return {"active_session_count": self.active_session_count}
 
     async def supported_profiles(self) -> list[str]:
-        return ["basic", "ml"]
+        return ["default", "3102311"]
 
     async def resource_status(self) -> RuntimeResourceObservation:
         if self.fail_resource_probe:
@@ -124,7 +124,7 @@ def _execution_payload() -> dict[str, Any]:
             "type": "INTERACTIVE",
             "actor": {"type": "USER", "id": "fleet-admin"},
         },
-        "runtime": {"type": "JUPYTER", "profile": "basic"},
+        "runtime": {"type": "JUPYTER", "profile": "default"},
         "operation": {
             "spec": {
                 "schema_version": "1.0",
@@ -176,7 +176,10 @@ async def test_openapi_documents_runtime_fleet_routes_and_never_returns_token(
     assert created.json()["state"]["status"] == "ACTIVE"
     assert created.json()["created_by"] == "fleet-admin"
     assert created.json()["updated_by"] == "fleet-admin"
-    assert created.json()["runtime"]["supported_profiles"] == ["basic", "ml"]
+    assert created.json()["runtime"]["supported_profiles"] == [
+        "default",
+        "3102311",
+    ]
     assert created.json()["capacity"] == {
         "max_concurrent_executions": 2,
         "active_execution_count": 0,

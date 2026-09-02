@@ -89,7 +89,7 @@ class AgentExecutionRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    runtime_profile: str = "basic"
+    runtime_profile: str = "default"
     actor_id: str = Field(default="executor-test-agent", min_length=1, max_length=255)
     user_id: str
     project_id: str

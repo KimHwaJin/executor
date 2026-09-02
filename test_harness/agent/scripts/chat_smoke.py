@@ -11,7 +11,7 @@ async def main() -> None:
     graph_id = os.getenv("TEST_AGENT_GRAPH_ID", "executor_mcp_agent")
     prompt = os.getenv(
         "TEST_AGENT_CHAT_PROMPT",
-        "basic 커널에서 1부터 10까지의 합계를 실제로 계산하고 출력해줘.",
+        "default 커널에서 1부터 10까지의 합계를 실제로 계산하고 출력해줘.",
     )
     client = get_client(url=server_url)
     thread = await client.threads.create()

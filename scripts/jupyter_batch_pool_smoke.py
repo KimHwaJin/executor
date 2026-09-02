@@ -139,7 +139,7 @@ async def _submit(
                     if pool == "BATCH"
                     else "batch-pool-user",
                 },
-                runtime_profile="basic",
+                runtime_profile="default",
                 spec=inline_spec(
                     [
                         {

@@ -220,9 +220,11 @@ async def register_local_runtime_targets(
                 f"Runtime Target {spec.name} is not ACTIVE: {target['health']['last_error']}"
             )
         supported = set(target["runtime"]["supported_profiles"])
-        if not {"basic", "ml"}.issubset(supported):
+        if not {"default", "3102311"}.issubset(supported):
             raise RuntimeError(
-                f"Runtime Target {spec.name} is missing basic/ml profiles: {sorted(supported)}"
+                "Runtime Target "
+                f"{spec.name} is missing default/3102311 profiles: "
+                f"{sorted(supported)}"
             )
         registered.append(target)
     return registered

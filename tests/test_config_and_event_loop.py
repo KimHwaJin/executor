@@ -12,7 +12,7 @@ def test_comma_separated_lists_load_from_dotenv(tmp_path: Path) -> None:
     dotenv.write_text(
         "MCP_ALLOWED_HOSTS=localhost:*,127.0.0.1:*,testserver\n"
         "MCP_ALLOWED_ORIGINS=http://localhost:*,http://127.0.0.1:*\n"
-        "RUNTIME_ALLOWED_PROFILES=basic,ml\n"
+        "RUNTIME_ALLOWED_PROFILES=default,3102311\n"
         "DATABASE_POOL_SIZE=12\n"
         "DATABASE_MAX_OVERFLOW=3\n"
         "DATABASE_POOL_TIMEOUT_SECONDS=7.5\n"
@@ -32,7 +32,7 @@ def test_comma_separated_lists_load_from_dotenv(tmp_path: Path) -> None:
         "http://localhost:*",
         "http://127.0.0.1:*",
     )
-    assert settings.runtime_allowed_profiles == ("basic", "ml")
+    assert settings.runtime_allowed_profiles == ("default", "3102311")
     assert settings.database_pool_size == 12
     assert settings.database_max_overflow == 3
     assert settings.database_pool_timeout_seconds == 7.5

@@ -25,6 +25,8 @@ def test_standalone_dockerfile_uses_only_local_copy_sources() -> None:
     for line in dockerfile.splitlines():
         if not line.startswith("COPY "):
             continue
+        if "--from=" in line:
+            continue
         arguments = [
             part for part in line.split()[1:] if not part.startswith("--")
         ]
@@ -61,7 +63,7 @@ def test_deployment_defaults_are_visible() -> None:
 
 def test_kernel_environments_are_independent() -> None:
     dockerfile = (PACKAGE / "Dockerfile").read_text()
-    for kernel, python in [("basic", "3.11"), ("ml", "3.12")]:
+    for kernel in ("default", "3102311"):
         requirements = (
             PACKAGE / "environments" / kernel / "requirements.txt"
         ).read_text()
@@ -70,12 +72,22 @@ def test_kernel_environments_are_independent() -> None:
             for line in requirements.splitlines()
             if line.strip() and not line.lstrip().startswith("#")
         ]
-        assert packages
         assert all(not line.startswith("-") for line in packages)
-        assert any(line.startswith("ipykernel") for line in packages)
-        assert f"python{python} -m venv /opt/venvs/{kernel}" in dockerfile
+        assert not any(line.startswith("ipykernel") for line in packages)
         assert f"/opt/venvs/{kernel}/bin/pip install" in dockerfile
-        assert f"-r /opt/jupyter-env/{kernel}/requirements.txt" in dockerfile
+    default_requirements = (
+        PACKAGE / "environments/default/requirements.txt"
+    ).read_text()
+    assert default_requirements.strip()
+    requirements_3102311 = (
+        PACKAGE / "environments/3102311/requirements.txt"
+    ).read_text()
+    assert requirements_3102311 == ""
+    assert "FROM python:3.10.11-slim-bullseye AS python310" in dockerfile
+    assert "FROM python:3.11-slim-bookworm" in dockerfile
+    assert "python3.11 -m venv /opt/venvs/default" in dockerfile
+    assert "python3.10 -m venv --copies /opt/venvs/3102311" in dockerfile
+    assert dockerfile.count('"ipykernel>=6.30,<7"') == 2
     assert "--system-site-packages" not in dockerfile
 
 

@@ -67,7 +67,7 @@ async def test_graph_bootstraps_without_external_llm(monkeypatch) -> None:
 
 async def test_graph_runs_executor_request_and_returns_verified_result(monkeypatch) -> None:
     async def fake_submit_execution(request, _settings):
-        assert request.runtime_profile == "basic"
+        assert request.runtime_profile == "default"
         return {
             "execution_id": "00000000-0000-0000-0000-000000000001",
             "operation": {
@@ -120,7 +120,7 @@ async def test_graph_runs_executor_request_and_returns_verified_result(monkeypat
         AgentState(
             messages=[HumanMessage(content="Execute this plan")],
             execution_request={
-                "runtime_profile": "basic",
+                "runtime_profile": "default",
                 "user_id": "u",
                 "project_id": "p",
                 "session_id": "s",
@@ -358,7 +358,7 @@ async def test_graph_advances_and_finalizes_deterministic_multi_scenario(monkeyp
         AgentState(
             messages=[HumanMessage(content="Run a MULTI scenario")],
             execution_request={
-                "runtime_profile": "basic",
+                "runtime_profile": "default",
                 "user_id": "u",
                 "project_id": "p",
                 "session_id": "s",

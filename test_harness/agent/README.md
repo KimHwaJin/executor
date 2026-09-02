@@ -83,7 +83,7 @@ With natural-language execution enabled, connect Agent Chat UI to
 Then try:
 
 ```text
-basic 커널에서 1부터 10까지의 합계를 계산하고 출력해줘.
+default 커널에서 1부터 10까지의 합계를 계산하고 출력해줘.
 ```
 
 The MCP Agent can answer current-state questions such as `사용 가능한 커널 종류가 뭐야?` by

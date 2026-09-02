@@ -30,7 +30,7 @@ def _parse_args() -> argparse.Namespace:
         "--pattern", choices=("uniform", "long-short"), default="uniform"
     )
     parser.add_argument(
-        "--profiles", choices=("basic", "mixed"), default="mixed"
+        "--profiles", choices=("default", "mixed"), default="mixed"
     )
     parser.add_argument(
         "--pool", choices=("INTERACTIVE", "BATCH"), default="INTERACTIVE"
@@ -77,7 +77,11 @@ async def _submit(
     index: int,
     project_id: str,
 ) -> str:
-    profile = "ml" if args.profiles == "mixed" and index % 2 else "basic"
+    profile = (
+        "3102311"
+        if args.profiles == "mixed" and index % 2
+        else "default"
+    )
     sleep_seconds = _sleep_for(args, index)
     user_id = f"load-user-{index % 10}"
     marker = (

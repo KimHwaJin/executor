@@ -12,17 +12,18 @@
 |---|---|---|
 | `Dockerfile` | OS·Python 설치, 가상환경 생성, 커널 등록, 실행 사용자 설정 | 베이스 이미지, apt 미러, OS 패키지, Python 버전, UID/GID 변경 |
 | `environments/server/requirements.txt` | Jupyter 서버용 패키지 | JupyterLab·Jupyter Server 버전 변경 |
-| `environments/basic/requirements.txt` | basic 커널용 분석 패키지 | 분석 라이브러리 추가·버전 변경 |
-| `environments/ml/requirements.txt` | ml 커널에서 사용할 전체 패키지 목록 | ml 환경의 라이브러리 추가·삭제·버전 변경 |
+| `environments/default/requirements.txt` | `default` 커널용 분석 패키지 | 분석 라이브러리 추가·버전 변경 |
+| `environments/3102311/requirements.txt` | `3102311` 커널용 전체 패키지 목록 | 승인된 목록을 그대로 붙여넣음. 현재 의도적으로 비어 있음 |
 | `jupyter_server_config.py` | 루트·토큰 적용, 포트, 허용 커널, 기본 커널 설정 | 포트나 커널 정책 변경. 루트·토큰은 파일 수정 없이 환경변수로 지정 |
 | `start-jupyter.sh` | 필수 환경변수 확인 후 JupyterLab 실행 | 일반적으로 수정하지 않음 |
 | `executor_resource_extension.json` | Executor 연동 확장 활성화 | 그대로 유지 |
 | `extension/pyproject.toml`, `extension/src/` | 자원 조회, 작업공간 준비, 노트북 작성, 파일 다운로드 기능 | Executor 연동 코드이므로 일반 배포 시 수정하지 않음 |
 | `.dockerignore` | 비밀 설정·캐시·작업 데이터를 빌드 컨텍스트에서 제외 | 일반적으로 수정하지 않음 |
 
-**basic과 ml은 서로 독립적인 커널이다.**
+**`default`와 `3102311`은 서로 독립적인 커널이다.**
 각 `requirements.txt`에 해당 커널에서 사용할 전체 패키지 목록을 따로 작성한다.
-현재 목록은 기존 설치 패키지를 유지하도록 분리한 것이며 담당자가 각 환경에 맞게 조정한다.
+`3102311/requirements.txt`에는 향후 제공받을 목록을 그대로 붙여넣는다. 커널 구동에 필요한
+`ipykernel`은 Dockerfile이 기반 패키지로 별도 설치하므로 두 requirements에 적지 않는다.
 
 `extension/pyproject.toml`은 커스텀 확장을 pip로 설치하기 위한 필수 파일이다.
 uv나 별도 패키징 도구를 실행할 필요는 없다.
@@ -31,20 +32,22 @@ uv나 별도 패키징 도구를 실행할 필요는 없다.
 
 빌드 시 다음 순서로 구성한다.
 
-1. `python:3.12-slim-bookworm`을 기반으로 Python 3.11, 폰트, 시스템 라이브러리,
-   프로세스 종료 신호 처리를 위한 `tini` 등을 apt로 설치한다.
+1. `python:3.10.11-slim-bullseye` 빌드 스테이지에서 정확한 Python 3.10.11 환경을 만들고,
+   최종 `python:3.11-slim-bookworm` 이미지에 포함한다. 최종 이미지에는 폰트,
+   시스템 라이브러리, 프로세스 종료 신호 처리를 위한 `tini`도 설치한다.
 2. 아래 세 가상환경을 각각 독립적으로 만들고, 각 환경의 `requirements.txt`만 pip로 설치한다.
-   basic은 Python 3.11, ml은 Python 3.12이며 서로의 패키지 설치 경로를 공유하지 않는다.
+   `default`는 Python 3.11, `3102311`은 정확히 Python 3.10.11이며 서로의 패키지 설치
+   경로를 공유하지 않는다.
 
    | 용도 | Python | 이미지 내부 경로 |
    |---|---|---|
-   | JupyterLab 서버 | 3.12 | `/opt/venvs/jupyter` |
-   | basic 커널 | 3.11 | `/opt/venvs/basic` |
-   | ml 커널 | 3.12 | `/opt/venvs/ml` |
+   | JupyterLab 서버 | 3.11 | `/opt/venvs/jupyter` |
+   | `default` 커널 | 3.11 | `/opt/venvs/default` |
+   | `3102311` 커널 | 3.10.11 | `/opt/venvs/3102311` |
 
 3. 서버 가상환경에 `extension/`을 설치하고 확장을 활성화한다.
-4. `basic`, `ml` kernelspec을 서버에 등록하고 불필요한 기본 `python3` kernelspec을 제거한다.
-   허용 커널은 basic·ml, 기본 선택은 basic이다.
+4. `default`, `3102311` kernelspec을 서버에 등록하고 불필요한 기본 `python3` kernelspec을
+   제거한다. 허용 커널은 두 개뿐이며 기본 선택은 `default`다.
 5. UID/GID `1000:1000` 사용자를 만들고 설정 파일과 시작 스크립트를 복사한다.
 6. `${JUPYTER_ROOT_DIR}` 디렉토리를 생성하고 해당 사용자에게 권한을 부여한다.
    이미지의 기본 작업 디렉토리(`WORKDIR`)도 빌드 시 이 값을 사용한다.

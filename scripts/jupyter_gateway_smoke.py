@@ -30,14 +30,14 @@ async def main() -> None:
         await gateway.status()
         kernels = await gateway.supported_profiles()
         print("kernels:", kernels)
-        if kernels != ["basic", "ml"]:
+        if kernels != ["3102311", "default"]:
             raise RuntimeError(f"Unexpected kernel profiles: {kernels}")
 
         probes = {
-            "basic": (3, 11, ["pandas", "pyarrow"]),
-            "ml": (3, 12, ["sklearn", "xgboost", "lightgbm"]),
+            "default": ((3, 11), ["pandas", "pyarrow"]),
+            "3102311": ((3, 10, 11), []),
         }
-        for profile, (major, minor, imports) in probes.items():
+        for profile, (version, imports) in probes.items():
             runtime_session_id = await gateway.start_session(
                 profile, relative_path
             )
@@ -46,7 +46,7 @@ async def main() -> None:
                 "import importlib, json, sys\n"
                 f"modules = {imports!r}\n"
                 "[importlib.import_module(module) for module in modules]\n"
-                "print(json.dumps({'version': list(sys.version_info[:2]), "
+                "print(json.dumps({'version': list(sys.version_info[:3]), "
                 "'imports': modules}))"
             )
             result = await gateway.execute(runtime_session_id, code)
@@ -60,7 +60,7 @@ async def main() -> None:
                     f"{profile} did not return a stream output."
                 )
             payload = json.loads("".join(stream_outputs))
-            if payload["version"] != [major, minor]:
+            if payload["version"][: len(version)] != list(version):
                 raise RuntimeError(
                     f"{profile} uses unexpected Python: {payload['version']}"
                 )

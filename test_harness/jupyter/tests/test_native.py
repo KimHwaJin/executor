@@ -44,9 +44,9 @@ def test_setup_uses_explicit_pythons_and_nexus_index(
     tmp_path: Path,
 ) -> None:
     python_311 = tmp_path / "python311.exe"
-    python_312 = tmp_path / "python312.exe"
+    python_310 = tmp_path / "python310.exe"
     python_311.touch()
-    python_312.touch()
+    python_310.touch()
     calls: list[tuple[list[str], dict[str, str] | None]] = []
 
     monkeypatch.setattr(native, "_required_uv", lambda: "uv")
@@ -65,7 +65,7 @@ def test_setup_uses_explicit_pythons_and_nexus_index(
         Namespace(
             install_root=str(tmp_path / "install"),
             python_311=str(python_311),
-            python_312=str(python_312),
+            python_310=str(python_310),
             index_url="https://nexus.example/repository/pypi-group/simple",
         )
     )
@@ -79,9 +79,9 @@ def test_setup_uses_explicit_pythons_and_nexus_index(
     assert [
         command[command.index("--python") + 1] for command in venv_commands
     ] == [
-        str(python_312.resolve()),
         str(python_311.resolve()),
-        str(python_312.resolve()),
+        str(python_311.resolve()),
+        str(python_310.resolve()),
     ]
     uv_environments = [
         environment for command, environment in calls if command[0] == "uv"
@@ -117,12 +117,12 @@ def test_setup_downloads_only_python_without_explicit_path(
         Namespace(
             install_root=str(tmp_path / "install"),
             python_311=str(python_311),
-            python_312=None,
+            python_310=None,
             index_url=None,
         )
     )
 
-    assert ["uv", "python", "install", "3.12"] in commands
+    assert ["uv", "python", "install", "3.10.11"] in commands
 
 
 def test_setup_rejects_missing_explicit_python(tmp_path: Path) -> None:

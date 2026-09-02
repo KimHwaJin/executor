@@ -83,7 +83,7 @@ authoritative result when a mutation returns wait_for_event=true.
 class SubmitExecutionInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    runtime_profile: str = Field(default="basic", min_length=1, max_length=128)
+    runtime_profile: str = Field(default="default", min_length=1, max_length=128)
     steps: list[PlannedStep] = Field(min_length=1, max_length=5)
     operation_mode: Literal["SINGLE", "MULTI"] = "SINGLE"
     operation_wait_timeout_seconds: int = Field(default=600, ge=30)

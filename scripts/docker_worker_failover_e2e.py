@@ -417,7 +417,7 @@ def _parse_args() -> Config:
     )
     parser.add_argument("--primary-port", type=int, default=8010)
     parser.add_argument("--secondary-port", type=int, default=8011)
-    parser.add_argument("--runtime-profile", default="basic")
+    parser.add_argument("--runtime-profile", default="default")
     parser.add_argument("--step-duration-seconds", type=int, default=90)
     parser.add_argument("--lease-timeout-seconds", type=int, default=180)
     parser.add_argument("--completion-timeout-seconds", type=int, default=300)

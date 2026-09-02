@@ -36,7 +36,7 @@ async def _submit(
                 operation_mode="SINGLE",
                 trigger_type="INTERACTIVE",
                 actor={"type": "USER", "id": user_id},
-                runtime_profile="basic",
+                runtime_profile="default",
                 spec=inline_spec(
                     [
                         {
@@ -155,7 +155,7 @@ async def _assert_profile_routing(
 ) -> dict[str, dict[str, str]]:
     results: dict[str, dict[str, str]] = {}
     for index, (profile, expected_version) in enumerate(
-        (("basic", "3.11"), ("ml", "3.12")), start=100
+        (("default", "3.11"), ("3102311", "3.10.11")), start=100
     ):
         marker = f"PROFILE_VERSION:{profile}:"
         submitted = await required_tool_result(
@@ -176,7 +176,9 @@ async def _assert_profile_routing(
                                 "code": (
                                     "import sys\n"
                                     f"print({marker!r} + "
-                                    "f'{sys.version_info.major}.{sys.version_info.minor}')"
+                                    "f'{sys.version_info.major}."
+                                    "{sys.version_info.minor}."
+                                    "{sys.version_info.micro}')"
                                 ),
                             }
                         ]

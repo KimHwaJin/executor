@@ -1018,7 +1018,7 @@ async def main() -> None:
     settings = get_settings()
     mcp_url = os.getenv("EXECUTOR_MCP_URL", "http://127.0.0.1:8000/mcp")
     rest_url = os.getenv("EXECUTOR_REST_URL", "http://127.0.0.1:8000/api/v1")
-    runtime_profile = os.getenv("SINGLE_LIFECYCLE_RUNTIME_PROFILE", "basic")
+    runtime_profile = os.getenv("SINGLE_LIFECYCLE_RUNTIME_PROFILE", "default")
     timeout_seconds = float(
         os.getenv("SINGLE_LIFECYCLE_TIMEOUT_SECONDS", "120")
     )

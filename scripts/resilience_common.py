@@ -248,7 +248,7 @@ async def submit_static(
                     if pool == "BATCH"
                     else "resilience-user",
                 },
-                runtime_profile="basic",
+                runtime_profile="default",
                 spec=inline_spec(
                     [
                         {

@@ -11,7 +11,7 @@ async def main() -> None:
     server_url = os.getenv("TEST_AGENT_SERVER_URL", "http://127.0.0.1:2024")
     prompt = os.getenv(
         "TEST_AGENT_CHAT_PROMPT",
-        "basic 커널에서 1부터 10까지의 합계를 실제로 계산하고 출력해줘.",
+        "default 커널에서 1부터 10까지의 합계를 실제로 계산하고 출력해줘.",
     )
     decision = os.getenv("TEST_AGENT_PLAN_DECISION", "approve").strip().lower()
     if decision not in {"approve", "reject"}:
