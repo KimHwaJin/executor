@@ -84,7 +84,9 @@ def test_kernel_environments_are_independent() -> None:
     ).read_text()
     assert requirements_3102311 == ""
     assert "FROM python:3.10.11-slim-bullseye AS python310" in dockerfile
-    assert "FROM python:3.11-slim-bookworm" in dockerfile
+    assert "FROM python:3.11-slim-bullseye" in dockerfile
+    assert "python310-compat" not in dockerfile
+    assert "LD_LIBRARY_PATH" not in dockerfile
     assert "python3.11 -m venv /opt/venvs/default" in dockerfile
     assert "python3.10 -m venv --copies /opt/venvs/3102311" in dockerfile
     assert dockerfile.count('"ipykernel>=6.30,<7"') == 2

@@ -10,15 +10,9 @@ RUN python3.10 -m venv --copies /opt/venvs/3102311 \
     && if [ -s /opt/jupyter-env/3102311/requirements.txt ]; then \
         /opt/venvs/3102311/bin/pip install --no-cache-dir \
             -r /opt/jupyter-env/3102311/requirements.txt; \
-    fi \
-    && mkdir -p /opt/python310-compat \
-    && cp -L \
-        /usr/lib/*-linux-gnu/libcrypto.so.1.1 \
-        /usr/lib/*-linux-gnu/libffi.so.7 \
-        /usr/lib/*-linux-gnu/libssl.so.1.1 \
-        /opt/python310-compat/
+    fi
 
-FROM python:3.11-slim-bookworm
+FROM python:3.11-slim-bullseye
 
 # Deployment settings: override these with container environment variables.
 # ROOT_DIR must match the shared PVC mount path and be writable by UID 1000.
@@ -32,8 +26,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PATH="/opt/venvs/jupyter/bin:${PATH}" \
     HOME=/home/jovyan \
     JUPYTER_CONFIG_DIR=/home/jovyan/.jupyter \
-    JUPYTER_PATH=/opt/venvs/jupyter/share/jupyter \
-    LD_LIBRARY_PATH=/opt/python310-compat
+    JUPYTER_PATH=/opt/venvs/jupyter/share/jupyter
 
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends \
@@ -61,7 +54,6 @@ COPY --from=python310 /usr/local/bin/python3.10 /usr/local/bin/python3.10
 COPY --from=python310 /usr/local/lib/libpython3.10.so.1.0 /usr/local/lib/libpython3.10.so.1.0
 COPY --from=python310 /usr/local/lib/python3.10 /usr/local/lib/python3.10
 COPY --from=python310 /opt/venvs/3102311 /opt/venvs/3102311
-COPY --from=python310 /opt/python310-compat /opt/python310-compat
 
 COPY environments/server/requirements.txt /opt/jupyter-env/server/requirements.txt
 COPY environments/default/requirements.txt /opt/jupyter-env/default/requirements.txt

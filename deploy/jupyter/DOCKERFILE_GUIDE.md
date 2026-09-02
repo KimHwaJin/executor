@@ -25,8 +25,13 @@
 4. 두 커널을 Jupyter 서버에 등록한다.
 5. root가 아닌 UID/GID 1000 사용자로 JupyterLab을 실행한다.
 
-Python 3.10.11과 3.11의 공식 slim 이미지가 서로 다른 Debian 세대를 사용하므로,
-하나의 최종 이미지 안에서 두 Python 버전을 안정적으로 제공하기 위해 이 구조를 쓴다.
+Python 3.10.11과 3.11 모두 Debian 11 bullseye 기반 공식 slim 이미지를 사용한다.
+동일한 OS ABI 위에서 두 Python 버전을 제공하므로 OpenSSL·libffi 호환 파일을 따로
+복사하지 않는다.
+
+> Debian 11 bullseye는 2026년 8월 31일 LTS가 종료되었다. 이 프로젝트는 두 Python
+> 환경의 ABI 통일을 우선해 bullseye 사용을 결정했다. 운영에서는 조직의 이미지 스캔,
+> 보완 패치 및 Extended LTS 정책을 별도로 적용해야 한다.
 
 ## 2. Python 3.10.11 빌드 스테이지
 
@@ -75,7 +80,7 @@ COPY pip.conf /etc/pip.conf
 - 3.10.11 스테이지와 최종 스테이지는 서로 다른 파일시스템이므로 68행에서 한 번 더
   복사해야 한다.
 
-### 8~19행: 3.10.11 가상환경과 호환 라이브러리 준비
+### 8~13행: 3.10.11 가상환경 준비
 
 ```dockerfile
 RUN python3.10 -m venv --copies /opt/venvs/3102311 \
@@ -83,13 +88,7 @@ RUN python3.10 -m venv --copies /opt/venvs/3102311 \
     && if [ -s /opt/jupyter-env/3102311/requirements.txt ]; then \
         /opt/venvs/3102311/bin/pip install --no-cache-dir \
             -r /opt/jupyter-env/3102311/requirements.txt; \
-    fi \
-    && mkdir -p /opt/python310-compat \
-    && cp -L \
-        /usr/lib/*-linux-gnu/libcrypto.so.1.1 \
-        /usr/lib/*-linux-gnu/libffi.so.7 \
-        /usr/lib/*-linux-gnu/libssl.so.1.1 \
-        /opt/python310-compat/
+    fi
 ```
 
 - `python3.10 -m venv --copies`: `/opt/venvs/3102311`을 만든다.
@@ -102,30 +101,27 @@ RUN python3.10 -m venv --copies /opt/venvs/3102311 \
   줄인다. 설치된 패키지는 그대로 유지된다.
 - `if [ -s ... ]`: requirements 파일의 크기가 0보다 클 때만 설치한다. 지금처럼 빈
   파일이어도 빌드가 정상 진행된다.
-- `mkdir -p /opt/python310-compat`: 3.10.11 실행에 필요한 구버전 공유 라이브러리를
-  모아둘 디렉터리를 만든다.
-- `cp -L`: bullseye의 `libcrypto.so.1.1`, `libssl.so.1.1`, `libffi.so.7`을 실제 파일로
-  복사한다. `-L`은 심볼릭 링크 대상까지 따라가서 최종 이미지에 유효한 파일이
-  들어가게 한다.
-- 이 호환 라이브러리 복사를 제거하면 최종 bookworm 이미지에서 Python 3.10.11 또는
-  일부 네이티브 패키지가 공유 라이브러리를 찾지 못하고 시작 실패할 수 있다.
+- 최종 Python 3.11 이미지도 bullseye 기반이므로 3.10.11 전용 OpenSSL·libffi 호환
+  라이브러리를 별도로 복사할 필요가 없다.
 - 여러 명령을 하나의 `RUN`으로 묶은 이유는 중간 레이어를 줄이고 앞 단계가 실패하면
   불완전한 환경이 다음 단계에 남지 않게 하기 위해서다.
 
 ## 3. 최종 Python 3.11 이미지와 런타임 환경
 
-### 21행: 최종 이미지 시작점
+### 15행: 최종 이미지 시작점
 
 ```dockerfile
-FROM python:3.11-slim-bookworm
+FROM python:3.11-slim-bullseye
 ```
 
 - 실제 배포되는 최종 이미지의 기반이다.
 - Jupyter 서버와 `default` 커널은 Python 3.11을 사용한다.
+- Python 3.10.11 스테이지와 같은 Debian 11 세대를 사용해 시스템 라이브러리 ABI를
+  통일한다.
 - 앞의 `python310` 스테이지에 설치된 불필요한 빌드 흔적은 자동으로 제외되고, 이후
   명시적으로 복사한 파일만 최종 이미지에 들어온다.
 
-### 23~28행: 배포 기본값
+### 17~22행: 배포 기본값
 
 ```dockerfile
 ENV JUPYTER_ROOT_DIR=/workspace/jupyter \
@@ -140,7 +136,7 @@ ENV JUPYTER_ROOT_DIR=/workspace/jupyter \
 - 루트 경로를 런타임에 바꾸는 경우 해당 경로가 실제로 존재하고 UID/GID 1000이 쓸 수
   있어야 한다. Docker 빌드 중의 `mkdir/chown`은 기본 경로에만 적용된다.
 
-### 30~36행: 공통 프로세스 환경
+### 24~29행: 공통 프로세스 환경
 
 ```dockerfile
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -148,8 +144,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PATH="/opt/venvs/jupyter/bin:${PATH}" \
     HOME=/home/jovyan \
     JUPYTER_CONFIG_DIR=/home/jovyan/.jupyter \
-    JUPYTER_PATH=/opt/venvs/jupyter/share/jupyter \
-    LD_LIBRARY_PATH=/opt/python310-compat
+    JUPYTER_PATH=/opt/venvs/jupyter/share/jupyter
 ```
 
 - `DEBIAN_FRONTEND=noninteractive`: apt가 빌드 도중 대화형 질문을 기다리지 않게 한다.
@@ -160,9 +155,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
   root 홈으로 흘러가지 않게 한다.
 - `JUPYTER_CONFIG_DIR`: 이미지에 넣은 `jupyter_server_config.py`를 찾을 위치다.
 - `JUPYTER_PATH`: 서버가 kernelspec과 Jupyter data 파일을 찾는 기준 경로다.
-- `LD_LIBRARY_PATH`: 복사한 Python 3.10.11 호환 라이브러리를 동적 로더가 찾게 한다.
 
-### 38~58행: OS 런타임 패키지 설치
+### 31~51행: OS 런타임 패키지 설치
 
 ```dockerfile
 RUN apt-get update \
@@ -202,22 +196,21 @@ RUN apt-get update \
 
 ## 4. Python 환경 조립
 
-### 60~64행: 3.10.11 런타임을 최종 이미지로 복사
+### 53~56행: 3.10.11 런타임을 최종 이미지로 복사
 
 ```dockerfile
 COPY --from=python310 /usr/local/bin/python3.10 /usr/local/bin/python3.10
 COPY --from=python310 /usr/local/lib/libpython3.10.so.1.0 /usr/local/lib/libpython3.10.so.1.0
 COPY --from=python310 /usr/local/lib/python3.10 /usr/local/lib/python3.10
 COPY --from=python310 /opt/venvs/3102311 /opt/venvs/3102311
-COPY --from=python310 /opt/python310-compat /opt/python310-compat
 ```
 
 - Python 실행 파일, 공유 라이브러리, 표준 라이브러리를 각각 복사한다.
-- `3102311` 가상환경과 bullseye 호환 라이브러리도 함께 가져온다.
+- `3102311` 가상환경도 함께 가져온다.
 - 하나라도 빠지면 인터프리터 시작, 표준 모듈 import 또는 네이티브 라이브러리 로딩이
   실패할 수 있으므로 한 묶음으로 관리한다.
 
-### 66~68행: 서버·default 패키지 목록과 pip 설정 복사
+### 58~60행: 서버·default 패키지 목록과 pip 설정 복사
 
 ```dockerfile
 COPY environments/server/requirements.txt /opt/jupyter-env/server/requirements.txt
@@ -230,7 +223,7 @@ COPY pip.conf /etc/pip.conf
 - default requirements에는 사용자가 코드에서 import할 분석 패키지만 둔다.
 - 최종 스테이지도 독립된 파일시스템이므로 `pip.conf`를 다시 복사한다.
 
-### 70~78행: 서버 및 default 가상환경 생성
+### 62~70행: 서버 및 default 가상환경 생성
 
 ```dockerfile
 RUN ldconfig \
@@ -244,9 +237,8 @@ RUN ldconfig \
         -r /opt/jupyter-env/default/requirements.txt
 ```
 
-- `ldconfig`: `/usr/local/lib`로 복사한 `libpython3.10.so.1.0` 등을 동적 링커 캐시에
-  반영한다. `/opt/python310-compat`의 라이브러리는 앞에서 지정한
-  `LD_LIBRARY_PATH`를 통해 찾는다.
+- `ldconfig`: `/usr/local/lib`로 복사한 `libpython3.10.so.1.0`을 동적 링커 캐시에
+  반영한다.
 - `/opt/venvs/jupyter`: Jupyter 서버 프로세스 전용 환경이다.
 - `/opt/venvs/default`: 사용자 분석 코드 전용 Python 3.11 환경이다.
 - 두 환경을 나누면 분석 패키지 변경이 Jupyter 서버 의존성과 충돌하는 위험이 줄어든다.
@@ -254,7 +246,7 @@ RUN ldconfig \
 
 ## 5. Executor 확장과 kernelspec 등록
 
-### 80~82행: 확장 소스 및 활성화 설정 복사
+### 72~74행: 확장 소스 및 활성화 설정 복사
 
 ```dockerfile
 COPY extension /opt/jupyter-resource-extension
@@ -267,7 +259,7 @@ COPY executor_resource_extension.json \
 - JSON 파일은 해당 서버 확장을 자동 활성화한다.
 - 코드를 복사하는 것만으로는 활성화되지 않으므로 설치와 활성화 설정이 모두 필요하다.
 
-### 84~94행: 확장 설치와 커널 등록
+### 76~86행: 확장 설치와 커널 등록
 
 ```dockerfile
 RUN /opt/venvs/jupyter/bin/pip install --no-cache-dir --no-deps \
@@ -297,7 +289,7 @@ RUN /opt/venvs/jupyter/bin/pip install --no-cache-dir --no-deps \
 
 ## 6. 사용자와 파일 권한
 
-### 96~105행: UID/GID 1000 사용자 생성
+### 88~97행: UID/GID 1000 사용자 생성
 
 ```dockerfile
 RUN rm -rf /home/jovyan \
@@ -341,7 +333,7 @@ RUN rm -rf /home/jovyan \
   탐색 권한이 필요하다. 파일만 `0644`여도 상위 디렉터리에 `x` 권한이 없으면 읽지
   못한다.
 
-### 107~109행: 설정과 시작 스크립트 복사
+### 99~101행: 설정과 시작 스크립트 복사
 
 ```dockerfile
 COPY --chown=1000:1000 jupyter_server_config.py \
@@ -358,7 +350,7 @@ COPY --chmod=755 start-jupyter.sh /usr/local/bin/start-jupyter
 - `COPY --chmod`는 저장소 체크아웃 환경의 실행 비트 차이, 특히 Windows Git에서 생길
   수 있는 차이를 이미지 안에서 정규화한다.
 
-### 111행: 비-root 사용자 전환
+### 103행: 비-root 사용자 전환
 
 ```dockerfile
 USER 1000:1000
@@ -369,7 +361,7 @@ USER 1000:1000
 - 실행 중 apt 설치, 임의의 시스템 경로 수정은 불가능해진다. 필요한 OS 패키지는
   반드시 이 줄보다 앞에서 이미지에 포함해야 한다.
 
-### 112행: 기본 작업 디렉터리
+### 104행: 기본 작업 디렉터리
 
 ```dockerfile
 WORKDIR "${JUPYTER_ROOT_DIR}"
@@ -385,7 +377,7 @@ WORKDIR "${JUPYTER_ROOT_DIR}"
 
 ## 7. 컨테이너 시작
 
-### 114행: 포트 메타데이터
+### 106행: 포트 메타데이터
 
 ```dockerfile
 EXPOSE 8888
@@ -395,7 +387,7 @@ EXPOSE 8888
 - 실제로 포트를 외부에 공개하거나 Kubernetes Service를 만들지는 않는다.
 - Deployment의 `containerPort`와 Service의 `targetPort`를 별도로 8888에 맞춰야 한다.
 
-### 116행: PID 1과 Jupyter 시작
+### 108행: PID 1과 Jupyter 시작
 
 ```dockerfile
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/start-jupyter"]
