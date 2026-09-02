@@ -4,7 +4,10 @@ Dockerfile의 각 구문, 권한 설정, PVC 적용 시 주의사항은
 [`DOCKERFILE_GUIDE.md`](DOCKERFILE_GUIDE.md)에 상세히 정리되어 있다.
 
 **배포 전 Dockerfile 상단의 `JUPYTER_ROOT_DIR`, `JUPYTER_TOKEN`과
-아래 4번 배포 설정을 확인한다. 별도 주입이 없으면 토큰은 `default`로 실행된다.**
+아래 5번 배포 설정을 확인한다. 별도 주입이 없으면 토큰은 `default`로 실행된다.**
+
+**저장소에 포함된 최초 `uv.lock`은 공개 PyPI 기준이다. 폐쇄망에 반입한 뒤에는 이미지
+빌드보다 먼저 아래 3번 절차로 실제 Nexus 기준 lock을 생성하고 Git에 커밋한다.**
 
 이 문서에서 작업공간 루트는 `${JUPYTER_ROOT_DIR}`로 표시한다.
 배포 환경에 따라 달라질 수 있는 경로이며, 이미지 기본값은 `/workspace/jupyter`다.
@@ -13,34 +16,42 @@ Dockerfile의 각 구문, 권한 설정, PVC 적용 시 주의사항은
 
 | 파일 | 역할 | 수정이 필요한 경우 |
 |---|---|---|
-| `Dockerfile` | OS·Python 설치, 가상환경 생성, 커널 등록, 실행 사용자 설정 | 베이스 이미지, apt 미러, OS 패키지, Python 버전, UID/GID 변경 |
-| `environments/server/requirements.txt` | Jupyter 서버용 패키지 | JupyterLab·Jupyter Server 버전 변경 |
-| `environments/default/requirements.txt` | `default` 커널용 분석 패키지 | 분석 라이브러리 추가·버전 변경 |
-| `environments/3102311/requirements.txt` | `3102311` 커널용 전체 패키지 목록 | 승인된 목록을 그대로 붙여넣음. 현재 의도적으로 비어 있음 |
+| `Dockerfile` | uv 설치, OS·Python 설치, lock 기반 환경 동기화, 커널 등록, 실행 사용자 설정 | uv·베이스 이미지, 패키지 인덱스, apt 미러, OS 패키지, Python 버전, UID/GID 변경 |
+| `environments/server/pyproject.toml`, `uv.lock` | Jupyter 서버 의존성과 확정 버전 | JupyterLab·Jupyter Server 버전 변경 후 lock 갱신 |
+| `environments/default/pyproject.toml`, `uv.lock` | `default` 커널 의존성과 확정 버전 | 분석 라이브러리 변경 후 lock 갱신 |
+| `environments/3102311/pyproject.toml`, `uv.lock` | `3102311` 커널 의존성과 확정 버전 | 승인된 Python 3.10.11 패키지 추가 후 lock 갱신 |
 | `jupyter_server_config.py` | 루트·토큰 적용, 포트, 허용 커널, 기본 커널 설정 | 포트나 커널 정책 변경. 루트·토큰은 파일 수정 없이 환경변수로 지정 |
 | `start-jupyter.sh` | 필수 환경변수 확인 후 JupyterLab 실행 | 일반적으로 수정하지 않음 |
 | `executor_resource_extension.json` | Executor 연동 확장 활성화 | 그대로 유지 |
 | `extension/pyproject.toml`, `extension/src/` | 자원 조회, 작업공간 준비, 노트북 작성, 파일 다운로드 기능 | Executor 연동 코드이므로 일반 배포 시 수정하지 않음 |
 | `.dockerignore` | 비밀 설정·캐시·작업 데이터를 빌드 컨텍스트에서 제외 | 일반적으로 수정하지 않음 |
 
-**`default`와 `3102311`은 서로 독립적인 커널이다.**
-각 `requirements.txt`에 해당 커널에서 사용할 전체 패키지 목록을 따로 작성한다.
-`3102311/requirements.txt`에는 향후 제공받을 목록을 그대로 붙여넣는다. 커널 구동에 필요한
-`ipykernel`은 Dockerfile이 기반 패키지로 별도 설치하므로 두 requirements에 적지 않는다.
+**`server`, `default`, `3102311`은 서로 독립된 uv 프로젝트다.** 한 디렉토리를 uv
+workspace로 묶지 않으며 각각 자신의 `pyproject.toml`과 `uv.lock`을 소유한다.
+`default`와 `3102311`은 패키지 설치 경로도 공유하지 않는다. `3102311`에 향후 제공받을
+목록을 적용할 때는 기존 `ipykernel`을 유지하고 같은 `dependencies` 배열에 추가한다.
 
-`extension/pyproject.toml`은 커스텀 확장을 pip로 설치하기 위한 필수 파일이다.
-uv나 별도 패키징 도구를 실행할 필요는 없다.
+`pyproject.toml`은 사람이 관리하는 직접 의존성과 Python 범위를 정의한다. `uv.lock`은 uv가
+결정한 간접 의존성, 정확한 버전과 배포 파일 해시를 기록하며 반드시 Git에 함께 커밋한다.
+`uv.lock`은 직접 수정하지 않는다.
+
+`extension/pyproject.toml`은 커스텀 확장을 uv로 빌드·설치하기 위한 필수 파일이다.
+별도의 패키징 명령은 필요하지 않으며 Dockerfile의 `uv pip install`이 처리한다.
 
 ## 2. Dockerfile 동작
 
 빌드 시 다음 순서로 구성한다.
 
-1. `python:3.10.11-slim-bullseye` 빌드 스테이지에서 정확한 Python 3.10.11 환경을 만들고,
+1. 고정된 `ghcr.io/astral-sh/uv:0.12.8` 이미지에서 uv 실행 파일을 가져온다. 폐쇄망에서는
+   이 이미지를 사내 Harbor에 미러링하고 `UV_IMAGE` 빌드 인자로 주소를 덮어쓴다.
+2. `python:3.10.11-slim-bullseye` 빌드 스테이지에서 정확한 Python 3.10.11 환경을 만들고,
    동일한 Debian 11 계열의 최종 `python:3.11-slim-bullseye` 이미지에 포함한다. 두
    Python의 시스템 라이브러리 세대가 같으므로 별도 OpenSSL·libffi 호환 파일은
    복사하지 않는다. 최종 이미지에는 폰트, 시스템 라이브러리, 프로세스 종료 신호
    처리를 위한 `tini`도 설치한다.
-2. 아래 세 가상환경을 각각 독립적으로 만들고, 각 환경의 `requirements.txt`만 pip로 설치한다.
+3. 아래 세 환경을 각 디렉토리의 `pyproject.toml`과 `uv.lock`으로부터
+   `uv sync --locked --no-install-project`로 설치한다. lock이 없거나 의존성 정의와
+   일치하지 않으면 이미지 빌드가 실패한다.
    `default`는 Python 3.11, `3102311`은 정확히 Python 3.10.11이며 서로의 패키지 설치
    경로를 공유하지 않는다.
 
@@ -50,11 +61,11 @@ uv나 별도 패키징 도구를 실행할 필요는 없다.
    | `default` 커널 | 3.11 | `/opt/venvs/default` |
    | `3102311` 커널 | 3.10.11 | `/opt/venvs/3102311` |
 
-3. 서버 가상환경에 `extension/`을 설치하고 확장을 활성화한다.
-4. `default`, `3102311` kernelspec을 서버에 등록하고 불필요한 기본 `python3` kernelspec을
+4. 서버 가상환경에 `extension/`을 uv로 설치하고 확장을 활성화한다.
+5. `default`, `3102311` kernelspec을 서버에 등록하고 불필요한 기본 `python3` kernelspec을
    제거한다. 허용 커널은 두 개뿐이며 기본 선택은 `default`다.
-5. UID/GID `1000:1000` 사용자를 만들고 설정 파일과 시작 스크립트를 복사한다.
-6. `${JUPYTER_ROOT_DIR}` 디렉토리를 생성하고 해당 사용자에게 권한을 부여한다.
+6. UID/GID `1000:1000` 사용자를 만들고 설정 파일과 시작 스크립트를 복사한다.
+7. `${JUPYTER_ROOT_DIR}` 디렉토리를 생성하고 해당 사용자에게 권한을 부여한다.
    이미지의 기본 작업 디렉토리(`WORKDIR`)도 빌드 시 이 값을 사용한다.
 
 컨테이너 시작 시 `tini`가 `start-jupyter.sh`를 실행한다. 스크립트는 토큰과 루트 경로가
@@ -68,18 +79,74 @@ uv나 별도 패키징 도구를 실행할 필요는 없다.
 > 사내 보안 기준에 따른 이미지 스캔, 보완 패치 또는 Extended LTS 적용 여부를 별도로
 > 관리해야 한다.
 
-## 3. 빌드와 이미지 업로드
+## 3. 패키지와 lock 관리
+
+아래 명령은 모두 이 폴더를 현재 디렉토리로 두고 실행한다. uv 0.12.8을 사용한다.
+
+패키지를 추가하거나 삭제하면 `pyproject.toml`과 `uv.lock`이 함께 변경된다.
+
+```shell
+UV_DEFAULT_INDEX=https://nexus.example.com/repository/pypi-group/simple/ \
+uv add --project environments/default "xgboost==3.0.5"
+
+UV_DEFAULT_INDEX=https://nexus.example.com/repository/pypi-group/simple/ \
+uv remove --project environments/default xgboost
+```
+
+`pyproject.toml`을 직접 수정했거나 최초 Nexus lock을 생성할 때는 다음 명령을 실행한다.
+
+```shell
+UV_DEFAULT_INDEX=https://nexus.example.com/repository/pypi-group/simple/ \
+uv lock --project environments/server
+UV_DEFAULT_INDEX=https://nexus.example.com/repository/pypi-group/simple/ \
+uv lock --project environments/default
+UV_DEFAULT_INDEX=https://nexus.example.com/repository/pypi-group/simple/ \
+uv lock --project environments/3102311
+```
+
+커밋 또는 이미지 빌드 전에 lock 정합성을 확인한다.
+
+```shell
+UV_DEFAULT_INDEX=https://nexus.example.com/repository/pypi-group/simple/ \
+uv lock --project environments/server --check
+UV_DEFAULT_INDEX=https://nexus.example.com/repository/pypi-group/simple/ \
+uv lock --project environments/default --check
+UV_DEFAULT_INDEX=https://nexus.example.com/repository/pypi-group/simple/ \
+uv lock --project environments/3102311 --check
+```
+
+패키지 변경 커밋에는 대상 환경의 `pyproject.toml`과 `uv.lock`을 항상 함께 포함한다.
+빌드 중에는 lock을 생성하거나 갱신하지 않는다.
+
+## 4. 빌드와 이미지 업로드
 
 **이 README와 Dockerfile이 있는 폴더에서** 실행한다. 주소·태그는 실제 값으로 바꾼다.
 
 ```shell
-docker build -t ${image.tag} .
+docker build \
+  --build-arg UV_IMAGE=harbor.example.com/library/uv:0.12.8 \
+  --build-arg UV_DEFAULT_INDEX=https://nexus.example.com/repository/pypi-group/simple/ \
+  -t ${image.tag} .
+
+docker push ${image.tag}
 ```
 
 빌드에는 베이스 이미지, apt 저장소, Python 패키지 인덱스 접근이 필요하다.
-폐쇄망에서는 사내 이미지·apt 미러와 Nexus/pip 설정을 준비해야 한다.
+폐쇄망에서는 Python 및 uv 이미지를 사내 Harbor에 미러링하고, apt 미러와 Nexus PyPI
+저장소를 준비해야 한다.
 
-## 4. 배포할 때 지정할 값
+- `UV_IMAGE`는 uv 바이너리를 가져올 이미지다. 기본값은 공식
+  `ghcr.io/astral-sh/uv:0.12.8`이다.
+- `UV_DEFAULT_INDEX`는 lock 검증과 빌드 중 모든 uv 패키지 설치가 사용하는 유일한 기본
+  패키지 인덱스다. 기본값은 최초 lock과 일치하는 공개 PyPI이며, 폐쇄망에서는 실제
+  Nexus 주소로 반드시 덮어쓴다.
+- uv는 `pip.conf`를 읽지 않는다. 인덱스 설정은 반드시 `UV_DEFAULT_INDEX`로 전달한다.
+- 두 값은 이미지 실행 설정이 아니라 빌드 인자다. 계정·비밀번호·토큰을 URL이나
+  Dockerfile에 넣지 않는다.
+- lock을 만들 때 사용한 패키지 인덱스와 이미지 빌드의 `UV_DEFAULT_INDEX`가 같아야 한다.
+  사내 Nexus로 전환하는 최초 1회에는 세 lock을 Nexus 기준으로 다시 생성하고 커밋한다.
+
+## 5. 배포할 때 지정할 값
 
 Dockerfile 상단에 두 설정의 이미지 기본값을 모아 두었다.
 
@@ -98,6 +165,7 @@ ENV JUPYTER_ROOT_DIR=/workspace/jupyter \
 | 이미지 | 위에서 빌드·업로드한 태그 |
 | `JUPYTER_TOKEN` | 기본 `default`. 운영에서는 플랫폼 Secret으로 덮어씀. 빈 값이면 시작 실패 |
 | `JUPYTER_ROOT_DIR` | 작업공간 루트 `${JUPYTER_ROOT_DIR}`. 실제 공유 PVC 마운트 경로와 일치시킴 |
+| `UV_DEFAULT_INDEX` | 선택. Jupyter 터미널에서 PV 아래 사용자 환경을 만들 때 사용할 Nexus 주소. 표준 커널 빌드 인자와 별개의 런타임 주입값 |
 | 포트 | 기본 `8888`. Service 대상 포트도 일치시킴 |
 | 실행 사용자 | UID/GID `1000:1000`. PVC에 디렉토리·파일 생성 및 수정 권한 필요 |
 | 시작 명령 | 이미지 ENTRYPOINT 그대로 사용 |
@@ -121,6 +189,12 @@ env:
       secretKeyRef:
         name: jupyter-secret
         key: JUPYTER_TOKEN
+  - name: UV_DEFAULT_INDEX
+    valueFrom:
+      configMapKeyRef:
+        name: jupyter-config
+        key: UV_DEFAULT_INDEX
+        optional: true
 ```
 
 여러 Jupyter 서버는 동일한 공유 스토리지의 동일한 작업공간을 바라보도록 배포한다.
@@ -133,3 +207,8 @@ env:
 
 배포 후 Executor에 해당 서버의 endpoint와 토큰을 등록한다.
 Executor에서 REST 및 WebSocket으로 해당 서버에 접근할 수 있어야 한다.
+
+이미지에 uv 명령은 포함되지만 `/opt/venvs`의 표준 환경은 일반 사용자가 수정할 수 없다.
+추가 환경이 필요한 사용자는 정책이 허용하는 경우에만 쓰기 가능한 PVC 경로 아래에 별도
+환경을 만든다. 표준 커널 패키지 변경은 항상 `pyproject.toml`, `uv.lock`, 이미지 재빌드로
+처리한다.

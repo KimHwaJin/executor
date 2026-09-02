@@ -1,202 +1,171 @@
 # Jupyter Dockerfile 상세 가이드
 
-이 문서는 [`Dockerfile`](Dockerfile)을 구문 단위로 설명한다. 단순히 Docker 문법을
-풀이하는 것이 아니라, 현재 Executor용 Jupyter 이미지에서 각 구문이 필요한 이유와
-변경·삭제할 때의 영향까지 기록한다.
+이 문서는 이 디렉토리만 독립적인 이미지 소스 패키지로 분리하여 Git에서 관리하고,
+Jenkins에서 빌드한 이미지를 Harbor에 업로드하는 상황을 기준으로 설명한다.
 
-기준 구조는 다음과 같다.
-
-- Jupyter 서버: Python 3.11, `/opt/venvs/jupyter`
-- `default` 커널: Python 3.11, `/opt/venvs/default`
-- `3102311` 커널: 정확히 Python 3.10.11, `/opt/venvs/3102311`
-- 컨테이너 실행 사용자: `jovyan`, UID/GID `1000:1000`
-- 작업공간 기본 경로: `/workspace/jupyter`
-
-> 줄 번호는 현재 Dockerfile을 이해하기 위한 보조 정보다. Dockerfile이 수정되면 줄
-> 번호가 달라질 수 있으므로 실제 구문도 함께 확인한다.
+Dockerfile의 각 블록이 왜 필요한지와 변경 시 확인할 항목을 함께 정리한다. 줄 번호는 현재
+Dockerfile 기준이며 Dockerfile 변경 시 달라질 수 있다.
 
 ## 1. 전체 빌드 구조
 
-이 Dockerfile은 다단계 빌드(multi-stage build)를 사용한다.
+이미지는 세 단계로 만들어진다.
 
-1. `python310` 스테이지에서 Python 3.10.11 커널 환경을 만든다.
-2. 최종 Python 3.11 이미지로 3.10.11 인터프리터와 가상환경을 복사한다.
-3. 최종 이미지에서 Jupyter 서버와 `default` 커널 환경을 만든다.
-4. 두 커널을 Jupyter 서버에 등록한다.
-5. root가 아닌 UID/GID 1000 사용자로 JupyterLab을 실행한다.
+1. 고정 버전 uv 이미지에서 `uv`, `uvx` 실행 파일을 가져온다.
+2. Python 3.10.11 이미지에서 독립적인 `3102311` 커널 환경을 만든다.
+3. Python 3.11 최종 이미지에 Jupyter 서버, `default` 커널, `3102311` 커널과
+   Executor 연동 확장을 조립한다.
 
-Python 3.10.11과 3.11 모두 Debian 11 bullseye 기반 공식 slim 이미지를 사용한다.
-동일한 OS ABI 위에서 두 Python 버전을 제공하므로 OpenSSL·libffi 호환 파일을 따로
-복사하지 않는다.
+세 Python 환경은 각각 독립된 `pyproject.toml`과 `uv.lock`으로 관리한다.
 
-> Debian 11 bullseye는 2026년 8월 31일 LTS가 종료되었다. 이 프로젝트는 두 Python
-> 환경의 ABI 통일을 우선해 bullseye 사용을 결정했다. 운영에서는 조직의 이미지 스캔,
-> 보완 패치 및 Extended LTS 정책을 별도로 적용해야 한다.
+| 환경 | Python | 이미지 내부 경로 | 역할 |
+|---|---:|---|---|
+| `server` | 3.11 | `/opt/venvs/jupyter` | JupyterLab·Jupyter Server 실행 |
+| `default` | 3.11 | `/opt/venvs/default` | 기본 분석 커널 |
+| `3102311` | 3.10.11 | `/opt/venvs/3102311` | 별도 승인 패키지 커널 |
 
-## 2. Python 3.10.11 빌드 스테이지
+## 2. uv와 패키지 인덱스
 
-### 1행: Python 3.10.11 전용 스테이지
+### 1~4행: uv 이미지와 기본 패키지 인덱스
+
+```dockerfile
+ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.12.8
+ARG UV_DEFAULT_INDEX=https://pypi.org/simple
+
+FROM ${UV_IMAGE} AS uv
+```
+
+- `UV_IMAGE`는 빌드에 사용할 uv 버전을 고정한다.
+- 폐쇄망에서는 공식 uv 이미지를 사내 Harbor에 미러링하고 `UV_IMAGE`를 덮어쓴다.
+- `UV_DEFAULT_INDEX`는 lock 검증과 패키지 설치에 사용할 PEP 503 인덱스다.
+- 저장소의 최초 lock과 기본 인덱스는 공개 PyPI로 일치시켜 템플릿 자체를 검증 가능하게
+  한다. 폐쇄망 반입 후에는 실제 Nexus 주소로 세 lock을 먼저 갱신하고 같은 주소를 빌드
+  인자로 전달한다.
+- lock을 생성할 때 사용한 인덱스와 Docker 빌드 인덱스가 달라지면 `--locked` 검증이
+  실패할 수 있다. 세 환경의 lock과 이미지 빌드는 동일한 Nexus를 사용해야 한다.
+- 계정·비밀번호·토큰은 Dockerfile이나 빌드 인자 URL에 작성하지 않는다.
+
+## 3. Python 3.10.11 커널 스테이지
+
+### 6행: 정확한 Python 3.10.11 베이스
 
 ```dockerfile
 FROM python:3.10.11-slim-bullseye AS python310
 ```
 
-- 정확히 Python 3.10.11이 포함된 공식 이미지를 사용한다.
-- `AS python310`은 이 스테이지에 이름을 붙인다. 최종 스테이지가
-  `COPY --from=python310`으로 파일을 가져올 때 사용한다.
-- 이 스테이지 자체는 최종 컨테이너가 아니다. 커널 환경을 만드는 빌드 재료다.
-- `3.10`이나 `latest`처럼 느슨한 태그로 바꾸면 패치 버전 3.10.11 보장이 깨진다.
+- `3102311` 커널의 Python patch 버전을 정확히 고정한다.
+- 최종 Python 3.11 이미지와 동일한 Debian 11 계열을 사용하여 OS ABI 차이를 줄인다.
+- 이 스테이지는 빌드용이며 최종 컨테이너의 시작 이미지가 아니다.
 
-### 3행: pip 버전 확인 비활성화
+### 8~14행: 인덱스, uv 실행 파일과 설치 정책
 
 ```dockerfile
-ENV PIP_DISABLE_PIP_VERSION_CHECK=1
+ARG UV_DEFAULT_INDEX
+COPY --from=uv /uv /uvx /bin/
+
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_NO_CACHE=1
 ```
 
-- pip가 실행될 때마다 새 버전 확인 메시지를 출력하지 않게 한다.
-- 빌드 로그의 불필요한 네트워크 확인과 안내 메시지를 줄인다.
-- 패키지 설치 기능 자체를 끄거나 버전을 고정하는 설정은 아니다.
+- 전역 `ARG`는 각 `FROM` 뒤에 다시 선언해야 해당 스테이지의 `RUN`에서 사용할 수 있다.
+- uv를 `/bin`에 복사하므로 별도 설치 스크립트나 인터넷 다운로드 명령이 필요 없다.
+- `UV_COMPILE_BYTECODE=1`은 설치 시 `.pyc`를 미리 생성하여 초기 import 지연을 줄인다.
+- `UV_LINK_MODE=copy`는 컨테이너 레이어와 가상환경 사이의 hardlink 경고를 방지한다.
+- `UV_NO_CACHE=1`은 uv 다운로드 캐시를 최종 이미지 레이어에 남기지 않는다.
 
-### 5행: 3102311 패키지 목록 복사
+### 16~21행: 3102311 프로젝트 동기화
 
 ```dockerfile
-COPY environments/3102311/requirements.txt /opt/jupyter-env/3102311/requirements.txt
+COPY environments/3102311 /opt/jupyter-env/3102311
+
+RUN UV_PROJECT_ENVIRONMENT=/opt/venvs/3102311 \
+    uv sync --project /opt/jupyter-env/3102311 \
+        --locked --no-dev --no-install-project \
+        --python /usr/local/bin/python3.10
 ```
 
-- 배포 담당자가 제공받은 3.10.11 전용 패키지 목록을 이미지에 넣는다.
-- 현재 파일은 의도적으로 비어 있으며, 승인된 목록을 그대로 붙여넣는 자리다.
-- `default` 커널 패키지를 상속하지 않는다. 두 커널은 완전히 독립적이다.
-- requirements가 바뀌면 이 줄 이후의 Docker 빌드 캐시만 무효화된다.
+- 환경 디렉토리 전체를 복사하므로 `pyproject.toml`과 `uv.lock`이 모두 빌드 입력이다.
+- `UV_PROJECT_ENVIRONMENT`는 기본 `.venv` 대신 고정된 이미지 경로에 환경을 만든다.
+- `--project`는 사용할 독립 uv 프로젝트를 명시한다.
+- `--locked`는 lock이 누락되거나 `pyproject.toml`과 일치하지 않으면 빌드를 실패시킨다.
+- `--no-dev`는 운영 환경에 개발 의존성을 설치하지 않는다.
+- `--no-install-project`는 환경 정의용 가상 프로젝트 자체를 패키지로 설치하지 않는다.
+- `--python`은 반드시 Python 3.10.11 인터프리터를 사용하게 한다.
+- `ipykernel`도 이 환경의 직접 의존성에 포함되어 lock으로 관리된다.
 
-### 6행: 사내 Python 패키지 저장소 설정
+## 4. 최종 Python 3.11 이미지
 
-```dockerfile
-COPY pip.conf /etc/pip.conf
-```
-
-- 이 스테이지의 pip가 사용할 전역 설정을 넣는다.
-- 폐쇄망에서는 `pip.conf`의 예시 URL을 실제 Nexus PyPI 주소로 바꿔야 한다.
-- 계정·비밀번호나 토큰을 파일에 작성하면 이미지 레이어에 남으므로 금지한다.
-- 3.10.11 스테이지와 최종 스테이지는 서로 다른 파일시스템이므로 68행에서 한 번 더
-  복사해야 한다.
-
-### 8~13행: 3.10.11 가상환경 준비
-
-```dockerfile
-RUN python3.10 -m venv --copies /opt/venvs/3102311 \
-    && /opt/venvs/3102311/bin/pip install --no-cache-dir "ipykernel>=6.30,<7" \
-    && if [ -s /opt/jupyter-env/3102311/requirements.txt ]; then \
-        /opt/venvs/3102311/bin/pip install --no-cache-dir \
-            -r /opt/jupyter-env/3102311/requirements.txt; \
-    fi
-```
-
-- `python3.10 -m venv --copies`: `/opt/venvs/3102311`을 만든다.
-  - `--copies`는 실행 파일을 심볼릭 링크 대신 복사한다.
-  - 이 가상환경을 다른 베이스 이미지로 옮기므로 원본 스테이지 경로를 가리키는
-    심볼릭 링크가 남지 않게 하는 것이 중요하다.
-- `ipykernel` 설치: 이 Python 환경을 Jupyter 커널로 구동하는 필수 런타임이다.
-  분석 패키지 목록과 독립적으로 항상 설치한다.
-- `--no-cache-dir`: pip 다운로드 캐시를 이미지 레이어에 남기지 않아 이미지 크기를
-  줄인다. 설치된 패키지는 그대로 유지된다.
-- `if [ -s ... ]`: requirements 파일의 크기가 0보다 클 때만 설치한다. 지금처럼 빈
-  파일이어도 빌드가 정상 진행된다.
-- 최종 Python 3.11 이미지도 bullseye 기반이므로 3.10.11 전용 OpenSSL·libffi 호환
-  라이브러리를 별도로 복사할 필요가 없다.
-- 여러 명령을 하나의 `RUN`으로 묶은 이유는 중간 레이어를 줄이고 앞 단계가 실패하면
-  불완전한 환경이 다음 단계에 남지 않게 하기 위해서다.
-
-## 3. 최종 Python 3.11 이미지와 런타임 환경
-
-### 15행: 최종 이미지 시작점
+### 23~27행: 최종 베이스와 uv
 
 ```dockerfile
 FROM python:3.11-slim-bullseye
+ARG UV_DEFAULT_INDEX
+COPY --from=uv /uv /uvx /bin/
 ```
 
-- 실제 배포되는 최종 이미지의 기반이다.
+- 이 스테이지가 최종 Harbor 이미지가 된다.
 - Jupyter 서버와 `default` 커널은 Python 3.11을 사용한다.
-- Python 3.10.11 스테이지와 같은 Debian 11 세대를 사용해 시스템 라이브러리 ABI를
-  통일한다.
-- 앞의 `python310` 스테이지에 설치된 불필요한 빌드 흔적은 자동으로 제외되고, 이후
-  명시적으로 복사한 파일만 최종 이미지에 들어온다.
+- uv가 최종 이미지에도 남으므로 Jupyter 터미널에서 `uv --version`을 실행할 수 있다.
+- 표준 커널 경로는 root 소유이므로 일반 사용자에게 이미지 내 환경 변경 권한은 없다.
+- 폐쇄망에서 사용자가 PVC 아래 별도 환경을 만들게 허용한다면 Deployment에도 런타임
+  `UV_DEFAULT_INDEX`를 Nexus 주소로 주입한다. Docker 빌드 인자는 런타임에 남지 않는다.
 
-### 17~22행: 배포 기본값
+### 29~34행: 배포 기본값
 
 ```dockerfile
 ENV JUPYTER_ROOT_DIR=/workspace/jupyter \
     JUPYTER_TOKEN=default
 ```
 
-- `JUPYTER_ROOT_DIR`: Jupyter Contents API의 루트이자 노트북·아티팩트가 보이는
-  작업공간 기본 경로다.
-- `JUPYTER_TOKEN`: REST/WebSocket 인증 토큰의 이미지 기본값이다.
-- 두 값은 Kubernetes의 ConfigMap/Secret 환경변수로 덮어쓸 수 있다.
-- `default` 토큰은 로컬 확인용이다. 운영에서는 반드시 Secret으로 교체한다.
-- 루트 경로를 런타임에 바꾸는 경우 해당 경로가 실제로 존재하고 UID/GID 1000이 쓸 수
-  있어야 한다. Docker 빌드 중의 `mkdir/chown`은 기본 경로에만 적용된다.
+- `JUPYTER_ROOT_DIR`은 노트북과 아티팩트가 저장될 공유 PVC 마운트 경로다.
+- `JUPYTER_TOKEN=default`는 기본 시험값이며 운영에서는 Kubernetes Secret으로 덮어쓴다.
+- Dockerfile 기본값을 바꾸지 않아도 컨테이너 환경변수가 우선한다.
 
-### 24~29행: 공통 프로세스 환경
+### 36~43행: 공통 런타임 설정
 
 ```dockerfile
 ENV DEBIAN_FRONTEND=noninteractive \
-    PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PATH="/opt/venvs/jupyter/bin:${PATH}" \
     HOME=/home/jovyan \
     JUPYTER_CONFIG_DIR=/home/jovyan/.jupyter \
-    JUPYTER_PATH=/opt/venvs/jupyter/share/jupyter
+    JUPYTER_PATH=/opt/venvs/jupyter/share/jupyter \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_NO_CACHE=1
 ```
 
-- `DEBIAN_FRONTEND=noninteractive`: apt가 빌드 도중 대화형 질문을 기다리지 않게 한다.
-- `PIP_DISABLE_PIP_VERSION_CHECK=1`: 최종 스테이지의 pip에도 버전 확인을 끈다.
-- `PATH`: 별도 경로를 쓰지 않고 `jupyter`, `jupyter-lab`을 호출해도 서버 전용
-  가상환경 실행 파일이 우선 선택된다.
-- `HOME`: 비-root 실행 사용자의 홈을 명시한다. Jupyter 런타임 파일과 사용자 설정이
-  root 홈으로 흘러가지 않게 한다.
-- `JUPYTER_CONFIG_DIR`: 이미지에 넣은 `jupyter_server_config.py`를 찾을 위치다.
-- `JUPYTER_PATH`: 서버가 kernelspec과 Jupyter data 파일을 찾는 기준 경로다.
+- `PATH`는 Jupyter 서버 환경의 실행 파일을 기본으로 선택한다.
+- `HOME`은 Jupyter 설정과 사용자 런타임 파일의 기준 경로다.
+- `JUPYTER_CONFIG_DIR`은 서버 설정 파일 위치를 고정한다.
+- `JUPYTER_PATH`는 등록한 kernelspec을 Jupyter 서버가 발견하게 한다.
+- uv 설정은 앞 스테이지와 동일한 설치 정책을 유지한다.
 
-### 31~51행: OS 런타임 패키지 설치
+### 45~65행: OS 런타임 패키지
 
 ```dockerfile
 RUN apt-get update \
-    && apt-get install --yes --no-install-recommends ... \
+    && apt-get install --yes --no-install-recommends \
+        ... \
+        tini \
+        ... \
     && rm -rf /var/lib/apt/lists/*
 ```
 
-- `apt-get update`: 현재 apt 저장소의 패키지 인덱스를 받는다. 폐쇄망에서는 Docker
-  빌드가 접근 가능한 사내 Debian 미러 설정이 필요하다.
-- `--yes`: 설치 확인 질문에 자동 동의한다.
-- `--no-install-recommends`: 필수 의존성만 설치해 이미지 크기와 공격 표면을 줄인다.
-- 각 패키지의 목적은 다음과 같다.
+- Python 3.10 표준 라이브러리 및 분석 패키지에서 필요한 Debian 런타임 라이브러리를
+  설치한다.
+- `fonts-dejavu-core`는 Matplotlib 등에서 기본 글꼴을 제공한다.
+- `libgomp1`은 NumPy, SciPy 등 병렬 네이티브 코드에서 사용될 수 있다.
+- `tini`는 Jupyter 하위 커널 프로세스의 signal 전달과 zombie process 회수를 담당한다.
+- `--no-install-recommends`와 apt 목록 삭제로 불필요한 이미지 크기를 줄인다.
+- 폐쇄망에서는 별도 승인된 apt mirror 설정이 필요하다.
 
-| 패키지 | 목적 |
-|---|---|
-| `ca-certificates` | HTTPS 인증서 검증. Nexus 및 HTTPS API 접근에 필요 |
-| `curl` | 운영 진단이나 컨테이너 내부 연결 확인용 HTTP 클라이언트 |
-| `fonts-dejavu-core` | matplotlib 등에서 기본 글꼴 없이 이미지 생성이 깨지는 문제 방지 |
-| `libbz2-1.0` | Python `bz2` 압축 모듈 런타임 |
-| `libdb5.3` | 일부 Python/시스템 DBM 기능의 런타임 |
-| `libexpat1` | XML 파싱 런타임 |
-| `libgdbm6` | Python `dbm.gnu` 런타임 |
-| `libgomp1` | NumPy·SciPy·ML 패키지의 OpenMP 병렬 연산 런타임 |
-| `libgssapi-krb5-2` | Kerberos/GSSAPI 연동 패키지의 런타임 |
-| `liblzma5` | Python `lzma`/xz 압축 런타임 |
-| `libncursesw6` | 터미널 및 대화형 Python 기능 런타임 |
-| `libnsl2` | 일부 네트워크 관련 네이티브 모듈 호환성 |
-| `libreadline8` | Python 대화형 입력 및 히스토리 기능 |
-| `libsqlite3-0` | Python `sqlite3`, Jupyter 내부 SQLite 사용 가능성 지원 |
-| `libtirpc3` | 일부 RPC/네트워크 네이티브 의존성 |
-| `libuuid1` | UUID 관련 시스템 런타임 |
-| `tini` | PID 1, 종료 신호 전달, 좀비 프로세스 회수 |
-| `zlib1g` | gzip/zip 및 여러 Python 패키지의 압축 런타임 |
+> Debian 11 bullseye는 2026년 8월 31일 LTS가 종료되었다. 현재 이미지는 Python
+> 3.10.11과 3.11의 OS ABI 통일을 위해 bullseye를 사용한다. 운영자는 조직의 이미지
+> 스캔, 보완 패치 또는 Extended LTS 정책을 적용해야 한다.
 
-- 마지막 `rm -rf /var/lib/apt/lists/*`는 설치된 패키지가 아니라 apt 인덱스 캐시만
-  삭제하여 이미지 크기를 줄인다.
+## 5. Python 3.10.11 환경 결합
 
-## 4. Python 환경 조립
-
-### 53~56행: 3.10.11 런타임을 최종 이미지로 복사
+### 67~70행: 인터프리터와 환경 복사
 
 ```dockerfile
 COPY --from=python310 /usr/local/bin/python3.10 /usr/local/bin/python3.10
@@ -205,48 +174,38 @@ COPY --from=python310 /usr/local/lib/python3.10 /usr/local/lib/python3.10
 COPY --from=python310 /opt/venvs/3102311 /opt/venvs/3102311
 ```
 
-- Python 실행 파일, 공유 라이브러리, 표준 라이브러리를 각각 복사한다.
-- `3102311` 가상환경도 함께 가져온다.
-- 하나라도 빠지면 인터프리터 시작, 표준 모듈 import 또는 네이티브 라이브러리 로딩이
-  실패할 수 있으므로 한 묶음으로 관리한다.
+- Python 실행 파일만이 아니라 공유 라이브러리와 표준 라이브러리도 함께 복사한다.
+- 마지막 줄은 lock으로 설치된 독립 `3102311` 환경을 최종 이미지에 포함한다.
+- 두 베이스 이미지의 Debian 계열을 임의로 다르게 바꾸면 네이티브 라이브러리 호환성이
+  깨질 수 있으므로 함께 검토해야 한다.
 
-### 58~60행: 서버·default 패키지 목록과 pip 설정 복사
+## 6. Jupyter 서버와 default 환경
 
-```dockerfile
-COPY environments/server/requirements.txt /opt/jupyter-env/server/requirements.txt
-COPY environments/default/requirements.txt /opt/jupyter-env/default/requirements.txt
-COPY pip.conf /etc/pip.conf
-```
-
-- 서버 환경과 분석 커널 환경의 의존성을 분리한다.
-- 서버 requirements에는 JupyterLab/Jupyter Server 같은 서비스 패키지만 둔다.
-- default requirements에는 사용자가 코드에서 import할 분석 패키지만 둔다.
-- 최종 스테이지도 독립된 파일시스템이므로 `pip.conf`를 다시 복사한다.
-
-### 62~70행: 서버 및 default 가상환경 생성
+### 72~83행: 두 독립 프로젝트 동기화
 
 ```dockerfile
+COPY environments/server /opt/jupyter-env/server
+COPY environments/default /opt/jupyter-env/default
+
 RUN ldconfig \
-    && /usr/local/bin/python3.11 -m venv /opt/venvs/jupyter \
-    && /usr/local/bin/python3.11 -m venv /opt/venvs/default \
-    && /opt/venvs/jupyter/bin/pip install --no-cache-dir \
-        -r /opt/jupyter-env/server/requirements.txt \
-    && /opt/venvs/default/bin/pip install --no-cache-dir \
-        "ipykernel>=6.30,<7" \
-    && /opt/venvs/default/bin/pip install --no-cache-dir \
-        -r /opt/jupyter-env/default/requirements.txt
+    && UV_PROJECT_ENVIRONMENT=/opt/venvs/jupyter \
+        uv sync --project /opt/jupyter-env/server \
+            --locked --no-dev --no-install-project \
+            --python /usr/local/bin/python3.11 \
+    && UV_PROJECT_ENVIRONMENT=/opt/venvs/default \
+        uv sync --project /opt/jupyter-env/default \
+            --locked --no-dev --no-install-project \
+            --python /usr/local/bin/python3.11
 ```
 
-- `ldconfig`: `/usr/local/lib`로 복사한 `libpython3.10.so.1.0`을 동적 링커 캐시에
-  반영한다.
-- `/opt/venvs/jupyter`: Jupyter 서버 프로세스 전용 환경이다.
-- `/opt/venvs/default`: 사용자 분석 코드 전용 Python 3.11 환경이다.
-- 두 환경을 나누면 분석 패키지 변경이 Jupyter 서버 의존성과 충돌하는 위험이 줄어든다.
-- default 환경에도 커널 구동을 위해 `ipykernel`을 항상 설치한다.
+- `ldconfig`는 앞에서 복사한 Python 3.10 공유 라이브러리를 시스템 linker cache에 반영한다.
+- `server`와 `default`는 같은 Python 3.11을 쓰지만 가상환경과 의존성 lock은 분리된다.
+- Jupyter 서버 패키지 변경이 분석 커널 패키지를 암묵적으로 변경하지 않는다.
+- `default`의 `ipykernel`도 해당 프로젝트에서 직접 관리한다.
 
-## 5. Executor 확장과 kernelspec 등록
+## 7. Executor 연동 확장과 kernelspec
 
-### 72~74행: 확장 소스 및 활성화 설정 복사
+### 85~87행: 확장 소스와 활성화 설정
 
 ```dockerfile
 COPY extension /opt/jupyter-resource-extension
@@ -254,190 +213,143 @@ COPY executor_resource_extension.json \
     /opt/venvs/jupyter/etc/jupyter/jupyter_server_config.d/executor_resource_extension.json
 ```
 
-- `extension/`은 Executor가 사용하는 작업공간 준비, 노트북 반영, 파일 및 자원 관련
-  엔드포인트를 Jupyter Server에 추가한다.
-- JSON 파일은 해당 서버 확장을 자동 활성화한다.
-- 코드를 복사하는 것만으로는 활성화되지 않으므로 설치와 활성화 설정이 모두 필요하다.
+- 확장은 Executor가 사용하는 자원 조회, 작업공간 준비, 노트북 반영, 파일 다운로드 API를
+  제공한다.
+- JSON 파일은 Jupyter Server가 확장을 자동 활성화하게 한다.
 
-### 76~86행: 확장 설치와 커널 등록
+### 89~99행: 확장 설치와 커널 등록
 
 ```dockerfile
-RUN /opt/venvs/jupyter/bin/pip install --no-cache-dir --no-deps \
-        /opt/jupyter-resource-extension \
-    && /opt/venvs/default/bin/python -m ipykernel install \
-        --prefix=/opt/venvs/jupyter \
-        --name=default \
-        --display-name="Default (Python 3.11)" \
-    && /opt/venvs/3102311/bin/python -m ipykernel install \
-        --prefix=/opt/venvs/jupyter \
-        --name=3102311 \
-        --display-name="3102311 (Python 3.10.11)" \
+RUN uv pip install --strict --python /opt/venvs/jupyter/bin/python \
+        --no-deps /opt/jupyter-resource-extension \
+    && ... ipykernel install --name=default ... \
+    && ... ipykernel install --name=3102311 ... \
     && rm -rf /opt/venvs/jupyter/share/jupyter/kernels/python3
 ```
 
-- 확장은 Jupyter 서버 환경에 설치한다. 커널 환경에 설치하지 않는다.
-- `--no-deps`: 확장의 의존성은 서버 requirements가 소유한다. 설치 과정에서 임의로
-  외부 패키지를 추가하거나 서버 패키지 버전을 바꾸지 않게 한다.
-- `ipykernel install --prefix=/opt/venvs/jupyter`: 두 커널의 kernelspec을 Jupyter 서버가
-  검색하는 경로에 등록한다.
-- `--name`: API 및 Executor가 사용하는 안정적인 식별자다.
-- `--display-name`: JupyterLab UI에서 사용자에게 보이는 이름이다.
-- 자동 생성된 `python3` kernelspec은 정책상 허용한 두 커널 외의 선택지가 노출되지
-  않게 삭제한다.
-- 이 부분의 이름을 바꾸면 Executor runtime profile, 테스트, Jupyter 설정의
-  `allowed_kernelspecs`도 함께 바꿔야 한다.
+- 확장은 서버 환경에만 설치한다.
+- `--no-deps`는 서버 lock 밖에서 확장 설치가 의존성 버전을 바꾸지 못하게 한다.
+- 각 커널은 자신의 Python으로 kernelspec을 등록한다.
+- 자동 생성된 `python3` kernelspec은 제거하여 허용 커널을 `default`, `3102311`로 제한한다.
 
-## 6. 사용자와 파일 권한
+## 8. 비-root 사용자와 PVC 권한
 
-### 88~97행: UID/GID 1000 사용자 생성
+### 101~110행: UID/GID 1000 사용자 생성
 
 ```dockerfile
 RUN rm -rf /home/jovyan \
     && groupadd --gid 1000 jovyan \
-    && useradd \
-        --uid 1000 \
-        --gid 1000 \
-        --create-home \
-        --shell /bin/bash \
-        jovyan \
+    && useradd --uid 1000 --gid 1000 --create-home ... jovyan \
     && mkdir -p "${JUPYTER_ROOT_DIR}" /home/jovyan/.jupyter \
     && chown -R 1000:1000 "${JUPYTER_ROOT_DIR}" /home/jovyan
 ```
 
-- 빌드 중인 이 시점의 사용자는 root다. 사용자·그룹 생성과 소유권 변경에는 root
-  권한이 필요하다.
-- `rm -rf /home/jovyan`: 같은 경로가 이전 레이어에 존재하더라도 새 UID/GID의 홈을
-  일관되게 만들기 위한 초기화다. PVC 데이터나 호스트 홈을 삭제하는 명령이 아니다.
-- `groupadd --gid 1000 jovyan`: 고정 GID 1000 그룹을 만든다.
-- `useradd --uid 1000 --gid 1000`: 고정 UID/GID 사용자를 만든다.
-  - Kubernetes PVC가 숫자 UID/GID 기준으로 권한을 판정하므로 이름보다 숫자가 중요하다.
-  - 여러 Jupyter Pod와 nbviewer가 같은 PVC를 읽을 때도 숫자 권한이 기준이다.
-- `--create-home`: `/home/jovyan`과 기본 사용자 파일을 만든다.
-- `--shell /bin/bash`: 컨테이너 디버깅 및 Jupyter 터미널의 기본 셸을 지정한다.
-- `mkdir -p`: 기본 작업공간과 Jupyter 설정 디렉터리를 미리 만든다.
-- `chown -R 1000:1000`: 컨테이너가 비-root 사용자로 전환된 뒤 해당 위치에 쓰게 한다.
+- Jupyter 프로세스는 root가 아닌 `1000:1000`으로 실행한다.
+- Kubernetes PVC도 이 사용자가 디렉토리와 파일을 생성·수정할 수 있어야 한다.
+- 이미지의 `chown`은 PVC가 마운트되면 가려질 수 있으므로 실제 PV 권한은 배포 환경에서
+  별도로 보장해야 한다.
 
-### PVC 권한에서 가장 중요한 점
-
-이미지 빌드 중 `chown`은 **이미지 내부 디렉터리**에만 적용된다. Kubernetes에서 같은
-경로에 PVC를 마운트하면 이미지 레이어의 디렉터리는 가려지고 PVC 자체의 소유권과
-모드가 적용된다. 따라서 다음 조건은 배포에서 별도로 충족해야 한다.
-
-- PVC 루트를 UID/GID 1000이 읽고 쓸 수 있어야 한다.
-- 스토리지 드라이버가 지원하면 Pod `securityContext.fsGroup: 1000`을 사용한다.
-- `fsGroup`이 적용되지 않는 스토리지라면 승인된 initContainer 또는 스토리지 측
-  권한 설정으로 준비한다.
-- `JUPYTER_ROOT_DIR`을 기본값과 다른 PVC 마운트 경로로 덮어쓰면 그 경로 역시 동일한
-  권한 조건을 만족해야 한다.
-- 노트북을 nbviewer의 UID 65534가 읽어야 한다면 파일 모드 `0644`와 상위 디렉터리의
-  탐색 권한이 필요하다. 파일만 `0644`여도 상위 디렉터리에 `x` 권한이 없으면 읽지
-  못한다.
-
-### 99~101행: 설정과 시작 스크립트 복사
+### 112~117행: 설정, 시작 스크립트와 실행 사용자
 
 ```dockerfile
-COPY --chown=1000:1000 jupyter_server_config.py \
-    /home/jovyan/.jupyter/jupyter_server_config.py
+COPY --chown=1000:1000 jupyter_server_config.py ...
 COPY --chmod=755 start-jupyter.sh /usr/local/bin/start-jupyter
-```
 
-- Jupyter 설정 파일은 실행 사용자 소유로 복사한다. HOME 전체를 빈 볼륨으로
-  덮어쓰면 이 파일이 가려지므로 주의한다.
-- 시작 스크립트는 `0755`로 복사한다.
-  - 소유자는 읽기·쓰기·실행 가능하다.
-  - 그룹과 다른 사용자는 읽기·실행 가능하다.
-  - 스크립트는 수정할 필요가 없고 실행만 가능하면 되므로 root 소유여도 문제없다.
-- `COPY --chmod`는 저장소 체크아웃 환경의 실행 비트 차이, 특히 Windows Git에서 생길
-  수 있는 차이를 이미지 안에서 정규화한다.
-
-### 103행: 비-root 사용자 전환
-
-```dockerfile
 USER 1000:1000
-```
-
-- 이후 빌드 명령과 컨테이너 실행 프로세스의 기본 사용자를 고정한다.
-- JupyterLab 및 커널이 root로 실행되지 않아 권한 오용과 보안 위험을 줄인다.
-- 실행 중 apt 설치, 임의의 시스템 경로 수정은 불가능해진다. 필요한 OS 패키지는
-  반드시 이 줄보다 앞에서 이미지에 포함해야 한다.
-
-### 104행: 기본 작업 디렉터리
-
-```dockerfile
 WORKDIR "${JUPYTER_ROOT_DIR}"
 ```
 
-- 컨테이너 프로세스의 시작 디렉터리를 빌드 시 기본 루트로 정한다.
-- `WORKDIR` 값은 이미지 빌드 때 확정된다. 런타임에 `JUPYTER_ROOT_DIR` 환경변수만 다른
-  값으로 덮어써도 Docker의 시작 디렉터리 자체는 자동 변경되지 않는다.
-- 다만 Jupyter의 실제 Contents 루트는 `jupyter_server_config.py`가 런타임 환경변수를
-  읽어 설정하므로, 유효하고 쓰기 가능한 경로라면 서비스 기능은 변경된 루트를 쓴다.
-- Kubernetes에서 엄격한 일치를 원하면 Deployment의 `workingDir`도 PVC 마운트 경로로
-  설정한다.
+- 설정 파일 소유자를 런타임 사용자로 지정한다.
+- 시작 스크립트에 실행 권한을 부여한다.
+- `USER` 이후 Jupyter와 커널은 비-root로 실행된다.
+- `WORKDIR`은 셸과 상대 경로 실행의 기본 위치이며 실제 저장 루트와 일치한다.
 
-## 7. 컨테이너 시작
+## 9. 포트와 시작 프로세스
 
-### 106행: 포트 메타데이터
+### 119~121행
 
 ```dockerfile
 EXPOSE 8888
-```
-
-- 이미지가 8888 포트를 사용할 의도임을 문서화한다.
-- 실제로 포트를 외부에 공개하거나 Kubernetes Service를 만들지는 않는다.
-- Deployment의 `containerPort`와 Service의 `targetPort`를 별도로 8888에 맞춰야 한다.
-
-### 108행: PID 1과 Jupyter 시작
-
-```dockerfile
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/start-jupyter"]
 ```
 
-- `tini`가 컨테이너 PID 1이 되어 SIGTERM 등 종료 신호를 Jupyter와 커널에 전달하고
-  종료된 자식 프로세스를 회수한다.
-- `--` 뒤는 tini 옵션이 아니라 실제 애플리케이션 명령임을 구분한다.
-- JSON exec 형식이라 불필요한 셸을 거치지 않고 신호 전달이 명확하다.
-- `start-jupyter`는 토큰과 루트 값이 비었는지 검사한 뒤 `exec jupyter lab "$@"`를
-  실행한다. Kubernetes `args`는 이 스크립트를 통해 JupyterLab 인자로 전달된다.
-- `tini`를 제거하고 셸을 PID 1로 두면 장시간 작업 취소, Pod 종료, 커널 자식 프로세스
-  회수의 신뢰성이 낮아질 수 있다.
+- `EXPOSE`는 이미지 메타데이터이며 Kubernetes Service를 자동 생성하지 않는다.
+- Deployment와 Service의 `containerPort`, `targetPort`는 8888에 맞춘다.
+- `tini`가 종료 신호를 Jupyter와 커널에 전달한다.
 
-## 8. 변경할 때 함께 확인할 항목
+## 10. 의존성 변경 규칙
 
-| 변경 | 함께 확인할 대상 |
+환경별 파일은 다음 두 개를 한 쌍으로 관리한다.
+
+```text
+environments/<환경>/pyproject.toml
+environments/<환경>/uv.lock
+```
+
+패키지 추가 예시:
+
+```shell
+UV_DEFAULT_INDEX=https://nexus.example.com/repository/pypi-group/simple/ \
+uv add --project environments/default "xgboost==3.0.5"
+```
+
+직접 `pyproject.toml`을 수정했다면 lock을 갱신한다.
+
+```shell
+UV_DEFAULT_INDEX=https://nexus.example.com/repository/pypi-group/simple/ \
+uv lock --project environments/default
+```
+
+검증만 할 때는 다음을 사용한다.
+
+```shell
+UV_DEFAULT_INDEX=https://nexus.example.com/repository/pypi-group/simple/ \
+uv lock --project environments/default --check
+```
+
+- `uv.lock`은 사람이 수정하지 않는다.
+- `pyproject.toml`만 변경하거나 `uv.lock`만 변경한 커밋은 허용하지 않는다.
+- 이미지 빌드 중 lock을 갱신하지 않는다.
+- 세 환경은 독립 프로젝트이므로 변경한 환경의 lock만 갱신한다.
+- 모든 Jupyter 서버는 같은 image tag보다 가능하면 같은 image digest를 사용한다.
+
+## 11. 폐쇄망 Jenkins 빌드
+
+이 디렉토리 자체를 Git 저장소 또는 Jenkins checkout 루트로 사용할 수 있다.
+
+```shell
+docker build \
+  --build-arg UV_IMAGE=harbor.example.com/library/uv:0.12.8 \
+  --build-arg UV_DEFAULT_INDEX=https://nexus.example.com/repository/pypi-group/simple/ \
+  --tag harbor.example.com/analytics/jupyter-runtime:${BUILD_NUMBER} \
+  .
+
+docker push harbor.example.com/analytics/jupyter-runtime:${BUILD_NUMBER}
+```
+
+빌드 전에 확인할 외부 의존성은 다음과 같다.
+
+| 대상 | 준비 사항 |
 |---|---|
-| Python 버전 | 베이스 이미지, venv 경로, kernelspec 이름·표시명, 호환 공유 라이브러리, 테스트 |
-| 커널 이름 | `jupyter_server_config.py`, Executor profile 설정, smoke/e2e 스크립트 |
-| UID/GID | PVC 소유권, Pod securityContext, nbviewer 접근 권한 |
-| 작업공간 루트 | PVC mountPath, `JUPYTER_ROOT_DIR`, 필요 시 `workingDir`, Executor 등록 정보 |
-| requirements | Nexus에 모든 직접·전이 의존성과 대상 OS용 wheel이 있는지 확인 |
-| Jupyter 포트 | 서버 설정, Deployment containerPort, Service targetPort, Executor endpoint |
-| 확장 코드 | 확장 테스트, Executor-Jupyter 계약 테스트, 이미지 재빌드 |
+| Python 3.11 이미지 | Harbor에 미러링하거나 Docker daemon이 접근 가능해야 함 |
+| Python 3.10.11 이미지 | Harbor에 미러링하거나 Docker daemon이 접근 가능해야 함 |
+| uv 0.12.8 이미지 | Harbor에 미러링하고 `UV_IMAGE`로 지정 |
+| PyPI 패키지 | Nexus group/proxy 저장소와 lock 생성 시 사용한 동일 URL |
+| Debian 패키지 | 승인된 apt mirror 또는 접근 가능한 Debian 저장소 |
+| 비밀값 | Dockerfile과 Git이 아니라 Jenkins credential/배포 Secret으로 관리 |
 
-## 9. 빌드·배포 전 권한 체크리스트
+Python 베이스 이미지도 외부 Docker Hub를 사용할 수 없다면 Dockerfile의 두 `FROM
+python:...` 값을 사내 Harbor 주소로 변경한다.
 
-1. 컨테이너가 최종적으로 `1000:1000`으로 실행되는가?
-2. PVC 마운트 경로를 `1000:1000`이 생성·수정·삭제할 수 있는가?
-3. nbviewer 등 읽기 전용 소비자가 파일과 모든 상위 디렉터리를 탐색할 수 있는가?
-4. `/home/jovyan`을 볼륨으로 가려 Jupyter 설정 파일을 없애고 있지 않은가?
-5. read-only root filesystem을 사용한다면 HOME의 런타임 쓰기 경로와 `/tmp`에 별도
-   쓰기 볼륨을 제공했는가?
-6. 운영 토큰이 Dockerfile 기본값이 아니라 Secret으로 주입되는가?
-7. 각 Jupyter Pod를 고유 Service로 노출하여 커널 REST/WebSocket 요청이 같은 Pod로
-   전달되는가?
+## 12. 변경 시 함께 확인할 항목
 
-## 10. 테스트 하네스 Dockerfile과의 차이
-
-[`../../test_harness/jupyter/Dockerfile`](../../test_harness/jupyter/Dockerfile)은 같은 이미지
-구조를 검증하기 위한 로컬 테스트용이다. 핵심 Python 환경과 권한 구조는 같지만 다음이
-다르다.
-
-- 저장소 루트를 빌드 컨텍스트로 사용하므로 `COPY` 원본 경로에
-  `test_harness/jupyter/` 접두사가 붙는다.
-- 로컬 테스트 작업공간 기본값은 `/workspace/pv`다.
-- 배포 패키지의 `pip.conf`를 복사하지 않으므로 일반 테스트 빌드는 기본 pip 설정을
-  따른다.
-- 배포용 기본 토큰을 이미지에 두지 않고 실행 환경에서 주입한다.
-
-실제 운영 이미지 설명과 전달 문서는 `deploy/jupyter`를 기준으로 하고, 테스트 하네스는
-Executor 개발·검증에만 사용한다.
+| 변경 | 반드시 같이 확인할 내용 |
+|---|---|
+| Python 3.10/3.11 이미지 | Debian 계열, 표준 라이브러리 복사 경로, 네이티브 패키지 import |
+| `pyproject.toml` | 같은 환경의 `uv.lock` 갱신·커밋 |
+| Nexus 주소 | 세 lock의 registry 출처와 Docker `UV_DEFAULT_INDEX` 일치 |
+| 커널 이름 | kernelspec 등록, Jupyter 허용 목록, Executor runtime profile |
+| UID/GID | PVC 소유권, `securityContext`, nbviewer 읽기 권한 |
+| 작업공간 루트 | PVC mountPath, `JUPYTER_ROOT_DIR`, Executor 등록 정보 |
+| 확장 코드 | 확장 단위 테스트와 실제 Jupyter API 검증 |
+| 시작 명령 | `tini` signal 전달 및 정상 종료 여부 |

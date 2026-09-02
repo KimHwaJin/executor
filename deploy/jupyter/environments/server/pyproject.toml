@@ -1,0 +1,11 @@
+[project]
+name = "executor-jupyter-server-environment"
+version = "0.1.0"
+requires-python = "==3.11.*"
+dependencies = [
+    "jupyter-server>=2.17,<3",
+    "jupyterlab>=4.4,<5",
+]
+
+[tool.uv]
+package = false

@@ -1,26 +1,45 @@
+ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.12.8
+ARG UV_DEFAULT_INDEX=https://pypi.org/simple
+
+FROM ${UV_IMAGE} AS uv
+
 FROM python:3.10.11-slim-bullseye AS python310
 
-ENV PIP_DISABLE_PIP_VERSION_CHECK=1
+ARG UV_DEFAULT_INDEX
+
+COPY --from=uv /uv /uvx /bin/
+
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_NO_CACHE=1
 
 COPY test_harness/jupyter/environments/3102311/requirements.txt \
     /opt/jupyter-env/3102311/requirements.txt
 
-RUN python3.10 -m venv --copies /opt/venvs/3102311 \
-    && /opt/venvs/3102311/bin/pip install --no-cache-dir "ipykernel>=6.30,<7" \
+RUN uv venv --no-project --clear \
+        --python /usr/local/bin/python3.10 /opt/venvs/3102311 \
+    && uv pip install --strict --python /opt/venvs/3102311/bin/python \
+        "ipykernel>=6.30,<7" \
     && if [ -s /opt/jupyter-env/3102311/requirements.txt ]; then \
-        /opt/venvs/3102311/bin/pip install --no-cache-dir \
-            -r /opt/jupyter-env/3102311/requirements.txt; \
+        uv pip install --strict --python /opt/venvs/3102311/bin/python \
+            --requirements /opt/jupyter-env/3102311/requirements.txt; \
     fi
 
 FROM python:3.11-slim-bullseye
 
+ARG UV_DEFAULT_INDEX
+
+COPY --from=uv /uv /uvx /bin/
+
 ENV DEBIAN_FRONTEND=noninteractive \
-    PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PATH="/opt/venvs/jupyter/bin:${PATH}" \
     HOME=/home/jovyan \
     JUPYTER_CONFIG_DIR=/home/jovyan/.jupyter \
     JUPYTER_PATH=/opt/venvs/jupyter/share/jupyter \
-    JUPYTER_ROOT_DIR=/workspace/pv
+    JUPYTER_ROOT_DIR=/workspace/pv \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_NO_CACHE=1
 
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends \
@@ -53,21 +72,23 @@ COPY test_harness/jupyter/environments/server/requirements.txt /opt/jupyter-env/
 COPY test_harness/jupyter/environments/default/requirements.txt /opt/jupyter-env/default/requirements.txt
 
 RUN ldconfig \
-    && /usr/local/bin/python3.11 -m venv /opt/venvs/jupyter \
-    && /usr/local/bin/python3.11 -m venv /opt/venvs/default \
-    && /opt/venvs/jupyter/bin/pip install --no-cache-dir \
-        -r /opt/jupyter-env/server/requirements.txt \
-    && /opt/venvs/default/bin/pip install --no-cache-dir \
+    && uv venv --no-project --clear \
+        --python /usr/local/bin/python3.11 /opt/venvs/jupyter \
+    && uv venv --no-project --clear \
+        --python /usr/local/bin/python3.11 /opt/venvs/default \
+    && uv pip install --strict --python /opt/venvs/jupyter/bin/python \
+        --requirements /opt/jupyter-env/server/requirements.txt \
+    && uv pip install --strict --python /opt/venvs/default/bin/python \
         "ipykernel>=6.30,<7" \
-    && /opt/venvs/default/bin/pip install --no-cache-dir \
-        -r /opt/jupyter-env/default/requirements.txt
+    && uv pip install --strict --python /opt/venvs/default/bin/python \
+        --requirements /opt/jupyter-env/default/requirements.txt
 
 COPY test_harness/jupyter/extension /opt/jupyter-resource-extension
 COPY test_harness/jupyter/executor_resource_extension.json \
     /opt/venvs/jupyter/etc/jupyter/jupyter_server_config.d/executor_resource_extension.json
 
-RUN /opt/venvs/jupyter/bin/pip install --no-cache-dir --no-deps \
-        /opt/jupyter-resource-extension \
+RUN uv pip install --strict --python /opt/venvs/jupyter/bin/python \
+        --no-deps /opt/jupyter-resource-extension \
     && /opt/venvs/default/bin/python -m ipykernel install \
         --prefix=/opt/venvs/jupyter \
         --name=default \
