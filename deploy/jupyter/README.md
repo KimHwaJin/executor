@@ -1,5 +1,8 @@
 # Executor용 Jupyter 이미지
 
+Dockerfile의 각 구문, 권한 설정, PVC 적용 시 주의사항은
+[`DOCKERFILE_GUIDE.md`](DOCKERFILE_GUIDE.md)에 상세히 정리되어 있다.
+
 **배포 전 Dockerfile 상단의 `JUPYTER_ROOT_DIR`, `JUPYTER_TOKEN`과
 아래 4번 배포 설정을 확인한다. 별도 주입이 없으면 토큰은 `default`로 실행된다.**
 
