@@ -13,7 +13,7 @@ Dockerfile의 각 구문, 권한 설정, PVC 적용 시 주의사항은
 
 | 파일 | 역할 | 수정이 필요한 경우 |
 |---|---|---|
-| `Dockerfile` | OS·Python 설치, 가상환경 생성, 커널 등록, 실행 사용자 설정 | 베이스 이미지, apt 미러, OS 패키지, Python 버전, UID/GID 변경 |
+| `Dockerfile` | uv 설치, OS·Python 설치, 가상환경 생성, 커널 등록, 실행 사용자 설정 | uv·베이스 이미지, 패키지 인덱스, apt 미러, OS 패키지, Python 버전, UID/GID 변경 |
 | `environments/server/requirements.txt` | Jupyter 서버용 패키지 | JupyterLab·Jupyter Server 버전 변경 |
 | `environments/default/requirements.txt` | `default` 커널용 분석 패키지 | 분석 라이브러리 추가·버전 변경 |
 | `environments/3102311/requirements.txt` | `3102311` 커널용 전체 패키지 목록 | 승인된 목록을 그대로 붙여넣음. 현재 의도적으로 비어 있음 |
@@ -28,19 +28,22 @@ Dockerfile의 각 구문, 권한 설정, PVC 적용 시 주의사항은
 `3102311/requirements.txt`에는 향후 제공받을 목록을 그대로 붙여넣는다. 커널 구동에 필요한
 `ipykernel`은 Dockerfile이 기반 패키지로 별도 설치하므로 두 requirements에 적지 않는다.
 
-`extension/pyproject.toml`은 커스텀 확장을 pip로 설치하기 위한 필수 파일이다.
-uv나 별도 패키징 도구를 실행할 필요는 없다.
+`extension/pyproject.toml`은 커스텀 확장을 uv로 빌드·설치하기 위한 필수 파일이다.
+별도의 패키징 명령은 필요하지 않으며 Dockerfile의 `uv pip install`이 처리한다.
 
 ## 2. Dockerfile 동작
 
 빌드 시 다음 순서로 구성한다.
 
-1. `python:3.10.11-slim-bullseye` 빌드 스테이지에서 정확한 Python 3.10.11 환경을 만들고,
+1. 고정된 `ghcr.io/astral-sh/uv:0.12.8` 이미지에서 uv 실행 파일을 가져온다. 폐쇄망에서는
+   이 이미지를 사내 Harbor에 미러링하고 `UV_IMAGE` 빌드 인자로 주소를 덮어쓴다.
+2. `python:3.10.11-slim-bullseye` 빌드 스테이지에서 정확한 Python 3.10.11 환경을 만들고,
    동일한 Debian 11 계열의 최종 `python:3.11-slim-bullseye` 이미지에 포함한다. 두
    Python의 시스템 라이브러리 세대가 같으므로 별도 OpenSSL·libffi 호환 파일은
    복사하지 않는다. 최종 이미지에는 폰트, 시스템 라이브러리, 프로세스 종료 신호
    처리를 위한 `tini`도 설치한다.
-2. 아래 세 가상환경을 각각 독립적으로 만들고, 각 환경의 `requirements.txt`만 pip로 설치한다.
+3. 아래 세 가상환경을 `uv venv`로 각각 독립적으로 만들고, 각 환경의
+   `requirements.txt`를 `uv pip install`로 설치한다.
    `default`는 Python 3.11, `3102311`은 정확히 Python 3.10.11이며 서로의 패키지 설치
    경로를 공유하지 않는다.
 
@@ -50,11 +53,11 @@ uv나 별도 패키징 도구를 실행할 필요는 없다.
    | `default` 커널 | 3.11 | `/opt/venvs/default` |
    | `3102311` 커널 | 3.10.11 | `/opt/venvs/3102311` |
 
-3. 서버 가상환경에 `extension/`을 설치하고 확장을 활성화한다.
-4. `default`, `3102311` kernelspec을 서버에 등록하고 불필요한 기본 `python3` kernelspec을
+4. 서버 가상환경에 `extension/`을 uv로 설치하고 확장을 활성화한다.
+5. `default`, `3102311` kernelspec을 서버에 등록하고 불필요한 기본 `python3` kernelspec을
    제거한다. 허용 커널은 두 개뿐이며 기본 선택은 `default`다.
-5. UID/GID `1000:1000` 사용자를 만들고 설정 파일과 시작 스크립트를 복사한다.
-6. `${JUPYTER_ROOT_DIR}` 디렉토리를 생성하고 해당 사용자에게 권한을 부여한다.
+6. UID/GID `1000:1000` 사용자를 만들고 설정 파일과 시작 스크립트를 복사한다.
+7. `${JUPYTER_ROOT_DIR}` 디렉토리를 생성하고 해당 사용자에게 권한을 부여한다.
    이미지의 기본 작업 디렉토리(`WORKDIR`)도 빌드 시 이 값을 사용한다.
 
 컨테이너 시작 시 `tini`가 `start-jupyter.sh`를 실행한다. 스크립트는 토큰과 루트 경로가
@@ -73,11 +76,26 @@ uv나 별도 패키징 도구를 실행할 필요는 없다.
 **이 README와 Dockerfile이 있는 폴더에서** 실행한다. 주소·태그는 실제 값으로 바꾼다.
 
 ```shell
-docker build -t ${image.tag} .
+docker build \
+  --build-arg UV_IMAGE=harbor.example.com/library/uv:0.12.8 \
+  --build-arg UV_DEFAULT_INDEX=https://nexus.example.com/repository/pypi-group/simple/ \
+  -t ${image.tag} .
 ```
 
 빌드에는 베이스 이미지, apt 저장소, Python 패키지 인덱스 접근이 필요하다.
-폐쇄망에서는 사내 이미지·apt 미러와 Nexus/pip 설정을 준비해야 한다.
+폐쇄망에서는 Python 및 uv 이미지를 사내 Harbor에 미러링하고, apt 미러와 Nexus PyPI
+저장소를 준비해야 한다.
+
+- `UV_IMAGE`는 uv 바이너리를 가져올 이미지다. 기본값은 공식
+  `ghcr.io/astral-sh/uv:0.12.8`이다.
+- `UV_DEFAULT_INDEX`는 빌드 중 모든 `uv pip install`이 사용하는 유일한 기본
+  패키지 인덱스다. 기본 예시 주소는 실제 Nexus 주소로 덮어써야 한다.
+- uv는 `pip.conf`를 읽지 않는다. 인덱스 설정은 반드시 `UV_DEFAULT_INDEX`로 전달한다.
+- 두 값은 이미지 실행 설정이 아니라 빌드 인자다. 계정·비밀번호·토큰을 URL이나
+  Dockerfile에 넣지 않는다.
+- `requirements.txt` 입력 형식은 그대로 유지된다. 현재 버전 범위를 빌드 시점에
+  해석하므로 완전히 동일한 재빌드가 필요하면 추후 별도 lock/constraints 정책이
+  필요하다.
 
 ## 4. 배포할 때 지정할 값
 

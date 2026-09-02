@@ -1,4 +1,3 @@
-from configparser import ConfigParser
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -16,10 +15,8 @@ def test_standalone_dockerfile_uses_only_local_copy_sources() -> None:
         .replace("test_harness/jupyter/", "")
         .replace("/workspace/pv", '"${JUPYTER_ROOT_DIR}"')
     )
-    # The delivery adds its own defaults and package-index configuration.
-    shared_build = dockerfile.replace("COPY pip.conf /etc/pip.conf\n", "")
     assert (
-        shared_build.partition("RUN apt-get update")[2]
+        dockerfile.partition("RUN apt-get update")[2]
         == (harness_dockerfile.partition("RUN apt-get update")[2])
     )
     for line in dockerfile.splitlines():
@@ -36,15 +33,20 @@ def test_standalone_dockerfile_uses_only_local_copy_sources() -> None:
             assert (PACKAGE / source).exists()
 
 
-def test_pip_config_is_installed_before_package_installation() -> None:
-    config = ConfigParser()
-    config.read(PACKAGE / "pip.conf", encoding="utf-8")
-    assert config["global"]["index-url"].endswith("/simple/")
-    assert not config.has_option("global", "extra-index-url")
+def test_uv_is_pinned_and_uses_a_build_only_default_index() -> None:
     dockerfile = (PACKAGE / "Dockerfile").read_text()
-    assert dockerfile.index("COPY pip.conf /etc/pip.conf") < dockerfile.index(
-        "/bin/pip install"
+    assert "ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.12.8" in dockerfile
+    assert (
+        "ARG UV_DEFAULT_INDEX="
+        "https://nexus.example.com/repository/pypi-group/simple/"
+        in dockerfile
     )
+    assert dockerfile.count("COPY --from=uv /uv /uvx /bin/") == 2
+    assert dockerfile.count("ARG UV_DEFAULT_INDEX") == 3
+    assert "UV_NO_CACHE=1" in dockerfile
+    assert "UV_LINK_MODE=copy" in dockerfile
+    assert not (PACKAGE / "pip.conf").exists()
+    assert "/bin/pip install" not in dockerfile
 
 
 def test_deployment_defaults_are_visible() -> None:
@@ -74,7 +76,7 @@ def test_kernel_environments_are_independent() -> None:
         ]
         assert all(not line.startswith("-") for line in packages)
         assert not any(line.startswith("ipykernel") for line in packages)
-        assert f"/opt/venvs/{kernel}/bin/pip install" in dockerfile
+        assert f"--python /opt/venvs/{kernel}/bin/python" in dockerfile
     default_requirements = (
         PACKAGE / "environments/default/requirements.txt"
     ).read_text()
@@ -87,8 +89,8 @@ def test_kernel_environments_are_independent() -> None:
     assert "FROM python:3.11-slim-bullseye" in dockerfile
     assert "python310-compat" not in dockerfile
     assert "LD_LIBRARY_PATH" not in dockerfile
-    assert "python3.11 -m venv /opt/venvs/default" in dockerfile
-    assert "python3.10 -m venv --copies /opt/venvs/3102311" in dockerfile
+    assert dockerfile.count("uv venv --no-project --clear") == 3
+    assert dockerfile.count("uv pip install --strict") == 6
     assert dockerfile.count('"ipykernel>=6.30,<7"') == 2
     assert "--system-site-packages" not in dockerfile
 

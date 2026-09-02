@@ -21,7 +21,8 @@ Three isolated virtual environments are created:
 Only the `default` and `3102311` kernelspecs are exposed. The default kernel is `default`.
 The two environments are independent. `3102311/requirements.txt` is intentionally empty so the
 approved package list can be pasted directly. Kernel bootstrap dependency `ipykernel` is installed
-by the Docker/native setup and must not be added to either user package list.
+by the Docker/native setup and must not be added to either user package list. Both Docker and native
+setup use `uv venv` and `uv pip install`; `requirements.txt` remains the package-list input format.
 
 Debian 11 bullseye reached LTS end-of-life on 2026-08-31. The harness deliberately mirrors the
 project's bullseye-based deployment image; production use requires the organization's approved
@@ -35,6 +36,21 @@ context:
 ```bash
 docker build --tag executor-jupyter:local --file test_harness/jupyter/Dockerfile .
 ```
+
+The Dockerfile copies a pinned uv binary from `ghcr.io/astral-sh/uv:0.12.8`. In a closed network,
+mirror that image to the internal registry and point all package resolution at Nexus:
+
+```bash
+docker build \
+  --build-arg UV_IMAGE=harbor.example.com/library/uv:0.12.8 \
+  --build-arg UV_DEFAULT_INDEX=https://nexus.example.com/repository/pypi-group/simple/ \
+  --tag executor-jupyter:local \
+  --file test_harness/jupyter/Dockerfile .
+```
+
+uv does not read `pip.conf`; Docker builds use the `UV_DEFAULT_INDEX` build argument. Never place
+repository credentials in the Dockerfile or build argument. The example assumes anonymous access
+inside the trusted network.
 
 For the local Compose topology:
 
