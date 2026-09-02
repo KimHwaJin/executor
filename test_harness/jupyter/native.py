@@ -33,6 +33,7 @@ SERVER_CONFIG = HARNESS_ROOT / "jupyter_server_config.py"
 EXTENSION_CONFIG = {
     "ServerApp": {"jpserver_extensions": {"executor_resource_extension": True}}
 }
+LEGACY_ENVIRONMENT_NAMES = ("basic", "ml")
 
 
 class NativeJupyterError(RuntimeError):
@@ -130,6 +131,18 @@ def setup(args: argparse.Namespace) -> None:
     install_root = Path(args.install_root).expanduser().resolve()
     environments = _environment_roots(install_root)
     install_root.mkdir(parents=True, exist_ok=True)
+    legacy_environments = [
+        install_root / name
+        for name in LEGACY_ENVIRONMENT_NAMES
+        if (install_root / name).exists()
+    ]
+    if legacy_environments:
+        rendered = ", ".join(str(path) for path in legacy_environments)
+        print(
+            "Legacy Jupyter environments are ignored and can be removed "
+            f"manually after verification: {rendered}",
+            flush=True,
+        )
 
     setup_environment = os.environ.copy()
     if args.index_url:

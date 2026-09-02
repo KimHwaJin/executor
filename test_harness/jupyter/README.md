@@ -200,7 +200,9 @@ uv run python test_harness/jupyter/native.py setup
 ```
 
 The command installs uv-managed Python 3.11 and exact Python 3.10.11 when they are absent. It does not alter the
-system Python installation. Re-run it after changing a requirements file or the Jupyter extension.
+system Python installation. Re-run it after changing a requirements file or the Jupyter extension. Existing
+`.native/basic` and `.native/ml` directories from the previous layout are ignored and reported; verify the new
+`.native/default` and `.native/3102311` environments before removing those legacy directories manually.
 
 ### Windows installation through an internal Nexus
 
@@ -256,6 +258,16 @@ workspace afterward. Keep the workspace for inspection or test a subset of endpo
   -Endpoints "http://127.0.0.1:8888", "http://127.0.0.1:8889" `
   -Token "server-specific-token" `
   -KeepWorkspace
+```
+
+The diagnostic defaults to the `default` kernel. Run it once more with `-Profile 3102311` to
+verify the exact Python 3.10.11 kernel on the same Windows server:
+
+```powershell
+.\test_harness\jupyter\scripts\windows_rest_diagnostics.ps1 `
+  -Endpoints "http://127.0.0.1:8888" `
+  -Token "server-specific-token" `
+  -Profile 3102311
 ```
 
 Run the script separately for servers with different tokens. A failure identifies the HTTP method,
