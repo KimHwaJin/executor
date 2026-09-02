@@ -50,7 +50,7 @@ async def main() -> None:
                 operation_mode=OperationMode.MULTI,
                 operation_wait_timeout_seconds=3600,
                 trigger_type=TriggerType.INTERACTIVE,
-                runtime_profile="basic",
+                runtime_profile="default",
                 user_id="multi-user",
                 project_id="multi-project",
                 session_id="multi-session",

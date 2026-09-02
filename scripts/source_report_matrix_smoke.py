@@ -55,7 +55,7 @@ async def _submit(
                 operation_mode="SINGLE",
                 trigger_type="INTERACTIVE",
                 actor={"type": "USER", "id": "source-report-user"},
-                runtime_profile="basic",
+                runtime_profile="default",
                 spec={"schema_version": "1.0", "steps": [_step(source)]},
                 context={
                     "user_id": "source-report-user",

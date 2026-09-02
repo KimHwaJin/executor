@@ -119,7 +119,7 @@ async def main() -> None:
     timeout_margin_seconds = env_int(
         "MULTI_SOAK_TIMEOUT_MARGIN_SECONDS", 600, minimum=60
     )
-    runtime_profile = os.getenv("MULTI_SOAK_RUNTIME_PROFILE", "basic")
+    runtime_profile = os.getenv("MULTI_SOAK_RUNTIME_PROFILE", "default")
     base_duration = duration_seconds // operation_count
     operation_durations = [base_duration] * operation_count
     operation_durations[-1] += duration_seconds - sum(operation_durations)

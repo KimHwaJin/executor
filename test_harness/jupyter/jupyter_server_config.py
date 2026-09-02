@@ -12,5 +12,5 @@ c.ServerApp.port = 8888
 c.ServerApp.open_browser = False
 c.ServerApp.allow_remote_access = True
 c.PasswordIdentityProvider.token = token
-c.KernelSpecManager.allowed_kernelspecs = {"basic", "ml"}
-c.MappingKernelManager.default_kernel_name = "basic"
+c.KernelSpecManager.allowed_kernelspecs = {"default", "3102311"}
+c.MappingKernelManager.default_kernel_name = "default"

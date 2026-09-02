@@ -33,7 +33,7 @@ class ExecutionPlan(BaseModel):
 
     objective: str = Field(min_length=1, max_length=2_000)
     summary: str = Field(min_length=1, max_length=2_000)
-    runtime_profile: str = Field(default="basic", min_length=1, max_length=128)
+    runtime_profile: str = Field(default="default", min_length=1, max_length=128)
     operation_mode: Literal["SINGLE", "MULTI"] = "SINGLE"
     operations: list[PlannedOperation] = Field(min_length=1, max_length=5)
 

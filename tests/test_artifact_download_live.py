@@ -227,7 +227,7 @@ async def bff(executor_url: str) -> AsyncIterator[str]:
             yield endpoint
 
 
-@pytest.mark.parametrize("profile", ["basic", "ml"])
+@pytest.mark.parametrize("profile", ["default", "3102311"])
 async def test_real_notebook_download_after_report_and_manual_edits(
     jupyter: LiveJupyter,
     rest_client: tuple[httpx.AsyncClient, ApplicationContainer],
@@ -247,8 +247,11 @@ async def test_real_notebook_download_after_report_and_manual_edits(
         notebook = nbformat.v4.new_notebook()
         for index in range(7):
             code = (
-                "import matplotlib.pyplot as plt\n"
-                "plt.plot([1, 2, 3], [1, 4, 2])\nplt.title('Download test')\nplt.show()"
+                "import base64\n"
+                "from IPython.display import Image, display\n"
+                "display(Image(data=base64.b64decode("
+                "'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0l'"
+                "+ 'EQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=')))"
                 if index == 6
                 else f"print('Cell {index}:', sum(range({index + 10})))"
             )
@@ -282,7 +285,7 @@ async def test_real_notebook_download_after_report_and_manual_edits(
                     status=RuntimeTargetStatus.ACTIVE,
                     enabled=True,
                     max_concurrent_executions=2,
-                    supported_profiles=["basic", "ml"],
+                    supported_profiles=["default", "3102311"],
                     connection_config={"endpoint": jupyter.endpoint},
                     **runtime_credential_fields(jupyter.token),
                 )
@@ -443,7 +446,7 @@ async def test_large_binary_empty_file_and_atomic_replacement(
                 status=RuntimeTargetStatus.ACTIVE,
                 enabled=True,
                 max_concurrent_executions=2,
-                supported_profiles=["basic", "ml"],
+                supported_profiles=["default", "3102311"],
                 connection_config={"endpoint": jupyter.endpoint},
                 **runtime_credential_fields(jupyter.token),
             )

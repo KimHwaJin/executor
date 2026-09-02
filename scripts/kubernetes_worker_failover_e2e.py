@@ -459,7 +459,7 @@ def _parse_args() -> Config:
     )
     parser.add_argument(
         "--runtime-profile",
-        default=os.getenv("KUBE_FAILOVER_RUNTIME_PROFILE", "basic"),
+        default=os.getenv("KUBE_FAILOVER_RUNTIME_PROFILE", "default"),
     )
     parser.add_argument("--step-duration-seconds", type=int, default=180)
     parser.add_argument("--lease-timeout-seconds", type=int, default=240)

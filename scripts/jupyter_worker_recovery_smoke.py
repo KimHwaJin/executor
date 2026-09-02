@@ -62,7 +62,7 @@ async def main() -> None:
                 idempotency_key=f"worker-recovery-submit-{unique}",
                 operation_mode=OperationMode.SINGLE,
                 trigger_type=TriggerType.INTERACTIVE,
-                runtime_profile="basic",
+                runtime_profile="default",
                 user_id="worker-recovery-user",
                 project_id="worker-recovery-project",
                 session_id="worker-recovery-session",

@@ -1,4 +1,24 @@
-FROM python:3.12-slim-bookworm
+FROM python:3.10.11-slim-bullseye AS python310
+
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1
+
+COPY environments/3102311/requirements.txt /opt/jupyter-env/3102311/requirements.txt
+COPY pip.conf /etc/pip.conf
+
+RUN python3.10 -m venv --copies /opt/venvs/3102311 \
+    && /opt/venvs/3102311/bin/pip install --no-cache-dir "ipykernel>=6.30,<7" \
+    && if [ -s /opt/jupyter-env/3102311/requirements.txt ]; then \
+        /opt/venvs/3102311/bin/pip install --no-cache-dir \
+            -r /opt/jupyter-env/3102311/requirements.txt; \
+    fi \
+    && mkdir -p /opt/python310-compat \
+    && cp -L \
+        /usr/lib/*-linux-gnu/libcrypto.so.1.1 \
+        /usr/lib/*-linux-gnu/libffi.so.7 \
+        /usr/lib/*-linux-gnu/libssl.so.1.1 \
+        /opt/python310-compat/
+
+FROM python:3.11-slim-bookworm
 
 # Deployment settings: override these with container environment variables.
 # ROOT_DIR must match the shared PVC mount path and be writable by UID 1000.
@@ -12,33 +32,50 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PATH="/opt/venvs/jupyter/bin:${PATH}" \
     HOME=/home/jovyan \
     JUPYTER_CONFIG_DIR=/home/jovyan/.jupyter \
-    JUPYTER_PATH=/opt/venvs/jupyter/share/jupyter
+    JUPYTER_PATH=/opt/venvs/jupyter/share/jupyter \
+    LD_LIBRARY_PATH=/opt/python310-compat
 
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends \
         ca-certificates \
         curl \
         fonts-dejavu-core \
+        libbz2-1.0 \
+        libdb5.3 \
+        libexpat1 \
+        libgdbm6 \
         libgomp1 \
-        python3.11 \
-        python3.11-venv \
+        libgssapi-krb5-2 \
+        liblzma5 \
+        libncursesw6 \
+        libnsl2 \
+        libreadline8 \
+        libsqlite3-0 \
+        libtirpc3 \
+        libuuid1 \
         tini \
+        zlib1g \
     && rm -rf /var/lib/apt/lists/*
 
+COPY --from=python310 /usr/local/bin/python3.10 /usr/local/bin/python3.10
+COPY --from=python310 /usr/local/lib/libpython3.10.so.1.0 /usr/local/lib/libpython3.10.so.1.0
+COPY --from=python310 /usr/local/lib/python3.10 /usr/local/lib/python3.10
+COPY --from=python310 /opt/venvs/3102311 /opt/venvs/3102311
+COPY --from=python310 /opt/python310-compat /opt/python310-compat
+
 COPY environments/server/requirements.txt /opt/jupyter-env/server/requirements.txt
-COPY environments/basic/requirements.txt /opt/jupyter-env/basic/requirements.txt
-COPY environments/ml/requirements.txt /opt/jupyter-env/ml/requirements.txt
+COPY environments/default/requirements.txt /opt/jupyter-env/default/requirements.txt
 COPY pip.conf /etc/pip.conf
 
-RUN /usr/local/bin/python3.12 -m venv /opt/venvs/jupyter \
-    && /usr/bin/python3.11 -m venv /opt/venvs/basic \
-    && /usr/local/bin/python3.12 -m venv /opt/venvs/ml \
+RUN ldconfig \
+    && /usr/local/bin/python3.11 -m venv /opt/venvs/jupyter \
+    && /usr/local/bin/python3.11 -m venv /opt/venvs/default \
     && /opt/venvs/jupyter/bin/pip install --no-cache-dir \
         -r /opt/jupyter-env/server/requirements.txt \
-    && /opt/venvs/basic/bin/pip install --no-cache-dir \
-        -r /opt/jupyter-env/basic/requirements.txt \
-    && /opt/venvs/ml/bin/pip install --no-cache-dir \
-        -r /opt/jupyter-env/ml/requirements.txt
+    && /opt/venvs/default/bin/pip install --no-cache-dir \
+        "ipykernel>=6.30,<7" \
+    && /opt/venvs/default/bin/pip install --no-cache-dir \
+        -r /opt/jupyter-env/default/requirements.txt
 
 COPY extension /opt/jupyter-resource-extension
 COPY executor_resource_extension.json \
@@ -46,14 +83,14 @@ COPY executor_resource_extension.json \
 
 RUN /opt/venvs/jupyter/bin/pip install --no-cache-dir --no-deps \
         /opt/jupyter-resource-extension \
-    && /opt/venvs/basic/bin/python -m ipykernel install \
+    && /opt/venvs/default/bin/python -m ipykernel install \
         --prefix=/opt/venvs/jupyter \
-        --name=basic \
-        --display-name="Basic (Python 3.11)" \
-    && /opt/venvs/ml/bin/python -m ipykernel install \
+        --name=default \
+        --display-name="Default (Python 3.11)" \
+    && /opt/venvs/3102311/bin/python -m ipykernel install \
         --prefix=/opt/venvs/jupyter \
-        --name=ml \
-        --display-name="ML (Python 3.12)" \
+        --name=3102311 \
+        --display-name="3102311 (Python 3.10.11)" \
     && rm -rf /opt/venvs/jupyter/share/jupyter/kernels/python3
 
 RUN rm -rf /home/jovyan \

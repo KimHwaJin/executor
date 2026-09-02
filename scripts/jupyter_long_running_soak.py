@@ -238,7 +238,7 @@ async def main() -> None:
     poll_interval_seconds = env_float(
         "SOAK_POLL_INTERVAL_SECONDS", 5.0, minimum=0.2
     )
-    profile = os.getenv("SOAK_RUNTIME_PROFILE", "basic")
+    profile = os.getenv("SOAK_RUNTIME_PROFILE", "default")
     timeout_margin_seconds = env_int(
         "SOAK_TIMEOUT_MARGIN_SECONDS", 600, minimum=60
     )

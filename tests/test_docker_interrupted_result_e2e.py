@@ -24,7 +24,7 @@ finally:
 
 
 @pytest.mark.parametrize("mode", ["SINGLE", "MULTI"])
-@pytest.mark.parametrize("profile", ["basic", "ml"])
+@pytest.mark.parametrize("profile", ["default", "3102311"])
 def test_case_request_conforms_to_current_contract(
     mode: str, profile: str
 ) -> None:

@@ -16,7 +16,7 @@ Jupyter token shared by the supplied endpoints. Defaults to JUPYTER_TOKEN. Run t
 endpoint when servers use different tokens.
 
 .PARAMETER Profile
-Kernel profile used for the lifecycle check. Defaults to basic.
+Kernel profile used for the lifecycle check. Defaults to default.
 
 .PARAMETER KeepWorkspace
 Preserves the unique diagnostics workspace on each Jupyter server for manual inspection.
@@ -40,8 +40,8 @@ param(
         "http://127.0.0.1:8890"
     ),
     [string]$Token = $env:JUPYTER_TOKEN,
-    [ValidateSet("basic", "ml")]
-    [string]$Profile = "basic",
+    [ValidateSet("default", "3102311")]
+    [string]$Profile = "default",
     [switch]$KeepWorkspace
 )
 

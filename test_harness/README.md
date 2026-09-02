@@ -7,7 +7,7 @@ internals or access Executor-owned database tables.
 
 ## Components
 
-- [`jupyter/`](jupyter/README.md): Jupyter image and native runner, `basic` and `ml` kernels,
+- [`jupyter/`](jupyter/README.md): Jupyter image and native runner, `default` and `3102311` kernels,
   Executor-compatible Jupyter server extension, and the ignored shared workspace used by local
   Runtime Targets.
 - [`agent/`](agent/README.md): isolated LangGraph/LangChain project exposing both a direct Executor

@@ -83,7 +83,7 @@ async def main() -> None:
                         idempotency_key=f"path-smoke-submit-{unique}",
                         operation_mode="SINGLE",
                         trigger_type="INTERACTIVE",
-                        runtime_profile="basic",
+                        runtime_profile="default",
                         spec={
                             "schema_version": "1.0",
                             "steps": [

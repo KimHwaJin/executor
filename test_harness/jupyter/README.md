@@ -6,17 +6,20 @@ extension are documented here rather than in the Executor service README.
 
 ## Image layout
 
-The image is built from `python:3.12-slim-bookworm` and runs JupyterLab as the non-root `jovyan`
-user (UID/GID 1000). Three isolated virtual environments are created:
+The final image is built from `python:3.11-slim-bookworm` and runs JupyterLab as the non-root
+`jovyan` user (UID/GID 1000). Python 3.10.11 is copied from an official, pinned build stage.
+Three isolated virtual environments are created:
 
 | Environment | Python | Purpose | Package list |
 | --- | --- | --- | --- |
-| Jupyter server | 3.12 | JupyterLab and server process | `environments/server/requirements.txt` |
-| `basic` kernel | 3.11 | General data analysis | `environments/basic/requirements.txt` |
-| `ml` kernel | 3.12 | Data analysis plus ML libraries | `environments/ml/requirements.txt` |
+| Jupyter server | 3.11 | JupyterLab and server process | `environments/server/requirements.txt` |
+| `default` kernel | 3.11 | General data analysis | `environments/default/requirements.txt` |
+| `3102311` kernel | 3.10.11 | Project-specific environment | `environments/3102311/requirements.txt` |
 
-Only the `basic` and `ml` kernelspecs are exposed. The default kernel is `basic`. The ML package
-list includes the Basic package list; keep that relationship when updating dependencies.
+Only the `default` and `3102311` kernelspecs are exposed. The default kernel is `default`.
+The two environments are independent. `3102311/requirements.txt` is intentionally empty so the
+approved package list can be pasted directly. Kernel bootstrap dependency `ipykernel` is installed
+by the Docker/native setup and must not be added to either user package list.
 
 ## Build
 
@@ -171,23 +174,23 @@ curl --fail \
 
 ```
 
-The kernelspec response must advertise `basic` and `ml` only. Runtime Target registration and
+The kernelspec response must advertise `default` and `3102311` only. Runtime Target registration and
 scheduling remain Executor service concerns and are documented in the repository root README.
 
 ## Native installation without Docker
 
 The repository also provides one Python entry point for Linux, macOS, and Windows PowerShell. It
 uses uv-managed CPython, creates three isolated environments under `test_harness/jupyter/.native`, installs the
-same requirements and Executor extension as the image, and exposes only the `basic` and `ml`
+same requirements and Executor extension as the image, and exposes only the `default` and `3102311`
 kernels. WSL is not required on Windows.
 
 Prerequisites:
 
 - `uv` available on `PATH`;
 - network access to the configured Python package index during setup;
-- 64-bit Windows when using the supplied ML binary wheels;
-- Microsoft Visual C++ Redistributable on Windows for native ML libraries;
-- `libomp` on macOS (`brew install libomp`) for XGBoost and LightGBM;
+- 64-bit Windows when using binary analysis packages;
+- Microsoft Visual C++ Redistributable on Windows when required by pasted packages;
+- package-specific system libraries required by the approved requirements;
 - `libgomp` on Linux, normally provided by `libgomp1` or the equivalent distribution package.
 
 The setup command is the same in POSIX shells and PowerShell. From the repository root:
@@ -196,32 +199,34 @@ The setup command is the same in POSIX shells and PowerShell. From the repositor
 uv run python test_harness/jupyter/native.py setup
 ```
 
-The command installs uv-managed Python 3.11 and 3.12 when they are absent. It does not alter the
-system Python installation. Re-run it after changing a requirements file or the Jupyter extension.
+The command installs uv-managed Python 3.11 and exact Python 3.10.11 when they are absent. It does not alter the
+system Python installation. Re-run it after changing a requirements file or the Jupyter extension. Existing
+`.native/basic` and `.native/ml` directories from the previous layout are ignored and reported; verify the new
+`.native/default` and `.native/3102311` environments before removing those legacy directories manually.
 
 ### Windows installation through an internal Nexus
 
 The default setup command can download managed Python distributions and packages from public
 repositories. For a closed Windows network, distribute `uv.exe` and the official 64-bit Python
-3.11 and 3.12 installers through an approved internal channel, install both Python versions, and
-publish all packages required by `environments/server`, `environments/basic`, and
-`environments/ml` to a Nexus PyPI repository.
+3.11 and exact 3.10.11 installers through an approved internal channel, install both Python
+versions, and publish all packages required by `environments/server`, `environments/default`,
+`environments/3102311`, plus `ipykernel>=6.30,<7`, to a Nexus PyPI repository.
 
-Resolve the installed Python executables and run the bootstrap script directly with Python 3.12.
+Resolve the installed Python executables and run the bootstrap script directly with Python 3.11.
 Supplying both executable paths prevents `native.py` from running `uv python install`, while
 `--index-url` replaces the public PyPI default for every package installation:
 
 ```powershell
 $Python311 = py -3.11 -c "import sys; print(sys.executable)"
-$Python312 = py -3.12 -c "import sys; print(sys.executable)"
+$Python310 = py -3.10 -c "import sys; assert sys.version_info[:3] == (3, 10, 11); print(sys.executable)"
 $NexusIndex = "https://nexus.example/repository/pypi-group/simple"
 
 # Use the Windows certificate store when Nexus is signed by an internal corporate CA.
 $env:UV_SYSTEM_CERTS = "true"
 
-& $Python312 test_harness\jupyter\native.py setup `
+& $Python311 test_harness\jupyter\native.py setup `
   --python-311 $Python311 `
-  --python-312 $Python312 `
+  --python-310 $Python310 `
   --index-url $NexusIndex
 ```
 
@@ -253,6 +258,16 @@ workspace afterward. Keep the workspace for inspection or test a subset of endpo
   -Endpoints "http://127.0.0.1:8888", "http://127.0.0.1:8889" `
   -Token "server-specific-token" `
   -KeepWorkspace
+```
+
+The diagnostic defaults to the `default` kernel. Run it once more with `-Profile 3102311` to
+verify the exact Python 3.10.11 kernel on the same Windows server:
+
+```powershell
+.\test_harness\jupyter\scripts\windows_rest_diagnostics.ps1 `
+  -Endpoints "http://127.0.0.1:8888" `
+  -Token "server-specific-token" `
+  -Profile 3102311
 ```
 
 Run the script separately for servers with different tokens. A failure identifies the HTTP method,

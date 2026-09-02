@@ -46,7 +46,7 @@ async def main() -> None:
     server_name = os.getenv("SINGLE_JUPYTER_NAME", runtime_spec.name)
     endpoint = os.getenv("SINGLE_JUPYTER_ENDPOINT", runtime_spec.endpoint)
     token = os.getenv("SINGLE_JUPYTER_TOKEN", runtime_spec.token)
-    kernel_name = os.getenv("SINGLE_JUPYTER_KERNEL", "basic")
+    kernel_name = os.getenv("SINGLE_JUPYTER_KERNEL", "default")
     timeout_seconds = float(os.getenv("SINGLE_JUPYTER_TIMEOUT_SECONDS", "120"))
     unique = uuid4().hex
 

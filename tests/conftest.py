@@ -37,6 +37,8 @@ async def execution_service(
     session_factory = create_session_factory(engine)
     return ExecutionService(
         lambda: SQLAlchemyUnitOfWork(session_factory),
+        # Domain tests intentionally exercise arbitrary profile identifiers.
+        # Deployment defaults are covered by test_config_and_event_loop.py.
         {RuntimeType.JUPYTER: ("basic", "ml")},
         FilesystemExecutionResultStore(tmp_path),
     )

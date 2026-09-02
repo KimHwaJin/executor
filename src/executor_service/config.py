@@ -69,8 +69,8 @@ class Settings(BaseSettings):
         "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
     )
     runtime_allowed_profiles: Annotated[tuple[str, ...], NoDecode] = (
-        "basic",
-        "ml",
+        "default",
+        "3102311",
     )
     runtime_default_max_concurrent_executions: int = Field(default=2, ge=1)
     runtime_health_poll_interval_seconds: float = Field(default=15, gt=0)

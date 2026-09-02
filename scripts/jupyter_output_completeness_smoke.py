@@ -126,7 +126,7 @@ async def run_case(
     submitted_id = None
     service = ExecutionService(
         lambda: SQLAlchemyUnitOfWork(factory),
-        {RuntimeType.JUPYTER: ("basic", "ml")},
+        {RuntimeType.JUPYTER: ("default", "3102311")},
         store,
     )
     try:
@@ -144,7 +144,7 @@ async def run_case(
                     pool=RuntimePool.INTERACTIVE,
                     status=RuntimeTargetStatus.ACTIVE,
                     max_concurrent_executions=1,
-                    supported_profiles=["basic", "ml"],
+                    supported_profiles=["default", "3102311"],
                     enabled=True,
                 )
             )
@@ -156,7 +156,7 @@ async def run_case(
                 if mode == OperationMode.MULTI
                 else None,
                 trigger_type=TriggerType.INTERACTIVE,
-                runtime_profile=os.getenv("JUPYTER_GATEWAY_PROFILE", "basic"),
+                runtime_profile=os.getenv("JUPYTER_GATEWAY_PROFILE", "default"),
                 user_id="diagnostics-smoke",
                 project_id="output-completeness",
                 session_id=str(uuid4()),

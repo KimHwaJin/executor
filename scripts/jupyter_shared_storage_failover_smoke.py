@@ -79,7 +79,7 @@ async def main() -> None:
                     idempotency_key=f"shared-storage-execution-{unique}",
                     operation_mode="SINGLE",
                     trigger_type="INTERACTIVE",
-                    runtime_profile="basic",
+                    runtime_profile="default",
                     spec=inline_spec(
                         [
                             {

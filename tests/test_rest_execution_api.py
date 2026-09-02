@@ -88,7 +88,7 @@ def _submit_payload(
             "type": "INTERACTIVE",
             "actor": {"type": "USER", "id": "rest-user"},
         },
-        "runtime": {"type": "JUPYTER", "profile": "basic"},
+        "runtime": {"type": "JUPYTER", "profile": "default"},
         "operation": {
             "spec": {
                 "schema_version": "1.0",
@@ -676,7 +676,7 @@ async def test_attempt_detail_and_step_attempt_routes(
                 pool=RuntimePool.INTERACTIVE,
                 status=RuntimeTargetStatus.ACTIVE,
                 max_concurrent_executions=1,
-                supported_profiles=["basic"],
+                supported_profiles=["default"],
                 enabled=True,
             )
         )
