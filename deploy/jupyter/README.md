@@ -48,7 +48,8 @@ workspace로 묶지 않으며 각각 자신의 `pyproject.toml`과 `uv.lock`을 
 2. uv와 Python 3.11이 포함된 같은 Bookworm Slim 계열의 최종 이미지에 Python 3.10
    런타임과 `3102311` 환경을 포함한다. 두 이미지는 사내 Harbor에 반입하고
    `PYTHON310_IMAGE`, `PYTHON311_IMAGE` 빌드 인자로 주소를 지정한다. 최종 이미지에는
-   폰트, OpenMP 런타임, 프로세스 종료 신호 처리를 위한 `tini`도 설치한다.
+   폰트, OpenMP 런타임, 헬스체크용 `curl`, 프로세스 종료 신호 처리를 위한 `tini`도
+   설치한다.
 3. 아래 세 환경을 각 디렉토리의 `pyproject.toml`과 `uv.lock`으로부터
    `uv sync --locked --no-install-project`로 설치한다. lock이 없거나 의존성 정의와
    일치하지 않으면 이미지 빌드가 실패한다.
