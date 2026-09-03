@@ -16,10 +16,10 @@ Dockerfile의 각 구문, 권한 설정, PVC 적용 시 주의사항은
 
 | 파일 | 역할 | 수정이 필요한 경우 |
 |---|---|---|
-| `Dockerfile` | uv 설치, OS·Python 설치, lock 기반 환경 동기화, 커널 등록, 실행 사용자 설정 | uv·베이스 이미지, 패키지 인덱스, apt 미러, OS 패키지, Python 버전, UID/GID 변경 |
+| `Dockerfile` | Bookworm 기반 Python·uv 이미지 조립, lock 기반 환경 동기화, 커널 등록, 실행 사용자 설정 | 베이스 이미지, 패키지 인덱스, apt 미러, OS 패키지, Python 버전, UID/GID 변경 |
 | `environments/server/pyproject.toml`, `uv.lock` | Jupyter 서버 의존성과 확정 버전 | JupyterLab·Jupyter Server 버전 변경 후 lock 갱신 |
 | `environments/default/pyproject.toml`, `uv.lock` | `default` 커널 의존성과 확정 버전 | 분석 라이브러리 변경 후 lock 갱신 |
-| `environments/3102311/pyproject.toml`, `uv.lock` | `3102311` 커널 의존성과 확정 버전 | 승인된 Python 3.10.11 패키지 추가 후 lock 갱신 |
+| `environments/3102311/pyproject.toml`, `uv.lock` | `3102311` 커널 의존성과 확정 버전 | 승인된 Python 3.10 패키지 추가 후 lock 갱신 |
 | `jupyter_server_config.py` | 루트·토큰 적용, 포트, 허용 커널, 기본 커널 설정 | 포트나 커널 정책 변경. 루트·토큰은 파일 수정 없이 환경변수로 지정 |
 | `start-jupyter.sh` | 필수 환경변수 확인 후 JupyterLab 실행 | 일반적으로 수정하지 않음 |
 | `executor_resource_extension.json` | Executor 연동 확장 활성화 | 그대로 유지 |
@@ -30,6 +30,8 @@ Dockerfile의 각 구문, 권한 설정, PVC 적용 시 주의사항은
 workspace로 묶지 않으며 각각 자신의 `pyproject.toml`과 `uv.lock`을 소유한다.
 `default`와 `3102311`은 패키지 설치 경로도 공유하지 않는다. `3102311`에 향후 제공받을
 목록을 적용할 때는 기존 `ipykernel`을 유지하고 같은 `dependencies` 배열에 추가한다.
+`3102311`은 외부 계약에 사용되는 kernelspec ID이므로 유지하지만, 실제 Python patch
+버전은 `PYTHON310_IMAGE`에 포함된 3.10.x 버전을 따른다.
 
 `pyproject.toml`은 사람이 관리하는 직접 의존성과 Python 범위를 정의한다. `uv.lock`은 uv가
 결정한 간접 의존성, 정확한 버전과 배포 파일 해시를 기록하며 반드시 Git에 함께 커밋한다.
@@ -42,24 +44,22 @@ workspace로 묶지 않으며 각각 자신의 `pyproject.toml`과 `uv.lock`을 
 
 빌드 시 다음 순서로 구성한다.
 
-1. 고정된 `ghcr.io/astral-sh/uv:0.12.8` 이미지에서 uv 실행 파일을 가져온다. 폐쇄망에서는
-   이 이미지를 사내 Harbor에 미러링하고 `UV_IMAGE` 빌드 인자로 주소를 덮어쓴다.
-2. `python:3.10.11-slim-bullseye` 빌드 스테이지에서 정확한 Python 3.10.11 환경을 만들고,
-   동일한 Debian 11 계열의 최종 `python:3.11-slim-bullseye` 이미지에 포함한다. 두
-   Python의 시스템 라이브러리 세대가 같으므로 별도 OpenSSL·libffi 호환 파일은
-   복사하지 않는다. 최종 이미지에는 폰트, 시스템 라이브러리, 프로세스 종료 신호
-   처리를 위한 `tini`도 설치한다.
+1. uv와 Python 3.10이 포함된 Bookworm Slim 이미지에서 `3102311` 커널 환경을 만든다.
+2. uv와 Python 3.11이 포함된 같은 Bookworm Slim 계열의 최종 이미지에 Python 3.10
+   런타임과 `3102311` 환경을 포함한다. 두 이미지는 사내 Harbor에 반입하고
+   `PYTHON310_IMAGE`, `PYTHON311_IMAGE` 빌드 인자로 주소를 지정한다. 최종 이미지에는
+   폰트, OpenMP 런타임, 프로세스 종료 신호 처리를 위한 `tini`도 설치한다.
 3. 아래 세 환경을 각 디렉토리의 `pyproject.toml`과 `uv.lock`으로부터
    `uv sync --locked --no-install-project`로 설치한다. lock이 없거나 의존성 정의와
    일치하지 않으면 이미지 빌드가 실패한다.
-   `default`는 Python 3.11, `3102311`은 정확히 Python 3.10.11이며 서로의 패키지 설치
+   `default`는 Python 3.11, `3102311`은 Python 3.10.x이며 서로의 패키지 설치
    경로를 공유하지 않는다.
 
    | 용도 | Python | 이미지 내부 경로 |
    |---|---|---|
    | JupyterLab 서버 | 3.11 | `/opt/venvs/jupyter` |
    | `default` 커널 | 3.11 | `/opt/venvs/default` |
-   | `3102311` 커널 | 3.10.11 | `/opt/venvs/3102311` |
+   | `3102311` 커널 | 3.10.x | `/opt/venvs/3102311` |
 
 4. 서버 가상환경에 `extension/`을 uv로 설치하고 확장을 활성화한다.
 5. `default`, `3102311` kernelspec을 서버에 등록하고 불필요한 기본 `python3` kernelspec을
@@ -74,10 +74,8 @@ workspace로 묶지 않으며 각각 자신의 `pyproject.toml`과 `uv.lock`을 
 
 자원 조회 확장은 서버 프로세스에서 cgroup을 읽는다.
 
-> Debian 11 bullseye는 2026년 8월 31일 LTS가 종료되었다. 이 이미지는 두 Python
-> 환경의 OS ABI 통일을 우선하는 프로젝트 결정에 따라 bullseye로 고정한다. 운영자는
-> 사내 보안 기준에 따른 이미지 스캔, 보완 패치 또는 Extended LTS 적용 여부를 별도로
-> 관리해야 한다.
+두 Python 이미지는 Debian 12 Bookworm Slim으로 통일한다. 서로 다른 Debian 세대의
+이미지를 조합하지 않으며, 내부 반입 시 동일한 uv 버전과 승인된 image digest를 사용한다.
 
 ## 3. 패키지와 lock 관리
 
@@ -124,7 +122,8 @@ uv lock --project environments/3102311 --check
 
 ```shell
 docker build \
-  --build-arg UV_IMAGE=harbor.example.com/library/uv:0.12.8 \
+  --build-arg PYTHON310_IMAGE=harbor.example.com/library/uv:0.12.8-python3.10-bookworm-slim \
+  --build-arg PYTHON311_IMAGE=harbor.example.com/library/uv:0.12.8-python3.11-bookworm-slim \
   --build-arg UV_DEFAULT_INDEX=https://nexus.example.com/repository/pypi-group/simple/ \
   -t ${image.tag} .
 
@@ -132,16 +131,17 @@ docker push ${image.tag}
 ```
 
 빌드에는 베이스 이미지, apt 저장소, Python 패키지 인덱스 접근이 필요하다.
-폐쇄망에서는 Python 및 uv 이미지를 사내 Harbor에 미러링하고, apt 미러와 Nexus PyPI
-저장소를 준비해야 한다.
+폐쇄망에서는 Python과 uv가 함께 든 두 이미지를 사내 Harbor에 반입하고, apt 미러와
+Nexus PyPI 저장소를 준비해야 한다.
 
-- `UV_IMAGE`는 uv 바이너리를 가져올 이미지다. 기본값은 공식
-  `ghcr.io/astral-sh/uv:0.12.8`이다.
+- `PYTHON310_IMAGE`는 `3102311` 커널을 만드는 Python 3.10 Bookworm Slim 이미지다.
+- `PYTHON311_IMAGE`는 Jupyter 서버와 `default` 커널을 실행하는 최종 Python 3.11
+  Bookworm Slim 이미지다.
 - `UV_DEFAULT_INDEX`는 lock 검증과 빌드 중 모든 uv 패키지 설치가 사용하는 유일한 기본
   패키지 인덱스다. 기본값은 최초 lock과 일치하는 공개 PyPI이며, 폐쇄망에서는 실제
   Nexus 주소로 반드시 덮어쓴다.
 - uv는 `pip.conf`를 읽지 않는다. 인덱스 설정은 반드시 `UV_DEFAULT_INDEX`로 전달한다.
-- 두 값은 이미지 실행 설정이 아니라 빌드 인자다. 계정·비밀번호·토큰을 URL이나
+- 세 값은 이미지 실행 설정이 아니라 빌드 인자다. 계정·비밀번호·토큰을 URL이나
   Dockerfile에 넣지 않는다.
 - lock을 만들 때 사용한 패키지 인덱스와 이미지 빌드의 `UV_DEFAULT_INDEX`가 같아야 한다.
   사내 Nexus로 전환하는 최초 1회에는 세 lock을 Nexus 기준으로 다시 생성하고 커밋한다.

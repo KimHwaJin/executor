@@ -1,13 +1,10 @@
-ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.12.8
+ARG PYTHON310_IMAGE=ghcr.io/astral-sh/uv:0.12.8-python3.10-bookworm-slim
+ARG PYTHON311_IMAGE=ghcr.io/astral-sh/uv:0.12.8-python3.11-bookworm-slim
 ARG UV_DEFAULT_INDEX=https://pypi.org/simple
 
-FROM ${UV_IMAGE} AS uv
-
-FROM python:3.10.11-slim-bullseye AS python310
+FROM ${PYTHON310_IMAGE} AS python310
 
 ARG UV_DEFAULT_INDEX
-
-COPY --from=uv /uv /uvx /bin/
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
@@ -25,11 +22,9 @@ RUN uv venv --no-project --clear \
             --requirements /opt/jupyter-env/3102311/requirements.txt; \
     fi
 
-FROM python:3.11-slim-bullseye
+FROM ${PYTHON311_IMAGE}
 
 ARG UV_DEFAULT_INDEX
-
-COPY --from=uv /uv /uvx /bin/
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PATH="/opt/venvs/jupyter/bin:${PATH}" \
@@ -44,23 +39,9 @@ ENV DEBIAN_FRONTEND=noninteractive \
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends \
         ca-certificates \
-        curl \
         fonts-dejavu-core \
-        libbz2-1.0 \
-        libdb5.3 \
-        libexpat1 \
-        libgdbm6 \
         libgomp1 \
-        libgssapi-krb5-2 \
-        liblzma5 \
-        libncursesw6 \
-        libnsl2 \
-        libreadline8 \
-        libsqlite3-0 \
-        libtirpc3 \
-        libuuid1 \
         tini \
-        zlib1g \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=python310 /usr/local/bin/python3.10 /usr/local/bin/python3.10
@@ -96,7 +77,7 @@ RUN uv pip install --strict --python /opt/venvs/jupyter/bin/python \
     && /opt/venvs/3102311/bin/python -m ipykernel install \
         --prefix=/opt/venvs/jupyter \
         --name=3102311 \
-        --display-name="3102311 (Python 3.10.11)" \
+        --display-name="3102311 (Python 3.10)" \
     && rm -rf /opt/venvs/jupyter/share/jupyter/kernels/python3
 
 RUN rm -rf /home/jovyan \
