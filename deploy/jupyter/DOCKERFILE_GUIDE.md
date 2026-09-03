@@ -140,7 +140,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 - `JUPYTER_PATH`는 등록한 kernelspec을 Jupyter 서버가 발견하게 한다.
 - uv 설정은 앞 스테이지와 동일한 설치 정책을 유지한다.
 
-### 40~46행: OS 런타임 패키지
+### 40~47행: OS 런타임 패키지
 
 ```dockerfile
 RUN apt-get update \
@@ -153,6 +153,7 @@ RUN apt-get update \
 
 - 두 Python 이미지에 공통으로 필요한 최소 런타임 패키지를 설치한다.
 - `ca-certificates`는 HTTPS 통신에 사용한다.
+- `curl`은 Docker Compose 및 운영 진단에서 Jupyter HTTP 상태를 확인할 때 사용한다.
 - `fonts-dejavu-core`는 Matplotlib 등에서 기본 글꼴을 제공한다.
 - `libgomp1`은 NumPy, SciPy 등 병렬 네이티브 코드에서 사용될 수 있다.
 - `tini`는 Jupyter 하위 커널 프로세스의 signal 전달과 zombie process 회수를 담당한다.

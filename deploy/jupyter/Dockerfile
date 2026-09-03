@@ -40,6 +40,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends \
         ca-certificates \
+        curl \
         fonts-dejavu-core \
         libgomp1 \
         tini \
