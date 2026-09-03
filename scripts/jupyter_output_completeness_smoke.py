@@ -156,7 +156,9 @@ async def run_case(
                 if mode == OperationMode.MULTI
                 else None,
                 trigger_type=TriggerType.INTERACTIVE,
-                runtime_profile=os.getenv("JUPYTER_GATEWAY_PROFILE", "default"),
+                runtime_profile=os.getenv(
+                    "JUPYTER_GATEWAY_PROFILE", "default"
+                ),
                 user_id="diagnostics-smoke",
                 project_id="output-completeness",
                 session_id=str(uuid4()),

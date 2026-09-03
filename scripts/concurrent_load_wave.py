@@ -78,9 +78,7 @@ async def _submit(
     project_id: str,
 ) -> str:
     profile = (
-        "3102311"
-        if args.profiles == "mixed" and index % 2
-        else "default"
+        "3102311" if args.profiles == "mixed" and index % 2 else "default"
     )
     sleep_seconds = _sleep_for(args, index)
     user_id = f"load-user-{index % 10}"
