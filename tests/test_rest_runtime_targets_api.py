@@ -1,7 +1,7 @@
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 from uuid import UUID
 
 import httpx
@@ -11,6 +11,7 @@ from sqlalchemy import select, update
 from executor_service.config import Settings
 from executor_service.container import ApplicationContainer
 from executor_service.domain.runtime import (
+    RuntimeDriverError,
     RuntimeResourceMetric,
     RuntimeResourceObservation,
 )
@@ -26,7 +27,9 @@ from executor_service.interfaces.http.app import create_app
 class HealthyGateway:
     fail_resource_probe = False
     fail_health_probe = False
+    health_error: BaseException | None = None
     active_session_count = 1
+    profiles: ClassVar[list[str]] = ["default", "3102311"]
 
     def __init__(
         self,
@@ -39,12 +42,14 @@ class HealthyGateway:
         pass
 
     async def status(self) -> dict[str, object]:
+        if self.health_error is not None:
+            raise self.health_error
         if self.fail_health_probe:
             raise RuntimeError("health endpoint unavailable")
         return {"active_session_count": self.active_session_count}
 
     async def supported_profiles(self) -> list[str]:
-        return ["default", "3102311"]
+        return self.profiles
 
     async def resource_status(self) -> RuntimeResourceObservation:
         if self.fail_resource_probe:
@@ -67,7 +72,9 @@ async def fleet_client(
 ) -> AsyncIterator[tuple[httpx.AsyncClient, ApplicationContainer]]:
     HealthyGateway.fail_resource_probe = False
     HealthyGateway.fail_health_probe = False
+    HealthyGateway.health_error = None
     HealthyGateway.active_session_count = 1
+    HealthyGateway.profiles = ["default", "3102311"]
     monkeypatch.setattr(
         "executor_service.infrastructure.runtime_drivers.JupyterRuntimeDriver",
         HealthyGateway,
@@ -221,7 +228,7 @@ async def test_resource_only_probe_failure_keeps_target_active_and_marks_data_st
     assert probed.json()["capacity"]["session_count_fresh"] is True
     assert (
         probed.json()["resources"]["last_error"]
-        == "Resource probe failed (RuntimeError)"
+        == "RUNTIME_RESOURCE_UNAVAILABLE: RuntimeError: execution failed"
     )
     assert probed.json()["resources"]["memory"]["utilization"] == 0.25
 
@@ -258,6 +265,77 @@ async def test_failed_probe_retains_session_observation_but_marks_it_stale(
     assert after == before
     assert probed.json()["capacity"]["session_count_fresh"] is False
     assert probed.json()["capacity"]["admission_used_count"] == 0
+    assert (
+        probed.json()["health"]["last_error"]
+        == "RUNTIME_STATUS_UNAVAILABLE: RuntimeError: execution failed"
+    )
+    assert (
+        probed.json()["resources"]["last_error"]
+        == "RUNTIME_RESOURCE_SKIPPED: Resource probe skipped because "
+        "health probe failed."
+    )
+
+
+async def test_profile_mismatch_reports_allowed_and_runtime_profiles(
+    fleet_client: tuple[httpx.AsyncClient, ApplicationContainer],
+) -> None:
+    client, _ = fleet_client
+    HealthyGateway.profiles = ["basic", "ml"]
+
+    created = await client.post(
+        "/api/v1/runtime-targets", json=_upsert_payload(42)
+    )
+
+    assert created.status_code == 200
+    assert created.json()["state"]["status"] == "OFFLINE"
+    assert created.json()["runtime"]["supported_profiles"] == []
+    assert created.json()["health"]["last_error"] == (
+        "RUNTIME_PROFILE_MISMATCH: Runtime Target supports none of the "
+        "configured profiles; allowed=[3102311,default] "
+        "reported=[basic,ml]."
+    )
+    assert created.json()["resources"]["last_error"].startswith(
+        "RUNTIME_RESOURCE_SKIPPED:"
+    )
+
+
+async def test_invalid_runtime_status_has_explicit_safe_error(
+    fleet_client: tuple[httpx.AsyncClient, ApplicationContainer],
+) -> None:
+    client, _ = fleet_client
+    HealthyGateway.active_session_count = -1
+
+    created = await client.post(
+        "/api/v1/runtime-targets", json=_upsert_payload(43)
+    )
+
+    assert created.status_code == 200
+    assert created.json()["state"]["status"] == "OFFLINE"
+    assert created.json()["health"]["last_error"] == (
+        "RUNTIME_STATUS_INVALID: Runtime Target did not return a "
+        "non-negative active_session_count."
+    )
+
+
+async def test_runtime_driver_probe_error_is_redacted_and_bounded(
+    fleet_client: tuple[httpx.AsyncClient, ApplicationContainer],
+) -> None:
+    client, _ = fleet_client
+    HealthyGateway.health_error = RuntimeDriverError(
+        "https://user:sensitive-value@runtime.invalid/api/status "
+        "token=sensitive-value"
+    )
+
+    created = await client.post(
+        "/api/v1/runtime-targets", json=_upsert_payload(44)
+    )
+
+    health_error = created.json()["health"]["last_error"]
+    assert health_error.startswith("RUNTIME_STATUS_UNAVAILABLE:")
+    assert "sensitive-value" not in health_error
+    assert "[URL REDACTED]" in health_error
+    assert "[REDACTED]" in health_error
+    assert len(health_error) <= 500
 
 
 async def test_stale_session_observation_uses_durable_reservations(
