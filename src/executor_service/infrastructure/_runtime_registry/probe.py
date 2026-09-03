@@ -8,7 +8,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from executor_service.application.runtime_targets import RuntimeTargetView
 from executor_service.config import Settings
 from executor_service.domain.enums import ActorType, RuntimeTargetStatus
-from executor_service.domain.errors import RuntimeTargetConfigurationError
 from executor_service.domain.models import utc_now
 from executor_service.domain.runtime import RuntimeResourceObservation
 from executor_service.infrastructure._runtime_registry.credentials import (
@@ -24,11 +23,19 @@ from executor_service.infrastructure._runtime_registry.targets import (
     required_target,
 )
 from executor_service.infrastructure.db.models import RuntimeTargetORM
+from executor_service.infrastructure.runtime_diagnostics import (
+    failure_message,
+    redact_message,
+)
 from executor_service.infrastructure.runtime_drivers import (
     ConfiguredRuntimeDriverFactory,
 )
 
 logger = logging.getLogger(__name__)
+
+_MAX_PERSISTED_ERROR_LENGTH = 500
+_MAX_REPORTED_PROFILES = 20
+_MAX_PROFILE_LENGTH = 64
 
 
 class RuntimeTargetProber:
@@ -70,36 +77,63 @@ class RuntimeTargetProber:
         resource_error: str | None = None
         try:
             status = await driver.status()
-            reported_profiles = await driver.supported_profiles()
-            allowed_profiles = set(self._settings.runtime_allowed_profiles)
-            profiles = [
-                profile
-                for profile in reported_profiles
-                if profile in allowed_profiles
-            ]
-            if not profiles:
-                raise RuntimeTargetConfigurationError(
-                    "Runtime Target supports none of RUNTIME_ALLOWED_PROFILES."
-                )
+        except Exception as exc:
+            error = _probe_failure("RUNTIME_STATUS_UNAVAILABLE", exc)
+        if error is None:
             raw_session_count = status.get("active_session_count")
             if type(raw_session_count) is not int or raw_session_count < 0:
-                raise RuntimeTargetConfigurationError(
+                error = _bounded_error(
+                    "RUNTIME_STATUS_INVALID",
                     "Runtime Target did not return a non-negative "
-                    "active_session_count."
+                    "active_session_count.",
                 )
-            active_session_count = raw_session_count
-        except Exception as exc:
-            error = f"Probe failed ({type(exc).__name__})"
+            else:
+                active_session_count = raw_session_count
+        if error is None:
+            try:
+                reported_profiles = await driver.supported_profiles()
+            except Exception as exc:
+                error = _probe_failure("RUNTIME_PROFILES_UNAVAILABLE", exc)
+            else:
+                allowed_profiles = set(self._settings.runtime_allowed_profiles)
+                profiles = [
+                    profile
+                    for profile in reported_profiles
+                    if profile in allowed_profiles
+                ]
+                if not profiles:
+                    error = _bounded_error(
+                        "RUNTIME_PROFILE_MISMATCH",
+                        "Runtime Target supports none of the configured "
+                        "profiles; "
+                        f"allowed={_profile_list(allowed_profiles)} "
+                        f"reported={_profile_list(reported_profiles)}.",
+                    )
         if error is None:
             try:
                 resource = await driver.resource_status()
             except Exception as exc:
-                resource_error = (
-                    f"Resource probe failed ({type(exc).__name__})"
+                resource_error = _probe_failure(
+                    "RUNTIME_RESOURCE_UNAVAILABLE", exc
+                )
+                logger.warning(
+                    "Runtime Target resource probe failed",
+                    extra={
+                        "runtime_target_id": str(target_id),
+                        "runtime_probe_error": resource_error,
+                    },
                 )
         else:
-            resource_error = (
-                "Resource probe skipped because health probe failed."
+            resource_error = _bounded_error(
+                "RUNTIME_RESOURCE_SKIPPED",
+                "Resource probe skipped because health probe failed.",
+            )
+            logger.warning(
+                "Runtime Target health probe failed",
+                extra={
+                    "runtime_target_id": str(target_id),
+                    "runtime_probe_error": error,
+                },
             )
         await driver.close()
 
@@ -152,6 +186,28 @@ class RuntimeTargetProber:
                 target,
                 self._settings,
             )
+
+
+def _probe_failure(code: str, error: BaseException) -> str:
+    return _bounded_error(code, failure_message(error))
+
+
+def _bounded_error(code: str, message: str) -> str:
+    normalized = " ".join(message.split())
+    return f"{code}: {normalized}"[:_MAX_PERSISTED_ERROR_LENGTH]
+
+
+def _profile_list(profiles: object) -> str:
+    if not isinstance(profiles, (list, tuple, set, frozenset)):
+        return "[invalid]"
+    values = sorted(
+        redact_message(str(profile))[:_MAX_PROFILE_LENGTH]
+        for profile in profiles
+    )
+    visible = values[:_MAX_REPORTED_PROFILES]
+    if len(values) > len(visible):
+        visible.append(f"...+{len(values) - len(visible)}")
+    return f"[{','.join(visible)}]"
 
 
 def _apply_resource_observation(

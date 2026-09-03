@@ -63,7 +63,10 @@ async def test_registry_encrypts_credentials_and_disables_idempotently(
     assert repeated.id == created.id
     assert created.status == RuntimeTargetStatus.OFFLINE
     assert created.enabled
-    assert created.last_health_error == "Probe failed (RuntimeDriverError)"
+    assert created.last_health_error == (
+        "RUNTIME_STATUS_UNAVAILABLE: Jupyter REST request failed: "
+        "method=GET path=/api/status transport=ConnectError."
+    )
 
     async with session_factory() as session:
         row = await session.scalar(

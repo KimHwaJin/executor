@@ -808,6 +808,27 @@ failure. It must retain Runtime release evidence and inject all service credenti
 - No API, event schema or migration change. Scope, validation and remaining real
   outage limits: [Result persistence failure boundaries](result-persistence-failure-boundaries.md).
 
+### Implemented Phase 10
+
+- Replace class-only Runtime Target probe failures with bounded phase codes for
+  status availability, status validation, profile availability, profile mismatch,
+  resource failure and resource skipping.
+- Preserve safe Runtime Driver details such as HTTP method, path, status and
+  transport type while redacting credential-bearing URLs, authentication values
+  and secret assignments. Unknown exception messages are not persisted.
+- Include bounded allowed and reported profile names on mismatch so operators can
+  reconcile `RUNTIME_ALLOWED_PROFILES` with the deployed Runtime without inspecting
+  application internals.
+- Keep the existing `health.last_error` and `resources.last_error` response fields,
+  database columns and probe state semantics. No API schema, event schema or
+  migration changes are required.
+- Update Runtime operations guidance from the retired `basic`/`ml` profile names to
+  `default`/`3102311` and distinguish local requirements-based uv installation from
+  the deployment image's locked uv projects.
+- Verify profile mismatch, invalid status, status transport failure, resource-only
+  failure, redaction and bounded persistence. The full default quality gate passes
+  with 525 tests and 4 opt-in environment checks skipped.
+
 ### Completion criteria still open
 
 - Maintain the no-false-completeness rule across supported Runtime variants.
@@ -829,5 +850,6 @@ across events/REST/manifests. Phase 7 validates real cancellation/SIGTERM and
 marks unrefreshed interrupted notebooks explicitly. Full lifecycle coverage,
 including prolonged storage/DB outage timing beyond the Phase 8–9 cases,
 diagnostic links and broader
-load/failure validation remain open. These test
+load/failure validation remain open after the Phase 10 Runtime Target probe
+diagnostic improvements. These test
 counts alone are not a full production-readiness claim.

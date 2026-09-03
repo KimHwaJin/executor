@@ -7,10 +7,11 @@ future driver does not change Execution, scheduling, Attempt, or fleet-managemen
 
 ## Local topology
 
-All local Jupyter containers use the self-contained `executor-jupyter:local` image built from
-`python:3.12-slim-bookworm`, mount the same
+All local Jupyter containers use the self-contained `executor-jupyter:local` image. Its server and
+default kernel use Python 3.11, while the `3102311` kernel uses Python 3.10.11. Both image stages
+use Debian bullseye. The containers mount the same
 `./test_harness/jupyter/workspace:/workspace/pv` shared-PV contract,
-and expose only the `basic` and `ml` Python kernels. Executor does not mount this Jupyter storage.
+and expose only the `default` and `3102311` Python kernels. Executor does not mount this Jupyter storage.
 Production operators must mount the same shared PVC on every Jupyter target in a pool.
 
 | Service | Pool | Host endpoint | Default token variable |
@@ -94,25 +95,41 @@ the current scheduler still admits work by PostgreSQL reservations and configure
 
 ## Kernel profiles
 
-The Jupyter image is self-contained and uses standard Python virtual environments installed from
-environment-specific `requirements.txt` files. Only two kernelspecs are exposed:
+The local Jupyter harness uses independent uv-managed virtual environments installed from
+environment-specific `requirements.txt` files. The separately deliverable deployment image uses
+independent `pyproject.toml` and `uv.lock` projects under `deploy/jupyter/environments/`. Both
+images expose the same two kernelspecs:
 
 | Profile | Python | Purpose |
 |---|---|---|
-| `basic` | 3.11 | Data loading, tabular analysis, statistics, visualization, and EDA |
-| `ml` | 3.12 | Everything in `basic` plus classical machine-learning libraries |
+| `default` | 3.11 | General data loading, tabular analysis, statistics, visualization, and EDA |
+| `3102311` | 3.10.11 | Independent project-specific environment |
 
-The `basic` environment includes NumPy, pandas, SciPy, PyArrow, Polars, DuckDB, OpenPyXL,
-Matplotlib, Seaborn, Plotly, and statsmodels. The `ml` environment adds scikit-learn,
-imbalanced-learn, CPU-only XGBoost, LightGBM, Optuna, SHAP, and Joblib. PyTorch and TensorFlow are
-intentionally excluded; a future deep-learning profile should remain separate due to image size
-and accelerator-specific dependencies.
+The local `default` environment includes NumPy, pandas, SciPy, PyArrow, Polars, DuckDB, OpenPyXL,
+Matplotlib, Seaborn, Plotly, and statsmodels. The `3102311` environment is independent rather than
+`default` plus extra packages. Its approved package list is intentionally supplied separately.
 
-Library inputs live under `test_harness/jupyter/environments/`. Update
-`basic/requirements.txt` for shared analysis libraries and `ml/requirements.txt` for ML-only
-additions; the ML file includes the Basic file. `server/requirements.txt` is reserved for the
-Jupyter server process. The Docker build installs each file with that environment's `pip` and
-registers the `basic` and `ml` kernelspecs.
+Local harness inputs live under `test_harness/jupyter/environments/`; uv creates the environments
+and installs their `requirements.txt` files. Deployment inputs live under
+`deploy/jupyter/environments/`; `uv sync --locked` installs each `pyproject.toml` using its committed
+`uv.lock`. Neither image exposes an implicit `python3` kernelspec.
+
+## Probe diagnostics
+
+Target registration and explicit probe calls persist one bounded, credential-safe health result.
+The error prefix identifies the failed phase:
+
+- `RUNTIME_STATUS_UNAVAILABLE`: `/api/status` could not be called or parsed by the driver.
+- `RUNTIME_STATUS_INVALID`: the driver did not return a non-negative active session count.
+- `RUNTIME_PROFILES_UNAVAILABLE`: supported Runtime profiles could not be read.
+- `RUNTIME_PROFILE_MISMATCH`: none of the reported profiles occur in `RUNTIME_ALLOWED_PROFILES`.
+- `RUNTIME_RESOURCE_UNAVAILABLE`: health succeeded but the optional resource probe failed.
+- `RUNTIME_RESOURCE_SKIPPED`: resource probing was skipped because health had already failed.
+
+Runtime Driver messages are redacted and bounded before persistence. Unknown exception text is not
+stored. `resources.last_error=RUNTIME_RESOURCE_SKIPPED` is secondary evidence; inspect
+`health.last_error` for the initiating failure. A failed health probe marks the target `OFFLINE`,
+while a resource-only failure leaves a healthy target active with stale resource data.
 
 ## Scheduling contract
 
@@ -195,7 +212,7 @@ endpoint, token, target name, or pool on the Executor process:
 
 ```env
 RUNTIME_ENABLED=true
-RUNTIME_ALLOWED_PROFILES=basic,ml
+RUNTIME_ALLOWED_PROFILES=default,3102311
 RUNTIME_DEFAULT_MAX_CONCURRENT_EXECUTIONS=1
 LOCAL_TEST_SHARED_STORAGE_ROOT=C:/absolute/path/to/executor/shared_dir
 ```
