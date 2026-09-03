@@ -8,12 +8,12 @@ Dockerfile 기준이며 Dockerfile 변경 시 달라질 수 있다.
 
 ## 1. 전체 빌드 구조
 
-이미지는 세 단계로 만들어진다.
+이미지는 두 단계로 만들어진다.
 
-1. 고정 버전 uv 이미지에서 `uv`, `uvx` 실행 파일을 가져온다.
-2. Python 3.10.11 이미지에서 독립적인 `3102311` 커널 환경을 만든다.
-3. Python 3.11 최종 이미지에 Jupyter 서버, `default` 커널, `3102311` 커널과
-   Executor 연동 확장을 조립한다.
+1. uv와 Python 3.10이 포함된 Bookworm Slim 이미지에서 독립적인 `3102311` 커널
+   환경을 만든다.
+2. uv와 Python 3.11이 포함된 Bookworm Slim 최종 이미지에 Jupyter 서버, `default`
+   커널, Python 3.10 런타임, `3102311` 커널과 Executor 연동 확장을 조립한다.
 
 세 Python 환경은 각각 독립된 `pyproject.toml`과 `uv.lock`으로 관리한다.
 
@@ -21,21 +21,23 @@ Dockerfile 기준이며 Dockerfile 변경 시 달라질 수 있다.
 |---|---:|---|---|
 | `server` | 3.11 | `/opt/venvs/jupyter` | JupyterLab·Jupyter Server 실행 |
 | `default` | 3.11 | `/opt/venvs/default` | 기본 분석 커널 |
-| `3102311` | 3.10.11 | `/opt/venvs/3102311` | 별도 승인 패키지 커널 |
+| `3102311` | 3.10.x | `/opt/venvs/3102311` | 별도 승인 패키지 커널 |
+
+`3102311`이라는 이름은 기존 Runtime Profile 계약을 위한 kernelspec ID다. Python patch
+버전을 의미하지 않으며 실제 patch 버전은 반입한 `PYTHON310_IMAGE`가 결정한다.
 
 ## 2. uv와 패키지 인덱스
 
-### 1~4행: uv 이미지와 기본 패키지 인덱스
+### 1~3행: Python별 uv 이미지와 기본 패키지 인덱스
 
 ```dockerfile
-ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.12.8
+ARG PYTHON310_IMAGE=ghcr.io/astral-sh/uv:0.12.8-python3.10-bookworm-slim
+ARG PYTHON311_IMAGE=ghcr.io/astral-sh/uv:0.12.8-python3.11-bookworm-slim
 ARG UV_DEFAULT_INDEX=https://pypi.org/simple
-
-FROM ${UV_IMAGE} AS uv
 ```
 
-- `UV_IMAGE`는 빌드에 사용할 uv 버전을 고정한다.
-- 폐쇄망에서는 공식 uv 이미지를 사내 Harbor에 미러링하고 `UV_IMAGE`를 덮어쓴다.
+- 두 이미지는 동일한 uv 버전과 Debian 12 Bookworm Slim을 사용한다.
+- 폐쇄망에서는 두 이미지를 사내 Harbor에 반입하고 각 빌드 인자를 덮어쓴다.
 - `UV_DEFAULT_INDEX`는 lock 검증과 패키지 설치에 사용할 PEP 503 인덱스다.
 - 저장소의 최초 lock과 기본 인덱스는 공개 PyPI로 일치시켜 템플릿 자체를 검증 가능하게
   한다. 폐쇄망 반입 후에는 실제 Nexus 주소로 세 lock을 먼저 갱신하고 같은 주소를 빌드
@@ -44,23 +46,22 @@ FROM ${UV_IMAGE} AS uv
   실패할 수 있다. 세 환경의 lock과 이미지 빌드는 동일한 Nexus를 사용해야 한다.
 - 계정·비밀번호·토큰은 Dockerfile이나 빌드 인자 URL에 작성하지 않는다.
 
-## 3. Python 3.10.11 커널 스테이지
+## 3. Python 3.10 커널 스테이지
 
-### 6행: 정확한 Python 3.10.11 베이스
+### Python 3.10 Bookworm Slim 베이스
 
 ```dockerfile
-FROM python:3.10.11-slim-bullseye AS python310
+FROM ${PYTHON310_IMAGE} AS python310
 ```
 
-- `3102311` 커널의 Python patch 버전을 정확히 고정한다.
-- 최종 Python 3.11 이미지와 동일한 Debian 11 계열을 사용하여 OS ABI 차이를 줄인다.
+- `3102311` 커널은 이미지에 포함된 Python 3.10.x를 사용한다.
+- 최종 Python 3.11 이미지와 동일한 Debian 12 Bookworm 계열을 사용한다.
 - 이 스테이지는 빌드용이며 최종 컨테이너의 시작 이미지가 아니다.
 
-### 8~14행: 인덱스, uv 실행 파일과 설치 정책
+### 인덱스와 uv 설치 정책
 
 ```dockerfile
 ARG UV_DEFAULT_INDEX
-COPY --from=uv /uv /uvx /bin/
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
@@ -68,12 +69,12 @@ ENV UV_COMPILE_BYTECODE=1 \
 ```
 
 - 전역 `ARG`는 각 `FROM` 뒤에 다시 선언해야 해당 스테이지의 `RUN`에서 사용할 수 있다.
-- uv를 `/bin`에 복사하므로 별도 설치 스크립트나 인터넷 다운로드 명령이 필요 없다.
+- uv는 베이스 이미지에 이미 설치되어 있어 별도의 uv 복사나 설치가 필요 없다.
 - `UV_COMPILE_BYTECODE=1`은 설치 시 `.pyc`를 미리 생성하여 초기 import 지연을 줄인다.
 - `UV_LINK_MODE=copy`는 컨테이너 레이어와 가상환경 사이의 hardlink 경고를 방지한다.
 - `UV_NO_CACHE=1`은 uv 다운로드 캐시를 최종 이미지 레이어에 남기지 않는다.
 
-### 16~21행: 3102311 프로젝트 동기화
+### 13~18행: 3102311 프로젝트 동기화
 
 ```dockerfile
 COPY environments/3102311 /opt/jupyter-env/3102311
@@ -90,27 +91,26 @@ RUN UV_PROJECT_ENVIRONMENT=/opt/venvs/3102311 \
 - `--locked`는 lock이 누락되거나 `pyproject.toml`과 일치하지 않으면 빌드를 실패시킨다.
 - `--no-dev`는 운영 환경에 개발 의존성을 설치하지 않는다.
 - `--no-install-project`는 환경 정의용 가상 프로젝트 자체를 패키지로 설치하지 않는다.
-- `--python`은 반드시 Python 3.10.11 인터프리터를 사용하게 한다.
+- `--python`은 해당 이미지의 Python 3.10 인터프리터를 사용하게 한다.
 - `ipykernel`도 이 환경의 직접 의존성에 포함되어 lock으로 관리된다.
 
 ## 4. 최종 Python 3.11 이미지
 
-### 23~27행: 최종 베이스와 uv
+### 최종 Python 3.11 Bookworm Slim 베이스
 
 ```dockerfile
-FROM python:3.11-slim-bullseye
+FROM ${PYTHON311_IMAGE}
 ARG UV_DEFAULT_INDEX
-COPY --from=uv /uv /uvx /bin/
 ```
 
 - 이 스테이지가 최종 Harbor 이미지가 된다.
 - Jupyter 서버와 `default` 커널은 Python 3.11을 사용한다.
-- uv가 최종 이미지에도 남으므로 Jupyter 터미널에서 `uv --version`을 실행할 수 있다.
+- uv가 베이스 이미지에 포함되므로 Jupyter 터미널에서 `uv --version`을 실행할 수 있다.
 - 표준 커널 경로는 root 소유이므로 일반 사용자에게 이미지 내 환경 변경 권한은 없다.
 - 폐쇄망에서 사용자가 PVC 아래 별도 환경을 만들게 허용한다면 Deployment에도 런타임
   `UV_DEFAULT_INDEX`를 Nexus 주소로 주입한다. Docker 빌드 인자는 런타임에 남지 않는다.
 
-### 29~34행: 배포 기본값
+### 24~29행: 배포 기본값
 
 ```dockerfile
 ENV JUPYTER_ROOT_DIR=/workspace/jupyter \
@@ -121,7 +121,7 @@ ENV JUPYTER_ROOT_DIR=/workspace/jupyter \
 - `JUPYTER_TOKEN=default`는 기본 시험값이며 운영에서는 Kubernetes Secret으로 덮어쓴다.
 - Dockerfile 기본값을 바꾸지 않아도 컨테이너 환경변수가 우선한다.
 
-### 36~43행: 공통 런타임 설정
+### 31~38행: 공통 런타임 설정
 
 ```dockerfile
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -140,7 +140,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 - `JUPYTER_PATH`는 등록한 kernelspec을 Jupyter 서버가 발견하게 한다.
 - uv 설정은 앞 스테이지와 동일한 설치 정책을 유지한다.
 
-### 45~65행: OS 런타임 패키지
+### 40~46행: OS 런타임 패키지
 
 ```dockerfile
 RUN apt-get update \
@@ -151,21 +151,20 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 ```
 
-- Python 3.10 표준 라이브러리 및 분석 패키지에서 필요한 Debian 런타임 라이브러리를
-  설치한다.
+- 두 Python 이미지에 공통으로 필요한 최소 런타임 패키지를 설치한다.
+- `ca-certificates`는 HTTPS 통신에 사용한다.
 - `fonts-dejavu-core`는 Matplotlib 등에서 기본 글꼴을 제공한다.
 - `libgomp1`은 NumPy, SciPy 등 병렬 네이티브 코드에서 사용될 수 있다.
 - `tini`는 Jupyter 하위 커널 프로세스의 signal 전달과 zombie process 회수를 담당한다.
 - `--no-install-recommends`와 apt 목록 삭제로 불필요한 이미지 크기를 줄인다.
 - 폐쇄망에서는 별도 승인된 apt mirror 설정이 필요하다.
 
-> Debian 11 bullseye는 2026년 8월 31일 LTS가 종료되었다. 현재 이미지는 Python
-> 3.10.11과 3.11의 OS ABI 통일을 위해 bullseye를 사용한다. 운영자는 조직의 이미지
-> 스캔, 보완 패치 또는 Extended LTS 정책을 적용해야 한다.
+Python 3.10과 3.11 스테이지는 모두 Debian 12 Bookworm Slim이어야 한다. 한쪽 이미지만
+다른 Debian 세대로 변경하면 Python 런타임과 네이티브 패키지 호환성을 다시 검증해야 한다.
 
-## 5. Python 3.10.11 환경 결합
+## 5. Python 3.10 환경 결합
 
-### 67~70행: 인터프리터와 환경 복사
+### 48~51행: 인터프리터와 환경 복사
 
 ```dockerfile
 COPY --from=python310 /usr/local/bin/python3.10 /usr/local/bin/python3.10
@@ -181,7 +180,7 @@ COPY --from=python310 /opt/venvs/3102311 /opt/venvs/3102311
 
 ## 6. Jupyter 서버와 default 환경
 
-### 72~83행: 두 독립 프로젝트 동기화
+### 53~64행: 두 독립 프로젝트 동기화
 
 ```dockerfile
 COPY environments/server /opt/jupyter-env/server
@@ -205,7 +204,7 @@ RUN ldconfig \
 
 ## 7. Executor 연동 확장과 kernelspec
 
-### 85~87행: 확장 소스와 활성화 설정
+### 66~68행: 확장 소스와 활성화 설정
 
 ```dockerfile
 COPY extension /opt/jupyter-resource-extension
@@ -217,7 +216,7 @@ COPY executor_resource_extension.json \
   제공한다.
 - JSON 파일은 Jupyter Server가 확장을 자동 활성화하게 한다.
 
-### 89~99행: 확장 설치와 커널 등록
+### 70~80행: 확장 설치와 커널 등록
 
 ```dockerfile
 RUN uv pip install --strict --python /opt/venvs/jupyter/bin/python \
@@ -234,7 +233,7 @@ RUN uv pip install --strict --python /opt/venvs/jupyter/bin/python \
 
 ## 8. 비-root 사용자와 PVC 권한
 
-### 101~110행: UID/GID 1000 사용자 생성
+### 82~91행: UID/GID 1000 사용자 생성
 
 ```dockerfile
 RUN rm -rf /home/jovyan \
@@ -249,7 +248,7 @@ RUN rm -rf /home/jovyan \
 - 이미지의 `chown`은 PVC가 마운트되면 가려질 수 있으므로 실제 PV 권한은 배포 환경에서
   별도로 보장해야 한다.
 
-### 112~117행: 설정, 시작 스크립트와 실행 사용자
+### 93~98행: 설정, 시작 스크립트와 실행 사용자
 
 ```dockerfile
 COPY --chown=1000:1000 jupyter_server_config.py ...
@@ -266,7 +265,7 @@ WORKDIR "${JUPYTER_ROOT_DIR}"
 
 ## 9. 포트와 시작 프로세스
 
-### 119~121행
+### 100~102행
 
 ```dockerfile
 EXPOSE 8888
@@ -319,7 +318,8 @@ uv lock --project environments/default --check
 
 ```shell
 docker build \
-  --build-arg UV_IMAGE=harbor.example.com/library/uv:0.12.8 \
+  --build-arg PYTHON310_IMAGE=harbor.example.com/library/uv:0.12.8-python3.10-bookworm-slim \
+  --build-arg PYTHON311_IMAGE=harbor.example.com/library/uv:0.12.8-python3.11-bookworm-slim \
   --build-arg UV_DEFAULT_INDEX=https://nexus.example.com/repository/pypi-group/simple/ \
   --tag harbor.example.com/analytics/jupyter-runtime:${BUILD_NUMBER} \
   .
@@ -331,15 +331,14 @@ docker push harbor.example.com/analytics/jupyter-runtime:${BUILD_NUMBER}
 
 | 대상 | 준비 사항 |
 |---|---|
-| Python 3.11 이미지 | Harbor에 미러링하거나 Docker daemon이 접근 가능해야 함 |
-| Python 3.10.11 이미지 | Harbor에 미러링하거나 Docker daemon이 접근 가능해야 함 |
-| uv 0.12.8 이미지 | Harbor에 미러링하고 `UV_IMAGE`로 지정 |
+| Python 3.11 + uv Bookworm 이미지 | Harbor에 반입하고 `PYTHON311_IMAGE`로 지정 |
+| Python 3.10 + uv Bookworm 이미지 | Harbor에 반입하고 `PYTHON310_IMAGE`로 지정 |
 | PyPI 패키지 | Nexus group/proxy 저장소와 lock 생성 시 사용한 동일 URL |
 | Debian 패키지 | 승인된 apt mirror 또는 접근 가능한 Debian 저장소 |
 | 비밀값 | Dockerfile과 Git이 아니라 Jenkins credential/배포 Secret으로 관리 |
 
-Python 베이스 이미지도 외부 Docker Hub를 사용할 수 없다면 Dockerfile의 두 `FROM
-python:...` 값을 사내 Harbor 주소로 변경한다.
+두 이미지 빌드 인자는 Dockerfile을 직접 수정하지 않고 Jenkins에서 사내 Harbor 주소로
+덮어쓴다. 가능하면 승인된 image digest도 함께 고정한다.
 
 ## 12. 변경 시 함께 확인할 항목
 
