@@ -91,6 +91,8 @@ class RuntimeStorageTests(unittest.TestCase):
                 root / workspace / "notebooks/.ipynb_checkpoints"
             )
             reports_directory = root / workspace / "reports"
+            datasets_directory = root / workspace / "artifacts/datasets"
+            models_directory = root / workspace / "artifacts/models"
             plot = root / workspace / "artifacts/plots/chart.png"
             plot.write_bytes(b"plot")
 
@@ -98,6 +100,8 @@ class RuntimeStorageTests(unittest.TestCase):
             metadata = storage.file_metadata(plot.as_posix())
             checkpoint_directory_exists = checkpoint_directory.is_dir()
             reports_directory_exists = reports_directory.is_dir()
+            datasets_directory_exists = datasets_directory.is_dir()
+            models_directory_exists = models_directory.is_dir()
             legacy_checkpoint_directory_exists = (
                 root / workspace / "checkpoints"
             ).exists()
@@ -107,6 +111,8 @@ class RuntimeStorageTests(unittest.TestCase):
         )
         self.assertFalse(checkpoint_directory_exists)
         self.assertTrue(reports_directory_exists)
+        self.assertFalse(datasets_directory_exists)
+        self.assertTrue(models_directory_exists)
         self.assertFalse(legacy_checkpoint_directory_exists)
         self.assertEqual(
             snapshot["files"][0]["path"],

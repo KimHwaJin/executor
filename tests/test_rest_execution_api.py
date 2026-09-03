@@ -529,6 +529,26 @@ async def test_materializes_final_report_below_runtime_reports_directory(
     assert storage.notebook["cells"][-1]["cell_type"] == "markdown"
 
 
+async def test_rejects_dataset_and_model_text_materialization(
+    rest_client: tuple[httpx.AsyncClient, ApplicationContainer],
+) -> None:
+    client, _ = rest_client
+    execution_id = uuid4()
+
+    for artifact_type in ("DATASET", "MODEL"):
+        response = await client.post(
+            f"/api/v1/executions/{execution_id}/artifacts",
+            json={
+                "idempotency_key": f"reject-{artifact_type.lower()}",
+                "type": artifact_type,
+                "source": {"type": "INLINE", "content": "text"},
+                "actor": {"type": "AGENT", "id": "rest-agent"},
+            },
+        )
+
+        assert response.status_code == 422
+
+
 async def test_single_execution_rest_lifecycle_and_queries(
     rest_client: tuple[httpx.AsyncClient, ApplicationContainer],
 ) -> None:

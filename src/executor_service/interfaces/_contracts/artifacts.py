@@ -40,10 +40,19 @@ ArtifactSource = Annotated[
     Field(discriminator="type"),
 ]
 
+MaterializableArtifactType = Literal[
+    ArtifactType.NOTEBOOK,
+    ArtifactType.REPORT,
+    ArtifactType.PLOT,
+    ArtifactType.METRIC,
+    ArtifactType.LOG,
+    ArtifactType.OTHER,
+]
+
 
 class ExecutionArtifactMaterializeRequest(ContractModel):
     idempotency_key: str = Field(min_length=1, max_length=255)
-    type: ArtifactType
+    type: MaterializableArtifactType
     source: ArtifactSource
     name: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=4000)

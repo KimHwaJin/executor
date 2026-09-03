@@ -155,7 +155,9 @@ Direct current-Step detail is also REST-only in this contract; MCP clients use t
 Tools. This is an intentional surface difference rather than an omitted Tool.
 
 `POST /executions/{execution_id}/artifacts` accepts idempotent Agent-authored UTF-8 content from an
-INLINE source or input-PV PATH. A REPORT defaults to `reports/final-report.md`; callers do not
+INLINE source or input-PV PATH. `DATASET` and `MODEL` are intentionally excluded from this
+text-materialization command; Runtime code or the Artifact Manifest registers those outputs. A
+REPORT defaults to `reports/final-report.md`; callers do not
 choose an arbitrary Runtime target path. `append_to_notebook=true` also appends the Markdown as a
 notebook cell. Materialization is allowed only after a successful Execution.
 

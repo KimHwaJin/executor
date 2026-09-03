@@ -378,8 +378,10 @@ def build_mcp_server(
             @server.tool(
                 description=(
                     "Materialize Agent-authored UTF-8 text from INLINE content or an Executor "
-                    "input-PV PATH as a Runtime-owned Execution Artifact. REPORT files are "
-                    "written below reports/ and may also be appended to the notebook."
+                    "input-PV PATH as a Runtime-owned Execution Artifact. DATASET and MODEL "
+                    "are Runtime/Manifest-produced and are not accepted by this command. "
+                    "REPORT files are written below reports/ and may also be appended to "
+                    "the notebook."
                 )
             )
             async def execution_artifact_create(

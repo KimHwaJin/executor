@@ -436,9 +436,10 @@ integration event.
 Agent-authored `.ipynb` files are not execution inputs. Agent-authored Python is supplied per Step,
 either INLINE or as a `.py` PATH. Executor builds the Notebook document from executed Steps and
 outputs, while Jupyter writes `notebooks/execution.ipynb` into its own shared storage. Agent-authored
-reports can be materialized through `execution_artifact_create` or
-`POST /api/v1/executions/{execution_id}/artifacts`; REPORT content is written below `reports/` and
-may also be appended as a Markdown notebook cell.
+text Artifacts can be materialized through `execution_artifact_create` or
+`POST /api/v1/executions/{execution_id}/artifacts`; `DATASET` and `MODEL` are excluded from this
+command and remain Runtime/Manifest-produced Artifact types. REPORT content is written below
+`reports/` and may also be appended as a Markdown notebook cell.
 
 ## Runtime fleet management
 
@@ -508,7 +509,6 @@ Jupyter-relative hierarchy:
 /workspace/pv/users/{user_id}/projects/{project_id}/sessions/{session_id}/executions/{execution_id}/
     ├── notebooks/execution.ipynb
     ├── artifacts/
-    │   ├── datasets/
     │   ├── plots/
     │   ├── models/
     │   ├── metrics/
