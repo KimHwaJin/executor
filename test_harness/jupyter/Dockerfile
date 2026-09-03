@@ -1,5 +1,5 @@
-ARG PYTHON310_IMAGE=ghcr.io/astral-sh/uv:0.12.8-python3.10-bookworm-slim
-ARG PYTHON311_IMAGE=ghcr.io/astral-sh/uv:0.12.8-python3.11-bookworm-slim
+ARG PYTHON310_IMAGE=astral/uv:python3.10-bookworm-slim
+ARG PYTHON311_IMAGE=astral/uv:python3.11-bookworm-slim
 ARG UV_DEFAULT_INDEX=https://pypi.org/simple
 
 FROM ${PYTHON310_IMAGE} AS python310

@@ -123,8 +123,8 @@ uv lock --project environments/3102311 --check
 
 ```shell
 docker build \
-  --build-arg PYTHON310_IMAGE=harbor.example.com/library/uv:0.12.8-python3.10-bookworm-slim \
-  --build-arg PYTHON311_IMAGE=harbor.example.com/library/uv:0.12.8-python3.11-bookworm-slim \
+  --build-arg PYTHON310_IMAGE=harbor.example.com/library/uv:python3.10-bookworm-slim \
+  --build-arg PYTHON311_IMAGE=harbor.example.com/library/uv:python3.11-bookworm-slim \
   --build-arg UV_DEFAULT_INDEX=https://nexus.example.com/repository/pypi-group/simple/ \
   -t ${image.tag} .
 

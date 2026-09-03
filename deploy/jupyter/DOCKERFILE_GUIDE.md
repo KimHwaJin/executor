@@ -31,8 +31,8 @@ Dockerfile 기준이며 Dockerfile 변경 시 달라질 수 있다.
 ### 1~3행: Python별 uv 이미지와 기본 패키지 인덱스
 
 ```dockerfile
-ARG PYTHON310_IMAGE=ghcr.io/astral-sh/uv:0.12.8-python3.10-bookworm-slim
-ARG PYTHON311_IMAGE=ghcr.io/astral-sh/uv:0.12.8-python3.11-bookworm-slim
+ARG PYTHON310_IMAGE=astral/uv:python3.10-bookworm-slim
+ARG PYTHON311_IMAGE=astral/uv:python3.11-bookworm-slim
 ARG UV_DEFAULT_INDEX=https://pypi.org/simple
 ```
 
@@ -319,8 +319,8 @@ uv lock --project environments/default --check
 
 ```shell
 docker build \
-  --build-arg PYTHON310_IMAGE=harbor.example.com/library/uv:0.12.8-python3.10-bookworm-slim \
-  --build-arg PYTHON311_IMAGE=harbor.example.com/library/uv:0.12.8-python3.11-bookworm-slim \
+  --build-arg PYTHON310_IMAGE=harbor.example.com/library/uv:python3.10-bookworm-slim \
+  --build-arg PYTHON311_IMAGE=harbor.example.com/library/uv:python3.11-bookworm-slim \
   --build-arg UV_DEFAULT_INDEX=https://nexus.example.com/repository/pypi-group/simple/ \
   --tag harbor.example.com/analytics/jupyter-runtime:${BUILD_NUMBER} \
   .
