@@ -14,8 +14,9 @@ artifacts/
 └── other/
 ```
 
-Every directory is created before execution and may contain deeper subdirectories. The first
-directory below `artifacts/` determines the automatic Artifact type. Files directly below
+All directories except `datasets/` are created before execution and may contain deeper
+subdirectories. A Tool that produces an execution-scoped dataset creates `datasets/` when needed.
+The first directory below `artifacts/` determines the automatic Artifact type. Files directly below
 `artifacts/` or inside an unknown directory are not registered; producers must use one of the
 defined directories and put unknown types under `artifacts/other/`. The final notebook remains
 under `notebooks/` and is registered separately.

@@ -11,7 +11,6 @@ from typing import Any
 
 SAFE_SEGMENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$")
 ARTIFACT_DIRECTORIES = (
-    "datasets",
     "plots",
     "models",
     "metrics",
