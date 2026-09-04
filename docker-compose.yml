@@ -72,7 +72,7 @@ services:
       dockerfile: Dockerfile
     environment:
       APP_ENV: ${APP_ENV:-local}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_LEVEL: ${LOG_LEVEL:-}
       HOST: 0.0.0.0
       PORT: 8000
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-executor}:${POSTGRES_PASSWORD:-executor}@postgres:5432/${POSTGRES_DB:-executor}

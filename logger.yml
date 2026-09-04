@@ -1,0 +1,39 @@
+# Python logging.dictConfig configuration. Restart the service after editing.
+version: 1
+disable_existing_loggers: false
+
+formatters:
+  standard:
+    format: "%(asctime)s %(levelname)s %(name)s %(message)s"
+
+handlers:
+  console:
+    class: logging.StreamHandler
+    formatter: standard
+    stream: ext://sys.stdout
+
+root:
+  level: INFO
+  handlers: [console]
+
+loggers:
+  executor_service:
+    level: NOTSET
+    handlers: []
+    propagate: true
+  uvicorn:
+    level: NOTSET
+    handlers: []
+    propagate: true
+  uvicorn.error:
+    level: NOTSET
+    handlers: []
+    propagate: true
+  uvicorn.access:
+    level: NOTSET
+    handlers: []
+    propagate: true
+  httpx:
+    level: WARNING
+  httpcore:
+    level: WARNING

@@ -19,7 +19,9 @@ class Settings(BaseSettings):
     )
 
     app_env: str = "local"
-    log_level: str = "INFO"
+    log_level: str | None = None
+    log_config_file: Path = Path("logger.yml")
+
     host: str = "0.0.0.0"
     port: int = Field(default=8000, ge=1, le=65535)
 
@@ -106,6 +108,13 @@ class Settings(BaseSettings):
     otel_exporter_otlp_headers: SecretStr = SecretStr("")
     otel_exporter_timeout_seconds: float = Field(default=5, gt=0)
     otel_sample_ratio: float = Field(default=1.0, ge=0, le=1)
+
+    @field_validator("log_level", mode="before")
+    @classmethod
+    def normalize_log_level(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip().upper() or None
+        return value
 
     @field_validator(
         "mcp_allowed_hosts",
