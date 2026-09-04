@@ -4,8 +4,8 @@ import asyncio
 import json
 import os
 
-from executor_service.config import get_settings
 from executor_service.infrastructure.jupyter import JupyterRuntimeDriver
+from executor_service.settings import get_settings
 
 
 async def main() -> None:

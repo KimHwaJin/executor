@@ -16,7 +16,6 @@ from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from executor_service.config import get_settings
 from executor_service.domain.enums import OutboxDestination
 from executor_service.events import (
     EXECUTION_EVENT_SCHEMA_VERSION,
@@ -41,6 +40,7 @@ from executor_service.infrastructure.runtime_drivers import (
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
 )
+from executor_service.settings import get_settings
 
 Transport = Literal["MCP", "REST"]
 

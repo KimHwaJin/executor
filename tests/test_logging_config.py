@@ -8,11 +8,11 @@ from pathlib import Path
 import pytest
 import yaml
 
-from executor_service.config import Settings
 from executor_service.logging_config import (
     LoggingConfigurationError,
     configure_logging,
 )
+from executor_service.settings import Settings
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -105,7 +105,7 @@ def test_entrypoint_keeps_uvicorn_and_module_logs_unified(
 import logging
 from pathlib import Path
 import uvicorn
-import executor_service.config as settings_module
+import executor_service.settings as settings_module
 import executor_service.container as container_module
 import executor_service.interfaces.http.app as app_module
 

@@ -4,7 +4,6 @@ from uuid import UUID, uuid4
 import pytest
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from executor_service.config import Settings
 from executor_service.domain.enums import (
     RuntimePool,
     RuntimeTargetStatus,
@@ -19,6 +18,7 @@ from executor_service.infrastructure.runtime_registry import (
 from executor_service.infrastructure.runtime_storage import (
     FleetRuntimeStorageAccess,
 )
+from executor_service.settings import Settings
 from tests.runtime_credentials import runtime_credential_fields
 
 

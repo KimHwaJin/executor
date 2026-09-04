@@ -14,7 +14,6 @@ from sqlalchemy import update
 from executor_service.application.artifact_content import (
     ArtifactContent,
 )
-from executor_service.config import Settings
 from executor_service.container import ApplicationContainer
 from executor_service.domain.enums import (
     AttemptStatus,
@@ -43,6 +42,7 @@ from executor_service.infrastructure.db.models import (
     RuntimeTargetORM,
 )
 from executor_service.interfaces.http.app import create_app
+from executor_service.settings import Settings
 from tests.runtime_credentials import runtime_credential_fields
 
 

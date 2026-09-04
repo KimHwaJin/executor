@@ -11,7 +11,6 @@ from executor_service.application.commands import (
     SubmitExecutionCommand,
 )
 from executor_service.application.services import ExecutionService
-from executor_service.config import Settings
 from executor_service.domain.enums import (
     ExecutionStatus,
     OperationMode,
@@ -32,6 +31,7 @@ from executor_service.infrastructure.event_retention import (
 from executor_service.infrastructure.execution_queries import (
     SQLAlchemyExecutionQueryService,
 )
+from executor_service.settings import Settings
 
 
 class RecordingRetentionRedis:

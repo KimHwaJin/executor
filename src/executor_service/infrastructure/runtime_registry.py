@@ -15,7 +15,6 @@ from executor_service.application.runtime_targets import (
     SetRuntimeTargetStateCommand,
     UpsertRuntimeTargetCommand,
 )
-from executor_service.config import Settings
 from executor_service.domain.enums import (
     ActorType,
     RuntimePool,
@@ -30,6 +29,7 @@ from executor_service.infrastructure._runtime_registry import (
     RuntimeTargetProber,
     RuntimeTargetQueries,
 )
+from executor_service.settings import Settings
 
 
 class RuntimeTargetRegistry:

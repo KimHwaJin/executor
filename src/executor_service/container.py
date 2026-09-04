@@ -15,7 +15,6 @@ from executor_service.application.notebook_queries import (
     ExecutionNotebookQueryService,
 )
 from executor_service.application.services import ExecutionService
-from executor_service.config import Settings
 from executor_service.domain.enums import RuntimeType
 from executor_service.execution_specs import ExecutionSpecResolver
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
@@ -59,6 +58,7 @@ from executor_service.infrastructure.runtime_registry import (
 from executor_service.infrastructure.runtime_storage import (
     FleetRuntimeStorageAccess,
 )
+from executor_service.settings import Settings
 
 EXPECTED_SCHEMA_REVISION = "0004"
 

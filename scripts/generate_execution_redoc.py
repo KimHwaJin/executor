@@ -8,9 +8,9 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from executor_service.config import Settings
 from executor_service.container import ApplicationContainer
 from executor_service.interfaces.http.app import create_app
+from executor_service.settings import Settings
 
 HTTP_METHODS = {
     "delete",

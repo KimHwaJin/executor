@@ -9,7 +9,6 @@ from datetime import datetime
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from executor_service.config import Settings
 from executor_service.domain.models import (
     utc_now,
 )
@@ -80,6 +79,7 @@ from executor_service.infrastructure.runtime_registry import (
 from executor_service.infrastructure.workspace import (
     WorkspaceManager,
 )
+from executor_service.settings import Settings
 
 logger = logging.getLogger(__name__)
 

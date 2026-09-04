@@ -5,7 +5,6 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from executor_service.config import Settings
 from executor_service.domain.enums import RuntimeTargetStatus
 from executor_service.domain.models import utc_now
 from executor_service.infrastructure.db.models import (
@@ -16,6 +15,7 @@ from executor_service.infrastructure.runtime_admission import (
     admission_used_count,
     count_runtime_reservations,
 )
+from executor_service.settings import Settings
 
 
 class RuntimeTargetSelector:

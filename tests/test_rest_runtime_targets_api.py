@@ -8,7 +8,6 @@ import httpx
 import pytest_asyncio
 from sqlalchemy import select, update
 
-from executor_service.config import Settings
 from executor_service.container import ApplicationContainer
 from executor_service.domain.runtime import (
     RuntimeDriverError,
@@ -22,6 +21,7 @@ from executor_service.infrastructure.db.models import (
     RuntimeTargetPurgeORM,
 )
 from executor_service.interfaces.http.app import create_app
+from executor_service.settings import Settings
 
 
 class HealthyGateway:

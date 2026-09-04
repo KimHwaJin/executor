@@ -10,7 +10,6 @@ from executor_service.application.runtime_targets import (
     RuntimeTargetPurgeView,
     RuntimeTargetView,
 )
-from executor_service.config import Settings
 from executor_service.domain.enums import (
     RuntimePool,
     RuntimeTargetStatus,
@@ -27,6 +26,7 @@ from executor_service.infrastructure.runtime_admission import (
     count_runtime_reservations,
     session_count_is_fresh,
 )
+from executor_service.settings import Settings
 
 
 async def runtime_target_view(

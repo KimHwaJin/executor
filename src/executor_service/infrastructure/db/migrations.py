@@ -10,7 +10,7 @@ from alembic.config import Config
 from sqlalchemy import Connection, text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from executor_service.config import Settings
+from executor_service.settings import Settings
 
 logger = logging.getLogger(__name__)
 # Stable, database-local lock shared by all Executor releases and CLI runs.

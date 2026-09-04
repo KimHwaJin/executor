@@ -3,7 +3,6 @@
 import asyncio
 import logging
 
-from executor_service.config import Settings
 from executor_service.domain.enums import (
     ArtifactStatus,
     ExecutionStatus,
@@ -63,6 +62,7 @@ from executor_service.infrastructure.runtime_diagnostics import (
     log_runtime_failure,
 )
 from executor_service.infrastructure.workspace import WorkspaceManager
+from executor_service.settings import Settings
 
 logger = logging.getLogger(__name__)
 

@@ -11,7 +11,6 @@ from executor_service.application.commands import (
     StepSpec,
     SubmitExecutionCommand,
 )
-from executor_service.config import get_settings
 from executor_service.container import ApplicationContainer
 from executor_service.domain.enums import (
     ExecutionStatus,
@@ -27,6 +26,7 @@ from executor_service.infrastructure.db.models import (
     RuntimeTargetORM,
 )
 from executor_service.infrastructure.jupyter import JupyterRuntimeDriver
+from executor_service.settings import get_settings
 
 
 async def _wait_for(

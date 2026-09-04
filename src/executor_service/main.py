@@ -4,11 +4,11 @@ import sys
 
 import uvicorn
 
-from executor_service.config import get_settings
 from executor_service.container import ApplicationContainer
 from executor_service.event_loop import run_async
 from executor_service.interfaces.http.app import create_app
 from executor_service.logging_config import configure_logging
+from executor_service.settings import get_settings
 
 settings = get_settings()
 configure_logging(settings.log_config_file, settings.log_level)

@@ -35,7 +35,6 @@ from executor_service.application.maintenance_runs import (
     CreateMaintenanceRunCommand,
 )
 from executor_service.application.services import ExecutionService
-from executor_service.config import Settings
 from executor_service.container import EXPECTED_SCHEMA_REVISION
 from executor_service.domain.diagnostics import DiagnosticCategory
 from executor_service.domain.enums import (
@@ -119,6 +118,7 @@ from executor_service.infrastructure.result_storage import (
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
 )
+from executor_service.settings import Settings
 from scripts.postgres_query_plan_smoke import (
     ORDERED_EVENT_PUBLICATION_QUERY,
 )
@@ -170,7 +170,7 @@ async def test_startup_migrations_serialize_across_processes(
     url = postgres_engine.url.render_as_string(hide_password=False)
     await asyncio.to_thread(_downgrade_baseline, url)
     script = """
-from executor_service.config import Settings
+from executor_service.settings import Settings
 from executor_service.event_loop import run_async
 from executor_service.infrastructure.db.session import create_engine
 from executor_service.infrastructure.db.migrations import upgrade_database

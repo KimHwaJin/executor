@@ -1,8 +1,8 @@
 import httpx
 
-from executor_service.config import Settings
 from executor_service.container import ApplicationContainer
 from executor_service.interfaces.http.app import create_app
+from executor_service.settings import Settings
 
 
 async def test_health_endpoint() -> None:

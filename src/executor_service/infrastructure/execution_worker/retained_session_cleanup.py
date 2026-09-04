@@ -5,7 +5,6 @@ from datetime import timedelta
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from executor_service.config import Settings
 from executor_service.domain.enums import (
     ExecutionStatus,
     RetryStrategy,
@@ -30,6 +29,7 @@ from executor_service.infrastructure.execution_worker.execution_state import (
 from executor_service.infrastructure.execution_worker.session_recovery import (
     RuntimeSessionRecovery,
 )
+from executor_service.settings import Settings
 
 
 class RetainedSessionCleaner:

@@ -5,8 +5,8 @@ from typing import Any, cast
 import pytest
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from executor_service.config import Settings
 from executor_service.infrastructure.db import session as session_module
+from executor_service.settings import Settings
 
 
 def test_postgresql_engine_uses_bounded_queue_pool(

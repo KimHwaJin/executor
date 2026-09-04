@@ -1,4 +1,4 @@
-"""Environment-backed application settings."""
+"""Executor settings loaded from environment variables and .env."""
 
 from functools import lru_cache
 from pathlib import Path

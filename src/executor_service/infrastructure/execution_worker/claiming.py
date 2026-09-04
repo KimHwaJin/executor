@@ -7,7 +7,6 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
 
-from executor_service.config import Settings
 from executor_service.domain.enums import (
     AttemptStatus,
     ExecutionStatus,
@@ -48,6 +47,7 @@ from executor_service.infrastructure.execution_worker.types import (
 from executor_service.infrastructure.maintenance import (
     ExecutorMaintenanceService,
 )
+from executor_service.settings import Settings
 
 
 class ExecutionClaimer:
