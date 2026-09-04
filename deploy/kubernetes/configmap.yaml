@@ -6,7 +6,9 @@ metadata:
     app.kubernetes.io/name: executor
 data:
   APP_ENV: production
-  LOG_LEVEL: INFO
+  LOG_CONFIG_FILE: /app/logger.yml
+  # Optional root level override; otherwise logger.yml controls log levels.
+  # LOG_LEVEL: INFO
   HOST: 0.0.0.0
   PORT: "8000"
 

@@ -7,10 +7,11 @@ import uvicorn
 from executor_service.config import get_settings
 from executor_service.container import ApplicationContainer
 from executor_service.event_loop import run_async
-from executor_service.interfaces.http.app import configure_logging, create_app
+from executor_service.interfaces.http.app import create_app
+from executor_service.logging_config import configure_logging
 
 settings = get_settings()
-configure_logging(settings.log_level)
+configure_logging(settings.log_config_file, settings.log_level)
 container = ApplicationContainer(settings)
 app = create_app(container)
 
@@ -20,7 +21,8 @@ def run() -> None:
         "executor_service.main:app",
         host=settings.host,
         port=settings.port,
-        log_level=settings.log_level.lower(),
+        # Keep the shared YAML handlers, formats and levels for Uvicorn too.
+        log_config=None,
     )
     server = uvicorn.Server(config)
     if sys.platform == "win32":

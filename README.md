@@ -53,6 +53,37 @@ execution starts as `QUEUED`. Poll with `execution_get` or request cancellation 
 Operation through `execution_operation_create`. `execution_finalize` persists the final notebook and deletes the
 retained Runtime session. MCP Tasks are not required for this lifecycle.
 
+## Logging
+
+The repository-root `logger.yml` is a standard Python `logging.dictConfig`
+configuration. Executor module logs and Uvicorn server/access logs use its
+handlers and formatters. The default writes plain text to stdout, without log
+files, so Docker/Kubernetes log collection works without another volume.
+Jupyter and the separate test Agent retain their own logging configuration.
+
+- Edit `formatters.standard.format` to change the output format.
+- Edit `root.level` or individual `loggers` levels to change verbosity.
+- `LOG_CONFIG_FILE` selects the YAML file. Its local default is `logger.yml`
+  relative to the process working directory. For launches from another directory
+  or on Windows, set an absolute path, e.g. `C:/executor/logger.yml`.
+- `LOG_LEVEL`, when non-empty, overrides only `root.level`. Explicit levels on
+  individual loggers (such as `httpx: WARNING`) still take precedence. Unset it
+  to let YAML control all levels. Existing `.env` files may still contain this
+  override.
+- The Docker image contains `/app/logger.yml` and sets `LOG_CONFIG_FILE` to that
+  path. To customize without rebuilding, mount a ConfigMap-provided file, for
+  example `/etc/executor/logger.yml`, and set `LOG_CONFIG_FILE` accordingly.
+- Restart the service after changes. Missing or invalid configuration fails
+  startup explicitly rather than silently falling back to another log policy.
+
+Keep this file deployment-owned and trusted: dictConfig can instantiate Python
+handler/formatter factories. Do not put credentials in it. If adding file
+handlers, provision a writable directory for the non-root user separately;
+the read-only Kubernetes root filesystem is not suitable for log files.
+Runtime failure redaction and database diagnostics remain unchanged. This
+configuration does not add new request-body or code-output logging, nor does it
+automatically expose every `extra` field supplied by module loggers.
+
 ## External test harnesses
 
 Non-Executor systems used for local integration tests live under
