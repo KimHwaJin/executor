@@ -13,7 +13,6 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
-    Text,
     UniqueConstraint,
     Uuid,
     text,
@@ -95,13 +94,6 @@ class ExecutionEventORM(Base):
         enum_type(ActorType, "actor_type"), nullable=True
     )
     updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    # Inactive schema-only fields pending approval to discard stored traces.
-    traceparent: Mapped[str | None] = mapped_column(
-        String(512), nullable=True, deferred=True
-    )
-    tracestate: Mapped[str | None] = mapped_column(
-        Text, nullable=True, deferred=True
-    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
@@ -207,13 +199,6 @@ class OutboxEventORM(Base):
     updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
     status: Mapped[OutboxStatus] = mapped_column(
         enum_type(OutboxStatus, "outbox_status"), nullable=False
-    )
-    # Inactive schema-only fields pending approval to discard stored traces.
-    traceparent: Mapped[str | None] = mapped_column(
-        String(512), nullable=True, deferred=True
-    )
-    tracestate: Mapped[str | None] = mapped_column(
-        Text, nullable=True, deferred=True
     )
     attempt_count: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0

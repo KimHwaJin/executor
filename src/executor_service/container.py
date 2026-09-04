@@ -59,7 +59,7 @@ from executor_service.infrastructure.runtime_storage import (
     FleetRuntimeStorageAccess,
 )
 
-EXPECTED_SCHEMA_REVISION = "0003"
+EXPECTED_SCHEMA_REVISION = "0004"
 
 
 class ApplicationContainer:

@@ -151,6 +151,123 @@ def _downgrade_to_diagnostics(database_url: str) -> None:
     command.downgrade(config, "0002")
 
 
+def _downgrade_to_pre_trace_removal(database_url: str) -> None:
+    config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+    config.attributes["database_url"] = database_url
+    command.downgrade(config, "0003")
+
+
+async def test_trace_removal_preserves_business_rows_and_restores_only_schema(
+    postgres_engine: AsyncEngine, tmp_path: Path
+) -> None:
+    url = postgres_engine.url.render_as_string(hide_password=False)
+    await asyncio.to_thread(_downgrade_to_pre_trace_removal, url)
+    service = _service(postgres_engine, tmp_path)
+    execution = await service.submit(_command("remove-traces"))
+    event = build_execution_event(
+        execution_id=execution.id,
+        event_sequence=1,
+        event_type="execution.started",
+        payload={
+            "status": "RUNNING",
+            "runtime": {
+                "provider": "JUPYTER",
+                "profile": "basic",
+                "target_id": str(uuid4()),
+                "session_id": "migration-test-session",
+            },
+        },
+    )
+    factory = create_session_factory(postgres_engine)
+    async with factory() as session, session.begin():
+        session.add(ExecutionEventORM.from_domain(event))
+        session.add(OutboxEventORM.from_execution_event(event))
+
+    trace_tables = ("executions", "execution_events", "outbox_events")
+    # Include dependent history to detect unintended cascade/data changes.
+    tables = (*trace_tables, "execution_operations", "execution_steps")
+    before = {}
+    async with postgres_engine.begin() as connection:
+        for table in trace_tables:
+            await connection.execute(
+                text(
+                    f"UPDATE {table} SET traceparent=:parent, "
+                    "tracestate=:state"
+                ),
+                {"parent": "old-trace-parent", "state": "old-trace-state"},
+            )
+        for table in tables:
+            rows = (
+                (
+                    await connection.execute(
+                        text(f"SELECT * FROM {table} ORDER BY id")
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            assert rows
+            before[table] = [
+                {
+                    k: v
+                    for k, v in row.items()
+                    if k not in {"traceparent", "tracestate"}
+                }
+                for row in rows
+            ]
+
+    await asyncio.to_thread(_upgrade_and_check_baseline, url)
+    async with postgres_engine.connect() as connection:
+        for table in tables:
+            rows = (
+                (
+                    await connection.execute(
+                        text(f"SELECT * FROM {table} ORDER BY id")
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            assert [dict(row) for row in rows] == before[table]
+        columns = await connection.run_sync(
+            lambda sync: {
+                table: {c["name"] for c in inspect(sync).get_columns(table)}
+                for table in trace_tables
+            }
+        )
+        assert all(
+            not {"traceparent", "tracestate"} & names
+            for names in columns.values()
+        )
+
+    await asyncio.to_thread(_downgrade_to_pre_trace_removal, url)
+    async with postgres_engine.connect() as connection:
+        for table in trace_tables:
+            rows = (
+                (
+                    await connection.execute(
+                        text(f"SELECT * FROM {table} ORDER BY id")
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            assert all(
+                row["traceparent"] is None and row["tracestate"] is None
+                for row in rows
+            )
+            assert [
+                {
+                    k: v
+                    for k, v in row.items()
+                    if k not in {"traceparent", "tracestate"}
+                }
+                for row in rows
+            ] == before[table]
+    await asyncio.to_thread(_upgrade_and_check_baseline, url)
+    assert (await service.get(execution.id)).task_id == execution.task_id
+
+
 async def test_completion_upgrade_preserves_rows_and_blocks_lossy_downgrade(
     postgres_engine: AsyncEngine, tmp_path: Path
 ) -> None:
@@ -184,7 +301,7 @@ async def test_completion_upgrade_preserves_rows_and_blocks_lossy_downgrade(
             revision = await session.scalar(
                 text("SELECT version_num FROM alembic_version")
             )
-            assert revision == "0003"
+            assert revision == EXPECTED_SCHEMA_REVISION
             assert (
                 row is not None
                 and row.failure_type == FailureType.COMPLETION_FAILED
@@ -1400,7 +1517,7 @@ async def test_current_baseline_repeated_upgrade_preserves_events(
             text("SELECT count(*) FROM event_retention_lease")
         )
 
-    assert revision == EXPECTED_SCHEMA_REVISION == "0003"
+    assert revision == EXPECTED_SCHEMA_REVISION == "0004"
     assert maintenance_count == retention_count == 1
     assert migrated_event is not None
     assert migrated_event.execution_id == execution.id
@@ -1441,7 +1558,7 @@ async def test_current_baseline_downgrade_and_recreate(
             text("SELECT singleton_key FROM event_retention_lease")
         )
     assert tables == set(Base.metadata.tables) | {"alembic_version"}
-    assert revision == EXPECTED_SCHEMA_REVISION == "0003"
+    assert revision == EXPECTED_SCHEMA_REVISION == "0004"
     assert admission == "ACTIVE"
     assert retention_key == "events"
 

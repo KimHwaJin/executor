@@ -324,10 +324,9 @@ deletes, corrupts, or replaces after materialization.
   execution diagnostics, business IDs, and public event sequencing.
 - MCP SDK's transitive `opentelemetry-api` dependency remains; Executor does not
   configure a tracer provider, exporter, or span processor.
-- Pending approval: permanently discard existing `traceparent`/`tracestate`
-  columns and values in executions, execution_events, and outbox_events.
-  Until approved, nullable deferred ORM columns preserve the existing `0003`
-  schema without service/domain reads or writes of trace context.
+- Approved: permanently discard existing `traceparent`/`tracestate` columns and
+  values in executions, execution_events, and outbox_events. Migration `0004`
+  removes them and their ORM declarations, preserving business history.
 - Previously queued Redis work messages may contain those fields; the reader
   discards only those two keys and keeps strict validation for all other fields.
 - Details: [Removal and deployment](opentelemetry-removal.md).

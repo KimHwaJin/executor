@@ -287,14 +287,6 @@ class ExecutionORM(Base):
         DateTime(timezone=True), nullable=True, index=True
     )
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    # Inactive schema-only fields pending approval to discard stored traces.
-    # No service/domain mapping reads or writes these values.
-    traceparent: Mapped[str | None] = mapped_column(
-        String(512), nullable=True, deferred=True
-    )
-    tracestate: Mapped[str | None] = mapped_column(
-        Text, nullable=True, deferred=True
-    )
     created_by_type: Mapped[ActorType | None] = mapped_column(
         enum_type(ActorType, "actor_type"), nullable=True
     )
