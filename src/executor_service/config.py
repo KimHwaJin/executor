@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     database_pool_timeout_seconds: float = Field(default=30, gt=0)
     database_pool_recycle_seconds: int = Field(default=1800, ge=1)
     database_connect_timeout_seconds: int = Field(default=10, ge=1)
+    db_auto_migrate: bool = False
+    db_migrations_path: Path = Path("migrations")
+    db_migration_lock_timeout_seconds: int = Field(default=60, ge=1)
+    db_migration_statement_timeout_seconds: int = Field(default=300, ge=1)
     redis_url: SecretStr = SecretStr("redis://localhost:6379/0")
     redis_work_stream: str = Field(default="executor.work", min_length=1)
     redis_event_stream: str = Field(default="executor.events", min_length=1)

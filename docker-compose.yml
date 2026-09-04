@@ -28,19 +28,6 @@ services:
     volumes:
       - executor-redis:/data
 
-  migrate:
-    image: executor-service:local
-    build:
-      context: .
-      dockerfile: Dockerfile
-    command: ["alembic", "upgrade", "head"]
-    environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-executor}:${POSTGRES_PASSWORD:-executor}@postgres:5432/${POSTGRES_DB:-executor}
-    depends_on:
-      postgres:
-        condition: service_healthy
-    restart: "no"
-
   jupyter:
     image: executor-jupyter:local
     build:
@@ -81,6 +68,10 @@ services:
       DATABASE_POOL_TIMEOUT_SECONDS: ${DATABASE_POOL_TIMEOUT_SECONDS:-30}
       DATABASE_POOL_RECYCLE_SECONDS: ${DATABASE_POOL_RECYCLE_SECONDS:-1800}
       DATABASE_CONNECT_TIMEOUT_SECONDS: ${DATABASE_CONNECT_TIMEOUT_SECONDS:-10}
+      DB_AUTO_MIGRATE: ${DB_AUTO_MIGRATE:-true}
+      DB_MIGRATIONS_PATH: /app/migrations
+      DB_MIGRATION_LOCK_TIMEOUT_SECONDS: ${DB_MIGRATION_LOCK_TIMEOUT_SECONDS:-60}
+      DB_MIGRATION_STATEMENT_TIMEOUT_SECONDS: ${DB_MIGRATION_STATEMENT_TIMEOUT_SECONDS:-300}
       REDIS_URL: redis://redis:6379/0
       REDIS_WORK_STREAM: ${REDIS_WORK_STREAM:-executor.work}
       REDIS_EVENT_STREAM: ${REDIS_EVENT_STREAM:-executor.events}
@@ -120,8 +111,8 @@ services:
       retries: 20
       start_period: 10s
     depends_on:
-      migrate:
-        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
     volumes:

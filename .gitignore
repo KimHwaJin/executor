@@ -11,6 +11,7 @@ wheels/
 test_harness/jupyter/.native/
 .env
 deploy/kubernetes/secret.yaml
+deploy/kubernetes/deployment.local.yaml
 .pytest_cache/
 .ruff_cache/
 .coverage

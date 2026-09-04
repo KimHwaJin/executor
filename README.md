@@ -280,6 +280,15 @@ uv run alembic current
 uv run alembic check
 ```
 
+To migrate automatically before the API/Worker starts, set `DB_AUTO_MIGRATE=true`.
+The application default is false; the example `.env` and Docker Compose opt in.
+With it disabled, run the Alembic commands above before starting the service.
+Automatic and CLI migrations share a PostgreSQL transaction lock. A migration failure
+stops startup; an up-to-date database is left unchanged. Migrations require existing
+database credentials with schema DDL privileges. Do not overlap old application processes
+with incompatible schema changes. See [startup migrations](docs/startup-migrations.md).
+The Kubernetes sample uses inline Deployment settings, not ConfigMap/Secret/Job resources.
+
 Revision `0001` is the complete 2026-08-31 schema baseline. Revision `0002` adds
 execution diagnostic history; `0003` permits non-retryable `COMPLETION_FAILED`
 failures when required post-code delivery fails. Neither upgrade deletes data.
