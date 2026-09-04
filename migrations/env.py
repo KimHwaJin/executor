@@ -7,11 +7,11 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from executor_service.config import get_settings
 from executor_service.event_loop import run_async
 from executor_service.infrastructure.db import models as _models  # noqa: F401
 from executor_service.infrastructure.db.base import Base
 from executor_service.infrastructure.db.migrations import migration_transaction
+from executor_service.settings import get_settings
 
 config = context.config
 if config.config_file_name is not None and config.attributes.get(

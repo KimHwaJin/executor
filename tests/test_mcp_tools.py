@@ -10,7 +10,6 @@ from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from executor_service.application.services import ExecutionService
-from executor_service.config import Settings
 from executor_service.domain.enums import (
     ExecutionStatus,
     OperationStatus,
@@ -29,6 +28,7 @@ from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
 )
 from executor_service.interfaces.mcp.server import build_mcp_server
+from executor_service.settings import Settings
 
 SUBMIT_ARGUMENTS: dict[str, Any] = {
     "request": {

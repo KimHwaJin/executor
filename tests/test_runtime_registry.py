@@ -9,7 +9,6 @@ from executor_service.application.runtime_targets import (
     SetRuntimeTargetStateCommand,
     UpsertRuntimeTargetCommand,
 )
-from executor_service.config import Settings
 from executor_service.domain.enums import RuntimePool, RuntimeTargetStatus
 from executor_service.domain.errors import (
     IdempotencyConflictError,
@@ -20,6 +19,7 @@ from executor_service.infrastructure.db.session import create_session_factory
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
 )
+from executor_service.settings import Settings
 
 
 @pytest.mark.asyncio

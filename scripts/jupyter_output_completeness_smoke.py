@@ -26,7 +26,6 @@ from executor_service.application.commands import (
     SubmitExecutionCommand,
 )
 from executor_service.application.services import ExecutionService
-from executor_service.config import Settings
 from executor_service.domain.enums import (
     ExecutionStatus,
     FailureType,
@@ -68,6 +67,7 @@ from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
 )
 from executor_service.interfaces._contracts.steps import ExecutionStepResponse
+from executor_service.settings import Settings
 
 
 def workload(scenario: str, size_mib: int = 5) -> str:

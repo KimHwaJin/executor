@@ -15,7 +15,6 @@ from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from executor_service.application.services import ExecutionService
-from executor_service.config import Settings
 from executor_service.container import ApplicationContainer
 from executor_service.domain.diagnostics import DiagnosticCategory as Category
 from executor_service.domain.enums import RuntimePool, RuntimeTargetStatus
@@ -49,6 +48,7 @@ from executor_service.infrastructure.result_storage import (
     FilesystemExecutionResultStore,
 )
 from executor_service.interfaces.http.app import create_app
+from executor_service.settings import Settings
 from tests.runtime_credentials import runtime_credential_fields
 from tests.test_multi_lifecycle import _multi_command, _worker
 from tests.test_runtime_failure_evidence import EvidenceDriver

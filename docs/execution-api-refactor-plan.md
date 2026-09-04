@@ -225,7 +225,7 @@ examples, and tests together.
 
 ## Change map
 
-- `config.py`: Step cardinality settings.
+- `settings.py`: Step cardinality settings.
 - `interfaces/contracts.py`: compact Result, Operation summary, Attempt Step result-reference, and
   Notebook summary/full contracts.
 - `interfaces/http/executions.py`: filters, Location, Step query, Notebook modes, Artifact content,

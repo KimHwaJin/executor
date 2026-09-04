@@ -14,8 +14,8 @@ from pathlib import Path
 from redis.asyncio import Redis
 from redis.exceptions import ResponseError
 
-from executor_service.config import get_settings
 from executor_service.events import ExecutionStreamEnvelope
+from executor_service.settings import get_settings
 
 TERMINAL_EVENT_TYPES = {
     "execution.completed",

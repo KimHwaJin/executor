@@ -15,7 +15,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from executor_service.application.services import ExecutionService
-from executor_service.config import Settings
 from executor_service.domain.enums import OutboxStatus
 from executor_service.domain.runtime import RuntimeDriverError
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
@@ -33,6 +32,7 @@ from executor_service.infrastructure.outbox import OutboxPublisher
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
 )
+from executor_service.settings import Settings
 from executor_service.work_messages import WorkStreamEnvelope
 from tests.test_events import RecordingRedis
 from tests.test_work_admission import _command

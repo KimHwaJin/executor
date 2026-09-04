@@ -6,12 +6,12 @@ from unittest.mock import AsyncMock
 import pytest
 import yaml
 
-from executor_service.config import Settings
 from executor_service.container import ApplicationContainer
 from executor_service.infrastructure.db.migrations import (
     DatabaseMigrationError,
 )
 from executor_service.interfaces.http.app import create_app
+from executor_service.settings import Settings
 
 ROOT = Path(__file__).resolve().parents[1]
 

@@ -5,8 +5,8 @@ from dataclasses import dataclass
 
 from sqlalchemy import text
 
-from executor_service.config import get_settings
 from executor_service.infrastructure.db.session import create_engine
+from executor_service.settings import get_settings
 
 ORDERED_EVENT_PUBLICATION_QUERY = (
     "SELECT current_event.id FROM outbox_events AS current_event "

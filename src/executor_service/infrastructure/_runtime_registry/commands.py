@@ -11,7 +11,6 @@ from executor_service.application.runtime_targets import (
     SetRuntimeTargetStateCommand,
     UpsertRuntimeTargetCommand,
 )
-from executor_service.config import Settings
 from executor_service.domain.enums import RuntimeTargetStatus
 from executor_service.domain.errors import (
     IdempotencyConflictError,
@@ -49,6 +48,7 @@ from executor_service.infrastructure.db.models import (
     RuntimeTargetORM,
     RuntimeTargetPurgeORM,
 )
+from executor_service.settings import Settings
 
 
 class RuntimeTargetCommands:

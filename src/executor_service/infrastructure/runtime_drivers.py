@@ -2,10 +2,10 @@
 
 from typing import Any
 
-from executor_service.config import Settings
 from executor_service.domain.enums import RuntimeType
 from executor_service.domain.runtime import RuntimeDriver, RuntimeDriverError
 from executor_service.infrastructure.jupyter import JupyterRuntimeDriver
+from executor_service.settings import Settings
 
 
 class ConfiguredRuntimeDriverFactory:

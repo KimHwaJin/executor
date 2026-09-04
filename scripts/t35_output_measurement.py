@@ -28,12 +28,12 @@ from local_test_support import (
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from executor_service.config import get_settings
 from executor_service.domain.results import StepResultReference
 from executor_service.infrastructure.db.session import create_engine
 from executor_service.infrastructure.result_storage import (
     FilesystemExecutionResultStore,
 )
+from executor_service.settings import get_settings
 
 MIB = 1024 * 1024
 TERMINAL_STATUSES = {"SUCCEEDED", "FAILED", "CANCELLED"}
@@ -223,7 +223,7 @@ async def executor_output_limit_bytes(container: str) -> int:
         "python",
         "-c",
         (
-            "from executor_service.config import get_settings; "
+            "from executor_service.settings import get_settings; "
             "print(get_settings().runtime_max_output_message_bytes)"
         ),
     )

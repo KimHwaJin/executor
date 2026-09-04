@@ -15,7 +15,6 @@ from executor_service.application.runtime_targets import (
     RuntimePoolView,
     RuntimeTargetView,
 )
-from executor_service.config import Settings
 from executor_service.domain.enums import (
     RuntimePool,
     RuntimeTargetStatus,
@@ -29,6 +28,7 @@ from executor_service.infrastructure._runtime_registry.targets import (
     required_target,
 )
 from executor_service.infrastructure.db.models import RuntimeTargetORM
+from executor_service.settings import Settings
 
 
 class RuntimeTargetQueries:

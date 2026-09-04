@@ -13,7 +13,6 @@ from redis.exceptions import ResponseError
 from sqlalchemy import delete, exists, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from executor_service.config import Settings
 from executor_service.domain.enums import ExecutionStatus, OutboxStatus
 from executor_service.domain.models import utc_now
 from executor_service.infrastructure.db.models import (
@@ -22,6 +21,7 @@ from executor_service.infrastructure.db.models import (
     ExecutionORM,
     OutboxEventORM,
 )
+from executor_service.settings import Settings
 
 logger = logging.getLogger(__name__)
 

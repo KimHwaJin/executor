@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from executor_service.config import Settings
 from executor_service.event_loop import run_async
+from executor_service.settings import Settings
 
 
 def test_comma_separated_lists_load_from_dotenv(tmp_path: Path) -> None:

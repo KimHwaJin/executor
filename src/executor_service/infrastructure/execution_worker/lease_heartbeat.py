@@ -6,7 +6,6 @@ from datetime import timedelta
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from executor_service.config import Settings
 from executor_service.domain.enums import AttemptStatus, ExecutionStatus
 from executor_service.domain.models import utc_now
 from executor_service.infrastructure.db.models import (
@@ -20,6 +19,7 @@ from executor_service.infrastructure.execution_leases import (
     require_active_cancellation_lease,
     require_active_lease,
 )
+from executor_service.settings import Settings
 
 
 class LeaseHeartbeatManager:

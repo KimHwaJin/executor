@@ -4,9 +4,9 @@ import asyncio
 import os
 from uuid import uuid4
 
-from executor_service.config import get_settings
 from executor_service.domain.enums import RuntimeAbortStatus
 from executor_service.infrastructure.jupyter import JupyterRuntimeDriver
+from executor_service.settings import get_settings
 
 
 async def _expect_timeout(

@@ -7,12 +7,12 @@ from collections.abc import Awaitable, Callable
 from redis.asyncio import Redis
 from redis.exceptions import ResponseError
 
-from executor_service.config import Settings
 from executor_service.domain.models import utc_now
 from executor_service.infrastructure.execution_worker.message_validation import (
     invalid_work_message_reason,
     valid_uuid_or_empty,
 )
+from executor_service.settings import Settings
 
 logger = logging.getLogger(__name__)
 

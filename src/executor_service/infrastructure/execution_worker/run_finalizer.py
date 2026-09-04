@@ -7,7 +7,6 @@ from uuid import UUID
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from executor_service.config import Settings
 from executor_service.domain.diagnostics import DiagnosticCategory
 from executor_service.domain.enums import (
     AttemptStatus,
@@ -54,6 +53,7 @@ from executor_service.infrastructure.runtime_diagnostics import (
     failure_message,
     log_runtime_failure,
 )
+from executor_service.settings import Settings
 
 logger = logging.getLogger(__name__)
 

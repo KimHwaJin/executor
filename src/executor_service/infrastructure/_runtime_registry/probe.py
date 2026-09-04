@@ -6,7 +6,6 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from executor_service.application.runtime_targets import RuntimeTargetView
-from executor_service.config import Settings
 from executor_service.domain.enums import ActorType, RuntimeTargetStatus
 from executor_service.domain.models import utc_now
 from executor_service.domain.runtime import RuntimeResourceObservation
@@ -30,6 +29,7 @@ from executor_service.infrastructure.runtime_diagnostics import (
 from executor_service.infrastructure.runtime_drivers import (
     ConfiguredRuntimeDriverFactory,
 )
+from executor_service.settings import Settings
 
 logger = logging.getLogger(__name__)
 

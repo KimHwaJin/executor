@@ -5,7 +5,6 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from executor_service.config import Settings
 from executor_service.domain.enums import OperationMode, RuntimePool
 from executor_service.domain.results import ExecutionResultStore
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
@@ -38,6 +37,7 @@ from executor_service.infrastructure.execution_worker.step_executor import (
     ExecutionStepExecutor,
 )
 from executor_service.infrastructure.workspace import WorkspaceManager
+from executor_service.settings import Settings
 
 
 class ExecutionRunner:

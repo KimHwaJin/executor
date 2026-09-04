@@ -12,7 +12,6 @@ from executor_service.application.commands import (
     SubmitExecutionCommand,
 )
 from executor_service.application.services import ExecutionService
-from executor_service.config import Settings
 from executor_service.domain.enums import (
     AttemptStatus,
     ExecutionStatus,
@@ -35,6 +34,7 @@ from executor_service.infrastructure.execution_worker import ExecutionWorker
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
 )
+from executor_service.settings import Settings
 from tests.runtime_credentials import runtime_credential_fields
 
 
