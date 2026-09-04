@@ -30,11 +30,19 @@ def test_standalone_package_does_not_reference_test_harness() -> None:
             assert "test_harness" not in path.read_text(), path
 
 
-def test_uv_is_pinned_and_uses_a_build_only_default_index() -> None:
+def test_uv_base_images_and_build_only_default_index() -> None:
     dockerfile = (PACKAGE / "Dockerfile").read_text()
-    assert "ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.12.8" in dockerfile
+    for root in (PACKAGE, HARNESS):
+        image_definition = (root / "Dockerfile").read_text()
+        for version in ("3.10", "3.11"):
+            argument = "PYTHON" + version.replace(".", "") + "_IMAGE"
+            assert (
+                f"ARG {argument}=astral/uv:python{version}-bookworm-slim"
+                in image_definition
+            )
+        assert "COPY --from=uv " not in image_definition
+        assert "        curl \\" in image_definition
     assert "ARG UV_DEFAULT_INDEX=https://pypi.org/simple" in dockerfile
-    assert dockerfile.count("COPY --from=uv /uv /uvx /bin/") == 2
     assert dockerfile.count("ARG UV_DEFAULT_INDEX") == 3
     assert "UV_NO_CACHE=1" in dockerfile
     assert "UV_LINK_MODE=copy" in dockerfile
@@ -75,14 +83,14 @@ def test_kernel_environments_are_independent() -> None:
         assert any(item.startswith("ipykernel") for item in dependencies)
     assert projects["server"]["project"]["requires-python"] == "==3.11.*"
     assert projects["default"]["project"]["requires-python"] == "==3.11.*"
-    assert projects["3102311"]["project"]["requires-python"] == "==3.10.11"
+    assert projects["3102311"]["project"]["requires-python"] == ">=3.10,<3.11"
     assert len(projects["3102311"]["project"]["dependencies"]) == 1
     assert any(
         item.startswith("pandas")
         for item in projects["default"]["project"]["dependencies"]
     )
-    assert "FROM python:3.10.11-slim-bullseye AS python310" in dockerfile
-    assert "FROM python:3.11-slim-bullseye" in dockerfile
+    assert "FROM ${PYTHON310_IMAGE} AS python310" in dockerfile
+    assert "FROM ${PYTHON311_IMAGE}" in dockerfile
     assert "python310-compat" not in dockerfile
     assert "LD_LIBRARY_PATH" not in dockerfile
     assert dockerfile.count("uv sync --project") == 3
