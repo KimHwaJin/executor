@@ -283,8 +283,12 @@ uv run alembic check
 Revision `0001` is the complete 2026-08-31 schema baseline. Revision `0002` adds
 execution diagnostic history; `0003` permits non-retryable `COMPLETION_FAILED`
 failures when required post-code delivery fails. Neither upgrade deletes data.
+Revision `0004` removes only the approved obsolete trace columns and their values;
+Execution, Step, event and Outbox business history is preserved.
 Databases built from that baseline can run `alembic upgrade head` directly;
-current head is `0003`. See [required-result completion](docs/required-result-completion.md)
+current head is `0004`. Stop old Executor processes before this schema change;
+see [OpenTelemetry removal](docs/opentelemetry-removal.md) for deployment and rollback.
+See [required-result completion](docs/required-result-completion.md)
 for Step versus Operation/Execution success semantics.
 Background cleanup/probe failures use the existing diagnostics API; see
 [Background Runtime Diagnostics](docs/background-runtime-diagnostics.md) for

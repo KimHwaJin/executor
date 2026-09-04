@@ -57,10 +57,12 @@ def test_executor_has_no_opentelemetry_imports_or_settings() -> None:
 @pytest.mark.parametrize(
     "model", [ExecutionORM, ExecutionEventORM, OutboxEventORM]
 )
-def test_preserved_schema_fields_are_not_loaded_by_normal_queries(
+def test_schema_and_queries_have_no_trace_fields(
     model: type[ExecutionORM] | type[ExecutionEventORM] | type[OutboxEventORM],
 ) -> None:
-    assert {"traceparent", "tracestate"} <= set(model.__table__.columns.keys())
+    assert not {"traceparent", "tracestate"} & set(
+        model.__table__.columns.keys()
+    )
     statement = str(select(model))
     assert "traceparent" not in statement
     assert "tracestate" not in statement
