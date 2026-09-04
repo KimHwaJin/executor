@@ -286,9 +286,15 @@ class ExecutionORM(Base):
     execution_expires_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, index=True
     )
-    traceparent: Mapped[str | None] = mapped_column(String(512), nullable=True)
-    tracestate: Mapped[str | None] = mapped_column(Text, nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Inactive schema-only fields pending approval to discard stored traces.
+    # No service/domain mapping reads or writes these values.
+    traceparent: Mapped[str | None] = mapped_column(
+        String(512), nullable=True, deferred=True
+    )
+    tracestate: Mapped[str | None] = mapped_column(
+        Text, nullable=True, deferred=True
+    )
     created_by_type: Mapped[ActorType | None] = mapped_column(
         enum_type(ActorType, "actor_type"), nullable=True
     )
@@ -372,8 +378,6 @@ class ExecutionORM(Base):
             active_operation_id=execution.active_operation_id,
             operation_wait_expires_at=execution.operation_wait_expires_at,
             execution_expires_at=execution.execution_expires_at,
-            traceparent=execution.traceparent,
-            tracestate=execution.tracestate,
             version=execution.version,
             created_at=execution.created_at,
             updated_at=execution.updated_at,
@@ -434,8 +438,6 @@ class ExecutionORM(Base):
             active_operation_id=self.active_operation_id,
             operation_wait_expires_at=self.operation_wait_expires_at,
             execution_expires_at=self.execution_expires_at,
-            traceparent=self.traceparent,
-            tracestate=self.tracestate,
             version=self.version,
             created_at=self.created_at,
             updated_at=self.updated_at,

@@ -7,7 +7,6 @@ from datetime import datetime, timedelta
 from typing import cast
 from uuid import UUID
 
-from opentelemetry.trace import SpanKind
 from redis.asyncio import Redis
 from redis.typing import EncodableT, FieldT
 from sqlalchemy import exists, or_, select, tuple_
@@ -18,11 +17,6 @@ from executor_service.domain.enums import OutboxDestination, OutboxStatus
 from executor_service.domain.models import utc_now
 from executor_service.events import validate_execution_event_payload
 from executor_service.infrastructure.db.models import OutboxEventORM
-from executor_service.tracing import (
-    TracingManager,
-    capture_trace_carrier,
-    extract_trace_context,
-)
 from executor_service.work_messages import validate_work_payload
 
 logger = logging.getLogger(__name__)
@@ -37,7 +31,6 @@ class OutboxPublisher:
         event_stream_name: str,
         poll_interval_seconds: float,
         batch_size: int,
-        tracing: TracingManager,
     ) -> None:
         self._session_factory = session_factory
         self._redis = redis
@@ -47,7 +40,6 @@ class OutboxPublisher:
         }
         self._poll_interval_seconds = poll_interval_seconds
         self._batch_size = batch_size
-        self._tracing = tracing
         self._task: asyncio.Task[None] | None = None
         self._stop_event = asyncio.Event()
 
@@ -155,73 +147,50 @@ class OutboxPublisher:
                         and payload != event.payload
                     ):
                         event.payload = payload
-                    context = extract_trace_context(
-                        {
-                            "traceparent": event.traceparent or "",
-                            "tracestate": event.tracestate or "",
-                        }
-                    )
-                    with self._tracing.span(
-                        "executor.outbox.publish",
-                        context=context,
-                        kind=SpanKind.PRODUCER,
-                        attributes={
-                            "executor.event.id": str(event.id),
-                            "executor.event.type": event.event_type,
-                            "executor.execution.id": str(event.aggregate_id),
-                        },
-                    ):
-                        if event.destination == OutboxDestination.WORK:
-                            fields = cast(
-                                dict[FieldT, EncodableT],
-                                {
-                                    "message_id": str(event.id),
-                                    "message_type": event.event_type,
-                                    "schema_version": str(
-                                        payload["schema_version"]
-                                    ),
-                                    "aggregate_type": event.aggregate_type,
-                                    "aggregate_id": str(event.aggregate_id),
-                                    "occurred_at": event.created_at.isoformat(),
-                                    "payload": json.dumps(
-                                        payload, separators=(",", ":")
-                                    ),
-                                },
-                            )
-                            carrier = capture_trace_carrier()
-                            if carrier.traceparent:
-                                fields["traceparent"] = carrier.traceparent
-                            if carrier.tracestate:
-                                fields["tracestate"] = carrier.tracestate
-                        else:
-                            public_event = event.execution_event
-                            if public_event is None:
-                                raise ValueError(
-                                    "Durable Execution event is required."
-                                )
-                            fields = cast(
-                                dict[FieldT, EncodableT],
-                                {
-                                    "event_id": str(public_event.id),
-                                    "event_type": public_event.event_type,
-                                    "schema_version": public_event.schema_version,
-                                    "execution_id": str(
-                                        public_event.execution_id
-                                    ),
-                                    "event_sequence": str(
-                                        public_event.event_sequence
-                                    ),
-                                    "payload": json.dumps(
-                                        payload, separators=(",", ":")
-                                    ),
-                                    "occurred_at": (
-                                        public_event.created_at.isoformat()
-                                    ),
-                                },
-                            )
-                        await self._redis.xadd(
-                            self._stream_names[event.destination], fields
+                    if event.destination == OutboxDestination.WORK:
+                        fields = cast(
+                            dict[FieldT, EncodableT],
+                            {
+                                "message_id": str(event.id),
+                                "message_type": event.event_type,
+                                "schema_version": str(
+                                    payload["schema_version"]
+                                ),
+                                "aggregate_type": event.aggregate_type,
+                                "aggregate_id": str(event.aggregate_id),
+                                "occurred_at": event.created_at.isoformat(),
+                                "payload": json.dumps(
+                                    payload, separators=(",", ":")
+                                ),
+                            },
                         )
+                    else:
+                        public_event = event.execution_event
+                        if public_event is None:
+                            raise ValueError(
+                                "Durable Execution event is required."
+                            )
+                        fields = cast(
+                            dict[FieldT, EncodableT],
+                            {
+                                "event_id": str(public_event.id),
+                                "event_type": public_event.event_type,
+                                "schema_version": public_event.schema_version,
+                                "execution_id": str(public_event.execution_id),
+                                "event_sequence": str(
+                                    public_event.event_sequence
+                                ),
+                                "payload": json.dumps(
+                                    payload, separators=(",", ":")
+                                ),
+                                "occurred_at": (
+                                    public_event.created_at.isoformat()
+                                ),
+                            },
+                        )
+                    await self._redis.xadd(
+                        self._stream_names[event.destination], fields
+                    )
                     event.status = OutboxStatus.PUBLISHED
                     event.published_at = utc_now()
                     event.last_error = None

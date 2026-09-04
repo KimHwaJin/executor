@@ -12,7 +12,6 @@ from executor_service.infrastructure.runtime_diagnostics import (
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
 )
-from executor_service.tracing import TracingManager
 
 logger = logging.getLogger(__name__)
 
@@ -40,8 +39,7 @@ class RuntimeDriverProvider:
         )
 
 
-async def trace_runtime[T](
-    tracing: TracingManager,
+async def run_runtime_operation[T](
     name: str,
     operation: Awaitable[T],
     *,
@@ -49,22 +47,15 @@ async def trace_runtime[T](
     target_id: UUID,
     sequence: int | None = None,
 ) -> T:
-    attributes: dict[str, object] = {
-        "executor.execution.id": str(execution_id),
-        "executor.runtime.target.id": str(target_id),
-    }
-    if sequence is not None:
-        attributes["executor.step.sequence"] = sequence
-    with tracing.span(name, attributes=attributes):
-        try:
-            return await operation
-        except Exception as exc:
-            log_runtime_failure(
-                logger,
-                exc,
-                phase=name,
-                execution_id=execution_id,
-                target_id=target_id,
-                sequence=sequence,
-            )
-            raise
+    try:
+        return await operation
+    except Exception as exc:
+        log_runtime_failure(
+            logger,
+            exc,
+            phase=name,
+            execution_id=execution_id,
+            target_id=target_id,
+            sequence=sequence,
+        )
+        raise

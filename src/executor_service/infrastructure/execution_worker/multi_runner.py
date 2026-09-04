@@ -41,7 +41,7 @@ from executor_service.infrastructure.execution_worker.run_finalizer import (
 )
 from executor_service.infrastructure.execution_worker.runtime_calls import (
     RuntimeDriverProvider,
-    trace_runtime,
+    run_runtime_operation,
 )
 from executor_service.infrastructure.execution_worker.runtime_cleanup import (
     best_effort_session_stop,
@@ -59,7 +59,6 @@ from executor_service.infrastructure.runtime_diagnostics import (
     log_runtime_failure,
 )
 from executor_service.infrastructure.workspace import WorkspaceManager
-from executor_service.tracing import TracingManager
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +77,6 @@ class MultiExecutionRunner:
         finalizer: ExecutionRunFinalizer,
         operation_state: MultiOperationState,
         driver_provider: RuntimeDriverProvider,
-        tracing: TracingManager,
     ) -> None:
         self._artifacts = artifacts
         self._result_store = result_store
@@ -89,7 +87,6 @@ class MultiExecutionRunner:
         self._finalizer = finalizer
         self._multi_operation_state = operation_state
         self._driver_provider = driver_provider
-        self._tracing = tracing
 
     async def run(
         self,
@@ -105,16 +102,14 @@ class MultiExecutionRunner:
         runtime_session_id = execution.runtime_session_id
         try:
             workspace = self._workspace.plan(execution)
-            await trace_runtime(
-                self._tracing,
+            await run_runtime_operation(
                 "executor.runtime.workspace.prepare",
                 driver.prepare_workspace(workspace.runtime_relative_path),
                 execution_id=execution.id,
                 target_id=target.id,
             )
             if runtime_session_id is None:
-                runtime_session_id = await trace_runtime(
-                    self._tracing,
+                runtime_session_id = await run_runtime_operation(
                     "executor.runtime.session.start",
                     driver.start_session(
                         execution.runtime_profile,
@@ -143,8 +138,7 @@ class MultiExecutionRunner:
                     sequence=last_sequence,
                 )
                 await self._lease_heartbeat.assert_execution(lease)
-                await trace_runtime(
-                    self._tracing,
+                await run_runtime_operation(
                     "executor.runtime.session.delete",
                     self._finalizer.release_completed_session(
                         lease, driver, runtime_session_id
@@ -194,8 +188,7 @@ class MultiExecutionRunner:
                 )
                 await self._step_executor.mark_started(lease, pending.sequence)
                 try:
-                    result = await trace_runtime(
-                        self._tracing,
+                    result = await run_runtime_operation(
                         "executor.runtime.code.execute",
                         self._step_executor.execute(
                             driver,

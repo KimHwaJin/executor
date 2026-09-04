@@ -95,8 +95,13 @@ class ExecutionEventORM(Base):
         enum_type(ActorType, "actor_type"), nullable=True
     )
     updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    traceparent: Mapped[str | None] = mapped_column(String(512), nullable=True)
-    tracestate: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Inactive schema-only fields pending approval to discard stored traces.
+    traceparent: Mapped[str | None] = mapped_column(
+        String(512), nullable=True, deferred=True
+    )
+    tracestate: Mapped[str | None] = mapped_column(
+        Text, nullable=True, deferred=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
@@ -117,8 +122,6 @@ class ExecutionEventORM(Base):
             created_by=event.created_by,
             updated_by_type=event.updated_by_type,
             updated_by=event.updated_by,
-            traceparent=event.traceparent,
-            tracestate=event.tracestate,
             created_at=event.created_at,
             updated_at=event.updated_at,
         )
@@ -202,10 +205,15 @@ class OutboxEventORM(Base):
         enum_type(ActorType, "actor_type"), nullable=True
     )
     updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    traceparent: Mapped[str | None] = mapped_column(String(512), nullable=True)
-    tracestate: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[OutboxStatus] = mapped_column(
         enum_type(OutboxStatus, "outbox_status"), nullable=False
+    )
+    # Inactive schema-only fields pending approval to discard stored traces.
+    traceparent: Mapped[str | None] = mapped_column(
+        String(512), nullable=True, deferred=True
+    )
+    tracestate: Mapped[str | None] = mapped_column(
+        Text, nullable=True, deferred=True
     )
     attempt_count: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0
@@ -242,8 +250,6 @@ class OutboxEventORM(Base):
             created_by=event.created_by,
             updated_by_type=event.updated_by_type,
             updated_by=event.updated_by,
-            traceparent=event.traceparent,
-            tracestate=event.tracestate,
             status=event.status,
             attempt_count=event.attempt_count,
             available_at=event.available_at,
@@ -267,8 +273,6 @@ class OutboxEventORM(Base):
             created_by=event.created_by,
             updated_by_type=event.updated_by_type,
             updated_by=event.updated_by,
-            traceparent=event.traceparent,
-            tracestate=event.tracestate,
             status=OutboxStatus.PENDING,
             attempt_count=0,
             available_at=event.created_at,

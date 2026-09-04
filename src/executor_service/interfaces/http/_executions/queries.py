@@ -17,7 +17,6 @@ from executor_service.interfaces.http._executions.common import (
     Cursor,
     ExecutionLimit,
     execution_router,
-    trace_call,
 )
 
 
@@ -25,7 +24,6 @@ def build_query_router(container: ApplicationContainer) -> APIRouter:
     router = execution_router()
     execution_queries = container.execution_queries
     execution_results = container.execution_results
-    tracing = container.tracing
 
     @router.get(
         "/executions",
@@ -63,12 +61,7 @@ def build_query_router(container: ApplicationContainer) -> APIRouter:
         summary="Get current execution state",
     )
     async def get_execution(execution_id: UUID) -> ExecutionResponse:
-        execution = await trace_call(
-            tracing,
-            "executor.http.execution_get",
-            execution_queries.execution(execution_id),
-            {"executor.execution.id": str(execution_id)},
-        )
+        execution = await execution_queries.execution(execution_id)
         return ExecutionResponse.from_view(execution)
 
     @router.get(
@@ -80,12 +73,7 @@ def build_query_router(container: ApplicationContainer) -> APIRouter:
     async def get_execution_result(
         execution_id: UUID,
     ) -> ExecutionResultResponse:
-        bundle = await trace_call(
-            tracing,
-            "executor.http.execution_result_get",
-            execution_results.execution(execution_id),
-            {"executor.execution.id": str(execution_id)},
-        )
+        bundle = await execution_results.execution(execution_id)
         return ExecutionResultResponse.from_bundle(bundle)
 
     return router

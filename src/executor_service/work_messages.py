@@ -43,8 +43,6 @@ class WorkStreamEnvelope(BaseModel):
     aggregate_id: UUID
     occurred_at: datetime
     payload: dict[str, Any]
-    traceparent: str | None = None
-    tracestate: str | None = None
 
     @model_validator(mode="after")
     def validate_payload_contract(self) -> "WorkStreamEnvelope":
@@ -62,6 +60,13 @@ class WorkStreamEnvelope(BaseModel):
 
     @classmethod
     def from_redis_fields(cls, fields: dict[str, str]) -> "WorkStreamEnvelope":
+        # Drain previously queued messages without retaining telemetry or
+        # weakening validation of other envelope fields.
+        fields = {
+            key: value
+            for key, value in fields.items()
+            if key not in {"traceparent", "tracestate"}
+        }
         try:
             payload = json.loads(fields.get("payload", ""))
         except json.JSONDecodeError as exc:
@@ -92,8 +97,6 @@ def build_work_message(
     operation_id: UUID | None = None,
     actor_type: ActorType | None = None,
     actor_id: str | None = None,
-    traceparent: str | None = None,
-    tracestate: str | None = None,
 ) -> OutboxEvent:
     normalized = validate_work_payload(
         message_type,
@@ -116,6 +119,4 @@ def build_work_message(
         created_by=actor_id,
         updated_by_type=actor_type,
         updated_by=actor_id,
-        traceparent=traceparent,
-        tracestate=tracestate,
     )

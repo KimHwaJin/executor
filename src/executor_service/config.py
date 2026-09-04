@@ -101,13 +101,6 @@ class Settings(BaseSettings):
     runtime_cleanup_retry_interval_seconds: float = Field(default=60, gt=0)
     failed_session_retention_seconds: int = Field(default=3600, ge=60)
     execution_max_runtime_seconds: int = Field(default=432000, ge=60)
-    tracing_enabled: bool = False
-    otel_service_name: str = "executor-service"
-    otel_project_name: str = "executor-service"
-    otel_exporter_otlp_endpoint: str = "http://127.0.0.1:6006/v1/traces"
-    otel_exporter_otlp_headers: SecretStr = SecretStr("")
-    otel_exporter_timeout_seconds: float = Field(default=5, gt=0)
-    otel_sample_ratio: float = Field(default=1.0, ge=0, le=1)
 
     @field_validator("log_level", mode="before")
     @classmethod
@@ -181,16 +174,6 @@ class Settings(BaseSettings):
     @property
     def runtime_credential_encryption_key(self) -> str:
         return self.runtime_credential_key.get_secret_value()
-
-    @property
-    def otel_export_headers(self) -> dict[str, str]:
-        raw = self.otel_exporter_otlp_headers.get_secret_value()
-        headers: dict[str, str] = {}
-        for item in raw.split(","):
-            key, separator, value = item.partition("=")
-            if separator and key.strip():
-                headers[key.strip()] = value.strip()
-        return headers
 
     @property
     def request_storage_root(self) -> Path:

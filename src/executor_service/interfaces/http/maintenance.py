@@ -43,7 +43,6 @@ def build_maintenance_router(
     router = APIRouter(prefix="/api/v1", tags=["maintenance"])
     maintenance = container.maintenance
     maintenance_runs = container.maintenance_runs
-    tracing = container.tracing
 
     @router.get(
         "/maintenance",
@@ -51,28 +50,21 @@ def build_maintenance_router(
         summary="Get Executor-wide admission and shutdown readiness",
     )
     async def get_maintenance() -> ExecutorMaintenanceResponse:
-        with tracing.span("executor.http.maintenance_get"):
-            view = await maintenance.get()
+        view = await maintenance.get()
         return ExecutorMaintenanceResponse.from_view(view)
 
     async def set_state(
         request: ExecutorMaintenanceMutationRequest,
         desired_state: ExecutorAdmissionState,
     ) -> ExecutorMaintenanceResponse:
-        with tracing.span(
-            "executor.http.maintenance_set_state",
-            attributes={
-                "executor.maintenance.admission_state": desired_state.value
-            },
-        ):
-            view = await maintenance.set_state(
-                SetExecutorAdmissionCommand(
-                    idempotency_key=request.idempotency_key,
-                    desired_state=desired_state,
-                    actor_type=request.actor.type,
-                    actor_id=request.actor.id,
-                )
+        view = await maintenance.set_state(
+            SetExecutorAdmissionCommand(
+                idempotency_key=request.idempotency_key,
+                desired_state=desired_state,
+                actor_type=request.actor.type,
+                actor_id=request.actor.id,
             )
+        )
         return ExecutorMaintenanceResponse.from_view(view)
 
     @router.post(
@@ -108,11 +100,7 @@ def build_maintenance_router(
         request: MaintenanceRunCreateRequest,
         response: Response,
     ) -> MaintenanceRunResponse:
-        with tracing.span(
-            "executor.http.maintenance_run_create",
-            attributes={"executor.maintenance.action": request.action.value},
-        ):
-            view = await maintenance_runs.create(request.to_command())
+        view = await maintenance_runs.create(request.to_command())
         response.headers["Location"] = f"/api/v1/maintenance/runs/{view.id}"
         return MaintenanceRunResponse.from_view(view)
 
@@ -123,11 +111,7 @@ def build_maintenance_router(
         summary="Get one Maintenance Run and its target counts",
     )
     async def get_run(run_id: UUID) -> MaintenanceRunResponse:
-        with tracing.span(
-            "executor.http.maintenance_run_get",
-            attributes={"executor.maintenance.run.id": str(run_id)},
-        ):
-            view = await maintenance_runs.get(run_id)
+        view = await maintenance_runs.get(run_id)
         return MaintenanceRunResponse.from_view(view)
 
     @router.get(
@@ -141,13 +125,9 @@ def build_maintenance_router(
         cursor: Cursor = None,
         limit: RunTargetLimit = 100,
     ) -> MaintenanceRunTargetPageResponse:
-        with tracing.span(
-            "executor.http.maintenance_run_targets_list",
-            attributes={"executor.maintenance.run.id": str(run_id)},
-        ):
-            page = await maintenance_runs.list_targets(
-                run_id, cursor=cursor, limit=limit
-            )
+        page = await maintenance_runs.list_targets(
+            run_id, cursor=cursor, limit=limit
+        )
         return MaintenanceRunTargetPageResponse.from_page(page)
 
     return router

@@ -196,33 +196,12 @@ Operational endpoints:
 - Worker lifecycle, active execution count, and startup reconciliation summary:
   `http://127.0.0.1:8000/workerz`
 
-### Phoenix tracing
+### Operational diagnostics
 
-Tracing is disabled by default and is not a readiness dependency. To run the validated local
-Phoenix image and enable OTLP/HTTP export:
-
-```bash
-docker compose --profile observability up -d --wait phoenix
-TRACING_ENABLED=true uv run executor-service
-```
-
-Phoenix UI is available at `http://127.0.0.1:6006`. The default collector endpoint is
-`http://127.0.0.1:6006/v1/traces`; configure `OTEL_EXPORTER_OTLP_ENDPOINT`,
-`OTEL_PROJECT_NAME`, `OTEL_SAMPLE_RATIO`, and optional `OTEL_EXPORTER_OTLP_HEADERS` for another
-deployment. Header values are secret settings and are never logged.
-
-The Agent should send W3C `traceparent` and optional `tracestate` headers on `/mcp`. Executor
-persists that context on the Execution and Outbox Event, creates a producer span when publishing,
-adds the current context to Redis Stream fields, and resumes it in the consumer Worker. PostgreSQL
-reconciliation uses the Execution's last command context when the Redis event is unavailable.
-Generated code, cell output, dataset content, query text, credentials, and tokens are deliberately
-excluded from span attributes. OTLP export failure does not change Execution state.
-
-Run the local collector verification after Phoenix is healthy:
-
-```bash
-uv run python scripts/phoenix_trace_smoke.py
-```
+Executor uses standard Python logging (`logger.yml`) and durable execution diagnostics.
+It does not collect or export OpenTelemetry spans. Execution IDs, Step IDs, failure details,
+and ordered public events remain available independently of any trace collector.
+See [OpenTelemetry removal and deployment](docs/opentelemetry-removal.md) when upgrading.
 
 Run the official SDK client smoke test in a second terminal:
 
@@ -251,7 +230,6 @@ uv run python scripts/multi_executor_drain_smoke.py
 uv run python scripts/multi_executor_load_smoke.py
 uv run python scripts/executor_redis_outage_smoke.py
 ALLOW_DOCKER_JUPYTER_OUTAGE_TEST=1 uv run python scripts/jupyter_server_outage_smoke.py
-uv run python scripts/phoenix_trace_smoke.py
 ```
 
 For repeatable local load and long-running validation, start the four-server fleet with explicit

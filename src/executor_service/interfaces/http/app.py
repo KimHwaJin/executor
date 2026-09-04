@@ -42,7 +42,6 @@ from executor_service.interfaces.http.runtime_targets import (
     build_runtime_target_router,
 )
 from executor_service.interfaces.mcp.server import build_mcp_server
-from executor_service.tracing import TraceContextMiddleware
 
 
 def create_app(container: ApplicationContainer) -> FastAPI:
@@ -50,7 +49,6 @@ def create_app(container: ApplicationContainer) -> FastAPI:
         container.execution_service,
         container.runtime_registry,
         container.execution_queries,
-        container.tracing,
         container.execution_spec_resolver,
         container.notebook_queries,
         container.execution_results,
@@ -92,7 +90,6 @@ def create_app(container: ApplicationContainer) -> FastAPI:
     )
     app.state.container = container
     app.state.mcp_server = mcp_server
-    app.add_middleware(TraceContextMiddleware, tracing=container.tracing)
 
     @app.exception_handler(RequestValidationError)
     async def request_validation_error_handler(

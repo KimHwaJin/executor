@@ -58,7 +58,6 @@ from executor_service.infrastructure.runtime_registry import (
 from executor_service.infrastructure.runtime_storage import (
     FleetRuntimeStorageAccess,
 )
-from executor_service.tracing import TracingManager
 
 EXPECTED_SCHEMA_REVISION = "0003"
 
@@ -66,7 +65,6 @@ EXPECTED_SCHEMA_REVISION = "0003"
 class ApplicationContainer:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
-        self.tracing = TracingManager(settings)
         self.engine: AsyncEngine = create_engine(
             settings.database_dsn,
             pool_size=settings.database_pool_size,
@@ -142,7 +140,6 @@ class ApplicationContainer:
             event_stream_name=settings.redis_event_stream,
             poll_interval_seconds=settings.outbox_poll_interval_seconds,
             batch_size=settings.outbox_batch_size,
-            tracing=self.tracing,
         )
         self.event_retention = EventRetentionManager(
             self.session_factory,
@@ -157,7 +154,6 @@ class ApplicationContainer:
             driver_factory=self.runtime_driver_factory,
             artifact_manager=self.artifact_manager,
             result_store=self.result_store,
-            tracing=self.tracing,
             maintenance_runs=self.maintenance_runs,
         )
 
@@ -175,7 +171,6 @@ class ApplicationContainer:
         await self.runtime_registry.stop()
         await self.event_retention.stop()
         await self.outbox_publisher.stop()
-        await self.tracing.shutdown()
         await self.redis.aclose()
         await self.engine.dispose()
 

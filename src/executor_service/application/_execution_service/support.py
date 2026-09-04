@@ -27,7 +27,6 @@ from executor_service.domain.errors import (
 from executor_service.domain.models import Execution, ExecutionStep
 from executor_service.domain.ports import UnitOfWork
 from executor_service.domain.results import ExecutionResultStore
-from executor_service.tracing import capture_trace_carrier
 
 
 class ExecutionCommandSupport:
@@ -243,10 +242,3 @@ async def required_execution(uow: UnitOfWork, execution_id: UUID) -> Execution:
             f"Execution {execution_id} was not found."
         )
     return execution
-
-
-def apply_current_trace(execution: Execution) -> None:
-    carrier = capture_trace_carrier()
-    if carrier.traceparent is not None:
-        execution.traceparent = carrier.traceparent
-        execution.tracestate = carrier.tracestate

@@ -3,7 +3,6 @@
 from executor_service.application._execution_service.support import (
     ExecutionCommandSupport,
     apply_actor,
-    apply_current_trace,
     code_hash,
     ensure_same_receipt,
     fingerprint,
@@ -87,7 +86,6 @@ class ExecutionOperationCommands:
                     )
                 execution.request_operation(command.expected_version)
                 apply_actor(execution, command.actor_type, command.actor_id)
-                apply_current_trace(execution)
                 operation = ExecutionOperation(
                     execution_id=execution.id,
                     operation_number=(
@@ -152,8 +150,6 @@ class ExecutionOperationCommands:
                         operation_id=operation.id,
                         actor_type=command.actor_type,
                         actor_id=command.actor_id,
-                        traceparent=execution.traceparent,
-                        tracestate=execution.tracestate,
                     )
                 )
                 await uow.commit()
