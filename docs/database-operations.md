@@ -19,6 +19,11 @@ uv run alembic current
 uv run alembic check
 ```
 
+`DB_AUTO_MIGRATE=true` runs the same upgrade during app startup before Worker initialization.
+The checked-in `.env.example` and Compose opt in; code defaults to false without an override.
+Manual CLI and app startup use the same PostgreSQL advisory transaction lock.
+See [startup migration settings and deployment](startup-migrations.md).
+
 Revision `0001` includes internal monotonic fencing tokens, exclusive cancellation ownership,
 Runtime abort state and observations, the shared-result reference contract, Executor-wide
 maintenance admission, durable leased Maintenance Runs with per-Execution targets, durable

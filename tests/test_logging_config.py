@@ -155,7 +155,9 @@ def test_image_and_deployment_logging_paths_match() -> None:
     dockerfile = (ROOT / "Dockerfile").read_text()
     assert "COPY logger.yml ./" in dockerfile
     assert "LOG_CONFIG_FILE=/app/logger.yml" in dockerfile
-    configmap = yaml.safe_load(
-        (ROOT / "deploy/kubernetes/configmap.yaml").read_text()
+    deployment = yaml.safe_load(
+        (ROOT / "deploy/kubernetes/deployment.yaml").read_text()
     )
-    assert configmap["data"]["LOG_CONFIG_FILE"] == "/app/logger.yml"
+    container = deployment["spec"]["template"]["spec"]["containers"][0]
+    env = {item["name"]: item.get("value") for item in container["env"]}
+    assert env["LOG_CONFIG_FILE"] == "/app/logger.yml"

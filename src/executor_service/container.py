@@ -19,6 +19,7 @@ from executor_service.config import Settings
 from executor_service.domain.enums import RuntimeType
 from executor_service.execution_specs import ExecutionSpecResolver
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
+from executor_service.infrastructure.db.migrations import upgrade_database
 from executor_service.infrastructure.db.repositories import (
     SQLAlchemyUnitOfWork,
 )
@@ -158,6 +159,8 @@ class ApplicationContainer:
         )
 
     async def start(self) -> None:
+        if self.settings.db_auto_migrate:
+            await upgrade_database(self.engine, self.settings)
         await self.maintenance.initialize()
         await self.event_retention.initialize()
         self.outbox_publisher.start()

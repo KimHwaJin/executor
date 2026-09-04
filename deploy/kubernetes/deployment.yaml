@@ -9,10 +9,8 @@ spec:
   replicas: 1
   revisionHistoryLimit: 3
   strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: 0
-      maxSurge: 1
+    # Schema-changing startup must not overlap old Pods. Brief downtime is expected.
+    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/name: executor
@@ -44,12 +42,124 @@ spec:
               drop:
                 - ALL
             readOnlyRootFilesystem: true
-          envFrom:
-            - configMapRef:
-                name: executor-config
-            - secretRef:
-                name: executor-secret
+          # Populate private deployment.local.yaml via CI; never commit real credentials.
           env:
+            - name: APP_ENV
+              value: "production"
+            - name: LOG_CONFIG_FILE
+              value: "/app/logger.yml"
+            - name: HOST
+              value: "0.0.0.0"
+            - name: PORT
+              value: "8000"
+            - name: DATABASE_POOL_SIZE
+              value: "10"
+            - name: DATABASE_MAX_OVERFLOW
+              value: "5"
+            - name: DATABASE_POOL_TIMEOUT_SECONDS
+              value: "30"
+            - name: DATABASE_POOL_RECYCLE_SECONDS
+              value: "1800"
+            - name: DATABASE_CONNECT_TIMEOUT_SECONDS
+              value: "10"
+            - name: REDIS_WORK_STREAM
+              value: "executor.work"
+            - name: REDIS_EVENT_STREAM
+              value: "executor.events"
+            - name: REDIS_WORK_DEAD_LETTER_STREAM
+              value: "executor.work.dlq"
+            - name: REDIS_EVENT_DEAD_LETTER_STREAM
+              value: "executor.events.dlq"
+            - name: OUTBOX_POLL_INTERVAL_SECONDS
+              value: "0.5"
+            - name: OUTBOX_BATCH_SIZE
+              value: "100"
+            - name: EVENT_RETENTION_ENABLED
+              value: "true"
+            - name: EVENT_RETENTION_INTERVAL_SECONDS
+              value: "3600"
+            - name: EVENT_RETENTION_LEASE_SECONDS
+              value: "300"
+            - name: EVENT_RETENTION_BATCH_SIZE
+              value: "1000"
+            - name: REDIS_WORK_RETENTION_SECONDS
+              value: "259200"
+            - name: REDIS_EVENT_RETENTION_SECONDS
+              value: "604800"
+            - name: REDIS_WORK_DLQ_RETENTION_SECONDS
+              value: "2592000"
+            - name: PUBLISHED_OUTBOX_RETENTION_SECONDS
+              value: "604800"
+            - name: EXECUTION_EVENT_RETENTION_SECONDS
+              value: "7776000"
+            - name: MCP_ALLOWED_HOSTS
+              value: "executor:*,executor.example.internal:*"
+            - name: MCP_ALLOWED_ORIGINS
+              value: "https://agent.example.internal"
+            - name: SHARED_STORAGE_ROOT
+              value: "/workspace/shared"
+            - name: RUNTIME_ENABLED
+              value: "true"
+            - name: RUNTIME_ALLOWED_PROFILES
+              value: "default,3102311"
+            - name: RUNTIME_DEFAULT_MAX_CONCURRENT_EXECUTIONS
+              value: "2"
+            - name: RUNTIME_HEALTH_POLL_INTERVAL_SECONDS
+              value: "15"
+            - name: RUNTIME_SESSION_COUNT_MAX_AGE_SECONDS
+              value: "45"
+            - name: RUNTIME_RESOURCE_MAX_AGE_SECONDS
+              value: "45"
+            - name: RUNTIME_MEMORY_ADMISSION_LIMIT
+              value: "0.9"
+            - name: RUNTIME_CLEANUP_RETRY_INTERVAL_SECONDS
+              value: "60"
+            - name: EXECUTION_INLINE_SPEC_MAX_BYTES
+              value: "262144"
+            - name: EXECUTION_FILE_SPEC_MAX_BYTES
+              value: "52428800"
+            - name: EXECUTION_MAX_STEPS_PER_OPERATION
+              value: "100"
+            - name: EXECUTION_MAX_STEPS_PER_EXECUTION
+              value: "1000"
+            - name: EXECUTION_CONSUMER_GROUP
+              value: "executor-workers"
+            - name: EXECUTION_PENDING_CLAIM_INTERVAL_SECONDS
+              value: "5"
+            - name: EXECUTION_PENDING_CLAIM_IDLE_MILLISECONDS
+              value: "30000"
+            - name: EXECUTION_PENDING_CLAIM_BATCH_SIZE
+              value: "100"
+            - name: EXECUTION_LEASE_SECONDS
+              value: "60"
+            - name: EXECUTION_HEARTBEAT_SECONDS
+              value: "15"
+            - name: EXECUTION_DRAIN_TIMEOUT_SECONDS
+              value: "30"
+            - name: EXECUTION_SHUTDOWN_CLEANUP_SECONDS
+              value: "20"
+            - name: RUNTIME_ABORT_TIMEOUT_SECONDS
+              value: "15"
+            - name: RUNTIME_MAX_OUTPUT_MESSAGE_BYTES
+              value: "33554432"
+            - name: FAILED_SESSION_RETENTION_SECONDS
+              value: "3600"
+            - name: EXECUTION_MAX_RUNTIME_SECONDS
+              value: "432000"
+            - name: DB_AUTO_MIGRATE
+              value: "true"
+            - name: DB_MIGRATIONS_PATH
+              value: "/app/migrations"
+            - name: DB_MIGRATION_LOCK_TIMEOUT_SECONDS
+              value: "60"
+            - name: DB_MIGRATION_STATEMENT_TIMEOUT_SECONDS
+              value: "300"
+            - name: DATABASE_URL
+              value: "postgresql+psycopg://REPLACE_USER:REPLACE_PASSWORD@postgresql.infra.svc.cluster.local:5432/executor"
+            - name: REDIS_URL
+              value: "redis://:REPLACE_PASSWORD@redis-master.infra.svc.cluster.local:6379/3"
+            - name: RUNTIME_CREDENTIAL_KEY
+              value: "REPLACE_WITH_FERNET_KEY"
             # Consumer group is shared; the Pod name must be unique for each worker process.
             - name: EXECUTION_CONSUMER_NAME
               valueFrom:
@@ -65,7 +175,8 @@ spec:
               port: http
             periodSeconds: 5
             timeoutSeconds: 2
-            failureThreshold: 24
+            # Includes DB lock wait, migration execution and Worker initialization.
+            failureThreshold: 120
           livenessProbe:
             httpGet:
               path: /healthz

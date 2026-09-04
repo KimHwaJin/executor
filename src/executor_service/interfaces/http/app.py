@@ -68,8 +68,8 @@ def create_app(container: ApplicationContainer) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-        await container.start()
         try:
+            await container.start()
             # A mounted ASGI sub-application does not run its own lifespan.
             async with mcp_server.session_manager.run():
                 yield

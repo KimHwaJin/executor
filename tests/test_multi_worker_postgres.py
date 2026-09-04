@@ -2,6 +2,8 @@
 
 import asyncio
 import os
+import subprocess
+import sys
 from collections.abc import AsyncIterator
 from dataclasses import replace
 from datetime import timedelta
@@ -66,6 +68,11 @@ from executor_service.infrastructure.background_diagnostics import (
     RuntimeObservation,
 )
 from executor_service.infrastructure.db.base import Base
+from executor_service.infrastructure.db.migrations import (
+    MIGRATION_LOCK_ID,
+    DatabaseMigrationError,
+    upgrade_database,
+)
 from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
     ExecutionDiagnosticORM,
@@ -120,6 +127,7 @@ from tests.runtime_credentials import runtime_credential_fields
 from tests.test_runtime_failure_evidence import EvidenceDriver
 
 pytestmark = pytest.mark.postgres
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _redis_test_url() -> str:
@@ -137,6 +145,169 @@ def _downgrade_baseline(database_url: str) -> None:
     config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
     config.attributes["database_url"] = database_url
     command.downgrade(config, "base")
+
+
+async def test_startup_migration_creates_empty_db_and_repeats_safely(
+    postgres_engine: AsyncEngine,
+    tmp_path: Path,
+) -> None:
+    url = postgres_engine.url.render_as_string(hide_password=False)
+    await asyncio.to_thread(_downgrade_baseline, url)
+    settings = Settings(_env_file=None, db_auto_migrate=True)
+    await upgrade_database(postgres_engine, settings)
+    service = _service(postgres_engine, tmp_path)
+    execution = await service.submit(_command("auto-migrated"))
+    await upgrade_database(postgres_engine, settings)
+    assert (await service.get(execution.id)).task_id == execution.task_id
+    await asyncio.to_thread(_upgrade_and_check_baseline, url)
+
+
+@pytest.mark.parametrize("manual_peer", [False, True])
+async def test_startup_migrations_serialize_across_processes(
+    postgres_engine: AsyncEngine,
+    manual_peer: bool,
+) -> None:
+    url = postgres_engine.url.render_as_string(hide_password=False)
+    await asyncio.to_thread(_downgrade_baseline, url)
+    script = """
+from executor_service.config import Settings
+from executor_service.event_loop import run_async
+from executor_service.infrastructure.db.session import create_engine
+from executor_service.infrastructure.db.migrations import upgrade_database
+
+async def main():
+    settings = Settings(_env_file=None, db_migration_lock_timeout_seconds=20)
+    engine = create_engine(settings.database_dsn)
+    try:
+        await upgrade_database(engine, settings)
+    finally:
+        await engine.dispose()
+
+run_async(main())
+"""
+    manual_script = (
+        "from alembic import command; from alembic.config import Config; "
+        "command.upgrade(Config('alembic.ini'), 'head')"
+    )
+    environment = {
+        **os.environ,
+        "DATABASE_URL": url,
+        "DB_MIGRATION_LOCK_TIMEOUT_SECONDS": "20",
+    }
+    jobs = []
+    try:
+        async with postgres_engine.begin() as holder:
+            await holder.execute(
+                text("SELECT pg_advisory_xact_lock(:key)"),
+                {"key": MIGRATION_LOCK_ID},
+            )
+            jobs = [
+                asyncio.create_task(
+                    asyncio.to_thread(
+                        subprocess.run,
+                        [
+                            sys.executable,
+                            "-c",
+                            (
+                                manual_script
+                                if manual_peer and index == 1
+                                else script
+                            ),
+                        ],
+                        cwd=REPOSITORY_ROOT,
+                        env=environment,
+                        capture_output=True,
+                        text=True,
+                        timeout=30,
+                    )
+                )
+                for index in range(2)
+            ]
+            for _ in range(100):
+                async with postgres_engine.connect() as observer:
+                    waiting = await observer.scalar(
+                        text(
+                            "SELECT count(*) FROM pg_locks WHERE locktype="
+                            "'advisory' AND NOT granted AND database="
+                            "(SELECT oid FROM pg_database "
+                            "WHERE datname=current_database())"
+                        )
+                    )
+                if waiting == 2:
+                    break
+                await asyncio.sleep(0.05)
+            assert waiting == 2, (
+                "Both migration processes must wait on DB lock"
+            )
+        results = await asyncio.gather(*jobs)
+        assert all(r.returncode == 0 for r in results), [
+            r.stderr for r in results
+        ]
+        await asyncio.to_thread(_upgrade_and_check_baseline, url)
+    finally:
+        if jobs:
+            await asyncio.gather(*jobs, return_exceptions=True)
+
+
+async def test_startup_lock_timeout_and_cancellation_release_resources(
+    postgres_engine: AsyncEngine,
+) -> None:
+    settings = Settings(_env_file=None, db_migration_lock_timeout_seconds=1)
+    async with postgres_engine.begin() as holder:
+        await holder.execute(
+            text("SELECT pg_advisory_xact_lock(:key)"),
+            {"key": MIGRATION_LOCK_ID},
+        )
+        with pytest.raises(DatabaseMigrationError, match="55P03"):
+            await upgrade_database(postgres_engine, settings)
+        task = asyncio.create_task(upgrade_database(postgres_engine, settings))
+        await asyncio.sleep(0.1)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    await upgrade_database(postgres_engine, settings)
+
+
+async def test_startup_failure_rolls_back_and_preserves_safe_logging(
+    postgres_engine: AsyncEngine,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import logging
+
+    # The fixture's manual Alembic fileConfig disables preexisting loggers.
+    # Restore this one to model app startup after configure_logging().
+    monkeypatch.setattr(
+        logging.getLogger("executor_service.infrastructure.db.migrations"),
+        "disabled",
+        False,
+    )
+    handlers = list(logging.getLogger().handlers)
+    original = command.upgrade
+
+    def fail(config: Config, revision: str) -> None:
+        config.attributes["connection"].execute(
+            text("CREATE TABLE startup_migration_rollback_test (id integer)")
+        )
+        raise RuntimeError("password=must-not-leak")
+
+    monkeypatch.setattr(command, "upgrade", fail)
+    with pytest.raises(DatabaseMigrationError) as raised:
+        await upgrade_database(postgres_engine, Settings(_env_file=None))
+    assert "must-not-leak" not in str(raised.value)
+    assert "must-not-leak" not in caplog.text
+    assert "RuntimeError" in caplog.text
+    assert logging.getLogger().handlers == handlers
+    async with postgres_engine.connect() as connection:
+        assert (
+            await connection.scalar(
+                text("SELECT to_regclass('startup_migration_rollback_test')")
+            )
+            is None
+        )
+    monkeypatch.setattr(command, "upgrade", original)
+    await upgrade_database(postgres_engine, Settings(_env_file=None))
+    assert logging.getLogger().handlers == handlers
 
 
 def _downgrade_to_pre_diagnostics(database_url: str) -> None:
