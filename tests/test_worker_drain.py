@@ -30,10 +30,10 @@ class IdleRedis:
         await asyncio.Event().wait()
         return []
 
-    async def xautoclaim(
+    async def execute_command(
         self, *_args: Any, **_kwargs: Any
-    ) -> tuple[str, list[Any]]:
-        return "0-0", []
+    ) -> tuple[str, list[Any], list[Any]]:
+        return "0-0", [], []
 
 
 def _worker(

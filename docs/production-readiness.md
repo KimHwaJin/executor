@@ -574,8 +574,9 @@ Execution event-list source, coupling transport cleanup to public history retent
 ### Approved design
 
 - Configure and periodically enforce separate time-based retention for `executor.work`,
-  `executor.events`, and their DLQs. Prefer approximate `XTRIM MINID` boundaries over one universal
-  `MAXLEN`; final durations and hard ceilings are configurable and validated by load tests.
+  `executor.events`, and their DLQs. The Redis 6.0-compatible implementation uses bounded
+  `XRANGE`/`XDEL` with atomic boundary checks instead of `XTRIM MINID` or a universal `MAXLEN`.
+  Final durations and processing limits are configurable and validated by load tests.
 - Preserve internal work entries that are pending or not yet delivered within the supported work
   recovery window. PostgreSQL reconciliation remains the work source of truth.
 - Permit Agent integration events to age out of Redis after the documented availability window.

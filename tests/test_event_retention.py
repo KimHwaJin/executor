@@ -35,35 +35,11 @@ from executor_service.settings import Settings
 
 
 class RecordingRetentionRedis:
-    def __init__(
-        self,
-        *,
-        groups: list[dict[str, Any]] | None = None,
-        pending: dict[str, Any] | None = None,
-    ) -> None:
-        self.groups = groups or []
-        self.pending = pending or {
-            "pending": 0,
-            "min": None,
-            "max": None,
-            "consumers": [],
-        }
-        self.trim_calls: list[tuple[str, str, bool]] = []
+    def __init__(self) -> None:
+        self.trim_calls: list[tuple[Any, ...]] = []
 
-    async def xinfo_groups(self, _stream: str) -> list[dict[str, Any]]:
-        return self.groups
-
-    async def xpending(self, _stream: str, _group: str) -> dict[str, Any]:
-        return self.pending
-
-    async def xtrim(
-        self,
-        stream: str,
-        *,
-        minid: str,
-        approximate: bool,
-    ) -> int:
-        self.trim_calls.append((stream, minid, approximate))
+    async def execute_command(self, *args: Any) -> int:
+        self.trim_calls.append(args)
         return 0
 
 
@@ -234,27 +210,16 @@ async def test_terminal_event_history_expires_only_without_outbox_reference(
     assert [event.id for event in remaining] == [retained.id]
 
 
-async def test_work_trim_never_passes_earliest_pending_message(
+async def test_work_trim_requests_atomic_group_protection(
     engine: AsyncEngine,
 ) -> None:
-    redis = RecordingRetentionRedis(
-        groups=[
-            {
-                "name": "executor-workers",
-                "last-delivered-id": "200-0",
-                "pending": 1,
-            }
-        ],
-        pending={
-            "pending": 1,
-            "min": "100-0",
-            "max": "100-0",
-            "consumers": [],
-        },
-    )
+    redis = RecordingRetentionRedis()
     manager = EventRetentionManager(
         create_session_factory(engine), cast(Redis, redis), _settings()
     )
 
     assert await manager._trim_work_stream() == 0
-    assert redis.trim_calls == [("executor.work", "100-0", True)]
+    assert len(redis.trim_calls) == 1
+    assert redis.trim_calls[0][0] == "EVAL"
+    assert redis.trim_calls[0][3] == "executor.work"
+    assert redis.trim_calls[0][-2:] == (1000, 1)

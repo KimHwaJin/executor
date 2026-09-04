@@ -46,6 +46,9 @@ from executor_service.infrastructure.materialized_artifacts import (
     MaterializedArtifactService,
 )
 from executor_service.infrastructure.outbox import OutboxPublisher
+from executor_service.infrastructure.redis_streams import (
+    check_redis_compatibility,
+)
 from executor_service.infrastructure.result_storage import (
     FilesystemExecutionResultStore,
 )
@@ -161,6 +164,7 @@ class ApplicationContainer:
     async def start(self) -> None:
         if self.settings.db_auto_migrate:
             await upgrade_database(self.engine, self.settings)
+        await check_redis_compatibility(self.redis)
         await self.maintenance.initialize()
         await self.event_retention.initialize()
         self.outbox_publisher.start()

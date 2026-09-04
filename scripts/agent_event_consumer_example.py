@@ -15,6 +15,7 @@ from redis.asyncio import Redis
 from redis.exceptions import ResponseError
 
 from executor_service.events import ExecutionStreamEnvelope
+from executor_service.infrastructure.redis_streams import claim_pending
 from executor_service.settings import get_settings
 
 TERMINAL_EVENT_TYPES = {
@@ -234,16 +235,17 @@ async def main() -> None:
         print(f"consuming stream={stream} group={group} consumer={consumer}")
         pending_claim_cursor = "0-0"
         while True:
-            claimed = await redis.xautoclaim(
+            claimed = await claim_pending(
+                redis,
                 stream,
                 group,
                 consumer,
-                min_idle_time=pending_idle_milliseconds,
+                min_idle_ms=pending_idle_milliseconds,
                 start_id=pending_claim_cursor,
                 count=20,
             )
-            pending_claim_cursor = str(claimed[0])
-            for message_id, fields in claimed[1]:
+            pending_claim_cursor = claimed.next_cursor
+            for message_id, fields in claimed.messages:
                 if await _consume_message(
                     redis,
                     state,

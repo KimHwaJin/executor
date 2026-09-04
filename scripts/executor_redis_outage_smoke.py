@@ -64,7 +64,6 @@ async def main() -> None:
                 "CLIENT",
                 "PAUSE",
                 pause_milliseconds,
-                "ALL",
             )
             pause_deadline = pause_started + pause_milliseconds / 1000
             execution_id = await submit_static(

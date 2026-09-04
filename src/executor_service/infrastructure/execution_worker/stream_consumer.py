@@ -12,6 +12,7 @@ from executor_service.infrastructure.execution_worker.message_validation import 
     invalid_work_message_reason,
     valid_uuid_or_empty,
 )
+from executor_service.infrastructure.redis_streams import claim_pending
 from executor_service.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -85,21 +86,20 @@ class WorkStreamConsumer:
                 pass
 
     async def recover_pending_messages(self) -> int:
-        result = await self._redis.xautoclaim(
+        result = await claim_pending(
+            self._redis,
             self._settings.redis_work_stream,
             self._settings.execution_consumer_group,
             self._consumer_name,
-            min_idle_time=(
+            min_idle_ms=(
                 self._settings.execution_pending_claim_idle_milliseconds
             ),
             start_id=self._pending_claim_cursor,
             count=self._settings.execution_pending_claim_batch_size,
         )
-        next_cursor = result[0]
-        messages = result[1]
-        self._pending_claim_cursor = str(next_cursor)
+        self._pending_claim_cursor = result.next_cursor
         reclaimed = 0
-        for message_id, fields in messages:
+        for message_id, fields in result.messages:
             reclaimed += 1
             await self.process_message(message_id, fields)
         return reclaimed

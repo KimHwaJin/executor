@@ -41,6 +41,11 @@ uv run python scripts/quality_gate.py --integration
 ```
 
 The integration phase fails instead of skipping when Redis is unavailable.
+For Redis compatibility work, run it separately against a disposable Redis 6.0.8
+server and the existing 7.4 baseline. Set `EXECUTOR_EXPECT_REDIS_VERSION=6.0.8`
+on the 6.0.8 pass to ensure the intended server was actually tested. Unset it for
+the 7.4 pass, or supply that server's exact patch version. The integration gate
+includes `tests/test_redis_streams_integration.py` (atomic recovery and retention).
 The PostgreSQL suite creates a fresh database per test, applies Alembic to
 `head`, runs `alembic check`, exercises concurrent Workers, and drops the test
 database afterward. Never point the admin URL at a production server.

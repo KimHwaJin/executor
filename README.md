@@ -53,6 +53,17 @@ execution starts as `QUEUED`. Poll with `execution_get` or request cancellation 
 Operation through `execution_operation_create`. `execution_finalize` persists the final notebook and deletes the
 retained Runtime session. MCP Tasks are not required for this lifecycle.
 
+## Redis compatibility
+
+This branch supports Redis server **6.0.8 and newer**, using `redis-py` 5.3.x
+(`uv.lock` pins the tested client). Both Redis 6.0.8 and 7.4 use the same bounded
+`XPENDING`/`XCLAIM` recovery and `XRANGE`/`XDEL` retention implementation.
+Redis must permit `EVAL` and the Stream commands used inside its Lua scripts.
+Startup checks server version, command availability, and basic scripting access
+before starting background work. Existing readiness responses remain unchanged.
+See [Redis 6.0 compatibility](docs/redis-6-compatibility.md) for ACL requirements,
+retention limits, test commands, and deployment precautions.
+
 ## Logging
 
 The repository-root `logger.yml` is a standard Python `logging.dictConfig`
@@ -556,7 +567,7 @@ duplicate, so consumers must deduplicate on `event_id`.
 
 The consumer group treats Redis as a wake-up channel and reconciles `QUEUED` and
 `CANCEL_REQUESTED` rows from PostgreSQL, so an acknowledged or lost work message does not lose the
-execution. A message left Pending by a dead consumer is reclaimed with `XAUTOCLAIM` after
+execution. A message left Pending by a dead consumer is reclaimed with bounded `XPENDING`/`XCLAIM` after
 `EXECUTION_PENDING_CLAIM_IDLE_MILLISECONDS`; the new Worker handles and acknowledges it using the
 same PostgreSQL state guards. Malformed internal messages are acknowledged only after sanitized
 metadata is written to `REDIS_WORK_DEAD_LETTER_STREAM`. Executor Workers never consume Agent

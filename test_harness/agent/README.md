@@ -47,10 +47,15 @@ started at the Redis Stream watermark captured immediately before each mutation,
 expected `operation_id`, and removes duplicate `event_id` values in memory. A newly created group
 therefore neither scans the complete history nor mistakes an earlier MULTI boundary for the current
 one. It is not the production consumer design: production requires a stable Agent-owned group,
-transactional and durable `event_id` deduplication, Pending recovery with `XAUTOCLAIM`, and an
+transactional and durable `event_id` deduplication, Pending recovery with Redis 6.0-compatible
+`XPENDING`/`XCLAIM` (see the repository's reference consumer), and an
 Agent-owned DLQ.
 
 ## Setup
+
+The test Agent pins the Redis 5.x Python client for Redis server 6.0.8 compatibility.
+Its temporary event bridge uses basic Stream commands and does not own production
+Pending recovery. No change to the Executor event schema or Agent workflow is required.
 
 From the repository root:
 
