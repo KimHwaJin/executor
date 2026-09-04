@@ -105,8 +105,6 @@ services:
       RUNTIME_MAX_OUTPUT_MESSAGE_BYTES: ${RUNTIME_MAX_OUTPUT_MESSAGE_BYTES:-33554432}
       EXECUTION_MAX_STEPS_PER_OPERATION: ${EXECUTION_MAX_STEPS_PER_OPERATION:-100}
       EXECUTION_MAX_STEPS_PER_EXECUTION: ${EXECUTION_MAX_STEPS_PER_EXECUTION:-1000}
-      TRACING_ENABLED: ${TRACING_ENABLED:-false}
-      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://phoenix:6006/v1/traces}
     ports:
       - "${EXECUTOR_PORT:-8000}:8000"
     healthcheck:
@@ -196,32 +194,6 @@ services:
     volumes:
       - ./test_harness/jupyter/workspace:/workspace/pv
 
-  phoenix:
-    profiles: ["observability"]
-    image: arizephoenix/phoenix:nightly
-    environment:
-      PHOENIX_WORKING_DIR: /mnt/data
-      PHOENIX_ALLOW_EXTERNAL_RESOURCES: "false"
-    ports:
-      - "6006:6006"
-      - "4317:4317"
-      - "9090:9090"
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:6006/', timeout=2)",
-        ]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-      start_period: 20s
-    volumes:
-      - executor-phoenix:/mnt/data
-
 volumes:
   executor-postgres:
   executor-redis:
-  executor-phoenix:

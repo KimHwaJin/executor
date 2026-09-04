@@ -13,7 +13,6 @@ from executor_service.infrastructure.db.models import (
     ExecutionORM,
     OutboxEventORM,
 )
-from executor_service.tracing import capture_trace_carrier
 
 
 async def persist_execution_event(
@@ -28,7 +27,6 @@ async def persist_execution_event(
     event_sequence = await next_execution_event_sequence(session, execution_id)
     actor_type = execution.updated_by_type or execution.created_by_type
     actor_id = execution.updated_by or execution.created_by
-    carrier = capture_trace_carrier()
     event = build_execution_event(
         execution_id=execution_id,
         event_sequence=event_sequence,
@@ -36,8 +34,6 @@ async def persist_execution_event(
         payload=payload,
         actor_type=actor_type,
         actor_id=actor_id,
-        traceparent=carrier.traceparent,
-        tracestate=carrier.tracestate,
     )
     session.add(ExecutionEventORM.from_domain(event))
     session.add(OutboxEventORM.from_execution_event(event))

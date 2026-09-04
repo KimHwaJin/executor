@@ -1,6 +1,5 @@
 """REST administration facade for persistent Runtime Targets."""
 
-from collections.abc import Awaitable
 from typing import Annotated, Any
 from uuid import UUID
 
@@ -26,7 +25,6 @@ from executor_service.interfaces.http.schemas import (
     RuntimeTargetPurgeRequest,
     RuntimeTargetPurgeResponse,
 )
-from executor_service.tracing import TracingManager
 
 FleetLimit = Annotated[int, Query(ge=1, le=200)]
 Cursor = Annotated[str | None, Query(max_length=2048)]
@@ -45,20 +43,9 @@ FLEET_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
 }
 
 
-async def _trace_call[T](
-    tracing: TracingManager,
-    name: str,
-    operation: Awaitable[T],
-    attributes: dict[str, object] | None = None,
-) -> T:
-    with tracing.span(name, attributes=attributes):
-        return await operation
-
-
 def build_runtime_target_router(container: ApplicationContainer) -> APIRouter:
     router = APIRouter(prefix="/api/v1", tags=["runtime-targets"])
     registry = container.runtime_registry
-    tracing = container.tracing
 
     @router.post(
         "/runtime-targets",
@@ -69,12 +56,7 @@ def build_runtime_target_router(container: ApplicationContainer) -> APIRouter:
     async def upsert_runtime_target(
         request: RuntimeTargetUpsertRequest,
     ) -> RuntimeTargetResponse:
-        view = await _trace_call(
-            tracing,
-            "executor.http.runtime_target_upsert",
-            registry.upsert(request.to_command()),
-            {"executor.runtime.target.name": request.name},
-        )
+        view = await registry.upsert(request.to_command())
         return RuntimeTargetResponse.from_view(view)
 
     @router.get(
@@ -121,12 +103,7 @@ def build_runtime_target_router(container: ApplicationContainer) -> APIRouter:
         summary="Get one Runtime Target without exposing its credential",
     )
     async def get_runtime_target(target_id: UUID) -> RuntimeTargetResponse:
-        view = await _trace_call(
-            tracing,
-            "executor.http.runtime_target_get",
-            registry.get(target_id),
-            {"executor.runtime.target.id": str(target_id)},
-        )
+        view = await registry.get(target_id)
         return RuntimeTargetResponse.from_view(view)
 
     @router.post(
@@ -138,15 +115,10 @@ def build_runtime_target_router(container: ApplicationContainer) -> APIRouter:
     async def probe_runtime_target(
         target_id: UUID, request: RuntimeTargetProbeRequest
     ) -> RuntimeTargetResponse:
-        view = await _trace_call(
-            tracing,
-            "executor.http.runtime_target_probe",
-            registry.probe(
-                target_id,
-                actor_type=request.actor.type,
-                actor_id=request.actor.id,
-            ),
-            {"executor.runtime.target.id": str(target_id)},
+        view = await registry.probe(
+            target_id,
+            actor_type=request.actor.type,
+            actor_id=request.actor.id,
         )
         return RuntimeTargetResponse.from_view(view)
 
@@ -159,15 +131,8 @@ def build_runtime_target_router(container: ApplicationContainer) -> APIRouter:
     async def drain_runtime_target(
         target_id: UUID, request: RuntimeTargetMutationRequest
     ) -> RuntimeTargetResponse:
-        view = await _trace_call(
-            tracing,
-            "executor.http.runtime_target_drain",
-            registry.set_state(
-                request.to_state_command(
-                    target_id, RuntimeTargetStatus.DRAINING
-                )
-            ),
-            {"executor.runtime.target.id": str(target_id)},
+        view = await registry.set_state(
+            request.to_state_command(target_id, RuntimeTargetStatus.DRAINING)
         )
         return RuntimeTargetResponse.from_view(view)
 
@@ -180,13 +145,8 @@ def build_runtime_target_router(container: ApplicationContainer) -> APIRouter:
     async def activate_runtime_target(
         target_id: UUID, request: RuntimeTargetMutationRequest
     ) -> RuntimeTargetResponse:
-        view = await _trace_call(
-            tracing,
-            "executor.http.runtime_target_activate",
-            registry.set_state(
-                request.to_state_command(target_id, RuntimeTargetStatus.ACTIVE)
-            ),
-            {"executor.runtime.target.id": str(target_id)},
+        view = await registry.set_state(
+            request.to_state_command(target_id, RuntimeTargetStatus.ACTIVE)
         )
         return RuntimeTargetResponse.from_view(view)
 
@@ -199,12 +159,7 @@ def build_runtime_target_router(container: ApplicationContainer) -> APIRouter:
     async def disable_runtime_target(
         target_id: UUID, request: RuntimeTargetMutationRequest
     ) -> RuntimeTargetResponse:
-        view = await _trace_call(
-            tracing,
-            "executor.http.runtime_target_disable",
-            registry.disable(request.to_disable_command(target_id)),
-            {"executor.runtime.target.id": str(target_id)},
-        )
+        view = await registry.disable(request.to_disable_command(target_id))
         return RuntimeTargetResponse.from_view(view)
 
     @router.post(
@@ -216,12 +171,7 @@ def build_runtime_target_router(container: ApplicationContainer) -> APIRouter:
     async def purge_runtime_target(
         target_id: UUID, request: RuntimeTargetPurgeRequest
     ) -> RuntimeTargetPurgeResponse:
-        view = await _trace_call(
-            tracing,
-            "executor.http.runtime_target_purge",
-            registry.purge(request.to_command(target_id)),
-            {"executor.runtime.target.id": str(target_id)},
-        )
+        view = await registry.purge(request.to_command(target_id))
         return RuntimeTargetPurgeResponse.from_view(view)
 
     return router

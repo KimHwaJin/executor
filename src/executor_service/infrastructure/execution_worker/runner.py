@@ -2,7 +2,6 @@
 
 from uuid import UUID
 
-from opentelemetry.trace import SpanKind
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -39,7 +38,6 @@ from executor_service.infrastructure.execution_worker.step_executor import (
     ExecutionStepExecutor,
 )
 from executor_service.infrastructure.workspace import WorkspaceManager
-from executor_service.tracing import TracingManager
 
 
 class ExecutionRunner:
@@ -57,11 +55,9 @@ class ExecutionRunner:
         lease_heartbeat: LeaseHeartbeatManager,
         notebook_projector: NotebookProjector,
         step_executor: ExecutionStepExecutor,
-        tracing: TracingManager,
     ) -> None:
         self._session_factory = session_factory
         self._claimer = claimer
-        self._tracing = tracing
         self._finalizer = ExecutionRunFinalizer(session_factory, settings)
         operation_state = MultiOperationState(session_factory)
         self._single = SingleExecutionRunner(
@@ -75,7 +71,6 @@ class ExecutionRunner:
             step_executor,
             self._finalizer,
             driver_provider,
-            tracing,
         )
         self._multi = MultiExecutionRunner(
             artifacts,
@@ -87,29 +82,20 @@ class ExecutionRunner:
             self._finalizer,
             operation_state,
             driver_provider,
-            tracing,
         )
 
     async def run(self, execution_id: UUID) -> None:
         pool = await self._execution_pool(execution_id)
         if pool is None:
             return
-        with self._tracing.span(
-            "executor.worker.execution",
-            kind=SpanKind.CONSUMER,
-            attributes={
-                "executor.execution.id": str(execution_id),
-                "executor.runtime.pool": pool.value,
-            },
-        ):
-            claimed = await self._claimer.claim(execution_id)
-            if claimed is None:
-                return
-            execution, target, lease = claimed
-            if execution.operation_mode == OperationMode.MULTI:
-                await self._multi.run(execution, target, lease)
-            else:
-                await self._single.run(execution, target, lease)
+        claimed = await self._claimer.claim(execution_id)
+        if claimed is None:
+            return
+        execution, target, lease = claimed
+        if execution.operation_mode == OperationMode.MULTI:
+            await self._multi.run(execution, target, lease)
+        else:
+            await self._single.run(execution, target, lease)
 
     async def _execution_pool(self, execution_id: UUID) -> RuntimePool | None:
         async with self._session_factory() as session:

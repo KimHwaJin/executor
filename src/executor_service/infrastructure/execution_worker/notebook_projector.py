@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-from collections.abc import Awaitable
 from uuid import UUID
 
 from sqlalchemy import select
@@ -47,7 +46,6 @@ from executor_service.infrastructure.workspace import (
     ExecutionWorkspace,
     WorkspaceManager,
 )
-from executor_service.tracing import TracingManager
 
 logger = logging.getLogger(__name__)
 
@@ -61,13 +59,11 @@ class NotebookProjector:
         result_store: ExecutionResultStore,
         workspace: WorkspaceManager,
         artifacts: ExecutionArtifactManager,
-        tracing: TracingManager,
     ) -> None:
         self._session_factory = session_factory
         self._result_store = result_store
         self._workspace = workspace
         self._artifacts = artifacts
-        self._tracing = tracing
         self._diagnostics = DiagnosticRecorder(session_factory)
 
     async def prepare(
@@ -101,16 +97,11 @@ class NotebookProjector:
         if not cells:
             return
         await self._assert_active_lease(lease)
-        result = await self._trace_runtime(
-            "executor.runtime.notebook.prepare",
-            driver.prepare_notebook(
-                workspace.runtime_relative_path,
-                execution_id,
-                runtime_profile,
-                cells,
-            ),
-            execution_id=execution_id,
-            target_id=runtime_target_id,
+        result = await driver.prepare_notebook(
+            workspace.runtime_relative_path,
+            execution_id,
+            runtime_profile,
+            cells,
         )
         if result.notebook_path != workspace.notebook_path:
             raise RuntimeDriverError(
@@ -354,20 +345,3 @@ class NotebookProjector:
     async def _assert_active_lease(self, lease: ExecutionLease) -> None:
         async with self._session_factory() as session:
             await require_active_lease(session, lease)
-
-    async def _trace_runtime[T](
-        self,
-        name: str,
-        operation: Awaitable[T],
-        *,
-        execution_id: UUID,
-        target_id: UUID,
-    ) -> T:
-        with self._tracing.span(
-            name,
-            attributes={
-                "executor.execution.id": str(execution_id),
-                "executor.runtime.target.id": str(target_id),
-            },
-        ):
-            return await operation

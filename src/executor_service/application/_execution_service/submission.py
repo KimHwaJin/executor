@@ -25,7 +25,6 @@ from executor_service.domain.models import (
     ExecutionOperation,
     ExecutionStep,
 )
-from executor_service.tracing import capture_trace_carrier
 from executor_service.work_messages import build_work_message
 
 
@@ -60,7 +59,6 @@ class ExecutionSubmissionCommands:
                 f"for runtime_type '{command.runtime_type.value}'."
             )
         request_fingerprint = fingerprint(command)
-        trace_carrier = capture_trace_carrier()
         try:
             async with self._support.uow_factory() as uow:
                 existing = await uow.executions.get_by_submit_key(
@@ -136,8 +134,6 @@ class ExecutionSubmissionCommands:
                         )
                         for step in command.steps
                     ],
-                    traceparent=trace_carrier.traceparent,
-                    tracestate=trace_carrier.tracestate,
                     active_operation_id=operation.id,
                 )
                 operation.execution_id = execution.id
@@ -153,8 +149,6 @@ class ExecutionSubmissionCommands:
                         operation_id=operation.id,
                         actor_type=command.actor_type,
                         actor_id=command.actor_id,
-                        traceparent=execution.traceparent,
-                        tracestate=execution.tracestate,
                     )
                 )
                 await uow.commit()

@@ -43,7 +43,7 @@ def _parse_args() -> argparse.Namespace:
 
 
 def _execution_openapi() -> dict[str, Any]:
-    settings = Settings(runtime_enabled=False, tracing_enabled=False)
+    settings = Settings(runtime_enabled=False)
     app = create_app(ApplicationContainer(settings))
     source = app.openapi()
     selected_paths: dict[str, Any] = {}

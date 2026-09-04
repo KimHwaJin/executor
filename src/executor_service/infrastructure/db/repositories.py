@@ -213,8 +213,6 @@ class SQLAlchemyExecutionRepository:
                 active_operation_id=execution.active_operation_id,
                 operation_wait_expires_at=execution.operation_wait_expires_at,
                 execution_expires_at=execution.execution_expires_at,
-                traceparent=execution.traceparent,
-                tracestate=execution.tracestate,
                 updated_by_type=execution.updated_by_type,
                 updated_by=execution.updated_by,
             )

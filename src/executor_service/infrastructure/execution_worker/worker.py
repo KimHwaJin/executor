@@ -80,9 +80,6 @@ from executor_service.infrastructure.runtime_registry import (
 from executor_service.infrastructure.workspace import (
     WorkspaceManager,
 )
-from executor_service.tracing import (
-    TracingManager,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +94,6 @@ class ExecutionWorker:
         artifact_manager: ExecutionArtifactManager,
         result_store: ExecutionResultStore | None = None,
         driver_factory: RuntimeDriverFactory | None = None,
-        tracing: TracingManager | None = None,
         maintenance_runs: MaintenanceRunService | None = None,
     ) -> None:
         self._session_factory = session_factory
@@ -113,7 +109,6 @@ class ExecutionWorker:
         self._result_store = result_store or FilesystemExecutionResultStore(
             settings.shared_storage_root
         )
-        self._tracing = tracing or TracingManager(settings)
         self._maintenance_runs = maintenance_runs
         self._workspace = WorkspaceManager()
         self._notebook_projector = NotebookProjector(
@@ -121,7 +116,6 @@ class ExecutionWorker:
             self._result_store,
             self._workspace,
             artifact_manager,
-            self._tracing,
         )
         self._step_executor = ExecutionStepExecutor(
             session_factory,
@@ -152,7 +146,6 @@ class ExecutionWorker:
             self._lease_heartbeat,
             self._notebook_projector,
             self._step_executor,
-            self._tracing,
         )
         self._cancellation = CancellationProcessor(
             session_factory,
@@ -179,13 +172,11 @@ class ExecutionWorker:
             self._dispatcher,
             self._runner,
             self._cancellation,
-            self._tracing,
         )
         self._stream_consumer = WorkStreamConsumer(
             redis,
             settings,
             self._consumer_name,
-            self._tracing,
             self._work_admission.handle_message,
         )
         self._multi_lifecycle = MultiLifecycleAuditor(

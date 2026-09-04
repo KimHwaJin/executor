@@ -140,8 +140,6 @@ class Execution:
     active_operation_id: UUID | None = None
     operation_wait_expires_at: datetime | None = None
     execution_expires_at: datetime | None = None
-    traceparent: str | None = None
-    tracestate: str | None = None
     version: int = 0
     created_at: datetime = field(default_factory=utc_now)
     updated_at: datetime = field(default_factory=utc_now)
@@ -328,8 +326,6 @@ class OutboxEvent:
     created_by: str | None = None
     updated_by_type: ActorType | None = None
     updated_by: str | None = None
-    traceparent: str | None = None
-    tracestate: str | None = None
     id: UUID = field(default_factory=uuid4)
     status: OutboxStatus = OutboxStatus.PENDING
     attempt_count: int = 0
@@ -351,8 +347,6 @@ class ExecutionEvent:
     created_by: str | None = None
     updated_by_type: ActorType | None = None
     updated_by: str | None = None
-    traceparent: str | None = None
-    tracestate: str | None = None
     id: UUID = field(default_factory=uuid4)
     created_at: datetime = field(default_factory=utc_now)
     updated_at: datetime = field(default_factory=utc_now)

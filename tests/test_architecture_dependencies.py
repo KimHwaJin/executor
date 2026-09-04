@@ -71,7 +71,6 @@ def test_execution_service_delegates_command_responsibilities() -> None:
     imports = _imports(SOURCE_ROOT / "application" / "services.py")
     delegated = {
         "executor_service.domain.errors",
-        "executor_service.tracing",
         "executor_service.work_messages",
         "hashlib",
         "json",

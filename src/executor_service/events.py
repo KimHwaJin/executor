@@ -333,8 +333,6 @@ def build_execution_event(
     payload: dict[str, Any],
     actor_type: ActorType | None = None,
     actor_id: str | None = None,
-    traceparent: str | None = None,
-    tracestate: str | None = None,
 ) -> ExecutionEvent:
     """Build one validated public event for durable history persistence."""
 
@@ -348,6 +346,4 @@ def build_execution_event(
         created_by=actor_id,
         updated_by_type=actor_type,
         updated_by=actor_id,
-        traceparent=traceparent,
-        tracestate=tracestate,
     )

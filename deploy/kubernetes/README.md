@@ -22,7 +22,7 @@ Before deployment:
 
 1. Replace `executor-service:latest` in both workload manifests with the same immutable image
    digest or release tag.
-2. Update MCP host/origin allowlists, Runtime profiles, tracing endpoint, database pool size, and
+2. Update MCP host/origin allowlists, Runtime profiles, database pool size, and
    resource limits in `configmap.yaml`.
 3. Create `executor-secret` through the platform Secret manager with the keys shown in
    `secret.example.yaml`. A local `secret.yaml` is ignored by Git, but the platform Secret manager

@@ -15,7 +15,6 @@ from executor_service.application.commands import (
     SubmitExecutionCommand,
 )
 from executor_service.application.services import ExecutionService
-from executor_service.config import Settings
 from executor_service.domain.enums import (
     OperationMode,
     OutboxDestination,
@@ -44,7 +43,6 @@ from executor_service.infrastructure.execution_worker.event_writer import (
     persist_execution_event,
 )
 from executor_service.infrastructure.outbox import OutboxPublisher
-from executor_service.tracing import TracingManager
 
 
 class RecordingRedis:
@@ -153,7 +151,6 @@ async def test_event_stream_serializes_the_ordered_public_envelope(
         event_stream_name="event-contract-v1",
         poll_interval_seconds=0.01,
         batch_size=10,
-        tracing=TracingManager(Settings(runtime_enabled=False)),
     )
 
     assert await publisher.publish_batch() == 2
@@ -286,7 +283,6 @@ async def test_failed_event_blocks_later_sequence_until_retry(
         event_stream_name="event-contract-v1",
         poll_interval_seconds=0.01,
         batch_size=10,
-        tracing=TracingManager(Settings(runtime_enabled=False)),
     )
 
     assert await publisher.publish_batch() == 1
@@ -338,7 +334,6 @@ async def test_delayed_event_blocks_later_sequence_in_same_batch(
         event_stream_name="event-contract-v1",
         poll_interval_seconds=0.01,
         batch_size=10,
-        tracing=TracingManager(Settings(runtime_enabled=False)),
     )
 
     assert await publisher.publish_batch() == 2

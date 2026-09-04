@@ -112,7 +112,6 @@ from executor_service.infrastructure.result_storage import (
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
 )
-from executor_service.tracing import TracingManager
 from scripts.postgres_query_plan_smoke import (
     ORDERED_EVENT_PUBLICATION_QUERY,
 )
@@ -763,7 +762,6 @@ async def test_partial_result_outbox_redis_and_history_agree(
             event_stream_name=event_stream,
             poll_interval_seconds=0.01,
             batch_size=100,
-            tracing=TracingManager(settings),
         )
         assert await publisher.publish_batch() > 0
         assert await publisher.publish_batch() == 0
@@ -1122,11 +1120,6 @@ async def test_concurrent_outbox_publishers_emit_one_stream_message(
     unique = uuid4().hex
     stream = f"test:executor:postgres-outbox:{unique}"
     event_stream = f"{stream}:events"
-    settings = Settings(
-        runtime_enabled=False,
-        redis_work_stream=stream,
-        redis_event_stream=event_stream,
-    )
     redis_clients = [
         Redis.from_url(_redis_test_url(), decode_responses=True)
         for _ in range(2)
@@ -1139,7 +1132,6 @@ async def test_concurrent_outbox_publishers_emit_one_stream_message(
             event_stream_name=event_stream,
             poll_interval_seconds=1,
             batch_size=100,
-            tracing=TracingManager(settings),
         )
         for redis in redis_clients
     ]
@@ -1235,11 +1227,6 @@ async def test_ordered_outbox_backlog_load(
     unique = uuid4().hex
     work_stream = f"test:executor:outbox-load:{unique}:work"
     event_stream = f"test:executor:outbox-load:{unique}:events"
-    settings = Settings(
-        runtime_enabled=False,
-        redis_work_stream=work_stream,
-        redis_event_stream=event_stream,
-    )
     redis_clients = [
         Redis.from_url(_redis_test_url(), decode_responses=True)
         for _ in range(2)
@@ -1252,7 +1239,6 @@ async def test_ordered_outbox_backlog_load(
             event_stream_name=event_stream,
             poll_interval_seconds=0.01,
             batch_size=100,
-            tracing=TracingManager(settings),
         )
         for redis in redis_clients
     ]

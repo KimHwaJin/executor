@@ -2,7 +2,6 @@
 
 import json
 import logging
-from collections.abc import Awaitable
 from typing import Annotated
 from uuid import UUID
 
@@ -78,7 +77,6 @@ from executor_service.interfaces.mcp.schemas import (
     RuntimeTargetProbeRequest,
     RuntimeTargetSetStateRequest,
 )
-from executor_service.tracing import TracingManager
 
 StandardLimit = Annotated[int, Field(ge=1, le=200)]
 EventLimit = Annotated[int, Field(ge=1, le=500)]
@@ -98,23 +96,10 @@ def _public_tool_error(exc: Exception) -> ToolError:
     )
 
 
-async def _trace_call[T](
-    tracing: TracingManager | None,
-    name: str,
-    operation: Awaitable[T],
-    attributes: dict[str, object] | None = None,
-) -> T:
-    if tracing is None:
-        return await operation
-    with tracing.span(name, attributes=attributes):
-        return await operation
-
-
 def build_mcp_server(
     execution_service: ExecutionService,
     runtime_manager: RuntimeTargetManager | None = None,
     execution_queries: ExecutionQueryService | None = None,
-    tracing: TracingManager | None = None,
     execution_spec_resolver: ExecutionSpecResolver | None = None,
     notebook_queries: ExecutionNotebookQueryService | None = None,
     execution_results: ExecutionResultQueryService | None = None,
@@ -151,10 +136,8 @@ def build_mcp_server(
                     f"[{ErrorCode.INVALID_EXECUTION_SPEC}] Execution submit requires an "
                     "ExecutionSpec starting at sequence 0."
                 )
-            result = await _trace_call(
-                tracing,
-                "executor.mcp.execution_submit",
-                execution_service.submit_result(request.to_command(resolved)),
+            result = await execution_service.submit_result(
+                request.to_command(resolved)
             )
         except Exception as exc:
             raise _public_tool_error(exc) from exc
@@ -167,15 +150,10 @@ def build_mcp_server(
     )
     async def execution_get(execution_id: UUID) -> ExecutionResponse:
         try:
-            execution = await _trace_call(
-                tracing,
-                "executor.mcp.execution_get",
-                (
-                    execution_queries.execution(execution_id)
-                    if execution_queries is not None
-                    else execution_service.get(execution_id)
-                ),
-                {"executor.execution.id": str(execution_id)},
+            execution = await (
+                execution_queries.execution(execution_id)
+                if execution_queries is not None
+                else execution_service.get(execution_id)
             )
         except Exception as exc:
             raise _public_tool_error(exc) from exc
@@ -191,19 +169,14 @@ def build_mcp_server(
         request: ExecutionCancelRequest,
     ) -> ExecutionCommandResponse:
         try:
-            execution = await _trace_call(
-                tracing,
-                "executor.mcp.execution_cancel",
-                execution_service.cancel(
-                    CancelExecutionCommand(
-                        execution_id=request.execution_id,
-                        idempotency_key=request.idempotency_key,
-                        reason=request.reason,
-                        actor_type=request.actor.type,
-                        actor_id=request.actor.id,
-                    )
-                ),
-                {"executor.execution.id": str(request.execution_id)},
+            execution = await execution_service.cancel(
+                CancelExecutionCommand(
+                    execution_id=request.execution_id,
+                    idempotency_key=request.idempotency_key,
+                    reason=request.reason,
+                    actor_type=request.actor.type,
+                    actor_id=request.actor.id,
+                )
             )
         except Exception as exc:
             raise _public_tool_error(exc) from exc
@@ -219,18 +192,13 @@ def build_mcp_server(
         request: ExecutionRetryRequest,
     ) -> ExecutionCommandResponse:
         try:
-            result = await _trace_call(
-                tracing,
-                "executor.mcp.execution_retry",
-                execution_service.retry_result(
-                    RetryExecutionCommand(
-                        execution_id=request.execution_id,
-                        idempotency_key=request.idempotency_key,
-                        actor_type=request.actor.type,
-                        actor_id=request.actor.id,
-                    )
-                ),
-                {"executor.execution.id": str(request.execution_id)},
+            result = await execution_service.retry_result(
+                RetryExecutionCommand(
+                    execution_id=request.execution_id,
+                    idempotency_key=request.idempotency_key,
+                    actor_type=request.actor.type,
+                    actor_id=request.actor.id,
+                )
             )
         except Exception as exc:
             raise _public_tool_error(exc) from exc
@@ -255,44 +223,31 @@ def build_mcp_server(
                 )
             resolved = await execution_spec_resolver.resolve(request.spec)
             source_steps = resolved.steps
-            result = await _trace_call(
-                tracing,
-                "executor.mcp.execution_operation_create",
-                execution_service.create_operation_result(
-                    CreateOperationCommand(
-                        execution_id=request.execution_id,
-                        idempotency_key=request.idempotency_key,
-                        expected_version=request.expected_version,
-                        spec_schema_version=resolved.spec.schema_version,
-                        operation_timeout_seconds=request.operation_timeout_seconds,
-                        metadata=request.metadata,
-                        steps=tuple(
-                            StepSpec(
-                                sequence=source_step.sequence,
-                                code=source_step.content,
-                                source_type=source_step.source_type,
-                                source_path=source_step.source_path,
-                                source_sha256=source_step.source_sha256,
-                                step_timeout_seconds=source_step.step_timeout_seconds,
-                                skill_name=source_step.skill_name,
-                                tool_name=source_step.tool_name,
-                                input_parameters=source_step.input_parameters,
-                            )
-                            for source_step in source_steps
-                        ),
-                        actor_type=request.actor.type,
-                        actor_id=request.actor.id,
-                    )
-                ),
-                {
-                    "executor.execution.id": str(request.execution_id),
-                    "executor.operation.first_sequence": source_steps[
-                        0
-                    ].sequence,
-                    "executor.operation.last_sequence": source_steps[
-                        -1
-                    ].sequence,
-                },
+            result = await execution_service.create_operation_result(
+                CreateOperationCommand(
+                    execution_id=request.execution_id,
+                    idempotency_key=request.idempotency_key,
+                    expected_version=request.expected_version,
+                    spec_schema_version=resolved.spec.schema_version,
+                    operation_timeout_seconds=request.operation_timeout_seconds,
+                    metadata=request.metadata,
+                    steps=tuple(
+                        StepSpec(
+                            sequence=source_step.sequence,
+                            code=source_step.content,
+                            source_type=source_step.source_type,
+                            source_path=source_step.source_path,
+                            source_sha256=source_step.source_sha256,
+                            step_timeout_seconds=source_step.step_timeout_seconds,
+                            skill_name=source_step.skill_name,
+                            tool_name=source_step.tool_name,
+                            input_parameters=source_step.input_parameters,
+                        )
+                        for source_step in source_steps
+                    ),
+                    actor_type=request.actor.type,
+                    actor_id=request.actor.id,
+                )
             )
         except Exception as exc:
             raise _public_tool_error(exc) from exc
@@ -309,19 +264,14 @@ def build_mcp_server(
         request: ExecutionFinalizeRequest,
     ) -> ExecutionCommandResponse:
         try:
-            execution = await _trace_call(
-                tracing,
-                "executor.mcp.execution_finalize",
-                execution_service.finalize_execution(
-                    FinalizeExecutionCommand(
-                        execution_id=request.execution_id,
-                        idempotency_key=request.idempotency_key,
-                        expected_version=request.expected_version,
-                        actor_type=request.actor.type,
-                        actor_id=request.actor.id,
-                    )
-                ),
-                {"executor.execution.id": str(request.execution_id)},
+            execution = await execution_service.finalize_execution(
+                FinalizeExecutionCommand(
+                    execution_id=request.execution_id,
+                    idempotency_key=request.idempotency_key,
+                    expected_version=request.expected_version,
+                    actor_type=request.actor.type,
+                    actor_id=request.actor.id,
+                )
             )
         except Exception as exc:
             raise _public_tool_error(exc) from exc

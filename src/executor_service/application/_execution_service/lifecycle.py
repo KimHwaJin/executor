@@ -5,7 +5,6 @@ from uuid import UUID
 from executor_service.application._execution_service.support import (
     ExecutionCommandSupport,
     apply_actor,
-    apply_current_trace,
     apply_step_actor,
     ensure_same_receipt,
     fingerprint,
@@ -65,7 +64,6 @@ class ExecutionLifecycleCommands:
                     )
                 execution.request_finalization(command.expected_version)
                 apply_actor(execution, command.actor_type, command.actor_id)
-                apply_current_trace(execution)
                 await uow.executions.save(execution)
                 await uow.executions.add_command_receipt(
                     command.idempotency_key,
@@ -79,8 +77,6 @@ class ExecutionLifecycleCommands:
                         message_type="execution.finalization_ready",
                         actor_type=command.actor_type,
                         actor_id=command.actor_id,
-                        traceparent=execution.traceparent,
-                        tracestate=execution.tracestate,
                     )
                 )
                 await uow.commit()
@@ -122,7 +118,6 @@ class ExecutionLifecycleCommands:
                     command.idempotency_key, command.reason
                 )
                 apply_actor(execution, command.actor_type, command.actor_id)
-                apply_current_trace(execution)
                 await uow.executions.save(execution)
                 await uow.outbox.add(
                     build_work_message(
@@ -130,8 +125,6 @@ class ExecutionLifecycleCommands:
                         message_type="execution.cancellation_ready",
                         actor_type=command.actor_type,
                         actor_id=command.actor_id,
-                        traceparent=execution.traceparent,
-                        tracestate=execution.tracestate,
                     )
                 )
                 await uow.commit()
@@ -191,7 +184,6 @@ class ExecutionLifecycleCommands:
                         apply_step_actor(
                             step, command.actor_type, command.actor_id
                         )
-                apply_current_trace(execution)
                 if execution.retry_from_sequence is None:
                     raise RuntimeError("Retry sequence unexpectedly missing.")
                 await uow.executions.save(execution)
@@ -212,8 +204,6 @@ class ExecutionLifecycleCommands:
                         operation_id=operation_id,
                         actor_type=command.actor_type,
                         actor_id=command.actor_id,
-                        traceparent=execution.traceparent,
-                        tracestate=execution.tracestate,
                     )
                 )
                 await uow.commit()

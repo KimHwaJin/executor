@@ -4,7 +4,6 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 
-from opentelemetry.trace import SpanKind
 from redis.asyncio import Redis
 from redis.exceptions import ResponseError
 
@@ -14,7 +13,6 @@ from executor_service.infrastructure.execution_worker.message_validation import 
     invalid_work_message_reason,
     valid_uuid_or_empty,
 )
-from executor_service.tracing import TracingManager, extract_trace_context
 
 logger = logging.getLogger(__name__)
 
@@ -29,13 +27,11 @@ class WorkStreamConsumer:
         redis: Redis,
         settings: Settings,
         consumer_name: str,
-        tracing: TracingManager,
         handler: WorkMessageHandler,
     ) -> None:
         self._redis = redis
         self._settings = settings
         self._consumer_name = consumer_name
-        self._tracing = tracing
         self._handler = handler
         self._pending_claim_cursor = "0-0"
 
@@ -147,25 +143,16 @@ class WorkStreamConsumer:
         fields: dict[str, str],
         reason: str,
     ) -> None:
-        context = extract_trace_context(fields)
-        with self._tracing.span(
-            "executor.redis.dead_letter",
-            context=context,
-            kind=SpanKind.PRODUCER,
-            attributes={"executor.event.failure.reason": reason},
-        ):
-            await self._redis.xadd(
-                self._settings.redis_work_dead_letter_stream,
-                {
-                    "source_stream": self._settings.redis_work_stream,
-                    "source_message_id": message_id,
-                    "message_id": valid_uuid_or_empty(
-                        fields.get("message_id")
-                    ),
-                    "aggregate_id": valid_uuid_or_empty(
-                        fields.get("aggregate_id")
-                    ),
-                    "reason": reason,
-                    "dead_lettered_at": utc_now().isoformat(),
-                },
-            )
+        await self._redis.xadd(
+            self._settings.redis_work_dead_letter_stream,
+            {
+                "source_stream": self._settings.redis_work_stream,
+                "source_message_id": message_id,
+                "message_id": valid_uuid_or_empty(fields.get("message_id")),
+                "aggregate_id": valid_uuid_or_empty(
+                    fields.get("aggregate_id")
+                ),
+                "reason": reason,
+                "dead_lettered_at": utc_now().isoformat(),
+            },
+        )

@@ -20,7 +20,6 @@ from executor_service.interfaces.contracts import (
 from executor_service.interfaces.http._executions.common import (
     DOMAIN_ERROR_RESPONSES,
     execution_router,
-    trace_call,
 )
 from executor_service.interfaces.http.schemas import (
     ExecutionCancelRequest,
@@ -34,7 +33,6 @@ def build_command_router(container: ApplicationContainer) -> APIRouter:
     router = execution_router()
     execution_service = container.execution_service
     resolver = container.execution_spec_resolver
-    tracing = container.tracing
 
     @router.post(
         "/executions",
@@ -52,10 +50,8 @@ def build_command_router(container: ApplicationContainer) -> APIRouter:
                 "Execution submit requires an ExecutionSpec starting at "
                 "sequence 0."
             )
-        result = await trace_call(
-            tracing,
-            "executor.http.execution_submit",
-            execution_service.submit_result(request.to_command(resolved)),
+        result = await execution_service.submit_result(
+            request.to_command(resolved)
         )
         execution = result.execution
         response.headers["Location"] = f"/api/v1/executions/{execution.id}"
@@ -75,19 +71,14 @@ def build_command_router(container: ApplicationContainer) -> APIRouter:
         request: ExecutionCancelRequest,
         response: Response,
     ) -> ExecutionCommandResponse:
-        execution = await trace_call(
-            tracing,
-            "executor.http.execution_cancel",
-            execution_service.cancel(
-                CancelExecutionCommand(
-                    execution_id=execution_id,
-                    idempotency_key=request.idempotency_key,
-                    reason=request.reason,
-                    actor_type=request.actor.type,
-                    actor_id=request.actor.id,
-                )
-            ),
-            {"executor.execution.id": str(execution_id)},
+        execution = await execution_service.cancel(
+            CancelExecutionCommand(
+                execution_id=execution_id,
+                idempotency_key=request.idempotency_key,
+                reason=request.reason,
+                actor_type=request.actor.type,
+                actor_id=request.actor.id,
+            )
         )
         response.headers["Location"] = f"/api/v1/executions/{execution.id}"
         return ExecutionCommandResponse.from_domain(execution)
@@ -104,18 +95,13 @@ def build_command_router(container: ApplicationContainer) -> APIRouter:
         request: ExecutionRetryRequest,
         response: Response,
     ) -> ExecutionCommandResponse:
-        result = await trace_call(
-            tracing,
-            "executor.http.execution_retry",
-            execution_service.retry_result(
-                RetryExecutionCommand(
-                    execution_id=execution_id,
-                    idempotency_key=request.idempotency_key,
-                    actor_type=request.actor.type,
-                    actor_id=request.actor.id,
-                )
-            ),
-            {"executor.execution.id": str(execution_id)},
+        result = await execution_service.retry_result(
+            RetryExecutionCommand(
+                execution_id=execution_id,
+                idempotency_key=request.idempotency_key,
+                actor_type=request.actor.type,
+                actor_id=request.actor.id,
+            )
         )
         response.headers["Location"] = (
             f"/api/v1/executions/{result.execution.id}"
@@ -138,48 +124,33 @@ def build_command_router(container: ApplicationContainer) -> APIRouter:
     ) -> ExecutionCommandResponse:
         resolved = await resolver.resolve(request.spec)
         source_steps = resolved.steps
-        result = await trace_call(
-            tracing,
-            "executor.http.execution_operation_create",
-            execution_service.create_operation_result(
-                CreateOperationCommand(
-                    execution_id=execution_id,
-                    idempotency_key=request.idempotency_key,
-                    expected_version=request.expected_version,
-                    spec_schema_version=resolved.spec.schema_version,
-                    operation_timeout_seconds=(
-                        request.operation_timeout_seconds
-                    ),
-                    metadata=request.metadata,
-                    steps=tuple(
-                        StepSpec(
-                            sequence=source_step.sequence,
-                            code=source_step.content,
-                            source_type=source_step.source_type,
-                            source_path=source_step.source_path,
-                            source_sha256=source_step.source_sha256,
-                            step_timeout_seconds=(
-                                source_step.step_timeout_seconds
-                            ),
-                            skill_name=source_step.skill_name,
-                            tool_name=source_step.tool_name,
-                            input_parameters=source_step.input_parameters,
-                        )
-                        for source_step in source_steps
-                    ),
-                    actor_type=request.actor.type,
-                    actor_id=request.actor.id,
-                )
-            ),
-            {
-                "executor.execution.id": str(execution_id),
-                "executor.operation.first_sequence": (
-                    source_steps[0].sequence
+        result = await execution_service.create_operation_result(
+            CreateOperationCommand(
+                execution_id=execution_id,
+                idempotency_key=request.idempotency_key,
+                expected_version=request.expected_version,
+                spec_schema_version=resolved.spec.schema_version,
+                operation_timeout_seconds=(request.operation_timeout_seconds),
+                metadata=request.metadata,
+                steps=tuple(
+                    StepSpec(
+                        sequence=source_step.sequence,
+                        code=source_step.content,
+                        source_type=source_step.source_type,
+                        source_path=source_step.source_path,
+                        source_sha256=source_step.source_sha256,
+                        step_timeout_seconds=(
+                            source_step.step_timeout_seconds
+                        ),
+                        skill_name=source_step.skill_name,
+                        tool_name=source_step.tool_name,
+                        input_parameters=source_step.input_parameters,
+                    )
+                    for source_step in source_steps
                 ),
-                "executor.operation.last_sequence": (
-                    source_steps[-1].sequence
-                ),
-            },
+                actor_type=request.actor.type,
+                actor_id=request.actor.id,
+            )
         )
         execution = result.execution
         response.headers["Location"] = (
@@ -202,19 +173,14 @@ def build_command_router(container: ApplicationContainer) -> APIRouter:
         request: ExecutionFinalizeRequest,
         response: Response,
     ) -> ExecutionCommandResponse:
-        execution = await trace_call(
-            tracing,
-            "executor.http.execution_finalize",
-            execution_service.finalize_execution(
-                FinalizeExecutionCommand(
-                    execution_id=execution_id,
-                    idempotency_key=request.idempotency_key,
-                    expected_version=request.expected_version,
-                    actor_type=request.actor.type,
-                    actor_id=request.actor.id,
-                )
-            ),
-            {"executor.execution.id": str(execution_id)},
+        execution = await execution_service.finalize_execution(
+            FinalizeExecutionCommand(
+                execution_id=execution_id,
+                idempotency_key=request.idempotency_key,
+                expected_version=request.expected_version,
+                actor_type=request.actor.type,
+                actor_id=request.actor.id,
+            )
         )
         response.headers["Location"] = f"/api/v1/executions/{execution.id}"
         return ExecutionCommandResponse.from_domain(execution)
