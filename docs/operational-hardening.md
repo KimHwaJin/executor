@@ -101,9 +101,10 @@ previous order-dependent missing-payload warning assertion failure.
   publication and shutdown, input/log safety, and existing execution recovery.
 - Real PostgreSQL tests use disposable, uniquely named databases. Redis tests
   use unique keys in the local test DB, not application Stream cleanup.
-- Redis integration server for this run: **7.4.10**. Redis 6.0.8 Lua compatibility
-  code is retained unchanged; this run does not replace a Redis 6.0.8 server
-  acceptance test or the deployment's ACL/security review.
+- Initial Redis integration server: **7.4.10**. A subsequent exact-version
+  **6.0.8** run passed all 61 integration tests plus two service-client
+  acceptance checks. See [Redis 6.0.8 validation](redis-6-0-8-validation.md).
+  Functional acceptance does not replace the deployment's ACL/security review.
 - Skipped: three opt-in live Docker download tests and one Linux UID permission
   test. No native Windows, Kubernetes/PV, or five-day soak execution was run.
 - Operator deployment and existing service data were not reset or changed.
