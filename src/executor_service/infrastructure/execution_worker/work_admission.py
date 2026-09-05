@@ -1,8 +1,9 @@
 """Admission of durable Execution work into the local job dispatcher."""
 
+from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from executor_service.domain.enums import ExecutionStatus
@@ -35,6 +36,8 @@ class WorkAdmissionProcessor:
         self._dispatcher = dispatcher
         self._runner = runner
         self._cancellation = cancellation
+        self._reconcile_cursor: tuple[datetime, UUID] | None = None
+        self._reconcile_upper_bound: tuple[datetime, UUID] | None = None
 
     async def handle_message(self, fields: dict[str, str]) -> bool:
         """Dispatch one validated Redis work message."""
@@ -57,27 +60,59 @@ class WorkAdmissionProcessor:
 
     async def reconcile(self) -> int:
         """Redis-independent admission from PostgreSQL source-of-truth state."""
+        query = select(
+            ExecutionORM.id, ExecutionORM.status, ExecutionORM.created_at
+        ).where(
+            ExecutionORM.status.in_(
+                [
+                    ExecutionStatus.QUEUED,
+                    ExecutionStatus.FINALIZING,
+                    ExecutionStatus.CANCEL_REQUESTED,
+                ]
+            )
+        )
+        if self._reconcile_cursor is not None:
+            query = query.where(
+                tuple_(ExecutionORM.created_at, ExecutionORM.id)
+                > self._reconcile_cursor
+            )
         async with self._session_factory() as session:
+            if self._reconcile_upper_bound is None:
+                newest = (
+                    await session.execute(
+                        query.with_only_columns(
+                            ExecutionORM.created_at, ExecutionORM.id
+                        )
+                        .order_by(
+                            ExecutionORM.created_at.desc(),
+                            ExecutionORM.id.desc(),
+                        )
+                        .limit(1)
+                    )
+                ).first()
+                if newest is None:
+                    self._reconcile_cursor = None
+                    return 0
+                self._reconcile_upper_bound = (newest[0], newest[1])
+            # Bound the pass to the original tail. Continuous new submissions
+            # must not prevent us from returning to older waiting work.
+            query = query.where(
+                tuple_(ExecutionORM.created_at, ExecutionORM.id)
+                <= self._reconcile_upper_bound
+            )
             rows = list(
                 await session.execute(
-                    select(
-                        ExecutionORM.id,
-                        ExecutionORM.status,
-                    )
-                    .where(
-                        ExecutionORM.status.in_(
-                            [
-                                ExecutionStatus.QUEUED,
-                                ExecutionStatus.FINALIZING,
-                                ExecutionStatus.CANCEL_REQUESTED,
-                            ]
-                        )
-                    )
-                    .order_by(ExecutionORM.created_at)
-                    .limit(100)
+                    query.order_by(
+                        ExecutionORM.created_at, ExecutionORM.id
+                    ).limit(100)
                 )
             )
-        for execution_id, status in rows:
+        self._reconcile_cursor = (
+            (rows[-1][2], rows[-1][0]) if len(rows) == 100 else None
+        )
+        if self._reconcile_cursor is None:
+            self._reconcile_upper_bound = None
+        for execution_id, status, _created_at in rows:
             self._dispatch_durable_state(execution_id, status)
         return len(rows)
 

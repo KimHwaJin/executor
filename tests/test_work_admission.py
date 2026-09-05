@@ -3,6 +3,7 @@
 from collections.abc import Coroutine
 from pathlib import Path
 from typing import Any
+from unittest.mock import AsyncMock, Mock
 from uuid import UUID, uuid4
 
 import pytest
@@ -24,10 +25,54 @@ from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.models import ExecutionORM
 from executor_service.infrastructure.db.session import create_session_factory
 from executor_service.infrastructure.execution_worker import ExecutionWorker
+from executor_service.infrastructure.execution_worker.work_admission import (
+    WorkAdmissionProcessor,
+)
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
 )
 from executor_service.settings import Settings
+
+
+async def test_reconcile_advances_past_unassignable_first_page(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+) -> None:
+    executions = [
+        await execution_service.submit(_command(str(index)))
+        for index in range(102)
+    ]
+    factory = create_session_factory(engine)
+    async with factory() as session, session.begin():
+        # Include finalization/cancellation behind a full waiting page.
+        for execution, status in zip(
+            executions[-2:],
+            [ExecutionStatus.FINALIZING, ExecutionStatus.CANCEL_REQUESTED],
+            strict=True,
+        ):
+            await session.execute(
+                update(ExecutionORM)
+                .where(ExecutionORM.id == execution.id)
+                .values(status=status)
+            )
+    seen = []
+
+    def dispatch(execution_id, coroutine, **kwargs):
+        coroutine.close()
+        seen.append(execution_id)
+
+    processor = WorkAdmissionProcessor(
+        factory, Mock(dispatch=dispatch), AsyncMock(), AsyncMock()
+    )
+    assert await processor.reconcile() == 100
+    # New arrivals belong to the next pass, not an ever-growing current tail.
+    new_execution = await execution_service.submit(_command("new-arrival"))
+    assert await processor.reconcile() == 2
+    assert set(seen) == {execution.id for execution in executions}
+    assert new_execution.id not in seen
+    assert await processor.reconcile() == 100  # Wraps for another fair pass.
+    assert await processor.reconcile() == 3
+    assert new_execution.id in seen
 
 
 def _command(name: str) -> SubmitExecutionCommand:
