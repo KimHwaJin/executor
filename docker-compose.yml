@@ -16,7 +16,7 @@ services:
       - executor-postgres:/var/lib/postgresql/data
 
   redis:
-    image: redis:7.4-alpine
+    image: redis:6.0.8
     ports:
       - "6379:6379"
     command: ["redis-server", "--appendonly", "yes"]
@@ -26,7 +26,8 @@ services:
       timeout: 5s
       retries: 10
     volumes:
-      - executor-redis:/data
+      # Never reuse a Redis 7.x AOF/RDB volume for a 6.0.8 server.
+      - executor-redis-608:/data
 
   jupyter:
     image: executor-jupyter:local
@@ -191,4 +192,4 @@ services:
 
 volumes:
   executor-postgres:
-  executor-redis:
+  executor-redis-608:

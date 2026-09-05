@@ -40,6 +40,9 @@ def _integration_checks() -> tuple[Check, ...]:
     environment = {
         "EXECUTOR_REQUIRE_REDIS_TESTS": "1",
         "EXECUTOR_RUN_POSTGRES_TESTS": "1",
+        "EXECUTOR_EXPECT_REDIS_VERSION": os.getenv(
+            "EXECUTOR_EXPECT_REDIS_VERSION", "6.0.8"
+        ),
     }
     return (
         Check(
