@@ -138,6 +138,7 @@ def _redis_test_url() -> str:
 def _upgrade_and_check_baseline(database_url: str) -> None:
     config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
     config.attributes["database_url"] = database_url
+    config.attributes["configure_logger"] = False
     command.upgrade(config, "head")
     command.check(config)
 
@@ -145,6 +146,7 @@ def _upgrade_and_check_baseline(database_url: str) -> None:
 def _downgrade_baseline(database_url: str) -> None:
     config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
     config.attributes["database_url"] = database_url
+    config.attributes["configure_logger"] = False
     command.downgrade(config, "base")
 
 
@@ -276,13 +278,6 @@ async def test_startup_failure_rolls_back_and_preserves_safe_logging(
 ) -> None:
     import logging
 
-    # The fixture's manual Alembic fileConfig disables preexisting loggers.
-    # Restore this one to model app startup after configure_logging().
-    monkeypatch.setattr(
-        logging.getLogger("executor_service.infrastructure.db.migrations"),
-        "disabled",
-        False,
-    )
     handlers = list(logging.getLogger().handlers)
     original = command.upgrade
 
@@ -314,18 +309,21 @@ async def test_startup_failure_rolls_back_and_preserves_safe_logging(
 def _downgrade_to_pre_diagnostics(database_url: str) -> None:
     config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
     config.attributes["database_url"] = database_url
+    config.attributes["configure_logger"] = False
     command.downgrade(config, "0001")
 
 
 def _downgrade_to_diagnostics(database_url: str) -> None:
     config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
     config.attributes["database_url"] = database_url
+    config.attributes["configure_logger"] = False
     command.downgrade(config, "0002")
 
 
 def _downgrade_to_pre_trace_removal(database_url: str) -> None:
     config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
     config.attributes["database_url"] = database_url
+    config.attributes["configure_logger"] = False
     command.downgrade(config, "0003")
 
 

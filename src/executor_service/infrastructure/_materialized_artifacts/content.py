@@ -48,7 +48,7 @@ class ArtifactContentResolver:
                 raise ArtifactRegistrationError(
                     "Artifact input file was not found."
                 )
-            raw = await asyncio.to_thread(resolved.read_bytes)
+            raw = await asyncio.to_thread(self._read_bounded, resolved)
             if command.source_sha256 is not None and not same_hash(
                 raw, command.source_sha256
             ):
@@ -70,6 +70,15 @@ class ArtifactContentResolver:
                 "Artifact content exceeds the configured size limit."
             )
         return content
+
+    def _read_bounded(self, path: Path) -> bytes:
+        with path.open("rb") as handle:
+            raw = handle.read(self._max_bytes + 1)
+        if len(raw) > self._max_bytes:
+            raise ArtifactRegistrationError(
+                "Artifact content exceeds the configured size limit."
+            )
+        return raw
 
 
 def same_hash(raw: bytes, expected: str) -> bool:

@@ -44,6 +44,7 @@ def test_postgresql_engine_uses_bounded_queue_pool(
         "pool_timeout": 7.5,
         "pool_recycle": 900,
         "connect_args": {"connect_timeout": 3},
+        "hide_parameters": True,
     }
 
 
@@ -74,7 +75,10 @@ def test_sqlite_engine_ignores_postgresql_pool_options(
     )
 
     assert actual is expected
-    assert captured == {"database_url": "sqlite+aiosqlite:///:memory:"}
+    assert captured == {
+        "database_url": "sqlite+aiosqlite:///:memory:",
+        "hide_parameters": True,
+    }
 
 
 def test_database_pool_settings_reject_invalid_capacity() -> None:
