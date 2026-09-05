@@ -1,8 +1,11 @@
 """Persistence and idempotency receipts for materialized Artifacts."""
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from executor_service.application.commands import MaterializeArtifactCommand
@@ -51,10 +54,76 @@ class MaterializedArtifactPersistence:
             session.expunge(execution)
             return execution
 
+    async def reserve(
+        self, command: MaterializeArtifactCommand, fingerprint: str
+    ) -> None:
+        """Commit key ownership before any externally visible file change.
+
+        A failed materialization keeps its receipt pending. Only the identical
+        command may resume it; a conflicting request must never touch storage.
+        """
+        try:
+            async with self._session_factory() as session, session.begin():
+                session.add(
+                    CommandReceiptORM(
+                        idempotency_key=command.idempotency_key,
+                        command_type="execution_artifact_materialize",
+                        request_fingerprint=fingerprint,
+                        result={"materialization_status": "PENDING"},
+                    )
+                )
+        except IntegrityError:
+            # The unique key also arbitrates between different Executions
+            # and other command types, across independent API processes.
+            async with self._session_factory() as session:
+                receipt = await session.scalar(
+                    select(CommandReceiptORM).where(
+                        CommandReceiptORM.idempotency_key
+                        == command.idempotency_key
+                    )
+                )
+                if receipt is None:
+                    raise
+                validate_receipt(receipt, fingerprint)
+
+    @asynccontextmanager
+    async def locked(
+        self, execution_id: UUID
+    ) -> AsyncIterator[tuple[AsyncSession, ExecutionORM]]:
+        """Serialize file and notebook changes across Executor instances."""
+        async with self._session_factory() as session, session.begin():
+            if session.get_bind().dialect.name == "postgresql":
+                await session.execute(
+                    text("SELECT set_config('lock_timeout', '30s', true)")
+                )
+            execution = await session.scalar(
+                select(ExecutionORM)
+                .where(ExecutionORM.id == execution_id)
+                .with_for_update()
+            )
+            if execution is None:
+                raise ExecutionNotFoundError(
+                    f"Execution {execution_id} was not found."
+                )
+            yield session, execution
+
+    async def completed(
+        self, session: AsyncSession, key: str, fingerprint: str
+    ) -> UUID | None:
+        receipt = await session.scalar(
+            select(CommandReceiptORM).where(
+                CommandReceiptORM.idempotency_key == key
+            )
+        )
+        if receipt is None:
+            raise ArtifactRegistrationError("Artifact reservation is missing.")
+        return validate_receipt(receipt, fingerprint)
+
     async def persist(
         self,
         command: MaterializeArtifactCommand,
         *,
+        session: AsyncSession,
         fingerprint: str,
         artifact_id: UUID,
         identity_hash: str,
@@ -62,15 +131,20 @@ class MaterializedArtifactPersistence:
         media_type: str,
         file: RuntimeFileMetadata,
     ) -> UUID:
-        async with self._session_factory() as session, session.begin():
+        async with session.begin_nested():
             repeated = await session.scalar(
                 select(CommandReceiptORM).where(
                     CommandReceiptORM.idempotency_key
                     == command.idempotency_key
                 )
             )
-            if repeated is not None:
-                return validate_receipt(repeated, fingerprint)
+            if repeated is None:
+                raise ArtifactRegistrationError(
+                    "Artifact command must be reserved before writing."
+                )
+            completed = validate_receipt(repeated, fingerprint)
+            if completed is not None:
+                return completed
             artifact = await session.scalar(
                 select(ExecutionArtifactORM).where(
                     ExecutionArtifactORM.identity_hash == identity_hash
@@ -106,18 +180,16 @@ class MaterializedArtifactPersistence:
                 )
                 session.add(artifact)
             artifact_id = artifact.id
-            session.add(
-                CommandReceiptORM(
-                    idempotency_key=command.idempotency_key,
-                    command_type="execution_artifact_materialize",
-                    request_fingerprint=fingerprint,
-                    result={"artifact_id": str(artifact_id)},
-                )
-            )
+            repeated.result = {
+                "artifact_id": str(artifact_id),
+                "materialization_status": "COMPLETED",
+            }
         return artifact_id
 
 
-def validate_receipt(receipt: CommandReceiptORM, fingerprint: str) -> UUID:
+def validate_receipt(
+    receipt: CommandReceiptORM, fingerprint: str
+) -> UUID | None:
     if (
         receipt.command_type != "execution_artifact_materialize"
         or receipt.request_fingerprint != fingerprint
@@ -125,6 +197,8 @@ def validate_receipt(receipt: CommandReceiptORM, fingerprint: str) -> UUID:
         raise IdempotencyConflictError(
             "idempotency_key was already used with a different command."
         )
+    if receipt.result.get("materialization_status") == "PENDING":
+        return None
     value = receipt.result.get("artifact_id")
     if not isinstance(value, str):
         raise ArtifactRegistrationError("Artifact receipt is invalid.")

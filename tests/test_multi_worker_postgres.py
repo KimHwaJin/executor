@@ -1,6 +1,7 @@
 """Real PostgreSQL concurrency checks for multiple Executor workers."""
 
 import asyncio
+import copy
 import os
 import subprocess
 import sys
@@ -591,6 +592,169 @@ async def postgres_engine() -> AsyncIterator[AsyncEngine]:
                 text(f'DROP DATABASE IF EXISTS "{database_name}"')
             )
         await admin_engine.dispose()
+
+
+@pytest.mark.parametrize("case", ["same", "conflict", "append"])
+async def test_artifact_writes_serialize_across_service_instances(
+    postgres_engine: AsyncEngine, tmp_path: Path, case: str
+) -> None:
+    from executor_service.application.commands import (
+        MaterializeArtifactCommand,
+    )
+    from executor_service.domain.enums import ArtifactType, CodeSourceType
+    from executor_service.domain.errors import IdempotencyConflictError
+    from executor_service.infrastructure.materialized_artifacts import (
+        MaterializedArtifactService,
+    )
+    from tests.test_rest_execution_api import _NotebookStorage
+
+    execution = await _service(postgres_engine, tmp_path).submit(
+        _command("artifact-race")
+    )
+    factory = create_session_factory(postgres_engine)
+    async with factory() as session, session.begin():
+        await session.execute(
+            update(ExecutionORM)
+            .where(ExecutionORM.id == execution.id)
+            .values(
+                status=ExecutionStatus.SUCCEEDED,
+                workspace_path="review/workspace",
+                notebook_path="review/workspace/notebooks/execution.ipynb",
+            )
+        )
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    class Storage(_NotebookStorage):
+        def __init__(self, notebook):
+            super().__init__(notebook)
+            self.writes: list[str] = []
+
+        async def write_text(self, *args, **kwargs):
+            self.writes.append(args[-1])
+            if len(self.writes) == 1:
+                entered.set()
+                await release.wait()
+            return await super().write_text(*args, **kwargs)
+
+        async def read_notebook(self, *args, **kwargs):
+            # A real HTTP response is a snapshot, not a shared Python dict.
+            return copy.deepcopy(await super().read_notebook(*args, **kwargs))
+
+    storage = Storage(
+        {"nbformat": 4, "nbformat_minor": 5, "metadata": {}, "cells": []}
+    )
+    services = [
+        MaterializedArtifactService(factory, storage, tmp_path, max_bytes=1024)
+        for _ in range(2)
+    ]
+    first = MaterializeArtifactCommand(
+        execution_id=execution.id,
+        idempotency_key="artifact-race-key",
+        artifact_type=ArtifactType.REPORT,
+        source_type=CodeSourceType.INLINE,
+        source_content="first",
+        source_path=None,
+        source_sha256=None,
+        append_to_notebook=True,
+    )
+    second = replace(
+        first,
+        idempotency_key="second-key"
+        if case == "append"
+        else first.idempotency_key,
+        source_content="first" if case == "same" else "second",
+        name="second.md" if case == "append" else None,
+    )
+    tasks: list[asyncio.Task] = []
+    try:
+        async with asyncio.timeout(10):
+            tasks.append(asyncio.create_task(services[0].materialize(first)))
+            await entered.wait()
+            tasks.append(asyncio.create_task(services[1].materialize(second)))
+            await asyncio.sleep(0.05)
+            assert storage.writes == ["first"]
+            release.set()
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+    finally:
+        release.set()
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+    assert not isinstance(results[0], BaseException)
+    if case == "conflict":
+        assert isinstance(results[1], IdempotencyConflictError)
+    else:
+        assert not isinstance(results[1], BaseException)
+    if case == "same":
+        assert results[0] == results[1]
+    expected = ["first", "second"] if case == "append" else ["first"]
+    assert storage.writes == expected
+    assert [
+        "".join(cell["source"]) for cell in storage.notebook["cells"]
+    ] == expected
+
+
+async def test_failed_artifact_receipt_can_only_resume_same_command(
+    postgres_engine: AsyncEngine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from executor_service.application.commands import (
+        MaterializeArtifactCommand,
+    )
+    from executor_service.domain.enums import ArtifactType, CodeSourceType
+    from executor_service.domain.errors import IdempotencyConflictError
+    from executor_service.infrastructure.materialized_artifacts import (
+        MaterializedArtifactService,
+    )
+    from tests.test_rest_execution_api import _NotebookStorage
+
+    execution = await _service(postgres_engine, tmp_path).submit(
+        _command("artifact-resume")
+    )
+    factory = create_session_factory(postgres_engine)
+    async with factory() as session, session.begin():
+        await session.execute(
+            update(ExecutionORM)
+            .where(ExecutionORM.id == execution.id)
+            .values(
+                status=ExecutionStatus.SUCCEEDED,
+                workspace_path="review/workspace",
+                notebook_path="review/workspace/notebooks/execution.ipynb",
+            )
+        )
+    storage = _NotebookStorage(
+        {"nbformat": 4, "nbformat_minor": 5, "metadata": {}, "cells": []}
+    )
+    service = MaterializedArtifactService(
+        factory, storage, tmp_path, max_bytes=1024
+    )
+    request = MaterializeArtifactCommand(
+        execution.id,
+        "resume-key",
+        ArtifactType.REPORT,
+        CodeSourceType.INLINE,
+        "report",
+        None,
+        None,
+        append_to_notebook=True,
+    )
+    original = service._persistence.persist
+
+    async def fail(*args, **kwargs):
+        raise RuntimeError("simulated DB persistence failure")
+
+    monkeypatch.setattr(service._persistence, "persist", fail)
+    with pytest.raises(RuntimeError, match="simulated"):
+        await service.materialize(request)
+    with pytest.raises(IdempotencyConflictError):
+        await service.materialize(replace(request, source_content="conflict"))
+    monkeypatch.setattr(service._persistence, "persist", original)
+    artifact_id = await service.materialize(request)
+    assert await service.materialize(request) == artifact_id
+    assert len(storage.notebook["cells"]) == 1
 
 
 def _command(name: str) -> SubmitExecutionCommand:

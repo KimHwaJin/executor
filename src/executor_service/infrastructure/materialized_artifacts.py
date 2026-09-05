@@ -60,33 +60,51 @@ class MaterializedArtifactService:
                 "Execution workspace is not available."
             )
         name = artifact_name(command)
-        destination = target_path(
-            execution.workspace_path, command.artifact_type, name
-        )
-        file = await self._runtime_storage.write_text(
-            execution.runtime_type,
-            execution.runtime_target_id,
-            destination,
-            content,
-        )
-        if command.append_to_notebook:
-            await append_notebook_markdown(
-                self._runtime_storage,
-                execution,
-                command.idempotency_key,
+        await self._persistence.reserve(command, fingerprint)
+        async with self._persistence.locked(command.execution_id) as (
+            session,
+            execution,
+        ):
+            completed = await self._persistence.completed(
+                session, command.idempotency_key, fingerprint
+            )
+            if completed is not None:
+                return completed
+            if execution.status != ExecutionStatus.SUCCEEDED:
+                raise InvalidStateTransitionError(
+                    "Execution is no longer SUCCEEDED."
+                )
+            if execution.workspace_path is None:
+                raise ArtifactRegistrationError(
+                    "Execution workspace is not available."
+                )
+            destination = target_path(
+                execution.workspace_path, command.artifact_type, name
+            )
+            file = await self._runtime_storage.write_text(
+                execution.runtime_type,
+                execution.runtime_target_id,
+                destination,
                 content,
             )
-
-        return await self._persistence.persist(
-            command,
-            fingerprint=fingerprint,
-            artifact_id=artifact_id(fingerprint),
-            identity_hash=artifact_identity_hash(
-                command.execution_id,
-                destination,
-                file.checksum_sha256,
-            ),
-            name=name,
-            media_type=media_type(command, file.media_type),
-            file=file,
-        )
+            if command.append_to_notebook:
+                await append_notebook_markdown(
+                    self._runtime_storage,
+                    execution,
+                    command.idempotency_key,
+                    content,
+                )
+            return await self._persistence.persist(
+                command,
+                session=session,
+                fingerprint=fingerprint,
+                artifact_id=artifact_id(fingerprint),
+                identity_hash=artifact_identity_hash(
+                    command.execution_id,
+                    destination,
+                    file.checksum_sha256,
+                ),
+                name=name,
+                media_type=media_type(command, file.media_type),
+                file=file,
+            )
