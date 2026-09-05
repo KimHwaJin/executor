@@ -63,6 +63,9 @@ class RuntimeTargetProber:
                 target.credential_ref, target.credential_ciphertext
             )
             enabled = target.enabled
+            observed_config = target.connection_config
+            observed_credential = target.credential_ciphertext
+            observed_pool = target.pool
 
         if not enabled:
             return await self._view(target_id)
@@ -139,13 +142,23 @@ class RuntimeTargetProber:
 
         async with self._session_factory() as session, session.begin():
             target = await required_target(session, target_id, lock=True)
+            if (
+                target.connection_config != observed_config
+                or target.credential_ciphertext != observed_credential
+                or target.pool != observed_pool
+            ):
+                # A response from the previous endpoint/credential must not
+                # validate the newly configured Target.
+                return await runtime_target_view(
+                    session, target, self._settings
+                )
             if target.enabled:
                 checked_at = utc_now()
                 if error is None:
                     if target.status != RuntimeTargetStatus.DRAINING:
                         target.status = RuntimeTargetStatus.ACTIVE
                     target.supported_profiles = profiles
-                else:
+                elif target.status != RuntimeTargetStatus.DRAINING:
                     target.status = RuntimeTargetStatus.OFFLINE
                 target.last_health_check_at = checked_at
                 target.last_health_error = error

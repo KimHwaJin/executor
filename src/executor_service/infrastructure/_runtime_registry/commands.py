@@ -48,6 +48,9 @@ from executor_service.infrastructure.db.models import (
     RuntimeTargetORM,
     RuntimeTargetPurgeORM,
 )
+from executor_service.infrastructure.runtime_admission import (
+    count_runtime_reservations,
+)
 from executor_service.settings import Settings
 
 
@@ -142,6 +145,29 @@ class RuntimeTargetCommands:
                         "Target. Register a new target name for a different "
                         "Runtime Driver."
                     )
+                identity_changed = (
+                    target.connection_config != connection_config
+                    or target.pool != command.pool
+                )
+                if identity_changed and await count_runtime_reservations(
+                    session, target.id, utc_now()
+                ):
+                    raise RuntimeTargetConfigurationError(
+                        "Cannot change endpoint or pool while the Runtime "
+                        "Target has active, retained, or cleanup reservations. "
+                        "Drain it and register a new Target for replacement."
+                    )
+                if identity_changed:
+                    target.supported_profiles = []
+                    target.active_session_count = None
+                    target.session_count_observed_at = None
+                    target.resource_observed_at = None
+                    target.last_health_check_at = None
+                    target.last_health_error = (
+                        "RUNTIME_CONFIGURATION_CHANGED: Health probe required."
+                    )
+                    if target.status != RuntimeTargetStatus.DRAINING:
+                        target.status = RuntimeTargetStatus.OFFLINE
                 target.connection_config = connection_config
                 target.pool = command.pool
                 target.enabled = True
