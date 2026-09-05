@@ -64,6 +64,14 @@ spec:
               value: "10"
             - name: REDIS_WORK_STREAM
               value: "executor.work"
+            - name: REDIS_CONNECT_TIMEOUT_SECONDS
+              value: "5"
+            - name: REDIS_SOCKET_TIMEOUT_SECONDS
+              value: "5"
+            - name: OUTBOX_PUBLISH_TIMEOUT_SECONDS
+              value: "5"
+            - name: OUTBOX_SHUTDOWN_TIMEOUT_SECONDS
+              value: "10"
             - name: REDIS_EVENT_STREAM
               value: "executor.events"
             - name: REDIS_WORK_DEAD_LETTER_STREAM

@@ -46,6 +46,7 @@ from executor_service.infrastructure.materialized_artifacts import (
     MaterializedArtifactService,
 )
 from executor_service.infrastructure.outbox import OutboxPublisher
+from executor_service.infrastructure.redis_client import create_redis_client
 from executor_service.infrastructure.redis_streams import (
     check_redis_compatibility,
 )
@@ -78,9 +79,7 @@ class ApplicationContainer:
             connect_timeout_seconds=settings.database_connect_timeout_seconds,
         )
         self.session_factory = create_session_factory(self.engine)
-        self.redis: Redis = Redis.from_url(
-            settings.redis_dsn, decode_responses=True
-        )
+        self.redis: Redis = create_redis_client(settings)
         self.result_store = FilesystemExecutionResultStore(
             settings.shared_storage_root
         )
@@ -108,6 +107,7 @@ class ApplicationContainer:
             settings.request_storage_root,
             inline_max_bytes=settings.execution_inline_spec_max_bytes,
             file_max_bytes=settings.execution_file_spec_max_bytes,
+            max_steps=settings.execution_max_steps_per_operation,
         )
         self.runtime_driver_factory = ConfiguredRuntimeDriverFactory(settings)
         self.runtime_registry = RuntimeTargetRegistry(
@@ -144,6 +144,8 @@ class ApplicationContainer:
             event_stream_name=settings.redis_event_stream,
             poll_interval_seconds=settings.outbox_poll_interval_seconds,
             batch_size=settings.outbox_batch_size,
+            publish_timeout_seconds=settings.outbox_publish_timeout_seconds,
+            shutdown_timeout_seconds=settings.outbox_shutdown_timeout_seconds,
         )
         self.event_retention = EventRetentionManager(
             self.session_factory,

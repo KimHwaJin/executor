@@ -95,12 +95,18 @@ class ExecutionSpecResolver:
         *,
         inline_max_bytes: int = 256 * 1024,
         file_max_bytes: int = 50 * 1024 * 1024,
+        max_steps: int = 100,
     ) -> None:
         self._input_root = input_root.resolve()
         self._inline_max_bytes = inline_max_bytes
         self._file_max_bytes = file_max_bytes
+        self._max_steps = max_steps
 
     async def resolve(self, spec: ExecutionSpec) -> ResolvedExecutionSpec:
+        if len(spec.steps) > self._max_steps:
+            raise InvalidExecutionSpecError(
+                f"Operation exceeds maximum Step count {self._max_steps}."
+            )
         resolved = tuple(
             [await self._resolve_step(step) for step in spec.steps]
         )
@@ -171,7 +177,13 @@ class ExecutionSpecResolver:
                 "PATH Python Step source exceeds the configured file size limit."
             )
         try:
-            encoded = resolved.read_bytes()
+            with resolved.open("rb") as handle:
+                encoded = handle.read(self._file_max_bytes + 1)
+            if len(encoded) > self._file_max_bytes:
+                raise InvalidExecutionSpecError(
+                    "PATH Python Step source exceeds the configured file "
+                    "size limit."
+                )
             content = encoded.decode("utf-8")
         except UnicodeDecodeError as exc:
             raise InvalidExecutionSpecError(

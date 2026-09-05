@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     db_migration_lock_timeout_seconds: int = Field(default=60, ge=1)
     db_migration_statement_timeout_seconds: int = Field(default=300, ge=1)
     redis_url: SecretStr = SecretStr("redis://localhost:6379/0")
+    redis_connect_timeout_seconds: float = Field(default=5, gt=0)
+    # Work consumption uses XREADGROUP BLOCK 1000; allow response overhead.
+    redis_socket_timeout_seconds: float = Field(default=5, gt=1)
     redis_work_stream: str = Field(default="executor.work", min_length=1)
     redis_event_stream: str = Field(default="executor.events", min_length=1)
     redis_work_dead_letter_stream: str = Field(
@@ -48,6 +51,8 @@ class Settings(BaseSettings):
     )
     outbox_poll_interval_seconds: float = Field(default=0.5, gt=0)
     outbox_batch_size: int = Field(default=100, ge=1, le=1000)
+    outbox_publish_timeout_seconds: float = Field(default=5, gt=0)
+    outbox_shutdown_timeout_seconds: float = Field(default=10, gt=0)
     event_retention_enabled: bool = True
     event_retention_interval_seconds: float = Field(default=3600, gt=0)
     event_retention_lease_seconds: int = Field(default=300, ge=30)
@@ -129,6 +134,11 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_redis_streams(self) -> Self:
+        if self.execution_heartbeat_seconds >= self.execution_lease_seconds:
+            raise ValueError(
+                "EXECUTION_HEARTBEAT_SECONDS must be less than "
+                "EXECUTION_LEASE_SECONDS."
+            )
         stream_names = {
             self.redis_work_stream,
             self.redis_event_stream,
