@@ -164,6 +164,7 @@ async def main() -> None:
             finished.runtime_type,
             finished.runtime_target_id,
             finished.notebook_path,
+            runtime_pool=finished.runtime_pool,
         )
         notebook_text = json.dumps(notebook_data)
         event_types = {event.event_type for event in events}

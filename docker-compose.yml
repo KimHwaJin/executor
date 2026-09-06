@@ -16,7 +16,7 @@ services:
       - executor-postgres:/var/lib/postgresql/data
 
   redis:
-    image: redis:7.4-alpine
+    image: redis:6.0.8
     ports:
       - "6379:6379"
     command: ["redis-server", "--appendonly", "yes"]
@@ -26,7 +26,8 @@ services:
       timeout: 5s
       retries: 10
     volumes:
-      - executor-redis:/data
+      # Never reuse a Redis 7.x AOF/RDB volume for a 6.0.8 server.
+      - executor-redis-608:/data
 
   jupyter:
     image: executor-jupyter:local
@@ -73,6 +74,10 @@ services:
       DB_MIGRATION_LOCK_TIMEOUT_SECONDS: ${DB_MIGRATION_LOCK_TIMEOUT_SECONDS:-60}
       DB_MIGRATION_STATEMENT_TIMEOUT_SECONDS: ${DB_MIGRATION_STATEMENT_TIMEOUT_SECONDS:-300}
       REDIS_URL: redis://redis:6379/0
+      REDIS_CONNECT_TIMEOUT_SECONDS: ${REDIS_CONNECT_TIMEOUT_SECONDS:-5}
+      REDIS_SOCKET_TIMEOUT_SECONDS: ${REDIS_SOCKET_TIMEOUT_SECONDS:-5}
+      OUTBOX_PUBLISH_TIMEOUT_SECONDS: ${OUTBOX_PUBLISH_TIMEOUT_SECONDS:-5}
+      OUTBOX_SHUTDOWN_TIMEOUT_SECONDS: ${OUTBOX_SHUTDOWN_TIMEOUT_SECONDS:-10}
       REDIS_WORK_STREAM: ${REDIS_WORK_STREAM:-executor.work}
       REDIS_EVENT_STREAM: ${REDIS_EVENT_STREAM:-executor.events}
       EVENT_RETENTION_ENABLED: ${EVENT_RETENTION_ENABLED:-true}
@@ -187,4 +192,4 @@ services:
 
 volumes:
   executor-postgres:
-  executor-redis:
+  executor-redis-608:

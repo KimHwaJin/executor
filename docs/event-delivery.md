@@ -70,7 +70,8 @@ New messages and reclaimed messages use the same processing path:
 3. ACK only after the routing action succeeds.
 
 If a process dies before step 3, its entry remains in the consumer group's Pending Entries List.
-Another live replica reclaims it with `XAUTOCLAIM`. Duplicate delivery is expected: the in-process
+Another live replica reclaims it with bounded `XPENDING`/`XCLAIM` in an atomic Lua script
+(Redis 6.0.8 compatible). Duplicate delivery is expected: the in-process
 job map suppresses a concurrent duplicate in one replica, and PostgreSQL row/state guards allow
 only one Worker to create the active Attempt across replicas. Reconciliation independently scans
 `QUEUED` and `CANCEL_REQUESTED` rows, so correctness never depends on a Redis entry surviving.
@@ -79,7 +80,8 @@ only one Worker to create the active Attempt across replicas. Reconciliation ind
 
 - `EXECUTION_PENDING_CLAIM_INTERVAL_SECONDS`: how often each Worker scans for stale Pending entries
 - `EXECUTION_PENDING_CLAIM_IDLE_MILLISECONDS`: minimum idle time before ownership may move
-- `EXECUTION_PENDING_CLAIM_BATCH_SIZE`: maximum entries reclaimed per scan
+- `EXECUTION_PENDING_CLAIM_BATCH_SIZE`: maximum Pending entries scanned per pass;
+  only idle-enough entries are reclaimed (maximum 1,000)
 
 The claim cursor is retained between scans so a large PEL can be traversed without repeatedly
 examining only its first segment. A handler or ACK failure leaves the entry Pending for a later

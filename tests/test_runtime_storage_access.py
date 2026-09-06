@@ -1,3 +1,5 @@
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any, cast
 from uuid import UUID, uuid4
 
@@ -9,7 +11,12 @@ from executor_service.domain.enums import (
     RuntimeTargetStatus,
     RuntimeType,
 )
-from executor_service.domain.runtime import RuntimeDriverError
+from executor_service.domain.runtime import (
+    RuntimeByteRange,
+    RuntimeDriverError,
+    RuntimeFileContent,
+    RuntimeFileMetadata,
+)
 from executor_service.infrastructure.db.models import RuntimeTargetORM
 from executor_service.infrastructure.db.session import create_session_factory
 from executor_service.infrastructure.runtime_registry import (
@@ -34,6 +41,37 @@ class ReadDriver:
 
     async def close(self) -> None:
         self.closed = True
+
+    async def write_notebook(
+        self, path: str, notebook: dict[str, Any]
+    ) -> None:
+        await self.read_notebook(path)
+
+    async def write_text(self, path: str, content: str) -> None:
+        await self.read_notebook(path)
+
+    async def file_metadata(self, path: str) -> RuntimeFileMetadata:
+        return RuntimeFileMetadata(
+            path=path,
+            name="file",
+            size_bytes=2,
+            modified_ns=0,
+            media_type="text/plain",
+            checksum_sha256="a" * 64,
+        )
+
+    @asynccontextmanager
+    async def open_file(
+        self, path: str, range_header: str | None
+    ) -> AsyncIterator[RuntimeFileContent]:
+        await self.read_notebook(path)
+
+        async def body() -> AsyncIterator[bytes]:
+            yield b"ok"
+
+        yield RuntimeFileContent(
+            RuntimeByteRange(0, 1, 2, False), "a" * 64, body()
+        )
 
 
 class DriverFactory:
@@ -64,6 +102,7 @@ async def _target(
     endpoint: str,
     status: RuntimeTargetStatus = RuntimeTargetStatus.ACTIVE,
     enabled: bool = True,
+    pool: RuntimePool = RuntimePool.INTERACTIVE,
 ) -> UUID:
     session_factory = create_session_factory(engine)
     target = RuntimeTargetORM(
@@ -72,7 +111,7 @@ async def _target(
         runtime_type=RuntimeType.JUPYTER,
         connection_config={"endpoint": endpoint},
         **runtime_credential_fields(),
-        pool=RuntimePool.INTERACTIVE,
+        pool=pool,
         status=status,
         max_concurrent_executions=2,
         supported_profiles=["basic"],
@@ -96,6 +135,116 @@ def _access(
     )
 
 
+async def _storage_operation(
+    access: FleetRuntimeStorageAccess,
+    operation: str,
+    pool: RuntimePool,
+    preferred_id: UUID | None,
+) -> None:
+    # Deliberately identical paths across pools must never bypass isolation.
+    path = "same/path/file"
+    if operation == "read":
+        await access.read_notebook(
+            RuntimeType.JUPYTER, preferred_id, path, runtime_pool=pool
+        )
+    elif operation == "notebook_write":
+        await access.write_notebook(
+            RuntimeType.JUPYTER, preferred_id, path, {}, runtime_pool=pool
+        )
+    elif operation == "text_write":
+        await access.write_text(
+            RuntimeType.JUPYTER, preferred_id, path, "ok", runtime_pool=pool
+        )
+    else:
+        async with access.open_file(
+            RuntimeType.JUPYTER, preferred_id, path, None, runtime_pool=pool
+        ) as opened:
+            assert b"".join([part async for part in opened.body]) == b"ok"
+
+
+@pytest.mark.parametrize("pool", list(RuntimePool))
+@pytest.mark.parametrize(
+    "operation", ["read", "notebook_write", "text_write", "download"]
+)
+@pytest.mark.parametrize(
+    "preferred", ["failing", "missing", "other_pool", "none", "offline"]
+)
+async def test_all_storage_operations_stay_in_execution_pool(
+    engine: AsyncEngine, pool: RuntimePool, operation: str, preferred: str
+) -> None:
+    other_pool = next(item for item in RuntimePool if item != pool)
+    other_id = await _target(
+        engine, name="a-other", endpoint="http://other", pool=other_pool
+    )
+    preferred_id = await _target(
+        engine,
+        name="z-preferred",
+        endpoint="http://preferred",
+        pool=pool,
+        status=(
+            RuntimeTargetStatus.OFFLINE
+            if preferred == "offline"
+            else RuntimeTargetStatus.ACTIVE
+        ),
+        enabled=preferred in {"failing", "offline"},
+    )
+    await _target(
+        engine,
+        name="b-fallback",
+        endpoint="http://fallback",
+        pool=pool,
+        status=RuntimeTargetStatus.DRAINING,
+    )
+    factory = DriverFactory(
+        {
+            "http://preferred": RuntimeDriverError("offline"),
+            "http://fallback": {"cells": []},
+        }
+    )
+    selected = {
+        "failing": preferred_id,
+        "offline": preferred_id,
+        "missing": uuid4(),
+        "other_pool": other_id,
+        "none": None,
+    }[preferred]
+    await _storage_operation(
+        _access(engine, factory), operation, pool, selected
+    )
+    assert factory.created == (
+        ["http://preferred", "http://fallback"]
+        if preferred == "failing"
+        else ["http://fallback"]
+    )
+    assert all(driver.closed for driver in factory.drivers)
+
+
+@pytest.mark.parametrize("pool", list(RuntimePool))
+@pytest.mark.parametrize(
+    "operation", ["read", "notebook_write", "text_write", "download"]
+)
+@pytest.mark.parametrize("same_pool_fails", [False, True])
+async def test_other_pool_is_never_used_as_last_resort(
+    engine: AsyncEngine,
+    pool: RuntimePool,
+    operation: str,
+    same_pool_fails: bool,
+) -> None:
+    other_pool = next(item for item in RuntimePool if item != pool)
+    other_id = await _target(
+        engine, name="a-other", endpoint="http://other", pool=other_pool
+    )
+    factory = DriverFactory({"http://same": RuntimeDriverError("offline")})
+    if same_pool_fails:
+        await _target(engine, name="same", endpoint="http://same", pool=pool)
+    with pytest.raises(RuntimeDriverError):
+        await _storage_operation(
+            _access(engine, factory), operation, pool, other_id
+        )
+    assert factory.created == (["http://same"] if same_pool_fails else [])
+    assert all(driver.closed for driver in factory.drivers)
+
+
 async def test_runtime_storage_prefers_execution_target(
     engine: AsyncEngine,
 ) -> None:
@@ -108,7 +257,10 @@ async def test_runtime_storage_prefers_execution_target(
     )
 
     result = await _access(engine, factory).read_notebook(
-        RuntimeType.JUPYTER, preferred_id, "shared/execution.ipynb"
+        RuntimeType.JUPYTER,
+        preferred_id,
+        "shared/execution.ipynb",
+        runtime_pool=RuntimePool.INTERACTIVE,
     )
 
     assert result["cells"] == []
@@ -131,7 +283,10 @@ async def test_runtime_storage_falls_back_to_another_shared_target(
     )
 
     result = await _access(engine, factory).read_notebook(
-        RuntimeType.JUPYTER, preferred_id, "shared/execution.ipynb"
+        RuntimeType.JUPYTER,
+        preferred_id,
+        "shared/execution.ipynb",
+        runtime_pool=RuntimePool.INTERACTIVE,
     )
 
     assert result["cells"] == [1]
@@ -155,7 +310,10 @@ async def test_runtime_storage_excludes_offline_and_disabled_targets(
 
     with pytest.raises(RuntimeDriverError, match="No healthy Runtime Target"):
         await _access(engine, factory).read_notebook(
-            RuntimeType.JUPYTER, None, "shared/execution.ipynb"
+            RuntimeType.JUPYTER,
+            None,
+            "shared/execution.ipynb",
+            runtime_pool=RuntimePool.INTERACTIVE,
         )
 
 
@@ -173,5 +331,8 @@ async def test_runtime_storage_reports_all_target_failures(
 
     with pytest.raises(RuntimeDriverError, match="All Runtime Targets failed"):
         await _access(engine, factory).read_notebook(
-            RuntimeType.JUPYTER, None, "shared/execution.ipynb"
+            RuntimeType.JUPYTER,
+            None,
+            "shared/execution.ipynb",
+            runtime_pool=RuntimePool.INTERACTIVE,
         )

@@ -44,7 +44,17 @@ def configure_logging(path: Path, level: str | None = None) -> None:
             raise LoggingConfigurationError("LOG_LEVEL is invalid.")
         root["level"] = normalized
     config.setdefault("disable_existing_loggers", False)
+    # Applies to custom deployment formatters as well as logger.yml defaults.
+    # Keep all caller-supplied handlers and filters; only add the DB safeguard.
     try:
+        policy_filter = "executor_safe_database_errors"
+        config.setdefault("filters", {})[policy_filter] = {
+            "()": "executor_service.infrastructure.db.logging.DatabaseErrorFilter"
+        }
+        for handler in config.get("handlers", {}).values():
+            filters = handler.setdefault("filters", [])
+            if policy_filter not in filters:
+                filters.append(policy_filter)
         logging.config.dictConfig(config)
     except (ValueError, TypeError, AttributeError, ImportError) as exc:
         raise LoggingConfigurationError(

@@ -9,7 +9,6 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from redis.asyncio import Redis
-from redis.exceptions import ResponseError
 from sqlalchemy import delete, exists, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -20,6 +19,10 @@ from executor_service.infrastructure.db.models import (
     ExecutionEventORM,
     ExecutionORM,
     OutboxEventORM,
+)
+from executor_service.infrastructure.redis_streams import (
+    MAX_BATCH_SIZE,
+    trim_before,
 )
 from executor_service.settings import Settings
 
@@ -248,72 +251,42 @@ class EventRetentionManager:
         return len(outbox_ids), len(event_ids)
 
     async def _trim_work_stream(self) -> int:
-        stream = self._settings.redis_work_stream
-        cutoff = _cutoff_stream_id(self._settings.redis_work_retention_seconds)
-        try:
-            groups = await self._redis.xinfo_groups(stream)
-        except ResponseError as exc:
-            if "no such key" in str(exc).lower():
-                return 0
-            raise
-        if not groups:
-            return 0
-        safe_boundaries = [cutoff]
-        for group in groups:
-            last_delivered = _text_field(group, "last-delivered-id")
-            if last_delivered in {None, "0-0"}:
-                return 0
-            safe_boundaries.append(last_delivered)
-            if int(_text_field(group, "pending") or "0") > 0:
-                pending = await self._redis.xpending(
-                    stream, _text_field(group, "name") or ""
-                )
-                pending_min = _text_field(pending, "min")
-                if pending_min:
-                    safe_boundaries.append(pending_min)
-        boundary = min(safe_boundaries, key=_stream_id_key)
-        return int(
-            await self._redis.xtrim(
-                stream,
-                minid=boundary,
-                approximate=True,
-            )
+        return await self._trim_stream(
+            self._settings.redis_work_stream,
+            self._settings.redis_work_retention_seconds,
+            protect_groups=True,
         )
 
     async def _trim_by_age(self, stream: str, retention_seconds: int) -> int:
-        try:
-            return int(
-                await self._redis.xtrim(
-                    stream,
-                    minid=_cutoff_stream_id(retention_seconds),
-                    approximate=True,
-                )
+        return await self._trim_stream(
+            stream, retention_seconds, protect_groups=False
+        )
+
+    async def _trim_stream(
+        self, stream: str, retention_seconds: int, *, protect_groups: bool
+    ) -> int:
+        remaining = self._settings.event_retention_batch_size
+        deleted = 0
+        boundary = _cutoff_stream_id(retention_seconds)
+        while remaining > 0:
+            batch_size = min(remaining, MAX_BATCH_SIZE)
+            count = await trim_before(
+                self._redis,
+                stream,
+                boundary,
+                protect_groups=protect_groups,
+                count=batch_size,
             )
-        except ResponseError as exc:
-            if "no such key" in str(exc).lower():
-                return 0
-            raise
+            deleted += count
+            remaining -= batch_size
+            if count < batch_size:
+                break
+        return deleted
 
 
 def _cutoff_stream_id(retention_seconds: int) -> str:
     cutoff = utc_now() - timedelta(seconds=retention_seconds)
     return f"{int(cutoff.timestamp() * 1000)}-0"
-
-
-def _stream_id_key(value: str) -> tuple[int, int]:
-    milliseconds, sequence = value.split("-", maxsplit=1)
-    return int(milliseconds), int(sequence)
-
-
-def _text_field(values: object, name: str) -> str | None:
-    if not isinstance(values, dict):
-        return None
-    value = values.get(name)
-    if value is None:
-        value = values.get(name.encode())
-    if value is None:
-        return None
-    return value.decode() if isinstance(value, bytes) else str(value)
 
 
 def _as_utc(value: datetime) -> datetime:

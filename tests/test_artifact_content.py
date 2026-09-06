@@ -17,6 +17,7 @@ from executor_service.application.artifact_content import (
 from executor_service.domain.enums import (
     ArtifactStatus,
     ArtifactStorageType,
+    RuntimePool,
     RuntimeType,
 )
 from executor_service.domain.errors import (
@@ -47,6 +48,7 @@ class ArtifactStreamer:
         self.content = content
         self.calls: list[tuple[RuntimeType, UUID | None, str, str | None]] = []
         self.closed = False
+        self.pools: list[RuntimePool] = []
 
     @asynccontextmanager
     async def open_file(
@@ -55,7 +57,10 @@ class ArtifactStreamer:
         preferred_target_id: UUID | None,
         path: str,
         range_header: str | None,
+        *,
+        runtime_pool: RuntimePool,
     ) -> AsyncIterator[RuntimeFileContent]:
+        self.pools.append(runtime_pool)
         self.calls.append(
             (runtime_type, preferred_target_id, path, range_header)
         )
@@ -83,6 +88,7 @@ def _service(
     *,
     storage_type: ArtifactStorageType = ArtifactStorageType.PV,
     status: ArtifactStatus = ArtifactStatus.AVAILABLE,
+    pool: RuntimePool = RuntimePool.INTERACTIVE,
 ) -> tuple[ArtifactContentService, ArtifactStreamer, UUID]:
     target_id = uuid4()
     artifact = SimpleNamespace(
@@ -96,7 +102,9 @@ def _service(
         media_type="application/octet-stream",
     )
     execution = SimpleNamespace(
-        runtime_type=RuntimeType.JUPYTER, runtime_target_id=target_id
+        runtime_type=RuntimeType.JUPYTER,
+        runtime_target_id=target_id,
+        runtime_pool=pool,
     )
     streamer = ArtifactStreamer(content)
     queries = cast(Any, ArtifactQueries(artifact, execution))
@@ -105,6 +113,14 @@ def _service(
 
 async def _read(body: AsyncIterator[bytes]) -> bytes:
     return b"".join([chunk async for chunk in body])
+
+
+@pytest.mark.parametrize("pool", list(RuntimePool))
+async def test_download_passes_execution_pool(pool: RuntimePool) -> None:
+    service, streamer, _ = _service(pool=pool)
+    async with service.open(uuid4(), None) as opened:
+        await _read(opened.body)
+    assert streamer.pools == [pool]
 
 
 async def test_artifact_content_streams_full_and_single_range() -> None:

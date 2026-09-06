@@ -8,6 +8,7 @@ from typing import cast
 from uuid import UUID
 
 from redis.asyncio import Redis
+from redis.exceptions import RedisError
 from redis.typing import EncodableT, FieldT
 from sqlalchemy import exists, or_, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -31,6 +32,8 @@ class OutboxPublisher:
         event_stream_name: str,
         poll_interval_seconds: float,
         batch_size: int,
+        publish_timeout_seconds: float = 5,
+        shutdown_timeout_seconds: float = 10,
     ) -> None:
         self._session_factory = session_factory
         self._redis = redis
@@ -40,6 +43,8 @@ class OutboxPublisher:
         }
         self._poll_interval_seconds = poll_interval_seconds
         self._batch_size = batch_size
+        self._publish_timeout_seconds = publish_timeout_seconds
+        self._shutdown_timeout_seconds = shutdown_timeout_seconds
         self._task: asyncio.Task[None] | None = None
         self._stop_event = asyncio.Event()
 
@@ -52,7 +57,15 @@ class OutboxPublisher:
     async def stop(self) -> None:
         self._stop_event.set()
         if self._task is not None:
-            await self._task
+            try:
+                await asyncio.wait_for(
+                    asyncio.shield(self._task),
+                    timeout=self._shutdown_timeout_seconds,
+                )
+            except TimeoutError:
+                logger.warning("Outbox shutdown deadline exceeded; cancelling")
+                self._task.cancel()
+                await asyncio.gather(self._task, return_exceptions=True)
             self._task = None
 
     async def _run(self) -> None:
@@ -188,9 +201,10 @@ class OutboxPublisher:
                                 ),
                             },
                         )
-                    await self._redis.xadd(
-                        self._stream_names[event.destination], fields
-                    )
+                    async with asyncio.timeout(self._publish_timeout_seconds):
+                        await self._redis.xadd(
+                            self._stream_names[event.destination], fields
+                        )
                     event.status = OutboxStatus.PUBLISHED
                     event.published_at = utc_now()
                     event.last_error = None
@@ -210,6 +224,12 @@ class OutboxPublisher:
                         "Outbox publish failed",
                         extra={"event_id": str(event.id)},
                     )
+                    if isinstance(
+                        exc, (TimeoutError, ConnectionError, RedisError)
+                    ):
+                        # Release this batch's DB locks promptly instead of
+                        # multiplying a network deadline by the batch size.
+                        break
             await session.flush()
             return published
 

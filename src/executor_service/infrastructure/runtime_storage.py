@@ -8,7 +8,11 @@ from uuid import UUID
 from sqlalchemy import case, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from executor_service.domain.enums import RuntimeTargetStatus, RuntimeType
+from executor_service.domain.enums import (
+    RuntimePool,
+    RuntimeTargetStatus,
+    RuntimeType,
+)
 from executor_service.domain.runtime import (
     RuntimeDriverError,
     RuntimeFileContent,
@@ -29,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 
 class FleetRuntimeStorageAccess:
-    """Read shared Runtime storage through a healthy target, preferring execution affinity."""
+    """Access storage only within its originating runtime type and pool."""
 
     def __init__(
         self,
@@ -46,8 +50,12 @@ class FleetRuntimeStorageAccess:
         runtime_type: RuntimeType,
         preferred_target_id: UUID | None,
         path: str,
+        *,
+        runtime_pool: RuntimePool,
     ) -> dict[str, object]:
-        targets = await self._candidates(runtime_type, preferred_target_id)
+        targets = await self._candidates(
+            runtime_type, preferred_target_id, runtime_pool
+        )
         if not targets:
             raise RuntimeDriverError(
                 "No healthy Runtime Target can access shared storage."
@@ -80,8 +88,12 @@ class FleetRuntimeStorageAccess:
         preferred_target_id: UUID | None,
         path: str,
         notebook: dict[str, object],
+        *,
+        runtime_pool: RuntimePool,
     ) -> None:
-        targets = await self._candidates(runtime_type, preferred_target_id)
+        targets = await self._candidates(
+            runtime_type, preferred_target_id, runtime_pool
+        )
         if not targets:
             raise RuntimeDriverError(
                 "No healthy Runtime Target can access shared storage."
@@ -115,8 +127,12 @@ class FleetRuntimeStorageAccess:
         preferred_target_id: UUID | None,
         path: str,
         content: str,
+        *,
+        runtime_pool: RuntimePool,
     ) -> RuntimeFileMetadata:
-        targets = await self._candidates(runtime_type, preferred_target_id)
+        targets = await self._candidates(
+            runtime_type, preferred_target_id, runtime_pool
+        )
         if not targets:
             raise RuntimeDriverError(
                 "No healthy Runtime Target can access shared storage."
@@ -151,8 +167,12 @@ class FleetRuntimeStorageAccess:
         preferred_target_id: UUID | None,
         path: str,
         range_header: str | None,
+        *,
+        runtime_pool: RuntimePool,
     ) -> AsyncIterator[RuntimeFileContent]:
-        targets = await self._candidates(runtime_type, preferred_target_id)
+        targets = await self._candidates(
+            runtime_type, preferred_target_id, runtime_pool
+        )
         if not targets:
             raise RuntimeDriverError(
                 "No healthy Runtime Target can access shared storage."
@@ -195,7 +215,10 @@ class FleetRuntimeStorageAccess:
         ) from last_error
 
     async def _candidates(
-        self, runtime_type: RuntimeType, preferred_target_id: UUID | None
+        self,
+        runtime_type: RuntimeType,
+        preferred_target_id: UUID | None,
+        runtime_pool: RuntimePool,
     ) -> list[RuntimeTargetORM]:
         preferred = case(
             (RuntimeTargetORM.id == preferred_target_id, 0), else_=1
@@ -206,6 +229,7 @@ class FleetRuntimeStorageAccess:
                     select(RuntimeTargetORM)
                     .where(
                         RuntimeTargetORM.runtime_type == runtime_type,
+                        RuntimeTargetORM.pool == runtime_pool,
                         RuntimeTargetORM.enabled.is_(True),
                         RuntimeTargetORM.status.in_(
                             [

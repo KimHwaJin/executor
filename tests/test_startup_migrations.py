@@ -41,6 +41,10 @@ async def test_migration_precedes_any_db_initialization_or_background_task(
     migrate = AsyncMock(side_effect=lambda *_: calls.append("migration"))
     monkeypatch.setattr("executor_service.container.upgrade_database", migrate)
     monkeypatch.setattr(
+        "executor_service.container.check_redis_compatibility",
+        AsyncMock(side_effect=lambda *_: calls.append("redis-compatibility")),
+    )
+    monkeypatch.setattr(
         container.maintenance,
         "initialize",
         AsyncMock(side_effect=lambda: calls.append("maintenance")),
@@ -61,6 +65,7 @@ async def test_migration_precedes_any_db_initialization_or_background_task(
     try:
         await container.start()
         expected = [
+            "redis-compatibility",
             "maintenance",
             "retention-init",
             "outbox",

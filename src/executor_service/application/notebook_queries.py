@@ -117,6 +117,7 @@ class ExecutionNotebookQueryService:
                 execution.runtime_type,
                 execution.runtime_target_id,
                 execution.notebook_path,
+                runtime_pool=execution.runtime_pool,
             )
         except Exception as exc:
             raise ExecutionNotebookNotAvailableError(

@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 import httpx
 import pytest
 
-from executor_service.domain.enums import RuntimeType
+from executor_service.domain.enums import RuntimePool, RuntimeType
 from executor_service.domain.runtime import (
     RuntimeByteRange,
     RuntimeDriverError,
@@ -210,7 +210,10 @@ def fleet(drivers: list[FileDriver]) -> FleetRuntimeStorageAccess:
 
     class Fleet(FleetRuntimeStorageAccess):
         async def _candidates(
-            self, runtime_type: RuntimeType, preferred_target_id: UUID | None
+            self,
+            runtime_type: RuntimeType,
+            preferred_target_id: UUID | None,
+            runtime_pool: RuntimePool,
         ) -> Any:
             return [
                 SimpleNamespace(
@@ -229,7 +232,11 @@ def fleet(drivers: list[FileDriver]) -> FleetRuntimeStorageAccess:
 async def test_fleet_falls_back_only_during_setup() -> None:
     drivers = [FileDriver(RuntimeDriverError("offline")), FileDriver()]
     async with fleet(drivers).open_file(
-        RuntimeType.JUPYTER, None, "file", None
+        RuntimeType.JUPYTER,
+        None,
+        "file",
+        None,
+        runtime_pool=RuntimePool.INTERACTIVE,
     ) as opened:
         assert drivers[0].closed
         assert not drivers[1].closed
@@ -243,7 +250,11 @@ async def test_no_fallback_after_metadata_even_before_first_body_byte() -> (
     drivers = [FileDriver(body_error=True), FileDriver()]
     with pytest.raises(RuntimeDriverError, match="disconnected"):
         async with fleet(drivers).open_file(
-            RuntimeType.JUPYTER, None, "file", None
+            RuntimeType.JUPYTER,
+            None,
+            "file",
+            None,
+            runtime_pool=RuntimePool.INTERACTIVE,
         ) as opened:
             _ = [chunk async for chunk in opened.body]
     assert drivers[0].closed and drivers[0].file_closed
@@ -257,7 +268,11 @@ async def test_fleet_does_not_retry_file_errors(error: Exception) -> None:
     drivers = [FileDriver(error), FileDriver()]
     with pytest.raises(type(error)):
         async with fleet(drivers).open_file(
-            RuntimeType.JUPYTER, None, "file", None
+            RuntimeType.JUPYTER,
+            None,
+            "file",
+            None,
+            runtime_pool=RuntimePool.INTERACTIVE,
         ):
             raise AssertionError("Request must fail.")
     assert drivers[0].closed and not drivers[1].closed
@@ -269,7 +284,11 @@ async def test_cancellation_releases_fleet_download() -> None:
 
     async def download() -> None:
         async with fleet([driver]).open_file(
-            RuntimeType.JUPYTER, None, "file", None
+            RuntimeType.JUPYTER,
+            None,
+            "file",
+            None,
+            runtime_pool=RuntimePool.INTERACTIVE,
         ):
             ready.set()
             await asyncio.Event().wait()

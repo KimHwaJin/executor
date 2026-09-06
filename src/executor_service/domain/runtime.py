@@ -7,7 +7,11 @@ from datetime import datetime
 from typing import Any, Literal, Protocol, runtime_checkable
 from uuid import UUID
 
-from executor_service.domain.enums import RuntimeAbortStatus, RuntimeType
+from executor_service.domain.enums import (
+    RuntimeAbortStatus,
+    RuntimePool,
+    RuntimeType,
+)
 
 
 class RuntimeDriverError(RuntimeError):
@@ -302,6 +306,8 @@ class RuntimeStorageAccess(Protocol):
         runtime_type: RuntimeType,
         preferred_target_id: UUID | None,
         path: str,
+        *,
+        runtime_pool: RuntimePool,
     ) -> dict[str, Any]: ...
 
     async def write_notebook(
@@ -310,6 +316,8 @@ class RuntimeStorageAccess(Protocol):
         preferred_target_id: UUID | None,
         path: str,
         notebook: dict[str, Any],
+        *,
+        runtime_pool: RuntimePool,
     ) -> None: ...
 
     async def write_text(
@@ -318,6 +326,8 @@ class RuntimeStorageAccess(Protocol):
         preferred_target_id: UUID | None,
         path: str,
         content: str,
+        *,
+        runtime_pool: RuntimePool,
     ) -> RuntimeFileMetadata: ...
 
 
@@ -328,4 +338,6 @@ class RuntimeArtifactContentAccess(Protocol):
         preferred_target_id: UUID | None,
         path: str,
         range_header: str | None,
+        *,
+        runtime_pool: RuntimePool,
     ) -> AbstractAsyncContextManager[RuntimeFileContent]: ...

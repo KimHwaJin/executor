@@ -29,7 +29,7 @@ def create_engine(
             "pool_recycle": pool_recycle_seconds,
             "connect_args": {"connect_timeout": connect_timeout_seconds},
         }
-    return create_async_engine(database_url, **options)
+    return create_async_engine(database_url, hide_parameters=True, **options)
 
 
 def create_session_factory(

@@ -18,6 +18,13 @@ The Executor image contains both the API and Redis consumer Worker. PostgreSQL r
 truth, while Redis wakes Workers and carries outbound events. A Pod therefore needs connectivity to
 PostgreSQL, Redis, and the registered Jupyter fleet.
 
+Redis server 6.0.8 or newer is required by this branch. Build the image with its
+updated `uv.lock` (redis-py 5.3.x); changing only the Redis URL does not update code
+inside an older image. Permit `INFO`, `COMMAND INFO`, `EVAL`, and the Stream commands
+listed in [Redis compatibility](../../docs/redis-6-compatibility.md). Redis must be
+reachable during startup; unsupported versions and failed compatibility checks
+prevent background work from starting. No Redis data reset is required.
+
 ## Required deployment substitutions
 
 Before deployment:

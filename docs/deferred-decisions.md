@@ -318,6 +318,48 @@ deletes, corrupts, or replaces after materialization.
 - No reintroduction of Jupyter notebook checkpoints as an Executor durability mechanism.
 - No guarantee that arbitrary manual notebook edits survive reconstruction.
 
+## DD-008: Execution deletion with independently retained Artifacts
+
+- Status: DEFERRED
+- Area: Execution lifecycle, Artifact ownership, history and file retention
+- Deferred on: 2026-09-06
+- Resume when: product requirements for deletion and retained Artifact discovery
+  have been collected and approved
+
+### Context
+
+Users may want to delete Execution management history, including subordinate
+Operations, Steps, Attempts, diagnostics and database events, while keeping
+Artifacts independently discoverable and downloadable. This is a candidate
+requirement, not an approved deletion API contract. The user explicitly asked
+to record it as future work and defer implementation until requirements arrive.
+
+Today Artifact rows cascade on Execution/Attempt deletion, and Artifact
+downloads obtain Runtime information from the Execution. These dependencies
+must be addressed before deleting history while retaining usable Artifacts.
+
+### Questions still open
+
+- Logical versus physical history deletion, allowed lifecycle states, and
+  treatment of retained retry kernels and unresolved cleanup reservations.
+- Whether an Artifact becomes independently managed, which source IDs and
+  human-readable origin summaries survive, and how users discover results
+  after their original Execution is gone.
+- Whether and how user/project/session/Task context is retained as a snapshot.
+- Retention of Agent/Executor shared-PV source snapshots, native cell outputs
+  and manifests versus Jupyter-owned notebooks, reports and plot files.
+- Outbox publication, already delivered Redis events, late work messages,
+  idempotency records, and maintenance-history references during deletion.
+- Safe file ownership boundaries and protection of retained Artifacts, their
+  supporting files, and caller-owned input source files.
+
+### Explicitly excluded until resumed
+
+- No Execution DELETE/purge API, soft-delete fields or background cleanup.
+- No Artifact ownership/schema refactoring based only on this discussion.
+- No deletion of existing Execution rows, events, Artifacts or storage files.
+- Previously discussed endpoints and provenance fields remain proposals.
+
 ## OpenTelemetry removal
 
 - Decision: remove Executor-owned tracing and Phoenix export. Keep standard logs,

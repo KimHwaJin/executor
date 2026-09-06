@@ -53,6 +53,28 @@ execution starts as `QUEUED`. Poll with `execution_get` or request cancellation 
 Operation through `execution_operation_create`. `execution_finalize` persists the final notebook and deletes the
 retained Runtime session. MCP Tasks are not required for this lifecycle.
 
+## Redis compatibility
+
+This branch supports Redis server **6.0.8 and newer**, using `redis-py` 5.3.x
+(`uv.lock` pins the tested client). Both Redis 6.0.8 and 7.4 use the same bounded
+`XPENDING`/`XCLAIM` recovery and `XRANGE`/`XDEL` retention implementation.
+Redis must permit `EVAL` and the Stream commands used inside its Lua scripts.
+Startup checks server version, command availability, and basic scripting access
+before starting background work. Existing readiness responses remain unchanged.
+Local Docker Compose now defaults to the exact **`redis:6.0.8`** image and
+the dedicated `executor-redis-608` volume. The integration quality gate also
+expects 6.0.8 by default; set `EXECUTOR_EXPECT_REDIS_VERSION` explicitly when
+validating another supported version. `REDIS_URL` does not select a server
+version: Docker Compose (or the infrastructure operator) selects the image.
+
+Do not attach the former Redis 7.x `executor-redis` volume to Redis 6.0.8.
+Existing checkouts need a logical Stream migration if old events and consumer
+positions must be retained. Merely changing the volume starts an empty Redis.
+The old volume may be kept detached for rollback; PostgreSQL and Jupyter storage
+are unaffected. See [local version switch](docs/redis-6-0-8-local-default.md).
+See [Redis 6.0 compatibility](docs/redis-6-compatibility.md) for ACL requirements,
+retention limits, test commands, and deployment precautions.
+
 ## Logging
 
 The repository-root `logger.yml` is a standard Python `logging.dictConfig`
@@ -365,13 +387,16 @@ of already executed Steps is intentionally not supported.
 - The Agent writes PATH-type Step `.py` files below `SHARED_STORAGE_ROOT/requests`. Executor reads
   them through its Agent/Executor shared volume; Jupyter does not need this volume.
 - Jupyter creates execution workspaces, notebooks, artifacts, datasets, and manifests on its own
-  shared storage. All Jupyter Runtime Targets share that storage.
-- Mounting the same shared PVC on every Jupyter Runtime Target is an operator-owned deployment
+  shared storage. Targets within one Runtime pool share that storage; different pools may use
+  different PVs.
+- Mounting the same shared PVC and root-relative layout on every Jupyter target within a pool is an operator-owned deployment
   contract; Executor does not discover or manage PV/PVC identity.
 - Executor never opens Jupyter files locally. PostgreSQL stores Runtime-relative paths and
   Jupyter-computed metadata/checksums; notebook content is read through an available Jupyter target.
 - Runtime retry prefers the original target/kernel. Storage-only reads prefer that target but may
-  fall back to another healthy target attached to the same shared storage.
+  fall back only to another enabled ACTIVE/DRAINING target of the same Runtime type and the
+  Execution's persisted pool. This boundary applies to downloads and notebook/text reads and
+  writes; no storage operation falls back across pools.
 
 `EXECUTION_MAX_RUNTIME_SECONDS` defaults to five days and starts when a worker first claims the
 Execution. Each MULTI request supplies `lifecycle.operation_wait_timeout_seconds`; its deadline is
@@ -556,7 +581,7 @@ duplicate, so consumers must deduplicate on `event_id`.
 
 The consumer group treats Redis as a wake-up channel and reconciles `QUEUED` and
 `CANCEL_REQUESTED` rows from PostgreSQL, so an acknowledged or lost work message does not lose the
-execution. A message left Pending by a dead consumer is reclaimed with `XAUTOCLAIM` after
+execution. A message left Pending by a dead consumer is reclaimed with bounded `XPENDING`/`XCLAIM` after
 `EXECUTION_PENDING_CLAIM_IDLE_MILLISECONDS`; the new Worker handles and acknowledges it using the
 same PostgreSQL state guards. Malformed internal messages are acknowledged only after sanitized
 metadata is written to `REDIS_WORK_DEAD_LETTER_STREAM`. Executor Workers never consume Agent
