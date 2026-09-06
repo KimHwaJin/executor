@@ -9,7 +9,7 @@ from executor_service.application.notebook_queries import (
     ExecutionNotebookQueryService,
     NotebookCellView,
 )
-from executor_service.domain.enums import RuntimeType
+from executor_service.domain.enums import RuntimePool, RuntimeType
 from executor_service.domain.errors import (
     ExecutionNotebookNotAvailableError,
     NotebookCellNotFoundError,
@@ -32,6 +32,7 @@ class ExecutionLookup:
 class NotebookStorage:
     def __init__(self, notebook: dict[str, Any] | Exception) -> None:
         self.notebook = notebook
+        self.pools: list[RuntimePool] = []
         self.calls: list[tuple[RuntimeType, UUID | None, str]] = []
 
     async def read_notebook(
@@ -39,7 +40,10 @@ class NotebookStorage:
         runtime_type: RuntimeType,
         preferred_target_id: UUID | None,
         path: str,
+        *,
+        runtime_pool: RuntimePool,
     ) -> dict[str, Any]:
+        self.pools.append(runtime_pool)
         self.calls.append((runtime_type, preferred_target_id, path))
         if isinstance(self.notebook, Exception):
             raise self.notebook
@@ -51,6 +55,8 @@ class NotebookStorage:
         preferred_target_id: UUID | None,
         path: str,
         notebook: dict[str, Any],
+        *,
+        runtime_pool: RuntimePool,
     ) -> None:
         del runtime_type, preferred_target_id, path
         self.notebook = notebook
@@ -61,6 +67,8 @@ class NotebookStorage:
         preferred_target_id: UUID | None,
         path: str,
         content: str,
+        *,
+        runtime_pool: RuntimePool,
     ) -> RuntimeFileMetadata:
         del runtime_type, preferred_target_id
         return RuntimeFileMetadata(
@@ -73,17 +81,26 @@ class NotebookStorage:
         )
 
 
+@pytest.mark.parametrize("pool", list(RuntimePool))
+async def test_notebook_read_passes_execution_pool(pool: RuntimePool) -> None:
+    service, storage, execution_id, _ = _service({"cells": []}, pool=pool)
+    await service.read_notebook(execution_id)
+    assert storage.pools == [pool]
+
+
 def _service(
     notebook: dict[str, Any] | Exception,
     *,
     notebook_path: str
     | None = "users/u/executions/e/notebooks/execution.ipynb",
+    pool: RuntimePool = RuntimePool.INTERACTIVE,
 ) -> tuple[ExecutionNotebookQueryService, NotebookStorage, UUID, UUID]:
     execution_id = uuid4()
     target_id = uuid4()
     execution = SimpleNamespace(
         id=execution_id,
         runtime_type=RuntimeType.JUPYTER,
+        runtime_pool=pool,
         runtime_target_id=target_id,
         notebook_path=notebook_path,
     )

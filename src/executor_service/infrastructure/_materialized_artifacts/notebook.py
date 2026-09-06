@@ -21,6 +21,7 @@ async def append_notebook_markdown(
         execution.runtime_type,
         execution.runtime_target_id,
         execution.notebook_path,
+        runtime_pool=execution.runtime_pool,
     )
     document = nbformat.from_dict(notebook)
     if not any(
@@ -39,4 +40,5 @@ async def append_notebook_markdown(
             execution.runtime_target_id,
             execution.notebook_path,
             json.loads(nbformat.writes(document)),
+            runtime_pool=execution.runtime_pool,
         )

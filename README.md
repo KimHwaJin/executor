@@ -387,13 +387,16 @@ of already executed Steps is intentionally not supported.
 - The Agent writes PATH-type Step `.py` files below `SHARED_STORAGE_ROOT/requests`. Executor reads
   them through its Agent/Executor shared volume; Jupyter does not need this volume.
 - Jupyter creates execution workspaces, notebooks, artifacts, datasets, and manifests on its own
-  shared storage. All Jupyter Runtime Targets share that storage.
-- Mounting the same shared PVC on every Jupyter Runtime Target is an operator-owned deployment
+  shared storage. Targets within one Runtime pool share that storage; different pools may use
+  different PVs.
+- Mounting the same shared PVC and root-relative layout on every Jupyter target within a pool is an operator-owned deployment
   contract; Executor does not discover or manage PV/PVC identity.
 - Executor never opens Jupyter files locally. PostgreSQL stores Runtime-relative paths and
   Jupyter-computed metadata/checksums; notebook content is read through an available Jupyter target.
 - Runtime retry prefers the original target/kernel. Storage-only reads prefer that target but may
-  fall back to another healthy target attached to the same shared storage.
+  fall back only to another enabled ACTIVE/DRAINING target of the same Runtime type and the
+  Execution's persisted pool. This boundary applies to downloads and notebook/text reads and
+  writes; no storage operation falls back across pools.
 
 `EXECUTION_MAX_RUNTIME_SECONDS` defaults to five days and starts when a worker first claims the
 Execution. Each MULTI request supplies `lifecycle.operation_wait_timeout_seconds`; its deadline is

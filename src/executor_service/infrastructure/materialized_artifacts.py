@@ -86,6 +86,7 @@ class MaterializedArtifactService:
                 execution.runtime_target_id,
                 destination,
                 content,
+                runtime_pool=execution.runtime_pool,
             )
             if command.append_to_notebook:
                 await append_notebook_markdown(

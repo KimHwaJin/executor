@@ -5,11 +5,23 @@ Executor uses two strict Runtime scheduling pools: `INTERACTIVE` for user-driven
 never falls back across pools. Jupyter is currently the only implemented Runtime Driver; adding a
 future driver does not change Execution, scheduling, Attempt, or fleet-management contracts.
 
+Storage access follows the same pool boundary. Artifact downloads, notebook reads/writes,
+and materialized text/report writes use the Execution's persisted `runtime_pool`, not the
+preferred Target's current pool. The original Target is preferred only if it remains an
+eligible member of that pool. Fallback candidates are enabled ACTIVE/DRAINING Targets of
+the same Runtime type and pool, ordered by name. A missing/moved/disabled original Target
+does not widen the search. If that pool has no reachable storage endpoint, the operation
+fails even when another pool is healthy. Available execution slots are not a storage filter.
+
+All Targets within a pool must expose the same PV and root-relative paths; INTERACTIVE and
+BATCH may use different PVs. Executor does not inspect Kubernetes PVC identities. Download
+file/range errors remain terminal, and no server switch occurs after download headers.
+
 ## Local topology
 
 All local Jupyter containers use the self-contained `executor-jupyter:local` image. Its server and
-default kernel use Python 3.11, while the `3102311` kernel uses Python 3.10.11. Both image stages
-use Debian bullseye. The containers mount the same
+default kernel use Python 3.11, while the `3102311` kernel uses Python 3.10.x. Both image stages
+use Debian bookworm. The local containers currently mount the same
 `./test_harness/jupyter/workspace:/workspace/pv` shared-PV contract,
 and expose only the `default` and `3102311` Python kernels. Executor does not mount this Jupyter storage.
 Production operators must mount the same shared PVC on every Jupyter target in a pool.

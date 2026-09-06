@@ -14,7 +14,7 @@ import subprocess
 import tempfile
 import time
 from collections.abc import AsyncIterator, Iterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -62,8 +62,8 @@ class LiveJupyter:
     root: Path
 
 
-@pytest.fixture(scope="module")
-def jupyter() -> Iterator[LiveJupyter]:
+@contextmanager
+def _live_jupyter() -> Iterator[LiveJupyter]:
     repo = Path(__file__).resolve().parents[1]
     name = f"executor-download-test-{uuid4().hex[:12]}"
     token = uuid4().hex
@@ -142,6 +142,12 @@ def jupyter() -> Iterator[LiveJupyter]:
                     capture_output=True,
                     timeout=20,
                 )
+
+
+@pytest.fixture(scope="module")
+def jupyter() -> Iterator[LiveJupyter]:
+    with _live_jupyter() as runtime:
+        yield runtime
 
 
 @asynccontextmanager
@@ -419,6 +425,135 @@ async def verify_file(
     )
     assert invalid.status_code == 416
     assert invalid.headers["Content-Range"] == f"bytes */{len(original)}"
+
+
+async def test_separate_pool_pvs_never_cross_read_or_write(
+    jupyter: LiveJupyter,
+    rest_client: tuple[httpx.AsyncClient, ApplicationContainer],
+) -> None:
+    client, container = rest_client
+    # Two real Jupyter roots contain different bytes at identical paths.
+    with _live_jupyter() as batch:
+        submitted = await client.post(
+            "/api/v1/executions", json=_submit_payload()
+        )
+        assert submitted.status_code == 202
+        execution_id = UUID(submitted.json()["execution_id"])
+        workspace = f"users/test/executions/{execution_id}"
+        notebook_path = f"{workspace}/notebooks/execution.ipynb"
+        report_path = f"{workspace}/reports/final-report.md"
+        for runtime, marker in [(jupyter, "interactive"), (batch, "batch")]:
+            notebook = nbformat.v4.new_notebook(
+                cells=[nbformat.v4.new_markdown_cell(marker)]
+            )
+            path = runtime.root / notebook_path
+            path.parent.mkdir(parents=True)
+            path.write_text(nbformat.writes(notebook))
+            report = runtime.root / report_path
+            report.parent.mkdir(parents=True)
+            report.write_text(marker)
+        original_notebook = (jupyter.root / notebook_path).read_bytes()
+        preferred_id, batch_id, artifact_id = uuid4(), uuid4(), uuid4()
+        async with container.session_factory() as session, session.begin():
+            for target_id, name, pool, endpoint, token in [
+                (
+                    preferred_id,
+                    "z-preferred-offline",
+                    RuntimePool.BATCH,
+                    "http://127.0.0.1:1",
+                    batch.token,
+                ),
+                (
+                    batch_id,
+                    "b-batch",
+                    RuntimePool.BATCH,
+                    batch.endpoint,
+                    batch.token,
+                ),
+                (
+                    uuid4(),
+                    "a-interactive",
+                    RuntimePool.INTERACTIVE,
+                    jupyter.endpoint,
+                    jupyter.token,
+                ),
+            ]:
+                session.add(
+                    RuntimeTargetORM(
+                        id=target_id,
+                        name=name,
+                        runtime_type=RuntimeType.JUPYTER,
+                        pool=pool,
+                        status=RuntimeTargetStatus.ACTIVE,
+                        enabled=True,
+                        max_concurrent_executions=1,
+                        supported_profiles=["default", "3102311"],
+                        connection_config={"endpoint": endpoint},
+                        **runtime_credential_fields(token),
+                    )
+                )
+            await session.flush()
+            await session.execute(
+                update(ExecutionORM)
+                .where(ExecutionORM.id == execution_id)
+                .values(
+                    status=ExecutionStatus.SUCCEEDED,
+                    runtime_pool=RuntimePool.BATCH,
+                    runtime_target_id=preferred_id,
+                    workspace_path=workspace,
+                    notebook_path=notebook_path,
+                )
+            )
+            session.add(
+                ExecutionArtifactORM(
+                    id=artifact_id,
+                    execution_id=execution_id,
+                    artifact_type=ArtifactType.REPORT,
+                    storage_type=ArtifactStorageType.PV,
+                    status=ArtifactStatus.AVAILABLE,
+                    name="report.md",
+                    uri=f"pv://{report_path}",
+                    relative_path=report_path,
+                    media_type="text/markdown",
+                    identity_hash=uuid4().hex,
+                )
+            )
+        route = f"/api/v1/artifacts/{artifact_id}/content"
+        response = await client.get(route)
+        assert response.status_code == 200
+        assert response.content == b"batch"
+        notebook = await client.get(
+            f"/api/v1/executions/{execution_id}/notebook?view=FULL"
+        )
+        assert notebook.status_code == 200
+        assert "batch" in notebook.text and "interactive" not in notebook.text
+        report = await client.post(
+            f"/api/v1/executions/{execution_id}/artifacts",
+            json={
+                "idempotency_key": "pool-isolated-report",
+                "type": "REPORT",
+                "source": {"type": "INLINE", "content": "# Batch only"},
+                "append_to_notebook": True,
+                "actor": {"type": "USER", "id": "pool-tester"},
+            },
+        )
+        assert report.status_code == 201, report.text
+        assert (batch.root / report_path).read_text() == "# Batch only"
+        assert "# Batch only" in (batch.root / notebook_path).read_text()
+        assert (jupyter.root / report_path).read_text() == "interactive"
+        assert (jupyter.root / notebook_path).read_bytes() == original_notebook
+        # No healthy batch endpoint: never return the interactive file.
+        async with container.session_factory() as session, session.begin():
+            await session.execute(
+                update(RuntimeTargetORM)
+                .where(RuntimeTargetORM.id == batch_id)
+                .values(enabled=False)
+            )
+        async with serve(create_app(container)) as endpoint:
+            async with httpx.AsyncClient(base_url=endpoint) as external:
+                failed = await external.get(route)
+        assert failed.status_code >= 400
+        assert failed.content != b"interactive"
 
 
 async def test_large_binary_empty_file_and_atomic_replacement(

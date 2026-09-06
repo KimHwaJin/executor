@@ -8,6 +8,7 @@ from typing import Any, cast
 from uuid import UUID, uuid4
 
 import httpx
+import pytest
 import pytest_asyncio
 from sqlalchemy import update
 
@@ -372,14 +373,18 @@ async def test_rest_reads_runtime_owned_notebook_and_cell_outputs(
 class _NotebookStorage(RuntimeStorageAccess):
     def __init__(self, notebook: dict[str, Any]) -> None:
         self.notebook = notebook
+        self.pools: list[RuntimePool] = []
 
     async def read_notebook(
         self,
         runtime_type: RuntimeType,
         preferred_target_id: UUID | None,
         path: str,
+        *,
+        runtime_pool: RuntimePool,
     ) -> dict[str, Any]:
         del runtime_type, preferred_target_id, path
+        self.pools.append(runtime_pool)
         return self.notebook
 
     async def write_notebook(
@@ -388,7 +393,10 @@ class _NotebookStorage(RuntimeStorageAccess):
         preferred_target_id: UUID | None,
         path: str,
         notebook: dict[str, Any],
+        *,
+        runtime_pool: RuntimePool,
     ) -> None:
+        self.pools.append(runtime_pool)
         self.notebook = notebook
 
     async def write_text(
@@ -397,7 +405,10 @@ class _NotebookStorage(RuntimeStorageAccess):
         preferred_target_id: UUID | None,
         path: str,
         content: str,
+        *,
+        runtime_pool: RuntimePool,
     ) -> RuntimeFileMetadata:
+        self.pools.append(runtime_pool)
         raw = content.encode()
         return RuntimeFileMetadata(
             path=path,
@@ -485,8 +496,10 @@ async def test_consolidated_result_returns_operation_steps_in_one_call(
     )
 
 
+@pytest.mark.parametrize("pool", list(RuntimePool))
 async def test_materializes_final_report_below_runtime_reports_directory(
     rest_client: tuple[httpx.AsyncClient, ApplicationContainer],
+    pool: RuntimePool,
 ) -> None:
     client, container = rest_client
     submitted = await client.post(
@@ -505,6 +518,7 @@ async def test_materializes_final_report_below_runtime_reports_directory(
             .values(
                 status=ExecutionStatus.SUCCEEDED,
                 workspace_path=workspace,
+                runtime_pool=pool,
                 notebook_path=f"{workspace}/notebooks/execution.ipynb",
             )
         )
@@ -527,6 +541,7 @@ async def test_materializes_final_report_below_runtime_reports_directory(
     )
     assert response.json()["storage"]["media_type"] == "text/markdown"
     assert storage.notebook["cells"][-1]["cell_type"] == "markdown"
+    assert storage.pools == [pool, pool, pool]
 
 
 async def test_rejects_dataset_and_model_text_materialization(

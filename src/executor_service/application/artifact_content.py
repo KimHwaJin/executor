@@ -65,6 +65,7 @@ class ArtifactContentService:
                 execution.runtime_target_id,
                 artifact.relative_path,
                 range_header,
+                runtime_pool=execution.runtime_pool,
             ) as opened:
                 # Registration metadata is an observation, not the current
                 # file's read boundary or its download checksum.
