@@ -31,10 +31,20 @@ Execution event history, and the event-retention lease. Revision `0002` adds the
 `execution_diagnostics` table and its indexes. Revision `0003` expands the Execution
 and Attempt failure-type check constraints to accept `COMPLETION_FAILED`.
 Revision `0004` removes `traceparent` and `tracestate` from executions,
-execution_events, and outbox_events; current head is `0004`. Only their trace values
+execution_events, and outbox_events. Only their trace values
 are discarded. Stop all old Executor processes before this migration.
 For a DB built from the actual 2026-08-31 baseline, `upgrade head` preserves business rows and
 requires no Redis reset. `check` must report no new upgrade operations.
+
+Current head is `0005`. This revision removes the two foreign keys from
+Execution/Attempt `runtime_target_id` to active registrations while retaining
+their UUID values, and removes purge-specific idempotency/hash columns. History
+now refers to an active registration or its immutable purge record. No business
+rows or files are deleted. Stop old processes before upgrading: old purge code
+uses the removed columns. A downgrade is rejected if history already refers to
+deleted registrations; restore a pre-purge backup or remain on `0005`, never
+null the historical IDs to force rollback. See the
+[purge contract](../dev_docs/post-runtime-target-purge.md).
 
 `0003` downgrade validates existing failure rows. If `COMPLETION_FAILED` is present,
 PostgreSQL rejects the downgrade and rolls back the transaction rather than deleting
@@ -42,7 +52,7 @@ or reclassifying diagnostic evidence. Stop and plan an explicit data-preserving
 rollback; do not bypass the check with `stamp` or silently rewrite failure types.
 
 The following reset instructions apply only to discarded older baselines, not to
-the `0001` → `0002` → `0003` → `0004` upgrades. Every database created before
+the `0001` → `0002` → `0003` → `0004` → `0005` upgrades. Every database created before
 this reset must be backed up if its data matters, then recreated as an empty database before
 `upgrade head`, even if it is already stamped `0001`. Revision equality alone does not prove
 that an older database has this schema. Clear the four Executor Redis Streams at the same time so stale work

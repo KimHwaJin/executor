@@ -207,9 +207,22 @@ pool. Executions remain durably queued until a compatible ACTIVE target is regis
 1. Call `runtime_target_set_state` with `DRAINING`. New work stops immediately.
 2. Wait until `drain_complete=true`; running work and retained retry sessions continue to reserve
    capacity until completed or expired.
-3. Call `runtime_target_disable` to disable the registry record while preserving historical
-   foreign keys.
+3. Call `runtime_target_disable` to disable the registry record while preserving history.
 4. Terminate the Jupyter deployment through the internal platform.
+5. Optionally remove its registration using REST
+   `POST /api/v1/runtime-targets/{target_id}/purge` with only `actor` in the body.
+   Completed history and files survive; unfinished work, retry-retained kernels
+   (including expired but not cleaned kernels) and unconfirmed cleanup block
+   deletion. No live probe is required. `drain_complete` alone is not proof of
+   kernel cleanup. See [purge contract](../dev_docs/post-runtime-target-purge.md).
+
+Re-registering the same name/endpoint requires a fresh registration idempotency
+key and produces a new UUID. Historical executions keep the old UUID. Downloads
+and notebook storage access can use another eligible target of the same type and
+pool, including this new registration, provided it mounts the existing shared
+storage at the correct root. Purging the last target does not remove files but
+prevents access until an eligible target is available. It never deletes a Pod,
+PV or externally created kernel, and never automatically resumes old work.
 
 Do not terminate the platform deployment first unless accepting an infrastructure failure for its
 active Executions.

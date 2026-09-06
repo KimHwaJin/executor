@@ -317,7 +317,10 @@ failures when required post-code delivery fails. Neither upgrade deletes data.
 Revision `0004` removes only the approved obsolete trace columns and their values;
 Execution, Step, event and Outbox business history is preserved.
 Databases built from that baseline can run `alembic upgrade head` directly;
-current head is `0004`. Stop old Executor processes before this schema change;
+current head is `0005`. Revision `0005` preserves historical Runtime UUIDs when
+removing registrations and simplifies purge to an actor-only request; see
+[Runtime deletion](dev_docs/post-runtime-target-purge.md).
+Stop old Executor processes before this schema change;
 see [OpenTelemetry removal](docs/opentelemetry-removal.md) for deployment and rollback.
 See [required-result completion](docs/required-result-completion.md)
 for Step versus Operation/Execution success semantics.
@@ -540,10 +543,13 @@ procedures.
 
 The same fleet registry is available to operators through REST at `/api/v1/runtime-targets` and
 `/api/v1/runtime-pools`. REST supports registration, filtered cursor listing, detail, immediate
-probe, drain, activate, disable, and a deliberately restricted hard purge. Hard purge requires
-the exact target name, an already disabled `OFFLINE` target, and no Execution or Attempt reference;
-a successful purge preserves an immutable audit tombstone and never cascades into execution
-history. Credentials are accepted only on upsert and credentials are absent from every response.
+probe, drain, activate, disable, and a deliberately restricted hard purge. Purge takes only
+`actor`, requires a disabled `OFFLINE` target without unfinished work or unconfirmed kernel
+cleanup, and preserves historical Execution/Attempt UUID references and an immutable deletion
+record. Repeating purge for the same UUID returns that record, even after same-name registration
+with a new UUID. No execution history or files are deleted. See
+[purge contract](dev_docs/post-runtime-target-purge.md).
+Credentials are accepted only on upsert and credentials are absent from every response.
 The non-secret endpoint is returned as `runtime.connection_config.endpoint`.
 
 ## Jupyter shared storage contract

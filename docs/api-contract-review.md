@@ -886,7 +886,8 @@ whose purpose is to observe external state at call time. Reusing an idempotency 
 an earlier observation or suppress a new network probe. Repeated calls are safe because probe does
 not create a new domain object and only replaces the target's latest observed state and audit
 timestamps. Reserve command idempotency keys for intent mutations such as submit, cancel, retry,
-disable, activate, and purge.
+disable and activate. Subsequent decision (2026-09-06): purge uses the target UUID
+and immutable deletion record for deduplication and no longer takes an idempotency key.
 
 ### 12.2 REST disable route
 

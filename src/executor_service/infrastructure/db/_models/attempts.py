@@ -131,8 +131,9 @@ class ExecutionAttemptORM(Base):
     runtime_profile: Mapped[str] = mapped_column(
         String(128), nullable=False, default="basic"
     )
+    # Keep provenance after active registration deletion; never SET NULL.
     runtime_target_id: Mapped[UUID] = mapped_column(
-        Uuid(as_uuid=True), ForeignKey("runtime_targets.id"), nullable=False
+        Uuid(as_uuid=True), nullable=False
     )
     runtime_session_id: Mapped[str | None] = mapped_column(String(255))
     status: Mapped[AttemptStatus] = mapped_column(

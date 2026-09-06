@@ -158,12 +158,6 @@ class RuntimeTargetPurgeORM(Base):
     pool: Mapped[RuntimePool] = mapped_column(
         enum_type(RuntimePool, "runtime_target_purge_pool"), nullable=False
     )
-    idempotency_key: Mapped[str] = mapped_column(
-        String(255), nullable=False, unique=True
-    )
-    request_fingerprint: Mapped[str] = mapped_column(
-        String(64), nullable=False
-    )
     created_by_type: Mapped[ActorType | None] = mapped_column(
         enum_type(ActorType, "actor_type"), nullable=True
     )

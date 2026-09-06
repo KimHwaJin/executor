@@ -165,6 +165,278 @@ async def test_startup_migration_creates_empty_db_and_repeats_safely(
     await asyncio.to_thread(_upgrade_and_check_baseline, url)
 
 
+async def test_runtime_purge_keeps_history_on_postgres(
+    postgres_engine: AsyncEngine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tests.test_runtime_target_purge import (
+        test_purge_preserves_history_and_new_registration_identity,
+    )
+
+    await test_purge_preserves_history_and_new_registration_identity(
+        postgres_engine, _service(postgres_engine, tmp_path), monkeypatch
+    )
+
+
+@pytest.mark.parametrize("proof", ["later_same_kernel", "latest_execution"])
+async def test_runtime_purge_cleanup_proof_on_postgres(
+    postgres_engine: AsyncEngine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    proof: str,
+) -> None:
+    from tests.test_runtime_target_purge import (
+        test_purge_allows_confirmed_cleanup_after_retained_retry,
+    )
+
+    await test_purge_allows_confirmed_cleanup_after_retained_retry(
+        postgres_engine,
+        _service(postgres_engine, tmp_path),
+        monkeypatch,
+        proof,
+    )
+
+
+@pytest.mark.parametrize(
+    "case", ["retained_expired", "different_kernel_cleaned"]
+)
+async def test_runtime_purge_rejects_uncleaned_kernel_on_postgres(
+    postgres_engine: AsyncEngine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    case: str,
+) -> None:
+    from tests.test_runtime_target_purge import (
+        test_purge_rejects_work_and_unconfirmed_cleanup,
+    )
+
+    await test_purge_rejects_work_and_unconfirmed_cleanup(
+        postgres_engine, _service(postgres_engine, tmp_path), monkeypatch, case
+    )
+
+
+async def test_runtime_purge_is_idempotent_across_concurrent_sessions(
+    postgres_engine: AsyncEngine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from executor_service.application.runtime_targets import (
+        DisableRuntimeTargetCommand,
+        PurgeRuntimeTargetCommand,
+    )
+    from executor_service.infrastructure.db.models import RuntimeTargetPurgeORM
+    from tests.test_runtime_management_safety import _registry
+
+    registry, _, registration = _registry(postgres_engine, monkeypatch)
+    target = await registry.upsert(registration)
+    await registry.disable(DisableRuntimeTargetCommand("disable", target.id))
+    results = await asyncio.gather(
+        *[
+            registry.purge(
+                PurgeRuntimeTargetCommand(
+                    target.id, ActorType.USER, f"admin-{i}"
+                )
+            )
+            for i in range(8)
+        ]
+    )
+    assert all(result == results[0] for result in results)
+    async with create_session_factory(postgres_engine)() as session:
+        assert (
+            await session.scalar(
+                select(func.count()).select_from(RuntimeTargetPurgeORM)
+            )
+            == 1
+        )
+
+
+@pytest.mark.parametrize("winner", ["purge", "activate", "reservation"])
+async def test_runtime_purge_serializes_with_target_mutations(
+    postgres_engine: AsyncEngine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    winner: str,
+) -> None:
+    from executor_service.application.runtime_targets import (
+        DisableRuntimeTargetCommand,
+        PurgeRuntimeTargetCommand,
+        SetRuntimeTargetStateCommand,
+    )
+    from executor_service.domain.errors import (
+        RuntimeTargetNotFoundError,
+        RuntimeTargetPurgeConflictError,
+    )
+    from executor_service.infrastructure._runtime_registry.purge import (
+        purge_target,
+    )
+    from tests.test_runtime_management_safety import _registry
+
+    registry, _, registration = _registry(postgres_engine, monkeypatch)
+    target = await registry.upsert(registration)
+    await registry.disable(DisableRuntimeTargetCommand("disable", target.id))
+    execution = await _service(postgres_engine, tmp_path).submit(
+        _command("race")
+    )
+    factory = create_session_factory(postgres_engine)
+    task = None
+    try:
+        async with factory() as holder, holder.begin():
+            row = await holder.scalar(
+                select(RuntimeTargetORM)
+                .where(RuntimeTargetORM.id == target.id)
+                .with_for_update()
+            )
+            assert row is not None
+            if winner == "purge":
+                await purge_target(
+                    holder, PurgeRuntimeTargetCommand(target.id)
+                )
+                task = asyncio.create_task(
+                    registry.set_state(
+                        SetRuntimeTargetStateCommand(
+                            "activate", target.id, RuntimeTargetStatus.ACTIVE
+                        )
+                    )
+                )
+            else:
+                if winner == "activate":
+                    row.enabled = True
+                    row.status = RuntimeTargetStatus.ACTIVE
+                else:
+                    holder.add(
+                        ExecutionAttemptORM(
+                            execution_id=execution.id,
+                            attempt_number=1,
+                            runtime_target_id=target.id,
+                            status=AttemptStatus.RUNNING,
+                            heartbeat_at=utc_now(),
+                            started_at=utc_now(),
+                        )
+                    )
+                await holder.flush()
+                task = asyncio.create_task(
+                    registry.purge(PurgeRuntimeTargetCommand(target.id))
+                )
+            # Wait for PostgreSQL to confirm an actual lock wait, not merely
+            # for the client coroutine to have been scheduled.
+            for _ in range(100):
+                async with postgres_engine.connect() as observer:
+                    waiting = await observer.scalar(
+                        text(
+                            "SELECT count(*) FROM pg_stat_activity WHERE "
+                            "datname=current_database() AND wait_event_type='Lock'"
+                        )
+                    )
+                if waiting:
+                    break
+                await asyncio.sleep(0.02)
+            assert waiting and not task.done()
+        error = (
+            RuntimeTargetNotFoundError
+            if winner == "purge"
+            else (RuntimeTargetPurgeConflictError)
+        )
+        with pytest.raises(error):
+            await asyncio.wait_for(task, 5)
+    finally:
+        if task is not None:
+            if not task.done():
+                task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+
+def _downgrade_to_before_runtime_purge(database_url: str) -> None:
+    config = Config(str(REPOSITORY_ROOT / "alembic.ini"))
+    config.attributes["database_url"] = database_url
+    config.attributes["configure_logger"] = False
+    command.downgrade(config, "0004")
+
+
+async def test_runtime_purge_migration_preserves_rows_and_guards_rollback(
+    postgres_engine: AsyncEngine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from executor_service.application.runtime_targets import (
+        DisableRuntimeTargetCommand,
+        PurgeRuntimeTargetCommand,
+    )
+    from tests.test_runtime_management_safety import _registry
+    from tests.test_runtime_target_purge import _history
+
+    url = postgres_engine.url.render_as_string(hide_password=False)
+    await asyncio.to_thread(_downgrade_to_before_runtime_purge, url)
+    registry, _, registration = _registry(postgres_engine, monkeypatch)
+    target = await registry.upsert(registration)
+    execution = await _service(postgres_engine, tmp_path).submit(
+        _command("migrate-purge")
+    )
+    factory = create_session_factory(postgres_engine)
+    await _history(factory, execution.id, target.id)
+    old_deleted_id = uuid4()
+    async with postgres_engine.begin() as connection:
+        await connection.execute(
+            text(
+                "INSERT INTO runtime_target_purges "
+                "(id, target_id, target_name, runtime_type, connection_config, "
+                "pool, idempotency_key, request_fingerprint, created_at, updated_at) "
+                "VALUES (:id, :target, 'old-purge', 'JUPYTER', '{}', 'INTERACTIVE', "
+                "'old-purge-key', :fingerprint, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+            ),
+            {"id": uuid4(), "target": old_deleted_id, "fingerprint": "f" * 64},
+        )
+    tables = (
+        "executions",
+        "execution_attempts",
+        "execution_operations",
+        "execution_steps",
+        "execution_artifacts",
+        "execution_events",
+        "outbox_events",
+        "runtime_targets",
+    )
+    before = {}
+    async with postgres_engine.connect() as connection:
+        for table in tables:
+            before[table] = (
+                (
+                    await connection.execute(
+                        text(f"SELECT * FROM {table} ORDER BY id")
+                    )
+                )
+                .mappings()
+                .all()
+            )
+    await asyncio.to_thread(_upgrade_and_check_baseline, url)
+    async with postgres_engine.connect() as connection:
+        for table in tables:
+            assert (
+                await connection.execute(
+                    text(f"SELECT * FROM {table} ORDER BY id")
+                )
+            ).mappings().all() == before[table]
+    old_result = await registry.purge(
+        PurgeRuntimeTargetCommand(old_deleted_id)
+    )
+    assert old_result.name == "old-purge"
+    # A schema-only rollback before any new history-bearing purge remains
+    # possible even with migrated deletion audit records.
+    await asyncio.to_thread(_downgrade_to_before_runtime_purge, url)
+    await asyncio.to_thread(_upgrade_and_check_baseline, url)
+    assert (
+        await registry.purge(PurgeRuntimeTargetCommand(old_deleted_id))
+        == old_result
+    )
+    await registry.disable(DisableRuntimeTargetCommand("disable", target.id))
+    await registry.purge(PurgeRuntimeTargetCommand(target.id))
+    with pytest.raises(RuntimeError, match="history references purged"):
+        await asyncio.to_thread(_downgrade_to_before_runtime_purge, url)
+    # Rejected downgrade must leave the schema and history usable.
+    await asyncio.to_thread(_upgrade_and_check_baseline, url)
+    assert (
+        await _service(postgres_engine, tmp_path).get(execution.id)
+    ).runtime_target_id == target.id
+
+
 @pytest.mark.parametrize("manual_peer", [False, True])
 async def test_startup_migrations_serialize_across_processes(
     postgres_engine: AsyncEngine,
@@ -1850,7 +2122,7 @@ async def test_current_baseline_repeated_upgrade_preserves_events(
             text("SELECT count(*) FROM event_retention_lease")
         )
 
-    assert revision == EXPECTED_SCHEMA_REVISION == "0004"
+    assert revision == EXPECTED_SCHEMA_REVISION == "0005"
     assert maintenance_count == retention_count == 1
     assert migrated_event is not None
     assert migrated_event.execution_id == execution.id
@@ -1891,7 +2163,7 @@ async def test_current_baseline_downgrade_and_recreate(
             text("SELECT singleton_key FROM event_retention_lease")
         )
     assert tables == set(Base.metadata.tables) | {"alembic_version"}
-    assert revision == EXPECTED_SCHEMA_REVISION == "0004"
+    assert revision == EXPECTED_SCHEMA_REVISION == "0005"
     assert admission == "ACTIVE"
     assert retention_key == "events"
 

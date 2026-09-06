@@ -64,7 +64,7 @@ from executor_service.infrastructure.runtime_storage import (
 )
 from executor_service.settings import Settings
 
-EXPECTED_SCHEMA_REVISION = "0004"
+EXPECTED_SCHEMA_REVISION = "0005"
 
 
 class ApplicationContainer:
