@@ -2,7 +2,7 @@ from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, ClassVar
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import httpx
 import pytest_asyncio
@@ -442,7 +442,7 @@ async def test_fleet_list_filters_cursor_capacity_and_state_controls(
     ]
 
 
-async def test_hard_purge_requires_disable_confirmation_and_keeps_tombstone(
+async def test_hard_purge_requires_disable_and_keeps_tombstone(
     fleet_client: tuple[httpx.AsyncClient, ApplicationContainer],
 ) -> None:
     client, container = fleet_client
@@ -451,8 +451,7 @@ async def test_hard_purge_requires_disable_confirmation_and_keeps_tombstone(
     )
     target_id = created.json()["target_id"]
     purge_payload = {
-        **_mutation_payload("fleet-purge-10"),
-        "confirmation_name": "fleet-target-10",
+        "actor": {"type": "USER", "id": "fleet-admin"},
     }
 
     active_purge = await client.post(
@@ -471,13 +470,19 @@ async def test_hard_purge_requires_disable_confirmation_and_keeps_tombstone(
         f"/api/v1/runtime-targets/{target_id}/purge",
         json={**purge_payload, "confirmation_name": "wrong-name"},
     )
-    assert wrong_name.status_code == 409
+    assert wrong_name.status_code == 422
+    old_key = await client.post(
+        f"/api/v1/runtime-targets/{target_id}/purge",
+        json={**purge_payload, "idempotency_key": "removed"},
+    )
+    assert old_key.status_code == 422
 
     purged = await client.post(
         f"/api/v1/runtime-targets/{target_id}/purge", json=purge_payload
     )
     repeated = await client.post(
-        f"/api/v1/runtime-targets/{target_id}/purge", json=purge_payload
+        f"/api/v1/runtime-targets/{target_id}/purge",
+        json={"actor": {"type": "USER", "id": "another-admin"}},
     )
     assert purged.status_code == 200
     assert repeated.json() == purged.json()
@@ -502,7 +507,21 @@ async def test_hard_purge_requires_disable_confirmation_and_keeps_tombstone(
         assert tombstone.created_by == "fleet-admin"
 
 
-async def test_server_referenced_by_execution_history_cannot_be_purged(
+async def test_purge_requires_actor_and_distinguishes_unknown_id(
+    fleet_client: tuple[httpx.AsyncClient, ApplicationContainer],
+) -> None:
+    client, _ = fleet_client
+    route = f"/api/v1/runtime-targets/{uuid4()}/purge"
+    for body in ({}, {"actor": {"type": "USER"}}, {"actor": {"id": "user"}}):
+        assert (await client.post(route, json=body)).status_code == 422
+    response = await client.post(
+        route, json={"actor": {"type": "USER", "id": "admin"}}
+    )
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "RUNTIME_TARGET_NOT_FOUND"
+
+
+async def test_server_referenced_by_unfinished_execution_cannot_be_purged(
     fleet_client: tuple[httpx.AsyncClient, ApplicationContainer],
 ) -> None:
     client, container = fleet_client
@@ -528,9 +547,8 @@ async def test_server_referenced_by_execution_history_cannot_be_purged(
     purged = await client.post(
         f"/api/v1/runtime-targets/{target_id}/purge",
         json={
-            **_mutation_payload("fleet-purge-history"),
-            "confirmation_name": "fleet-target-30",
+            "actor": {"type": "USER", "id": "fleet-admin"},
         },
     )
     assert purged.status_code == 409
-    assert "Execution or Attempt history" in purged.json()["error"]["message"]
+    assert "unfinished work" in purged.json()["error"]["message"]

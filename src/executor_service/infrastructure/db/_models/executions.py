@@ -210,9 +210,9 @@ class ExecutionORM(Base):
     cancellation_heartbeat_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Historical UUID: resolves to an active target or its purge tombstone.
     runtime_target_id: Mapped[UUID | None] = mapped_column(
         Uuid(as_uuid=True),
-        ForeignKey("runtime_targets.id"),
         nullable=True,
         index=True,
     )

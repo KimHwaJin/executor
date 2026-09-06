@@ -166,7 +166,7 @@ def build_runtime_target_router(container: ApplicationContainer) -> APIRouter:
         "/runtime-targets/{target_id}/purge",
         response_model=RuntimeTargetPurgeResponse,
         responses=FLEET_ERROR_RESPONSES,
-        summary="Permanently remove an unused, already disabled target",
+        summary="Remove a disabled target while preserving execution history",
     )
     async def purge_runtime_target(
         target_id: UUID, request: RuntimeTargetPurgeRequest

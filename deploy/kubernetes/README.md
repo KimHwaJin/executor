@@ -92,7 +92,8 @@ The DB lock only serializes migrations, not old application queries. Stop any ol
 processes outside this Deployment too. Never run old CLI migration code concurrently: it
 does not know about the new lock. After a manual drain, activate admission after deployment.
 
-Current head is `0004`; no schema revision is added for the auto-migrate feature itself.
+Current head is `0005`; Runtime purge now preserves historical IDs after deletion.
+See [purge and rollback](../../dev_docs/post-runtime-target-purge.md).
 Before rollback, review whether the old image is compatible with the new schema; startup
 does not automatically downgrade. See [trace removal](../../docs/opentelemetry-removal.md).
 
@@ -117,7 +118,7 @@ If the Pod is running but not Ready, inspect `/readyz`; a missing migration, Red
 draining Worker is intentionally reported there. Inspect `/api/v1/runtime-targets` separately for
 Runtime Fleet health.
 
-After migration, `alembic_version.version_num` is `0004`. Do not stamp an empty database;
+After migration, `alembic_version.version_num` is `0005`. Do not stamp an empty database;
 startup must execute `alembic upgrade head` so it creates constraints, indexes, and the initial
 Executor maintenance row.
 

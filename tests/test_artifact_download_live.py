@@ -33,13 +33,17 @@ from executor_service.domain.enums import (
     ArtifactStatus,
     ArtifactStorageType,
     ArtifactType,
+    AttemptStatus,
     ExecutionStatus,
     RuntimePool,
+    RuntimeSessionCleanupStatus,
     RuntimeTargetStatus,
     RuntimeType,
 )
+from executor_service.domain.models import utc_now
 from executor_service.infrastructure.db.models import (
     ExecutionArtifactORM,
+    ExecutionAttemptORM,
     ExecutionORM,
     RuntimeTargetORM,
 )
@@ -427,9 +431,11 @@ async def verify_file(
     assert invalid.headers["Content-Range"] == f"bytes */{len(original)}"
 
 
+@pytest.mark.parametrize("purge_preferred", [False, True])
 async def test_separate_pool_pvs_never_cross_read_or_write(
     jupyter: LiveJupyter,
     rest_client: tuple[httpx.AsyncClient, ApplicationContainer],
+    purge_preferred: bool,
 ) -> None:
     client, container = rest_client
     # Two real Jupyter roots contain different bytes at identical paths.
@@ -519,9 +525,62 @@ async def test_separate_pool_pvs_never_cross_read_or_write(
                 )
             )
         route = f"/api/v1/artifacts/{artifact_id}/content"
+        if purge_preferred:
+            attempt_id = uuid4()
+            async with container.session_factory() as session, session.begin():
+                session.add(
+                    ExecutionAttemptORM(
+                        id=attempt_id,
+                        execution_id=execution_id,
+                        attempt_number=1,
+                        runtime_target_id=preferred_id,
+                        runtime_session_id="historical-kernel",
+                        status=AttemptStatus.SUCCEEDED,
+                        runtime_session_cleanup_status=RuntimeSessionCleanupStatus.SUCCEEDED,
+                        heartbeat_at=utc_now(),
+                        started_at=utc_now(),
+                    )
+                )
+                await session.flush()
+                await session.execute(
+                    update(ExecutionArtifactORM)
+                    .where(ExecutionArtifactORM.id == artifact_id)
+                    .values(execution_attempt_id=attempt_id)
+                )
+            actor = {"type": "USER", "id": "purge-tester"}
+            disabled = await client.post(
+                f"/api/v1/runtime-targets/{preferred_id}/disable",
+                json={"idempotency_key": "disable-preferred", "actor": actor},
+            )
+            assert disabled.status_code == 200
+            removed = await client.post(
+                f"/api/v1/runtime-targets/{preferred_id}/purge",
+                json={"actor": actor},
+            )
+            assert removed.status_code == 200, removed.text
+            for suffix in (
+                "",
+                "/operations",
+                "/steps",
+                "/events",
+                "/artifacts",
+                "/attempts",
+                f"/attempts/{attempt_id}",
+            ):
+                history = await client.get(
+                    f"/api/v1/executions/{execution_id}{suffix}"
+                )
+                assert history.status_code == 200, history.text
+            details = await client.get(
+                f"/api/v1/executions/{execution_id}/attempts/{attempt_id}"
+            )
+            assert str(preferred_id) in details.text
         response = await client.get(route)
         assert response.status_code == 200
         assert response.content == b"batch"
+        part = await client.get(route, headers={"Range": "bytes=1-3"})
+        assert part.status_code == 206
+        assert part.content == b"atc"
         notebook = await client.get(
             f"/api/v1/executions/{execution_id}/notebook?view=FULL"
         )

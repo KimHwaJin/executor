@@ -100,14 +100,12 @@ class RuntimeTargetMutationRequest(HTTPModel):
         )
 
 
-class RuntimeTargetPurgeRequest(RuntimeTargetMutationRequest):
-    confirmation_name: str = Field(min_length=1, max_length=255)
+class RuntimeTargetPurgeRequest(HTTPModel):
+    actor: ActorInput
 
     def to_command(self, target_id: UUID) -> PurgeRuntimeTargetCommand:
         return PurgeRuntimeTargetCommand(
-            idempotency_key=self.idempotency_key,
             target_id=target_id,
-            confirmation_name=self.confirmation_name,
             actor_type=self.actor.type,
             actor_id=self.actor.id,
         )

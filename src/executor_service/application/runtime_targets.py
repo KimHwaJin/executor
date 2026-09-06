@@ -47,9 +47,7 @@ class SetRuntimeTargetStateCommand:
 
 @dataclass(frozen=True, slots=True)
 class PurgeRuntimeTargetCommand:
-    idempotency_key: str
     target_id: UUID
-    confirmation_name: str
     actor_type: ActorType | None = None
     actor_id: str | None = None
 
