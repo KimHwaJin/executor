@@ -55,6 +55,19 @@ retained Runtime session. MCP Tasks are not required for this lifecycle.
 
 ## Redis compatibility
 
+To check an existing PostgreSQL/Redis deployment with one command, set
+`DATABASE_URL` and `REDIS_URL` in the environment or `.env`, then run:
+
+```bash
+uv run python scripts/backend_compatibility_check.py
+```
+
+This verifies the service schema read-only and exercises the real submit,
+Outbox, Streams, cancellation and event delivery code in a disposable schema
+and isolated Redis keys. It does not execute Jupyter code or upgrade the service
+schema. See the [compatibility check guide](docs/backend-compatibility-check.md)
+for permissions, optional JSON output and limitations.
+
 This branch supports Redis server **6.0.8 and newer**, using `redis-py` 5.3.x
 (`uv.lock` pins the tested client). Both Redis 6.0.8 and 7.4 use the same bounded
 `XPENDING`/`XCLAIM` recovery and `XRANGE`/`XDEL` retention implementation.
