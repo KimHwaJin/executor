@@ -31,7 +31,14 @@ class InlineArtifactSource(ContractModel):
 
 class PathArtifactSource(ContractModel):
     type: Literal[CodeSourceType.PATH]
-    path: str = Field(min_length=1, max_length=4096)
+    path: str = Field(
+        min_length=1,
+        max_length=4096,
+        description=(
+            "Input file path relative to SHARED_STORAGE_ROOT; "
+            "no prefix is added."
+        ),
+    )
     sha256: str = Field(pattern=r"^[0-9a-fA-F]{64}$")
 
 

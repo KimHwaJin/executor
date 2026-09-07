@@ -46,8 +46,8 @@ Operation의 결과를 확인하고 후속 코드 또는 오류 수정 코드를
 | `lineage` | X | Skill/Tool 및 입력 파라미터 추적 정보 |
 
 INLINE source는 `{"type":"INLINE","content":"..."}` 형식이다. PATH source는
-`{"type":"PATH","path":"...py","sha256":"64자리 checksum"}` 형식이며 입력 공유
-루트 기준 상대경로, `.py`, UTF-8, checksum 일치를 요구한다.
+`{"type":"PATH","path":"...py","sha256":"64자리 checksum"}` 형식이며 공유 PV
+루트 기준 상대경로, `.py`, UTF-8, checksum 일치를 요구한다. `requests/`를 자동으로 붙이지 않는다.
 
 `lineage`는 `skill_name`, `tool_name`, `input_parameters`를 지원한다. Operation/Execution
 Step 최대 개수는 Executor 설정값을 넘을 수 없다.
@@ -106,4 +106,3 @@ Step 최대 개수는 Executor 설정값을 넘을 수 없다.
 
 동시에 같은 `expected_version`으로 두 요청이 들어오면 하나만 성공하고 나머지는 `409`가
 된다. `409` 발생 시 최신 Execution 상태를 다시 조회해서 이미 처리된 명령인지 판단해야 한다.
-

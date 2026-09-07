@@ -189,10 +189,6 @@ class Settings(BaseSettings):
     def runtime_credential_encryption_key(self) -> str:
         return self.runtime_credential_key.get_secret_value()
 
-    @property
-    def request_storage_root(self) -> Path:
-        return self.shared_storage_root / "requests"
-
 
 @lru_cache
 def get_settings() -> Settings:

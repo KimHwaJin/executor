@@ -64,6 +64,23 @@ async def test_path_rejects_hash_mismatch_and_pv_escape(
         )
 
 
+async def test_path_rejects_absolute_and_symlink_escape(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "pv"
+    root.mkdir()
+    outside = tmp_path / "outside.py"
+    outside.write_text("print('outside')")
+    (root / "link.py").symlink_to(outside)
+    resolver = ExecutionSpecResolver(root)
+    checksum = hashlib.sha256(outside.read_bytes()).hexdigest()
+    for path in (str(outside), "link.py"):
+        with pytest.raises(InvalidExecutionSpecError, match="shared PV root"):
+            await resolver.resolve(
+                _spec({"type": "PATH", "path": path, "sha256": checksum})
+            )
+
+
 async def test_source_size_limits_are_enforced(tmp_path: Path) -> None:
     inline = _spec({"type": "INLINE", "content": "print('hello')"})
     with pytest.raises(InvalidExecutionSpecError, match="INLINE"):

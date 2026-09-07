@@ -264,9 +264,7 @@ async def test_output_limit_aborts_runtime_and_persists_incomplete_result(
         relative_path = manifest["outputs"][0]["representations"][0][
             "relative_path"
         ]
-        assert (tmp_path / step.result_manifest_path).parent.joinpath(
-            relative_path
-        ).read_text() == rate_warning(kind)
+        assert (tmp_path / relative_path).read_text() == rate_warning(kind)
     assert {
         "execution.step_completed",
         "execution.operation_completed",

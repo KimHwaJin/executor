@@ -87,12 +87,11 @@ def manifests(root: Path, bundle: dict[str, Any]) -> list[dict[str, Any]]:
             ):
                 raise ValueError("Manifest identity or completeness mismatch")
             checked_file(root, manifest["source"])
-            directory = (root / ref["relative_path"]).parent
             text = []
             png_sizes = []
             for output in manifest["outputs"]:
                 for representation in output["representations"]:
-                    body = checked_file(directory, representation)
+                    body = checked_file(root, representation)
                     if representation["media_type"] == "text/plain":
                         text.append(body.decode())
                     if representation["media_type"] == "image/png":

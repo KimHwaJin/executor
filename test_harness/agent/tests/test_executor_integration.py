@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 from typing import Any, cast
 
+import pytest
+
 from executor_test_agent.integrations import executor as executor_module
 
 
@@ -44,7 +46,7 @@ async def test_collect_execution_result_resolves_shared_manifest(
                     {
                         "media_type": "text/plain",
                         "encoding": "UTF8",
-                        "relative_path": "outputs/000000-stream-00.txt",
+                        "relative_path": content_path.relative_to(tmp_path).as_posix(),
                         "size_bytes": len(content),
                         "checksum_sha256": hashlib.sha256(content).hexdigest(),
                         "complete": True,
@@ -118,3 +120,61 @@ def test_shared_result_reader_rejects_path_escape(tmp_path: Path) -> None:
         pass
     else:
         raise AssertionError("unsafe path was accepted")
+
+
+@pytest.mark.parametrize(
+    "media_type,content", [("text/plain", b"hello"), ("image/png", b"\x89PNG\r\n\x1a\n")]
+)
+def test_output_representation_is_relative_to_shared_root(
+    tmp_path: Path,
+    media_type: str,
+    content: bytes,
+) -> None:
+    directory = tmp_path / "executions/e/operations/o/steps/s/attempts/a/1"
+    output = directory / "outputs/result.bin"
+    output.parent.mkdir(parents=True)
+    output.write_bytes(content)
+    representation = {
+        "relative_path": output.relative_to(tmp_path).as_posix(),
+        "media_type": media_type,
+        "size_bytes": len(content),
+        "checksum_sha256": hashlib.sha256(content).hexdigest(),
+        "complete": True,
+        "truncated_in_preview": False,
+    }
+    result = executor_module._resolve_representation(tmp_path, directory, representation)
+    assert result["content_path"] == str(output)
+    if media_type == "text/plain":
+        assert result["content"] == "hello"
+    # Old manifest-relative references must not be guessed/fallback-resolved.
+    representation["relative_path"] = "outputs/result.bin"
+    with pytest.raises(executor_module.ExecutionResultReadError):
+        executor_module._resolve_representation(tmp_path, directory, representation)
+
+
+@pytest.mark.parametrize("escape", ["other-step", "symlink"])
+def test_output_root_relative_paths_cannot_escape_step(
+    tmp_path: Path,
+    escape: str,
+) -> None:
+    root = tmp_path / "pv"
+    directory = root / "executions/e/steps/s"
+    directory.mkdir(parents=True)
+    target = tmp_path / "outside.txt"
+    target.write_bytes(b"test")
+    if escape == "symlink":
+        output = directory / "link.txt"
+        output.symlink_to(target)
+    else:
+        output = root / "another-step.txt"
+        output.write_bytes(b"test")
+    representation = {
+        "relative_path": output.relative_to(root).as_posix(),
+        "media_type": "text/plain",
+        "size_bytes": 4,
+        "checksum_sha256": hashlib.sha256(b"test").hexdigest(),
+        "complete": True,
+        "truncated_in_preview": False,
+    }
+    with pytest.raises(executor_module.ExecutionResultReadError):
+        executor_module._resolve_representation(root, directory, representation)

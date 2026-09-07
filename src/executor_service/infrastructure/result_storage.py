@@ -30,7 +30,7 @@ class FilesystemExecutionResultStore:
         self._steps = FilesystemStepResultStore(
             self._paths,
             self._sources,
-            ResultOutputCodec(),
+            ResultOutputCodec(self._paths),
         )
         self._locks: dict[str, asyncio.Lock] = {}
         self._locks_guard = asyncio.Lock()

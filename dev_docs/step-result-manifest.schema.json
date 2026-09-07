@@ -99,7 +99,7 @@
       "additionalProperties": false,
       "required": ["relative_path", "checksum_sha256", "size_bytes"],
       "properties": {
-        "relative_path": {"type": "string", "minLength": 1},
+        "relative_path": {"type": "string", "minLength": 1, "description": "Path relative to the Agent/Executor shared PV root."},
         "checksum_sha256": {"$ref": "#/$defs/sha256"},
         "size_bytes": {"type": "integer", "minimum": 0}
       }
@@ -120,7 +120,7 @@
       "properties": {
         "media_type": {"type": "string", "minLength": 1},
         "encoding": {"enum": ["UTF8", "BASE64"]},
-        "relative_path": {"type": "string", "minLength": 1},
+        "relative_path": {"type": "string", "minLength": 1, "description": "Output path relative to the shared PV root, within this Step/Attempt/fence directory; not relative to the manifest directory."},
         "size_bytes": {"type": "integer", "minimum": 0},
         "checksum_sha256": {"$ref": "#/$defs/sha256"},
         "complete": {"const": true},

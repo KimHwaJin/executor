@@ -35,14 +35,15 @@ class ArtifactContentResolver:
             path = Path(command.source_path)
             if path.is_absolute():
                 raise ArtifactRegistrationError(
-                    "Artifact input path must be relative."
+                    "Artifact input path must be relative "
+                    "to the shared PV root."
                 )
             resolved = (self._input_root / path).resolve()
             try:
                 resolved.relative_to(self._input_root)
             except ValueError as exc:
                 raise ArtifactRegistrationError(
-                    "Artifact input path escapes the input root."
+                    "Artifact input path escapes the shared PV root."
                 ) from exc
             if not resolved.is_file():
                 raise ArtifactRegistrationError(

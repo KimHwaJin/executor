@@ -150,7 +150,7 @@ def _prepare_inputs(
     shared_root = Path(
         os.getenv("LOCAL_TEST_SHARED_STORAGE_ROOT", "shared_dir")
     ).resolve()
-    input_root = shared_root / "requests"
+    input_root = shared_root
     relative_root = Path("smoke") / f"source-report-{unique}"
     source_dir = input_root / relative_root
     python_path = source_dir / "step.py"

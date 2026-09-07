@@ -1,6 +1,8 @@
 import errno
 import hashlib
 import json
+import shutil
+from dataclasses import replace
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -16,6 +18,102 @@ from executor_service.infrastructure.result_storage import (
     FilesystemExecutionResultStore,
     ResultStorageError,
 )
+
+
+@pytest.mark.parametrize("terminal", ["FINALIZED", "FAILED", "ABORTED"])
+async def test_output_paths_are_pv_relative_across_mounts(
+    tmp_path: Path,
+    terminal: str,
+) -> None:
+    root = tmp_path / "executor-pv"
+    store = FilesystemExecutionResultStore(root)
+    identity = _identity()
+    source = await store.snapshot_source(
+        identity.execution_id, identity.step_id, "print(1)"
+    )
+    await store.begin_step_result(identity, source)
+    await store.append_step_outputs(
+        identity,
+        expected_offset=0,
+        batch_id=uuid4(),
+        records=(_text_record("portable\n"),),
+    )
+    if terminal == "ABORTED":
+        result = await store.abort_step_result(
+            identity, reason="test cancellation"
+        )
+    else:
+        result = await store.finalize_step_result(
+            identity,
+            execution_count=1,
+            error_message="test failure" if terminal == "FAILED" else None,
+        )
+    manifest = json.loads((root / result.reference.relative_path).read_bytes())
+    relative = manifest["outputs"][0]["representations"][0]["relative_path"]
+    assert (
+        relative
+        == (
+            Path(result.reference.relative_path).parent
+            / "outputs/000000-stream-00.txt"
+        ).as_posix()
+    )
+    assert ".partial" not in relative
+    assert (root / relative).read_text() == "portable\n"
+    # Same shared tree mounted at a different absolute location.
+    other_mount = tmp_path / "agent-pv"
+    shutil.copytree(root, other_mount)
+    reader = FilesystemExecutionResultStore(other_mount)
+    assert (await reader.read_step_outputs(result.reference))[0][
+        "text"
+    ] == "portable\n"
+    assert await reader.read_source(source) == "print(1)"
+
+
+@pytest.mark.parametrize(
+    "bad_path", ["absolute", "parent", "symlink", "other-step"]
+)
+async def test_root_relative_outputs_keep_scope_boundaries(
+    tmp_path: Path,
+    bad_path: str,
+) -> None:
+    root = tmp_path / "pv"
+    store = FilesystemExecutionResultStore(root)
+    identity = _identity()
+    source = await store.snapshot_source(
+        identity.execution_id, identity.step_id, "pass"
+    )
+    await store.begin_step_result(identity, source)
+    await store.append_step_outputs(
+        identity,
+        expected_offset=0,
+        batch_id=uuid4(),
+        records=(_text_record("secret"),),
+    )
+    result = await store.finalize_step_result(identity, execution_count=1)
+    manifest_path = root / result.reference.relative_path
+    manifest = json.loads(manifest_path.read_bytes())
+    outside = tmp_path / "outside.txt"
+    outside.write_text("secret")
+    other = root / "other-step.txt"
+    other.write_text("secret")
+    link = manifest_path.parent / "outputs/link.txt"
+    link.symlink_to(outside)
+    path = {
+        "absolute": str(outside),
+        "parent": "../outside.txt",
+        "symlink": link.relative_to(root).as_posix(),
+        "other-step": "other-step.txt",
+    }[bad_path]
+    manifest["outputs"][0]["representations"][0]["relative_path"] = path
+    body = json.dumps(manifest).encode()
+    manifest_path.write_bytes(body)
+    reference = replace(
+        result.reference,
+        checksum_sha256=hashlib.sha256(body).hexdigest(),
+        size_bytes=len(body),
+    )
+    with pytest.raises(ResultStorageError):
+        await store.read_step_outputs(reference)
 
 
 def _identity(*, fence: int = 1) -> StepResultIdentity:
@@ -191,9 +289,7 @@ async def test_seals_source_text_and_image_as_immutable_files(
         for representation in output["representations"]:
             assert representation["complete"] is True
             assert representation["truncated_in_preview"] is False
-            assert (
-                manifest_path.parent / representation["relative_path"]
-            ).is_file()
+            assert (tmp_path / representation["relative_path"]).is_file()
     assert not manifest_path.parent.with_name("1.partial").exists()
     notebook_outputs = await store.read_step_outputs(result.reference)
     assert notebook_outputs[0] == {
