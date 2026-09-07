@@ -181,6 +181,7 @@ class FilesystemStepResultStore:
         for index, record in enumerate(records):
             output = self._codec.persist_record(
                 partial,
+                result_relative=self._paths.result_relative(identity),
                 ordinal=expected_offset + index,
                 record=record,
             )

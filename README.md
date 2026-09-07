@@ -383,7 +383,7 @@ that pool.
 
 ExecutionSpec stays at schema version `1.0` during pre-release development. Each ordered Step uses
 `PYTHON_EXECUTE` and independently embeds INLINE code or references one UTF-8 `.py` file below
-`SHARED_STORAGE_ROOT/requests` with a relative path and SHA-256. Executor persists the resolved source and
+`SHARED_STORAGE_ROOT` with a root-relative path and SHA-256 (no implicit prefix). Executor persists the resolved source and
 provenance on that ExecutionStep. The Jupyter Driver executes each Step as one code cell. See
 [ExecutionSpec v1](docs/execution-spec.md).
 
@@ -400,7 +400,8 @@ of already executed Steps is intentionally not supported.
 
 ## Storage ownership
 
-- The Agent writes PATH-type Step `.py` files below `SHARED_STORAGE_ROOT/requests`. Executor reads
+- The Agent chooses input directories below `SHARED_STORAGE_ROOT` and sends the full root-relative
+  PATH of each `.py` file. Executor does not add `requests/` or another prefix. Executor reads
   them through its Agent/Executor shared volume; Jupyter does not need this volume.
 - Jupyter creates execution workspaces, notebooks, artifacts, datasets, and manifests on its own
   shared storage. Targets within one Runtime pool share that storage; different pools may use
@@ -585,7 +586,10 @@ Jupyter-relative hierarchy:
 ```
 
 Raw data remains in S3. PATH submissions are resolved under
-`SHARED_STORAGE_ROOT/requests`, and path traversal is rejected. The reusable processed-data hierarchy is intentionally not fixed until
+`SHARED_STORAGE_ROOT`, and paths escaping that root are rejected. All shared-result references,
+including output representations inside Step manifests, use that same root. See
+[Shared PV path contract](docs/shared-pv-path-contract.md) for the coordinated transition.
+The reusable processed-data hierarchy is intentionally not fixed until
 [Deferred Decisions](docs/deferred-decisions.md) DD-002 is resolved.
 
 ## Consistency and delivery

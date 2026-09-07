@@ -107,7 +107,7 @@ PATH source:
 | 필드 | 필수 | 의미 |
 |---|---:|---|
 | `type` | O | `PATH` |
-| `path` | O | Agent/Executor 입력 공유 루트 기준 상대경로. 절대경로와 상위 디렉터리 이탈 금지 |
+| `path` | O | Agent/Executor 공유 PV 루트 기준 상대경로. `requests/` 자동 추가 없음. 절대경로와 PV 루트 이탈 금지 |
 | `sha256` | O | 파일 내용의 SHA-256. 64자리 16진수 |
 
 PATH 파일은 `.py`, UTF-8이어야 하며 요청한 checksum과 실제 파일 checksum이 같아야 한다.
@@ -183,4 +183,3 @@ INLINE/PATH 최대 크기와 Operation/Execution 최대 Step 수는 Executor 설
 
 응답 `Location` 헤더는 `/api/v1/executions/{execution_id}`를 가리킨다. 이후 Redis 이벤트를
 기다리고, 필요할 때 Location의 상태조회 API로 PostgreSQL 원본 상태를 확인한다.
-

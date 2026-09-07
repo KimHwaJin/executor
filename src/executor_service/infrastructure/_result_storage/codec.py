@@ -21,6 +21,9 @@ from executor_service.infrastructure._result_storage.io import (
     sha256,
     utc_now,
 )
+from executor_service.infrastructure._result_storage.paths import (
+    ResultStoragePaths,
+)
 
 OUTPUT_KIND_NAMES = {
     "STREAM": "stream",
@@ -47,10 +50,14 @@ MEDIA_EXTENSIONS = {
 
 
 class ResultOutputCodec:
+    def __init__(self, paths: ResultStoragePaths) -> None:
+        self._paths = paths
+
     def persist_record(
         self,
         partial: Path,
         *,
+        result_relative: Path,
         ordinal: int,
         record: RuntimeOutputRecord,
     ) -> dict[str, Any]:
@@ -71,7 +78,9 @@ class ResultOutputCodec:
                 {
                     "media_type": media_type,
                     "encoding": representation.encoding,
-                    "relative_path": f"outputs/{filename}",
+                    "relative_path": (
+                        result_relative / "outputs" / filename
+                    ).as_posix(),
                     "size_bytes": len(body),
                     "checksum_sha256": sha256(body),
                     "complete": True,
@@ -141,16 +150,12 @@ class ResultOutputCodec:
             }
         raise ResultStorageError(f"Unsupported Step output kind: {kind!r}.")
 
-    @staticmethod
     def _representation_value(
-        result_directory: Path, value: dict[str, Any]
+        self, result_directory: Path, value: dict[str, Any]
     ) -> object:
-        relative_path = Path(str(value.get("relative_path", "")))
-        if relative_path.is_absolute() or any(
-            part in {"", ".", ".."} for part in relative_path.parts
-        ):
-            raise ResultStorageError("Step output path is unsafe.")
-        path = (result_directory / relative_path).resolve(strict=True)
+        path = self._paths.resolve_reference(
+            str(value.get("relative_path", ""))
+        )
         try:
             path.relative_to(result_directory)
         except ValueError as exc:

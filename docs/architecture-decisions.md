@@ -65,7 +65,7 @@ Step; its separate status and retries remain observable.
 
 ```text
 Agent + Executor shared volume
-├── requests/.../step-N.py
+├── <agent-selected-directory>/.../step-N.py
 └── executions/<execution-id>/
     ├── sources/<step-id>/source.py
     └── operations/<operation-id>/steps/<step-id>/attempts/<attempt-id>/<fence>/

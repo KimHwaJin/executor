@@ -47,7 +47,7 @@ Redis Step 완료 이벤트와 Operation 완료 이벤트의 `step_results[].res
         {
           "media_type": "text/plain",
           "encoding": "UTF8",
-          "relative_path": "outputs/000000-stream-00.txt",
+          "relative_path": "executions/10000000-0000-0000-0000-000000000001/operations/20000000-0000-0000-0000-000000000002/steps/30000000-0000-0000-0000-000000000003/attempts/40000000-0000-0000-0000-000000000004/1/outputs/000000-stream-00.txt",
           "size_bytes": 6,
           "checksum_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
           "complete": true,
@@ -170,7 +170,7 @@ Agent는 `execution_id`, `step_id`, `execution_attempt_id`, `fencing_token`이 R
 |---|---|
 | `media_type` | `text/plain`, `application/json`, `image/png` 등의 MIME type |
 | `encoding` | Runtime에서 수신한 표현 인코딩: `UTF8` 또는 `BASE64` |
-| `relative_path` | manifest가 있는 디렉터리 기준 실제 출력 파일 경로 |
+| `relative_path` | Agent/Executor 공유 PV 루트 기준 실제 출력 파일 경로 |
 | `size_bytes` | 저장된 출력 파일 byte 크기 |
 | `checksum_sha256` | 저장된 출력 파일 SHA-256 |
 | `complete` | 개별 representation 파일 기록 완료 여부. terminal manifest에서는 `true` |
@@ -182,14 +182,14 @@ binary로 디코딩하므로 `relative_path`의 이미지/PDF 파일을 다시 b
 Agent가 LLM에 이미지를 전달하려면 저장된 binary 파일을 읽어 사용하는 Agent 도구 규격에
 맞춰 인코딩한다.
 
-경로 기준은 다음처럼 서로 다르다.
+코드와 출력 경로의 기준은 모두 동일하다.
 
 ```text
 source.relative_path
   -> Agent SHARED_STORAGE_ROOT 기준
 
 outputs[].representations[].relative_path
-  -> manifest.json이 있는 디렉터리 기준
+  -> Agent SHARED_STORAGE_ROOT 기준
 ```
 
 ## `output_summary`
@@ -213,9 +213,13 @@ outputs[].representations[].relative_path
 4. `schema_version`이 지원하는 `1.0`인지 확인한다.
 5. manifest `identity`가 Result API의 Execution/Step/Attempt/fence와 일치하는지 확인한다.
 6. `state`와 `complete`를 확인한다. `ABORTED` 출력은 부분 증거로만 사용한다.
-7. source는 공유 PV 루트 기준, output representation은 manifest 디렉터리 기준으로 읽는다.
+7. source와 output representation 모두 공유 PV 루트 기준으로 읽는다.
+   출력 파일은 해당 manifest의 Step/Attempt/fence 디렉터리 안에 속하는지도 검증한다.
 8. 각 파일의 `size_bytes`와 `checksum_sha256`을 검증한다.
 9. 필요한 MIME representation만 Agent/LLM에 전달한다.
 
 일반 파일 탐색으로 다른 attempt나 fencing generation을 선택해서는 안 된다. PostgreSQL 원본
 상태가 가리키는 `result_ref`와 그 manifest 내부에 선언된 파일만 읽는다.
+
+이전 manifest-directory 상대경로를 자동 감지하는 fallback은 없다. 기존 결과의
+전환 주의사항은 [공유 PV 경로 규칙](../docs/shared-pv-path-contract.md)을 참조한다.

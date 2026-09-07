@@ -944,14 +944,18 @@ async def test_multi_operation_create_and_finalize_rest_api(
     assert finished.json()["state"]["version"] == 4
 
 
+@pytest.mark.parametrize(
+    "relative", ["plans/path-plan/step-0.py", "requests/step.py", "step.py"]
+)
 async def test_path_execution_spec_rest_submit(
     rest_client: tuple[httpx.AsyncClient, ApplicationContainer],
+    relative: str,
 ) -> None:
     client, container = rest_client
     content = b"print('PATH source')"
-    relative_path = Path("plans/path-plan/step-0.py")
-    source_path = container.settings.request_storage_root / relative_path
-    source_path.parent.mkdir(parents=True)
+    relative_path = Path(relative)
+    source_path = container.settings.shared_storage_root / relative_path
+    source_path.parent.mkdir(parents=True, exist_ok=True)
     source_path.write_bytes(content)
     payload = _submit_payload(key="rest-path-submit")
     payload["operation"]["spec"]["steps"][0]["payload"] = {

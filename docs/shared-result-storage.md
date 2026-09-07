@@ -21,12 +21,10 @@ Status: accepted implementation contract.
 
 ```text
 <shared-root>/
-├── requests/
+├── <agent-selected-input-directory>/
 └── executions/<execution-id>/
-    ├── manifest.json
     ├── sources/<step-id>/source.py
     └── operations/<operation-id>/
-        ├── manifest.json
         └── steps/<step-id>/attempts/<attempt-id>/<fencing-token>/
             ├── source.py
             ├── outputs/
@@ -36,6 +34,8 @@ Status: accepted implementation contract.
 
 Writers use a sibling `<fencing-token>.partial` directory and atomically rename it only after all
 content and the terminal manifest have been fsynced. A partial directory is never authoritative.
+Representation paths already point at the final directory, never at `.partial`.
+Only the sealed reference is published. No Execution/Operation aggregate manifests are created.
 
 ## Result reference
 
@@ -55,6 +55,9 @@ content and the terminal manifest have been fsynced. A partial directory is neve
 
 The Agent resolves `relative_path` below its configured shared root and verifies the manifest
 checksum before reading declared files. The LLM is not given a general filesystem tool.
+Source and output representation paths inside the manifest are also relative to this
+same shared root, not the manifest directory. Input PATHs follow the same rule and
+receive no automatic directory prefix. See [Shared PV path contract](shared-pv-path-contract.md).
 `complete=false` means the Runtime stream ended through timeout, cancellation, or an output
 message safety limit. Already committed representations remain immutable evidence, but callers
 must not interpret them as the complete Step result.

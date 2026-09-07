@@ -144,11 +144,11 @@ def _resolve_representation(
         raise ExecutionResultReadError("Result representation is not complete.")
     if value.get("truncated_in_preview") is not False:
         raise ExecutionResultReadError("Result representation preview metadata is invalid.")
-    path = _resolve(result_directory, str(value.get("relative_path", "")))
+    path = _resolve(root, str(value.get("relative_path", "")))
     try:
-        path.relative_to(root)
+        path.relative_to(result_directory)
     except ValueError as exc:
-        raise ExecutionResultReadError("Result content escapes shared root.") from exc
+        raise ExecutionResultReadError("Result content escapes its step result directory.") from exc
     body = path.read_bytes()
     if len(body) != value.get("size_bytes") or _sha256(body) != value.get("checksum_sha256"):
         raise ExecutionResultReadError("Result content checksum failed.")

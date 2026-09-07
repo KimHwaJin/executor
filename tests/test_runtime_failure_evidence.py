@@ -363,8 +363,8 @@ async def test_failures_preserve_state_reason_partial_refs_and_operator_logs(
         assert manifest["complete"] is expected_complete
         if storage_fault != "append_step_outputs":
             output = manifest["outputs"][0]["representations"][0]
-            assert (tmp_path / steps[0].result_manifest_path).parent.joinpath(
-                output["relative_path"]
+            assert (
+                tmp_path / output["relative_path"]
             ).read_text() == "partial evidence\n"
         response = ExecutionStepResponse.from_domain(
             execution.steps[0], execution.id
