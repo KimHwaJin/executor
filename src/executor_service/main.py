@@ -4,16 +4,19 @@ import sys
 
 import uvicorn
 
+from executor_service.config import api_tags_meta
 from executor_service.container import ApplicationContainer
 from executor_service.event_loop import run_async
+from executor_service.infrastructure.db.logging import (
+    install_database_error_filters,
+)
 from executor_service.interfaces.http.app import create_app
-from executor_service.logging_config import configure_logging
 from executor_service.settings import get_settings
 
 settings = get_settings()
-configure_logging(settings.log_config_file, settings.log_level)
+install_database_error_filters()
 container = ApplicationContainer(settings)
-app = create_app(container)
+app = create_app(container, openapi_tags=api_tags_meta)
 
 
 def run() -> None:
@@ -21,7 +24,7 @@ def run() -> None:
         "executor_service.main:app",
         host=settings.host,
         port=settings.port,
-        # Keep the shared YAML handlers, formats and levels for Uvicorn too.
+        # Keep the deployment Config's logging setup for Uvicorn too.
         log_config=None,
     )
     server = uvicorn.Server(config)

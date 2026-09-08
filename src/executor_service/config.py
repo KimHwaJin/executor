@@ -1,17 +1,36 @@
-"""Load trusted deployment-owned logging configuration before server startup."""
+"""Local stand-in for the deployment-owned HCP configuration module.
+
+The internal deployment replaces this module with Appconfig(Config),
+app_config = Appconfig(), and api_tags_meta. HCP owns configuration and
+logging initialization there. No HCP import or emulation is required here.
+"""
 
 import logging
 import logging.config
 from pathlib import Path
 
 import yaml
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from executor_service.settings import get_settings
+
+
+class Appconfig(BaseSettings):
+    """Dummy fields; replace with the internal HCP Config subclass."""
+
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8", extra="ignore"
+    )
+
+    FOO: str = ""
+    BAR: str = ""
 
 
 class LoggingConfigurationError(RuntimeError):
     """The configured logging policy could not be applied."""
 
 
-def configure_logging(path: Path, level: str | None = None) -> None:
+def _configure_logging(path: Path, level: str | None = None) -> None:
     """Apply dictConfig YAML; an optional LOG_LEVEL overrides only root.level.
 
     Relative paths are resolved against the process working directory. Missing
@@ -44,19 +63,25 @@ def configure_logging(path: Path, level: str | None = None) -> None:
             raise LoggingConfigurationError("LOG_LEVEL is invalid.")
         root["level"] = normalized
     config.setdefault("disable_existing_loggers", False)
-    # Applies to custom deployment formatters as well as logger.yml defaults.
-    # Keep all caller-supplied handlers and filters; only add the DB safeguard.
     try:
-        policy_filter = "executor_safe_database_errors"
-        config.setdefault("filters", {})[policy_filter] = {
-            "()": "executor_service.infrastructure.db.logging.DatabaseErrorFilter"
-        }
-        for handler in config.get("handlers", {}).values():
-            filters = handler.setdefault("filters", [])
-            if policy_filter not in filters:
-                filters.append(policy_filter)
         logging.config.dictConfig(config)
     except (ValueError, TypeError, AttributeError, ImportError) as exc:
         raise LoggingConfigurationError(
             f"Cannot apply logging config {path}."
         ) from exc
+
+
+app_config = Appconfig()
+
+# Keep these names when replacing this file in the internal deployment.
+# Optional externalDocs entries use {"description": "...", "url": "..."}.
+api_tags_meta = [
+    {"name": "executions", "description": "Execution requests and results."},
+    {"name": "runtime-targets", "description": "Runtime target management."},
+    {"name": "maintenance", "description": "Executor maintenance controls."},
+]
+
+# Local-only initialization, performed once when main imports this module.
+# The internal Config constructor/library supplies its own initialization.
+_settings = get_settings()
+_configure_logging(_settings.log_config_file, _settings.log_level)

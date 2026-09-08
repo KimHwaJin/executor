@@ -21,7 +21,10 @@ from executor_service.execution_specs import ExecutionSpecResolver
 from executor_service.infrastructure._materialized_artifacts.content import (
     ArtifactContentResolver,
 )
-from executor_service.infrastructure.db.logging import DatabaseErrorFilter
+from executor_service.infrastructure.db.logging import (
+    DatabaseErrorFilter,
+    install_database_error_filters,
+)
 from tests.test_execution_specs import _spec
 
 
@@ -122,3 +125,35 @@ def test_db_filter_removes_driver_detail_and_chained_exception_text():
     assert "sensitive" not in str(record.exc_info[1])
     assert record.exc_info[1].__cause__ is None
     assert "Traceback" in output
+
+
+def test_install_db_filters_preserves_internal_handlers_and_is_idempotent(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    logger = logging.getLogger("executor_service.test_internal_handler")
+    # Do not add filters to pytest's capture/reporting handlers.
+    monkeypatch.setattr(logging.root, "handlers", [])
+    monkeypatch.setattr(
+        logging.root.manager, "loggerDict", {logger.name: logger}
+    )
+    handler = logging.NullHandler()
+    custom_filter = logging.Filter()
+    formatter = logging.Formatter("INTERNAL %(message)s")
+    handler.addFilter(custom_filter)
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    try:
+        install_database_error_filters()
+        install_database_error_filters()
+        assert handler.formatter is formatter
+        assert custom_filter in handler.filters
+        assert (
+            sum(
+                isinstance(item, DatabaseErrorFilter)
+                for item in handler.filters
+            )
+            == 1
+        )
+    finally:
+        logger.removeHandler(handler)
+        handler.close()

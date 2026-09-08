@@ -70,6 +70,24 @@ async def rest_client(
     await container.engine.dispose()
 
 
+async def test_deployment_tag_metadata_is_in_openapi(
+    rest_client: tuple[httpx.AsyncClient, ApplicationContainer],
+) -> None:
+    _, container = rest_client
+    tags = [
+        {
+            "name": "executions",
+            "description": "Deployment-owned description",
+            "externalDocs": {
+                "description": "Deployment documentation",
+                "url": "https://example.com/executor",
+            },
+        }
+    ]
+    app = create_app(container, openapi_tags=tags)
+    assert app.openapi()["tags"] == tags
+
+
 def _submit_payload(
     *,
     key: str = "rest-submit-1",

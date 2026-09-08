@@ -67,3 +67,24 @@ class DatabaseErrorFilter(logging.Filter):
                 for key, value in record.args.items()
             }
         return True
+
+
+def install_database_error_filters() -> None:
+    """Protect configured handlers without replacing deployment logging.
+
+    Call after the deployment's logging initialization. If it creates new
+    handlers later, call again; installation is idempotent per handler.
+    """
+    loggers = [logging.getLogger()]
+    loggers.extend(
+        logger
+        for logger in logging.root.manager.loggerDict.values()
+        if isinstance(logger, logging.Logger)
+    )
+    for logger in loggers:
+        for handler in logger.handlers:
+            if not any(
+                isinstance(item, DatabaseErrorFilter)
+                for item in handler.filters
+            ):
+                handler.addFilter(DatabaseErrorFilter())
