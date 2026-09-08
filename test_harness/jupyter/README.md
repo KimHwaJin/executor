@@ -93,7 +93,17 @@ curl --fail \
   http://127.0.0.1:8888/executor/resource-status
 ```
 
-It reads cgroup v2 `cpu.stat`, `cpu.max`, `memory.current`, `memory.max`, and `cgroup.procs`.
+It automatically resolves the current process's controller paths from `/proc/self/cgroup` and
+`/proc/self/mountinfo`, including separate/combined v1 mounts, v2 and hybrid layouts.
+v2 reads `cpu.stat`, `cpu.max`, `memory.current`, `memory.max`, and `cgroup.procs`.
+v1 reads `cpuacct.usage` (nanoseconds), `cpu.cfs_quota_us` / `cpu.cfs_period_us`,
+`memory.usage_in_bytes`, `memory.limit_in_bytes`, and `cgroup.procs`.
+The response shape and `schema_version: "1.0"` are unchanged; metric `source` is `CGROUP_V1`
+or `CGROUP_V2` (null when discovery fails). v1 memory has `estimated: true`, reflecting the
+kernel's approximate memory accounting, not a psutil fallback. CPU usage needs two samples.
+No host mount-root fallback or privileged/hostPath access is used when discovery fails.
+`EXECUTOR_RESOURCE_CGROUP_ROOT` overrides discovery: supply a v2 leaf, or a directory whose
+v1 controller subdirectories point directly to the intended container cgroups. Normally omit it.
 `JUPYTER_RESOURCE_CPU_CORES` and `JUPYTER_RESOURCE_MEMORY_BYTES` provide capacity when the cgroup
 has no readable finite limit. If a usage file is unavailable, that resource's usage and
 utilization are null and a safe error code explains why; there is no secondary measurement source.
@@ -332,7 +342,7 @@ Use `--` to pass additional JupyterLab options to `run`, for example:
 uv run python test_harness/jupyter/native.py run --port 8888 -- --ServerApp.base_url=/jupyter
 ```
 
-On Linux, the runner resolves the current process's cgroup v2 leaf from `/proc/self/cgroup`. On
+On Linux, the server extension itself resolves the current process's v1/v2 controller paths. On
 Windows and macOS, or when cgroup files are unavailable, resource usage and utilization are null
 with safe error codes. Configure capacity explicitly when desired:
 

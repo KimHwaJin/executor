@@ -240,6 +240,32 @@ Executor에서 REST 및 WebSocket으로 해당 서버에 접근할 수 있어야
 환경을 만든다. 표준 커널 패키지 변경은 항상 `pyproject.toml`, `uv.lock`, 이미지 재빌드로
 처리한다.
 
+### 자원 조회: cgroup v1/v2 자동 판별
+
+`/executor/resource-status`는 `/proc/self/cgroup`과 `/proc/self/mountinfo`를 읽어
+현재 Jupyter 서버 프로세스의 컨트롤러 경로를 찾는다. v1의 분리/결합 마운트,
+v2 및 두 버전이 함께 있는 hybrid 환경을 지원한다. Kubernetes API 권한이나
+privileged/hostPath 마운트를 추가할 필요는 없다.
+
+- v1: `cpuacct.usage`, `cpu.cfs_quota_us`, `cpu.cfs_period_us`,
+  `memory.usage_in_bytes`, `memory.limit_in_bytes` 사용.
+- v2: `cpu.stat`, `cpu.max`, `memory.current`, `memory.max` 사용.
+- API 구조와 `schema_version: "1.0"`은 유지한다. CPU/메모리의 `source`는
+  `CGROUP_V1` 또는 `CGROUP_V2`, 판별 불가 시 null이다.
+- v1 메모리는 커널의 근사 계수이므로 `estimated: true`이다. psutil은 사용하지 않는다.
+- CPU 사용량은 두 번의 측정 차이로 계산하므로 첫 조회에서는 null일 수 있다.
+- 읽기 실패는 `errors`에 기록하고 사용량/사용률을 null로 반환한다. 0으로 위장하거나
+  상위 호스트 전체 사용량으로 대체하지 않는다.
+- v1 CPU quota `-1`과 64-bit Linux의 무제한 메모리 sentinel은 유한한 제한으로
+  간주하지 않는다. 제한이 없거나 읽을 수 없으면 `EXECUTOR_RESOURCE_CPU_CORES`,
+  `EXECUTOR_RESOURCE_MEMORY_BYTES`로 지정한 용량만 보완한다. 사용량을 보완하지는 않는다.
+
+`EXECUTOR_RESOURCE_CGROUP_ROOT`는 보통 지정하지 않는다. 수동 지정이 필요하다면
+v2는 현재 컨테이너의 leaf 디렉토리, v1은 `cpu`, `cpuacct`, `memory` 또는
+`cpu,cpuacct` 하위 디렉토리가 현재 컨테이너 cgroup을 가리키는 디렉토리로 지정한다.
+측정 범위는 해당 컨트롤러 cgroup이며, 별도 상위 cgroup의 공유 제한이나 다른 컨테이너의
+사용량까지 합산하지 않는다. 파일이 차단된 플랫폼에서는 운영자 확인이 필요하다.
+
 ## 6. 이번 구성의 로컬 검증 기록
 
 2026-09-08 Linux ARM64 Docker에서 별도 이미지로 소스 컴파일부터 실행까지 확인했다.
@@ -250,6 +276,13 @@ Executor에서 REST 및 WebSocket으로 해당 서버에 접근할 수 있어야
 - Jupyter REST/WebSocket으로 두 커널의 코드 실행과 ssl/sqlite3/압축/ctypes 등 import 확인.
 - default에서 pandas 표와 이미지 출력, PNG 저장 확인.
 - 커스텀 API로 노트북 작성·결과 반영·전체 다운로드 후 nbformat 유효성 확인.
+
+cgroup v1/v2 지원 추가 후 별도 Docker 컨테이너에서도 재검증했다.
+실제 v2 환경에서 CPU 제한 1.5코어, 메모리 제한 768MiB와 사용량이 정상 조회됐으며,
+Executor 응답 파싱 및 두 커널 실행·노트북 저장·다운로드가 통과했다.
+v1은 분리/결합 컨트롤러 마운트, namespace 경로, 무제한 제한값, 누락 파일 등을
+재현한 테스트로 검증했다. 실제 사내 cgroup v1 노드에서는 이미지 배포 후
+`/executor/resource-status`를 두 번 이상 조회해 추가 확인해야 한다.
 
 AMD64 운영 환경은 해당 아키텍처로 다시 빌드·검증해야 한다. 내부 Harbor/Nexus/apt 미러
 접근 및 사내 패키지 목록은 이번 로컬 검증에 포함하지 않았다.

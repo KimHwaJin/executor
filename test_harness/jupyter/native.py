@@ -55,26 +55,6 @@ def extension_config_path(server_environment: Path) -> Path:
     )
 
 
-def detect_linux_cgroup_root(
-    proc_self_cgroup: Path = Path("/proc/self/cgroup"),
-    cgroup_mount: Path = Path("/sys/fs/cgroup"),
-) -> Path | None:
-    """Resolve the current process's cgroup v2 leaf instead of assuming the mount root."""
-    try:
-        lines = proc_self_cgroup.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return None
-    for line in lines:
-        hierarchy, controllers, raw_path = line.split(":", maxsplit=2)
-        if hierarchy != "0" or controllers:
-            continue
-        relative = raw_path.lstrip("/")
-        candidate = (cgroup_mount / relative).resolve()
-        if (candidate / "cpu.stat").is_file():
-            return candidate
-    return None
-
-
 def _run(
     command: list[str], *, environment: dict[str, str] | None = None
 ) -> None:
@@ -347,14 +327,6 @@ def run_server(args: argparse.Namespace, extra_arguments: list[str]) -> None:
         environment["EXECUTOR_RESOURCE_CPU_CORES"] = str(args.cpu_cores)
     if args.memory_bytes is not None:
         environment["EXECUTOR_RESOURCE_MEMORY_BYTES"] = str(args.memory_bytes)
-    if (
-        "EXECUTOR_RESOURCE_CGROUP_ROOT" not in environment
-        and sys.platform.startswith("linux")
-    ):
-        detected = detect_linux_cgroup_root()
-        if detected is not None:
-            environment["EXECUTOR_RESOURCE_CGROUP_ROOT"] = str(detected)
-
     command = [
         str(server_python),
         "-m",

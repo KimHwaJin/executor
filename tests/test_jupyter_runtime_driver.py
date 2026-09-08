@@ -47,12 +47,19 @@ def _resource_payload() -> dict[str, Any]:
     }
 
 
-async def test_resource_status_parses_versioned_jupyter_response() -> None:
+@pytest.mark.parametrize("source", ["CGROUP_V1", "CGROUP_V2"])
+async def test_resource_status_parses_versioned_jupyter_response(
+    source: str,
+) -> None:
+    payload = _resource_payload()
+    payload["cpu"]["source"] = source
+    payload["memory"]["source"] = source
+    payload["memory"]["estimated"] = source == "CGROUP_V1"
     driver = JupyterRuntimeDriver("http://jupyter.invalid", "secret")
     await driver._client.aclose()
     driver._client = httpx.AsyncClient(
         transport=httpx.MockTransport(
-            lambda _request: httpx.Response(200, json=_resource_payload())
+            lambda _request: httpx.Response(200, json=payload)
         ),
         base_url="http://jupyter.invalid",
     )
@@ -64,6 +71,9 @@ async def test_resource_status_parses_versioned_jupyter_response() -> None:
     assert observation.process_count == 5
     assert observation.cpu.utilization == 0.125
     assert observation.memory.used == 256
+    assert observation.cpu.source == source
+    assert observation.memory.source == source
+    assert observation.memory.estimated == (source == "CGROUP_V1")
     assert observation.observed_at.tzinfo is not None
 
 
