@@ -9,19 +9,26 @@ from pathlib import Path
 from threading import Lock
 from typing import Any
 
-CGROUP_V2 = "CGROUP_V2"
+from executor_resource_extension.cgroups import (
+    CGROUP_V1,
+    resolve_controllers,
+)
 
 
 class ResourceCollector:
     def __init__(
         self,
         *,
-        cgroup_root: Path,
+        cgroup_root: Path | None,
         configured_cpu_cores: float | None,
         configured_memory_bytes: int | None,
         monotonic: Callable[[], float] = time.monotonic,
+        membership: Path = Path("/proc/self/cgroup"),
+        mountinfo: Path = Path("/proc/self/mountinfo"),
     ) -> None:
-        self._cgroup_root = cgroup_root
+        self._controllers = resolve_controllers(
+            cgroup_root, membership, mountinfo
+        )
         self._configured_cpu_cores = configured_cpu_cores
         self._configured_memory_bytes = configured_memory_bytes
         self._monotonic = monotonic
@@ -31,10 +38,9 @@ class ResourceCollector:
 
     @classmethod
     def from_environment(cls) -> ResourceCollector:
+        root = os.getenv("EXECUTOR_RESOURCE_CGROUP_ROOT")
         return cls(
-            cgroup_root=Path(
-                os.getenv("EXECUTOR_RESOURCE_CGROUP_ROOT", "/sys/fs/cgroup")
-            ),
+            cgroup_root=Path(root) if root else None,
             configured_cpu_cores=_optional_positive_float(
                 os.getenv("EXECUTOR_RESOURCE_CPU_CORES")
             ),
@@ -65,10 +71,20 @@ class ResourceCollector:
     def _collect_cpu(self, elapsed: float | None) -> dict[str, Any]:
         errors: list[str] = []
         used_cores: float | None = None
+        cpu = self._controllers["cpu"]
+        usage = self._controllers["cpuacct"]
         try:
-            cumulative_seconds = _read_cpu_usage_seconds(
-                self._cgroup_root / "cpu.stat"
-            )
+            if usage.source == CGROUP_V1:
+                cumulative_seconds = (
+                    _read_positive_int(
+                        usage.file("cpuacct.usage"), allow_zero=True
+                    )
+                    / 1_000_000_000
+                )
+            else:
+                cumulative_seconds = _read_cpu_usage_seconds(
+                    usage.file("cpu.stat")
+                )
             used_cores = _rate(
                 cumulative_seconds, self._previous_cpu_seconds, elapsed
             )
@@ -79,7 +95,17 @@ class ResourceCollector:
 
         capacity_cores = self._configured_cpu_cores
         try:
-            cgroup_capacity = _read_cpu_capacity(self._cgroup_root / "cpu.max")
+            if cpu.source == CGROUP_V1:
+                quota = int(cpu.file("cpu.cfs_quota_us").read_text())
+                period = _read_positive_int(cpu.file("cpu.cfs_period_us"))
+                if quota == -1:
+                    cgroup_capacity = None
+                elif quota > 0:
+                    cgroup_capacity = quota / period
+                else:
+                    raise ValueError("Invalid cgroup v1 CPU quota")
+            else:
+                cgroup_capacity = _read_cpu_capacity(cpu.file("cpu.max"))
             if cgroup_capacity is not None:
                 capacity_cores = cgroup_capacity
         except (OSError, ValueError) as exc:
@@ -89,32 +115,49 @@ class ResourceCollector:
             "used_cores": _rounded(used_cores),
             "capacity_cores": _rounded(capacity_cores),
             "utilization": _ratio(used_cores, capacity_cores),
-            "source": CGROUP_V2,
+            "source": usage.source,
             "estimated": False,
             "errors": errors,
         }
 
     def _collect_process_count(self) -> int | None:
-        try:
-            return _read_process_count(self._cgroup_root / "cgroup.procs")
-        except (OSError, ValueError):
-            return None
+        for name in ("cpuacct", "memory", "cpu"):
+            try:
+                return _read_process_count(
+                    self._controllers[name].file("cgroup.procs")
+                )
+            except (OSError, ValueError):
+                continue
+        return None
 
     def _collect_memory(self) -> dict[str, Any]:
         errors: list[str] = []
         used_bytes: int | None = None
+        memory = self._controllers["memory"]
+        v1 = memory.source == CGROUP_V1
         try:
             used_bytes = _read_positive_int(
-                self._cgroup_root / "memory.current", allow_zero=True
+                memory.file(
+                    "memory.usage_in_bytes" if v1 else "memory.current"
+                ),
+                allow_zero=True,
             )
         except (OSError, ValueError) as exc:
             errors.append(_safe_error_code("cgroup_memory", exc))
 
         capacity_bytes = self._configured_memory_bytes
         try:
-            cgroup_capacity = _read_memory_capacity(
-                self._cgroup_root / "memory.max"
-            )
+            if v1:
+                cgroup_capacity = _read_positive_int(
+                    memory.file("memory.limit_in_bytes")
+                )
+                # 64-bit Linux exposes page-aligned LONG_MAX for no limit.
+                if cgroup_capacity >= (1 << 63) - (1 << 30):
+                    cgroup_capacity = None
+            else:
+                cgroup_capacity = _read_memory_capacity(
+                    memory.file("memory.max")
+                )
             if cgroup_capacity is not None:
                 capacity_bytes = cgroup_capacity
         except (OSError, ValueError) as exc:
@@ -124,8 +167,9 @@ class ResourceCollector:
             "used_bytes": used_bytes,
             "capacity_bytes": capacity_bytes,
             "utilization": _ratio(used_bytes, capacity_bytes),
-            "source": CGROUP_V2,
-            "estimated": False,
+            "source": memory.source,
+            # v1 usage_in_bytes is a kernel accounting approximation.
+            "estimated": v1,
             "errors": errors,
         }
 

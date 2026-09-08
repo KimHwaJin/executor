@@ -4,7 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from executor_resource_extension.collector import CGROUP_V2, ResourceCollector
+from executor_resource_extension.cgroups import CGROUP_V2
+from executor_resource_extension.collector import ResourceCollector
 
 
 class Clock:
