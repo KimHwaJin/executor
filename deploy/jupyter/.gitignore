@@ -1,0 +1,2 @@
+# Supply approved source archives before Docker build; keep them out of Git.
+python-sources/*.tar.xz

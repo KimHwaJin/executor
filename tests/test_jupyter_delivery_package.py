@@ -1,5 +1,7 @@
+import re
 import tomllib
 from pathlib import Path
+from string import Template
 
 REPO = Path(__file__).resolve().parents[1]
 PACKAGE = REPO / "deploy/jupyter"
@@ -10,40 +12,52 @@ EXTENSION_ROOT = Path("extension/src/executor_resource_extension")
 def test_standalone_dockerfile_uses_only_local_copy_sources() -> None:
     dockerfile = (PACKAGE / "Dockerfile").read_text()
     assert "test_harness/" not in dockerfile
+    arguments = dict(re.findall(r"^ARG (\w+)=(.+)$", dockerfile, re.M))
     for line in dockerfile.splitlines():
         if not line.startswith("COPY "):
             continue
         if "--from=" in line:
             continue
-        arguments = [
+        copy_args = [
             part for part in line.split()[1:] if not part.startswith("--")
         ]
-        for source in arguments[:-1]:
+        for source in copy_args[:-1]:
+            source = Template(source).substitute(arguments)
             assert not Path(source).is_absolute()
             assert ".." not in Path(source).parts
+            if source.endswith(".tar.xz"):
+                # Approved archives are supplied by the deployer, not Git.
+                assert Path(source).parent == Path("python-sources")
+                assert (PACKAGE / source).parent.is_dir()
+                continue
             assert (PACKAGE / source).exists()
 
 
 def test_standalone_package_does_not_reference_test_harness() -> None:
     for path in PACKAGE.rglob("*"):
         if path.is_file():
+            if path.suffixes[-2:] == [".tar", ".xz"]:
+                continue
             assert "test_harness" not in path.read_text(), path
 
 
 def test_uv_base_images_and_build_only_default_index() -> None:
     dockerfile = (PACKAGE / "Dockerfile").read_text()
-    for root in (PACKAGE, HARNESS):
-        image_definition = (root / "Dockerfile").read_text()
-        for version in ("3.10", "3.11"):
-            argument = "PYTHON" + version.replace(".", "") + "_IMAGE"
-            assert (
-                f"ARG {argument}=astral/uv:python{version}-bookworm-slim"
-                in image_definition
-            )
+    assert (
+        "ARG PYTHON312_IMAGE=astral/uv:python3.12-bookworm-slim" in dockerfile
+    )
+    harness_dockerfile = (HARNESS / "Dockerfile").read_text()
+    for version in ("3.10", "3.11"):
+        argument = "PYTHON" + version.replace(".", "") + "_IMAGE"
+        assert (
+            f"ARG {argument}=astral/uv:python{version}-bookworm-slim"
+            in harness_dockerfile
+        )
+    for image_definition in (dockerfile, harness_dockerfile):
         assert "COPY --from=uv " not in image_definition
         assert "        curl \\" in image_definition
     assert "ARG UV_DEFAULT_INDEX=https://pypi.org/simple" in dockerfile
-    assert dockerfile.count("ARG UV_DEFAULT_INDEX") == 3
+    assert dockerfile.count("ARG UV_DEFAULT_INDEX") == 2
     assert "UV_NO_CACHE=1" in dockerfile
     assert "UV_LINK_MODE=copy" in dockerfile
     assert not (PACKAGE / "pip.conf").exists()
@@ -52,10 +66,10 @@ def test_uv_base_images_and_build_only_default_index() -> None:
 
 def test_deployment_defaults_are_visible() -> None:
     dockerfile = (PACKAGE / "Dockerfile").read_text()
-    preamble = dockerfile.partition("RUN apt-get update")[0]
+    runtime_stage = dockerfile.split("FROM ${PYTHON312_IMAGE}\n")[1]
     assert (
         "ENV JUPYTER_ROOT_DIR=/workspace/jupyter \\\n    JUPYTER_TOKEN=default"
-        in preamble
+        in runtime_stage
     )
     assert dockerfile.count("JUPYTER_ROOT_DIR=") == 1
     assert dockerfile.count("JUPYTER_TOKEN=") == 1
@@ -81,16 +95,16 @@ def test_kernel_environments_are_independent() -> None:
     for kernel in ("default", "3102311"):
         dependencies = projects[kernel]["project"]["dependencies"]
         assert any(item.startswith("ipykernel") for item in dependencies)
-    assert projects["server"]["project"]["requires-python"] == "==3.11.*"
+    assert projects["server"]["project"]["requires-python"] == "==3.12.*"
     assert projects["default"]["project"]["requires-python"] == "==3.11.*"
-    assert projects["3102311"]["project"]["requires-python"] == ">=3.10,<3.11"
+    assert projects["3102311"]["project"]["requires-python"] == "==3.10.11"
     assert len(projects["3102311"]["project"]["dependencies"]) == 1
     assert any(
         item.startswith("pandas")
         for item in projects["default"]["project"]["dependencies"]
     )
-    assert "FROM ${PYTHON310_IMAGE} AS python310" in dockerfile
-    assert "FROM ${PYTHON311_IMAGE}" in dockerfile
+    assert "FROM ${PYTHON312_IMAGE} AS python-build" in dockerfile
+    assert "FROM ${PYTHON312_IMAGE}\n" in dockerfile
     assert "python310-compat" not in dockerfile
     assert "LD_LIBRARY_PATH" not in dockerfile
     assert dockerfile.count("uv sync --project") == 3
@@ -98,6 +112,26 @@ def test_kernel_environments_are_independent() -> None:
     assert dockerfile.count("UV_PROJECT_ENVIRONMENT=/opt/venvs/") == 3
     assert dockerfile.count("uv pip install --strict") == 1
     assert "--system-site-packages" not in dockerfile
+
+
+def test_source_build_keeps_versions_and_build_tools_separate() -> None:
+    dockerfile = (PACKAGE / "Dockerfile").read_text()
+    builder, runtime = dockerfile.split("FROM ${PYTHON312_IMAGE}\n")
+    assert "ARG PYTHON310_VERSION=3.10.11" in builder
+    assert "ARG PYTHON311_VERSION=3.11.16" in builder
+    for minor in ("3.10", "3.11"):
+        assert f"--prefix=/opt/python/{minor}" in builder
+        assert f"--python /opt/python/{minor}/bin/python{minor}" in runtime
+    assert builder.count("make altinstall") == 2
+    assert "build-essential" in builder
+    assert "build-essential" not in runtime
+    assert "COPY --from=python-build /opt/python /opt/python" in runtime
+    assert "--python /usr/local/bin/python3.12" in runtime
+    assert "UV_PYTHON_DOWNLOADS=never" in runtime
+    assert "curl http" not in dockerfile
+    assert "uv python install" not in dockerfile
+    assert "python-sources/*.tar.xz" in (PACKAGE / ".gitignore").read_text()
+    assert "*.tar.xz" not in (PACKAGE / ".dockerignore").read_text()
 
 
 def test_delivery_extension_matches_executor_runtime_contract() -> None:

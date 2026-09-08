@@ -1,23 +1,52 @@
-ARG PYTHON310_IMAGE=astral/uv:python3.10-bookworm-slim
-ARG PYTHON311_IMAGE=astral/uv:python3.11-bookworm-slim
+ARG PYTHON312_IMAGE=astral/uv:python3.12-bookworm-slim
 ARG UV_DEFAULT_INDEX=https://pypi.org/simple
+ARG PYTHON310_VERSION=3.10.11
+ARG PYTHON311_VERSION=3.11.16
 
-FROM ${PYTHON310_IMAGE} AS python310
+FROM ${PYTHON312_IMAGE} AS python-build
 
-ARG UV_DEFAULT_INDEX
+ARG PYTHON310_VERSION
+ARG PYTHON311_VERSION
+ARG PYTHON_BUILD_JOBS=2
 
-ENV UV_COMPILE_BYTECODE=1 \
-    UV_LINK_MODE=copy \
-    UV_NO_CACHE=1
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends \
+        build-essential \
+        pkg-config \
+        xz-utils \
+        libssl-dev \
+        zlib1g-dev \
+        libbz2-dev \
+        liblzma-dev \
+        libffi-dev \
+        libsqlite3-dev \
+        libreadline-dev \
+        libncurses-dev \
+        libgdbm-dev \
+        libgdbm-compat-dev \
+        libexpat1-dev \
+        uuid-dev \
+    && rm -rf /var/lib/apt/lists/*
 
-COPY environments/3102311 /opt/jupyter-env/3102311
+# Official source tarballs must be supplied in the build context beforehand.
+# No Python download occurs in this Dockerfile.
+COPY python-sources/Python-${PYTHON310_VERSION}.tar.xz /tmp/python310.tar.xz
+RUN mkdir -p /tmp/python310-src \
+    && tar -xJf /tmp/python310.tar.xz -C /tmp/python310-src --strip-components=1 \
+    && cd /tmp/python310-src \
+    && ./configure --prefix=/opt/python/3.10 --with-ensurepip=no --with-system-expat \
+    && make -j "${PYTHON_BUILD_JOBS}" \
+    && make altinstall
 
-RUN UV_PROJECT_ENVIRONMENT=/opt/venvs/3102311 \
-    uv sync --project /opt/jupyter-env/3102311 \
-        --locked --no-dev --no-install-project \
-        --python /usr/local/bin/python3.10
+COPY python-sources/Python-${PYTHON311_VERSION}.tar.xz /tmp/python311.tar.xz
+RUN mkdir -p /tmp/python311-src \
+    && tar -xJf /tmp/python311.tar.xz -C /tmp/python311-src --strip-components=1 \
+    && cd /tmp/python311-src \
+    && ./configure --prefix=/opt/python/3.11 --with-ensurepip=no --with-system-expat \
+    && make -j "${PYTHON_BUILD_JOBS}" \
+    && make altinstall
 
-FROM ${PYTHON311_IMAGE}
+FROM ${PYTHON312_IMAGE}
 
 ARG UV_DEFAULT_INDEX
 
@@ -35,7 +64,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     JUPYTER_PATH=/opt/venvs/jupyter/share/jupyter \
     UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
-    UV_NO_CACHE=1
+    UV_NO_CACHE=1 \
+    UV_PYTHON_DOWNLOADS=never
 
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends \
@@ -43,26 +73,39 @@ RUN apt-get update \
         curl \
         fonts-dejavu-core \
         libgomp1 \
+        libssl3 \
+        zlib1g \
+        libbz2-1.0 \
+        liblzma5 \
+        libffi8 \
+        libsqlite3-0 \
+        libreadline8 \
+        libncursesw6 \
+        libgdbm6 \
+        libgdbm-compat4 \
+        libexpat1 \
+        libuuid1 \
         tini \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=python310 /usr/local/bin/python3.10 /usr/local/bin/python3.10
-COPY --from=python310 /usr/local/lib/libpython3.10.so.1.0 /usr/local/lib/libpython3.10.so.1.0
-COPY --from=python310 /usr/local/lib/python3.10 /usr/local/lib/python3.10
-COPY --from=python310 /opt/venvs/3102311 /opt/venvs/3102311
+COPY --from=python-build /opt/python /opt/python
 
 COPY environments/server /opt/jupyter-env/server
 COPY environments/default /opt/jupyter-env/default
+COPY environments/3102311 /opt/jupyter-env/3102311
 
-RUN ldconfig \
-    && UV_PROJECT_ENVIRONMENT=/opt/venvs/jupyter \
+RUN UV_PROJECT_ENVIRONMENT=/opt/venvs/jupyter \
         uv sync --project /opt/jupyter-env/server \
             --locked --no-dev --no-install-project \
-            --python /usr/local/bin/python3.11 \
+            --python /usr/local/bin/python3.12 \
     && UV_PROJECT_ENVIRONMENT=/opt/venvs/default \
         uv sync --project /opt/jupyter-env/default \
             --locked --no-dev --no-install-project \
-            --python /usr/local/bin/python3.11
+            --python /opt/python/3.11/bin/python3.11 \
+    && UV_PROJECT_ENVIRONMENT=/opt/venvs/3102311 \
+        uv sync --project /opt/jupyter-env/3102311 \
+            --locked --no-dev --no-install-project \
+            --python /opt/python/3.10/bin/python3.10
 
 COPY extension /opt/jupyter-resource-extension
 COPY executor_resource_extension.json \
@@ -77,7 +120,7 @@ RUN uv pip install --strict --python /opt/venvs/jupyter/bin/python \
     && /opt/venvs/3102311/bin/python -m ipykernel install \
         --prefix=/opt/venvs/jupyter \
         --name=3102311 \
-        --display-name="3102311 (Python 3.10)" \
+        --display-name="3102311 (Python 3.10.11)" \
     && rm -rf /opt/venvs/jupyter/share/jupyter/kernels/python3
 
 RUN rm -rf /home/jovyan \
