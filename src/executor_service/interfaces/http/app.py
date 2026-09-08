@@ -3,6 +3,7 @@
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI, Request, Response, status
 from fastapi.exceptions import RequestValidationError
@@ -44,7 +45,11 @@ from executor_service.interfaces.http.runtime_targets import (
 from executor_service.interfaces.mcp.server import build_mcp_server
 
 
-def create_app(container: ApplicationContainer) -> FastAPI:
+def create_app(
+    container: ApplicationContainer,
+    *,
+    openapi_tags: list[dict[str, Any]] | None = None,
+) -> FastAPI:
     mcp_server = build_mcp_server(
         container.execution_service,
         container.runtime_registry,
@@ -86,6 +91,7 @@ def create_app(container: ApplicationContainer) -> FastAPI:
         docs_url="/docs",
         redoc_url="/redoc",
         openapi_url="/openapi.json",
+        openapi_tags=openapi_tags,
         lifespan=lifespan,
     )
     app.state.container = container
