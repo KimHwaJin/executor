@@ -1,5 +1,16 @@
 # Executor용 Jupyter 이미지
 
+## 실행 소실 감지 확장
+
+`GET /executor/kernels/{kernel_id}/execution-state`는 토큰 인증을 사용하는 내부 조회다.
+커널 프로세스가 계속 존재하는지와 같은 Kernel ID로 재시작됐는지를 확인하여
+Executor가 소실된 실행을 계속 기다리지 않게 한다. CPU/OOM 조사나 커널 코드 실행은
+하지 않는다. 추가 볼륨/권한/설정은 필요 없다. 커널 실행은 LocalProvisioner 기준이다.
+
+이 기능을 사용하는 Executor를 배포하기 전에 `extension/` 전체를 새로 설치하거나
+이미지를 재빌드하고 Jupyter 서버를 재시작해야 한다. 커널만 재시작해서는 확장 코드가
+갱신되지 않는다. 기존 작업이 진행 중인 서버는 작업을 정리한 뒤 업데이트한다.
+
 Dockerfile의 각 구문, 권한 설정, PVC 적용 시 주의사항은
 [`DOCKERFILE_GUIDE.md`](DOCKERFILE_GUIDE.md)에 상세히 정리되어 있다.
 

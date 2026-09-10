@@ -21,6 +21,18 @@ from executor_service.infrastructure._jupyter.protocol import (
 from executor_service.infrastructure.jupyter import JupyterRuntimeDriver
 
 
+@pytest.fixture(autouse=True)
+def stable_kernel_process(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def instance(_self: object, kernel_id: str) -> str:
+        return f"stable-{kernel_id}"
+
+    monkeypatch.setattr(
+        "executor_service.infrastructure._jupyter.execution_guard."
+        "KernelExecutionGuard._instance",
+        instance,
+    )
+
+
 def rate_warning(kind: RuntimeOutputLimitKind) -> str:
     name = "data" if kind == "DATA_RATE" else "message"
     setting = (

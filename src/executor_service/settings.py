@@ -74,6 +74,9 @@ class Settings(BaseSettings):
     )
     jupyter_request_timeout_seconds: float = Field(default=30, gt=0)
     jupyter_storage_timeout_seconds: float = Field(default=300, gt=0)
+    jupyter_execution_poll_seconds: float = Field(default=10, gt=0)
+    jupyter_execution_probe_timeout_seconds: float = Field(default=5, gt=0)
+    jupyter_execution_probe_failure_threshold: int = Field(default=3, ge=1)
     runtime_enabled: bool = True
     # Base64-encoded 32-byte Fernet key. Replace in every non-local environment.
     runtime_credential_key: SecretStr = SecretStr(

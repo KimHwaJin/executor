@@ -46,7 +46,13 @@ def _database(admin_url: str, name: str, *, create: bool) -> None:
         connection.execute(sql.SQL(statement).format(sql.Identifier(name)))
 
 
-async def main() -> None:
+async def main(
+    *,
+    smoke_scripts: tuple[str, ...] = (
+        "single_failure_retry_cancel_e2e.py",
+        "multi_execution_lifecycle_e2e.py",
+    ),
+) -> None:
     settings = get_settings()
     redis_url = os.environ["EXECUTOR_REDIS_TEST_URL"]
     database_url = make_url(settings.database_dsn)
@@ -134,10 +140,7 @@ async def main() -> None:
                 pool="INTERACTIVE",
                 token=token,
             )
-        for script in (
-            "single_failure_retry_cancel_e2e.py",
-            "multi_execution_lifecycle_e2e.py",
-        ):
+        for script in smoke_scripts:
             await asyncio.to_thread(
                 subprocess.run,
                 [sys.executable, str(ROOT / "scripts" / script)],

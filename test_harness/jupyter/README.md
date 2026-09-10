@@ -1,5 +1,15 @@
 # Executor Jupyter Test Harness
 
+## Execution continuity
+
+The authenticated `GET /executor/kernels/{kernel_id}/execution-state` endpoint
+reports whether the original local kernel process can still execute and provides
+an opaque process instance identity. It does not execute kernel code or inspect OOM,
+memory pressure, process arguments, or other kernels. Update/reinstall the extension
+and restart the Jupyter server **before** deploying the matching Executor; old
+extensions fail the pre-execution probe instead of silently disabling protection.
+See [execution-loss handling](../../docs/runtime-execution-loss-detection.md).
+
 This directory owns the JupyterLab image used by Executor Runtime Targets. Image build,
 kernel-package maintenance, authentication, workspace mounting, and the resource observation
 extension are documented here rather than in the Executor service README.

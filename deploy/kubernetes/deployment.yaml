@@ -112,6 +112,13 @@ spec:
               value: "/workspace/shared"
             - name: RUNTIME_ENABLED
               value: "true"
+            # Requires Jupyter's /executor/kernels/{id}/execution-state endpoint.
+            - name: JUPYTER_EXECUTION_POLL_SECONDS
+              value: "10"
+            - name: JUPYTER_EXECUTION_PROBE_TIMEOUT_SECONDS
+              value: "5"
+            - name: JUPYTER_EXECUTION_PROBE_FAILURE_THRESHOLD
+              value: "3"
             - name: RUNTIME_ALLOWED_PROFILES
               value: "default,3102311"
             - name: RUNTIME_DEFAULT_MAX_CONCURRENT_EXECUTIONS
