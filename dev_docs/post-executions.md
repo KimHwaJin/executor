@@ -107,7 +107,7 @@ PATH source:
 | 필드 | 필수 | 의미 |
 |---|---:|---|
 | `type` | O | `PATH` |
-| `path` | O | Agent/Executor 공유 PV 루트 기준 상대경로. `requests/` 자동 추가 없음. 절대경로와 PV 루트 이탈 금지 |
+| `path` | O | `INPUT_STORAGE_ROOT` 기준 상대경로 (미지정 시 `SHARED_STORAGE_ROOT`). `requests/` 자동 추가 없음. 절대경로와 입력 루트 이탈 금지 |
 | `sha256` | O | 파일 내용의 SHA-256. 64자리 16진수 |
 
 PATH 파일은 `.py`, UTF-8이어야 하며 요청한 checksum과 실제 파일 checksum이 같아야 한다.

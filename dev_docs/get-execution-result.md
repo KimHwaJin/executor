@@ -173,7 +173,7 @@ Step metadata로 받은 값을 저장한다.
 | `step_id` | UUID | 결과가 속한 Step |
 | `attempt_id` | UUID | 이 결과를 실제 생성한 Execution Attempt |
 | `fencing_token` | integer | 결과를 기록한 Worker lease 세대 번호. 오래된 Worker 결과를 구분하는 데 사용 |
-| `relative_path` | string | 공유 PV 루트 기준 Step 결과 `manifest.json` 경로 |
+| `relative_path` | string | Executor 결과 루트 (`SHARED_STORAGE_ROOT`) 기준 Step 결과 `manifest.json` 경로 |
 | `checksum_sha256` | string | `manifest.json` 파일의 SHA-256 checksum |
 | `size_bytes` | integer | `manifest.json` 파일 자체의 크기 |
 | `complete` | boolean | Runtime 출력 스트림을 완전히 수집했는지. 실행 성공 여부와 다름 |
@@ -187,11 +187,11 @@ Step metadata로 받은 값을 저장한다.
 Step/Operation 완료 이벤트의 경량 `result_ref`에도 동일한 `complete`와 파일 경로,
 크기/checksum이 제공되므로 이벤트 참조가 있으면 이 API를 반드시 추가 호출할 필요는 없다.
 
-`relative_path`는 절대경로가 아니다. Agent는 자신의 공유 PV 마운트 루트에
+`relative_path`는 절대경로가 아니다. Agent는 자신이 마운트한 Executor 결과 루트에
 `relative_path`를 결합해야 한다.
 
 ```text
-Agent의 SHARED_STORAGE_ROOT
+Agent의 Executor 결과 읽기 루트
 └── result_ref.relative_path
 ```
 
@@ -204,7 +204,7 @@ Agent의 SHARED_STORAGE_ROOT
 }
 ```
 
-Agent의 공유 PV 마운트 루트가 `/workspace/shared`라면 실제 파일은 다음과 같다.
+Agent의 Executor 결과 읽기 루트가 `/workspace/shared`라면 실제 파일은 다음과 같다.
 
 ```text
 /workspace/shared/executions/abc/results/attempt-1/step-1/manifest.json

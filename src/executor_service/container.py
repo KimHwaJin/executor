@@ -104,7 +104,7 @@ class ApplicationContainer:
             self.execution_queries
         )
         self.execution_spec_resolver = ExecutionSpecResolver(
-            settings.shared_storage_root,
+            settings.effective_input_storage_root,
             inline_max_bytes=settings.execution_inline_spec_max_bytes,
             file_max_bytes=settings.execution_file_spec_max_bytes,
             max_steps=settings.execution_max_steps_per_operation,
@@ -134,7 +134,7 @@ class ApplicationContainer:
         self.materialized_artifacts = MaterializedArtifactService(
             self.session_factory,
             self.runtime_storage,
-            settings.shared_storage_root,
+            settings.effective_input_storage_root,
             max_bytes=settings.execution_file_spec_max_bytes,
         )
         self.outbox_publisher = OutboxPublisher(

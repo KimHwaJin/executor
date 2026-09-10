@@ -44,12 +44,13 @@ Required fields are `schema_version`, `steps`, each Step `sequence`, `payload.ty
 `payload.source`. The current payload type is `PYTHON_EXECUTE`. Each Step independently chooses:
 
 - `INLINE`: UTF-8 Python source is carried in `content`.
-- `PATH`: a relative `.py` file under `SHARED_STORAGE_ROOT` is referenced by `path` and required
+- `PATH`: a relative `.py` file under `INPUT_STORAGE_ROOT` (defaults to `SHARED_STORAGE_ROOT`)
+  is referenced by `path` and required
   SHA-256. The whole ExecutionSpec is never loaded from one PATH file.
 
 Agent chooses the subdirectory. Executor adds no `requests/` prefix. For example,
 `path: "agent-code/task-100/step.py"` resolves to
-`SHARED_STORAGE_ROOT/agent-code/task-100/step.py`. Absolute paths and paths/symlinks
+`INPUT_STORAGE_ROOT/agent-code/task-100/step.py`. Absolute paths and paths/symlinks
 escaping the shared root are rejected. This also applies to appended MULTI Operations.
 
 `step_timeout_seconds` and `lineage` are optional. Sequences are ordered and contiguous. Initial
