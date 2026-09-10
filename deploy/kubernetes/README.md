@@ -37,9 +37,13 @@ Before deployment:
    `RUNTIME_CREDENTIAL_KEY` must be a Fernet key and must remain stable while encrypted
    Runtime credentials exist in PostgreSQL. URL-encode special characters in URL credentials.
 4. Change `executor-shared-pvc` in `deployment.yaml` to the existing Agent/Executor RWX claim.
-   Both services mount it read-write at their configured shared-storage root; Executor uses
-   `/workspace/shared`. The Agent must resolve Executor `result_ref.relative_path` values against
-   its own mount of the same claim.
+   By default both input/result roots use `/workspace/shared`. For separate directories set
+   `INPUT_STORAGE_ROOT=/mnt/data/agent` and `SHARED_STORAGE_ROOT=/mnt/data/executor`, and mount
+   the PVC at `/mnt/data` (or mount both subdirectories separately). Executor must be able to read
+   the Agent directory and write its own result directory. Agent must resolve every result/manifest
+   reference against its own mount of the Executor directory, not its authoring directory.
+   Do not change the result root for existing executions unless the existing result files are
+   also available there; files and DB references are not moved automatically.
 5. Ensure all Jupyter servers mount their own common Jupyter PV. Executor must not mount or inspect
    that Jupyter PV; notebook and artifact access goes through Jupyter APIs.
 6. After Executor is Ready, register every Jupyter server through the Runtime Target REST or MCP

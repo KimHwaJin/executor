@@ -39,7 +39,9 @@ def _publish_input(unique: str) -> tuple[Path, Path, Path, bytes]:
     shared_root = Path(
         os.getenv("LOCAL_TEST_SHARED_STORAGE_ROOT", "shared_dir")
     ).resolve()
-    input_root = shared_root
+    input_root = Path(
+        os.getenv("LOCAL_TEST_INPUT_STORAGE_ROOT", str(shared_root))
+    ).resolve()
     relative_path = Path("smoke") / unique / "step-0.py"
     source_path = input_root / relative_path
     temporary_path = source_path.with_suffix(".tmp")

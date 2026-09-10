@@ -217,7 +217,7 @@ Attempt는 PostgreSQL에서 Execution의 실행 시도 이력으로 관리한다
 | 필드 | 타입 | 의미 |
 |---|---|---|
 | `storage` | literal `SHARED_PV` | Agent와 Executor가 공유하는 스토리지 |
-| `relative_path` | string | 공유 PV 공통 루트를 기준으로 한 상대경로 |
+| `relative_path` | string | Executor 결과 루트 (`SHARED_STORAGE_ROOT`)를 기준으로 한 상대경로 |
 | `media_type` | string | 참조 파일의 MIME type |
 | `size_bytes` | integer, 0 이상 | 참조 파일 크기 |
 | `checksum_sha256` | string | 파일 무결성 확인용 SHA-256 |
@@ -237,7 +237,7 @@ Attempt는 PostgreSQL에서 Execution의 실행 시도 이력으로 관리한다
 `complete=true`만 보고 실행 성공으로 판단하지 않는다. 실제 status와 error를 함께 본다.
 `complete=false`를 이유로 파일을 폐기하거나 자동으로 코드를 재실행하지 않는다.
 
-`relative_path`는 반드시 상대경로여야 한다. `..`, 절대경로 및 공유 PV 루트 이탈은
+`relative_path`는 반드시 상대경로여야 한다. `..`, 절대경로 및 Executor 결과 루트 이탈은
 허용하지 않는다.
 
 ### 5.4 Output summary와 Error summary
@@ -826,7 +826,7 @@ GET /api/v1/executions/{execution_id}/result
 - 알 수 없는 이벤트를 조용히 폐기하지 않고 별도 오류 채널에 기록한다.
 - `execution_id`를 현재 상태 조회의 대표 키로 사용한다.
 - Attempt ID를 Execution의 대표 조회 키로 사용하지 않는다.
-- `relative_path`를 공유 PV 루트에 안전하게 결합한다.
+- `relative_path`를 Executor 결과 루트에 안전하게 결합한다.
 - 결과 파일 크기와 SHA-256을 검증한다.
 - 전체 텍스트와 이미지는 Redis가 아니라 결과 파일에서 읽는다.
 - 최종 리포트 전에는 필요에 따라 Result API로 정합성을 확인한다.

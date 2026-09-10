@@ -9,7 +9,7 @@
 기계 판독용 JSON Schema는
 [step-result-manifest.schema.json](step-result-manifest.schema.json)에 있다.
 
-manifest는 Agent/Executor 공유 PV에 존재한다. Agent는 자신의 공유 PV 마운트 루트에
+manifest는 Agent/Executor 공유 PV에 존재한다. Agent는 자신이 마운트한 Executor 결과 루트에
 `result_ref.relative_path`를 결합해 파일을 읽는다.
 
 Redis Step 완료 이벤트와 Operation 완료 이벤트의 `step_results[].result_ref`도
@@ -135,11 +135,12 @@ Agent는 `execution_id`, `step_id`, `execution_attempt_id`, `fencing_token`이 R
 
 | 필드 | 의미 |
 |---|---|
-| `relative_path` | 공유 PV 루트 기준 실행 코드 snapshot 경로 |
+| `relative_path` | Executor 결과 루트 기준 실행 코드 snapshot 경로 |
 | `checksum_sha256` | source 파일 SHA-256 |
 | `size_bytes` | source 파일 byte 크기 |
 
-`source.relative_path`는 manifest 디렉터리가 아니라 Agent 공유 PV 루트를 기준으로 해석한다.
+`source.relative_path`는 manifest 디렉터리나 Agent 입력 루트가 아니라,
+Agent가 마운트한 Executor 결과 루트를 기준으로 해석한다.
 읽은 파일의 크기와 checksum을 모두 확인해야 한다.
 
 ## `outputs[]`
@@ -170,7 +171,7 @@ Agent는 `execution_id`, `step_id`, `execution_attempt_id`, `fencing_token`이 R
 |---|---|
 | `media_type` | `text/plain`, `application/json`, `image/png` 등의 MIME type |
 | `encoding` | Runtime에서 수신한 표현 인코딩: `UTF8` 또는 `BASE64` |
-| `relative_path` | Agent/Executor 공유 PV 루트 기준 실제 출력 파일 경로 |
+| `relative_path` | Executor 결과 루트 (`SHARED_STORAGE_ROOT`) 기준 실제 출력 파일 경로 |
 | `size_bytes` | 저장된 출력 파일 byte 크기 |
 | `checksum_sha256` | 저장된 출력 파일 SHA-256 |
 | `complete` | 개별 representation 파일 기록 완료 여부. terminal manifest에서는 `true` |
@@ -186,10 +187,10 @@ Agent가 LLM에 이미지를 전달하려면 저장된 binary 파일을 읽어 �
 
 ```text
 source.relative_path
-  -> Agent SHARED_STORAGE_ROOT 기준
+  -> Agent의 Executor 결과 읽기 루트 기준
 
 outputs[].representations[].relative_path
-  -> Agent SHARED_STORAGE_ROOT 기준
+  -> Agent의 Executor 결과 읽기 루트 기준
 ```
 
 ## `output_summary`
@@ -206,14 +207,14 @@ outputs[].representations[].relative_path
 
 ## Agent 검증 및 읽기 순서
 
-1. Result API가 반환한 `result_ref.relative_path`를 Agent 공유 PV 루트 아래에서 해석한다.
+1. Result API가 반환한 `result_ref.relative_path`를 Agent가 마운트한 Executor 결과 루트 아래에서 해석한다.
 2. 절대경로, `..`, 공유 루트 이탈 경로는 거부한다.
 3. manifest bytes의 크기와 SHA-256을 계산해 각각 `result_ref.size_bytes`,
    `result_ref.checksum_sha256`과 비교한다.
 4. `schema_version`이 지원하는 `1.0`인지 확인한다.
 5. manifest `identity`가 Result API의 Execution/Step/Attempt/fence와 일치하는지 확인한다.
 6. `state`와 `complete`를 확인한다. `ABORTED` 출력은 부분 증거로만 사용한다.
-7. source와 output representation 모두 공유 PV 루트 기준으로 읽는다.
+7. source와 output representation 모두 Executor 결과 루트 기준으로 읽는다.
    출력 파일은 해당 manifest의 Step/Attempt/fence 디렉터리 안에 속하는지도 검증한다.
 8. 각 파일의 `size_bytes`와 `checksum_sha256`을 검증한다.
 9. 필요한 MIME representation만 Agent/LLM에 전달한다.

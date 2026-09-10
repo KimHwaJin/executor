@@ -191,7 +191,7 @@ Operation 실패라도 `continuation.allowed=true`이면 실패 결과를 바탕
 ## 7. 결과 읽기 원칙
 
 - Redis에는 전체 코드, 전체 텍스트 출력, 이미지 Base64를 넣지 않는다.
-- `execution.step_completed`의 `result_ref.relative_path`를 공유 PV 루트에 안전하게
+- `execution.step_completed`의 `result_ref.relative_path`를 Agent가 마운트한 Executor 결과 루트에 안전하게
   결합한다.
 - Manifest의 checksum·크기·실행/Step/Attempt 식별정보와
   `manifest.complete == result_ref.complete`를 검증한 뒤 표현 파일을 읽는다.

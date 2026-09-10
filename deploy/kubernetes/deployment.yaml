@@ -106,6 +106,10 @@ spec:
               value: "https://agent.example.internal"
             - name: SHARED_STORAGE_ROOT
               value: "/workspace/shared"
+            # Set to the Agent directory when input/result roots are split.
+            # Both paths must be visible inside this container.
+            - name: INPUT_STORAGE_ROOT
+              value: "/workspace/shared"
             - name: RUNTIME_ENABLED
               value: "true"
             - name: RUNTIME_ALLOWED_PROFILES

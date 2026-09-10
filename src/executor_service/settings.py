@@ -89,6 +89,9 @@ class Settings(BaseSettings):
     runtime_resource_max_age_seconds: float = Field(default=45, gt=0)
     runtime_memory_admission_limit: float = Field(default=0.9, gt=0, le=1)
     shared_storage_root: Path = Path("./shared_dir")
+    # Caller-authored PATH inputs may live outside Executor's result root.
+    # None keeps the single-root deployment option.
+    input_storage_root: Path | None = None
     execution_inline_spec_max_bytes: int = Field(default=262144, ge=1)
     execution_file_spec_max_bytes: int = Field(default=52428800, ge=1)
     execution_max_steps_per_operation: int = Field(default=100, ge=1)
@@ -117,6 +120,17 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return value.strip().upper() or None
         return value
+
+    @field_validator("input_storage_root", mode="before")
+    @classmethod
+    def normalize_input_storage_root(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+    @property
+    def effective_input_storage_root(self) -> Path:
+        return self.input_storage_root or self.shared_storage_root
 
     @field_validator(
         "mcp_allowed_hosts",

@@ -35,8 +35,8 @@ class PathArtifactSource(ContractModel):
         min_length=1,
         max_length=4096,
         description=(
-            "Input file path relative to SHARED_STORAGE_ROOT; "
-            "no prefix is added."
+            "Input file path relative to INPUT_STORAGE_ROOT "
+            "(defaults to SHARED_STORAGE_ROOT); no prefix is added."
         ),
     )
     sha256: str = Field(pattern=r"^[0-9a-fA-F]{64}$")
