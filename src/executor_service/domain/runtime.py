@@ -18,6 +18,10 @@ class RuntimeDriverError(RuntimeError):
     """An execution runtime could not be reached or used."""
 
 
+class RuntimeSessionLostError(RuntimeDriverError):
+    """The runtime process executing the request disappeared or restarted."""
+
+
 class RuntimeFileRangeError(RuntimeDriverError):
     def __init__(self, size: int) -> None:
         super().__init__("Requested Runtime file range is not satisfiable.")

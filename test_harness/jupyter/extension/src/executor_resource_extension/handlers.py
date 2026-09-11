@@ -15,6 +15,7 @@ from executor_resource_extension.file_download import (
     OpenedFileDownload,
     open_download,
 )
+from executor_resource_extension.kernel_state import KernelStateObserver
 from executor_resource_extension.storage import (
     RuntimeStorage,
     StoragePathError,
@@ -38,6 +39,22 @@ class ResourceStatusHandler(APIHandler):
                 "message": "Resource status collection failed.",
             }
         )
+
+
+class KernelExecutionStateHandler(APIHandler):
+    @web.authenticated
+    async def get(self, kernel_id: str) -> None:
+        observer: KernelStateObserver = self.settings[
+            "executor_kernel_state_observer"
+        ]
+        self.set_header("Cache-Control", "no-store")
+        try:
+            self.finish(await observer.observe(self.kernel_manager, kernel_id))
+        except Exception:
+            # Do not disclose process arguments, credentials or filesystem paths.
+            raise web.HTTPError(
+                503, reason="Kernel process continuity is unavailable."
+            ) from None
 
 
 class StorageHandler(APIHandler):

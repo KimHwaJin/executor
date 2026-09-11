@@ -11,10 +11,10 @@ from executor_service.domain.enums import (
 )
 from executor_service.domain.results import StepResultDescriptor
 from executor_service.domain.runtime import (
-    RuntimeDriverError,
     RuntimeExecutionError,
     RuntimeExecutionTimeoutError,
     RuntimeOutputLimitExceededError,
+    RuntimeSessionLostError,
 )
 from executor_service.infrastructure.background_diagnostics import (
     RuntimeObservation,
@@ -22,7 +22,7 @@ from executor_service.infrastructure.background_diagnostics import (
 from executor_service.infrastructure.execution_leases import CancellationLease
 
 
-class RetainedRuntimeSessionLostError(RuntimeDriverError):
+class RetainedRuntimeSessionLostError(RuntimeSessionLostError):
     """Raised when a retained-session retry target no longer has its session."""
 
 

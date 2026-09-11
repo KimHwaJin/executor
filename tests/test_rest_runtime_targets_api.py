@@ -38,6 +38,10 @@ class HealthyGateway:
         _timeout: float,
         _storage_timeout: float,
         _max_output_message_bytes: int,
+        *,
+        execution_poll_seconds: float,
+        execution_probe_timeout_seconds: float,
+        execution_probe_failure_threshold: int,
     ) -> None:
         pass
 

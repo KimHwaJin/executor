@@ -18,6 +18,10 @@ from executor_service.domain.runtime import (
     RuntimeExecutionResult,
     RuntimeOutputHandler,
     RuntimeOutputLimitExceededError,
+    RuntimeSessionLostError,
+)
+from executor_service.infrastructure._jupyter.execution_guard import (
+    KernelExecutionGuard,
 )
 from executor_service.infrastructure._jupyter.output_limits import (
     server_output_limit,
@@ -48,9 +52,19 @@ class JupyterKernelExecutor:
         self,
         transport: JupyterHttpTransport,
         max_output_message_bytes: int,
+        *,
+        poll_seconds: float = 10,
+        probe_timeout_seconds: float = 5,
+        failure_threshold: int = 3,
     ) -> None:
         self._transport = transport
         self._max_output_message_bytes = max_output_message_bytes
+        self._guard = KernelExecutionGuard(
+            transport,
+            poll_seconds=poll_seconds,
+            probe_timeout_seconds=probe_timeout_seconds,
+            failure_threshold=failure_threshold,
+        )
 
     async def execute(
         self, session_id: str, code: str
@@ -70,6 +84,20 @@ class JupyterKernelExecutor:
         )
 
     async def _execute(
+        self,
+        session_id: str,
+        code: str,
+        *,
+        output_handler: RuntimeOutputHandler | None,
+    ) -> RuntimeExecutionResult:
+        return await self._guard.run(
+            session_id,
+            lambda: self._execute_channels(
+                session_id, code, output_handler=output_handler
+            ),
+        )
+
+    async def _execute_channels(
         self,
         session_id: str,
         code: str,
@@ -123,11 +151,25 @@ class JupyterKernelExecutor:
                 while not (reply_received and idle_received):
                     raw = await websocket.recv()
                     channel, message = deserialize_v1(raw)
+                    msg_type = message.get("header", {}).get("msg_type")
+                    content = message.get("content", {})
+                    # Jupyter's server-generated restart/dead notifications
+                    # have no parent request ID. Check before request filtering.
+                    if (
+                        channel == "iopub"
+                        and msg_type == "status"
+                        and content.get("execution_state")
+                        in {"restarting", "dead"}
+                    ):
+                        raise RuntimeSessionLostError(
+                            "Jupyter reported kernel "
+                            f"{content['execution_state']} during execution; "
+                            "the original execution cannot continue. "
+                            "Cause is unknown."
+                        )
                     parent_id = message.get("parent_header", {}).get("msg_id")
                     if parent_id != message_id:
                         continue
-                    msg_type = message.get("header", {}).get("msg_type")
-                    content = message.get("content", {})
                     if channel == "shell" and msg_type == "execute_reply":
                         reply_received = True
                         execution_count = content.get("execution_count")

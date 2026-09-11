@@ -7,9 +7,9 @@ from executor_service.domain.runtime import (
     RuntimeExecutionError,
     RuntimeExecutionTimeoutError,
     RuntimeOutputLimitExceededError,
+    RuntimeSessionLostError,
 )
 from executor_service.infrastructure.execution_worker.types import (
-    RetainedRuntimeSessionLostError,
     StoredStepFailure,
 )
 from executor_service.infrastructure.runtime_diagnostics import failure_message
@@ -22,7 +22,7 @@ def failure_policy(
         return failure_policy(exc.original, retain_session)
     if isinstance(exc, ExecutionCompletionError):
         return FailureType.COMPLETION_FAILED, RetryStrategy.NOT_RETRYABLE
-    if isinstance(exc, RetainedRuntimeSessionLostError):
+    if isinstance(exc, RuntimeSessionLostError):
         return FailureType.RUNTIME_SESSION_LOST, RetryStrategy.FROM_START
     if isinstance(exc, RuntimeExecutionTimeoutError):
         failure_type = (

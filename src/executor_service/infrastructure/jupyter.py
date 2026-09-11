@@ -38,6 +38,10 @@ class JupyterRuntimeDriver:
         request_timeout_seconds: float = 30,
         storage_timeout_seconds: float = 300,
         max_output_message_bytes: int = 33554432,
+        *,
+        execution_poll_seconds: float = 10,
+        execution_probe_timeout_seconds: float = 5,
+        execution_probe_failure_threshold: int = 3,
     ) -> None:
         self._transport = JupyterHttpTransport(
             endpoint,
@@ -50,6 +54,9 @@ class JupyterRuntimeDriver:
         self._execution = JupyterKernelExecutor(
             self._transport,
             max_output_message_bytes,
+            poll_seconds=execution_poll_seconds,
+            probe_timeout_seconds=execution_probe_timeout_seconds,
+            failure_threshold=execution_probe_failure_threshold,
         )
         self._storage = JupyterStorageClient(self._transport)
 

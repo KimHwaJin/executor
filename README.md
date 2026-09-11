@@ -26,6 +26,8 @@ MULTI Operations through a Runtime Driver. Jupyter REST/WebSocket is the first i
 - Redis consumer group worker with PostgreSQL reconciliation, stale Pending recovery, and DLQ
 - Multi-Executor coordination through PostgreSQL row locks, unique lease owners, and crash recovery
 - Jupyter REST/WebSocket kernel execution, interrupt, and deletion
+- Active execution-loss detection without treating silence/low CPU as failure;
+  see [deployment requirements and failure semantics](docs/runtime-execution-loss-detection.md).
 - Multi-target Runtime registry, encrypted credentials, health probes, capacity scheduling,
   execution attempts, leases, and heartbeats
 - Strict INTERACTIVE/BATCH Runtime scheduling isolation with a two-target local BATCH topology

@@ -23,6 +23,20 @@ from executor_service.infrastructure.jupyter import (
 )
 
 
+@pytest.fixture(autouse=True)
+def stable_kernel_process(monkeypatch: pytest.MonkeyPatch) -> None:
+    # These tests isolate the channel/storage protocols. Probe failure and
+    # continuity are exercised with HTTP transport in test_jupyter_execution_guard.
+    async def instance(_self: object, kernel_id: str) -> str:
+        return f"stable-{kernel_id}"
+
+    monkeypatch.setattr(
+        "executor_service.infrastructure._jupyter.execution_guard."
+        "KernelExecutionGuard._instance",
+        instance,
+    )
+
+
 def _resource_payload() -> dict[str, Any]:
     return {
         "schema_version": "1.0",
