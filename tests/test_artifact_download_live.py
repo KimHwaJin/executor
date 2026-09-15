@@ -41,6 +41,9 @@ from executor_service.domain.enums import (
     RuntimeType,
 )
 from executor_service.domain.models import utc_now
+from executor_service.infrastructure._artifacts.discovery import (
+    ArtifactDiscovery,
+)
 from executor_service.infrastructure.db.models import (
     ExecutionArtifactORM,
     ExecutionAttemptORM,
@@ -48,6 +51,7 @@ from executor_service.infrastructure.db.models import (
     RuntimeTargetORM,
 )
 from executor_service.infrastructure.jupyter import JupyterRuntimeDriver
+from executor_service.infrastructure.workspace import ExecutionWorkspace
 from executor_service.interfaces.http.app import create_app
 from tests.runtime_credentials import runtime_credential_fields
 from tests.test_rest_execution_api import _submit_payload
@@ -152,6 +156,72 @@ def _live_jupyter() -> Iterator[LiveJupyter]:
 def jupyter() -> Iterator[LiveJupyter]:
     with _live_jupyter() as runtime:
         yield runtime
+
+
+async def test_kernel_plot_with_spaces_and_unicode(
+    jupyter: LiveJupyter,
+) -> None:
+    driver = JupyterRuntimeDriver(jupyter.endpoint, jupyter.token)
+    workspace = f"filename-test-{uuid4().hex}"
+    name = "histogram_eda__M2 MASK MACRO.max_val__histogram__70a10a10.png"
+    relative = f"artifacts/plots/한글 폴더 (EDA)/{name}"
+    path = f"{workspace}/{relative}"
+    session_id = None
+    try:
+        await driver.prepare_workspace(workspace)
+        before = await driver.artifact_snapshot(workspace)
+        session_id = await driver.start_session("default", workspace)
+        await asyncio.wait_for(
+            driver.execute(
+                session_id,
+                "from pathlib import Path\n"
+                "import matplotlib.pyplot as plt\n"
+                f"plot_path = Path({relative!r})\n"
+                "plot_path.parent.mkdir(parents=True, exist_ok=True)\n"
+                "plt.hist([1, 2, 2, 3, 4])\n"
+                "plt.savefig(plot_path)\n"
+                "plt.close()\n",
+            ),
+            timeout=60,
+        )
+        snapshot = await driver.artifact_snapshot(workspace)
+        assert path in {item.path for item in snapshot.files}
+        descriptors = await ArtifactDiscovery().discover(
+            driver,
+            ExecutionWorkspace(
+                runtime_relative_path=workspace,
+                notebook_path=f"{workspace}/notebooks/execution.ipynb",
+                reports_path=f"{workspace}/reports",
+                artifacts_path=f"{workspace}/artifacts",
+                manifest_path=f"{workspace}/artifacts/manifest.jsonl",
+            ),
+            before,
+            ArtifactStatus.AVAILABLE,
+        )
+        assert len(descriptors) == 1
+        assert descriptors[0].relative_path == path
+        assert descriptors[0].artifact_type == ArtifactType.PLOT
+        metadata = await driver.file_metadata(path)
+        original = (jupyter.root / path).read_bytes()
+        assert original.startswith(b"\x89PNG")
+        assert metadata.size_bytes == len(original)
+        assert metadata.checksum_sha256 == hashlib.sha256(original).hexdigest()
+        async with driver.open_file(path, None) as content:
+            downloaded = b"".join([chunk async for chunk in content.body])
+        assert downloaded == original
+        async with driver.open_file(path, "bytes=0-15") as content:
+            downloaded_range = b"".join(
+                [chunk async for chunk in content.body]
+            )
+        assert downloaded_range == original[:16]
+        with pytest.raises(
+            RuntimeError, match="Path must not contain parent traversal"
+        ):
+            await driver.file_metadata(f"{workspace}/../{path}")
+    finally:
+        if session_id is not None:
+            await driver.delete_session(session_id)
+        await driver.close()
 
 
 @asynccontextmanager

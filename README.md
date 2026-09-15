@@ -1,5 +1,7 @@
 # Executor Service
 
+Artifact filename and path policy: [규칙 및 배포 안내](docs/artifact-filename-policy.md).
+
 Asynchronous Runtime execution control plane exposed through MCP 2026-07-28 Streamable HTTP and a
 versioned REST API. PostgreSQL is the source of truth. MCP Tool and REST calls persist work and
 return immediately while a Redis consumer worker executes SINGLE work or incrementally submitted
