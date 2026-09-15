@@ -1,5 +1,6 @@
 """Artifact path classification, validation, and metadata redaction."""
 
+import unicodedata
 from pathlib import PurePosixPath
 from typing import Any
 from urllib.parse import urlsplit
@@ -35,6 +36,15 @@ def infer_artifact_type(
 
 
 def manifest_runtime_path(raw: str, workspace: ExecutionWorkspace) -> str:
+    if (
+        not raw
+        or "\\" in raw
+        or ".." in raw.split("/")
+        or any(unicodedata.category(char) == "Cc" for char in raw)
+    ):
+        raise ArtifactRegistrationError(
+            "PV manifest path contains an unsafe segment or character."
+        )
     path = PurePosixPath(raw)
     if path.is_absolute() or (path.parts and path.parts[0] == "users"):
         return raw

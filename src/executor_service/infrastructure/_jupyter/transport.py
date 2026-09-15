@@ -14,6 +14,36 @@ from executor_service.infrastructure._jupyter.file_content import (
     open_file_response,
 )
 
+_SAFE_STORAGE_REASONS = frozenset(
+    {
+        "Path must not be empty.",
+        "Path must use forward slash separators.",
+        "Path contains a control character.",
+        "Path must not contain parent traversal.",
+        "Path escapes the Jupyter root directory.",
+        "Path is not a file.",
+    }
+)
+
+
+def _storage_error_reason(response: httpx.Response) -> str:
+    # Only known, constant validation messages may enter diagnostics.
+    # Never copy arbitrary response bodies, paths, or credentials.
+    if response.status_code != 422 or not response.request.url.path.endswith(
+        "/executor/storage/files/metadata"
+    ):
+        return ""
+    try:
+        body = response.json()
+    except ValueError:
+        return ""
+    if isinstance(body, dict):
+        for key in ("message", "reason"):
+            value = body.get(key)
+            if isinstance(value, str) and value in _SAFE_STORAGE_REASONS:
+                return f" reason={value}"
+    return ""
+
 
 class JupyterHttpTransport:
     def __init__(
@@ -56,6 +86,7 @@ class JupyterHttpTransport:
                 "Jupyter REST request failed: "
                 f"method={method.upper()} path={path} "
                 f"status={exc.response.status_code}."
+                f"{_storage_error_reason(exc.response)}"
             ) from exc
         except httpx.RequestError as exc:
             raise RuntimeDriverError(

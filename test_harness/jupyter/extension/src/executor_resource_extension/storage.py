@@ -4,12 +4,11 @@ import hashlib
 import json
 import mimetypes
 import os
-import re
 import tempfile
+import unicodedata
 from pathlib import Path
 from typing import Any
 
-SAFE_SEGMENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$")
 ARTIFACT_DIRECTORIES = (
     "plots",
     "models",
@@ -45,11 +44,13 @@ class RuntimeStorage:
 
     def snapshot(self, workspace_path: str) -> dict[str, Any]:
         workspace = self._resolve(workspace_path, must_exist=True)
-        artifacts = self._ensure_within(workspace / "artifacts")
+        artifacts = self._resolve((workspace / "artifacts").as_posix())
         manifest = artifacts / "manifest.jsonl"
+        self._resolve(manifest.as_posix())
         files = []
         if artifacts.is_dir():
             for path in sorted(artifacts.rglob("*")):
+                self._resolve(path.as_posix(), must_exist=True)
                 if not path.is_file() or path == manifest:
                     continue
                 stat = path.stat()
@@ -202,15 +203,19 @@ class RuntimeStorage:
         return {"start": effective_start, "end": size, "content": content}
 
     def _resolve(self, raw_path: str, *, must_exist: bool = False) -> Path:
+        # Validate before pathlib normalizes separators and dot segments.
+        if not raw_path:
+            raise StoragePathError("Path must not be empty.")
+        if "\\" in raw_path:
+            raise StoragePathError("Path must use forward slash separators.")
+        if any(unicodedata.category(char) == "Cc" for char in raw_path):
+            raise StoragePathError("Path contains a control character.")
+        if ".." in raw_path.split("/"):
+            raise StoragePathError("Path must not contain parent traversal.")
         candidate = Path(raw_path)
         if candidate.is_absolute():
             path = candidate.resolve(strict=must_exist)
         else:
-            if not candidate.parts or any(
-                part in {"", ".", ".."} or not SAFE_SEGMENT.fullmatch(part)
-                for part in candidate.parts
-            ):
-                raise StoragePathError("Path contains an unsafe segment.")
             path = (self._root / candidate).resolve(strict=must_exist)
         return self._ensure_within(path)
 
