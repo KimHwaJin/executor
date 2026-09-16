@@ -39,6 +39,9 @@ from executor_service.interfaces.http.executions import build_execution_router
 from executor_service.interfaces.http.maintenance import (
     build_maintenance_router,
 )
+from executor_service.interfaces.http.request_error_logging import (
+    ExecutionRequestErrorLoggingMiddleware,
+)
 from executor_service.interfaces.http.runtime_targets import (
     build_runtime_target_router,
 )
@@ -96,6 +99,11 @@ def create_app(
     )
     app.state.container = container
     app.state.mcp_server = mcp_server
+    app.add_middleware(
+        ExecutionRequestErrorLoggingMiddleware,
+        enabled=container.settings.rest_error_body_logging_enabled,
+        max_body_bytes=container.settings.rest_error_body_log_max_bytes,
+    )
 
     @app.exception_handler(RequestValidationError)
     async def request_validation_error_handler(
