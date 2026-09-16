@@ -48,6 +48,11 @@ spec:
               value: "production"
             - name: LOG_CONFIG_FILE
               value: "/app/logger.yml"
+            # Unmasked bodies: opt in only after approving log access/retention.
+            - name: REST_ERROR_BODY_LOGGING_ENABLED
+              value: "false"
+            - name: REST_ERROR_BODY_LOG_MAX_BYTES
+              value: "65536"
             - name: HOST
               value: "0.0.0.0"
             - name: PORT

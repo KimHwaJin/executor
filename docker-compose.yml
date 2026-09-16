@@ -61,6 +61,8 @@ services:
     environment:
       APP_ENV: ${APP_ENV:-local}
       LOG_LEVEL: ${LOG_LEVEL:-}
+      REST_ERROR_BODY_LOGGING_ENABLED: ${REST_ERROR_BODY_LOGGING_ENABLED:-false}
+      REST_ERROR_BODY_LOG_MAX_BYTES: ${REST_ERROR_BODY_LOG_MAX_BYTES:-65536}
       HOST: 0.0.0.0
       PORT: 8000
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-executor}:${POSTGRES_PASSWORD:-executor}@postgres:5432/${POSTGRES_DB:-executor}

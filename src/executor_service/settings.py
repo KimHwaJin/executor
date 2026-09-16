@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     app_env: str = "local"
     log_level: str | None = None
     log_config_file: Path = Path("logger.yml")
+    rest_error_body_logging_enabled: bool = False
+    rest_error_body_log_max_bytes: int = Field(default=65536, ge=1)
 
     host: str = "0.0.0.0"
     port: int = Field(default=8000, ge=1, le=65535)
