@@ -125,17 +125,8 @@ class MultiExecutionRunner:
                 workspace.notebook_path,
             )
             if execution.finalization_requested:
-                last_sequence = max(
-                    (step.sequence for step in execution.steps), default=0
-                )
                 await self._notebook_projector.project_required(
                     driver, lease, execution.runtime_profile, workspace
-                )
-                await self._notebook_projector.register_artifact(
-                    driver=driver,
-                    workspace=workspace,
-                    lease=lease,
-                    sequence=last_sequence,
                 )
                 await self._lease_heartbeat.assert_execution(lease)
                 await run_runtime_operation(

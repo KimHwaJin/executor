@@ -142,7 +142,7 @@ async def test_required_delivery_and_retry_policy(
             fault == "cleanup" and mode == OperationMode.SINGLE
         )
         await worker._runner.run(execution.id)
-        if fault in {"cleanup", "catalog"} and mode == OperationMode.MULTI:
+        if fault == "cleanup" and mode == OperationMode.MULTI:
             waiting = await execution_service.get(execution.id)
             assert waiting.status == ExecutionStatus.WAITING_FOR_OPERATION
             await execution_service.finalize_execution(
@@ -191,12 +191,12 @@ async def test_required_delivery_and_retry_policy(
         assert finished.steps[0].result_complete is True
         ref = finished.steps[0].result_manifest_path
         assert ref is not None and (tmp_path / ref).is_file()
-        early_failure = fault in {"write", "artifacts"}
+        early_failure = fault in {"write", "artifacts", "catalog"}
         assert finished.steps[1].status == (
             StepStatus.SKIPPED if early_failure else StepStatus.SUCCEEDED
         )
         assert len(CompletionDriver.executed) == (1 if early_failure else 2)
-        if fault in {"cleanup", "catalog"} and mode == OperationMode.MULTI:
+        if fault == "cleanup" and mode == OperationMode.MULTI:
             # A previously published successful Operation stays immutable.
             assert operation.status == OperationStatus.SUCCEEDED
         else:

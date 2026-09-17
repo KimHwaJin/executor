@@ -968,12 +968,13 @@ async def _run_cancel_case(
     expected_checksum = hashlib.sha256(b"started").hexdigest()
     if cancel_artifacts[0].checksum_sha256 != expected_checksum:
         raise RuntimeError("Cancelled-cell Artifact content is invalid.")
-    if any(
+    if not any(
         _enum_value(artifact.artifact_type) == "NOTEBOOK"
+        and _enum_value(artifact.status) == "AVAILABLE"
         for artifact in snapshot.artifacts
     ):
         raise RuntimeError(
-            "Cancelled Execution unexpectedly registered a successful notebook."
+            "Cancelled Execution lost its saved notebook Artifact."
         )
     event_types = await _assert_event_delivery(
         "REST",

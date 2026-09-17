@@ -864,6 +864,48 @@ async def postgres_engine() -> AsyncIterator[AsyncEngine]:
         await admin_engine.dispose()
 
 
+async def test_live_notebook_identity_on_postgres(
+    postgres_engine: AsyncEngine, tmp_path: Path
+) -> None:
+    from tests.test_live_notebook_artifact import (
+        test_notebook_identity_is_not_a_step_or_content_snapshot,
+    )
+
+    service = _service(postgres_engine, tmp_path)
+    await test_notebook_identity_is_not_a_step_or_content_snapshot(
+        service, postgres_engine
+    )
+
+
+async def test_live_notebook_registration_serializes_and_keeps_id(
+    postgres_engine: AsyncEngine, tmp_path: Path
+) -> None:
+    from executor_service.infrastructure.workspace import WorkspaceManager
+    from tests.runtime_storage_fake import InMemoryRuntimeStorage
+    from tests.test_artifacts import _command, _seed_attempt
+
+    service = _service(postgres_engine, tmp_path)
+    execution = await service.submit(
+        replace(_command(), idempotency_key=uuid4().hex)
+    )
+    _, lease = await _seed_attempt(
+        postgres_engine, execution.id, execution.steps[0].id
+    )
+    workspace = WorkspaceManager().plan(execution)
+    driver = InMemoryRuntimeStorage()
+    await driver.write_notebook(workspace.notebook_path, {"cells": []})
+    manager = ExecutionArtifactManager(create_session_factory(postgres_engine))
+    results = await asyncio.gather(
+        *(
+            manager.register_notebook(
+                driver=driver, workspace=workspace, lease=lease
+            )
+            for _ in range(8)
+        )
+    )
+    assert len({result[0] for result in results}) == 1
+
+
 @pytest.mark.parametrize("case", ["same", "conflict", "append"])
 async def test_artifact_writes_serialize_across_service_instances(
     postgres_engine: AsyncEngine, tmp_path: Path, case: str
