@@ -74,7 +74,6 @@ async def require_completed_results(
         select(ExecutionArtifactORM.id)
         .where(
             ExecutionArtifactORM.execution_id == execution.id,
-            ExecutionArtifactORM.execution_step_id == steps[-1].id,
             ExecutionArtifactORM.artifact_type == ArtifactType.NOTEBOOK,
             ExecutionArtifactORM.status == ArtifactStatus.AVAILABLE,
             ExecutionArtifactORM.relative_path == execution.notebook_path,

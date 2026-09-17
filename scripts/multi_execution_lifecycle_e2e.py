@@ -1075,12 +1075,13 @@ async def _run_running_cancel_case(
         raise RuntimeError(
             "Cancelled MULTI Artifact contains unexpected data."
         )
-    if any(
+    if not any(
         _enum_value(artifact.artifact_type) == "NOTEBOOK"
+        and _enum_value(artifact.status) == "AVAILABLE"
         for artifact in snapshot.artifacts
     ):
         raise RuntimeError(
-            "Cancelled MULTI Execution registered a successful notebook."
+            "Cancelled MULTI Execution lost its saved notebook Artifact."
         )
 
     event_types = await _assert_event_delivery(

@@ -173,6 +173,15 @@ without Range. Length, range, SHA-256 and ETag come from one opened Runtime file
 Artifact list/detail metadata remains the registration observation; downloading does not mutate
 historical evidence, audit fields, or Execution events. No DB migration is required.
 
+The managed `notebooks/execution.ipynb` is registered as an Execution-scoped
+`NOTEBOOK`/`AVAILABLE` Artifact as soon as preparation first saves it. It is
+downloadable during running, MULTI waiting, failure and cancellation as well as
+success. Availability does not assert execution success or complete cell output.
+Repeated Executor saves refresh the observed metadata under the same Artifact ID
+without creating Step/Attempt snapshots. These producer references are null for
+new notebook entries. Manual edits are read at download time without changing
+Step-result evidence. Previously unregistered historical files are not backfilled.
+
 The Runtime hashes that descriptor with bounded reads before sending headers, then streams the
 requested bytes from the same descriptor. This preserves a full-file SHA-256/strong ETag but adds
 one full-file read before **each** request (including small Range requests); no entire-file RAM

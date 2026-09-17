@@ -18,8 +18,10 @@ All directories except `datasets/` are created before execution and may contain 
 subdirectories. A Tool that produces an execution-scoped dataset creates `datasets/` when needed.
 The first directory below `artifacts/` determines the automatic Artifact type. Files directly below
 `artifacts/` or inside an unknown directory are not registered; producers must use one of the
-defined directories and put unknown types under `artifacts/other/`. The final notebook remains
-under `notebooks/` and is registered separately.
+defined directories and put unknown types under `artifacts/other/`. The live notebook remains
+under `notebooks/` and is registered separately after its first successful save,
+before code execution completes. Its stable Artifact ID points to the current saved file,
+including while running, waiting, failed or cancelled.
 
 A Tool only needs the Manifest when it creates a result elsewhere on Jupyter shared storage or records an
 S3 object.
@@ -100,7 +102,11 @@ an Executor Artifact and `external_parent_asset_id` for the Agent's global Asset
 
 ## Ownership boundary
 
-`ExecutionArtifact` is immutable execution evidence owned by Executor. The Agent/API service owns
+Discovered `ExecutionArtifact` records describe execution evidence owned by Executor.
+The managed notebook is an exception: an Execution-scoped, mutable file reference with
+stable ID and refreshed observations, not an immutable Attempt/Step snapshot.
+`AVAILABLE` for this notebook means saved-file availability, not analysis success.
+The Agent/API service owns
 the user-facing `Asset` catalog, reuse scope, naming changes, tags, downloads, and deletion policy.
 The promotion and sharing contract is intentionally deferred; see
 [Deferred Decisions](deferred-decisions.md). Executor and Agent/API do not share database tables.

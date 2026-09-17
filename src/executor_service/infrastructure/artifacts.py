@@ -60,20 +60,15 @@ class ExecutionArtifactManager:
         driver: RuntimeStorage,
         workspace: ExecutionWorkspace,
         lease: ExecutionLease,
-        sequence: int,
     ) -> list[UUID]:
         metadata = await driver.file_metadata(workspace.notebook_path)
         descriptor = runtime_file_descriptor(
             metadata,
             ArtifactType.NOTEBOOK,
             ArtifactStatus.AVAILABLE,
-            metadata={},
+            metadata={"content_semantics": "CURRENT_FILE"},
         )
-        return await self._persistence.persist(
-            [descriptor],
-            lease=lease,
-            sequence=sequence,
-        )
+        return await self._persistence.persist_notebook(descriptor, lease=lease)
 
 
 __all__ = [

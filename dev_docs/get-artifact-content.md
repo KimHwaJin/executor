@@ -22,6 +22,28 @@ Executor/BFF가 Jupyter PV를 마운트할 필요는 없다. Jupyter 토큰과 �
 사용하고, 클라이언트는 `artifact_id`로 요청한다. BFF에서 인증 및 다운로드 권한을 확인한다.
 이 API는 REST 전용이며 MCP로 바이너리 전체를 반환하지 않는다. S3는 현재 미지원이다.
 
+## 실행 중·실패·취소 노트북 다운로드
+
+`execution.ipynb`는 최초 저장 성공 직후 `type=NOTEBOOK`, `status=AVAILABLE`로 등록된다.
+`GET /api/v1/executions/{execution_id}/artifacts`에서 해당 항목의 `artifact_id`를 찾아
+이 API를 호출한다. 실행 완료나 MULTI finalize를 기다릴 필요가 없다.
+
+- AVAILABLE은 **파일이 저장되어 참조할 수 있음**이지 분석 성공을 뜻하지 않는다.
+- RUNNING / WAITING_FOR_OPERATION / FAILED / CANCELLED에서도 다운로드할 수 있다.
+- 저장·재시도·후속 Operation·finalize로 내용이 바뀌어도 같은 artifact_id를 유지한다.
+- 노트북은 Execution 전체 파일이므로 새 항목의 `produced_by.execution_id`만 채우고
+  Attempt/Step 참조는 null이다. 실행별 원본 증거는 Step result ref로 확인한다.
+- 아직 저장하지 못했다면 항목이 없다. 파일 등록 실패는 diagnostics에 남는다.
+- 실행 중 받는 파일은 **열기 시점에 저장 완료된 버전**이다. 아직 저장되지 않은
+  셀 출력은 포함하지 않는다. 실패 시점의 영구 사본이나 과거 버전 다운로드는 아니다.
+- 이후 노트북 갱신이 실패해도 마지막 저장본의 등록을 제거하지 않는다.
+  `workspace.notebook_projection`의 상태·오류를 함께 확인하면 출력 반영 실패를 구분할 수 있다.
+- 파일/PV/접근 가능한 Jupyter가 없어지면 AVAILABLE 기록이 남아도 다운로드는 실패한다.
+  DB 등록과 파일 저장은 서로 다른 시스템이므로 장애 중 등록 성공까지 보장하지 않는다.
+
+기존 완료/실패 이력을 일괄 탐색해 과거 미등록 노트북을 채우는 작업은 하지 않는다.
+적용 이후 저장 경로부터 등록되며, 이미 등록된 같은 경로는 기존 ID를 재사용한다.
+
 ## 요청
 
 | 위치 | 이름 | 필수 | 의미 |
@@ -71,6 +93,9 @@ HEAD 및 If-Range/조건부 다운로드 지원은 이 API 계약에 포함되�
 ## DB 메타데이터와 현재 파일의 차이
 
 Artifact 목록/상세의 `size_bytes`, `checksum_sha256`은 등록 시점에 관찰한 정보다.
+관리되는 노트북은 Executor가 저장·등록을 갱신할 때 관측값과 updated 감사필드를 갱신한다.
+created 감사필드와 artifact_id는 유지한다. 사람이 저장하거나 리포트를 추가한 경우에는
+별도로 노트북 등록 메타데이터를 재조회하지 않으므로 최신 파일과 차이가 있을 수 있다.
 같은 경로에 노트북이 재작성되거나 사람이 저장하면 현재 파일과 달라질 수 있다.
 다운로드는 그 값을 읽기 제한이나 체크섬으로 사용하지 않는다. 값이 누락되어 있어도
 등록 상태·경로가 유효하고 실제 파일을 읽을 수 있으면 다운로드할 수 있다.

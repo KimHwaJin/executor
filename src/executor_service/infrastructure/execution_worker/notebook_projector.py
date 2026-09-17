@@ -26,10 +26,7 @@ from executor_service.domain.runtime import (
     RuntimeNotebookSourceCell,
 )
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
-from executor_service.infrastructure.db.models import (
-    ExecutionORM,
-    ExecutionStepORM,
-)
+from executor_service.infrastructure.db.models import ExecutionStepORM
 from executor_service.infrastructure.diagnostic_store import DiagnosticRecorder
 from executor_service.infrastructure.execution_leases import (
     ExecutionLease,
@@ -107,6 +104,9 @@ class NotebookProjector:
             raise RuntimeDriverError(
                 "Runtime prepared an unexpected notebook path."
             )
+        await self.register_artifact(
+            driver=driver, workspace=workspace, lease=lease
+        )
 
     async def project(
         self,
@@ -204,6 +204,9 @@ class NotebookProjector:
                     status="SUCCEEDED",
                     attempt_count=attempt,
                 )
+                await self.register_artifact(
+                    driver=driver, workspace=workspace, lease=lease
+                )
                 return True
             break
         await self._record_projection(
@@ -240,7 +243,7 @@ class NotebookProjector:
             projected = await self.project(
                 driver, lease, runtime_profile, workspace
             )
-        except ExecutionLeaseLostError:
+        except (ExecutionLeaseLostError, ExecutionCompletionError):
             raise
         except Exception as exc:
             raise ExecutionCompletionError("NOTEBOOK_BUILD") from exc
@@ -278,22 +281,14 @@ class NotebookProjector:
         driver: RuntimeDriver,
         workspace: ExecutionWorkspace,
         lease: ExecutionLease,
-        sequence: int,
     ) -> None:
-        async with self._session_factory() as session:
-            projection_status = await session.scalar(
-                select(ExecutionORM.notebook_projection_status).where(
-                    ExecutionORM.id == lease.execution_id
-                )
-            )
-        if projection_status != "SUCCEEDED":
-            raise ExecutionCompletionError("NOTEBOOK_ARTIFACT_REGISTER")
+        # Availability means a saved file exists, not that execution succeeded.
+        # Preparation precedes Step attempts and may precede kernel creation.
         try:
             await self._artifacts.register_notebook(
                 driver=driver,
                 workspace=workspace,
                 lease=lease,
-                sequence=sequence,
             )
         except ExecutionLeaseLostError:
             raise
@@ -304,14 +299,12 @@ class NotebookProjector:
                 phase="NOTEBOOK_ARTIFACT_REGISTER",
                 execution_id=lease.execution_id,
                 attempt_id=lease.attempt_id,
-                sequence=sequence,
             )
             await self._diagnostics.record(
                 lease,
                 exc,
                 phase="NOTEBOOK_ARTIFACT_REGISTER",
                 category=DiagnosticCategory.ARTIFACT,
-                sequence=sequence,
             )
             raise ExecutionCompletionError(
                 "NOTEBOOK_ARTIFACT_REGISTER"

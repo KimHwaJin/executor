@@ -7,8 +7,9 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from executor_service.domain.enums import ExecutionStatus
+from executor_service.domain.enums import ArtifactType, ExecutionStatus
 from executor_service.domain.errors import ArtifactRegistrationError
+from executor_service.domain.models import utc_now
 from executor_service.infrastructure._artifacts.models import (
     ArtifactDescriptor,
 )
@@ -28,6 +29,73 @@ class ArtifactPersistence:
         self, session_factory: async_sessionmaker[AsyncSession]
     ) -> None:
         self._session_factory = session_factory
+
+    async def persist_notebook(
+        self, descriptor: ArtifactDescriptor, *, lease: ExecutionLease
+    ) -> list[UUID]:
+        """Keep one live file reference, not a Step/Attempt snapshot.
+
+        The Execution lease lock serializes registration and metadata refresh.
+        The file is already atomically published before entering this method.
+        Download reads current Runtime bytes, never these observed sizes.
+        """
+        async with self._session_factory() as session, session.begin():
+            # A cancellation request can arrive after the file was saved.
+            # Preserve its reference while this Worker still owns the fence.
+            execution, _attempt = await require_active_lease(
+                session,
+                lease,
+                allowed_statuses=(
+                    ExecutionStatus.RUNNING,
+                    ExecutionStatus.CANCEL_REQUESTED,
+                ),
+            )
+            row = await session.scalar(
+                select(ExecutionArtifactORM)
+                .where(
+                    ExecutionArtifactORM.execution_id == lease.execution_id,
+                    ExecutionArtifactORM.artifact_type
+                    == ArtifactType.NOTEBOOK,
+                    ExecutionArtifactORM.storage_type
+                    == descriptor.storage_type,
+                    ExecutionArtifactORM.relative_path
+                    == descriptor.relative_path,
+                )
+                .order_by(
+                    ExecutionArtifactORM.created_at, ExecutionArtifactORM.id
+                )
+                .limit(1)
+            )
+            now = utc_now()
+            if row is None:
+                identity = json.dumps(
+                    [str(lease.execution_id), "live-notebook", descriptor.uri]
+                )
+                row = ExecutionArtifactORM(
+                    execution_id=lease.execution_id,
+                    artifact_type=ArtifactType.NOTEBOOK,
+                    storage_type=descriptor.storage_type,
+                    name=descriptor.name,
+                    uri=descriptor.uri,
+                    relative_path=descriptor.relative_path,
+                    identity_hash=hashlib.sha256(
+                        identity.encode()
+                    ).hexdigest(),
+                    created_by_type=execution.created_by_type,
+                    created_by=execution.created_by,
+                    created_at=now,
+                )
+                session.add(row)
+            row.status = descriptor.status
+            row.media_type = descriptor.media_type
+            row.size_bytes = descriptor.size_bytes
+            row.checksum_sha256 = descriptor.checksum_sha256
+            row.artifact_metadata = descriptor.metadata
+            row.updated_by_type = execution.updated_by_type
+            row.updated_by = execution.updated_by
+            row.updated_at = now
+            await session.flush()
+            return [row.id]
 
     async def persist(
         self,

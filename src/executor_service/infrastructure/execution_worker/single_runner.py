@@ -319,12 +319,6 @@ class SingleExecutionRunner:
                     raise ExecutionCompletionError(
                         "ARTIFACT_REGISTER"
                     ) from artifact_exc
-            await self._notebook_projector.register_artifact(
-                driver=driver,
-                workspace=workspace,
-                lease=lease,
-                sequence=len(cells) - 1,
-            )
             await self._lease_heartbeat.assert_execution(lease)
             await run_runtime_operation(
                 "executor.runtime.session.delete",
