@@ -52,7 +52,7 @@ POST /api/v1/executions
 | 필드 | 필수 | 의미 |
 |---|---:|---|
 | `type` | O | Runtime provider 유형. 현재 지원 값은 `JUPYTER` |
-| `profile` | O | 실행 환경 프로파일. 현재 설정에 등록된 `basic`, `ml` 등의 이름 |
+| `profile` | O | 실행 환경 프로파일. 기본 허용값은 `default`, `3102311`. 실제 배포의 `RUNTIME_ALLOWED_PROFILES` 및 Target 지원 프로파일과 일치해야 함 |
 
 실제 Runtime target과 session은 Worker가 실행을 할당할 때 결정되므로 제출 요청에는 넣지
 않는다.
@@ -74,7 +74,7 @@ POST /api/v1/executions
 
 | 필드 | 필수 | 의미 |
 |---|---:|---|
-| `operation_timeout_seconds` | X | Operation에 포함된 모든 Step의 전체 제한시간. 1초 이상 |
+| `operation_timeout_seconds` | X | Worker가 Operation을 RUNNING으로 전환한 시각부터 계산하는 시간 예산. 정수 1초 이상. 생략/null이면 이 제한 없음 |
 | `spec` | O | ExecutionSpec 1.0과 Step 목록 |
 | `metadata` | X | 이 Operation에만 적용되는 자유 형식 metadata. 기본값 `{}` |
 
@@ -92,7 +92,7 @@ POST /api/v1/executions
 | `sequence` | O | Execution 전체 기준 Step 순서. 최초 Step은 `0` |
 | `payload.type` | O | 현재 고정값 `PYTHON_EXECUTE` |
 | `payload.source` | O | 실행할 Python 코드의 INLINE 또는 PATH source |
-| `step_timeout_seconds` | X | 해당 Step만의 제한시간. 1초 이상 |
+| `step_timeout_seconds` | X | Step의 런타임 실행·출력 수집·결과 저장 처리 제한시간. 정수 1초 이상. 생략/null이면 이 제한 없음 |
 | `lineage` | X | Skill, Tool 및 입력 파라미터 추적 정보 |
 
 INLINE source:
@@ -134,7 +134,7 @@ INLINE/PATH 최대 크기와 Operation/Execution 최대 Step 수는 Executor 설
     "type": "INTERACTIVE",
     "actor": {"type": "AGENT", "id": "analytics-agent"}
   },
-  "runtime": {"type": "JUPYTER", "profile": "basic"},
+  "runtime": {"type": "JUPYTER", "profile": "default"},
   "context": {
     "user_id": "user-100",
     "task_id": "task-100",
@@ -183,3 +183,16 @@ INLINE/PATH 최대 크기와 Operation/Execution 최대 Step 수는 Executor 설
 
 응답 `Location` 헤더는 `/api/v1/executions/{execution_id}`를 가리킨다. 이후 Redis 이벤트를
 기다리고, 필요할 때 Location의 상태조회 API로 PostgreSQL 원본 상태를 확인한다.
+
+## 시간 제한과 장기 실행
+
+모든 요청 시간값은 초 단위다. 예시의 300/600은 기본값이 아니다.
+각 Step에는 Step 제한과 Operation 잔여 예산 중 작은 값이 적용된다.
+현재 Operation 제한은 각 Step 실행 시 검사하며, 준비·마지막 후처리 전체를
+독립적인 타이머로 감싸지는 않는다. 제한시간에 중단·정리 완료까지 보장하지 않는다.
+
+별도 서비스 전체 제한 `EXECUTION_MAX_RUNTIME_SECONDS`는 기본 5일이며 최초
+Worker 실행 시작부터 계산한다. 최초 큐 대기에는 별도 시간 제한이 없다.
+MULTI 후속 요청 대기시간은 Operation 완료 후 시작하므로 코드 실행시간과 다르다.
+Agent 생존 heartbeat나 Agent 장애만을 이유로 한 자동 취소는 제공하지 않는다.
+상세한 현재 동작과 재시도 규칙은 [시간 제한 가이드](execution-timeouts.md)를 따른다.

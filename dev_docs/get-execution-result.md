@@ -45,7 +45,7 @@ Execution 전체의 현재 상태다.
 | `WAITING_FOR_OPERATION` | MULTI 모드에서 다음 Operation 입력 대기 중 |
 | `FINALIZING` | 최종 종료 처리 중 |
 | `CANCEL_REQUESTED` | 취소 요청을 받았지만 Runtime 정리가 끝나지 않음 |
-| `CANCELLED` | 취소 및 Runtime 정리 완료 |
+| `CANCELLED` | 취소 상태 확정. Runtime 정리 성공은 별도 확인 필요 |
 | `SUCCEEDED` | 전체 실행 성공 |
 | `FAILED` | 전체 실행 실패 |
 
@@ -110,7 +110,7 @@ Step metadata로 받은 값을 저장한다.
 | 필드 | 타입 | 의미 |
 |---|---|---|
 | `result.status` | enum | Step의 현재 실행 상태 |
-| `result.output_summary` | object | 출력 종류와 크기에 대한 요약 |
+| `result.output_summary` | object | 출력 종류·개수·이미지/오류 포함 여부 요약. 바이트 크기는 result_ref에서 확인 |
 | `result.error_message` | string/null | Step 실패 메시지 |
 | `result.result_ref` | object/null | 공유 PV에 저장된 실제 Step 결과 manifest 참조 |
 
@@ -289,6 +289,11 @@ Execution의 실행 시도 이력이다. 최초 실행과 재시도가 각각 �
 | `EXECUTION_TIMEOUT` | Execution 최대 실행시간 초과 |
 | `OUTPUT_LIMIT_EXCEEDED` | 허용 출력 크기 초과 |
 | `RUNTIME_SESSION_LOST` | Runtime 세션 유실 |
+| `COMPLETION_FAILED` | 필수 노트북/Artifact 처리 또는 최종 Runtime 정리 실패. 최초 노트북 등록 시에도 발생 가능하며 모든 코드가 성공했다는 뜻은 아님 |
+
+`COMPLETION_FAILED`는 `NOT_RETRYABLE`이다. 성공한 Step과 저장된 결과는 유지하지만,
+실행 전 실패라면 결과 참조가 없을 수 있으므로 Step 상태 및 diagnostics를 확인한다.
+`RUNTIME_UNAVAILABLE`은 서버 부재뿐 아니라 통신·모니터링 불가 등도 포함한다.
 
 ## 6. `artifacts[]`
 
@@ -314,6 +319,9 @@ Execution에서 등록된 Artifact 요약 목록이다. 생성시각과 `artifac
 - `LOG`
 - `OTHER`
 
+위 목록은 조회 응답의 전체 enum이다. Artifact 작성 POST가 허용하는 타입과는
+구분한다. 작성 요청에서는 `DATASET`, `MODEL`을 허용하지 않는다.
+
 ### Artifact 상태
 
 | 값 | 의미 |
@@ -333,6 +341,12 @@ Execution에서 등록된 Artifact 요약 목록이다. 생성시각과 `artifac
 
 Execution 전체에서 생성한 Artifact라면 Step 관련 ID는 `null`일 수 있다.
 
+관리되는 `execution.ipynb`는 최초 저장 직후 등록되므로 RUNNING/WAITING/FAILED/
+CANCELLED에서도 목록에 나타날 수 있다. 새 노트북 등록은 Execution에 귀속되고
+Attempt/Step 참조는 null이다. 갱신·retry·finalize 시 같은 Artifact ID를 유지한다.
+`AVAILABLE`은 파일 등록 상태이며 분석 성공이나 최신 출력의 완전 반영을 보증하지
+않는다. 출력 반영 상태는 Execution 상세의 `workspace.notebook_projection`을 본다.
+
 ### `artifacts[].storage`
 
 | 필드 | 타입 | 의미 |
@@ -340,6 +354,9 @@ Execution 전체에서 생성한 Artifact라면 Step 관련 ID는 `null`일 수 
 | `type` | `PV`/`S3` | Artifact 저장소 유형 |
 | `media_type` | string/null | MIME 타입. 예: `image/png`, `text/markdown` |
 | `size_bytes` | integer/null | 파일 크기 |
+
+크기 등은 마지막 등록·갱신 때 관측한 값이다. 다운로드는 DB의 옛 크기가 아니라
+열기 시점의 현재 파일을 기준으로 한다. 세부 규칙은 [다운로드 가이드](get-artifact-content.md)를 따른다.
 
 이 API는 Artifact 요약만 제공하므로 URI와 파일 경로는 포함하지 않는다. 실제 위치와
 다운로드 정보는 다음 API를 사용한다.
@@ -381,7 +398,8 @@ Result API 호출 자체는 공유 PV의 manifest나 출력 파일을 읽지 않
 ## 9. Agent 권장 사용 흐름
 
 1. Redis에서 Operation 또는 Execution terminal 이벤트를 받는다.
-2. `GET /api/v1/executions/{execution_id}/result`를 호출한다.
+2. 전체 인덱스·상태 대조가 필요하면 `GET /api/v1/executions/{execution_id}/result`를
+   호출한다. 이벤트의 result_ref를 이미 영속적으로 처리했다면 매번 호출할 필요는 없다.
 3. `execution.state.status`로 전체 상태를 확인한다.
 4. `operations[].steps[].result.output_summary`로 출력 종류와 오류 여부를 판단한다.
 5. 실제 코드, 텍스트 또는 이미지가 필요하면 `result_ref.relative_path`의 manifest를
@@ -392,3 +410,7 @@ Result API 호출 자체는 공유 PV의 manifest나 출력 파일을 읽지 않
 
 이 API는 결과 원본 반환 API가 아니라, Execution 전체 상태와 결과 원본 위치를 한 번에
 찾기 위한 통합 결과 인덱스 API다.
+
+이 API의 축약된 Execution에는 failure/recovery/deadlines가 없다. 취소 후 커널 정리,
+타임아웃 사유, 노트북 최신 반영 상태는 [Execution 상세](get-execution.md)와
+[진단 이력](execution-diagnostics.md)을 조회한다.

@@ -38,7 +38,7 @@ API다. `execution_id`는 Execution 제출 응답에서 받은 UUID다.
 | `type` | Runtime provider 유형. 현재 `JUPYTER` |
 | `pool` | 내부 선택 Pool: `INTERACTIVE` 또는 `BATCH` |
 | `profile` | 요청한 Runtime 프로파일 |
-| `target_id` | 실제 할당된 Runtime target ID. 할당 전 또는 정리 후에는 `null` |
+| `target_id` | 실제 할당된 Runtime target ID. 할당 전 또는 FROM_START 재시도 준비 시 null일 수 있음. 커널 정리만으로 반드시 지워지지는 않으며 Target purge 후에도 과거 ID를 유지할 수 있음 |
 | `session_id` | 실제 Runtime session/kernel 식별자. 생성 전 또는 정리 후에는 `null` |
 
 ### `state`
@@ -94,6 +94,9 @@ API다. `execution_id`는 Execution 제출 응답에서 받은 UUID다.
 cleanup은 버려진 Runtime session 정리 상태이고, abort는 취소·중단 시 Runtime 실행 중지 및
 session 처리 상태다.
 
+`CANCELLED`라도 cleanup이 `FAILED`일 수 있다. terminal 상태만으로 커널 정리 성공을
+추론하지 않는다. `AVAILABLE` 노트북 Artifact 역시 Execution 성공을 뜻하지 않는다.
+
 ### `deadlines`
 
 | 필드 | 의미 |
@@ -109,6 +112,12 @@ session 처리 상태다.
 | `operation_wait_timeout_seconds` | MULTI 다음 Operation 대기 제한시간. SINGLE은 `null` |
 | `started_at` | Execution 최초 실행 시작 시각 또는 `null` |
 | `finished_at` | terminal 종료 시각 또는 `null` |
+
+시각은 UTC 기반이다. `updated_at`은 마지막 출력 시각이 아니고, Attempt 상세의
+heartbeat는 Worker 소유권 갱신 시각이지 코드 진척도가 아니다.
+`started_at`은 최초 Worker 실행 시작으로, 준비·MULTI 대기·재시도 간격을 포함한
+경과시간과 순수 계산시간을 혼동하지 않는다. 타임아웃 기본값과 실제 범위는
+[시간 제한 가이드](execution-timeouts.md)를 참고한다.
 
 ## Agent 사용 원칙
 

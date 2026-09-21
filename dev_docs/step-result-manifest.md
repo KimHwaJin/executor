@@ -12,6 +12,10 @@
 manifest는 Agent/Executor 공유 PV에 존재한다. Agent는 자신이 마운트한 Executor 결과 루트에
 `result_ref.relative_path`를 결합해 파일을 읽는다.
 
+이 결과 루트는 Executor의 `SHARED_STORAGE_ROOT`와 같은 파일을 볼 수 있는 Agent 측
+마운트다. Agent가 코드를 쓰는 입력 루트(`INPUT_STORAGE_ROOT`)와는 다를 수 있다.
+Jupyter의 notebook/report/artifact 파일 경로와도 구분한다.
+
 Redis Step 완료 이벤트와 Operation 완료 이벤트의 `step_results[].result_ref`도
 같은 manifest를 가리킨다. 참조의 `complete`와 manifest의 `complete`를 대조한다.
 `false`인 봉인된 manifest도 부분 증거로 읽을 수 있으며 Result API를 추가 호출할

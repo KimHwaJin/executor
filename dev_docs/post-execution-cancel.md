@@ -45,3 +45,10 @@ terminal 상태인 `SUCCEEDED`, `FAILED`, `CANCELLED`에는 취소를 요청할 
 `execution.completed` 이벤트의 `payload.status`가 `CANCELLED` 또는 `FAILED`가 될 때까지
 기다리고, timeout이면
 `GET /api/v1/executions/{execution_id}`로 확인한다.
+
+`CANCELLED`는 취소 상태가 확정됐다는 뜻이지, 원격 커널 정리가 반드시 성공했다는
+뜻은 아니다. 상태조회 응답의 `recovery.runtime_session_cleanup_status`를 별도로
+확인한다. `PENDING`/`FAILED`이면 정리 상태와 diagnostics를 확인해야 한다.
+취소 요청 성공이나 terminal 이벤트 수신만으로 Runtime 서버를 제거해도 된다고
+판단하지 않는다. 이미 등록된 노트북은 취소 후에도 다운로드할 수 있지만,
+최신 출력 반영 여부는 `workspace.notebook_projection`으로 확인한다.

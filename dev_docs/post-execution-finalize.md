@@ -51,10 +51,15 @@ POST /api/v1/executions/{execution_id}/finalize
 Execution은 `SUCCEEDED` 또는 `FAILED` terminal 상태가 되고 Redis terminal 이벤트가
 발행된다.
 
-최종화는 공유 결과를 읽어 노트북을 저장하고 최종 노트북 Artifact 등록과 런타임
-해제까지 확인한다. 이 처리에 실패하면 `COMPLETION_FAILED / NOT_RETRYABLE`이며,
+노트북 Artifact는 최초 노트북 저장 성공 직후 이미 등록되며 finalize 전에도
+조회·다운로드할 수 있다. 최종화는 공유 결과를 읽어 노트북을 저장하고 같은
+Artifact의 메타데이터 갱신과 런타임 해제까지 확인한다.
+이 처리에 실패하면 `COMPLETION_FAILED / NOT_RETRYABLE`이며,
 이미 성공한 Step과 Operation은 실패로 소급 변경하지 않는다.
 
 `409`이면 먼저 응답 사유를 확인한다. version 충돌은 최신 상태를 조회한 뒤 재판단한다.
 마지막 Operation 실패가 사유라면 finalize를 반복하지 말고 보정 Operation을 성공시킨
 뒤 finalize하거나 cancel한다. [필수 결과 완료 정책](../docs/required-result-completion.md) 참고.
+
+요청 접수 시 MULTI의 다음 요청 대기 기한을 해제한다. 이 API에는 별도 실행시간
+입력 필드가 없다. finalization은 비동기이므로 응답 후 terminal 상태를 확인해야 한다.

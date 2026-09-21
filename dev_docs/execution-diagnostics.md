@@ -127,6 +127,9 @@ Attempt의 오류는 보존된다. 현재 필수 완료 정책에서는 코드�
 Operation이 실패했던 이력은 최종 성공 후에도 남을 수 있다.
 자세한 기준은 [필수 결과 완료 정책](../docs/required-result-completion.md)을 참고한다.
 
+최초 노트북 Artifact 등록 실패도 코드 실행 전에 `COMPLETION_FAILED`가 될 수 있다.
+이 분류 자체가 코드 성공을 보증하지는 않는다. Step 상태와 참조 유무를 확인한다.
+
 진단이 없다는 사실만으로 정상임을 증명할 수는 없다. DB 장애, 프로세스 강제 종료,
 소유권 상실 또는 아직 연결하지 않은 복구 경로에서는 DB 기록이 없을 수 있다.
 기존 상태/오류 필드와 `runtime.failure` 로그를 함께 확인한다.
@@ -134,8 +137,11 @@ DB 기록 실패는 `DIAGNOSTIC_PERSIST` 단계 로그로 남긴다.
 
 ## 배포
 
-실제 2026-08-31 `0001` baseline DB에서 다음 명령을 실행한다. 데이터 초기화나
-Redis 초기화는 필요 없다. 기존의 더 오래된 동명 baseline과 혼동하지 않는다.
+2026-09-21 현재 저장소의 migration head는 `0005`이며 애플리케이션의 예상 revision도
+`0005`다. 진단 도입 당시 변경은 `0002`, 필수 결과 완료 정책은 `0003`이었고,
+이후 `0004`(trace context 제거), `0005`(Runtime purge 이력)가 추가됐다.
+현재 migration 이력과 일치하는 DB에 다음 명령을 실행한다. 이번 문서 갱신에는
+새 migration이나 DB/Redis 초기화가 필요하지 않다.
 
 ```bash
 uv run alembic upgrade head
@@ -143,5 +149,7 @@ uv run alembic current
 uv run alembic check
 ```
 
-새 head는 `0003`다. 새 애플리케이션보다 마이그레이션을 먼저 적용한다.
-이번 작업에서는 개발자의 기존 서비스 DB를 자동으로 변경하지 않았다.
+기존 DB에는 배포 절차에 따라 migration을 먼저 적용한다. `DB_AUTO_MIGRATE=true`이면
+앱 시작 시에도 수행하지만 기본값은 false다. 더 오래된 동명 `0001` baseline이나
+현재 소스보다 높은 revision이 찍힌 DB에 임의로 stamp하지 않는다. 실제 테이블과
+migration 이력부터 확인한다. 이 문서 작업은 서비스 DB를 변경하지 않는다.

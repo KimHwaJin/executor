@@ -360,6 +360,21 @@ must be addressed before deleting history while retaining usable Artifacts.
 - No deletion of existing Execution rows, events, Artifacts or storage files.
 - Previously discussed endpoints and provenance fields remain proposals.
 
+## DD-009: Execution timing metrics and timeout contract alignment
+
+- Status: DEFERRED
+- Area: Execution/Operation/Step timing, API contracts, persistence
+- Deferred on: 2026-09-21
+- Resume when: request timeout boundaries and lifecycle policies are agreed
+- Decision: record elapsed-time measurement options first; decide implementation
+  together with API timeout behavior. No new timing fields, migrations, or
+  execution behavior changes are authorized by this discussion alone.
+- Review: [Execution 시간 정책 검토](execution-time-contract-review.md).
+- Open: distinguish total elapsed, scheduling wait, execution processing,
+  Agent/retry wait, and runtime elapsed time; determine which existing timestamps
+  suffice and which intervals require durable measurement. Do not label
+  Executor-observed wall time as pure code computation time.
+
 ## OpenTelemetry removal
 
 - Decision: remove Executor-owned tracing and Phoenix export. Keep standard logs,
