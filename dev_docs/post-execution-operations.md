@@ -55,7 +55,7 @@ INLINE source는 `{"type":"INLINE","content":"..."}` 형식이다. PATH source�
 `lineage`는 `skill_name`, `tool_name`, `input_parameters`를 지원한다. Operation/Execution
 Step 최대 개수는 Executor 설정값을 넘을 수 없다.
 
-## Request 예시
+## Request 예시 — INLINE
 
 최초 Operation이 sequence `0`, `1`을 사용했다면 다음 Operation은 `2`부터 시작한다.
 
@@ -89,6 +89,53 @@ Step 최대 개수는 Executor 설정값을 넘을 수 없다.
   "actor": {"type": "AGENT", "id": "analytics-agent"}
 }
 ```
+
+## Request 예시 — PATH
+
+[Execution 문서의 PATH 예시](post-executions.md)에서 최초 Step `0`, `1`이 성공하고,
+Execution이 `WAITING_FOR_OPERATION`이 된 후의 요청이다. 최초 제출 응답의
+`execution_id`를 URL에 넣는다. `expected_version: 4`는 예시이므로 실제 최신
+`state.version` 또는 continuation의 `expected_version`으로 바꾼다.
+
+입력 루트 아래에 `tasks/task-100/average.py`를 작성한다:
+
+```python
+print(total / len(values))
+```
+
+동일 MULTI Execution에서 유지된 커널의 `total`과 `values`를 사용한다.
+아래 checksum은 위 코드를 UTF-8, BOM 없이 마지막 LF 하나를 포함해 저장한 값이다.
+실제 파일 내용이 다르면 다시 계산한다.
+
+```json
+{
+  "idempotency_key": "task-100-path-operation-2",
+  "expected_version": 4,
+  "operation_timeout_seconds": 600,
+  "spec": {
+    "schema_version": "1.0",
+    "steps": [
+      {
+        "sequence": 2,
+        "payload": {
+          "type": "PYTHON_EXECUTE",
+          "source": {
+            "type": "PATH",
+            "path": "tasks/task-100/average.py",
+            "sha256": "c976508b0b8b3c220e9ad83f72ae5cc2cc407f45aeb0c6c15f4357543bce6029"
+          }
+        },
+        "step_timeout_seconds": 300
+      }
+    ]
+  },
+  "actor": {"type": "AGENT", "id": "analytics-agent"}
+}
+```
+
+최초 제출과 달리 `operation` wrapper나 `lifecycle`, `runtime`, `context`를
+다시 보내지 않는다. `spec`과 시간 제한은 body 바로 아래에 넣는다. Step 번호는
+Operation마다 `0`으로 되돌리지 않고 Execution 전체의 다음 번호를 사용한다.
 
 ## Response: `202 Accepted`
 
