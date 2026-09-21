@@ -121,7 +121,7 @@ INLINE/PATH 최대 크기와 Operation/Execution 최대 Step 수는 Executor 설
 | `tool_name` | X | 실행 Tool 이름 |
 | `input_parameters` | X | Tool 입력 파라미터. 기본값 `{}` |
 
-## Request 예시
+## Request 예시 — INLINE
 
 ```json
 {
@@ -166,6 +166,112 @@ INLINE/PATH 최대 크기와 Operation/Execution 최대 Step 수는 Executor 설
   "metadata": {}
 }
 ```
+
+## Request 예시 — PATH
+
+Step마다 실행할 `.py` 파일 경로와 checksum을 전달한다. 하나의 PATH 파일 내용
+전체가 하나의 Step으로 실행되며, 파일 내부의 함수별로 자동 분해하지 않는다.
+아래는 두 Step을 실행한 뒤 후속 Operation을 기다리는 MULTI 예시다.
+
+Executor 설정이 `INPUT_STORAGE_ROOT=/mnt/data/agent`라면 입력 파일은 다음과 같다.
+Agent는 같은 저장소를 자신의 마운트 경로에서 작성하고, 요청에는 루트 기준
+상대경로만 넣는다. `requests/` 같은 접두사는 필요 없다.
+
+```text
+/mnt/data/agent/
+└── tasks/task-100/
+    ├── prepare.py
+    └── summarize.py
+```
+
+`tasks/task-100/prepare.py`:
+
+```python
+values = [10, 20, 30]
+```
+
+`tasks/task-100/summarize.py`:
+
+```python
+total = sum(values)
+print(total)
+```
+
+아래 checksum은 위 코드에 각각 마지막 줄바꿈 LF 하나를 포함하고 UTF-8, BOM 없이
+저장한 파일 기준이다. 실제로는 작성한 파일의 바이트로 SHA-256을 계산해 넣는다.
+파일 내용이나 줄바꿈이 바뀌면 checksum도 다시 계산해야 한다.
+
+```json
+{
+  "idempotency_key": "submit-task-100-path-1",
+  "lifecycle": {
+    "operation_mode": "MULTI",
+    "operation_wait_timeout_seconds": 600
+  },
+  "trigger": {
+    "type": "INTERACTIVE",
+    "actor": {"type": "AGENT", "id": "analytics-agent"}
+  },
+  "runtime": {"type": "JUPYTER", "profile": "default"},
+  "context": {
+    "user_id": "user-100",
+    "task_id": "task-100",
+    "project_id": "project-100",
+    "session_id": "session-100"
+  },
+  "operation": {
+    "operation_timeout_seconds": 600,
+    "spec": {
+      "schema_version": "1.0",
+      "steps": [
+        {
+          "sequence": 0,
+          "payload": {
+            "type": "PYTHON_EXECUTE",
+            "source": {
+              "type": "PATH",
+              "path": "tasks/task-100/prepare.py",
+              "sha256": "54aed2d85ef666ce4f9a52703d69ed96cb281cd859b93c85ee04391247c60cb5"
+            }
+          },
+          "step_timeout_seconds": 300
+        },
+        {
+          "sequence": 1,
+          "payload": {
+            "type": "PYTHON_EXECUTE",
+            "source": {
+              "type": "PATH",
+              "path": "tasks/task-100/summarize.py",
+              "sha256": "ed7de6fea8894809ed9d90b0539ce374d773b67a15c57a2f9da80e85fa53549c"
+            }
+          },
+          "step_timeout_seconds": 300
+        }
+      ]
+    }
+  }
+}
+```
+
+SINGLE로 실행을 끝내려면 위 `lifecycle`을
+`{"operation_mode":"SINGLE"}`로 바꾼다. PATH 지정 방식은 동일하다.
+MULTI 후속 요청은 [Operation 문서의 PATH 예시](post-execution-operations.md)를
+참고한다.
+
+checksum の計算例（Agent側で実際に書き込んだファイルを指定）:
+
+```python
+import hashlib
+from pathlib import Path
+
+path = Path("/mnt/data/agent/tasks/task-100/prepare.py")
+print(hashlib.sha256(path.read_bytes()).hexdigest())
+```
+
+入力ファイルは提出前に書き込みを完了する。Executorが読む入力ファイルであり、
+Jupyter PV上のファイルパスではない。`INPUT_STORAGE_ROOT` 未設定時は
+`SHARED_STORAGE_ROOT` 基準になる。
 
 ## Response: `202 Accepted`
 
