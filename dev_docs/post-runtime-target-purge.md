@@ -3,7 +3,7 @@
 ## 용도와 요청
 
 운영자가 사용을 마친 Runtime Target의 **등록정보**를 제거한다.
-REST 전용 관리 API이며 MCP Tool은 추가하지 않는다.
+REST 전용 관리 API이며 MCP 도구는 제공하지 않는다.
 
 ```http
 POST /api/v1/runtime-targets/{target_id}/purge
@@ -47,7 +47,7 @@ Content-Type: application/json
 | 해당 UUID가 이미 삭제됨 | 200 | 최초 삭제 기록 반환 |
 | 등록도 삭제 기록도 없음 | 404 | `RUNTIME_TARGET_NOT_FOUND` |
 | 미비활성화·진행 중 작업·미확인 커널 정리 | 409 | `RUNTIME_TARGET_PURGE_CONFLICT` |
-| 잘못된 UUID·body 또는 폐기한 필드 | 422 | 입력 검증 실패 |
+| 잘못된 UUID·body 또는 허용하지 않는 필드 | 422 | 입력 검증 실패 |
 
 ## 삭제 조건과 영향
 
@@ -62,8 +62,8 @@ Content-Type: application/json
 
 삭제되는 것은 활성 등록과 거기에 저장된 인증정보다. Execution, Operation, Step,
 Attempt, 이벤트, Artifact 및 실제 파일은 보존한다. Execution/Attempt의 과거
-`runtime_target_id`도 유지한다. 이 ID는 더 이상 활성 등록만을 가리키는 외래키가
-아니며, 삭제 후에는 `runtime_target_purges.target_id`로 삭제 시점의 이름·종류·
+`runtime_target_id`도 유지한다. 이 ID는 활성 등록에 대한 외래키가 아니며,
+삭제 후에는 `runtime_target_purges.target_id`로 삭제 시점의 이름·종류·
 풀·비밀값 없는 접속 설정을 확인할 수 있다. 삭제 기록은 정상 서버 목록에 나오지
 않으며 기존 Target 상세 GET은 `404`를 반환한다. 별도 삭제 이력 조회 API는 없다.
 
@@ -80,16 +80,3 @@ Attempt, 이벤트, Artifact 및 실제 파일은 보존한다. Execution/Attemp
 새 UUID와 새 probe 관측값을 갖는 별도 등록이며, 과거 실행 ID나 커널을 인계하지 않는다.
 삭제된 등록에 쓰였던 upsert 키를 재사용하면 `409 IDEMPOTENCY_CONFLICT`이다.
 이전 UUID로 purge를 반복해도 새 등록에는 영향이 없고 최초 삭제 결과만 반환한다.
-
-## 배포와 롤백
-
-- Alembic `0005`로 업그레이드한다. 실제 DB를 초기화하지 않는다.
-- 기존 Executor 프로세스를 안전하게 종료한 뒤 마이그레이션/새 코드 배포를 진행한다.
-  기존 코드는 삭제된 purge의 멱등성 컬럼을 사용하므로 혼용하지 않는다.
-- Execution/Attempt의 Target 외래키 2개와 purge 기록의 멱등성 키·fingerprint 컬럼만
-  제거한다. UUID 및 업무 이력은 유지한다. 다른 명령의 멱등성 처리와 이벤트 스키마는
-  바뀌지 않는다.
-- 과거 실행이 참조하는 서버를 이미 삭제했다면 `0004` downgrade를 차단한다.
-  이력 ID를 지우거나 가짜 서버를 만들어 강행하지 않는다. `0005` 유지 또는 삭제 전
-  백업 복원이 필요하다. 허용되는 downgrade도 폐기한 요청 키·해시는 복원하지 못하며
-  기존 삭제 기록에 충돌 없는 대체 값을 채워 이전 스키마만 복원한다.

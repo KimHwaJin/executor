@@ -24,7 +24,7 @@ POST /api/v1/executions/{execution_id}/retry
 `retry.strategy=NOT_RETRYABLE`이며 retry는 409다. 이미 성공한 코드는 저장 문제를
 고치기 위해 재실행하지 않는다. 존재하는 result_ref로 결과를 읽고 Step 상태와
 diagnostics로 실패 단계를 확인한다. 참조가 아직 없을 수도 있다.
-코드 실행 없는 후처리 복구 API는 아직 없다.
+코드 실행 없는 후처리 복구 API는 제공하지 않는다.
 
 ## Request Body
 
