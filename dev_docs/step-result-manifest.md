@@ -1,4 +1,4 @@
-# Step Result Manifest 1.0
+# 스텝 결과 매니페스트 1.0
 
 ## 목적
 
@@ -226,5 +226,5 @@ outputs[].representations[].relative_path
 일반 파일 탐색으로 다른 attempt나 fencing generation을 선택해서는 안 된다. PostgreSQL 원본
 상태가 가리키는 `result_ref`와 그 manifest 내부에 선언된 파일만 읽는다.
 
-이전 manifest-directory 상대경로를 자동 감지하는 fallback은 없다. 기존 결과의
-전환 주의사항은 [공유 PV 경로 규칙](../docs/shared-pv-path-contract.md)을 참조한다.
+파일 경로는 모두 Executor 결과 루트 기준으로 해석한다.
+manifest 파일이 있는 디렉터리를 기준으로 해석하지 않는다.

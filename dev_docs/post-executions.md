@@ -259,7 +259,7 @@ SINGLE로 실행을 끝내려면 위 `lifecycle`을
 MULTI 후속 요청은 [Operation 문서의 PATH 예시](post-execution-operations.md)를
 참고한다.
 
-checksum の計算例（Agent側で実際に書き込んだファイルを指定）:
+체크섬 계산 예시(에이전트가 실제로 작성한 파일을 지정):
 
 ```python
 import hashlib
@@ -269,9 +269,9 @@ path = Path("/mnt/data/agent/tasks/task-100/prepare.py")
 print(hashlib.sha256(path.read_bytes()).hexdigest())
 ```
 
-入力ファイルは提出前に書き込みを完了する。Executorが読む入力ファイルであり、
-Jupyter PV上のファイルパスではない。`INPUT_STORAGE_ROOT` 未設定時は
-`SHARED_STORAGE_ROOT` 基準になる。
+입력 파일은 요청을 제출하기 전에 작성을 완료해야 한다. 이 경로는 익스큐터가 읽는
+입력 파일의 경로이며, 주피터 저장소의 파일 경로가 아니다. `INPUT_STORAGE_ROOT`를
+설정하지 않으면 `SHARED_STORAGE_ROOT`를 기준으로 해석한다.
 
 ## Response: `202 Accepted`
 

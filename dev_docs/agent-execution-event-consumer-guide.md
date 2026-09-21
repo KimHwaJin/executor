@@ -1,4 +1,4 @@
-# Agent Execution Event Consumer Guide
+# 에이전트 실행 이벤트 소비 가이드
 
 이 문서는 Executor에 Execution을 제출한 Agent가 `executor.events`를 안전하게 소비하고,
 필요한 경우 PostgreSQL 기반 이벤트 이력으로 누락 구간을 복구하는 방법을 정의한다.
@@ -56,7 +56,7 @@ Redis 처리 세부사항은 LLM이나 LangGraph 업무 노드가 아니라 Agen
 `execution_id + event_sequence`를 사용한다.
 
 이벤트 타입별 payload는
-[Redis Execution Event Contract 1.0](./redis-execution-events.md)을 따른다.
+[Redis 실행 이벤트 스키마 1.0](./redis-execution-events.md)을 따른다.
 
 ## 3. Agent Subscriber 처리 알고리즘
 
@@ -179,10 +179,6 @@ Redis 메시지는 Pending에 남긴다. 예외를 잡고 무조건 ACK하는 fi
 장기 중단으로 DB 이벤트 보관 기한까지 지나 복구 불가하면 현재 Execution/Result로
 별도 상태 복구·운영 판단을 수행한다. 누락 이벤트를 처리했다고 임의로 checkpoint를
 올리지 않는다. 이는 Agent 구현 가이드이며 Executor가 Agent checkpoint를 저장하지 않는다.
-
-테스트 Agent의 참고 구현 진입점은
-`test_harness/agent/src/executor_test_agent/integrations/events.py`에 있다.
-예시의 Agent DB 트랜잭션·durable 재개 예약을 대신 제공하는 라이브러리라는 뜻은 아니다.
 
 ## 5. SINGLE 실행 흐름
 

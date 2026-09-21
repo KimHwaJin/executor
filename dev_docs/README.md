@@ -1,8 +1,7 @@
 # Executor 개발자 연동 문서
 
-검토 기준: 2026-09-21 현재 저장소 구현. 이 디렉토리는 Agent/BFF 연동에 필요한
+이 디렉토리는 Agent/BFF 연동에 필요한
 문서 모음이며, 모든 운영 API에 개별 Markdown이 있는 것은 아니다.
-논의 중인 제안은 공개 API 계약에 포함하지 않는다.
 
 ## 실행 API
 
@@ -47,19 +46,10 @@ Runtime 관리와 maintenance 전체 계약은 서비스 `/docs`, `/redoc` 또�
 5. `CANCELLED`는 원격 커널 정리 성공을 보증하지 않는다. 상세의 recovery를 본다.
 6. 노트북은 최초 저장 시부터 등록되고 실행 중·실패 후에도 다운로드할 수 있다.
    `AVAILABLE`은 분석 성공이나 모든 출력의 반영 완료를 뜻하지 않는다.
-7. 소요시간 세분화·추가 DB 필드는 아직 도입하지 않았다. Agent heartbeat 정책도
-   채택하지 않았다. [설계 논의 기록](../docs/execution-time-contract-review.md)은
-   구현된 계약이 아니다.
+7. 전용 코드 계산시간·대기시간 누적 필드는 제공하지 않는다. Agent의 생존 신호를
+   주기적으로 받거나 Agent 장애만을 이유로 실행을 자동 취소하지 않는다.
 
-## 재생성 및 검증
+## 예시 사용 안내
 
-ReDoc에는 런타임 스크립트와 스키마가 포함되어 있다. 다음 명령은 기존 HTML의
-ReDoc 스크립트를 재사용해 현재 코드에서 스키마를 재생성한다.
-
-```bash
-uv run python scripts/generate_execution_redoc.py --redoc-js dev_docs/execution-api-redoc.html
-```
-
-API 입력 모델의 검증 통과와 실제 실행 가능 여부는 다르다. 예시의 사용자 ID,
-실행 ID, checksum, 파일 존재, Runtime 등록은 환경에 맞게 준비해야 한다.
-스키마 검증은 실제 서비스 E2E 테스트를 대체하지 않는다.
+예시의 사용자 ID, 실행 ID, 체크섬은 실제 요청 대상에 맞게 지정한다.
+PATH 요청의 파일은 입력 루트 아래에 작성하고, 실행에 사용할 Runtime을 등록한다.

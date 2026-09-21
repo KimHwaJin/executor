@@ -7,9 +7,8 @@
 GET /api/v1/executions/{execution_id}/diagnostics
 ```
 
-현재 REST로 제공한다. 공통 Pydantic 응답 모델은 분리돼 있지만 MCP Tool 추가는
-후속 작업이다. 기존 실행 API, Redis 이벤트 envelope/payload, manifest 계약은
-변경하지 않는다. 소비자가 모든 이벤트마다 이 API를 호출할 필요는 없다.
+REST 전용 API이며 MCP 도구는 제공하지 않는다.
+소비자가 모든 이벤트마다 이 API를 호출할 필요는 없다.
 
 ## 요청
 
@@ -95,7 +94,7 @@ DB가 계속 불가용하면 안전한 운영 로그만 남을 수 있다.
 
 이는 실행 결과가 유실됐다는 뜻이 아니다. 보존된 부분 출력은 공유 PV의
 `result_ref.complete=false`를 읽는다. Jupyter 노트북은 마지막 반영본이며,
-자동 재생성은 이번 범위에 없다. 원래 `CANCELLED`/`WORKER_SHUTDOWN` 상태와
+자동으로 재생성하지 않는다. 원래 `CANCELLED`/`WORKER_SHUTDOWN` 상태와
 재시도 정책도 유지한다. DB 장애/소유권 상실 시 상태·진단 저장은 보장할 수 없다.
 
 백그라운드 관측에는 `RECOVERY_TARGET`, `RECOVERY_DRIVER_CREATE`,
@@ -106,8 +105,8 @@ DB가 계속 불가용하면 안전한 운영 로그만 남을 수 있다.
 일시적인 MULTI 연결 오류는 WAITING 상태를 유지하면서 ERROR 관측을 남긴다.
 이력 존재만으로 실행이 실패했다는 의미는 아니다. 반복 백그라운드 오류는 5분 단위로
 중복을 제한하므로 이력 건수가 실제 오류 발생 횟수와 일치하지 않는다. 새 Operation이나
-커널로 바뀐 뒤 도착한 오래된 관측은 저장하지 않는다. 기존 이벤트 소비/결과 읽기
-방식에 새 필수 API 호출은 없다.
+커널로 바뀐 뒤 도착한 오래된 관측은 저장하지 않는다.
+진단 이력 조회는 이벤트 소비와 결과 읽기의 필수 절차가 아니다.
 
 ## 소비 방법과 주의점
 
@@ -131,25 +130,6 @@ Operation이 실패했던 이력은 최종 성공 후에도 남을 수 있다.
 이 분류 자체가 코드 성공을 보증하지는 않는다. Step 상태와 참조 유무를 확인한다.
 
 진단이 없다는 사실만으로 정상임을 증명할 수는 없다. DB 장애, 프로세스 강제 종료,
-소유권 상실 또는 아직 연결하지 않은 복구 경로에서는 DB 기록이 없을 수 있다.
+소유권 상실 또는 진단 기록을 남기지 않는 복구 경로에서는 DB 기록이 없을 수 있다.
 기존 상태/오류 필드와 `runtime.failure` 로그를 함께 확인한다.
 DB 기록 실패는 `DIAGNOSTIC_PERSIST` 단계 로그로 남긴다.
-
-## 배포
-
-2026-09-21 현재 저장소의 migration head는 `0005`이며 애플리케이션의 예상 revision도
-`0005`다. 진단 도입 당시 변경은 `0002`, 필수 결과 완료 정책은 `0003`이었고,
-이후 `0004`(trace context 제거), `0005`(Runtime purge 이력)가 추가됐다.
-현재 migration 이력과 일치하는 DB에 다음 명령을 실행한다. 이번 문서 갱신에는
-새 migration이나 DB/Redis 초기화가 필요하지 않다.
-
-```bash
-uv run alembic upgrade head
-uv run alembic current
-uv run alembic check
-```
-
-기존 DB에는 배포 절차에 따라 migration을 먼저 적용한다. `DB_AUTO_MIGRATE=true`이면
-앱 시작 시에도 수행하지만 기본값은 false다. 더 오래된 동명 `0001` baseline이나
-현재 소스보다 높은 revision이 찍힌 DB에 임의로 stamp하지 않는다. 실제 테이블과
-migration 이력부터 확인한다. 이 문서 작업은 서비스 DB를 변경하지 않는다.

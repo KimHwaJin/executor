@@ -1,11 +1,10 @@
 # Executor Redis 실행 이벤트 계약
 
-## 1. 문서 상태와 목적
+## 1. 목적
 
-이 문서는 Executor가 외부 시스템에 발행하는 Redis 실행 이벤트의 구현된 계약을
+이 문서는 Executor가 외부 시스템에 발행하는 Redis 실행 이벤트의 계약을
 정의한다. Agent를 포함한 모든 외부 소비자는 이 문서를 기준으로 이벤트를 구현한다.
 
-검토 기준: 2026-09-21. 코드의 6종 이벤트 payload 및 envelope와 대조했다.
 실제 ID는 UUID다. 아래 JSON의 ID/checksum은 형식상 유효한 설명용 값이며 실제
 파일의 크기·checksum·참조 대상을 보장하는 실행 fixture는 아니다.
 
@@ -16,10 +15,8 @@
 - 상태 원본: PostgreSQL
 - 결과 원본: 공유 PV의 Step 결과 파일
 
-2026-08-31 개선: 모든 비-null `result_ref`에 필수 boolean `complete`를 추가하고
-불완전한 봉인 결과도 제공한다. 버전 문자열은 1.0을 유지하지만, 이전 참조 이벤트의
-자동 변환/호환 처리는 없다. 기존 pending Outbox와 과거 이력 재처리 전환 주의사항은
-[부분 결과 참조 전환 가이드](../docs/partial-result-event-references.md#개발-계약-전환-주의)를 참고한다.
+null이 아닌 모든 `result_ref`에는 필수 boolean `complete`가 포함된다.
+불완전한 봉인 결과도 참조할 수 있으며, `complete=false`로 구분한다.
 
 이벤트는 상태 원본이 아니다. 이벤트는 상태 변경을 알리고, 실행 중 생성된 Step 결과
 파일을 찾을 수 있게 하는 통합 계약이다. 상태 충돌, 이벤트 누락 또는 재처리 시에는
@@ -498,9 +495,9 @@ Operation 성공은 소속 Step 결과, 노트북 저장, 실제 발견된 아�
 - 마지막 Operation이 실패했으면 finalize 요청은 409이며, 보정 Operation을 성공시킨
   뒤 finalize하거나 cancel한다. 이전 실패 Operation 이력은 삭제하지 않는다.
 
-이벤트 envelope와 schema_version `1.0`은 유지한다. `result_ref.complete`로 완전성을 구분한다.
+이벤트의 `schema_version`은 `1.0`이며, `result_ref.complete`로 결과의 완전성을 구분한다.
 원인 조사는 diagnostics API로 하고, 이 실패를 코드 retry로 복구하지 않는다.
-자동 노트북 재생성/후처리 복구 API는 아직 제공하지 않는다.
+자동 노트북 재생성/후처리 복구 API는 제공하지 않는다.
 
 MULTI 성공 예시:
 

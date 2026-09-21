@@ -7,7 +7,7 @@
 다른 풀의 PV는 탐색하지 않는다. 동일 풀 내부는 동일 PV와 상대경로 구조를
 사용해야 하며, 해당 풀에 접근 가능한 서버가 없으면 다운로드는 실패한다.
 파일/Range 오류에는 다른 서버를 시도하지 않고, 응답을 시작한 뒤에도 서버를
-전환하지 않는다. 이 변경으로 요청 필드를 추가할 필요는 없다.
+전환하지 않는다.
 
 `GET /api/v1/artifacts/{artifact_id}/content`
 
@@ -40,9 +40,6 @@ Executor/BFF가 Jupyter PV를 마운트할 필요는 없다. Jupyter 토큰과 �
   `workspace.notebook_projection`의 상태·오류를 함께 확인하면 출력 반영 실패를 구분할 수 있다.
 - 파일/PV/접근 가능한 Jupyter가 없어지면 AVAILABLE 기록이 남아도 다운로드는 실패한다.
   DB 등록과 파일 저장은 서로 다른 시스템이므로 장애 중 등록 성공까지 보장하지 않는다.
-
-기존 완료/실패 이력을 일괄 탐색해 과거 미등록 노트북을 채우는 작업은 하지 않는다.
-적용 이후 저장 경로부터 등록되며, 이미 등록된 같은 경로는 기존 ID를 재사용한다.
 
 ## 요청
 
@@ -102,7 +99,7 @@ created 감사필드와 artifact_id는 유지한다. 사람이 저장하거나 �
 
 다운로드 GET으로 Artifact 생성 이력·감사필드·Execution 상태·Step result ref를 갱신하지
 않는다. 과거 Artifact ID도 현재 그 경로의 파일을 가리키며 과거 버전 복원 API가 아니다.
-리포트의 `append_to_notebook` 기본값은 계속 `false`다. 명시적으로 `true`로 추가한 후에는
+리포트의 `append_to_notebook` 기본값은 `false`다. 명시적으로 `true`로 추가한 후에는
 같은 노트북 Artifact 다운로드가 추가된 내용까지 반환한다.
 
 ## 저장 중 다운로드의 보장 범위
@@ -147,27 +144,10 @@ Jupyter에서 파일을 먼저 열고, 같은 파일 핸들로 크기 확인·�
    BFF/Istio의 timeout, body 제한, buffering 정책을 함께 검증한다.
 6. 전송 도중 실패한 응답을 자동으로 처음부터 재요청해 기존 바이트 뒤에 이어 붙이지 않는다.
 
-## 성능과 배포
+## 다운로드 비용
 
-현재 강한 ETag/SHA-256 응답을 유지하기 위해 Jupyter가 **요청마다 전체 파일을 한 번 읽어
+강한 ETag/SHA-256 응답을 제공하기 위해 Jupyter가 **요청마다 전체 파일을 한 번 읽어
 해시한 뒤**, 요청 구간을 다시 읽어 전송한다. Range도 전체 해시 계산 비용이 든다.
 메모리는 청크 단위로 제한되지만, 첫 바이트까지의 지연과 스토리지 I/O는 파일 크기에 따라
-증가한다. 큰 파일을 불필요하게 여러 조각으로 나누면 이 비용도 반복된다. 불변 파일 버전과
-안전한 해시 캐시를 별도로 도입하기 전까지 이 특성을 고려한다. DB의 옛 해시를 재사용하지 않는다.
-
-배포 범위를 구분한다. 예전 `start/end` query 방식에서 현재 파일/Range 다운로드로
-전환하는 경우에는 Executor와 Jupyter 확장/이미지를 함께 업데이트해야 한다.
-이미 해당 다운로드 구현을 사용하는 환경에서 **노트북 최초 저장 시 등록 기능만**
-반영한다면 Executor만 업데이트한다. 이 기능에는 새 Jupyter 변경이 없다.
-외부 Artifact URL과 Execution/Redis 스키마는 유지된다. 해당 노트북 등록 변경에
-DB 마이그레이션, 기존 Artifact 삭제·재등록, PV 초기화는 필요 없다.
-
-실제 Docker 재현 테스트(기존 Compose/DB/Redis를 변경하지 않음):
-
-```shell
-RUN_ARTIFACT_DOWNLOAD_LIVE=1 uv run pytest -q -s tests/test_artifact_download_live.py
-```
-
-PowerShell에서는 `$env:RUN_ARTIFACT_DOWNLOAD_LIVE = '1'` 설정 후 같은 `uv run pytest` 명령을
-사용한다. 이 opt-in 테스트에는 Docker와 미리 빌드한 `executor-jupyter:local` 이미지가
-필요하며, 일회용 Jupyter·SQLite DB·HTTP Executor/BFF를 사용하고 테스트 종료 시 정리한다.
+증가한다. 큰 파일을 불필요하게 여러 조각으로 나누면 이 비용도 반복된다.
+DB에 저장된 과거 해시는 다운로드 응답의 해시로 재사용하지 않는다.
