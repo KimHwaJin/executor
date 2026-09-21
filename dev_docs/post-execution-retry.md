@@ -18,10 +18,13 @@ POST /api/v1/executions/{execution_id}/retry
 - `FROM_START`는 버려진 Runtime session cleanup이 해결된 뒤 호출할 수 있다.
 - MULTI Tool 실패는 retry 대신 수정한 다음 Operation을 제출하는 방식으로 처리한다.
 
-`failure.type=COMPLETION_FAILED`는 코드 성공 후 노트북/아티팩트 전달 또는 최종
-런타임 정리가 실패한 경우다. `retry.strategy=NOT_RETRYABLE`이며 retry는 409다.
-저장 문제를 고치기 위해 성공한 코드를 재실행하지 않는다. 기존 result_ref로 결과를
-읽고 diagnostics로 원인을 확인한다. 코드 실행 없는 후처리 복구 API는 아직 없다.
+`failure.type=COMPLETION_FAILED`는 필수 노트북/아티팩트 처리 또는 최종 런타임
+정리가 실패한 경우다. 최초 노트북 Artifact 등록 단계, 즉 코드 실행 전에도 발생할
+수 있으므로 이 오류만으로 모든 Step의 성공을 추론하지 않는다.
+`retry.strategy=NOT_RETRYABLE`이며 retry는 409다. 이미 성공한 코드는 저장 문제를
+고치기 위해 재실행하지 않는다. 존재하는 result_ref로 결과를 읽고 Step 상태와
+diagnostics로 실패 단계를 확인한다. 참조가 아직 없을 수도 있다.
+코드 실행 없는 후처리 복구 API는 아직 없다.
 
 ## Request Body
 
@@ -58,5 +61,14 @@ POST /api/v1/executions/{execution_id}/retry
 `operation.steps`에는 Operation의 논리 Step receipt가 들어가며, 실제 재실행 시작점은
 `GET /api/v1/executions/{execution_id}`의 `retry.from_sequence`로 확인한다.
 
-응답 `Location`은 Execution 상태조회 API를 가리킨다. 이후 Redis에서 retry 및 terminal
-이벤트를 기다리고 timeout이면 상태조회 API로 복구한다.
+응답 `Location`은 Execution 상태조회 API를 가리킨다. retry 전용 이벤트는 없다.
+재실행 Step의 started/completed, Operation completed, Execution completed를 받는다.
+`execution.started`와 `execution.operation_started`는 다시 발행하지 않는다.
+이벤트 대기가 timeout이면 상태조회 API로 복구한다.
+
+retry 시 Operation 시작 시각과 Operation 시간 예산은 새로 시작한다. 재실행 Step의
+시작·종료 시각도 초기화되지만, Execution 최초 시작 시각과 전체 만료 시각은
+유지된다. 요청으로 timeout을 변경하는 옵션은 없다.
+보존 커널 유지시간의 기본값은 1시간(`FAILED_SESSION_RETENTION_SECONDS`)이며
+`FROM_FAILED_STEP`은 그 기한 안에 유효한 커널이 있어야 한다.
+관련 경계는 [시간 제한 가이드](execution-timeouts.md)를 참고한다.

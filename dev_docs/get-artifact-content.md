@@ -155,8 +155,11 @@ Jupyter에서 파일을 먼저 열고, 같은 파일 핸들로 크기 확인·�
 증가한다. 큰 파일을 불필요하게 여러 조각으로 나누면 이 비용도 반복된다. 불변 파일 버전과
 안전한 해시 캐시를 별도로 도입하기 전까지 이 특성을 고려한다. DB의 옛 해시를 재사용하지 않는다.
 
-Executor와 Jupyter 확장/이미지를 함께 업데이트해야 한다. 내부 `start/end` query 방식은
-제거되었고 `Range` 헤더로 통합됐다. 외부 Artifact URL과 Execution/Redis 스키마는 유지된다.
+배포 범위를 구분한다. 예전 `start/end` query 방식에서 현재 파일/Range 다운로드로
+전환하는 경우에는 Executor와 Jupyter 확장/이미지를 함께 업데이트해야 한다.
+이미 해당 다운로드 구현을 사용하는 환경에서 **노트북 최초 저장 시 등록 기능만**
+반영한다면 Executor만 업데이트한다. 이 기능에는 새 Jupyter 변경이 없다.
+외부 Artifact URL과 Execution/Redis 스키마는 유지된다. 해당 노트북 등록 변경에
 DB 마이그레이션, 기존 Artifact 삭제·재등록, PV 초기화는 필요 없다.
 
 실제 Docker 재현 테스트(기존 Compose/DB/Redis를 변경하지 않음):

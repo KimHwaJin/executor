@@ -22,7 +22,7 @@ Operation의 결과를 확인하고 후속 코드 또는 오류 수정 코드를
 |---|---:|---|
 | `idempotency_key` | O | Operation 추가 명령의 멱등성 키 |
 | `expected_version` | O | 상태조회 또는 이벤트에서 확인한 현재 Execution version. 0 이상 |
-| `operation_timeout_seconds` | X | 새 Operation 전체 제한시간. 1초 이상 |
+| `operation_timeout_seconds` | X | 새 Operation의 RUNNING 전환부터 계산하는 시간 예산. 정수 1초 이상. 생략/null이면 이 제한 없음 |
 | `spec` | O | ExecutionSpec 1.0과 후속 Step 목록 |
 | `metadata` | X | 새 Operation에 저장할 자유 형식 metadata. 기본값 `{}` |
 | `actor.type` | O | 요청 주체: `AGENT`, `USER`, `BATCH` |
@@ -46,8 +46,11 @@ Operation의 결과를 확인하고 후속 코드 또는 오류 수정 코드를
 | `lineage` | X | Skill/Tool 및 입력 파라미터 추적 정보 |
 
 INLINE source는 `{"type":"INLINE","content":"..."}` 형식이다. PATH source는
-`{"type":"PATH","path":"...py","sha256":"64자리 checksum"}` 형식이며 공유 PV
-루트 기준 상대경로, `.py`, UTF-8, checksum 일치를 요구한다. `requests/`를 자동으로 붙이지 않는다.
+`{"type":"PATH","path":"...py","sha256":"64자리 checksum"}` 형식이며
+`INPUT_STORAGE_ROOT` 기준 상대경로, `.py`, UTF-8, checksum 일치를 요구한다.
+입력 루트 미지정 시 `SHARED_STORAGE_ROOT`를 사용한다. `requests/`를 자동으로
+붙이지 않는다. 결과 ref는 입력 루트가 아닌 Executor의 `SHARED_STORAGE_ROOT`
+기준이므로 Agent는 입력 쓰기 루트와 결과 읽기 루트를 구분해야 한다.
 
 `lineage`는 `skill_name`, `tool_name`, `input_parameters`를 지원한다. Operation/Execution
 Step 최대 개수는 Executor 설정값을 넘을 수 없다.
@@ -106,3 +109,8 @@ Step 최대 개수는 Executor 설정값을 넘을 수 없다.
 
 동시에 같은 `expected_version`으로 두 요청이 들어오면 하나만 성공하고 나머지는 `409`가
 된다. `409` 발생 시 최신 Execution 상태를 다시 조회해서 이미 처리된 명령인지 판단해야 한다.
+
+후속 Operation은 자신의 새 시간 예산을 사용하지만 Execution 전체 만료 시각을
+연장하지 않는다. 이 요청 접수 시 기존 Agent 대기 만료값은 해제하고,
+Operation 완료 후 다시 대기 기한을 계산한다. 조회는 대기 기한을 연장하지 않는다.
+자세한 계산 범위는 [시간 제한 가이드](execution-timeouts.md)를 참고한다.

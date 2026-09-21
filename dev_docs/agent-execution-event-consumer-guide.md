@@ -62,10 +62,12 @@ Redis 처리 세부사항은 LLM이나 LangGraph 업무 노드가 아니라 Agen
 
 성공 판단 범위도 구분한다. Step 성공은 코드와 공유 출력 저장의 성공이고,
 Operation 성공은 해당 결과의 노트북 저장/실제 발견 Artifact 등록까지의 성공이다.
-Execution terminal 성공은 최종 노트북 Artifact와 런타임 해제까지 완료된 상태다.
+Execution terminal 성공은 최신 필수 노트북 처리와 런타임 해제까지 완료된 상태다.
+노트북 Artifact 자체는 최초 저장 시부터 등록되므로 terminal 전에도 존재한다.
 후처리가 실패하면 `EXECUTION_COMPLETION_FAILED`를 받으며, 성공했던 Step 결과를
 버리거나 코드 retry를 호출하지 않는다. 기존 ref와 diagnostics를 확인한다.
-MULTI의 마지막 Operation이 실패했다면 finalize는 409이므로 보정 Operation을
+최초 노트북 등록 실패처럼 코드 실행 전에도 COMPLETION_FAILED가 될 수 있으므로
+항상 Step 상태와 ref 유무를 확인한다. MULTI의 마지막 Operation이 실패했다면 finalize는 409이므로 보정 Operation을
 성공시킨 뒤 finalize하거나 cancel한다.
 
 Execution의 저장된 `last_event_sequence`를 `last`, 수신한 순번을 `received`라 한다.
@@ -127,32 +129,60 @@ class ExecutionEventSubscriber:
         """정렬·중복 제거·누락 복구된 연속 이벤트와 wake event를 반환한다."""
 ```
 
-Subscriber 내부 의사코드는 다음과 같다.
+Subscriber 내부 의사코드는 다음과 같다. `apply_checkpoint_and_schedule`은 이벤트의
+업무 반영, checkpoint 증가, 필요한 그래프 재개 작업의 durable 예약을 원자적으로
+저장하는 Agent 측 추상 함수다. 실제 그래프 재개는 커밋 후 별도 dispatcher가 수행한다.
+복구된 이벤트도 같은 함수를 통과하므로 복구 중 발견한 완료 이벤트를 놓치지 않는다.
+이 예시는 **한 Execution에 대한 직렬화/배타 처리 안에서** 수행한다고 가정한다.
 
 ```python
 while True:
     event = await read_from_redis_group(execution_id)
+    validate_event(event)
     last = await checkpoint.get(execution_id)
 
     if event.event_sequence <= last:
         await ack(event)
         continue
 
-    if event.event_sequence > last + 1:
-        history = await list_events_after(execution_id, last)
-        for recovered in contiguous(history, start=last + 1):
-            await apply_and_checkpoint(recovered)
+    while last + 1 < event.event_sequence:
+        # after_sequence는 exclusive. 처리한 순번 이후를 반복 조회한다.
+        page = await list_events_after(execution_id, after_sequence=last,
+                                       limit=500)
+        if not page.items:
+            raise HistoryGapUnresolved()  # ACK하지 않고 복구/운영 경로로
+        for recovered in page.items:
+            validate_event(recovered)
+            if recovered.execution_id != execution_id:
+                raise HistoryGapUnresolved()
+            if recovered.event_sequence != last + 1:
+                raise HistoryGapUnresolved()  # 일부만 복구되어도 ACK 금지
+            await apply_checkpoint_and_schedule(recovered)
+            last = recovered.event_sequence
+            if last >= event.event_sequence:
+                break
 
-    if event.event_sequence == await checkpoint.get(execution_id) + 1:
-        await apply_and_checkpoint(event)
+    if event.event_sequence == last + 1:
+        await apply_checkpoint_and_schedule(event)
+        last = event.event_sequence
+
+    if last < event.event_sequence:
+        raise HistoryGapUnresolved()
 
     await ack(event)
-    if event.event_type in boundary_event_types:
-        return accumulated_batch
 ```
 
-테스트 Agent의 참고 구현은
+문서 위쪽의 cursor 방식과 이 예시의 `after_sequence` 재조회 방식은 모두 가능하다.
+cursor를 쓰면 동일 조회 필터를 유지하고, 위처럼 마지막 순번을 갱신해 새 조회를
+시작하면 이전 cursor를 섞지 않는다. 이력 API 실패·순번 공백·검증 실패 시 현재
+Redis 메시지는 Pending에 남긴다. 예외를 잡고 무조건 ACK하는 finally를 두지 않는다.
+장기 중단으로 DB 이벤트 보관 기한까지 지나 복구 불가하면 현재 Execution/Result로
+별도 상태 복구·운영 판단을 수행한다. 누락 이벤트를 처리했다고 임의로 checkpoint를
+올리지 않는다. 이는 Agent 구현 가이드이며 Executor가 Agent checkpoint를 저장하지 않는다.
+
+테스트 Agent의 참고 구현 진입점은
 `test_harness/agent/src/executor_test_agent/integrations/events.py`에 있다.
+예시의 Agent DB 트랜잭션·durable 재개 예약을 대신 제공하는 라이브러리라는 뜻은 아니다.
 
 ## 5. SINGLE 실행 흐름
 
@@ -179,14 +209,19 @@ execution.completed
 ## 6. MULTI 실행 흐름
 
 1. 최초 Operation을 포함해 Execution을 제출한다.
-2. `execution.operation_completed`를 wake 경계로 Agent 그래프를 재개한다.
-3. `continuation.allowed=true`이면 Step 결과를 읽고 다음 계획을 만든다.
+2. `execution.operation_completed`와 `execution.completed`를 모두 wake 경계로
+   받는다. Runtime 준비 실패·대기 만료 등에는 Operation 완료 없이 terminal만 올 수 있다.
+3. `payload.continuation`이 null이 아니고 `allowed=true`이면 Step 결과를 읽고
+   다음 계획을 만든다. null이면 후속 Operation을 제출하지 않고 Execution 상태를 확인한다.
 4. `POST /api/v1/executions/{execution_id}/operations`로 다음 Operation을 추가한다.
 5. 더 수행할 Operation이 없으면 `POST /api/v1/executions/{execution_id}/finalize`를 호출한다.
 6. 최종 `execution.completed`를 처리한 뒤 결과 정합성을 대조하고 리포트를 작성한다.
 
 Operation 실패라도 `continuation.allowed=true`이면 실패 결과를 바탕으로 보정 Operation을
 추가할 수 있다. 이때 `execution.completed`가 오기 전까지 Execution은 종료된 것이 아니다.
+단 마지막 Operation의 Step이 실패한 상태로 finalize할 수는 없다. 보정 Operation을
+성공시키거나 취소한다. `continuation.expires_at`은 후속 요청의 대기 기한이며,
+Agent의 LLM 처리·이벤트 전달 지연도 이 예산을 소비한다.
 
 ## 7. 결과 읽기 원칙
 
@@ -202,7 +237,7 @@ Operation 실패라도 `continuation.allowed=true`이면 실패 결과를 바탕
   보존된 개별 이미지·텍스트 파일의 `complete=true`와 모순되지 않는다.
 - 텍스트와 이미지는 결과 파일에서 읽고, Redis는 결과가 준비됐음을 알리는 wake-up으로
   사용한다.
-- 개별 Step 이벤트를 모두 처리했다면 `execution.operation_completed.step_results` 때문에
+- 개별 Step 이벤트를 모두 처리했다면 `execution.operation_completed`의 `payload.step_results` 때문에
   추가 API를 호출할 필요는 없다.
 - 전체 정합성이 의심되거나 Agent가 오래 중단되었다가 복구되면 Result API를 사용한다.
 - `result_ref=null`이면 경로를 추측하지 않는다. 기존 diagnostics API/로그로 결과 저장
@@ -216,6 +251,8 @@ Operation 실패라도 `continuation.allowed=true`이면 실패 결과를 바탕
 - 알 수 없는 `schema_version`이나 `event_type`을 조용히 폐기하지 않는다.
 - 이벤트 이력 조회 실패 시 뒤 이벤트를 먼저 적용하지 않는다. 메시지를 Pending으로 남겨
   재시도하거나 Agent 오류 채널에 기록한다.
+- `CANCELLED` 수신은 원격 커널 정리 성공 증거가 아니다. 필요하면 Execution 상세의
+  `recovery.runtime_session_cleanup_status`와 diagnostics를 확인한다.
 - 한 Execution의 처리만 직렬화한다. 서로 다른 Execution은 병렬 처리해도 된다.
 
 ## 9. 구현 체크리스트

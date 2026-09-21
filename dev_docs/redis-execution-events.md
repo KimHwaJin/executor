@@ -2,8 +2,12 @@
 
 ## 1. 문서 상태와 목적
 
-이 문서는 Executor가 외부 시스템에 발행하는 Redis 실행 이벤트의 목표 계약을
+이 문서는 Executor가 외부 시스템에 발행하는 Redis 실행 이벤트의 구현된 계약을
 정의한다. Agent를 포함한 모든 외부 소비자는 이 문서를 기준으로 이벤트를 구현한다.
+
+검토 기준: 2026-09-21. 코드의 6종 이벤트 payload 및 envelope와 대조했다.
+실제 ID는 UUID다. 아래 JSON의 ID/checksum은 형식상 유효한 설명용 값이며 실제
+파일의 크기·checksum·참조 대상을 보장하는 실행 fixture는 아니다.
 
 - 이벤트 스키마 버전: `1.0`
 - 대상 Stream 기본 이름: `executor.events`
@@ -104,10 +108,10 @@ Jupyter가 IOPub 데이터/메시지 전송량 제한으로 출력을 차단한 
 
 ```json
 {
-  "event_id": "evt-01K...",
+  "event_id": "11111111-1111-4111-8111-111111111111",
   "event_type": "execution.step_completed",
   "schema_version": "1.0",
-  "execution_id": "exec-01K...",
+  "execution_id": "22222222-2222-4222-8222-222222222222",
   "event_sequence": 4,
   "payload": {},
   "occurred_at": "2026-08-26T10:15:40.123Z"
@@ -139,9 +143,9 @@ entry의 값은 문자열이므로 wire level에서는 `payload`가 JSON 문자�
 ```json
 {
   "provider": "JUPYTER",
-  "profile": "basic",
-  "target_id": "runtime-target-01K...",
-  "session_id": "runtime-session-01K..."
+  "profile": "default",
+  "target_id": "66666666-6666-4666-8666-666666666666",
+  "session_id": "77777777-7777-4777-8777-777777777777"
 }
 ```
 
@@ -161,7 +165,7 @@ Operation 시작 이벤트의 Operation 객체:
 
 ```json
 {
-  "id": "op-01K...",
+  "id": "33333333-3333-4333-8333-333333333333",
   "number": 1,
   "step_count": 2
 }
@@ -175,7 +179,7 @@ Step 객체:
 
 ```json
 {
-  "id": "step-01K...",
+  "id": "44444444-4444-4444-8444-444444444444",
   "sequence": 0
 }
 ```
@@ -188,7 +192,7 @@ Attempt 객체:
 
 ```json
 {
-  "id": "attempt-01K...",
+  "id": "55555555-5555-4555-8555-555555555555",
   "number": 1,
   "reason": "INITIAL"
 }
@@ -206,10 +210,10 @@ Attempt는 PostgreSQL에서 Execution의 실행 시도 이력으로 관리한다
 ```json
 {
   "storage": "SHARED_PV",
-  "relative_path": "executions/.../manifest.json",
+  "relative_path": "executions/22222222-2222-4222-8222-222222222222/operations/33333333-3333-4333-8333-333333333333/steps/44444444-4444-4444-8444-444444444444/attempts/55555555-5555-4555-8555-555555555555/1/manifest.json",
   "media_type": "application/json",
   "size_bytes": 1842,
-  "checksum_sha256": "f7b6...",
+  "checksum_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "complete": true
 }
 ```
@@ -290,18 +294,18 @@ Retry에서는 다시 발행하지 않는다. Runtime 준비 전에 실패하면
 
 ```json
 {
-  "event_id": "evt-01K...",
+  "event_id": "11111111-1111-4111-8111-111111111111",
   "event_type": "execution.started",
   "schema_version": "1.0",
-  "execution_id": "exec-01K...",
+  "execution_id": "22222222-2222-4222-8222-222222222222",
   "event_sequence": 1,
   "payload": {
     "status": "RUNNING",
     "runtime": {
       "provider": "JUPYTER",
-      "profile": "basic",
-      "target_id": "runtime-target-01K...",
-      "session_id": "runtime-session-01K..."
+      "profile": "default",
+      "target_id": "66666666-6666-4666-8666-666666666666",
+      "session_id": "77777777-7777-4777-8777-777777777777"
     }
   },
   "occurred_at": "2026-08-26T10:15:32.456Z"
@@ -321,15 +325,15 @@ Retry에서는 다시 발행하지 않는다.
 
 ```json
 {
-  "event_id": "evt-01K...",
+  "event_id": "11111111-1111-4111-8111-111111111111",
   "event_type": "execution.operation_started",
   "schema_version": "1.0",
-  "execution_id": "exec-01K...",
+  "execution_id": "22222222-2222-4222-8222-222222222222",
   "event_sequence": 2,
   "payload": {
     "status": "RUNNING",
     "operation": {
-      "id": "op-01K...",
+      "id": "33333333-3333-4333-8333-333333333333",
       "number": 1,
       "step_count": 2
     }
@@ -350,23 +354,23 @@ Retry에서는 다시 발행하지 않는다.
 
 ```json
 {
-  "event_id": "evt-01K...",
+  "event_id": "11111111-1111-4111-8111-111111111111",
   "event_type": "execution.step_started",
   "schema_version": "1.0",
-  "execution_id": "exec-01K...",
+  "execution_id": "22222222-2222-4222-8222-222222222222",
   "event_sequence": 3,
   "payload": {
     "status": "RUNNING",
     "operation": {
-      "id": "op-01K...",
+      "id": "33333333-3333-4333-8333-333333333333",
       "number": 1
     },
     "step": {
-      "id": "step-01K...",
+      "id": "44444444-4444-4444-8444-444444444444",
       "sequence": 0
     },
     "attempt": {
-      "id": "attempt-01K...",
+      "id": "55555555-5555-4555-8555-555555555555",
       "number": 1,
       "reason": "INITIAL"
     }
@@ -400,32 +404,32 @@ Step 실행 종료
 
 ```json
 {
-  "event_id": "evt-01K...",
+  "event_id": "11111111-1111-4111-8111-111111111111",
   "event_type": "execution.step_completed",
   "schema_version": "1.0",
-  "execution_id": "exec-01K...",
+  "execution_id": "22222222-2222-4222-8222-222222222222",
   "event_sequence": 4,
   "payload": {
     "status": "SUCCEEDED",
     "operation": {
-      "id": "op-01K...",
+      "id": "33333333-3333-4333-8333-333333333333",
       "number": 1
     },
     "step": {
-      "id": "step-01K...",
+      "id": "44444444-4444-4444-8444-444444444444",
       "sequence": 0
     },
     "attempt": {
-      "id": "attempt-01K...",
+      "id": "55555555-5555-4555-8555-555555555555",
       "number": 1,
       "reason": "INITIAL"
     },
     "result_ref": {
       "storage": "SHARED_PV",
-      "relative_path": "executions/.../manifest.json",
+      "relative_path": "executions/22222222-2222-4222-8222-222222222222/operations/33333333-3333-4333-8333-333333333333/steps/44444444-4444-4444-8444-444444444444/attempts/55555555-5555-4555-8555-555555555555/1/manifest.json",
       "media_type": "application/json",
       "size_bytes": 1842,
-      "checksum_sha256": "f7b6...",
+      "checksum_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "complete": true
     },
     "output_summary": {
@@ -502,16 +506,16 @@ MULTI 성공 예시:
 
 ```json
 {
-  "event_id": "evt-01K...",
+  "event_id": "11111111-1111-4111-8111-111111111111",
   "event_type": "execution.operation_completed",
   "schema_version": "1.0",
-  "execution_id": "exec-01K...",
+  "execution_id": "22222222-2222-4222-8222-222222222222",
   "event_sequence": 5,
   "payload": {
     "status": "SUCCEEDED",
     "execution_status": "WAITING_FOR_OPERATION",
     "operation": {
-      "id": "op-01K...",
+      "id": "33333333-3333-4333-8333-333333333333",
       "number": 1
     },
     "step_summary": {
@@ -523,20 +527,20 @@ MULTI 성공 예시:
     },
     "step_results": [
       {
-        "step_id": "step-01K...",
+        "step_id": "44444444-4444-4444-8444-444444444444",
         "sequence": 0,
         "status": "SUCCEEDED",
         "attempt": {
-          "id": "attempt-01K...",
+          "id": "55555555-5555-4555-8555-555555555555",
           "number": 1,
           "reason": "INITIAL"
         },
         "result_ref": {
           "storage": "SHARED_PV",
-          "relative_path": "executions/.../manifest.json",
+          "relative_path": "executions/22222222-2222-4222-8222-222222222222/operations/33333333-3333-4333-8333-333333333333/steps/44444444-4444-4444-8444-444444444444/attempts/55555555-5555-4555-8555-555555555555/1/manifest.json",
           "media_type": "application/json",
           "size_bytes": 1842,
-          "checksum_sha256": "f7b6...",
+          "checksum_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "complete": true
         }
       }
@@ -566,7 +570,7 @@ MULTI 성공 예시:
   "error": {
     "code": "OPERATION_STEP_FAILED",
     "message": "Operation stopped because a step failed.",
-    "step_id": "step-02K...",
+    "step_id": "44444444-4444-4444-8444-444444444445",
     "retryable": true
   }
 }
@@ -613,10 +617,10 @@ Execution의 현재 수행 주기가 `SUCCEEDED`, `FAILED` 또는 `CANCELLED`로
 
 ```json
 {
-  "event_id": "evt-01K...",
+  "event_id": "11111111-1111-4111-8111-111111111111",
   "event_type": "execution.completed",
   "schema_version": "1.0",
-  "execution_id": "exec-01K...",
+  "execution_id": "22222222-2222-4222-8222-222222222222",
   "event_sequence": 6,
   "payload": {
     "status": "SUCCEEDED",
@@ -637,10 +641,10 @@ Execution의 현재 수행 주기가 `SUCCEEDED`, `FAILED` 또는 `CANCELLED`로
 
 ```json
 {
-  "event_id": "evt-01K...",
+  "event_id": "11111111-1111-4111-8111-111111111111",
   "event_type": "execution.completed",
   "schema_version": "1.0",
-  "execution_id": "exec-01K...",
+  "execution_id": "22222222-2222-4222-8222-222222222222",
   "event_sequence": 6,
   "payload": {
     "status": "FAILED",
@@ -652,14 +656,14 @@ Execution의 현재 수행 주기가 `SUCCEEDED`, `FAILED` 또는 `CANCELLED`로
     },
     "retry": {
       "allowed": true,
-      "from_step_id": "step-02K...",
+      "from_step_id": "44444444-4444-4444-8444-444444444445",
       "expires_at": "2026-08-27T10:20:00.123Z"
     },
     "error": {
       "code": "EXECUTION_TOOL_ERROR",
       "message": "Execution stopped because a step failed.",
-      "operation_id": "op-02K...",
-      "step_id": "step-02K...",
+      "operation_id": "33333333-3333-4333-8333-333333333334",
+      "step_id": "44444444-4444-4444-8444-444444444445",
       "retryable": true
     }
   },
@@ -757,6 +761,11 @@ Retry에서는 `execution.started`와 `execution.operation_started`를 다시 �
 
 ## 14. 소비자 처리 규칙
 
+`execution.completed`의 CANCELLED는 취소 확정이지 커널 정리 성공 보장이 아니다.
+필요하면 Execution 상세의 recovery와 diagnostics를 확인한다.
+`EXECUTION_COMPLETION_FAILED`는 필수 노트북/Artifact 처리 또는 최종 정리 실패다.
+최초 노트북 등록 단계에도 발생할 수 있으므로 모든 Step이 성공했다고 추론하지 않는다.
+
 ### 14.1 중복·순서·누락 처리
 
 소비자는 Execution별 `last_event_sequence`를 Agent 소유 DB 또는 LangGraph checkpoint에
@@ -779,6 +788,9 @@ execution_event_list(execution_id, after_sequence=last, limit=500)
 
 페이지의 이벤트를 `event_sequence` 순서로 적용한 뒤 원래 Redis 이벤트로 돌아간다.
 정상적으로 연속된 Redis 이벤트에는 이 API를 호출하지 않는다.
+누락 복구가 불완전하거나 이력이 이미 정리되어 공백이 남으면 뒤 이벤트를 ACK하지
+않는다. 현재 Execution/Result 조회와 운영 복구를 별도로 진행한다. 정확한 ACK 및
+복구 중 wake-up 처리 기준은 [소비 가이드](agent-execution-event-consumer-guide.md)를 따른다.
 
 ### 14.2 실행 중 결과 사용
 
