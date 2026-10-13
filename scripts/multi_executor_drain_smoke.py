@@ -71,7 +71,7 @@ async def main() -> None:
                 pool="INTERACTIVE",
                 token=os.getenv(
                     "JUPYTER_SECONDARY_TOKEN",
-                    "change-me-secondary-local-only",
+                    "default",
                 ),
             )
             short_id = await submit_static(

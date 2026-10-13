@@ -30,8 +30,10 @@ Three isolated virtual environments are created:
 Only the `default` and `3102311` kernelspecs are exposed. The default kernel is `default`.
 `3102311` remains the stable kernelspec ID; the actual Python patch version comes from the selected
 `PYTHON310_IMAGE` and may be any supported Python 3.10.x release.
-The two environments are independent. `3102311/requirements.txt` is intentionally empty so the
-approved package list can be pasted directly. Kernel bootstrap dependency `ipykernel` is installed
+The two kernel environments are independent. Both kernels and the Jupyter server environment
+include `scikit-learn==1.7.2`, imported as `sklearn`; this shared version supports both Python 3.10
+and 3.11. Additional project packages can be added to `3102311/requirements.txt`.
+Kernel bootstrap dependency `ipykernel` is installed
 by the Docker/native setup and must not be added to either user package list. Both Docker and native
 setup use `uv venv` and `uv pip install`; `requirements.txt` remains the package-list input format.
 
@@ -65,7 +67,7 @@ inside the trusted network.
 For the local Compose topology:
 
 ```bash
-docker compose build jupyter
+docker compose -f docker-compose.runtime.yml build jupyter
 ```
 
 Rebuild the image after changing a requirements file, server configuration, startup script, or
@@ -91,6 +93,12 @@ docker run --detach --publish 8888:8888 \
 `HOME` is `/home/jovyan`; it stores user and Jupyter configuration, not execution workspaces.
 Changing `HOME` does not change the contents root. Executor does not mount or need this physical
 root; it uses Runtime-relative paths through authenticated Jupyter APIs.
+
+Opening a notebook in JupyterLab does not automatically start a kernel:
+`LabServerApp.notebook_starts_kernel=False` is set in the image configuration. Users can select a
+kernel when they want to execute cells, and existing notebook sessions can still be reused.
+Executor continues to create its execution kernels explicitly through the Jupyter API.
+Rebuild and redeploy the Runtime image after changing this setting, then reload JupyterLab.
 
 ## Resource endpoint
 

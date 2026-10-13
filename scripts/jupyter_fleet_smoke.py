@@ -25,9 +25,7 @@ async def _wait_for_terminal(
 
 async def main() -> None:
     unique = str(uuid4())
-    secondary_token = os.environ.get(
-        "JUPYTER_SECONDARY_TOKEN", "change-me-secondary-local-only"
-    )
+    secondary_token = os.environ.get("JUPYTER_SECONDARY_TOKEN", "default")
     async with Client("http://127.0.0.1:8000/mcp") as client:
         primary = await client.call_tool(
             "runtime_target_upsert",

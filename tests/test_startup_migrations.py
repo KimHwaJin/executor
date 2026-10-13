@@ -142,5 +142,66 @@ def test_compose_uses_app_startup_migration_without_separate_job() -> None:
         "services"
     ]
     assert "migrate" not in services
-    assert "migrate" not in services["executor"]["depends_on"]
+    assert "migrate" not in services["executor"].get("depends_on", {})
     assert "DB_AUTO_MIGRATE" in services["executor"]["environment"]
+
+
+def test_compose_separates_shared_infrastructure_and_preserves_volumes() -> (
+    None
+):
+    app = yaml.safe_load((ROOT / "docker-compose.yml").read_text())
+    infra = yaml.safe_load((ROOT / "docker-compose.infra.yml").read_text())
+    assert "postgres" not in app["services"]
+    assert "redis" not in app["services"]
+    assert set(infra["services"]) == {"postgres", "redis"}
+    assert infra["name"] == "shared-infra"
+    assert set(app["services"]["executor"]["networks"]) == {
+        "default",
+        "shared-infra",
+        "runtimes",
+    }
+    assert app["networks"]["shared-infra"]["external"] is True
+    assert (
+        app["networks"]["shared-infra"]["name"]
+        == (infra["networks"]["default"]["name"])
+    )
+    assert infra["services"]["postgres"]["image"] == "pgvector/pgvector:pg17"
+    assert infra["volumes"]["postgres-data"]["external"] is True
+    assert infra["volumes"]["postgres-data"]["name"] == (
+        "${SHARED_POSTGRES_VOLUME:-executor_executor-postgres}"
+    )
+
+
+def test_runtime_compose_preserves_fleet_and_storage() -> None:
+    app = yaml.safe_load((ROOT / "docker-compose.yml").read_text())
+    runtime = yaml.safe_load((ROOT / "docker-compose.runtime.yml").read_text())
+    assert set(app["services"]) == {"executor"}
+    assert runtime["name"] == "executor-runtimes"
+    assert app["networks"]["runtimes"]["external"] is True
+    assert (
+        app["networks"]["runtimes"]["name"]
+        == (runtime["networks"]["default"]["name"])
+    )
+    expected_ports = {
+        "jupyter": "8888:8888",
+        "jupyter-secondary": "8889:8888",
+        "jupyter-batch-primary": "8890:8888",
+        "jupyter-batch-secondary": "8891:8888",
+    }
+    assert set(runtime["services"]) == set(expected_ports)
+    for service, port in expected_ports.items():
+        definition = runtime["services"][service]
+        assert definition["image"] == "executor-jupyter:local"
+        assert definition["ports"] == [port]
+        assert definition["volumes"] == [
+            "./test_harness/jupyter/workspace:/workspace/pv"
+        ]
+        assert "profiles" not in definition
+    app_overlay = yaml.safe_load(
+        (ROOT / "docker-compose.test.yml").read_text()
+    )
+    runtime_overlay = yaml.safe_load(
+        (ROOT / "docker-compose.runtime.test.yml").read_text()
+    )
+    assert set(app_overlay["services"]) == {"executor"}
+    assert set(runtime_overlay["services"]) == set(expected_ports)

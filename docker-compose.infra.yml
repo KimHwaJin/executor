@@ -1,0 +1,48 @@
+name: shared-infra
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-executor}
+      POSTGRES_USER: ${POSTGRES_USER:-executor}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-executor}
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  redis:
+    image: redis:6.0.8
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      # Preserve the existing Redis 6 volume; never reuse a Redis 7 AOF/RDB volume.
+      - redis-data:/data
+    restart: unless-stopped
+
+networks:
+  default:
+    name: ${SHARED_INFRA_NETWORK:-shared-infra}
+
+volumes:
+  # External ownership keeps shared data independent of either Compose lifecycle.
+  # These defaults reuse the existing local volumes; create them for a fresh install.
+  postgres-data:
+    external: true
+    name: ${SHARED_POSTGRES_VOLUME:-executor_executor-postgres}
+  redis-data:
+    external: true
+    name: ${SHARED_REDIS_VOLUME:-executor_executor-redis-608}

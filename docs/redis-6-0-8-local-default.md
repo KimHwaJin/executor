@@ -4,12 +4,12 @@ Date: 2026-09-05
 
 ## Configuration
 
-- `docker-compose.yml` pins the server image to `redis:6.0.8`.
+- `docker-compose.infra.yml` pins the shared server image to `redis:6.0.8`.
 - `compose.worker-failover.yaml` uses the same image and a separate
   `redis-data-608` volume for disposable failover tests.
 - Redis keeps AOF persistence enabled and port 6379 unchanged.
-- The new Compose volume is `executor-redis-608`; on this machine its Docker
-  name is `executor_executor-redis-608`.
+- The shared Compose volume `redis-data` reuses external Docker volume
+  `executor_executor-redis-608` by default (`SHARED_REDIS_VOLUME` can override it).
 - `REDIS_URL` remains a connection URL, not a server-version setting.
 - The integration quality gate requires server version 6.0.8 by default.
   Set `EXECUTOR_EXPECT_REDIS_VERSION` explicitly for cross-version validation.
@@ -49,8 +49,9 @@ runtime cleanup targets.
 
 ## Starting from another checkout
 
-For a new installation, `docker compose up -d redis` starts 6.0.8 with its
-dedicated volume. Repeated starts reuse that same volume.
+For a new installation, create external volume `executor_executor-redis-608` with
+`docker volume create executor_executor-redis-608`, then start Redis with
+`docker compose -f docker-compose.infra.yml up -d --wait redis`. Repeated starts reuse that volume.
 
 On an existing Redis 7 installation, merely changing the volume starts an
 **empty** Redis. If events and group positions must be preserved, stop writers

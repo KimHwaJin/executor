@@ -74,7 +74,7 @@ async def main() -> None:
     offline_endpoint = os.getenv(
         "RETRY_RECOVERY_OFFLINE_ENDPOINT", "http://127.0.0.1:9"
     )
-    token = os.getenv("RETRY_RECOVERY_JUPYTER_TOKEN", "change-me-local-only")
+    token = os.getenv("RETRY_RECOVERY_JUPYTER_TOKEN", "default")
     server_was_redirected = False
 
     async with Client(mcp_url) as client:

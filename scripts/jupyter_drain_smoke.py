@@ -80,9 +80,7 @@ async def _submit(client: Client, unique: str, index: int, sleep: int) -> str:
 
 async def main() -> None:
     unique = str(uuid4())
-    secondary_token = os.environ.get(
-        "JUPYTER_SECONDARY_TOKEN", "change-me-secondary-local-only"
-    )
+    secondary_token = os.environ.get("JUPYTER_SECONDARY_TOKEN", "default")
     async with Client("http://127.0.0.1:8000/mcp") as client:
         listed = await client.call_tool("runtime_target_list", {})
         listed_payload = listed.structured_content

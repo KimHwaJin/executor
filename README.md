@@ -208,26 +208,41 @@ Executor and test Agent remain normal host processes in that topology.
 ```bash
 cp .env.example .env
 uv sync --dev
-docker compose up -d postgres redis jupyter
+docker volume create executor_executor-postgres
+docker volume create executor_executor-redis-608
+docker compose -f docker-compose.infra.yml up -d --wait
+docker compose -f docker-compose.runtime.yml up -d --wait
 uv run alembic upgrade head
 uv run executor-service
 ```
 
-To build and run the Executor application together with PostgreSQL, Redis, and Jupyter, use the
-full Compose stack instead. The one-shot `migrate` service upgrades the schema before `executor`
-starts. Agent and Executor share `./shared_dir`; the Jupyter fleet separately mounts
+PostgreSQL and Redis run in the separate `shared-infra` Compose project using
+`docker-compose.infra.yml`. The four Jupyter servers run in the independent `executor-runtimes`
+project using `docker-compose.runtime.yml`; `docker-compose.yml` runs only Executor.
+Local Executor startup applies migrations when `DB_AUTO_MIGRATE=true`.
+Shared PostgreSQL uses the PG17 pgvector image so existing databases with the `vector` extension
+remain usable. Enable it per new database with `CREATE EXTENSION IF NOT EXISTS vector` when needed.
+Agent and Executor share `./shared_dir`; the Jupyter fleet separately mounts
 `./test_harness/jupyter/workspace` at `/workspace/pv`.
 
 ```bash
 cp .env.example .env
+docker volume create executor_executor-postgres
+docker volume create executor_executor-redis-608
+docker compose -f docker-compose.infra.yml up -d --wait
+docker compose -f docker-compose.runtime.yml up -d --build --wait
 docker compose up -d --build --wait
+docker compose -f docker-compose.infra.yml ps
+docker compose -f docker-compose.runtime.yml ps
 docker compose ps -a
 curl --fail http://127.0.0.1:8000/healthz
 curl --fail http://127.0.0.1:8000/readyz
 ```
 
-`migrate` should show `Exited (0)`, while `executor`, `postgres`, `redis`, and `jupyter` should be
-running and healthy. When invoking the host-side single-server smoke test against this stack,
+Both infrastructure services, Executor, and the four Jupyter servers should be healthy.
+Infrastructure and runtimes must be started first because Compose cannot enforce health dependencies
+across projects. Executor joins the shared infrastructure network and the `executor-runtimes`
+network (`RUNTIME_NETWORK` can override it). When invoking the host-side single-server smoke test against this stack,
 register the Jupyter endpoint as its Compose-internal address so the Executor container can reach
 it:
 
@@ -236,9 +251,32 @@ SINGLE_JUPYTER_ENDPOINT=http://jupyter:8888 \
   uv run python scripts/single_jupyter_smoke.py
 ```
 
-Stop the stack with `docker compose down`. Named PostgreSQL and Redis volumes, and the bind-mounted
-`shared_dir` and Jupyter-owned `test_harness/jupyter/workspace`, are retained unless explicitly
-removed.
+`docker compose down` stops only Executor; PostgreSQL, Redis, and the four runtimes keep running.
+Stop infrastructure separately with `docker compose -f docker-compose.infra.yml stop`.
+Stop runtimes separately with `docker compose -f docker-compose.runtime.yml stop`.
+Infrastructure uses external volumes, so Compose does not delete its data. The default names reuse
+the existing `executor_executor-postgres` and `executor_executor-redis-608` volumes. For a fresh
+installation, create the volumes as shown above; if `SHARED_POSTGRES_VOLUME` or
+`SHARED_REDIS_VOLUME` is overridden, create those names instead. Shared results and the Jupyter
+workspace remain bind-mounted.
+
+Other Compose projects can connect to the same infrastructure by attaching their application
+service to the external `shared-infra` network (or `SHARED_INFRA_NETWORK` override):
+
+```yaml
+services:
+  app:
+    networks: [default, shared-infra]
+networks:
+  shared-infra:
+    external: true
+    name: shared-infra
+```
+
+On that network use `postgres:5432` and `redis:6379`. Host processes use `localhost:5432` and
+`localhost:6379`. Each application should use its own PostgreSQL database and Redis key/Stream
+prefix; database creation is explicit. Executor continues to use database `executor`, Redis DB 0,
+and `executor.*` Streams.
 
 For MCP calls from another machine, append the Executor host or IP (including `:*` when any port
 is acceptable) to `MCP_ALLOWED_HOSTS_DOCKER` and its browser origin to
@@ -250,18 +288,24 @@ on a `SelectorEventLoop`, because psycopg async connections are incompatible wit
 default `ProactorEventLoop`. Use `uv run executor-service` instead of invoking Uvicorn directly so
 the compatible loop runner is applied.
 
-To run a second Jupyter server against the same local PV:
+The Runtime Compose stack starts four Jupyter servers against the same local PV:
+
+| Service | Host port | Executor Runtime Pool |
+| --- | --- | --- |
+| `jupyter` | `8888` | `INTERACTIVE` |
+| `jupyter-secondary` | `8889` | `INTERACTIVE` |
+| `jupyter-batch-primary` | `8890` | `BATCH` |
+| `jupyter-batch-secondary` | `8891` | `BATCH` |
 
 ```bash
-docker compose --profile multi-jupyter up -d --wait
+docker compose -f docker-compose.infra.yml up -d --wait
+docker compose -f docker-compose.runtime.yml up -d --wait
+docker compose up -d --wait
 ```
 
-To run the two-server BATCH pool on ports `8890` and `8891`, or the full local four-server fleet:
-
-```bash
-docker compose --profile batch-jupyter up -d --wait
-docker compose --profile multi-jupyter --profile batch-jupyter up -d --wait
-```
+Register each server through the Runtime Target REST or MCP API with its listed pool and
+Compose-internal endpoint (`http://<service>:8888`). Runtime registrations persist in PostgreSQL;
+an empty or reset database requires registration again.
 
 Operational endpoints:
 
@@ -314,8 +358,11 @@ For repeatable local load and long-running validation, start the four-server fle
 test resource limits, run the preflight, and use the quick suite:
 
 ```bash
+docker compose -f docker-compose.infra.yml up -d --wait
+docker compose -f docker-compose.runtime.yml -f docker-compose.runtime.test.yml \
+  up -d --build --wait
 docker compose -f docker-compose.yml -f docker-compose.test.yml \
-  --profile multi-jupyter --profile batch-jupyter up -d --build --wait
+  up -d --build --wait
 uv run python scripts/local_test_preflight.py
 uv run python scripts/local_validation_suite.py
 ```
@@ -593,8 +640,8 @@ availability, and capacity-blocked state.
 an INTERACTIVE target, even if it has free capacity, and DRAINING/OFFLINE targets are not fallback
 targets. When all eligible BATCH targets are full, the Execution remains `QUEUED` and
 PostgreSQL reconciliation retries assignment after capacity becomes available. The local
-`batch-jupyter` profile provides two one-capacity servers for this behavior; production capacity is
-configured per manually registered target.
+Runtime Compose stack includes two BATCH servers for this behavior; capacity is configured per registered
+target.
 
 Use `runtime_target_set_state` with `DRAINING` before target maintenance. Existing executions and
 retained retry sessions remain attached, while new work is excluded from that target. The response

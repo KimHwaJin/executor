@@ -10,7 +10,7 @@ ROOT = Path(__file__).parents[1]
 @pytest.mark.parametrize(
     ("filename", "volume", "old_volume"),
     [
-        ("docker-compose.yml", "executor-redis-608", "executor-redis"),
+        ("docker-compose.infra.yml", "redis-data", "executor-redis"),
         ("compose.worker-failover.yaml", "redis-data-608", "redis-data"),
     ],
 )
@@ -23,6 +23,11 @@ def test_compose_pins_redis_and_uses_separate_downgrade_volume(
     assert redis["volumes"] == [f"{volume}:/data"]
     assert volume in compose["volumes"]
     assert old_volume not in compose["volumes"]
+    if filename == "docker-compose.infra.yml":
+        assert compose["volumes"][volume]["external"] is True
+        assert compose["volumes"][volume]["name"] == (
+            "${SHARED_REDIS_VOLUME:-executor_executor-redis-608}"
+        )
 
 
 @pytest.mark.parametrize("override", [None, "7.4.10"])

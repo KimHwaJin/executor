@@ -11,6 +11,7 @@ c.ServerApp.ip = "0.0.0.0"
 c.ServerApp.port = 8888
 c.ServerApp.open_browser = False
 c.ServerApp.allow_remote_access = True
+c.LabServerApp.notebook_starts_kernel = False
 c.PasswordIdentityProvider.token = token
 c.KernelSpecManager.allowed_kernelspecs = {"default", "3102311"}
 c.MappingKernelManager.default_kernel_name = "default"

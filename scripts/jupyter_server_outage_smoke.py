@@ -23,9 +23,19 @@ from resilience_common import (
 
 
 async def _compose(*arguments: str) -> str:
+    configured_files = (
+        os.getenv(
+            "LOCAL_RUNTIME_COMPOSE_FILES", "docker-compose.runtime.yml"
+        ).strip()
+        or "docker-compose.runtime.yml"
+    )
+    compose_arguments: list[str] = []
+    for compose_file in configured_files.split(os.pathsep):
+        compose_arguments.extend(["-f", compose_file])
     process = await asyncio.create_subprocess_exec(
         "docker",
         "compose",
+        *compose_arguments,
         *arguments,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
@@ -65,8 +75,6 @@ async def main() -> None:
     secondary_restored = False
     try:
         await _compose(
-            "--profile",
-            "multi-jupyter",
             "up",
             "-d",
             "--wait",
@@ -97,7 +105,7 @@ async def main() -> None:
                 pool="INTERACTIVE",
                 token=os.getenv(
                     "JUPYTER_SECONDARY_TOKEN",
-                    "change-me-secondary-local-only",
+                    "default",
                 ),
             )
             primary_id = str(primary["target_id"])
@@ -130,8 +138,6 @@ async def main() -> None:
                 )
 
             await _compose(
-                "--profile",
-                "multi-jupyter",
                 "up",
                 "-d",
                 "--wait",
@@ -197,8 +203,6 @@ async def main() -> None:
     finally:
         if not secondary_restored:
             await _compose(
-                "--profile",
-                "multi-jupyter",
                 "up",
                 "-d",
                 "--wait",

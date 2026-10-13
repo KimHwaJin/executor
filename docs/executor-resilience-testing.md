@@ -7,18 +7,23 @@ tests cannot cover.
 ## Prerequisites
 
 ```bash
+docker compose -f docker-compose.infra.yml up -d --wait
+docker compose -f docker-compose.runtime.yml -f docker-compose.runtime.test.yml \
+  up -d --wait
 docker compose -f docker-compose.yml -f docker-compose.test.yml \
-  --profile multi-jupyter --profile batch-jupyter up -d --wait
+  up -d --wait
 uv run alembic upgrade head
 ```
 
-The optional `docker-compose.test.yml` overlay gives each Jupyter container an explicit two-CPU,
-4 GiB cgroup boundary and raises Executor's maximum runtime to seven days. Override
+The optional `docker-compose.runtime.test.yml` overlay gives each Jupyter container an explicit
+two-CPU, 4 GiB cgroup boundary; `docker-compose.test.yml` raises Executor's maximum runtime to seven days. Override
 `LOCAL_TEST_JUPYTER_CPUS`, `LOCAL_TEST_JUPYTER_MEMORY`, or
 `EXECUTION_MAX_RUNTIME_SECONDS` when the local machine needs different limits. Set
 `LOCAL_TEST_COMPOSE_FILES` to the platform path-separated pair
 `docker-compose.yml:docker-compose.test.yml` (use `;` on Windows) when the suite must stop and
 restart services with the same overlay.
+Set `LOCAL_RUNTIME_COMPOSE_FILES` to `docker-compose.runtime.yml:docker-compose.runtime.test.yml`
+(use `;` on Windows) for Jupyter outage tests to restore the same runtime resource limits.
 
 ### Local topology preflight
 

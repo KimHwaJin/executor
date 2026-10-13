@@ -92,7 +92,7 @@ lease duration plus one heartbeat polling interval after the last successful hea
 Run the real PostgreSQL concurrency suite. It creates and drops an isolated temporary database:
 
 ```bash
-docker compose up -d --wait postgres redis
+docker compose -f docker-compose.infra.yml up -d --wait
 EXECUTOR_RUN_POSTGRES_TESTS=1 uv run pytest tests/test_multi_worker_postgres.py
 ```
 
@@ -102,7 +102,8 @@ with `SIGKILL`, and verifies that the second records lease expiry, cleans the ke
 exactly one explicit retry:
 
 ```bash
-docker compose up -d --wait postgres redis jupyter
+docker compose -f docker-compose.infra.yml up -d --wait
+docker compose -f docker-compose.runtime.yml up -d --wait jupyter
 uv run python scripts/multi_executor_failover_smoke.py
 ```
 

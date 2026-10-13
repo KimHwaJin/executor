@@ -89,7 +89,7 @@ def local_runtime_specs() -> tuple[LocalRuntimeSpec, ...]:
         LocalRuntimeSpec(
             name="local-jupyter",
             endpoint=os.getenv("LOCAL_JUPYTER_ENDPOINT", endpoints[0]),
-            token=os.getenv("JUPYTER_TOKEN", "change-me-local-only"),
+            token=os.getenv("JUPYTER_TOKEN", "default"),
             pool="INTERACTIVE",
         ),
         LocalRuntimeSpec(
@@ -97,9 +97,7 @@ def local_runtime_specs() -> tuple[LocalRuntimeSpec, ...]:
             endpoint=os.getenv(
                 "LOCAL_JUPYTER_SECONDARY_ENDPOINT", endpoints[1]
             ),
-            token=os.getenv(
-                "JUPYTER_SECONDARY_TOKEN", "change-me-secondary-local-only"
-            ),
+            token=os.getenv("JUPYTER_SECONDARY_TOKEN", "default"),
             pool="INTERACTIVE",
         ),
         LocalRuntimeSpec(
@@ -109,7 +107,7 @@ def local_runtime_specs() -> tuple[LocalRuntimeSpec, ...]:
             ),
             token=os.getenv(
                 "JUPYTER_BATCH_PRIMARY_TOKEN",
-                "change-me-batch-primary-local-only",
+                "default",
             ),
             pool="BATCH",
         ),
@@ -120,7 +118,7 @@ def local_runtime_specs() -> tuple[LocalRuntimeSpec, ...]:
             ),
             token=os.getenv(
                 "JUPYTER_BATCH_SECONDARY_TOKEN",
-                "change-me-batch-secondary-local-only",
+                "default",
             ),
             pool="BATCH",
         ),

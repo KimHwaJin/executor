@@ -36,7 +36,7 @@ Production operators must mount the same shared PVC on every Jupyter target in a
 Start the full fleet:
 
 ```bash
-docker compose --profile multi-jupyter --profile batch-jupyter up -d --wait
+docker compose -f docker-compose.runtime.yml up -d --wait
 ```
 
 Compose starts the containers but does not register the BATCH endpoints automatically. This

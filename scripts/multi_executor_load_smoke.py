@@ -94,7 +94,7 @@ async def main() -> None:
                     "INTERACTIVE",
                     os.getenv(
                         "JUPYTER_SECONDARY_TOKEN",
-                        "change-me-secondary-local-only",
+                        "default",
                     ),
                 ),
                 (
@@ -103,7 +103,7 @@ async def main() -> None:
                     "BATCH",
                     os.getenv(
                         "JUPYTER_BATCH_PRIMARY_TOKEN",
-                        "change-me-batch-primary-local-only",
+                        "default",
                     ),
                 ),
                 (
@@ -112,7 +112,7 @@ async def main() -> None:
                     "BATCH",
                     os.getenv(
                         "JUPYTER_BATCH_SECONDARY_TOKEN",
-                        "change-me-batch-secondary-local-only",
+                        "default",
                     ),
                 ),
             )
