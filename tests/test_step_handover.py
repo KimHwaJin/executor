@@ -13,6 +13,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from executor_service.application.commands import (
+    CancelExecutionCommand,
     StepSpec,
     SubmitExecutionCommand,
 )
@@ -409,3 +410,81 @@ async def test_a_lost_kernel_fails_the_handed_over_step(
         )
         == []
     )
+
+
+async def _release_running_step(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+    tmp_path: Path,
+    redis: Redis,
+) -> UUID:
+    execution_id = await _submit(
+        execution_service, engine, OperationMode.SINGLE
+    )
+    stopping = _worker(engine, tmp_path, "worker-a", redis)
+    run = asyncio.create_task(stopping._runner.run(execution_id))
+    await asyncio.wait_for(JournalKernel.started.wait(), 10)
+    stopping._step_executor.set_shutting_down(True)
+    run.cancel()
+    await asyncio.gather(run, return_exceptions=True)
+    return execution_id
+
+
+async def test_cancelling_a_released_step_clears_its_handover(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+    tmp_path: Path,
+) -> None:
+    redis = Redis.from_url("redis://127.0.0.1:6379/15", decode_responses=True)
+    try:
+        execution_id = await _release_running_step(
+            execution_service, engine, tmp_path, redis
+        )
+        await execution_service.cancel(
+            CancelExecutionCommand(
+                execution_id=execution_id, idempotency_key="cancel-handover"
+            )
+        )
+        await _worker(
+            engine, tmp_path, "worker-b", redis
+        )._cancellation.cancel(execution_id)
+    finally:
+        await redis.aclose()
+
+    finished = await execution_service.get(execution_id)
+    assert finished.status == ExecutionStatus.CANCELLED
+    async with create_session_factory(engine)() as session:
+        assert await session.get(ExecutionHandoverORM, execution_id) is None
+
+
+async def test_a_handover_without_its_target_fails_instead_of_waiting(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+    tmp_path: Path,
+) -> None:
+    redis = Redis.from_url("redis://127.0.0.1:6379/15", decode_responses=True)
+    try:
+        execution_id = await _release_running_step(
+            execution_service, engine, tmp_path, redis
+        )
+        async with (
+            create_session_factory(engine)() as session,
+            session.begin(),
+        ):
+            # Simulate a Target row that is gone (inconsistent fleet state).
+            await session.execute(
+                update(ExecutionORM)
+                .where(ExecutionORM.id == execution_id)
+                .values(runtime_target_id=None)
+            )
+        replacement = _worker(engine, tmp_path, "worker-b", redis)
+        await replacement._runner.run(execution_id)
+        assert await replacement._lease_recovery.recover() == 1
+    finally:
+        await redis.aclose()
+
+    finished = await execution_service.get(execution_id)
+    assert finished.status == ExecutionStatus.FAILED
+    assert finished.failure_type == FailureType.LEASE_EXPIRED
+    async with create_session_factory(engine)() as session:
+        assert await session.get(ExecutionHandoverORM, execution_id) is None

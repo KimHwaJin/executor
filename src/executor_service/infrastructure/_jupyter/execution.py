@@ -5,6 +5,7 @@ import json
 import time
 from uuid import UUID
 
+import httpx
 import websockets
 from websockets.exceptions import (
     ConnectionClosedError,
@@ -57,12 +58,24 @@ class JupyterKernelExecutor:
     async def start(
         self, session_id: str, request_id: UUID, code: str
     ) -> None:
-        response = await self._transport.request(
-            "POST",
-            f"/executor/kernels/{session_id}/executions",
-            json={"request_id": str(request_id), "code": code},
-            allowed_statuses={200, 201, 404},
-        )
+        # Jupyter may still send the code after a lost response, so never
+        # give up on a transport error: resubmitting the same request ID is
+        # safe and tells whether it was accepted.
+        disconnected_at: float | None = None
+        while True:
+            try:
+                response = await self._transport.request(
+                    "POST",
+                    f"/executor/kernels/{session_id}/executions",
+                    json={"request_id": str(request_id), "code": code},
+                    allowed_statuses={200, 201, 404},
+                )
+                break
+            except RuntimeDriverError as exc:
+                if not isinstance(exc.__cause__, httpx.RequestError):
+                    raise
+                disconnected_at = self._reconnect_allowed(disconnected_at, exc)
+            await asyncio.sleep(_RECONNECT_DELAY_SECONDS)
         if response.status_code == 404:
             raise RuntimeSessionLostError(
                 "Jupyter kernel was not found when submitting code."

@@ -33,6 +33,7 @@ from executor_service.infrastructure.db.models import (
     ExecutionORM,
     ExecutionStepAttemptORM,
     ExecutionStepORM,
+    RuntimeTargetORM,
 )
 from executor_service.infrastructure.diagnostic_mapping import diagnostic_for
 from executor_service.infrastructure.execution_worker.event_writer import (
@@ -334,7 +335,10 @@ class LeaseRecoveryProcessor:
 
         if (
             execution.runtime_session_id is None
+            or execution.runtime_target_id is None
             or execution.runtime_abort_status == RuntimeAbortStatus.PENDING
+            or await session.get(RuntimeTargetORM, execution.runtime_target_id)
+            is None
         ):
             return False
         step_attempt = await running_step_attempt(session, execution.id)

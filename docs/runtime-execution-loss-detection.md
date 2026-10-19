@@ -32,23 +32,16 @@ Jupyter 확장이 Step마다 실행 저널을 기록하고, 소실 판정도 확
 이벤트와 failure/diagnostics에 사유를 남긴다. 정리 실패는 기존 cleanup 재시도 체계로
 관리한다. 완료/오류/취소/타임아웃 시 감시 태스크도 취소하고 회수한다.
 
-## 내부 Jupyter API (Agent 공개 API 아님)
+## 커널 식별 (확장 내부)
 
-`GET /executor/kernels/{kernel_id}/execution-state`
+확장은 `KernelStateObserver`로 커널 프로세스의 생존과 instance_id를 확인한다. 별도 HTTP
+API는 두지 않는다(이전의 `GET /executor/kernels/{kernel_id}/execution-state`는 Executor가
+더 이상 호출하지 않아 제거했다).
 
-Jupyter 기존 토큰 인증과 base_url을 사용한다. Cache-Control: no-store.
-
-```json
-{"kernel_id": "<Kernel ID>", "alive": true, "instance_id": "<opaque identity>"}
-```
-
-- 등록된 커널이 없거나 프로세스가 종료/교체/종료 절차 중이면 alive=false,
-  instance_id=null이다. 이 API의 alive는 실행을 유지할 수 있는 상태를 뜻한다.
 - LocalProvisioner의 process 객체와 KernelManager.is_alive()/shutting_down을 사용한다.
-  같은 Kernel ID 또는 PID라도 프로세스가 교체되면 다른 식별값을 반환한다.
-- 서버 재시작도 식별값이 달라진다. 프로세스 객체는 약한 참조로 관리한다.
-- 관측 불가능한 remote/custom provisioner는 503이다. 조용히 감시를 생략하지 않는다.
-- PID/명령행/인증정보/경로/OOM 정보는 노출하지 않는다. PV 파일도 생성하지 않는다.
+  같은 Kernel ID 또는 PID라도 프로세스가 교체되면 다른 식별값이 된다.
+- 관측 불가능한 remote/custom provisioner에서는 실행을 시작하지 않는다. 조용히 감시를
+  생략하지 않는다.
 
 ## Executor 설정과 장애 구분
 

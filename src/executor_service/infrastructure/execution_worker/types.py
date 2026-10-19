@@ -91,6 +91,5 @@ class StoredRuntimeOutputLimitExceededError(RuntimeOutputLimitExceededError):
         stored_result: StepResultDescriptor,
     ) -> None:
         RuntimeExecutionError.__init__(self, str(original))
-        self.max_message_bytes = original.max_message_bytes
         self.kind = original.kind
         self.stored_result = stored_result

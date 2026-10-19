@@ -54,7 +54,10 @@ class ExecutionJournals:
         max_bytes: int,
         retention_seconds: float,
         liveness_seconds: float = 5,
-        ready_timeout_seconds: float = 60,
+        # Below the Executor's Jupyter request timeout (30 s by default), so
+        # a slow kernel fails the request before the Executor stops waiting
+        # instead of receiving code after it.
+        ready_timeout_seconds: float = 20,
     ) -> None:
         self._root = root
         self._kernel_state = kernel_state

@@ -21,7 +21,6 @@ def _load_jupyter_server_extension(server_app: Any) -> None:
         ExecutionStreamHandler,
         FileContentHandler,
         FileMetadataHandler,
-        KernelExecutionStateHandler,
         ManifestReadHandler,
         NotebookPrepareHandler,
         NotebookProjectHandler,
@@ -39,24 +38,12 @@ def _load_jupyter_server_extension(server_app: Any) -> None:
     web_app.settings["executor_runtime_storage"] = RuntimeStorage(
         server_app.root_dir
     )
-    kernel_state = KernelStateObserver()
-    web_app.settings["executor_kernel_state_observer"] = kernel_state
     web_app.settings["executor_journals"] = ExecutionJournals.from_environment(
-        kernel_state
+        KernelStateObserver()
     )
     web_app.add_handlers(
         ".*$",
         [
-            (
-                url_path_join(
-                    base_url,
-                    "executor",
-                    "kernels",
-                    "([^/]+)",
-                    "execution-state",
-                ),
-                KernelExecutionStateHandler,
-            ),
             (
                 url_path_join(
                     base_url, "executor", "kernels", "([^/]+)", "executions"

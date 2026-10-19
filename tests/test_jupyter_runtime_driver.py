@@ -622,6 +622,37 @@ async def test_start_execution_submits_once_per_request_id() -> None:
     }
 
 
+async def test_start_execution_resubmits_after_a_lost_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise httpx.ReadTimeout("lost response", request=request)
+        return httpx.Response(200, json={"created": False})
+
+    driver = JupyterRuntimeDriver("http://jupyter.invalid", "secret")
+    await driver._client.aclose()
+    driver._client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        base_url="http://jupyter.invalid",
+    )
+    monkeypatch.setattr(
+        "executor_service.infrastructure._jupyter.execution."
+        "_RECONNECT_DELAY_SECONDS",
+        0,
+    )
+    try:
+        await driver.start_execution("kernel-1", _REQUEST_ID, "print(1)")
+    finally:
+        await driver.close()
+
+    assert attempts == 2
+
+
 @pytest.mark.parametrize(
     "output_error",
     [

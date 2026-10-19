@@ -1,9 +1,11 @@
 import asyncio
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 import pytest
+import pytest_asyncio
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -25,8 +27,12 @@ from executor_service.domain.runtime import (
     RuntimeOutputHandler,
 )
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
+from executor_service.infrastructure.db.base import Base
 from executor_service.infrastructure.db.models import RuntimeTargetORM
-from executor_service.infrastructure.db.session import create_session_factory
+from executor_service.infrastructure.db.session import (
+    create_engine,
+    create_session_factory,
+)
 from executor_service.infrastructure.execution_worker import ExecutionWorker
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
@@ -152,6 +158,20 @@ def _worker(
         ),
         redis,
     )
+
+
+@pytest_asyncio.fixture
+async def engine(tmp_path: Path) -> AsyncIterator[AsyncEngine]:
+    """A file database: concurrent Executions need their own connections.
+
+    The shared in-memory connection interleaves their transactions.
+    """
+
+    test_engine = create_engine(f"sqlite+aiosqlite:///{tmp_path / 'db'}")
+    async with test_engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    yield test_engine
+    await test_engine.dispose()
 
 
 async def _wait_until(predicate: Any) -> None:
