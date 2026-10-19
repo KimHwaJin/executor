@@ -8,16 +8,20 @@
 탐색·메타데이터 조회·다운로드에 동일한 규칙을 적용하며, 파일 조회에는 디렉토리를
 지정할 수 없다. 변경 적용에는 확장 재설치 또는 이미지 재빌드 후 서버 재시작이 필요하다.
 
-## 실행 소실 감지 확장
+## 실행 저널 확장
 
-`GET /executor/kernels/{kernel_id}/execution-state`는 토큰 인증을 사용하는 내부 조회다.
-커널 프로세스가 계속 존재하는지와 같은 Kernel ID로 재시작됐는지를 확인하여
-Executor가 소실된 실행을 계속 기다리지 않게 한다. CPU/OOM 조사나 커널 코드 실행은
-하지 않는다. 추가 볼륨/권한/설정은 필요 없다. 커널 실행은 LocalProvisioner 기준이다.
+Executor는 코드를 `POST /executor/kernels/{kernel_id}/executions`로 한 번만 보내고,
+`.../executions/{request_id}/stream` WebSocket으로 실행 저널을 따라 읽는다. 확장이 커널
+출력을 요청별 JSONL 저널에 기록하므로 Executor Pod가 바뀌어도 새 Pod가 처음부터 다시
+읽어 이어받는다. 커널 종료·재시작이나 Jupyter 서버 재시작은 확장이 `LOST`로 기록한다.
 
-이 기능을 사용하는 Executor를 배포하기 전에 `extension/` 전체를 새로 설치하거나
-이미지를 재빌드하고 Jupyter 서버를 재시작해야 한다. 커널만 재시작해서는 확장 코드가
-갱신되지 않는다. 기존 작업이 진행 중인 서버는 작업을 정리한 뒤 업데이트한다.
+저널은 컨테이너 로컬 임시 경로에 둔다. Jupyter 서버가 재시작되면 실행 중이던 Step은
+어차피 실패하므로 PVC에 둘 필요가 없다. 추가 볼륨/권한은 필요 없다.
+
+이 확장 없이는 현재 Executor가 코드를 실행할 수 없다(시작 요청이 404). Executor를
+배포하기 전에 `extension/` 전체를 새로 설치하거나 이미지를 재빌드하고 Jupyter 서버를
+재시작해야 한다. 커널만 재시작해서는 확장 코드가 갱신되지 않는다. 기존 작업이 진행 중인
+서버는 작업을 정리한 뒤 업데이트한다.
 
 Dockerfile의 각 구문, 권한 설정, PVC 적용 시 주의사항은
 [`DOCKERFILE_GUIDE.md`](DOCKERFILE_GUIDE.md)에 상세히 정리되어 있다.
@@ -211,6 +215,9 @@ ENV JUPYTER_ROOT_DIR=/workspace/jupyter \
 | 이미지 | 위에서 빌드·업로드한 태그 |
 | `JUPYTER_TOKEN` | 기본 `default`. 운영에서는 플랫폼 Secret으로 덮어씀. 빈 값이면 시작 실패 |
 | `JUPYTER_ROOT_DIR` | 작업공간 루트 `${JUPYTER_ROOT_DIR}`. 실제 공유 PVC 마운트 경로와 일치시킴 |
+| `EXECUTOR_JOURNAL_DIR` | 선택. 실행 저널 위치. 기본 `/tmp/executor-journals`(컨테이너 로컬) |
+| `EXECUTOR_JOURNAL_MAX_BYTES` | 선택. 요청 하나의 저널 상한. 기본 `1073741824`(1GiB). 넘으면 `OUTPUT_LIMIT`로 끝남 |
+| `EXECUTOR_JOURNAL_RETENTION_SECONDS` | 선택. Executor가 지우지 않은 저널의 보존 시간. 기본 `86400` |
 | `UV_DEFAULT_INDEX` | 선택. Jupyter 터미널에서 PV 아래 사용자 환경을 만들 때 사용할 Nexus 주소. 표준 커널 빌드 인자와 별개의 런타임 주입값 |
 | 포트 | 기본 `8888`. Service 대상 포트도 일치시킴 |
 | 실행 사용자 | UID/GID `1000:1000`. PVC에 디렉토리·파일 생성 및 수정 권한 필요 |

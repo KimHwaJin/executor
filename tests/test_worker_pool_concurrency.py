@@ -1,9 +1,11 @@
 import asyncio
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 import pytest
+import pytest_asyncio
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -20,10 +22,17 @@ from executor_service.domain.enums import (
     RuntimeTargetStatus,
     TriggerType,
 )
-from executor_service.domain.runtime import RuntimeExecutionResult
+from executor_service.domain.runtime import (
+    RuntimeExecutionResult,
+    RuntimeOutputHandler,
+)
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
+from executor_service.infrastructure.db.base import Base
 from executor_service.infrastructure.db.models import RuntimeTargetORM
-from executor_service.infrastructure.db.session import create_session_factory
+from executor_service.infrastructure.db.session import (
+    create_engine,
+    create_session_factory,
+)
 from executor_service.infrastructure.execution_worker import ExecutionWorker
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
@@ -57,15 +66,18 @@ class ControlledJupyterGateway(InMemoryRuntimeStorage):
     async def start_session(self, _runtime_profile: str, _path: str) -> str:
         return f"kernel-{uuid4().hex}"
 
-    async def execute(
-        self, _runtime_session_id: str, _code: str
+    async def run_code(
+        self,
+        _runtime_session_id: str,
+        _code: str,
+        _output_handler: RuntimeOutputHandler,
     ) -> RuntimeExecutionResult:
         if self.pool == self.blocked_pool:
             type(self).blocked_started += 1
             await self.release.wait()
         else:
             self.independent_finished.set()
-        return RuntimeExecutionResult(outputs=[], execution_count=1)
+        return RuntimeExecutionResult(execution_count=1)
 
     async def interrupt_session(self, _runtime_session_id: str) -> None:
         pass
@@ -146,6 +158,20 @@ def _worker(
         ),
         redis,
     )
+
+
+@pytest_asyncio.fixture
+async def engine(tmp_path: Path) -> AsyncIterator[AsyncEngine]:
+    """A file database: concurrent Executions need their own connections.
+
+    The shared in-memory connection interleaves their transactions.
+    """
+
+    test_engine = create_engine(f"sqlite+aiosqlite:///{tmp_path / 'db'}")
+    async with test_engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    yield test_engine
+    await test_engine.dispose()
 
 
 async def _wait_until(predicate: Any) -> None:

@@ -5,36 +5,34 @@ from uuid import UUID
 
 import httpx
 import pytest
-from websockets.exceptions import ConnectionClosedError, PayloadTooBig
+from websockets.datastructures import Headers
+from websockets.exceptions import (
+    ConnectionClosedError,
+    InvalidStatus,
+    PayloadTooBig,
+)
 from websockets.frames import Close
+from websockets.http11 import Response
 
 from executor_service.domain.enums import RuntimeAbortStatus
 from executor_service.domain.runtime import (
     RuntimeDriverError,
+    RuntimeExecutionError,
     RuntimeNotebookSourceCell,
     RuntimeOutputLimitExceededError,
     RuntimeOutputRecord,
+    RuntimeSessionLostError,
 )
 from executor_service.infrastructure.jupyter import (
     JupyterRuntimeDriver,
     _as_output_record,
     _contents_path,
-    _deserialize_v1,
 )
 
-
-@pytest.fixture(autouse=True)
-def stable_kernel_process(monkeypatch: pytest.MonkeyPatch) -> None:
-    # These tests isolate the channel/storage protocols. Probe failure and
-    # continuity are exercised with HTTP transport in test_jupyter_execution_guard.
-    async def instance(_self: object, kernel_id: str) -> str:
-        return f"stable-{kernel_id}"
-
-    monkeypatch.setattr(
-        "executor_service.infrastructure._jupyter.execution_guard."
-        "KernelExecutionGuard._instance",
-        instance,
-    )
+_CONNECT = (
+    "executor_service.infrastructure._jupyter.execution.websockets.connect"
+)
+_REQUEST_ID = UUID("00000000-0000-4000-8000-000000000001")
 
 
 def _resource_payload() -> dict[str, Any]:
@@ -503,6 +501,158 @@ def test_output_record_mapping_preserves_jupyter_mime_semantics() -> None:
     assert error.representations[0].content == "line 1\nline 2"
 
 
+def _message(seq: int, channel: str, msg_type: str, content: Any) -> str:
+    return json.dumps(
+        {
+            "seq": seq,
+            "type": "message",
+            "channel": channel,
+            "msg_type": msg_type,
+            "content": content,
+        }
+    )
+
+
+def _terminal(seq: int, state: str, message: str | None = None) -> str:
+    return json.dumps(
+        {"seq": seq, "type": "terminal", "state": state, "message": message}
+    )
+
+
+def _caught_up(seq: int, *, finished: bool) -> str:
+    return json.dumps({"type": "caught_up", "seq": seq, "finished": finished})
+
+
+class FakeStream:
+    """One journal stream connection: frames, then an optional failure."""
+
+    def __init__(
+        self, frames: list[str], error: BaseException | None = None
+    ) -> None:
+        self._frames = frames
+        self._error = error
+
+    async def __aenter__(self) -> "FakeStream":
+        return self
+
+    async def __aexit__(self, *_args: object) -> None:
+        pass
+
+    def __aiter__(self) -> "FakeStream":
+        return self
+
+    async def __anext__(self) -> str:
+        if self._frames:
+            return self._frames.pop(0)
+        if self._error is not None:
+            raise self._error
+        raise StopAsyncIteration
+
+
+def _connect_sequence(
+    monkeypatch: pytest.MonkeyPatch,
+    *streams: FakeStream | BaseException,
+) -> list[tuple[str, dict[str, Any]]]:
+    calls: list[tuple[str, dict[str, Any]]] = []
+    pending = list(streams)
+
+    def connect(uri: str, **kwargs: Any) -> FakeStream:
+        calls.append((uri, kwargs))
+        stream = pending.pop(0)
+        if isinstance(stream, BaseException):
+            raise stream
+        return stream
+
+    monkeypatch.setattr(_CONNECT, connect)
+    monkeypatch.setattr(
+        "executor_service.infrastructure._jupyter.execution."
+        "_RECONNECT_DELAY_SECONDS",
+        0,
+    )
+    return calls
+
+
+async def _follow(
+    driver: JupyterRuntimeDriver,
+    records: list[RuntimeOutputRecord] | None = None,
+    caught_up: list[bool] | None = None,
+) -> Any:
+    async def collect(record: RuntimeOutputRecord) -> None:
+        if records is not None:
+            records.append(record)
+
+    async def on_caught_up(finished: bool) -> None:
+        if caught_up is not None:
+            caught_up.append(finished)
+
+    try:
+        return await driver.follow_execution(
+            "kernel-1", _REQUEST_ID, collect, on_caught_up
+        )
+    finally:
+        await driver.close()
+
+
+async def test_start_execution_submits_once_per_request_id() -> None:
+    requests: list[httpx.Request] = []
+    statuses = iter([201, 200, 404])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(next(statuses), json={})
+
+    driver = JupyterRuntimeDriver("http://jupyter.invalid", "secret")
+    await driver._client.aclose()
+    driver._client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        base_url="http://jupyter.invalid",
+    )
+    try:
+        await driver.start_execution("kernel-1", _REQUEST_ID, "print(1)")
+        await driver.start_execution("kernel-1", _REQUEST_ID, "print(1)")
+        with pytest.raises(RuntimeSessionLostError):
+            await driver.start_execution("kernel-1", _REQUEST_ID, "x")
+    finally:
+        await driver.close()
+
+    assert requests[0].url.path == "/executor/kernels/kernel-1/executions"
+    assert json.loads(requests[0].content) == {
+        "request_id": str(_REQUEST_ID),
+        "code": "print(1)",
+    }
+
+
+async def test_start_execution_resubmits_after_a_lost_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise httpx.ReadTimeout("lost response", request=request)
+        return httpx.Response(200, json={"created": False})
+
+    driver = JupyterRuntimeDriver("http://jupyter.invalid", "secret")
+    await driver._client.aclose()
+    driver._client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        base_url="http://jupyter.invalid",
+    )
+    monkeypatch.setattr(
+        "executor_service.infrastructure._jupyter.execution."
+        "_RECONNECT_DELAY_SECONDS",
+        0,
+    )
+    try:
+        await driver.start_execution("kernel-1", _REQUEST_ID, "print(1)")
+    finally:
+        await driver.close()
+
+    assert attempts == 2
+
+
 @pytest.mark.parametrize(
     "output_error",
     [
@@ -511,49 +661,27 @@ def test_output_record_mapping_preserves_jupyter_mime_semantics() -> None:
         TimeoutError("storage timeout"),
     ],
 )
-async def test_execute_streaming_delivers_each_iopub_output(
+async def test_follow_delivers_each_journal_output(
     monkeypatch: pytest.MonkeyPatch,
     output_error: Exception | None,
 ) -> None:
-    class FakeWebSocket:
-        def __init__(self) -> None:
-            self.message_id = ""
-            self.messages = [
-                ("iopub", "stream", {"name": "stdout", "text": "one\n"}),
-                (
+    calls = _connect_sequence(
+        monkeypatch,
+        FakeStream(
+            [
+                _message(
+                    1, "iopub", "stream", {"name": "stdout", "text": "one\n"}
+                ),
+                _caught_up(1, finished=False),
+                _message(
+                    2,
                     "shell",
                     "execute_reply",
                     {"status": "ok", "execution_count": 3},
                 ),
-                ("iopub", "status", {"execution_state": "idle"}),
+                _terminal(3, "COMPLETED"),
             ]
-
-        async def __aenter__(self) -> "FakeWebSocket":
-            return self
-
-        async def __aexit__(self, *_args: object) -> None:
-            pass
-
-        async def send(self, raw: bytes) -> None:
-            _, message = _deserialize_v1(raw)
-            self.message_id = str(message["header"]["msg_id"])
-
-        async def recv(self) -> str:
-            channel, msg_type, content = self.messages.pop(0)
-            return json.dumps(
-                {
-                    "channel": channel,
-                    "header": {"msg_type": msg_type},
-                    "parent_header": {"msg_id": self.message_id},
-                    "metadata": {},
-                    "content": content,
-                }
-            )
-
-    socket = FakeWebSocket()
-    monkeypatch.setattr(
-        "executor_service.infrastructure._jupyter.execution.websockets.connect",
-        lambda *_args, **_kwargs: socket,
+        ),
     )
     records: list[RuntimeOutputRecord] = []
 
@@ -562,149 +690,203 @@ async def test_execute_streaming_delivers_each_iopub_output(
             raise output_error
         records.append(record)
 
-    driver = JupyterRuntimeDriver("http://jupyter.invalid", "secret")
+    driver = JupyterRuntimeDriver(
+        "https://jupyter.invalid/base",
+        "secret",
+        max_output_message_bytes=1024,
+    )
     try:
         if output_error is not None:
             with pytest.raises(type(output_error)) as raised:
-                await driver.execute_streaming(
-                    "kernel-1", "print('one')", collect
-                )
+                await driver.follow_execution("kernel-1", _REQUEST_ID, collect)
             assert raised.value is output_error
             return
-        result = await driver.execute_streaming(
-            "kernel-1", "print('one')", collect
+        result = await driver.follow_execution(
+            "kernel-1", _REQUEST_ID, collect
         )
     finally:
         await driver.close()
 
     assert result.execution_count == 3
-    assert result.outputs == []
-    assert len(records) == 1
-    assert records[0].kind == "STREAM"
+    assert [record.kind for record in records] == ["STREAM"]
+    uri, options = calls[0]
+    assert uri == (
+        "wss://jupyter.invalid/base/executor/kernels/kernel-1/executions/"
+        f"{_REQUEST_ID}/stream?after=0"
+    )
+    assert options["max_size"] == 1024
+    assert options["additional_headers"] == {"Authorization": "token secret"}
 
 
-async def test_channel_disconnect_preserves_close_codes_without_peer_reason(
+async def test_follow_resumes_after_the_last_entry_without_duplicates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    class ClosedWebSocket:
-        async def __aenter__(self) -> "ClosedWebSocket":
-            return self
+    calls = _connect_sequence(
+        monkeypatch,
+        FakeStream(
+            [
+                _message(
+                    1, "iopub", "stream", {"name": "stdout", "text": "a"}
+                ),
+                _caught_up(1, finished=False),
+            ],
+            ConnectionClosedError(Close(1011, "gone"), None),
+        ),
+        OSError("connection refused"),
+        FakeStream(
+            [
+                _message(
+                    2, "iopub", "stream", {"name": "stdout", "text": "b"}
+                ),
+                _caught_up(2, finished=True),
+                _terminal(3, "COMPLETED"),
+            ]
+        ),
+    )
+    records: list[RuntimeOutputRecord] = []
+    caught_up: list[bool] = []
 
-        async def __aexit__(self, *_args: object) -> None:
-            pass
+    await _follow(
+        JupyterRuntimeDriver("http://jupyter.invalid", "secret"),
+        records,
+        caught_up,
+    )
 
-        async def send(self, _raw: bytes) -> None:
-            pass
+    assert [uri.rsplit("=", 1)[1] for uri, _ in calls] == ["0", "1", "1"]
+    assert [record.representations[0].content for record in records] == [
+        "a",
+        "b",
+    ]
+    assert caught_up == [False]
 
-        async def recv(self) -> str:
-            raise ConnectionClosedError(
-                Close(1011, "unlabelled-private-data"), None
+
+async def test_a_journal_that_already_finished_reports_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _connect_sequence(
+        monkeypatch,
+        FakeStream(
+            [
+                _message(
+                    1, "iopub", "stream", {"name": "stdout", "text": "a"}
+                ),
+                _terminal(2, "COMPLETED"),
+                _caught_up(2, finished=True),
+            ]
+        ),
+    )
+    caught_up: list[bool] = []
+
+    await _follow(
+        JupyterRuntimeDriver("http://jupyter.invalid", "secret"),
+        caught_up=caught_up,
+    )
+
+    assert caught_up == [True]
+
+
+async def test_follow_rejects_a_gap_in_the_journal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _connect_sequence(
+        monkeypatch,
+        FakeStream([_message(2, "iopub", "stream", {"text": "late"})]),
+    )
+
+    with pytest.raises(RuntimeDriverError, match="gap"):
+        await _follow(JupyterRuntimeDriver("http://jupyter.invalid", "secret"))
+
+
+async def test_follow_gives_up_after_the_reconnect_window(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _connect_sequence(monkeypatch, OSError("down"), OSError("down"))
+    driver = JupyterRuntimeDriver(
+        "http://jupyter.invalid", "secret", stream_reconnect_seconds=0.001
+    )
+    monkeypatch.setattr(
+        "executor_service.infrastructure._jupyter.execution."
+        "_RECONNECT_DELAY_SECONDS",
+        0.01,
+    )
+
+    with pytest.raises(RuntimeDriverError, match="stayed unavailable"):
+        await _follow(driver)
+
+
+@pytest.mark.parametrize(
+    "stream",
+    [
+        FakeStream([_terminal(1, "LOST", "The kernel process stopped.")]),
+        InvalidStatus(Response(404, "Not Found", Headers())),
+    ],
+)
+async def test_lost_or_unknown_execution_reports_a_lost_session(
+    monkeypatch: pytest.MonkeyPatch,
+    stream: FakeStream | BaseException,
+) -> None:
+    _connect_sequence(monkeypatch, stream)
+
+    with pytest.raises(RuntimeSessionLostError):
+        await _follow(JupyterRuntimeDriver("http://jupyter.invalid", "secret"))
+
+
+async def test_failed_code_reports_its_error_after_delivering_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    error = {"ename": "ValueError", "evalue": "bad", "traceback": ["tb"]}
+    _connect_sequence(
+        monkeypatch,
+        FakeStream(
+            [
+                _message(1, "iopub", "error", error),
+                _message(
+                    2, "shell", "execute_reply", {"status": "error", **error}
+                ),
+                _terminal(3, "COMPLETED"),
+            ]
+        ),
+    )
+    records: list[RuntimeOutputRecord] = []
+
+    with pytest.raises(RuntimeExecutionError, match="ValueError: bad"):
+        await _follow(
+            JupyterRuntimeDriver("http://jupyter.invalid", "secret"), records
+        )
+
+    assert [record.kind for record in records] == ["ERROR"]
+
+
+@pytest.mark.parametrize(
+    ("stream", "kind"),
+    [
+        (FakeStream([], PayloadTooBig(2048, 1024)), "MESSAGE_SIZE"),
+        (
+            FakeStream(
+                [], ConnectionClosedError(None, Close(1009, "message too big"))
+            ),
+            "MESSAGE_SIZE",
+        ),
+        (
+            FakeStream([_terminal(1, "OUTPUT_LIMIT", "Output too large.")]),
+            "JOURNAL_SIZE",
+        ),
+    ],
+)
+async def test_output_limits_end_the_step_as_incomplete(
+    monkeypatch: pytest.MonkeyPatch,
+    stream: FakeStream,
+    kind: str,
+) -> None:
+    _connect_sequence(monkeypatch, stream)
+
+    with pytest.raises(RuntimeOutputLimitExceededError) as raised:
+        await _follow(
+            JupyterRuntimeDriver(
+                "http://jupyter.invalid",
+                "secret",
+                max_output_message_bytes=1024,
             )
+        )
 
-    monkeypatch.setattr(
-        "executor_service.infrastructure._jupyter.execution.websockets.connect",
-        lambda *_args, **_kwargs: ClosedWebSocket(),
-    )
-    driver = JupyterRuntimeDriver("http://jupyter.invalid", "secret")
-    try:
-        with pytest.raises(RuntimeDriverError) as raised:
-            await driver.execute("kernel-1", "print('one')")
-        assert "received_close_code=1011" in str(raised.value)
-        assert "private-data" not in str(raised.value)
-        assert isinstance(raised.value.__cause__, ConnectionClosedError)
-    finally:
-        await driver.close()
-
-
-async def test_execute_rejects_websocket_message_above_safety_limit(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    class OversizedWebSocket:
-        def __init__(self) -> None:
-            self.message_id: str | None = None
-            self.sent_output = False
-
-        async def __aenter__(self) -> "OversizedWebSocket":
-            return self
-
-        async def __aexit__(self, *_args: object) -> None:
-            pass
-
-        async def send(self, raw: bytes) -> None:
-            _, message = _deserialize_v1(raw)
-            self.message_id = message["header"]["msg_id"]
-
-        async def recv(self) -> str:
-            if not self.sent_output:
-                self.sent_output = True
-                return json.dumps(
-                    {
-                        "channel": "iopub",
-                        "header": {"msg_type": "stream"},
-                        "parent_header": {"msg_id": self.message_id},
-                        "content": {
-                            "name": "stdout",
-                            "text": "before limit\n",
-                        },
-                    }
-                )
-            raise PayloadTooBig(2048, 1024)
-
-    connect_options: dict[str, Any] = {}
-
-    def connect(*_args: object, **kwargs: Any) -> OversizedWebSocket:
-        connect_options.update(kwargs)
-        return OversizedWebSocket()
-
-    monkeypatch.setattr(
-        "executor_service.infrastructure._jupyter.execution.websockets.connect",
-        connect,
-    )
-    driver = JupyterRuntimeDriver(
-        "http://jupyter.invalid",
-        "secret",
-        max_output_message_bytes=1024,
-    )
-    try:
-        with pytest.raises(
-            RuntimeOutputLimitExceededError,
-            match="1024-byte safety limit",
-        ) as raised:
-            await driver.execute("kernel-1", "print('large')")
-        assert raised.value.outputs[0]["text"] == "before limit\n"
-    finally:
-        await driver.close()
-
-    assert connect_options["max_size"] == 1024
-
-
-async def test_execute_recognizes_locally_sent_message_too_big_close(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    class ClosedWebSocket:
-        async def __aenter__(self) -> "ClosedWebSocket":
-            return self
-
-        async def __aexit__(self, *_args: object) -> None:
-            pass
-
-        async def send(self, _raw: bytes) -> None:
-            pass
-
-        async def recv(self) -> str:
-            raise ConnectionClosedError(None, Close(1009, "message too big"))
-
-    monkeypatch.setattr(
-        "executor_service.infrastructure._jupyter.execution.websockets.connect",
-        lambda *_args, **_kwargs: ClosedWebSocket(),
-    )
-    driver = JupyterRuntimeDriver(
-        "http://jupyter.invalid",
-        "secret",
-        max_output_message_bytes=1024,
-    )
-    try:
-        with pytest.raises(RuntimeOutputLimitExceededError):
-            await driver.execute("kernel-1", "print('large')")
-    finally:
-        await driver.close()
+    assert raised.value.kind == kind

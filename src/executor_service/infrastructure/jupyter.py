@@ -8,6 +8,7 @@ import httpx
 
 from executor_service.domain.runtime import (
     RuntimeAbortResult,
+    RuntimeCatchUpHandler,
     RuntimeExecutionResult,
     RuntimeFileContent,
     RuntimeFileMetadata,
@@ -25,8 +26,6 @@ from executor_service.infrastructure._jupyter import (
     JupyterStorageClient,
     as_output_record,
     contents_path,
-    deserialize_v1,
-    serialize_v1,
 )
 
 
@@ -39,9 +38,7 @@ class JupyterRuntimeDriver:
         storage_timeout_seconds: float = 300,
         max_output_message_bytes: int = 33554432,
         *,
-        execution_poll_seconds: float = 10,
-        execution_probe_timeout_seconds: float = 5,
-        execution_probe_failure_threshold: int = 3,
+        stream_reconnect_seconds: float = 30,
     ) -> None:
         self._transport = JupyterHttpTransport(
             endpoint,
@@ -54,9 +51,7 @@ class JupyterRuntimeDriver:
         self._execution = JupyterKernelExecutor(
             self._transport,
             max_output_message_bytes,
-            poll_seconds=execution_poll_seconds,
-            probe_timeout_seconds=execution_probe_timeout_seconds,
-            failure_threshold=execution_probe_failure_threshold,
+            reconnect_seconds=stream_reconnect_seconds,
         )
         self._storage = JupyterStorageClient(self._transport)
 
@@ -99,22 +94,26 @@ class JupyterRuntimeDriver:
     async def session_exists(self, session_id: str) -> bool:
         return await self._sessions.exists(session_id)
 
-    async def execute(
-        self, session_id: str, code: str
-    ) -> RuntimeExecutionResult:
-        return await self._execution.execute(session_id, code)
+    async def start_execution(
+        self, session_id: str, request_id: UUID, code: str
+    ) -> None:
+        await self._execution.start(session_id, request_id, code)
 
-    async def execute_streaming(
+    async def follow_execution(
         self,
         session_id: str,
-        code: str,
+        request_id: UUID,
         output_handler: RuntimeOutputHandler,
+        on_caught_up: RuntimeCatchUpHandler | None = None,
     ) -> RuntimeExecutionResult:
-        return await self._execution.execute_streaming(
-            session_id,
-            code,
-            output_handler,
+        return await self._execution.follow(
+            session_id, request_id, output_handler, on_caught_up
         )
+
+    async def release_execution(
+        self, session_id: str, request_id: UUID
+    ) -> None:
+        await self._execution.release(session_id, request_id)
 
     async def prepare_notebook(
         self,
@@ -163,7 +162,5 @@ class JupyterRuntimeDriver:
 
 _as_output_record = as_output_record
 _contents_path = contents_path
-_deserialize_v1 = deserialize_v1
-_serialize_v1 = serialize_v1
 
 __all__ = ["JupyterRuntimeDriver"]

@@ -91,6 +91,8 @@ def test_public_event_set_is_small_and_versioned_at_envelope() -> None:
         "execution.started",
         "execution.operation_started",
         "execution.step_started",
+        "execution.step_handover_started",
+        "execution.step_handover_completed",
         "execution.step_completed",
         "execution.operation_completed",
         "execution.completed",

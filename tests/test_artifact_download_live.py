@@ -53,6 +53,7 @@ from executor_service.infrastructure.db.models import (
 from executor_service.infrastructure.jupyter import JupyterRuntimeDriver
 from executor_service.infrastructure.workspace import ExecutionWorkspace
 from executor_service.interfaces.http.app import create_app
+from tests.jupyter_cells import run_cell
 from tests.runtime_credentials import runtime_credential_fields
 from tests.test_rest_execution_api import _submit_payload
 from tests.test_rest_execution_api import rest_client as rest_client
@@ -95,7 +96,7 @@ def _live_jupyter() -> Iterator[LiveJupyter]:
                     "--env",
                     "PYTHONPATH=/opt/download-extension/src",
                     "--mount",
-                    f"type=bind,src={repo / 'test_harness/jupyter/extension'},dst=/opt/download-extension,readonly",
+                    f"type=bind,src={repo / 'deploy/jupyter/extension'},dst=/opt/download-extension,readonly",
                     "--mount",
                     f"type=bind,src={root},dst=/workspace/pv",
                     "executor-jupyter:local",
@@ -172,7 +173,8 @@ async def test_kernel_plot_with_spaces_and_unicode(
         before = await driver.artifact_snapshot(workspace)
         session_id = await driver.start_session("default", workspace)
         await asyncio.wait_for(
-            driver.execute(
+            run_cell(
+                driver,
                 session_id,
                 "from pathlib import Path\n"
                 "import matplotlib.pyplot as plt\n"
@@ -335,14 +337,12 @@ async def test_real_notebook_download_after_report_and_manual_edits(
                 if index == 6
                 else f"print('Cell {index}:', sum(range({index + 10})))"
             )
-            result = await driver.execute(kernel, code)
+            execution_count, outputs = await run_cell(driver, kernel, code)
             notebook.cells.append(
                 nbformat.v4.new_code_cell(
                     source=code,
-                    execution_count=result.execution_count,
-                    outputs=[
-                        nbformat.from_dict(output) for output in result.outputs
-                    ],
+                    execution_count=execution_count,
+                    outputs=[nbformat.from_dict(output) for output in outputs],
                 )
             )
         await driver.write_notebook(

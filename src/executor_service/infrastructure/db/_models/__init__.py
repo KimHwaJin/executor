@@ -24,6 +24,10 @@ from executor_service.infrastructure.db._models.executions import (
     ExecutionORM,
     ExecutionStepORM,
 )
+from executor_service.infrastructure.db._models.handovers import (
+    ExecutionHandoverORM,
+    ExecutionStepRunORM,
+)
 from executor_service.infrastructure.db._models.maintenance import (
     EventRetentionLeaseORM,
     ExecutorMaintenanceORM,
@@ -49,11 +53,13 @@ __all__ = [
     "ExecutionDiagnosticORM",
     "ExecutionEventORM",
     "ExecutionEventSequenceORM",
+    "ExecutionHandoverORM",
     "ExecutionORM",
     "ExecutionOperationORM",
     "ExecutionRetryORM",
     "ExecutionStepAttemptORM",
     "ExecutionStepORM",
+    "ExecutionStepRunORM",
     "ExecutorMaintenanceORM",
     "MaintenanceRunORM",
     "MaintenanceRunTargetORM",

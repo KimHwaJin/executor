@@ -6,7 +6,6 @@ from string import Template
 REPO = Path(__file__).resolve().parents[1]
 PACKAGE = REPO / "deploy/jupyter"
 HARNESS = REPO / "test_harness/jupyter"
-EXTENSION_ROOT = Path("extension/src/executor_resource_extension")
 
 
 def test_standalone_dockerfile_uses_only_local_copy_sources() -> None:
@@ -37,6 +36,9 @@ def test_standalone_package_does_not_reference_test_harness() -> None:
     for path in PACKAGE.rglob("*"):
         if path.is_file():
             if path.suffixes[-2:] == [".tar", ".xz"]:
+                continue
+            # Bytecode from running the extension tests; .dockerignore drops it.
+            if "__pycache__" in path.parts:
                 continue
             assert "test_harness" not in path.read_text(), path
 
@@ -134,20 +136,14 @@ def test_source_build_keeps_versions_and_build_tools_separate() -> None:
     assert "*.tar.xz" not in (PACKAGE / ".dockerignore").read_text()
 
 
-def test_delivery_extension_matches_executor_runtime_contract() -> None:
-    source_root = HARNESS / EXTENSION_ROOT
-    files = list(source_root.rglob("*.py"))
-    assert files
-    for source in files:
-        relative = source.relative_to(HARNESS)
-        assert (PACKAGE / relative).read_bytes() == source.read_bytes(), (
-            relative
-        )
+def test_harness_builds_the_delivered_extension_and_server_files() -> None:
+    harness_dockerfile = (HARNESS / "Dockerfile").read_text()
     for relative in [
-        "jupyter_server_config.py",
         "executor_resource_extension.json",
+        "jupyter_server_config.py",
         "start-jupyter.sh",
     ]:
-        assert (PACKAGE / relative).read_bytes() == (
-            HARNESS / relative
-        ).read_bytes()
+        assert f"deploy/jupyter/{relative}" in harness_dockerfile
+        assert not (HARNESS / relative).exists()
+    assert "COPY deploy/jupyter/extension " in harness_dockerfile
+    assert not list((HARNESS / "extension").rglob("src/**/*.py"))

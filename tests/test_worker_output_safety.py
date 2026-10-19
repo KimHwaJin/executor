@@ -31,6 +31,7 @@ from executor_service.domain.enums import (
 from executor_service.domain.runtime import (
     RuntimeAbortResult,
     RuntimeDriverFactory,
+    RuntimeOutputHandler,
     RuntimeOutputLimitExceededError,
     RuntimeOutputLimitKind,
 )
@@ -55,8 +56,7 @@ from executor_service.infrastructure.runtime_registry import (
 from executor_service.settings import Settings
 from tests.result_evidence_assertions import assert_result_evidence_surfaces
 from tests.runtime_credentials import runtime_credential_fields
-from tests.runtime_storage_fake import InMemoryRuntimeStorage
-from tests.test_jupyter_output_limits import rate_warning
+from tests.runtime_storage_fake import InMemoryRuntimeStorage, stream_record
 
 
 class OutputLimitRuntimeDriver(InMemoryRuntimeStorage):
@@ -75,18 +75,17 @@ class OutputLimitRuntimeDriver(InMemoryRuntimeStorage):
     ) -> str:
         return "output-limit-kernel"
 
-    async def execute(self, _session_id: str, _code: str) -> Any:
+    async def run_code(
+        self,
+        _session_id: str,
+        _code: str,
+        output_handler: RuntimeOutputHandler,
+    ) -> Any:
         if self.kind == "MESSAGE_SIZE":
             raise RuntimeOutputLimitExceededError(self.max_message_bytes)
+        await output_handler(stream_record("before limit\n", "stderr"))
         raise RuntimeOutputLimitExceededError(
-            kind=self.kind,
-            outputs=[
-                {
-                    "output_type": "stream",
-                    "name": "stderr",
-                    "text": rate_warning(self.kind),
-                }
-            ],
+            kind=self.kind, message="Output exceeded the journal limit."
         )
 
     async def abort_session(
@@ -115,7 +114,7 @@ class OutputLimitDriverFactory:
 
 
 @pytest.mark.parametrize("mode", [OperationMode.SINGLE, OperationMode.MULTI])
-@pytest.mark.parametrize("kind", ["MESSAGE_SIZE", "DATA_RATE", "MESSAGE_RATE"])
+@pytest.mark.parametrize("kind", ["MESSAGE_SIZE", "JOURNAL_SIZE"])
 @pytest.mark.parametrize(
     "abort_status",
     [RuntimeAbortStatus.IDLE_CONFIRMED, RuntimeAbortStatus.SESSION_MISSING],
@@ -259,12 +258,12 @@ async def test_output_limit_aborts_runtime_and_persists_incomplete_result(
     if kind == "MESSAGE_SIZE":
         assert "safety limit" in manifest["error_message"]
     else:
-        assert "suppressed output delivery" in manifest["error_message"]
+        assert "journal limit" in manifest["error_message"]
         assert manifest["outputs"][0]["stream_name"] == "stderr"
         relative_path = manifest["outputs"][0]["representations"][0][
             "relative_path"
         ]
-        assert (tmp_path / relative_path).read_text() == rate_warning(kind)
+        assert (tmp_path / relative_path).read_text() == "before limit\n"
     assert {
         "execution.step_completed",
         "execution.operation_completed",

@@ -65,8 +65,8 @@ RUN ldconfig \
     && uv pip install --strict --python /opt/venvs/default/bin/python \
         --requirements /opt/jupyter-env/default/requirements.txt
 
-COPY test_harness/jupyter/extension /opt/jupyter-resource-extension
-COPY test_harness/jupyter/executor_resource_extension.json \
+COPY deploy/jupyter/extension /opt/jupyter-resource-extension
+COPY deploy/jupyter/executor_resource_extension.json \
     /opt/venvs/jupyter/etc/jupyter/jupyter_server_config.d/executor_resource_extension.json
 
 RUN uv pip install --strict --python /opt/venvs/jupyter/bin/python \
@@ -92,9 +92,9 @@ RUN rm -rf /home/jovyan \
     && mkdir -p /workspace/pv /home/jovyan/.jupyter \
     && chown -R 1000:1000 /workspace/pv /home/jovyan
 
-COPY --chown=1000:1000 test_harness/jupyter/jupyter_server_config.py \
+COPY --chown=1000:1000 deploy/jupyter/jupyter_server_config.py \
     /home/jovyan/.jupyter/jupyter_server_config.py
-COPY --chmod=755 test_harness/jupyter/start-jupyter.sh /usr/local/bin/start-jupyter
+COPY --chmod=755 deploy/jupyter/start-jupyter.sh /usr/local/bin/start-jupyter
 
 USER 1000:1000
 WORKDIR /workspace/pv

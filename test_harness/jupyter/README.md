@@ -1,18 +1,21 @@
 # Executor Jupyter Test Harness
 
-## Execution continuity
+## Execution journals
 
-The authenticated `GET /executor/kernels/{kernel_id}/execution-state` endpoint
-reports whether the original local kernel process can still execute and provides
-an opaque process instance identity. It does not execute kernel code or inspect OOM,
-memory pressure, process arguments, or other kernels. Update/reinstall the extension
-and restart the Jupyter server **before** deploying the matching Executor; old
-extensions fail the pre-execution probe instead of silently disabling protection.
+The extension runs each Step through `POST /executor/kernels/{kernel_id}/executions`
+and records its output in a journal that any Executor replica can follow over
+`.../executions/{request_id}/stream`. It reports a stopped or restarted kernel as
+`LOST`. Update/reinstall the extension and restart the Jupyter server **before**
+deploying the matching Executor; an old extension rejects the start request with 404.
 See [execution-loss handling](../../docs/runtime-execution-loss-detection.md).
 
 This directory owns the JupyterLab image used by Executor Runtime Targets. Image build,
 kernel-package maintenance, authentication, workspace mounting, and the resource observation
 extension are documented here rather than in the Executor service README.
+
+The extension source, `jupyter_server_config.py`, `start-jupyter.sh` and the extension
+activation file live only in [`deploy/jupyter`](../../deploy/jupyter); this harness builds and
+installs them from there, so the tested extension is the delivered one.
 
 ## Image layout
 
@@ -382,6 +385,6 @@ uv run pytest -q
 The server extension has its own dependency boundary and test environment:
 
 ```text
-uv run --project test_harness/jupyter/extension --with pytest \
+uv run --project deploy/jupyter/extension --with pytest \
   pytest -q test_harness/jupyter/extension/tests
 ```

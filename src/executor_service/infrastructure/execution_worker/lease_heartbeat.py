@@ -49,6 +49,15 @@ class LeaseHeartbeatManager:
                 allowed_statuses=allowed_statuses,
             )
 
+    async def owns_execution(self, lease: ExecutionLease) -> bool:
+        """False once another Worker took over; its kernel must survive."""
+
+        try:
+            await self.assert_execution(lease)
+        except ExecutionLeaseLostError:
+            return False
+        return True
+
     async def assert_cancellation(self, lease: CancellationLease) -> None:
         async with self._session_factory() as session, session.begin():
             await require_active_cancellation_lease(session, lease)

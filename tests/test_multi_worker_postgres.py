@@ -58,6 +58,7 @@ from executor_service.domain.enums import (
     TriggerType,
 )
 from executor_service.domain.models import utc_now
+from executor_service.domain.runtime import RuntimeStorageSnapshot
 from executor_service.events import (
     ExecutionStreamEnvelope,
     build_execution_event,
@@ -1449,7 +1450,9 @@ async def test_stale_worker_cannot_write_or_heartbeat_after_takeover(
         assert current_lease.fencing_token > stale_lease.fencing_token
 
         with pytest.raises(ExecutionLeaseLostError):
-            await workers[0]._step_executor.mark_started(stale_lease, 0)
+            await workers[0]._step_executor.mark_started(
+                stale_lease, 0, RuntimeStorageSnapshot((), 0)
+            )
         with pytest.raises(ExecutionLeaseLostError):
             await workers[0]._lease_heartbeat.renew_execution(stale_lease)
         with pytest.raises(ExecutionLeaseLostError):
@@ -2164,7 +2167,7 @@ async def test_current_baseline_repeated_upgrade_preserves_events(
             text("SELECT count(*) FROM event_retention_lease")
         )
 
-    assert revision == EXPECTED_SCHEMA_REVISION == "0005"
+    assert revision == EXPECTED_SCHEMA_REVISION == "0006"
     assert maintenance_count == retention_count == 1
     assert migrated_event is not None
     assert migrated_event.execution_id == execution.id
@@ -2205,7 +2208,7 @@ async def test_current_baseline_downgrade_and_recreate(
             text("SELECT singleton_key FROM event_retention_lease")
         )
     assert tables == set(Base.metadata.tables) | {"alembic_version"}
-    assert revision == EXPECTED_SCHEMA_REVISION == "0005"
+    assert revision == EXPECTED_SCHEMA_REVISION == "0006"
     assert admission == "ACTIVE"
     assert retention_key == "events"
 

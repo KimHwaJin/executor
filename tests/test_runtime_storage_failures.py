@@ -29,6 +29,7 @@ from executor_service.domain.enums import (
 from executor_service.domain.runtime import (
     RuntimeDriverError,
     RuntimeExecutionResult,
+    RuntimeOutputHandler,
 )
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.models import (
@@ -46,7 +47,10 @@ from executor_service.infrastructure.runtime_registry import (
 )
 from executor_service.settings import Settings
 from tests.runtime_credentials import runtime_credential_fields
-from tests.runtime_storage_fake import InMemoryRuntimeStorage
+from tests.runtime_storage_fake import (
+    InMemoryRuntimeStorage,
+    stream_record,
+)
 
 
 class FailingRuntimeStorageDriver(InMemoryRuntimeStorage):
@@ -70,15 +74,14 @@ class FailingRuntimeStorageDriver(InMemoryRuntimeStorage):
     async def start_session(self, _runtime_profile: str, _path: str) -> str:
         return "storage-failure-kernel"
 
-    async def execute(
-        self, _runtime_session_id: str, _code: str
+    async def run_code(
+        self,
+        _runtime_session_id: str,
+        _code: str,
+        output_handler: RuntimeOutputHandler,
     ) -> RuntimeExecutionResult:
-        return RuntimeExecutionResult(
-            outputs=[
-                {"output_type": "stream", "name": "stdout", "text": "done\n"}
-            ],
-            execution_count=1,
-        )
+        await output_handler(stream_record("done\n"))
+        return RuntimeExecutionResult(execution_count=1)
 
     async def write_notebook(
         self, path: str, notebook: dict[str, Any]

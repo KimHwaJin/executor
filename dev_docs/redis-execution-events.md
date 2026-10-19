@@ -280,6 +280,8 @@ Attempt는 PostgreSQL에서 Execution의 실행 시도 이력으로 관리한다
 | `execution.operation_started` | Operation당 최초 한 번 | Operation 실행 시작 |
 | `execution.step_started` | Step 수행 시도마다 | Step 실행 시도 시작 |
 | `execution.step_completed` | Step 수행 시도마다 | Step 실행 시도 종료 |
+| `execution.step_handover_started` | 인계마다 | 실행 중 Step의 담당 Executor가 바뀌기 시작함 |
+| `execution.step_handover_completed` | 인계마다 | 새 Executor가 이전 출력을 모두 받아 Step을 이어서 관찰함 |
 | `execution.operation_completed` | Operation 수행 주기마다 | Operation 종료 또는 재시도 결과 갱신 |
 | `execution.completed` | Execution 수행 주기마다 | Execution 성공, 실패 또는 취소 |
 
@@ -475,7 +477,79 @@ Step 실행 종료
 - `CANCELLED`는 완전한 결과가 보존된 경우에만 참조를 제공한다.
 - 성공이면 `error`는 `null`이다.
 
-## 11. `execution.operation_completed`
+## 11. Step 인계 이벤트
+
+Executor Pod가 종료(scale-in, rolling update)되거나 응답하지 않으면(crash, OOM) 실행 중인
+Step을 다른 Executor가 이어받는다. 커널은 계속 실행되고 코드는 다시 보내지 않는다. 새
+Executor는 Jupyter 실행 저널을 처음부터 읽어 출력을 빠짐없이 다시 저장한다. 같은 Attempt가
+이어지므로 Retry나 새 Attempt가 아니다.
+
+```text
+execution.step_started
+→ execution.step_handover_started     # 이전 Executor가 손을 놓음
+→ execution.step_handover_completed   # 새 Executor가 이전 출력을 모두 받음
+→ execution.step_completed
+```
+
+인계 중에는 출력이 잠시 멈춘다. 소비자는 "재연결 중"이 아니라 두 이벤트로 상황을 보여준다.
+인계 중에도 Step/Operation 제한시간은 원래 시작 시각 기준으로 계속 흐른다. 커널 자체가
+사라지면 인계가 아니라 `execution.step_completed` FAILED(`RUNTIME_SESSION_LOST`)로 끝난다.
+
+### 11.1 `execution.step_handover_started`
+
+```json
+{
+  "event_type": "execution.step_handover_started",
+  "payload": {
+    "status": "RUNNING",
+    "operation": {"id": "33333333-3333-4333-8333-333333333333", "number": 1},
+    "step": {"id": "44444444-4444-4444-8444-444444444444", "sequence": 0},
+    "attempt": {"id": "55555555-5555-4555-8555-555555555555", "number": 1, "reason": "INITIAL"},
+    "reason": "EXECUTOR_SHUTDOWN",
+    "kernel_running": true,
+    "detected_at": "2026-08-26T10:20:01.000Z"
+  }
+}
+```
+
+| payload 필드 | 타입 | 필수 | 규칙 |
+|---|---|---:|---|
+| `status` | literal `RUNNING` | O | Step 상태는 바뀌지 않음 |
+| `operation` | object | O | Operation ID와 순번 |
+| `step` | Step | O | 인계되는 Step |
+| `attempt` | Attempt | O | 계속 이어지는 수행 시도 |
+| `reason` | `EXECUTOR_SHUTDOWN` \| `EXECUTOR_UNRESPONSIVE` | O | 종료 절차 중 인계 또는 heartbeat 만료로 인계 |
+| `kernel_running` | literal `true` | O | 커널은 계속 실행 중 |
+| `detected_at` | datetime | O | 인계를 결정한 시각 |
+
+### 11.2 `execution.step_handover_completed`
+
+```json
+{
+  "event_type": "execution.step_handover_completed",
+  "payload": {
+    "status": "RUNNING",
+    "operation": {"id": "33333333-3333-4333-8333-333333333333", "number": 1},
+    "step": {"id": "44444444-4444-4444-8444-444444444444", "sequence": 0},
+    "attempt": {"id": "55555555-5555-4555-8555-555555555555", "number": 1, "reason": "INITIAL"},
+    "paused_seconds": 3.412,
+    "outputs_complete": true,
+    "finished_during_handover": false
+  }
+}
+```
+
+| payload 필드 | 타입 | 필수 | 규칙 |
+|---|---|---:|---|
+| `status` | literal `RUNNING` | O | 이어서 `execution.step_completed`가 발행됨 |
+| `operation` | object | O | Operation ID와 순번 |
+| `step` | Step | O | 인계된 Step |
+| `attempt` | Attempt | O | 계속 이어지는 수행 시도 |
+| `paused_seconds` | number ≥ 0 | O | 출력 관찰이 멈춰 있던 시간. 응답 없음 인계는 마지막 heartbeat부터 계산 |
+| `outputs_complete` | literal `true` | O | 인계 전 출력을 모두 다시 받음 |
+| `finished_during_handover` | boolean | O | 인계 중에 코드 실행이 이미 끝났는지 |
+
+## 12. `execution.operation_completed`
 
 Operation이 `SUCCEEDED`, `FAILED` 또는 `CANCELLED`로 종료될 때 발행한다. 별도 결과
 파일을 만들지 않고 실제 수행된 Step의 최종 결과 참조를 `step_results`에 포함한다.
@@ -605,7 +679,7 @@ Result API로 확인한다.
 그 외에는 `null`이다. `expected_version`은 다음 Operation 요청의 낙관적 잠금 값이며,
 `expires_at`은 접수 만료 시각이다.
 
-## 12. `execution.completed`
+## 13. `execution.completed`
 
 Execution의 현재 수행 주기가 `SUCCEEDED`, `FAILED` 또는 `CANCELLED`로 종료될 때
 발행한다. 별도 Execution 결과 파일과 전체 Step 결과 목록은 포함하지 않는다.
@@ -722,9 +796,9 @@ Retry API는 `expected_version`을 받지 않는다. `idempotency_key`와 Execut
 실패 후 Retry가 수행되면 새로운 Step Attempt 이벤트부터 다시 시작하고, 다시 종료될
 때 같은 `execution_id`로 새로운 `execution.completed`를 발행한다.
 
-## 13. 이벤트 흐름
+## 14. 이벤트 흐름
 
-### 13.1 SINGLE 성공
+### 14.1 SINGLE 성공
 
 ```text
 execution.started
@@ -735,7 +809,7 @@ execution.started
 → execution.completed
 ```
 
-### 13.2 MULTI
+### 14.2 MULTI
 
 ```text
 execution.started
@@ -760,7 +834,7 @@ Operation이 실패했더라도 `execution.operation_completed`의 `continuation
 `true`이면 Agent는 실패 결과를 읽고 보정 Operation을 추가할 수 있다. 이 경계에서는
 `execution.completed`를 발행하지 않는다.
 
-### 13.3 SINGLE Step 실패 후 Retry
+### 14.3 SINGLE Step 실패 후 Retry
 
 ```text
 execution.started
@@ -784,14 +858,14 @@ POST /api/v1/executions/{execution_id}/retry
 
 Retry에서는 `execution.started`와 `execution.operation_started`를 다시 발행하지 않는다.
 
-## 14. 소비자 처리 규칙
+## 15. 소비자 처리 규칙
 
 `execution.completed`의 CANCELLED는 취소 확정이지 커널 정리 성공 보장이 아니다.
 필요하면 Execution 상세의 recovery와 diagnostics를 확인한다.
 `EXECUTION_COMPLETION_FAILED`는 필수 노트북/Artifact 처리 또는 최종 정리 실패다.
 최초 노트북 등록 단계에도 발생할 수 있으므로 모든 Step이 성공했다고 추론하지 않는다.
 
-### 14.1 중복·순서·누락 처리
+### 15.1 중복·순서·누락 처리
 
 소비자는 Execution별 `last_event_sequence`를 Agent 소유 DB 또는 LangGraph checkpoint에
 저장한다. 이 처리는 LLM 프롬프트나 그래프 업무 노드가 아니라 공통 Event Subscriber가
@@ -817,18 +891,18 @@ execution_event_list(execution_id, after_sequence=last, limit=500)
 않는다. 현재 Execution/Result 조회와 운영 복구를 별도로 진행한다. 정확한 ACK 및
 복구 중 wake-up 처리 기준은 [소비 가이드](agent-execution-event-consumer-guide.md)를 따른다.
 
-### 14.2 실행 중 결과 사용
+### 15.2 실행 중 결과 사용
 
 소비자는 `execution.step_completed`의 `result_ref`를 사용해 공유 PV의 Step Manifest와
 출력 파일을 읽는다. MULTI Agent는 이 결과로 후속 계획을 생성할 수 있다.
 
-### 14.3 Operation 경계
+### 15.3 Operation 경계
 
 `execution.operation_completed`는 해당 Operation에서 실제 수행된 Step의 최신 결과
 참조를 `step_results`로 다시 제공한다. 개별 Step 이벤트를 모두 처리했다면 추가 API
 호출은 필요 없다.
 
-### 14.4 Execution 경계
+### 15.4 Execution 경계
 
 최종 리포트 작성 전 전체 정합성을 확인하려면 Result API를 한 번 호출한다.
 
@@ -839,7 +913,7 @@ GET /api/v1/executions/{execution_id}/result
 모든 Step 이벤트를 중복 제거하여 영속적으로 처리했고 누락이 없음을 보장할 수 있다면
 누적한 `result_ref`를 그대로 사용할 수도 있다.
 
-### 14.5 정합성 재조회 조건
+### 15.5 정합성 재조회 조건
 
 다음 상황에서는 이벤트 payload만으로 상태를 확정하지 않는다.
 
@@ -851,7 +925,7 @@ GET /api/v1/executions/{execution_id}/result
 
 이 경우 Result API 또는 세부 조회 API로 PostgreSQL 원본 상태를 확인한다.
 
-## 15. 소비자 체크리스트
+## 16. 소비자 체크리스트
 
 - `executor.events`에 전용 consumer group을 생성한다.
 - 처리 완료 후에만 `XACK`한다.
@@ -868,7 +942,7 @@ GET /api/v1/executions/{execution_id}/result
 - 전체 텍스트와 이미지는 Redis가 아니라 결과 파일에서 읽는다.
 - 최종 리포트 전에는 필요에 따라 Result API로 정합성을 확인한다.
 
-## 16. 외부 이벤트 금지 정보
+## 17. 외부 이벤트 금지 정보
 
 - Runtime endpoint, token, credential
 - PostgreSQL 또는 Redis 연결정보

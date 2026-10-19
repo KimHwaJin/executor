@@ -30,6 +30,7 @@ WORK_PAYLOAD_MODELS: dict[str, type[WorkPayload]] = {
     "execution.finalization_ready": WorkPayload,
     "execution.cancellation_ready": WorkPayload,
     "execution.retry_ready": WorkPayload,
+    "execution.handover_ready": WorkPayload,
 }
 
 

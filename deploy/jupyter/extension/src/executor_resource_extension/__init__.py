@@ -13,11 +13,14 @@ def _load_jupyter_server_extension(server_app: Any) -> None:
     )
 
     from executor_resource_extension.collector import ResourceCollector
+    from executor_resource_extension.executions import ExecutionJournals
     from executor_resource_extension.handlers import (
         ArtifactSnapshotHandler,
+        ExecutionJournalHandler,
+        ExecutionStartHandler,
+        ExecutionStreamHandler,
         FileContentHandler,
         FileMetadataHandler,
-        KernelExecutionStateHandler,
         ManifestReadHandler,
         NotebookPrepareHandler,
         NotebookProjectHandler,
@@ -35,19 +38,40 @@ def _load_jupyter_server_extension(server_app: Any) -> None:
     web_app.settings["executor_runtime_storage"] = RuntimeStorage(
         server_app.root_dir
     )
-    web_app.settings["executor_kernel_state_observer"] = KernelStateObserver()
+    web_app.settings["executor_journals"] = ExecutionJournals.from_environment(
+        KernelStateObserver()
+    )
     web_app.add_handlers(
         ".*$",
         [
+            (
+                url_path_join(
+                    base_url, "executor", "kernels", "([^/]+)", "executions"
+                ),
+                ExecutionStartHandler,
+            ),
             (
                 url_path_join(
                     base_url,
                     "executor",
                     "kernels",
                     "([^/]+)",
-                    "execution-state",
+                    "executions",
+                    "([^/]+)",
                 ),
-                KernelExecutionStateHandler,
+                ExecutionJournalHandler,
+            ),
+            (
+                url_path_join(
+                    base_url,
+                    "executor",
+                    "kernels",
+                    "([^/]+)",
+                    "executions",
+                    "([^/]+)",
+                    "stream",
+                ),
+                ExecutionStreamHandler,
             ),
             (
                 url_path_join(base_url, "executor", "resource-status"),

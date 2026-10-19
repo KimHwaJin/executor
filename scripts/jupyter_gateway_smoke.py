@@ -1,11 +1,29 @@
-"""Exercise Jupyter REST and WebSocket APIs without exposing credentials."""
+"""Exercise Jupyter REST and journal APIs without exposing credentials."""
 
 import asyncio
 import json
 import os
+from uuid import uuid4
 
+from executor_service.domain.runtime import RuntimeOutputRecord
 from executor_service.infrastructure.jupyter import JupyterRuntimeDriver
 from executor_service.settings import get_settings
+
+
+async def _stream_text(
+    gateway: JupyterRuntimeDriver, session_id: str, code: str
+) -> list[str]:
+    texts: list[str] = []
+
+    async def collect(record: RuntimeOutputRecord) -> None:
+        if record.kind == "STREAM":
+            texts.append(record.representations[0].content)
+
+    request_id = uuid4()
+    await gateway.start_execution(session_id, request_id, code)
+    await gateway.follow_execution(session_id, request_id, collect)
+    await gateway.release_execution(session_id, request_id)
+    return texts
 
 
 async def main() -> None:
@@ -49,12 +67,9 @@ async def main() -> None:
                 "print(json.dumps({'version': list(sys.version_info[:3]), "
                 "'imports': modules}))"
             )
-            result = await gateway.execute(runtime_session_id, code)
-            stream_outputs = [
-                output["text"]
-                for output in result.outputs
-                if output.get("output_type") == "stream"
-            ]
+            stream_outputs = await _stream_text(
+                gateway, runtime_session_id, code
+            )
             if not stream_outputs:
                 raise RuntimeError(
                     f"{profile} did not return a stream output."

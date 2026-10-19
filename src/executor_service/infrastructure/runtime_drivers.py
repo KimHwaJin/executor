@@ -30,14 +30,8 @@ class ConfiguredRuntimeDriverFactory:
                 self._settings.jupyter_request_timeout_seconds,
                 self._settings.jupyter_storage_timeout_seconds,
                 self._settings.runtime_max_output_message_bytes,
-                execution_poll_seconds=(
-                    self._settings.jupyter_execution_poll_seconds
-                ),
-                execution_probe_timeout_seconds=(
-                    self._settings.jupyter_execution_probe_timeout_seconds
-                ),
-                execution_probe_failure_threshold=(
-                    self._settings.jupyter_execution_probe_failure_threshold
+                stream_reconnect_seconds=(
+                    self._settings.jupyter_stream_reconnect_seconds
                 ),
             )
         raise RuntimeDriverError(f"Unsupported runtime_type: {runtime_type}")

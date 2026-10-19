@@ -24,6 +24,8 @@
   적용하므로 준비·최종 노트북 반영·정리까지 정확히 N초 내에 끝낸다는 보장은 없다.
 - `Operation timeout expired after 105.82 seconds`의 숫자는 그 Step에 적용된
   잔여 예산일 수 있다. 원래 요청 제한이나 전체 경과시간으로 단정하지 않는다.
+- Step이 다른 Executor로 인계되어도 제한은 원래 Step/Operation 시작 시각 기준이다.
+  인계로 멈춘 시간도 예산을 소비한다.
 - 타임아웃 후 interrupt·idle 확인·필요한 커널 삭제·결과 보존·DB 갱신이 이어져
   terminal 이벤트는 제한시간보다 늦게 도착할 수 있다.
 - Step/Operation 초과는 `STEP_TIMEOUT`/`OPERATION_TIMEOUT`으로 분류한다.
@@ -69,8 +71,7 @@ MULTI 대기 만료 = min(대기 진입 + 요청 대기시간, 전체 만료)
 | 설정 | 기본값 | 용도 |
 | --- | --- | --- |
 | `EXECUTION_LEASE_SECONDS` / `EXECUTION_HEARTBEAT_SECONDS` | 60초 / 15초 | Worker 실행 소유권. 코드 진척도나 Agent 생존 신호 아님 |
-| `JUPYTER_EXECUTION_POLL_SECONDS` | 10초 | 실행 중 커널 생존·프로세스 동일성 감시 |
-| `JUPYTER_EXECUTION_PROBE_TIMEOUT_SECONDS` / `JUPYTER_EXECUTION_PROBE_FAILURE_THRESHOLD` | 5초 / 3회 | 개별 감시 요청 제한 및 연속 실패 기준 |
+| `JUPYTER_STREAM_RECONNECT_SECONDS` | 30초 | 실행 저널 스트림이 끊긴 뒤 재연결을 시도하는 시간. 커널 소실 판정은 Jupyter 확장이 함 |
 | `JUPYTER_REQUEST_TIMEOUT_SECONDS` | 30초 | 일반 HTTP 통신 제한. 장기 코드 실행 제한 아님 |
 | `JUPYTER_STORAGE_TIMEOUT_SECONDS` | 300초 | 파일/노트북 HTTP 통신 제한. 전체 작업 수명 아님 |
 | `RUNTIME_ABORT_TIMEOUT_SECONDS` | 15초 | interrupt 요청 이후 idle 확인 대기. interrupt HTTP 시간 자체는 별도 |

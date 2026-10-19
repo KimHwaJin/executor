@@ -24,6 +24,7 @@ from executor_service.domain.runtime import (
     RuntimeDriver,
     RuntimeDriverError,
     RuntimeExecutionError,
+    RuntimeStorageSnapshot,
 )
 from executor_service.infrastructure.db.models import (
     ExecutionORM,
@@ -38,6 +39,7 @@ from executor_service.infrastructure.diagnostic_store import (
 from executor_service.infrastructure.execution_leases import (
     CancellationLease,
 )
+from executor_service.infrastructure.execution_worker.handover import StepRun
 from executor_service.infrastructure.execution_worker.step_executor import (
     ExecutionStepExecutor,
 )
@@ -85,8 +87,12 @@ async def test_slow_diagnostics_does_not_replace_code_error_with_timeout(
             cast(RuntimeDriver, EvidenceDriver("tool", False)),
             "kernel",
             step.code or "pass",
-            execution.id,
-            step.sequence,
+            run=StepRun(
+                sequence=step.sequence,
+                request_id=uuid4(),
+                submitted=False,
+                artifact_baseline=RuntimeStorageSnapshot((), 0),
+            ),
             lease=lease,
             result_identity=executor.result_identity(step, lease),
             source_reference=executor.source_reference(step),

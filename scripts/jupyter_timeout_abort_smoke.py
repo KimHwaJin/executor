@@ -5,8 +5,24 @@ import os
 from uuid import uuid4
 
 from executor_service.domain.enums import RuntimeAbortStatus
+from executor_service.domain.runtime import RuntimeOutputRecord
 from executor_service.infrastructure.jupyter import JupyterRuntimeDriver
 from executor_service.settings import get_settings
+
+
+async def _stream_text(
+    driver: JupyterRuntimeDriver, session_id: str, code: str
+) -> list[str]:
+    texts: list[str] = []
+
+    async def collect(record: RuntimeOutputRecord) -> None:
+        if record.kind == "STREAM":
+            texts.append(record.representations[0].content)
+
+    request_id = uuid4()
+    await driver.start_execution(session_id, request_id, code)
+    await driver.follow_execution(session_id, request_id, collect)
+    return texts
 
 
 async def _expect_timeout(
@@ -17,7 +33,7 @@ async def _expect_timeout(
 ) -> None:
     try:
         async with asyncio.timeout(timeout_seconds):
-            await driver.execute(session_id, code)
+            await _stream_text(driver, session_id, code)
     except TimeoutError:
         return
     raise RuntimeError("Jupyter code unexpectedly completed before timeout.")
@@ -84,12 +100,8 @@ async def main() -> None:
                 "Infinite-loop Runtime did not reach a bounded idle state: "
                 f"{loop_abort}"
             )
-        result = await driver.execute(session_id, "print('responsive')")
-        if not any(
-            output.get("output_type") == "stream"
-            and "responsive" in str(output.get("text", ""))
-            for output in result.outputs
-        ):
+        texts = await _stream_text(driver, session_id, "print('responsive')")
+        if not any("responsive" in text for text in texts):
             raise RuntimeError(
                 "Kernel did not execute code after idle confirmation."
             )

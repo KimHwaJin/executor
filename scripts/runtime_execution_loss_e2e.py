@@ -75,10 +75,6 @@ async def main() -> None:
                 timeout=30,
             ) as jupyter,
         ):
-            missing = await get(
-                jupyter, f"executor/kernels/{uuid4()}/execution-state"
-            )
-            assert missing["alive"] is False and missing["instance_id"] is None
             for mode, action in (
                 ("SINGLE", "silent"),
                 ("SINGLE", "exit"),

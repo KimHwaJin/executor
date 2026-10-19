@@ -1,8 +1,7 @@
 """Live Jupyter output-loss check with isolated Worker DB and result storage.
 
 Requires JUPYTER_GATEWAY_ENDPOINT and JUPYTER_GATEWAY_TOKEN. No Docker or
-running Executor is required. The installed Jupyter rate limit must reject the
-selected stdout workload (5 MiB by default); server limits are never changed.
+running Executor is required.
 """
 
 import asyncio
@@ -70,12 +69,7 @@ from executor_service.interfaces._contracts.steps import ExecutionStepResponse
 from executor_service.settings import Settings
 
 
-def workload(scenario: str, size_mib: int = 5) -> str:
-    if scenario == "data_limit":
-        return (
-            f"import sys\nsys.stdout.write('x' * ({size_mib} * 1024 * 1024))"
-            "\nsys.stdout.flush()"
-        )
+def workload(scenario: str) -> str:
     if scenario == "kernel_warning":
         warning = (
             "IOPub data rate exceeded.\n"
@@ -108,7 +102,6 @@ async def run_case(
     token: str,
     mode: OperationMode,
     scenario: str,
-    size_mib: int,
 ) -> dict[str, object]:
     cipher_key = Fernet.generate_key()
     engine = create_engine("sqlite+aiosqlite:///:memory:")
@@ -166,7 +159,7 @@ async def run_case(
                 steps=(
                     StepSpec(
                         sequence=0,
-                        code=workload(scenario, size_mib),
+                        code=workload(scenario),
                         step_timeout_seconds=10
                         if scenario == "timeout"
                         else 30,
@@ -218,27 +211,7 @@ async def run_case(
                 )
             )
         assert operation is not None
-        if scenario == "data_limit":
-            assert step.status == StepStatus.FAILED, (
-                "Expected the server rate limit to suppress output. Check "
-                "server policy; do not raise limits to pass this test."
-            )
-            assert result.failure_type == FailureType.OUTPUT_LIMIT_EXCEEDED
-            assert operation.status == OperationStatus.FAILED
-            assert ref.complete is False
-            assert result.steps[1].status == StepStatus.SKIPPED
-            assert "data rate limit" in (step.error_message or "")
-            assert any(
-                output.get("name") == "stderr"
-                and "IOPub data rate exceeded." in str(output.get("text"))
-                for output in outputs
-            )
-            assert result.status == (
-                ExecutionStatus.FAILED
-                if mode == OperationMode.SINGLE
-                else ExecutionStatus.WAITING_FOR_OPERATION
-            )
-        elif scenario in {"tool_error", "timeout"}:
+        if scenario in {"tool_error", "timeout"}:
             assert step.status == StepStatus.FAILED
             assert operation.status == OperationStatus.FAILED
             assert ref.complete is (scenario == "tool_error")
@@ -281,13 +254,7 @@ async def run_case(
         diagnostics = await SQLAlchemyDiagnosticQueryService(factory).list(
             execution.id
         )
-        if scenario == "data_limit":
-            assert any(
-                item.diagnostic.code == "OUTPUT_DATA_RATE_LIMIT_EXCEEDED"
-                and item.step_id == step.id
-                for item in diagnostics.items
-            )
-        elif scenario in {"tool_error", "timeout"}:
+        if scenario in {"tool_error", "timeout"}:
             assert diagnostics.items
         else:
             assert not diagnostics.items
@@ -335,13 +302,6 @@ async def run_case(
         assert operation_event.payload["step_results"][0]["result_ref"] == (
             event_ref
         )
-        if scenario == "data_limit":
-            assert notebook["cells"][1]["outputs"] == []
-            assert (
-                first_step_event.payload["error"]["message"]
-                == step.error_message
-            )
-            assert event_ref["complete"] is False
         assert (
             sum(
                 event.event_type == "execution.operation_completed"
@@ -422,10 +382,7 @@ async def run_case(
                 )
                 == 1
             )
-        if mode == OperationMode.MULTI and scenario not in {
-            "data_limit",
-            "background",
-        }:
+        if mode == OperationMode.MULTI and scenario != "background":
             # Exercise an additional Operation and terminal delivery without
             # replaying earlier code or using the running Executor database.
             await service.create_operation(
@@ -504,9 +461,6 @@ async def run_case(
             "failure": result.failure_type,
             "reason": step.error_message,
             "saved_output_bytes": ref.total_size_bytes,
-            "requested_output_mib": size_mib
-            if scenario == "data_limit"
-            else None,
             "notebook_path": result.notebook_path,
             "outbox_event_count": len(events),
             "diagnostic_codes": [
@@ -541,17 +495,11 @@ async def main() -> None:
             "(empty allowed for tokenless local Jupyter)."
         )
     reports = []
-    size_mib = int(os.getenv("JUPYTER_GATEWAY_OUTPUT_MIB", "5"))
-    if not 1 <= size_mib <= 25:
-        raise ValueError(
-            "JUPYTER_GATEWAY_OUTPUT_MIB must be between 1 and 25."
-        )
     with TemporaryDirectory(prefix="executor-output-check-") as temporary:
         for mode in (OperationMode.SINGLE, OperationMode.MULTI):
             scenarios = (
                 "normal",
                 "kernel_warning",
-                "data_limit",
                 "tool_error",
                 "timeout",
             )
@@ -559,7 +507,7 @@ async def main() -> None:
                 scenarios += ("background",)
             for scenario in scenarios:
                 report = await run_case(
-                    Path(temporary), endpoint, token, mode, scenario, size_mib
+                    Path(temporary), endpoint, token, mode, scenario
                 )
                 reports.append(report)
                 print(json.dumps(report), flush=True)

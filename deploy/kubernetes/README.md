@@ -88,15 +88,21 @@ bounds each SQL statement, not the total release duration. DB connect timeout is
 The 600-second startup probe budget includes migration and Worker initialization; tune
 it for the total duration of your migrations. A failed Pod does not serve traffic.
 
-The manifest uses **Recreate**: old Pods stop before replacement Pods start, allowing
-schema-changing releases at the cost of a brief outage. First drain through the existing
-maintenance API and check safe-to-shutdown. Recreate does not preserve live WebSockets or
-long-running work; do not force an in-progress analysis through a schema-changing rollout.
-The DB lock only serializes migrations, not old application queries. Stop any old Executor
-processes outside this Deployment too. Never run old CLI migration code concurrently: it
-does not know about the new lock. After a manual drain, activate admission after deployment.
+The manifest uses **RollingUpdate** (`maxSurge: 1`, `maxUnavailable: 0`). Migrations must stay
+backward compatible so old and new Pods can share the schema during the rollout. A stopping Pod
+drains, then hands its running Steps to another Pod instead of failing them; the kernel keeps
+running and the new owner replays the Step journal. See
+[Step handover](../../docs/execution-recovery.md#step-handover-between-workers).
+The DB lock only serializes migrations, not old application queries. Never run old CLI migration
+code concurrently: it does not know about the new lock.
 
-Current head is `0005`; Runtime purge now preserves historical IDs after deletion.
+The first rollout to `0006` is the exception: older Pods cannot hand over, and their Jupyter
+servers need the journal extension. Drain through the maintenance API, check safe-to-shutdown,
+deploy the Jupyter extension and Executor, then activate admission. A schema change that is not
+backward compatible still needs this drain, or `Recreate` for that release.
+
+Current head is `0006`, which adds the Step run and handover tables. Runtime purge preserves
+historical IDs after deletion.
 See [purge and rollback](../../dev_docs/post-runtime-target-purge.md).
 Before rollback, review whether the old image is compatible with the new schema; startup
 does not automatically downgrade. See [trace removal](../../docs/opentelemetry-removal.md).
@@ -122,7 +128,7 @@ If the Pod is running but not Ready, inspect `/readyz`; a missing migration, Red
 draining Worker is intentionally reported there. Inspect `/api/v1/runtime-targets` separately for
 Runtime Fleet health.
 
-After migration, `alembic_version.version_num` is `0005`. Do not stamp an empty database;
+After migration, `alembic_version.version_num` is `0006`. Do not stamp an empty database;
 startup must execute `alembic upgrade head` so it creates constraints, indexes, and the initial
 Executor maintenance row.
 
@@ -135,8 +141,9 @@ identities.
 
 The 90-second Pod grace period is greater than the default 30-second execution drain plus 20-second
 shutdown cleanup and buffer. If those settings increase, increase `terminationGracePeriodSeconds`
-as well. A live Jupyter WebSocket cannot migrate between Pods during a rollout; work that outlives
-the drain period follows the documented failure and explicit retry flow.
+as well. A Step that outlives the drain period is handed over to another Pod; a Step with nothing
+to hand over (for example one still preparing its Runtime) follows the documented `WORKER_SHUTDOWN`
+failure and explicit retry flow. Scale-in under HPA uses the same path.
 
 ## Non-production Worker-loss validation
 

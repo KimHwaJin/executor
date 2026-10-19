@@ -9,14 +9,20 @@ busy 또는 idle 값만으로 실패를 판정하지 않는다.
 
 ## 동작
 
-1. Step 실행 직전 해당 커널의 프로세스 생존 여부와 instance_id를 조회한다.
-2. WebSocket 결과 수신과 병렬로 실행 중인 커널만 주기적으로 확인한다.
-3. 프로세스 종료/종료 절차 진행/인스턴스 변경을 확인하면 실행 소실로 처리한다.
-4. Jupyter 기본 WebSocket restarting/dead 알림은 parent request ID 필터보다 먼저
-   처리한다. 서버 생성 알림에는 요청 parent ID가 없기 때문이다.
-5. 실행 결과/코드 오류를 반환하기 직전에도 연속성을 확인한다. 수동 재시작이 먼저
-   KeyboardInterrupt를 반환하는 경우를 코드 오류로 보고 커널을 재사용하지 않는다.
-6. 기존 결과 저장, 실패 처리, lease fencing, DB/Outbox 경로로 종료한다. 기존 성공
+Jupyter 확장이 Step마다 실행 저널을 기록하고, 소실 판정도 확장이 한다
+([Step 인계](execution-recovery.md#step-handover-between-workers)).
+
+1. Executor는 `POST /executor/kernels/{kernel_id}/executions`로 코드를 한 번만 보낸다.
+   커널이 없거나 살아 있지 않으면 404이고 코드를 보내지 않는다.
+2. 확장은 실행 시작 시 커널의 instance_id를 기억하고, 출력이 없는 동안 5초마다
+   다시 조회한다. 프로세스 종료/종료 절차 진행/인스턴스 변경이면 저널에 `LOST`를 쓴다.
+3. Jupyter 서버가 재시작되면 이전 서버가 시작한 미완료 저널은 끝날 수 없다.
+   새 서버는 그 저널을 읽을 때 `LOST`("The Jupyter server restarted during execution.")를
+   덧붙인다.
+4. Executor는 저널 스트림에서 `LOST`를 받거나 저널이 없으면(404) 실행 소실로 처리한다.
+   스트림 연결이 `JUPYTER_STREAM_RECONNECT_SECONDS`(기본 30초) 동안 되지 않으면
+   `RuntimeDriverError`로 처리한다.
+5. 기존 결과 저장, 실패 처리, lease fencing, DB/Outbox 경로로 종료한다. 기존 성공
    Step은 보존하고, 실행 중 저장한 부분 출력은 complete=false로 남긴다.
 
 확인된 실행 소실은 기존 RUNTIME_SESSION_LOST로 분류한다. SINGLE은 기존 FROM_START
@@ -26,51 +32,35 @@ busy 또는 idle 값만으로 실패를 판정하지 않는다.
 이벤트와 failure/diagnostics에 사유를 남긴다. 정리 실패는 기존 cleanup 재시도 체계로
 관리한다. 완료/오류/취소/타임아웃 시 감시 태스크도 취소하고 회수한다.
 
-## 내부 Jupyter API (Agent 공개 API 아님)
+## 커널 식별 (확장 내부)
 
-`GET /executor/kernels/{kernel_id}/execution-state`
+확장은 `KernelStateObserver`로 커널 프로세스의 생존과 instance_id를 확인한다. 별도 HTTP
+API는 두지 않는다(이전의 `GET /executor/kernels/{kernel_id}/execution-state`는 Executor가
+더 이상 호출하지 않아 제거했다).
 
-Jupyter 기존 토큰 인증과 base_url을 사용한다. Cache-Control: no-store.
-
-```json
-{"kernel_id": "<Kernel ID>", "alive": true, "instance_id": "<opaque identity>"}
-```
-
-- 등록된 커널이 없거나 프로세스가 종료/교체/종료 절차 중이면 alive=false,
-  instance_id=null이다. 이 API의 alive는 실행을 유지할 수 있는 상태를 뜻한다.
 - LocalProvisioner의 process 객체와 KernelManager.is_alive()/shutting_down을 사용한다.
-  같은 Kernel ID 또는 PID라도 프로세스가 교체되면 다른 식별값을 반환한다.
-- 서버 재시작도 식별값이 달라진다. 프로세스 객체는 약한 참조로 관리한다.
-- 관측 불가능한 remote/custom provisioner는 503이다. 조용히 감시를 생략하지 않는다.
-- PID/명령행/인증정보/경로/OOM 정보는 노출하지 않는다. PV 파일도 생성하지 않는다.
+  같은 Kernel ID 또는 PID라도 프로세스가 교체되면 다른 식별값이 된다.
+- 관측 불가능한 remote/custom provisioner에서는 실행을 시작하지 않는다. 조용히 감시를
+  생략하지 않는다.
 
 ## Executor 설정과 장애 구분
 
 | 환경변수 | 기본값 | 의미 |
 |---|---:|---|
-| JUPYTER_EXECUTION_POLL_SECONDS | 10 | 실행 중 커널 조회 간격(초) |
-| JUPYTER_EXECUTION_PROBE_TIMEOUT_SECONDS | 5 | 조회 한 번의 최대 대기(초) |
-| JUPYTER_EXECUTION_PROBE_FAILURE_THRESHOLD | 3 | 실행 중 연속 조회 실패 한계 |
+| JUPYTER_STREAM_RECONNECT_SECONDS | 30 | 저널 스트림 재연결을 포기하기까지의 시간(초) |
 
-일시적 실패 뒤 성공하면 실패 횟수를 초기화한다. 연속 실패 한계를 넘으면
-RUNTIME_UNAVAILABLE로 종료/커널 정리 절차에 들어간다. 이 경우 커널 종료가 아니라
-관측 불가로 기록하며, OOM이나 프로세스 사망으로 단정하지 않는다.
-실행 직전 관측이 불가능하면 코드를 보내지 않는다. 완료 직전 일시적 관측 실패도
-같은 한계까지 재확인한다.
-
-DB는 매번 갱신하지 않고 실패 시에만 기존 진단과 상태를 기록한다. 전체 서버/커널
-스캔은 하지 않는다. 동시 활성 실행 30개면 기본 주기로 평균 약 3회/초의 상태 조회가
-추가되며, Step 시작/완료 조회는 별도다. 감지 후 후처리와 통신 시간이 추가되므로
-최종 DB 전이까지 정확히 10초를 보장하는 것은 아니다.
+이전의 Executor 쪽 커널 주기 조회(`JUPYTER_EXECUTION_POLL_SECONDS` 등)는 확장 내부
+감시로 대체되어 제거됐다. 출력이 오는 동안에는 조회하지 않는다.
 
 ## 배포와 외부 계약
 
 Jupyter 확장과 Executor 둘 다 변경된다. **확장을 먼저 설치/이미지 재빌드하고
 Jupyter 서버를 재시작한 후 Executor를 배포한다.** 기존 실행이 있는 서버는 먼저
-drain/종료 계획을 따른다. 구버전 확장에 새 Executor만 연결하면 초기 상태 조회에
-실패하고 코드를 보내지 않는다. 감시 비활성화 fallback은 없다.
+drain/종료 계획을 따른다. 구버전 확장에 새 Executor만 연결하면 실행 시작 요청이
+404로 실패하고 코드를 보내지 않는다. 확장 없이 실행하는 fallback은 없다.
 
-Execution REST/MCP 스키마, Redis 이벤트 종류/스키마, DB 테이블은 변경하지 않는다.
+Execution REST/MCP 스키마는 변경하지 않는다. Step 인계 이벤트 두 종류와 인계용 테이블이
+추가됐다.
 Agent의 새 API 호출/추가 파라미터는 필요 없다.
 
 ## 검증

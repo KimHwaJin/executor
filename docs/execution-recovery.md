@@ -78,16 +78,19 @@ During application shutdown the Worker first stops Redis intake and queue reconc
 new claims, and waits up to `EXECUTION_DRAIN_TIMEOUT_SECONDS` for its active jobs to finish. Their
 heartbeats continue during this drain window. If the jobs finish, no shutdown failure is recorded.
 
-After the drain deadline, each remaining in-flight job is cancelled, attempts to interrupt and
-delete its session, records a `WORKER_SHUTDOWN` failure, and commits the Attempt and Outbox event
-before database disposal. Kernel cleanup is bounded by `EXECUTION_SHUTDOWN_CLEANUP_SECONDS` (20
-seconds by default), so an unresponsive Jupyter server does not prevent the database failure state
-from being committed.
+After the drain deadline, each remaining in-flight job is cancelled. A job whose Step code is
+already running on its kernel is handed over to another Worker (see below): the kernel is left
+alone and no failure is recorded. Any other job attempts to interrupt and delete its session,
+records a `WORKER_SHUTDOWN` failure, and commits the Attempt and Outbox event before database
+disposal. Kernel cleanup is bounded by `EXECUTION_SHUTDOWN_CLEANUP_SECONDS` (20 seconds by
+default), so an unresponsive Jupyter server does not prevent the database failure state from
+being committed.
 
 An ungraceful process loss cannot run that shutdown path. The surviving Worker that locks an expired
-lease records `LEASE_EXPIRED`, increments `recovery_count`, marks the retry strategy `FROM_START`,
-and performs best-effort abandoned-session deletion. Re-running reconciliation is idempotent because
-only `RUNNING` rows with expired leases are eligible.
+lease hands a running Step over in the same way. Without one, it records `LEASE_EXPIRED`,
+increments `recovery_count`, marks the retry strategy `FROM_START`, and performs best-effort
+abandoned-session deletion. Re-running reconciliation is idempotent because only `RUNNING` rows
+with expired leases and no pending handover are eligible.
 
 On process startup, this database fencing pass completes before the Worker reports `ACCEPTING` or
 starts Redis intake. Missing owner/expiry fields on a `RUNNING` row are treated as an incomplete
@@ -95,6 +98,45 @@ lease and recovered by the same path. Runtime session deletion runs after the da
 background maintenance task; the persisted `PENDING` cleanup reservation continues consuming
 Runtime capacity until cleanup is confirmed. Concurrent starting Pods use `FOR UPDATE SKIP LOCKED`,
 so exactly one process records each recovery and its terminal events.
+
+## Step handover between workers
+
+The Jupyter extension runs each Step under a request ID and appends every output message to a
+journal on the Jupyter server. Code is submitted at most once per request ID. A Worker reads the
+journal over a WebSocket (`?after=N`), which replays earlier entries, marks `caught_up`, and then
+streams live entries until a terminal entry.
+
+Before submitting, the Worker records the request ID and the artifact baseline in
+`execution_step_runs`, and marks the run submitted once the extension accepts it. That row is what
+makes a Step transferable.
+
+A handover starts when:
+
+- a Worker shuts down (scale-in, rolling update) with the Step still running:
+  reason `EXECUTOR_SHUTDOWN`, paused since the moment it let go;
+- a Worker stops heartbeating and its lease expires (crash, OOM, partition):
+  reason `EXECUTOR_UNRESPONSIVE`, paused since its last heartbeat.
+
+In one transaction the Execution lease is cleared, its fencing token is incremented, an
+`execution_handovers` row is written, `execution.step_handover_started` is emitted, and an
+`execution.handover_ready` work message is queued. The same Attempt continues; no retry or
+`recovery_count` increment is recorded. A pending abort (timeout or cancellation) is not handed
+over and keeps its failure path.
+
+The Worker that claims the handover deletes the row, takes a new fence, skips Runtime preparation,
+and follows the journal from the start into its own result directory. When the replay reaches
+`caught_up` it emits `execution.step_handover_completed` with `paused_seconds` and whether the
+Step finished while nobody was watching. The Step then completes normally. Step and Operation
+deadlines stay absolute from their original start, so time spent in handover counts against them.
+The journal is released only after the Step result is committed.
+
+The previous owner is fenced out: its writes fail on the new token, and it never interrupts or
+deletes a kernel it no longer owns.
+
+If the kernel itself is lost (the extension reports `LOST` or the journal returns 404), the Step
+fails with `RUNTIME_SESSION_LOST`. A stream that cannot reconnect within
+`JUPYTER_STREAM_RECONNECT_SECONDS` fails as a Runtime driver error. Either way, output received so
+far is kept and the code is never replayed; an explicit retry is required. See [Runtime execution loss detection](runtime-execution-loss-detection.md).
 
 ## Runtime session cleanup
 

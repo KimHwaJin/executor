@@ -40,7 +40,7 @@ def test_workspace_only_builds_runtime_paths_and_notebook_document() -> None:
     manager = WorkspaceManager()
     item = execution(codes=("print(1)", "2 + 2"))
     workspace = manager.plan(item)
-    cells = manager.load_cells(item)
+    cells = [step.code for step in item.steps]
 
     assert workspace.runtime_relative_path.startswith(
         "users/user-1/projects/project-1/sessions/session-1/executions/"
@@ -48,7 +48,6 @@ def test_workspace_only_builds_runtime_paths_and_notebook_document() -> None:
     assert workspace.notebook_path.endswith("/notebooks/execution.ipynb")
     assert workspace.reports_path.endswith("/reports")
     assert workspace.artifacts_path.endswith("/artifacts")
-    assert cells == ["print(1)", "2 + 2"]
 
     notebook = manager.notebook_document(
         workspace,

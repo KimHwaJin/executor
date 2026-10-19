@@ -68,7 +68,9 @@ class ExecutionArtifactManager:
             ArtifactStatus.AVAILABLE,
             metadata={"content_semantics": "CURRENT_FILE"},
         )
-        return await self._persistence.persist_notebook(descriptor, lease=lease)
+        return await self._persistence.persist_notebook(
+            descriptor, lease=lease
+        )
 
 
 __all__ = [

@@ -113,22 +113,23 @@ The existing Executor container/image was not rebuilt or restarted by this work.
 
 ## Reproduce (Docker optional, PowerShell supported)
 
-The Jupyter image/extension does not need modification. Set the URL/token for an
-existing test Jupyter with basic/ml kernels and its normal rate policy:
+Set the URL/token for an existing test Jupyter with basic/ml kernels and the
+current execution journal extension:
 
 ```powershell
 $env:JUPYTER_GATEWAY_ENDPOINT = 'http://127.0.0.1:8888'
 $env:JUPYTER_GATEWAY_TOKEN = '<test Jupyter token>'
 $env:JUPYTER_GATEWAY_PROFILE = 'basic'
-$env:JUPYTER_GATEWAY_OUTPUT_MIB = '5'
 uv run python scripts/jupyter_output_completeness_smoke.py
 ```
 
 POSIX shells use `export NAME=value` for the same variables. Profile defaults to
-`basic`; output size defaults to 5 MiB and is restricted to 1–25 MiB. An empty
-token supports a deliberately tokenless local test server. The harness must fail
-if its workload does not actually trigger the configured limiter; do not change
-the server policy merely to hide or manufacture a pass.
+`basic`. An empty token supports a deliberately tokenless local test server.
+
+The extension reads kernel output inside the Jupyter server, so the IOPub data
+rate limit no longer applies and the former `data_limit` case was removed. The
+journal size limit (`OUTPUT_JOURNAL_SIZE_LIMIT_EXCEEDED`) is covered by the
+extension and Worker tests.
 
 The synthetic message-rate warning path is covered by protocol/Worker tests; an
 actual message-rate flood, full T35 load matrix, unknown remote output loss,

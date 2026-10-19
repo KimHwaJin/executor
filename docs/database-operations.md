@@ -36,7 +36,10 @@ are discarded. Stop all old Executor processes before this migration.
 For a DB built from the actual 2026-08-31 baseline, `upgrade head` preserves business rows and
 requires no Redis reset. `check` must report no new upgrade operations.
 
-Current head is `0005`. This revision removes the two foreign keys from
+Current head is `0006`. It only adds `execution_step_runs` and `execution_handovers`, so
+older Pods keep working against it; downgrade drops both tables.
+
+Revision `0005` removes the two foreign keys from
 Execution/Attempt `runtime_target_id` to active registrations while retaining
 their UUID values, and removes purge-specific idempotency/hash columns. History
 now refers to an active registration or its immutable purge record. No business
@@ -52,7 +55,7 @@ or reclassifying diagnostic evidence. Stop and plan an explicit data-preserving
 rollback; do not bypass the check with `stamp` or silently rewrite failure types.
 
 The following reset instructions apply only to discarded older baselines, not to
-the `0001` → `0002` → `0003` → `0004` → `0005` upgrades. Every database created before
+the `0001` → `0002` → `0003` → `0004` → `0005` → `0006` upgrades. Every database created before
 this reset must be backed up if its data matters, then recreated as an empty database before
 `upgrade head`, even if it is already stamped `0001`. Revision equality alone does not prove
 that an older database has this schema. Clear the four Executor Redis Streams at the same time so stale work
