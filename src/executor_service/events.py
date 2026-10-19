@@ -238,11 +238,37 @@ class OperationCompletedPayload(ContractModel):
         return self
 
 
+class TriggerActor(ContractModel):
+    type: Literal["AGENT", "USER", "BATCH"]
+    id: str = Field(min_length=1, max_length=255)
+
+
+class ExecutionTriggerSummary(ContractModel):
+    type: Literal["INTERACTIVE", "BATCH"]
+    actor: TriggerActor | None
+
+
+class ExecutionContextSummary(ContractModel):
+    user_id: str = Field(min_length=1, max_length=255)
+    task_id: str = Field(min_length=1, max_length=255)
+    project_id: str | None = Field(default=None, max_length=255)
+    session_id: str | None = Field(default=None, max_length=255)
+    workflow_id: str | None = Field(default=None, max_length=255)
+
+
+class ExecutionSummary(ContractModel):
+    """Submit-time identity, so consumers can route without a detail read."""
+
+    trigger: ExecutionTriggerSummary
+    context: ExecutionContextSummary
+
+
 class ExecutionCompletedPayload(ContractModel):
     status: Literal["SUCCEEDED", "FAILED", "CANCELLED"]
     operation_summary: OperationSummary
     retry: RetryAvailability | None
     error: ExecutionErrorSummary | None
+    execution: ExecutionSummary | None = None
 
     @model_validator(mode="after")
     def validate_outcome(self) -> Self:

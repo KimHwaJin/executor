@@ -463,8 +463,9 @@ and request examples.
 Every public mutation records `created_by`/`updated_by` attribution on the affected Execution,
 Step, Attempt, Artifact, Outbox Event, or Runtime Target where applicable. `context.user_id` owns
 the Execution and its results. Interactive submits accept `AGENT` or `USER`; a USER actor ID must
-match `context.user_id`. Batch submits require a `BATCH` actor whose ID identifies the schedule or
-manual batch trigger and may differ from the owning user.
+match `context.user_id`. Batch submits accept `USER` or `BATCH`: a USER actor is the user who
+registered the batch and must match `context.user_id`; a BATCH actor ID identifies a system schedule
+or trigger and may differ from the owning user.
 
 `runtime_pool` is not accepted from callers. Executor derives `INTERACTIVE` or `BATCH` from
 `trigger.type`, then selects a healthy compatible Runtime Target with available capacity inside

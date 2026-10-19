@@ -213,7 +213,7 @@ async def test_interactive_submit_requires_actor_to_match_user(
 
     with pytest.raises(
         InvalidStateTransitionError,
-        match=r"actor\.id to match context\.user_id",
+        match=r"actor\.id must match context\.user_id",
     ):
         await execution_service.submit(command)
 
@@ -235,6 +235,56 @@ async def test_batch_submit_allows_actor_to_differ_from_owning_user(
     assert submitted.runtime_pool.value == "BATCH"
     assert submitted.created_by_type == ActorType.BATCH
     assert submitted.created_by == "schedule-1"
+
+
+async def test_batch_submit_accepts_registering_user_actor(
+    execution_service: ExecutionService,
+) -> None:
+    command = replace(
+        submit_command("batch-user-actor"),
+        trigger_type=TriggerType.BATCH,
+        actor_type=ActorType.USER,
+        actor_id="user-1",
+    )
+
+    submitted = await execution_service.submit(command)
+
+    assert submitted.runtime_pool.value == "BATCH"
+    assert submitted.created_by_type == ActorType.USER
+    assert submitted.created_by == "user-1"
+
+
+async def test_batch_submit_requires_user_actor_to_match_user(
+    execution_service: ExecutionService,
+) -> None:
+    command = replace(
+        submit_command("batch-user-actor-mismatch"),
+        trigger_type=TriggerType.BATCH,
+        actor_type=ActorType.USER,
+        actor_id="another-user",
+    )
+
+    with pytest.raises(
+        InvalidStateTransitionError,
+        match=r"actor\.id must match context\.user_id",
+    ):
+        await execution_service.submit(command)
+
+
+async def test_batch_submit_rejects_agent_actor(
+    execution_service: ExecutionService,
+) -> None:
+    command = replace(
+        submit_command("batch-agent-actor"),
+        trigger_type=TriggerType.BATCH,
+        actor_type=ActorType.AGENT,
+        actor_id="analytics-agent",
+    )
+
+    with pytest.raises(
+        InvalidStateTransitionError, match="USER or BATCH actor"
+    ):
+        await execution_service.submit(command)
 
 
 async def test_unknown_execution_is_not_found(

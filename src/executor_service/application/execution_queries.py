@@ -42,6 +42,7 @@ class ExecutionSummaryView:
     session_id: str | None
     task_id: str
     workflow_id: str | None
+    metadata: dict[str, Any]
     status: ExecutionStatus
     version: int
     step_count: int
@@ -66,6 +67,7 @@ class ExecutionDetailView:
     session_id: str | None
     task_id: str
     workflow_id: str | None
+    metadata: dict[str, Any]
     runtime_type: RuntimeType
     runtime_pool: RuntimePool
     runtime_profile: str
@@ -258,6 +260,7 @@ class ExecutionQueryService(Protocol):
         session_id: str | None = None,
         task_id: str | None = None,
         workflow_id: str | None = None,
+        trigger_type: TriggerType | None = None,
         status: ExecutionStatus | None = None,
         cursor: str | None = None,
         limit: int = 100,

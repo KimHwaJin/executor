@@ -17,7 +17,7 @@ from executor_service.application.pagination import (
     encode_integer_cursor,
     encode_time_cursor,
 )
-from executor_service.domain.enums import ExecutionStatus
+from executor_service.domain.enums import ExecutionStatus, TriggerType
 from executor_service.domain.errors import ExecutionNotFoundError
 from executor_service.domain.models import ExecutionStep
 from executor_service.infrastructure._execution_queries.guards import (
@@ -49,6 +49,7 @@ class SQLAlchemyExecutionReader:
         session_id: str | None = None,
         task_id: str | None = None,
         workflow_id: str | None = None,
+        trigger_type: TriggerType | None = None,
         status: ExecutionStatus | None = None,
         cursor: str | None = None,
         limit: int = 100,
@@ -76,6 +77,10 @@ class SQLAlchemyExecutionReader:
         if workflow_id is not None:
             statement = statement.where(
                 ExecutionORM.workflow_id == workflow_id
+            )
+        if trigger_type is not None:
+            statement = statement.where(
+                ExecutionORM.trigger_type == trigger_type
             )
         if status is not None:
             statement = statement.where(ExecutionORM.status == status)

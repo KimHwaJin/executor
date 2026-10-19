@@ -110,7 +110,8 @@ reusable across all projects owned by the same user or only within its source pr
 
 - Public mutation requests accept `AGENT`, `USER`, and `BATCH` actor types.
 - `actor.id` is the stable identifier supplied by the upstream Agent/API or Batch service.
-- Interactive submissions accept `AGENT` or `USER`; batch submissions require `BATCH`.
+- Interactive submissions accept `AGENT` or `USER`; batch submissions accept `USER` (the registering
+  user, matching `context.user_id`) or `BATCH`.
 - Executor-created child records inherit the actor of the Agent, user, or batch command.
 - Executor background maintenance that has no new external command may leave actor fields nullable
   while retaining its operational identity in logs and traces.
