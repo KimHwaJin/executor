@@ -3,7 +3,7 @@
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
 
@@ -110,6 +110,12 @@ class ExecutionClaimer:
                 execution.lease_owner = None
                 execution.lease_expires_at = None
                 execution.heartbeat_at = None
+                # Cancellation now owns a Step released for handover.
+                await session.execute(
+                    delete(ExecutionHandoverORM).where(
+                        ExecutionHandoverORM.execution_id == execution.id
+                    )
+                )
             execution.cancellation_lease_owner = self._consumer_name
             execution.cancellation_lease_expires_at = lease_expires
             execution.cancellation_heartbeat_at = now
@@ -410,7 +416,6 @@ class ExecutionClaimer:
             if (
                 execution_row is None
                 or execution_row.status != ExecutionStatus.RUNNING
-                or execution_row.runtime_target_id is None
                 or (
                     execution_row.lease_owner is not None
                     and execution_row.lease_expires_at is not None
@@ -426,11 +431,19 @@ class ExecutionClaimer:
                 )
                 .with_for_update()
             )
-            target = await session.get(
-                RuntimeTargetORM, execution_row.runtime_target_id
+            target = (
+                await session.get(
+                    RuntimeTargetORM, execution_row.runtime_target_id
+                )
+                if execution_row.runtime_target_id is not None
+                else None
             )
             released = await session.get(ExecutionHandoverORM, execution_id)
-            if attempt is None or target is None or released is None:
+            if released is None:
+                return None
+            if attempt is None or target is None:
+                # Nothing to follow: lease recovery fails the Execution.
+                await session.delete(released)
                 return None
             handover = StepHandover(
                 reason=released.reason, paused_since=released.paused_since

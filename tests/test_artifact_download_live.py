@@ -96,7 +96,7 @@ def _live_jupyter() -> Iterator[LiveJupyter]:
                     "--env",
                     "PYTHONPATH=/opt/download-extension/src",
                     "--mount",
-                    f"type=bind,src={repo / 'test_harness/jupyter/extension'},dst=/opt/download-extension,readonly",
+                    f"type=bind,src={repo / 'deploy/jupyter/extension'},dst=/opt/download-extension,readonly",
                     "--mount",
                     f"type=bind,src={root},dst=/workspace/pv",
                     "executor-jupyter:local",

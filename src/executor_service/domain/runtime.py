@@ -117,7 +117,6 @@ class RuntimeOutputLimitExceededError(RuntimeExecutionError):
         else:
             raise ValueError("Unsupported Runtime output limit kind.")
         super().__init__(message)
-        self.max_message_bytes = max_bytes
         self.kind: RuntimeOutputLimitKind = kind
 
 

@@ -14,7 +14,6 @@ Executor는 코드를 `POST /executor/kernels/{kernel_id}/executions`로 한 번
 `.../executions/{request_id}/stream` WebSocket으로 실행 저널을 따라 읽는다. 확장이 커널
 출력을 요청별 JSONL 저널에 기록하므로 Executor Pod가 바뀌어도 새 Pod가 처음부터 다시
 읽어 이어받는다. 커널 종료·재시작이나 Jupyter 서버 재시작은 확장이 `LOST`로 기록한다.
-`GET /executor/kernels/{kernel_id}/execution-state` 조회도 그대로 제공한다.
 
 저널은 컨테이너 로컬 임시 경로에 둔다. Jupyter 서버가 재시작되면 실행 중이던 Step은
 어차피 실패하므로 PVC에 둘 필요가 없다. 추가 볼륨/권한은 필요 없다.

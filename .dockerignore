@@ -5,8 +5,8 @@
 .ruff_cache
 .venv
 test_harness/jupyter/.native
-test_harness/jupyter/extension/.venv
-test_harness/jupyter/extension/build
+deploy/jupyter/extension/.venv
+deploy/jupyter/extension/build
 __pycache__
 *.py[cod]
 *.egg-info

@@ -48,17 +48,6 @@ class WorkspaceManager:
             manifest_path=f"{relative}/artifacts/manifest.jsonl",
         )
 
-    def load_cells(self, execution: Execution) -> list[str]:
-        cells = [
-            step.code
-            for step in sorted(execution.steps, key=lambda step: step.sequence)
-        ]
-        if not cells or any(not code.strip() for code in cells):
-            raise WorkspacePathError(
-                "ExecutionSpec contains no executable steps."
-            )
-        return cells
-
     def notebook_document(
         self,
         workspace: ExecutionWorkspace,

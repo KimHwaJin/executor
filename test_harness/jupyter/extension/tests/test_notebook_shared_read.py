@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import stat
 import subprocess
@@ -9,6 +10,8 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+import executor_resource_extension
 
 WRITER = """
 import json, os, sys
@@ -48,8 +51,10 @@ print('READ_AND_RENDER_OK')
 
 
 @unittest.skipUnless(
-    sys.platform == "linux" and os.geteuid() == 0,
-    "Run in a disposable Linux container as root to switch test identities",
+    sys.platform == "linux"
+    and os.geteuid() == 0
+    and importlib.util.find_spec("nbconvert") is not None,
+    "Run in a disposable Jupyter container as root to switch test identities",
 )
 class SharedNotebookReadTests(unittest.TestCase):
     def test_nobody_can_read_and_render_jupyter_owned_notebooks(self) -> None:
@@ -66,6 +71,10 @@ class SharedNotebookReadTests(unittest.TestCase):
                 **os.environ,
                 "HOME": str(reader_home),
                 "PYTHONDONTWRITEBYTECODE": "1",
+                # pytest's pythonpath setting does not reach child processes.
+                "PYTHONPATH": str(
+                    Path(executor_resource_extension.__file__).parents[1]
+                ),
             }
             path = shared / (
                 "users/u/projects/p/sessions/s/executions/e/"

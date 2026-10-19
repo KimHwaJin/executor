@@ -54,7 +54,10 @@ class ExecutionJournals:
         max_bytes: int,
         retention_seconds: float,
         liveness_seconds: float = 5,
-        ready_timeout_seconds: float = 60,
+        # Below the Executor's Jupyter request timeout (30 s by default), so
+        # a slow kernel fails the request before the Executor stops waiting
+        # instead of receiving code after it.
+        ready_timeout_seconds: float = 20,
     ) -> None:
         self._root = root
         self._kernel_state = kernel_state
@@ -239,13 +242,16 @@ class ExecutionJournals:
     ) -> None:
         seq = 0
         reply_received = idle_received = False
+        # One handle for the whole recording; flush makes each whole line
+        # visible to followers.
+        journal = path.open("a", encoding="utf-8")
 
         async def append(entry: dict[str, Any]) -> None:
             nonlocal seq, size
             seq += 1
             line = _line({"seq": seq, **entry})
-            with path.open("a", encoding="utf-8") as journal:
-                journal.write(line)
+            journal.write(line)
+            journal.flush()
             size += len(line.encode("utf-8"))
             async with recording.changed:
                 recording.changed.notify_all()
@@ -309,6 +315,10 @@ class ExecutionJournals:
                     )
             await append(_terminal_entry(COMPLETED))
         except asyncio.CancelledError:
+            # The server is stopping: end the journal so followers return.
+            await append(
+                _terminal_entry(LOST, "Kernel execution recording stopped.")
+            )
             raise
         except Exception as exc:
             await append(
@@ -318,6 +328,7 @@ class ExecutionJournals:
                 )
             )
         finally:
+            journal.close()
             iopub.cancel()
             shell.cancel()
             client.stop_channels()
