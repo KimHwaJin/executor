@@ -13,6 +13,10 @@ This directory owns the JupyterLab image used by Executor Runtime Targets. Image
 kernel-package maintenance, authentication, workspace mounting, and the resource observation
 extension are documented here rather than in the Executor service README.
 
+The extension source, `jupyter_server_config.py`, `start-jupyter.sh` and the extension
+activation file live only in [`deploy/jupyter`](../../deploy/jupyter); this harness builds and
+installs them from there, so the tested extension is the delivered one.
+
 ## Image layout
 
 The final image is built from a pinned uv and Python 3.11 Bookworm Slim image and runs JupyterLab
@@ -381,6 +385,6 @@ uv run pytest -q
 The server extension has its own dependency boundary and test environment:
 
 ```text
-uv run --project test_harness/jupyter/extension --with pytest \
+uv run --project deploy/jupyter/extension --with pytest \
   pytest -q test_harness/jupyter/extension/tests
 ```

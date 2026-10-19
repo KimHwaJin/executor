@@ -239,7 +239,7 @@ examples, and tests together.
 - `application/notebook_queries.py`: SUMMARY/FULL semantics and bounded pagination.
 - `domain/runtime.py`, `infrastructure/runtime_storage.py`, and Runtime drivers: ranged file-content
   streaming abstraction.
-- `test_harness/jupyter/extension`: path-safe ranged file-content handler for Runtime-owned PV
+- `deploy/jupyter/extension`: path-safe ranged file-content handler for Runtime-owned PV
   files; this avoids loading complete binary Artifacts through the Jupyter Contents JSON API.
 - `tests/`: contract, query-count, range, path traversal, MIME/checksum, OpenAPI, MCP, and E2E
   coverage.

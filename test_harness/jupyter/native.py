@@ -28,8 +28,10 @@ DEFAULT_REQUIREMENTS = HARNESS_ROOT / "environments/default/requirements.txt"
 PYTHON_3102311_REQUIREMENTS = (
     HARNESS_ROOT / "environments/3102311/requirements.txt"
 )
-EXTENSION_ROOT = HARNESS_ROOT / "extension"
-SERVER_CONFIG = HARNESS_ROOT / "jupyter_server_config.py"
+# The harness installs the delivered extension and server config, not copies.
+PACKAGE_ROOT = REPOSITORY_ROOT / "deploy/jupyter"
+EXTENSION_ROOT = PACKAGE_ROOT / "extension"
+SERVER_CONFIG = PACKAGE_ROOT / "jupyter_server_config.py"
 EXTENSION_CONFIG = {
     "ServerApp": {"jpserver_extensions": {"executor_resource_extension": True}}
 }

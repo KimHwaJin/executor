@@ -26,6 +26,5 @@ test_harness/
 ├── agent/.venv/
 └── jupyter/
     ├── .native/
-    ├── extension/.venv/
     └── workspace/
 ```

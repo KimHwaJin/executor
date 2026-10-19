@@ -49,7 +49,7 @@ testpaths = [
     "test_harness/jupyter/extension/tests",
     "test_harness/jupyter/tests",
 ]
-pythonpath = ["test_harness/jupyter/extension/src"]
+pythonpath = ["deploy/jupyter/extension/src"]
 markers = [
     "postgres: requires a disposable local PostgreSQL database",
     "redis: requires a local Redis server",
@@ -69,12 +69,11 @@ ignore = ["E501"]
 
 [tool.ty.environment]
 python-version = "3.12"
-extra-paths = ["test_harness/jupyter/extension/src"]
+extra-paths = ["deploy/jupyter/extension/src"]
 
 [tool.ty.src]
 exclude = [
     "shared_dir",
-    "test_harness/jupyter/jupyter_server_config.py",
     "deploy/jupyter/jupyter_server_config.py",
     "test_harness/agent",
 ]

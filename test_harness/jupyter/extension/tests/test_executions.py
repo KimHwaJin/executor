@@ -227,3 +227,23 @@ async def test_journals_are_deleted_only_when_finished(
 
     with pytest.raises(JournalNotFoundError):
         await anext(journals.follow("kernel", request_id, 0))
+
+
+async def test_stopped_recording_releases_its_followers(
+    tmp_path: Path,
+) -> None:
+    client = Client()
+    journals = _journals(tmp_path)
+    request_id = str(uuid4())
+    await journals.start(Manager(client), "kernel", request_id, "work()")
+    follower = asyncio.create_task(_collect(journals, request_id))
+    await asyncio.sleep(0)
+
+    # The server stopping cancels the recorder mid-execution.
+    recorder = journals._recordings[request_id].task
+    assert recorder is not None
+    recorder.cancel()
+    entries = await follower
+
+    assert entries[-1]["state"] == "LOST"
+    assert client.stopped

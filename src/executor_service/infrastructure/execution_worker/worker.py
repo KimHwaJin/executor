@@ -200,10 +200,6 @@ class ExecutionWorker:
         return self._dispatcher.accepting
 
     @property
-    def draining(self) -> bool:
-        return self._draining
-
-    @property
     def active_job_count(self) -> int:
         return self._dispatcher.active_job_count
 
