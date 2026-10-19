@@ -10,6 +10,7 @@ from executor_service.application.execution_queries import (
 )
 from executor_service.application.pagination import Page
 from executor_service.domain.enums import (
+    ActorType,
     ExecutionStatus,
     FailureType,
     OperationMode,
@@ -33,6 +34,33 @@ from executor_service.interfaces._contracts.common import (
 from executor_service.interfaces._contracts.execution_inputs import (
     ExecutionContext,
 )
+
+
+class ExecutionActor(ContractModel):
+    type: ActorType
+    id: str
+
+
+class ExecutionTrigger(ContractModel):
+    """Submit trigger; the actor is the immutable submitter (created_by)."""
+
+    type: TriggerType
+    actor: ExecutionActor | None
+
+
+def execution_trigger(
+    trigger_type: TriggerType,
+    created_by_type: ActorType | None,
+    created_by: str | None,
+) -> ExecutionTrigger:
+    return ExecutionTrigger(
+        type=trigger_type,
+        actor=(
+            ExecutionActor(type=created_by_type, id=created_by)
+            if created_by_type is not None and created_by is not None
+            else None
+        ),
+    )
 
 
 class ExecutionRuntime(ContractModel):
@@ -120,6 +148,11 @@ def _execution_common(
             finished_at=execution.finished_at,
         ),
         "trigger_type": execution.trigger_type,
+        "trigger": execution_trigger(
+            execution.trigger_type,
+            execution.created_by_type,
+            execution.created_by,
+        ),
         "context": ExecutionContext(
             user_id=execution.user_id,
             project_id=execution.project_id,
@@ -127,6 +160,7 @@ def _execution_common(
             task_id=execution.task_id,
             workflow_id=execution.workflow_id,
         ),
+        "metadata": dict(execution.metadata),
         "runtime": ExecutionRuntime(
             type=execution.runtime_type,
             pool=execution.runtime_pool,
@@ -212,7 +246,9 @@ class ExecutionCommandResponse(AuditFields):
 class ExecutionResponse(AuditFields):
     execution_id: UUID
     trigger_type: TriggerType
+    trigger: ExecutionTrigger
     context: ExecutionContext
+    metadata: dict[str, Any]
     runtime: ExecutionRuntime
     state: ExecutionState
     workspace: WorkspaceResponse
@@ -261,7 +297,9 @@ class ExecutionSummaryResponse(AuditFields):
     execution_id: UUID
     operation_mode: OperationMode
     trigger_type: TriggerType
+    trigger: ExecutionTrigger
     context: ExecutionContext
+    metadata: dict[str, Any]
     state: ExecutionCommandState
     lifecycle: Lifecycle
     step_count: int
@@ -275,6 +313,11 @@ class ExecutionSummaryResponse(AuditFields):
             execution_id=execution.id,
             operation_mode=execution.operation_mode,
             trigger_type=execution.trigger_type,
+            trigger=execution_trigger(
+                execution.trigger_type,
+                execution.created_by_type,
+                execution.created_by,
+            ),
             context=ExecutionContext(
                 user_id=execution.user_id,
                 project_id=execution.project_id,
@@ -282,6 +325,7 @@ class ExecutionSummaryResponse(AuditFields):
                 task_id=execution.task_id,
                 workflow_id=execution.workflow_id,
             ),
+            metadata=dict(execution.metadata),
             state=ExecutionCommandState(
                 status=execution.status,
                 version=execution.version,

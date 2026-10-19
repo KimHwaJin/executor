@@ -130,7 +130,8 @@ All list endpoints use opaque cursor pagination. Clients must return `next_curso
 OpenAPI is available at `/openapi.json`, Swagger UI at `/docs`, and ReDoc at `/redoc`.
 
 Execution history can be filtered by `user_id`, `project_id`, `session_id`, `task_id`,
-`workflow_id`, and `status`. Executor accepts at most
+`workflow_id`, `trigger_type`, and `status`. Detail and history items expose `trigger{type,
+actor}` (the immutable submit actor) and the submit `metadata` object. Executor accepts at most
 `EXECUTION_MAX_STEPS_PER_OPERATION` Steps in one Operation and
 `EXECUTION_MAX_STEPS_PER_EXECUTION` Steps across one Execution. The configured defaults are 100
 and 1000.
