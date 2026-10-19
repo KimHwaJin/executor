@@ -64,7 +64,7 @@ from executor_service.infrastructure.runtime_storage import (
 )
 from executor_service.settings import Settings
 
-EXPECTED_SCHEMA_REVISION = "0005"
+EXPECTED_SCHEMA_REVISION = "0006"
 
 
 class ApplicationContainer:
@@ -191,7 +191,13 @@ class ApplicationContainer:
                 revision = await connection.scalar(
                     text("SELECT version_num FROM alembic_version")
                 )
-            database_ready = revision == EXPECTED_SCHEMA_REVISION
+            # Migrations only add backward-compatible changes, so a Pod
+            # stays ready while a rolling update moves the schema ahead.
+            database_ready = (
+                isinstance(revision, str)
+                and revision.isdigit()
+                and int(revision) >= int(EXPECTED_SCHEMA_REVISION)
+            )
         except Exception:
             pass
         try:

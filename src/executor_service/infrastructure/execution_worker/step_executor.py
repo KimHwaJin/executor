@@ -4,7 +4,7 @@ import asyncio
 import logging
 from datetime import UTC, datetime
 from typing import Any
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -31,12 +31,13 @@ from executor_service.domain.runtime import (
     RuntimeExecutionTimeoutError,
     RuntimeOutputLimitExceededError,
     RuntimeOutputRecord,
-    RuntimeStreamingExecutor,
+    RuntimeStorageSnapshot,
 )
 from executor_service.infrastructure.db.models import (
     ExecutionOperationORM,
     ExecutionStepAttemptORM,
     ExecutionStepORM,
+    ExecutionStepRunORM,
 )
 from executor_service.infrastructure.diagnostic_store import DiagnosticRecorder
 from executor_service.infrastructure.execution_leases import (
@@ -52,8 +53,12 @@ from executor_service.infrastructure.execution_worker.event_writer import (
 from executor_service.infrastructure.execution_worker.failure_policy import (
     safe_error,
 )
-from executor_service.infrastructure.execution_worker.output_mapping import (
-    output_record,
+from executor_service.infrastructure.execution_worker.handover import (
+    StepHandover,
+    StepRun,
+    add_handover_completed_event,
+    snapshot_from_json,
+    snapshot_to_json,
 )
 from executor_service.infrastructure.execution_worker.types import (
     StoredRuntimeExecutionError,
@@ -79,6 +84,16 @@ class ExecutionStepExecutor:
         self._session_factory = session_factory
         self._result_store = result_store
         self._diagnostics = DiagnosticRecorder(session_factory)
+        self._shutting_down = False
+
+    @property
+    def shutting_down(self) -> bool:
+        """True once the Worker stops; running Steps are handed over."""
+
+        return self._shutting_down
+
+    def set_shutting_down(self, value: bool) -> None:
+        self._shutting_down = value
 
     async def ensure_count(
         self, lease: ExecutionLease, cell_count: int
@@ -114,8 +129,17 @@ class ExecutionStepExecutor:
             attempt.runtime_session_id = runtime_session_id
             await add_start_events(session, lease.execution_id)
 
-    async def mark_started(self, lease: ExecutionLease, sequence: int) -> None:
+    async def mark_started(
+        self,
+        lease: ExecutionLease,
+        sequence: int,
+        artifact_baseline: RuntimeStorageSnapshot,
+    ) -> StepRun:
         now = utc_now()
+        # A fresh request ID per Step run: the Runtime never replays a
+        # journal recorded for an earlier run of the same Step.
+        request_id = uuid4()
+        baseline = snapshot_to_json(artifact_baseline)
         async with self._session_factory() as session, session.begin():
             await require_active_lease(session, lease)
             step = await session.scalar(
@@ -146,28 +170,28 @@ class ExecutionStepExecutor:
                 )
             )
             if history is None:
-                session.add(
-                    ExecutionStepAttemptORM(
-                        execution_id=lease.execution_id,
-                        execution_attempt_id=lease.attempt_id,
-                        execution_step_id=step.id,
-                        sequence=sequence,
-                        skill_name=step.skill_name,
-                        tool_name=step.tool_name,
-                        input_parameters=step.input_parameters,
-                        status=StepStatus.RUNNING,
-                        output_summary=empty_output_summary(),
-                        created_by_type=(
-                            step.updated_by_type or step.created_by_type
-                        ),
-                        created_by=step.updated_by or step.created_by,
-                        updated_by_type=(
-                            step.updated_by_type or step.created_by_type
-                        ),
-                        updated_by=step.updated_by or step.created_by,
-                        started_at=now,
-                    )
+                history = ExecutionStepAttemptORM(
+                    id=uuid4(),
+                    execution_id=lease.execution_id,
+                    execution_attempt_id=lease.attempt_id,
+                    execution_step_id=step.id,
+                    sequence=sequence,
+                    skill_name=step.skill_name,
+                    tool_name=step.tool_name,
+                    input_parameters=step.input_parameters,
+                    status=StepStatus.RUNNING,
+                    output_summary=empty_output_summary(),
+                    created_by_type=(
+                        step.updated_by_type or step.created_by_type
+                    ),
+                    created_by=step.updated_by or step.created_by,
+                    updated_by_type=(
+                        step.updated_by_type or step.created_by_type
+                    ),
+                    updated_by=step.updated_by or step.created_by,
+                    started_at=now,
                 )
+                session.add(history)
             else:
                 history.status = StepStatus.RUNNING
                 history.started_at = now
@@ -181,11 +205,114 @@ class ExecutionStepExecutor:
                 history.result_complete = None
                 history.result_representation_count = 0
                 history.result_total_size_bytes = 0
+            await session.merge(
+                ExecutionStepRunORM(
+                    execution_step_attempt_id=history.id,
+                    execution_id=lease.execution_id,
+                    request_id=request_id,
+                    artifact_baseline=baseline,
+                    submitted_at=None,
+                )
+            )
             if step.operation_id is None:
                 raise ValueError(
                     f"Execution Step {sequence} has no Operation."
                 )
             await add_step_started_event(session, lease, step)
+        return StepRun(
+            sequence=sequence,
+            request_id=request_id,
+            submitted=False,
+            artifact_baseline=artifact_baseline,
+        )
+
+    async def load_run(self, lease: ExecutionLease) -> StepRun:
+        """Return the Step run a replacement Worker must follow."""
+
+        async with self._session_factory() as session, session.begin():
+            await require_active_lease(session, lease)
+            row = (
+                await session.execute(
+                    select(
+                        ExecutionStepAttemptORM.sequence, ExecutionStepRunORM
+                    )
+                    .join(
+                        ExecutionStepRunORM,
+                        ExecutionStepRunORM.execution_step_attempt_id
+                        == ExecutionStepAttemptORM.id,
+                    )
+                    .where(
+                        ExecutionStepAttemptORM.execution_attempt_id
+                        == lease.attempt_id,
+                        ExecutionStepAttemptORM.status == StepStatus.RUNNING,
+                    )
+                )
+            ).first()
+            if row is None:
+                raise ValueError("Handed-over Execution has no running Step.")
+            sequence, step_run = row
+            return StepRun(
+                sequence=sequence,
+                request_id=step_run.request_id,
+                submitted=step_run.submitted_at is not None,
+                artifact_baseline=snapshot_from_json(
+                    step_run.artifact_baseline
+                ),
+            )
+
+    async def _mark_submitted(
+        self, lease: ExecutionLease, run: StepRun
+    ) -> None:
+        async with self._session_factory() as session, session.begin():
+            await require_active_lease(session, lease)
+            await session.execute(
+                update(ExecutionStepRunORM)
+                .where(ExecutionStepRunORM.request_id == run.request_id)
+                .values(submitted_at=utc_now())
+            )
+
+    async def _record_handover_completed(
+        self,
+        lease: ExecutionLease,
+        run: StepRun,
+        handover: StepHandover,
+        finished: bool,
+    ) -> None:
+        async with self._session_factory() as session, session.begin():
+            await require_active_lease(session, lease)
+            step = await session.scalar(
+                select(ExecutionStepORM).where(
+                    ExecutionStepORM.execution_id == lease.execution_id,
+                    ExecutionStepORM.sequence == run.sequence,
+                )
+            )
+            if step is None:
+                raise ValueError(
+                    f"Execution Step {run.sequence} was not found."
+                )
+            await add_handover_completed_event(
+                session,
+                lease.execution_id,
+                lease.attempt_id,
+                step,
+                paused_seconds=(
+                    utc_now() - _as_utc(handover.paused_since)
+                ).total_seconds(),
+                finished_during_handover=finished,
+            )
+
+    async def release(
+        self, driver: RuntimeDriver, runtime_session_id: str, run: StepRun
+    ) -> None:
+        """Delete a committed Step's journal; retention removes leftovers."""
+
+        try:
+            await driver.release_execution(runtime_session_id, run.request_id)
+        except RuntimeDriverError:
+            logger.warning(
+                "Runtime execution journal release failed",
+                extra={"request_id": str(run.request_id)},
+            )
 
     async def mark_succeeded(
         self,
@@ -335,18 +462,19 @@ class ExecutionStepExecutor:
         driver: RuntimeDriver,
         runtime_session_id: str,
         code: str,
-        execution_id: UUID,
-        sequence: int,
         *,
+        run: StepRun,
         result_identity: StepResultIdentity,
         source_reference: ExecutionSourceReference,
         lease: ExecutionLease,
+        handover: StepHandover | None = None,
     ) -> Any:
         async with self._session_factory() as session:
             row = (
                 await session.execute(
                     select(
                         ExecutionStepORM.step_timeout_seconds,
+                        ExecutionStepORM.started_at.label("step_started_at"),
                         ExecutionOperationORM.operation_timeout_seconds,
                         ExecutionOperationORM.started_at,
                     )
@@ -356,25 +484,27 @@ class ExecutionStepExecutor:
                         == ExecutionStepORM.operation_id,
                     )
                     .where(
-                        ExecutionStepORM.execution_id == execution_id,
-                        ExecutionStepORM.sequence == sequence,
+                        ExecutionStepORM.execution_id == lease.execution_id,
+                        ExecutionStepORM.sequence == run.sequence,
                     )
                 )
             ).one()
-        timeouts: list[tuple[float, str]] = []
-        if row.step_timeout_seconds is not None:
-            timeouts.append((float(row.step_timeout_seconds), "Step"))
-        if row.operation_timeout_seconds is not None:
-            started_at = _as_utc(row.started_at or utc_now())
+        # Deadlines are absolute, so a Worker that takes over a Step only
+        # waits for the time that remains.
+        now = utc_now()
+        timeouts: list[tuple[float, float, str]] = []
+        for limit, started_at, scope in (
+            (row.step_timeout_seconds, row.step_started_at, "Step"),
+            (row.operation_timeout_seconds, row.started_at, "Operation"),
+        ):
+            if limit is None:
+                continue
             remaining = (
-                row.operation_timeout_seconds
-                - (utc_now() - started_at).total_seconds()
+                limit - (now - _as_utc(started_at or now)).total_seconds()
             )
-            if remaining <= 0:
-                raise RuntimeExecutionTimeoutError(
-                    "Operation", float(row.operation_timeout_seconds)
-                )
-            timeouts.append((remaining, "Operation"))
+            if remaining <= 0 and not run.submitted:
+                raise RuntimeExecutionTimeoutError(scope, float(limit))
+            timeouts.append((max(remaining, 0.0), float(limit), scope))
         observations: list[tuple[BaseException, str, datetime]] = []
         execution_call = self._execute_with_result_store(
             observations,
@@ -383,12 +513,15 @@ class ExecutionStepExecutor:
             code,
             result_identity,
             source_reference,
+            lease,
+            run,
+            handover,
         )
         try:
             if not timeouts:
                 return await execution_call
-            timeout_seconds, scope = min(timeouts)
-            async with asyncio.timeout(timeout_seconds):
+            remaining, timeout_seconds, scope = min(timeouts)
+            async with asyncio.timeout(remaining):
                 return await execution_call
         except TimeoutError as exc:
             if not timeouts:
@@ -406,13 +539,17 @@ class ExecutionStepExecutor:
                 scope, timeout_seconds, stored
             ) from exc
         except asyncio.CancelledError as exc:
+            if self._shutting_down:
+                # The kernel keeps running. The next Worker replays the
+                # journal into its own fence and owns the Step's evidence.
+                raise
             stored = await self._preserve_failure_result(
                 observations, result_identity, exc
             )
             try:
                 async with asyncio.timeout(2):
                     notebook_stale = await self._record_interrupted_result(
-                        lease, sequence, stored
+                        lease, run.sequence, stored
                     )
                 if notebook_stale:
                     self._log_failure(
@@ -557,6 +694,9 @@ class ExecutionStepExecutor:
         code: str,
         identity: StepResultIdentity,
         source_reference: ExecutionSourceReference,
+        lease: ExecutionLease,
+        run: StepRun,
+        handover: StepHandover | None,
     ) -> StepResultDescriptor:
         committed_offset = 0
         phase = "RESULT_PREPARE"
@@ -578,24 +718,28 @@ class ExecutionStepExecutor:
             committed_offset = result.committed_offset
             phase = "RUNTIME_EXECUTE"
 
-        streaming = isinstance(driver, RuntimeStreamingExecutor)
+        async def handover_completed(finished: bool) -> None:
+            if handover is not None:
+                await self._record_handover_completed(
+                    lease, run, handover, finished
+                )
+
         try:
             await self._result_store.begin_step_result(
                 identity, source_reference
             )
             phase = "RUNTIME_EXECUTE"
-            if streaming:
-                execution_result = await driver.execute_streaming(
-                    runtime_session_id,
-                    code,
-                    append_output,
+            if not run.submitted:
+                await driver.start_execution(
+                    runtime_session_id, run.request_id, code
                 )
-            else:
-                execution_result = await driver.execute(
-                    runtime_session_id, code
-                )
-                for output in execution_result.outputs:
-                    await append_output(output_record(output))
+                await self._mark_submitted(lease, run)
+            execution_result = await driver.follow_execution(
+                runtime_session_id,
+                run.request_id,
+                append_output,
+                handover_completed if handover is not None else None,
+            )
             phase = "RESULT_FINALIZE"
             return await self._result_store.finalize_step_result(
                 identity,
@@ -603,17 +747,6 @@ class ExecutionStepExecutor:
             )
         except RuntimeOutputLimitExceededError as exc:
             self._log_failure(observations, identity, exc, phase)
-            if not streaming:
-                try:
-                    for output in exc.outputs:
-                        await append_output(output_record(output))
-                except Exception as storage_error:
-                    self._log_failure(
-                        observations,
-                        identity,
-                        storage_error,
-                        "RESULT_FAILURE_SAVE",
-                    )
             stored = await self._preserve_failure_result(
                 observations, identity, exc
             )
@@ -626,9 +759,6 @@ class ExecutionStepExecutor:
         except RuntimeExecutionError as exc:
             self._log_failure(observations, identity, exc, phase)
             try:
-                if not streaming:
-                    for output in exc.outputs:
-                        await append_output(output_record(output))
                 stored = await self._result_store.finalize_step_result(
                     identity,
                     execution_count=None,
@@ -645,9 +775,7 @@ class ExecutionStepExecutor:
                     observations, identity, storage_error
                 )
                 raise StoredStepFailure(exc, stored) from exc
-            raise StoredRuntimeExecutionError(
-                str(exc), exc.outputs, stored
-            ) from exc
+            raise StoredRuntimeExecutionError(str(exc), stored) from exc
         except Exception as exc:
             self._log_failure(observations, identity, exc, phase)
             stored = await self._preserve_failure_result(

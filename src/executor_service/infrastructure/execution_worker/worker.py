@@ -238,6 +238,7 @@ class ExecutionWorker:
             return
         await self._stream_consumer.ensure_group()
         self._stop_event.clear()
+        self._step_executor.set_shutting_down(False)
         self._stopped = False
         self._draining = False
         self._dispatcher.set_accepting(False)
@@ -332,6 +333,9 @@ class ExecutionWorker:
         self._stop_event.set()
         await self._cancel_tasks(self._maintenance_loops)
         if self.active_job_count:
+            # Running Steps keep running on their kernels; release them to
+            # another Worker instead of failing them.
+            self._step_executor.set_shutting_down(True)
             await self._dispatcher.cancel_all()
         self._dispatcher.set_accepting(False)
         self._draining = False

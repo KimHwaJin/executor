@@ -75,63 +75,54 @@ class ExecutionCompletionError(RuntimeError):
 
 
 class RuntimeExecutionError(RuntimeDriverError):
-    def __init__(self, message: str, outputs: list[dict[str, Any]]) -> None:
-        super().__init__(message)
-        self.outputs = outputs
+    """The submitted code itself failed; the session remains usable."""
 
 
 class RuntimeExecutionTimeoutError(RuntimeExecutionError):
     def __init__(self, scope: str, timeout_seconds: float) -> None:
         super().__init__(
-            f"{scope} timeout expired after {timeout_seconds:.3f} seconds.",
-            outputs=[],
+            f"{scope} timeout expired after {timeout_seconds:.3f} seconds."
         )
         self.scope = scope
         self.timeout_seconds = timeout_seconds
 
 
-RuntimeOutputLimitKind = Literal["MESSAGE_SIZE", "DATA_RATE", "MESSAGE_RATE"]
+RuntimeOutputLimitKind = Literal["MESSAGE_SIZE", "JOURNAL_SIZE"]
 
 
 class RuntimeOutputLimitExceededError(RuntimeExecutionError):
-    """A receive ceiling or Runtime rate limiter prevented full delivery."""
+    """A size ceiling prevented complete output delivery."""
 
     def __init__(
         self,
-        max_message_bytes: int | None = None,
+        max_bytes: int | None = None,
         *,
         kind: RuntimeOutputLimitKind = "MESSAGE_SIZE",
-        outputs: list[dict[str, Any]] | None = None,
+        message: str | None = None,
     ) -> None:
         if kind == "MESSAGE_SIZE":
-            if max_message_bytes is None or max_message_bytes <= 0:
+            if max_bytes is None or max_bytes <= 0:
                 raise ValueError("A positive message size limit is required.")
             message = (
                 "Runtime output message exceeded the configured "
-                f"{max_message_bytes}-byte safety limit; the Step result is "
+                f"{max_bytes}-byte safety limit; the Step result is "
                 "incomplete."
             )
-        elif kind in {"DATA_RATE", "MESSAGE_RATE"}:
-            if max_message_bytes is not None:
-                raise ValueError("Rate limits do not specify a message size.")
+        elif kind == "JOURNAL_SIZE":
             message = (
-                f"Runtime output {kind.lower().replace('_', ' ')} limit "
-                "was exceeded; the Runtime suppressed output delivery. "
-                "The Step result is incomplete; reduce displayed output "
+                (message or "Runtime output exceeded the journal limit.")
+                + " The Step result is incomplete; reduce displayed output "
                 "or write large results to artifacts."
             )
         else:
             raise ValueError("Unsupported Runtime output limit kind.")
-        super().__init__(
-            message, outputs=outputs if outputs is not None else []
-        )
-        self.max_message_bytes = max_message_bytes
+        super().__init__(message)
+        self.max_message_bytes = max_bytes
         self.kind: RuntimeOutputLimitKind = kind
 
 
 @dataclass(frozen=True, slots=True)
 class RuntimeExecutionResult:
-    outputs: list[dict[str, Any]]
     execution_count: int | None
 
 
@@ -168,16 +159,9 @@ class RuntimeNotebookPreparationResult:
 
 
 RuntimeOutputHandler = Callable[[RuntimeOutputRecord], Awaitable[None]]
-
-
-@runtime_checkable
-class RuntimeStreamingExecutor(Protocol):
-    async def execute_streaming(
-        self,
-        session_id: str,
-        code: str,
-        output_handler: RuntimeOutputHandler,
-    ) -> RuntimeExecutionResult: ...
+# Called once the replay of already-recorded output has been delivered;
+# the argument says whether the execution had already finished.
+RuntimeCatchUpHandler = Callable[[bool], Awaitable[None]]
 
 
 @runtime_checkable
@@ -283,9 +267,28 @@ class RuntimeDriver(RuntimeStorage, Protocol):
 
     async def session_exists(self, session_id: str) -> bool: ...
 
-    async def execute(
-        self, session_id: str, code: str
-    ) -> RuntimeExecutionResult: ...
+    async def start_execution(
+        self, session_id: str, request_id: UUID, code: str
+    ) -> None:
+        """Submit code at most once per request ID; the Runtime records it."""
+        ...
+
+    async def follow_execution(
+        self,
+        session_id: str,
+        request_id: UUID,
+        output_handler: RuntimeOutputHandler,
+        on_caught_up: RuntimeCatchUpHandler | None = None,
+    ) -> RuntimeExecutionResult:
+        """Deliver every recorded output in order, then await completion.
+
+        Any process may follow a started request; nothing is re-executed.
+        """
+        ...
+
+    async def release_execution(
+        self, session_id: str, request_id: UUID
+    ) -> None: ...
 
 
 @runtime_checkable

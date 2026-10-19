@@ -32,6 +32,10 @@ from executor_service.infrastructure.execution_worker.failure_policy import (
 from executor_service.infrastructure.execution_worker.failure_policy import (
     safe_error as _safe_error,
 )
+from executor_service.infrastructure.execution_worker.handover import (
+    StepHandover,
+    StepRun,
+)
 from executor_service.infrastructure.execution_worker.lease_heartbeat import (
     LeaseHeartbeatManager,
 )
@@ -99,6 +103,7 @@ class SingleExecutionRunner:
         execution: Execution,
         target: RuntimeTargetORM,
         lease: ExecutionLease,
+        handover: StepHandover | None = None,
     ) -> None:
         driver = self._driver_provider.create(target)
         runtime_session_id: str | None = None
@@ -107,9 +112,13 @@ class SingleExecutionRunner:
             name=f"heartbeat-{execution.id}",
         )
         failed_sequence: int | None = None
+        # The Step whose result is not yet committed; another Worker can
+        # take it over when this one stops.
+        run_in_flight: StepRun | None = None
         try:
             resume = (
-                execution.retry_count > 0
+                handover is None
+                and execution.retry_count > 0
                 and execution.retry_strategy == RetryStrategy.FROM_FAILED_STEP
                 and execution.retry_from_sequence is not None
                 and execution.runtime_session_id is not None
@@ -135,12 +144,6 @@ class SingleExecutionRunner:
                         "The retained Runtime session no longer exists."
                     )
             workspace = self._workspace.plan(execution)
-            await run_runtime_operation(
-                "executor.runtime.workspace.prepare",
-                driver.prepare_workspace(workspace.runtime_relative_path),
-                execution_id=execution.id,
-                target_id=target.id,
-            )
             steps_by_sequence = {
                 step.sequence: step for step in execution.steps
             }
@@ -154,42 +157,66 @@ class SingleExecutionRunner:
                 )
                 for sequence in range(len(steps_by_sequence))
             ]
-            await self._step_executor.ensure_count(lease, len(cells))
-            await self._notebook_projector.prepare(
-                driver,
-                lease,
-                execution.id,
-                execution.runtime_profile,
-                workspace,
-                execution.steps,
-                target.id,
-                source_references,
-            )
-            start_sequence = execution.retry_from_sequence if resume else 0
-            if not resume:
-                runtime_session_id = await run_runtime_operation(
-                    "executor.runtime.session.start",
-                    driver.start_session(
-                        execution.runtime_profile,
-                        workspace.runtime_relative_path,
-                    ),
+            taken_over: StepRun | None = None
+            if handover is not None:
+                runtime_session_id = execution.runtime_session_id
+                taken_over = await self._step_executor.load_run(lease)
+                start_sequence = taken_over.sequence
+            else:
+                await run_runtime_operation(
+                    "executor.runtime.workspace.prepare",
+                    driver.prepare_workspace(workspace.runtime_relative_path),
                     execution_id=execution.id,
                     target_id=target.id,
                 )
-            if runtime_session_id is None:
+                await self._step_executor.ensure_count(lease, len(cells))
+                await self._notebook_projector.prepare(
+                    driver,
+                    lease,
+                    execution.id,
+                    execution.runtime_profile,
+                    workspace,
+                    execution.steps,
+                    target.id,
+                    source_references,
+                )
+                start_sequence = execution.retry_from_sequence if resume else 0
+                if not resume:
+                    runtime_session_id = await run_runtime_operation(
+                        "executor.runtime.session.start",
+                        driver.start_session(
+                            execution.runtime_profile,
+                            workspace.runtime_relative_path,
+                        ),
+                        execution_id=execution.id,
+                        target_id=target.id,
+                    )
+                if runtime_session_id is None:
+                    raise RuntimeError(
+                        "Runtime session ID was not established."
+                    )
+                await self._step_executor.record_runtime_session(
+                    lease,
+                    runtime_session_id,
+                    workspace.runtime_relative_path,
+                    workspace.notebook_path,
+                )
+            if runtime_session_id is None or start_sequence is None:
                 raise RuntimeError("Runtime session ID was not established.")
-            await self._step_executor.record_runtime_session(
-                lease,
-                runtime_session_id,
-                workspace.runtime_relative_path,
-                workspace.notebook_path,
-            )
             for sequence in range(start_sequence, len(cells)):
                 code = cells[sequence]
-                artifact_snapshot = await self._artifacts.snapshot(
-                    driver, workspace
-                )
-                await self._step_executor.mark_started(lease, sequence)
+                if taken_over is not None:
+                    step_run, step_handover = taken_over, handover
+                    taken_over = None
+                else:
+                    step_run = await self._step_executor.mark_started(
+                        lease,
+                        sequence,
+                        await self._artifacts.snapshot(driver, workspace),
+                    )
+                    step_handover = None
+                artifact_snapshot = step_run.artifact_baseline
+                run_in_flight = step_run
                 try:
                     result = await run_runtime_operation(
                         "executor.runtime.code.execute",
@@ -197,19 +224,22 @@ class SingleExecutionRunner:
                             driver,
                             runtime_session_id,
                             code,
-                            execution.id,
-                            sequence,
+                            run=step_run,
                             result_identity=self._step_executor.result_identity(
                                 steps_by_sequence[sequence], lease
                             ),
                             lease=lease,
                             source_reference=source_references[sequence],
+                            handover=step_handover,
                         ),
                         execution_id=execution.id,
                         target_id=target.id,
                         sequence=sequence,
                     )
                 except asyncio.CancelledError:
+                    if self._step_executor.shutting_down:
+                        # The next Worker registers this Step's Artifacts.
+                        raise
                     # A user cancellation or Worker drain can interrupt a cell after it has
                     # written files. Preserve those files as incomplete execution evidence
                     # before the outer cancellation path tears down the Runtime session.
@@ -247,6 +277,10 @@ class SingleExecutionRunner:
                         sequence,
                         exc.stored_result,
                         str(exc),
+                    )
+                    run_in_flight = None
+                    await self._step_executor.release(
+                        driver, runtime_session_id, step_run
                     )
                     await self._notebook_projector.project_after_failure(
                         driver,
@@ -292,6 +326,10 @@ class SingleExecutionRunner:
                     lease,
                     sequence,
                     result,
+                )
+                run_in_flight = None
+                await self._step_executor.release(
+                    driver, runtime_session_id, step_run
                 )
                 await self._notebook_projector.project_required(
                     driver,
@@ -339,8 +377,18 @@ class SingleExecutionRunner:
                 # CANCELLED transition. This execution job only preserves cell evidence.
                 await self._finalizer.release_for_cancellation(lease)
                 raise
+            if (
+                self._step_executor.shutting_down
+                and run_in_flight is not None
+                and await self._finalizer.release_for_handover(lease)
+            ):
+                # The kernel keeps running; another Worker follows it.
+                raise
             cleanup_status = RuntimeSessionCleanupStatus.NOT_REQUIRED
-            if runtime_session_id is not None:
+            if (
+                runtime_session_id is not None
+                and await self._lease_heartbeat.owns_execution(lease)
+            ):
                 try:
                     async with asyncio.timeout(
                         self._settings.execution_shutdown_cleanup_seconds
@@ -459,7 +507,11 @@ class SingleExecutionRunner:
             )
             failure_type, retry_strategy = _failure_policy(exc, retain_session)
             cleanup_status = RuntimeSessionCleanupStatus.NOT_REQUIRED
-            if runtime_session_id is not None and not retain_session:
+            if (
+                runtime_session_id is not None
+                and not retain_session
+                and await self._lease_heartbeat.owns_execution(lease)
+            ):
                 cleanup_status = await best_effort_session_stop(
                     driver,
                     runtime_session_id,

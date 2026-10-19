@@ -12,6 +12,7 @@ from executor_service.domain.enums import (
     AttemptStatus,
     ExecutionStatus,
     FailureType,
+    HandoverReason,
     OperationStatus,
     RetryStrategy,
     RuntimeAbortStatus,
@@ -44,6 +45,10 @@ from executor_service.infrastructure.execution_worker.event_writer import (
     add_execution_completed_event,
     add_operation_completed_event,
     add_step_history_completed_event,
+)
+from executor_service.infrastructure.execution_worker.handover import (
+    begin_handover,
+    running_step_attempt,
 )
 from executor_service.infrastructure.execution_worker.types import (
     RuntimeAbortResolution,
@@ -260,6 +265,41 @@ class ExecutionRunFinalizer:
             execution.updated_at = now
             attempt.lease_owner = None
             attempt.lease_expires_at = None
+
+    async def release_for_handover(self, lease: ExecutionLease) -> bool:
+        """Leave the running Step to another Worker; False if none runs.
+
+        True also when another Worker already owns the Execution: its kernel
+        must not be cleaned up from here.
+        """
+
+        now = utc_now()
+        try:
+            async with self._session_factory() as session, session.begin():
+                execution, attempt = await require_active_lease(session, lease)
+                step_attempt = await running_step_attempt(
+                    session, lease.execution_id
+                )
+                if (
+                    step_attempt is None
+                    or step_attempt.execution_attempt_id != lease.attempt_id
+                    or execution.runtime_session_id is None
+                    or execution.runtime_abort_status
+                    == RuntimeAbortStatus.PENDING
+                ):
+                    return False
+                await begin_handover(
+                    session,
+                    execution,
+                    attempt,
+                    step_attempt,
+                    HandoverReason.EXECUTOR_SHUTDOWN,
+                    now=now,
+                    paused_since=now,
+                )
+                return True
+        except ExecutionLeaseLostError:
+            return True
 
     async def record_artifact_failure(
         self,

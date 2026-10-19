@@ -39,9 +39,11 @@ from executor_service.domain.runtime import (
     RuntimeExecutionError,
     RuntimeExecutionResult,
     RuntimeExecutionTimeoutError,
+    RuntimeOutputHandler,
     RuntimeOutputLimitExceededError,
     RuntimeResourceMetric,
     RuntimeResourceObservation,
+    RuntimeStorageSnapshot,
 )
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.models import (
@@ -56,12 +58,17 @@ from executor_service.infrastructure.db.models import (
 from executor_service.infrastructure.db.session import create_session_factory
 from executor_service.infrastructure.execution_leases import ExecutionLease
 from executor_service.infrastructure.execution_worker import ExecutionWorker
+from executor_service.infrastructure.execution_worker.handover import StepRun
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
 )
 from executor_service.settings import Settings
 from tests.runtime_credentials import runtime_credential_fields
-from tests.runtime_storage_fake import InMemoryRuntimeStorage
+from tests.runtime_storage_fake import (
+    InMemoryRuntimeStorage,
+    error_record,
+    stream_record,
+)
 
 
 class FakeJupyterGateway:
@@ -145,8 +152,11 @@ class RecordingMultiDriver(InMemoryRuntimeStorage):
         del session_id
         return True
 
-    async def execute(
-        self, session_id: str, code: str
+    async def run_code(
+        self,
+        session_id: str,
+        code: str,
+        output_handler: RuntimeOutputHandler,
     ) -> RuntimeExecutionResult:
         del session_id
         self.executed.append(code)
@@ -155,36 +165,31 @@ class RecordingMultiDriver(InMemoryRuntimeStorage):
         if code == self.limit_code:
             raise RuntimeOutputLimitExceededError(1048576)
         if code == self.fail_code:
-            raise RuntimeExecutionError(
-                "expected operation failure",
-                [
-                    {
-                        "output_type": "error",
-                        "ename": "RuntimeError",
-                        "evalue": "expected",
-                        "traceback": ["RuntimeError: expected"],
-                    }
-                ],
-            )
-        return RuntimeExecutionResult(
-            outputs=[
-                {
-                    "output_type": "stream",
-                    "name": "stdout",
-                    "text": f"{code}\n",
-                }
-            ],
-            execution_count=len(self.executed),
-        )
+            await output_handler(error_record("RuntimeError", "expected"))
+            raise RuntimeExecutionError("expected operation failure")
+        await output_handler(stream_record(f"{code}\n"))
+        return RuntimeExecutionResult(execution_count=len(self.executed))
 
 
 class SlowExecutionDriver(RecordingMultiDriver):
-    async def execute(
-        self, session_id: str, code: str
+    async def run_code(
+        self,
+        session_id: str,
+        code: str,
+        output_handler: RuntimeOutputHandler,
     ) -> RuntimeExecutionResult:
-        del session_id, code
+        del session_id, code, output_handler
         await asyncio.sleep(2)
-        return RuntimeExecutionResult(outputs=[], execution_count=1)
+        return RuntimeExecutionResult(execution_count=1)
+
+
+def _step_run(*, submitted: bool = False) -> StepRun:
+    return StepRun(
+        sequence=0,
+        request_id=uuid4(),
+        submitted=submitted,
+        artifact_baseline=RuntimeStorageSnapshot(files=(), manifest_size=0),
+    )
 
 
 def _patch_runtime_driver(
@@ -367,8 +372,7 @@ async def test_runtime_step_enforces_operation_and_step_timeouts(
                 RecordingMultiDriver(),
                 "runtime-session",
                 "slow()",
-                execution.id,
-                0,
+                run=_step_run(),
                 result_identity=result_identity,
                 source_reference=source_reference,
                 lease=ExecutionLease(
@@ -386,13 +390,14 @@ async def test_runtime_step_enforces_operation_and_step_timeouts(
                 .where(ExecutionOperationORM.id == operation_id)
                 .values(operation_timeout_seconds=None, started_at=utc_now())
             )
+        submitted = _step_run(submitted=True)
+        SlowExecutionDriver.submitted[submitted.request_id] = "slow()"
         with pytest.raises(RuntimeExecutionTimeoutError) as step_error:
             await worker._step_executor.execute(
                 SlowExecutionDriver(),
                 "runtime-session",
                 "slow()",
-                execution.id,
-                0,
+                run=submitted,
                 result_identity=result_identity,
                 source_reference=source_reference,
                 lease=ExecutionLease(

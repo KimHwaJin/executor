@@ -1,7 +1,6 @@
 """Private value types and stored-result errors used by execution workers."""
 
 from dataclasses import dataclass
-from typing import Any
 from uuid import UUID
 
 from executor_service.domain.enums import (
@@ -51,10 +50,9 @@ class StoredRuntimeExecutionError(RuntimeExecutionError):
     def __init__(
         self,
         message: str,
-        outputs: list[dict[str, Any]],
         stored_result: StepResultDescriptor,
     ) -> None:
-        super().__init__(message, outputs)
+        super().__init__(message)
         self.stored_result = stored_result
 
 
@@ -92,5 +90,7 @@ class StoredRuntimeOutputLimitExceededError(RuntimeOutputLimitExceededError):
         original: RuntimeOutputLimitExceededError,
         stored_result: StepResultDescriptor,
     ) -> None:
-        super().__init__(original.max_message_bytes, kind=original.kind)
+        RuntimeExecutionError.__init__(self, str(original))
+        self.max_message_bytes = original.max_message_bytes
+        self.kind = original.kind
         self.stored_result = stored_result

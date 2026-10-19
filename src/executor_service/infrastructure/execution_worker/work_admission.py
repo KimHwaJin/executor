@@ -3,11 +3,14 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import select, tuple_
+from sqlalchemy import and_, or_, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from executor_service.domain.enums import ExecutionStatus
-from executor_service.infrastructure.db.models import ExecutionORM
+from executor_service.infrastructure.db.models import (
+    ExecutionHandoverORM,
+    ExecutionORM,
+)
 from executor_service.infrastructure.execution_worker.cancellation import (
     CancellationProcessor,
 )
@@ -63,12 +66,21 @@ class WorkAdmissionProcessor:
         query = select(
             ExecutionORM.id, ExecutionORM.status, ExecutionORM.created_at
         ).where(
-            ExecutionORM.status.in_(
-                [
-                    ExecutionStatus.QUEUED,
-                    ExecutionStatus.FINALIZING,
-                    ExecutionStatus.CANCEL_REQUESTED,
-                ]
+            or_(
+                ExecutionORM.status.in_(
+                    [
+                        ExecutionStatus.QUEUED,
+                        ExecutionStatus.FINALIZING,
+                        ExecutionStatus.CANCEL_REQUESTED,
+                    ]
+                ),
+                # A running Step released for another Worker to follow.
+                and_(
+                    ExecutionORM.status == ExecutionStatus.RUNNING,
+                    ExecutionORM.id.in_(
+                        select(ExecutionHandoverORM.execution_id)
+                    ),
+                ),
             )
         )
         if self._reconcile_cursor is not None:

@@ -8,8 +8,6 @@ from executor_service.infrastructure._jupyter.observability import (
 )
 from executor_service.infrastructure._jupyter.protocol import (
     as_output_record,
-    deserialize_v1,
-    serialize_v1,
 )
 from executor_service.infrastructure._jupyter.sessions import (
     JupyterSessionClient,
@@ -30,6 +28,4 @@ __all__ = [
     "JupyterStorageClient",
     "as_output_record",
     "contents_path",
-    "deserialize_v1",
-    "serialize_v1",
 ]

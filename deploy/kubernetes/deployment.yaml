@@ -9,8 +9,11 @@ spec:
   replicas: 1
   revisionHistoryLimit: 3
   strategy:
-    # Schema-changing startup must not overlap old Pods. Brief downtime is expected.
-    type: Recreate
+    # Migrations are backward compatible and running Steps hand over between Pods.
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       app.kubernetes.io/name: executor
@@ -117,13 +120,9 @@ spec:
               value: "/workspace/shared"
             - name: RUNTIME_ENABLED
               value: "true"
-            # Requires Jupyter's /executor/kernels/{id}/execution-state endpoint.
-            - name: JUPYTER_EXECUTION_POLL_SECONDS
-              value: "10"
-            - name: JUPYTER_EXECUTION_PROBE_TIMEOUT_SECONDS
-              value: "5"
-            - name: JUPYTER_EXECUTION_PROBE_FAILURE_THRESHOLD
-              value: "3"
+            # Requires Jupyter's /executor/kernels/{id}/executions endpoints.
+            - name: JUPYTER_STREAM_RECONNECT_SECONDS
+              value: "30"
             - name: RUNTIME_ALLOWED_PROFILES
               value: "default,3102311"
             - name: RUNTIME_DEFAULT_MAX_CONCURRENT_EXECUTIONS

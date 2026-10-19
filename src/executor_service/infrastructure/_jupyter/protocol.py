@@ -1,4 +1,4 @@
-"""Jupyter kernel WebSocket protocol and output conversion."""
+"""Jupyter kernel message conversion."""
 
 import json
 from typing import Any
@@ -10,76 +10,6 @@ from executor_service.domain.runtime import (
     RuntimeOutputRecord,
     RuntimeOutputRepresentation,
 )
-
-
-def serialize_v1(channel: str, message: dict[str, Any]) -> bytes:
-    parts = [
-        json.dumps(message[key], separators=(",", ":")).encode()
-        for key in ("header", "parent_header", "metadata", "content")
-    ]
-    channel_bytes = channel.encode()
-    offsets = [8 * (1 + 1 + len(parts) + 1)]
-    offsets.append(offsets[-1] + len(channel_bytes))
-    for part in parts:
-        offsets.append(offsets[-1] + len(part))
-    return b"".join(
-        [
-            len(offsets).to_bytes(8, "little"),
-            *(offset.to_bytes(8, "little") for offset in offsets),
-            channel_bytes,
-            *parts,
-        ]
-    )
-
-
-def deserialize_v1(raw: str | bytes) -> tuple[str, dict[str, Any]]:
-    if isinstance(raw, str):
-        message = json.loads(raw)
-        return str(message.get("channel", "")), message
-    offset_count = int.from_bytes(raw[:8], "little")
-    offsets = [
-        int.from_bytes(raw[8 * (index + 1) : 8 * (index + 2)], "little")
-        for index in range(offset_count)
-    ]
-    channel = raw[offsets[0] : offsets[1]].decode()
-    parts = [raw[offsets[index] : offsets[index + 1]] for index in range(1, 5)]
-    header, parent_header, metadata, content = (
-        json.loads(part) for part in parts
-    )
-    return channel, {
-        "header": header,
-        "parent_header": parent_header,
-        "metadata": metadata,
-        "content": content,
-    }
-
-
-def as_notebook_output(
-    msg_type: str | None, content: dict[str, Any]
-) -> dict[str, Any] | None:
-    if msg_type == "stream":
-        return {
-            "output_type": "stream",
-            "name": content["name"],
-            "text": content["text"],
-        }
-    if msg_type in {"display_data", "execute_result"}:
-        output = {
-            "output_type": msg_type,
-            "data": content.get("data", {}),
-            "metadata": content.get("metadata", {}),
-        }
-        if msg_type == "execute_result":
-            output["execution_count"] = content.get("execution_count")
-        return output
-    if msg_type == "error":
-        return {
-            "output_type": "error",
-            "ename": content.get("ename", "Error"),
-            "evalue": content.get("evalue", ""),
-            "traceback": content.get("traceback", []),
-        }
-    return None
 
 
 def as_output_record(

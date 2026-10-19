@@ -13,6 +13,7 @@ DISPATCH_MESSAGE_TYPES = frozenset(
         "execution.finalization_ready",
         "execution.retry_ready",
         "execution.cancellation_ready",
+        "execution.handover_ready",
     }
 )
 RUN_MESSAGE_TYPES = DISPATCH_MESSAGE_TYPES - {"execution.cancellation_ready"}

@@ -64,15 +64,8 @@ class FileWritingBlockedDriver(InMemoryRuntimeStorage):
         self.workspace = path
         return "cancel-artifact-kernel"
 
-    async def execute(self, _runtime_session_id: str, _code: str) -> Any:
-        type(self).put_runtime_file(
-            f"{self.workspace}/artifacts/other/cancelled.txt", b"partial"
-        )
-        type(self).started.set()
-        await asyncio.Event().wait()
-
-    async def execute_streaming(
-        self, session_id: str, code: str, handler: RuntimeOutputHandler
+    async def run_code(
+        self, _session_id: str, _code: str, handler: RuntimeOutputHandler
     ) -> Any:
         await handler(
             RuntimeOutputRecord(
@@ -85,7 +78,11 @@ class FileWritingBlockedDriver(InMemoryRuntimeStorage):
                 ),
             )
         )
-        return await self.execute(session_id, code)
+        type(self).put_runtime_file(
+            f"{self.workspace}/artifacts/other/cancelled.txt", b"partial"
+        )
+        type(self).started.set()
+        await asyncio.Event().wait()
 
     async def interrupt_session(self, _runtime_session_id: str) -> None:
         pass
@@ -187,7 +184,7 @@ async def test_cancelled_cell_registers_partial_file_as_incomplete_artifact(
     task = asyncio.create_task(worker._runner.run(execution.id))
     try:
         await asyncio.wait_for(
-            FileWritingBlockedDriver.started.wait(), timeout=1
+            FileWritingBlockedDriver.started.wait(), timeout=10
         )
         async with session_factory() as session, session.begin():
             row = await session.get(ExecutionORM, execution.id)

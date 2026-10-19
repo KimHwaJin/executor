@@ -22,6 +22,7 @@ from executor_service.domain.enums import (
 from executor_service.domain.models import Execution, utc_now
 from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
+    ExecutionHandoverORM,
     ExecutionOperationORM,
     ExecutionORM,
     ExecutionStepORM,
@@ -37,6 +38,9 @@ from executor_service.infrastructure.execution_worker.event_writer import (
 )
 from executor_service.infrastructure.execution_worker.execution_state import (
     fail_active_operation_without_attempt,
+)
+from executor_service.infrastructure.execution_worker.handover import (
+    StepHandover,
 )
 from executor_service.infrastructure.execution_worker.target_selector import (
     RuntimeTargetSelector,
@@ -382,6 +386,77 @@ class ExecutionClaimer:
                     owner=self._consumer_name,
                     fencing_token=fencing_token,
                 ),
+            )
+
+    async def claim_handover(
+        self, execution_id: UUID
+    ) -> (
+        tuple[Execution, RuntimeTargetORM, ExecutionLease, StepHandover] | None
+    ):
+        """Take over a running Step released or abandoned by another Worker.
+
+        The Attempt continues under a new fence. Admission, Target health and
+        capacity are not consulted: the Step already runs on its kernel.
+        """
+
+        now = utc_now()
+        async with self._session_factory() as session, session.begin():
+            execution_row = await session.scalar(
+                select(ExecutionORM)
+                .where(ExecutionORM.id == execution_id)
+                .options(selectinload(ExecutionORM.steps))
+                .with_for_update()
+            )
+            if (
+                execution_row is None
+                or execution_row.status != ExecutionStatus.RUNNING
+                or execution_row.runtime_target_id is None
+                or (
+                    execution_row.lease_owner is not None
+                    and execution_row.lease_expires_at is not None
+                    and _as_utc(execution_row.lease_expires_at) > now
+                )
+            ):
+                return None
+            attempt = await session.scalar(
+                select(ExecutionAttemptORM)
+                .where(
+                    ExecutionAttemptORM.execution_id == execution_id,
+                    ExecutionAttemptORM.status == AttemptStatus.RUNNING,
+                )
+                .with_for_update()
+            )
+            target = await session.get(
+                RuntimeTargetORM, execution_row.runtime_target_id
+            )
+            released = await session.get(ExecutionHandoverORM, execution_id)
+            if attempt is None or target is None or released is None:
+                return None
+            handover = StepHandover(
+                reason=released.reason, paused_since=released.paused_since
+            )
+            await session.delete(released)
+            lease_expires = now + timedelta(
+                seconds=self._settings.execution_lease_seconds
+            )
+            fencing_token = execution_row.fencing_token + 1
+            for row in (execution_row, attempt):
+                row.lease_owner = self._consumer_name
+                row.lease_expires_at = lease_expires
+                row.heartbeat_at = now
+                row.fencing_token = fencing_token
+            execution_row.updated_at = now
+            execution_row.version += 1
+            return (
+                execution_row.to_domain(),
+                target,
+                ExecutionLease(
+                    execution_id=execution_id,
+                    attempt_id=attempt.id,
+                    owner=self._consumer_name,
+                    fencing_token=fencing_token,
+                ),
+                handover,
             )
 
     async def defer_retained_retry(

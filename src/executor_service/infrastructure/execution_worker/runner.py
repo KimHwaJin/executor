@@ -5,12 +5,18 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from executor_service.domain.enums import OperationMode, RuntimePool
+from executor_service.domain.enums import ExecutionStatus, OperationMode
 from executor_service.domain.results import ExecutionResultStore
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
-from executor_service.infrastructure.db.models import ExecutionORM
+from executor_service.infrastructure.db.models import (
+    ExecutionHandoverORM,
+    ExecutionORM,
+)
 from executor_service.infrastructure.execution_worker.claiming import (
     ExecutionClaimer,
+)
+from executor_service.infrastructure.execution_worker.handover import (
+    StepHandover,
 )
 from executor_service.infrastructure.execution_worker.lease_heartbeat import (
     LeaseHeartbeatManager,
@@ -85,22 +91,34 @@ class ExecutionRunner:
         )
 
     async def run(self, execution_id: UUID) -> None:
-        pool = await self._execution_pool(execution_id)
-        if pool is None:
-            return
-        claimed = await self._claimer.claim(execution_id)
-        if claimed is None:
-            return
-        execution, target, lease = claimed
-        if execution.operation_mode == OperationMode.MULTI:
-            await self._multi.run(execution, target, lease)
-        else:
-            await self._single.run(execution, target, lease)
-
-    async def _execution_pool(self, execution_id: UUID) -> RuntimePool | None:
         async with self._session_factory() as session:
-            return await session.scalar(
-                select(ExecutionORM.runtime_pool).where(
-                    ExecutionORM.id == execution_id
+            row = (
+                await session.execute(
+                    select(
+                        ExecutionORM.status,
+                        ExecutionHandoverORM.execution_id.label("handover"),
+                    )
+                    .outerjoin(
+                        ExecutionHandoverORM,
+                        ExecutionHandoverORM.execution_id == ExecutionORM.id,
+                    )
+                    .where(ExecutionORM.id == execution_id)
                 )
-            )
+            ).first()
+        if row is None:
+            return
+        handover: StepHandover | None = None
+        if row.status == ExecutionStatus.RUNNING and row.handover:
+            taken_over = await self._claimer.claim_handover(execution_id)
+            if taken_over is None:
+                return
+            execution, target, lease, handover = taken_over
+        else:
+            claimed = await self._claimer.claim(execution_id)
+            if claimed is None:
+                return
+            execution, target, lease = claimed
+        if execution.operation_mode == OperationMode.MULTI:
+            await self._multi.run(execution, target, lease, handover)
+        else:
+            await self._single.run(execution, target, lease, handover)

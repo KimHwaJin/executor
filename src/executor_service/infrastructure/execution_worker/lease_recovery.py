@@ -2,6 +2,7 @@
 
 import logging
 from dataclasses import asdict
+from datetime import datetime
 
 from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -11,6 +12,7 @@ from executor_service.domain.enums import (
     AttemptStatus,
     ExecutionStatus,
     FailureType,
+    HandoverReason,
     OperationMode,
     OperationStatus,
     RetryStrategy,
@@ -26,6 +28,7 @@ from executor_service.infrastructure.background_diagnostics import (
 from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
     ExecutionDiagnosticORM,
+    ExecutionHandoverORM,
     ExecutionOperationORM,
     ExecutionORM,
     ExecutionStepAttemptORM,
@@ -36,6 +39,10 @@ from executor_service.infrastructure.execution_worker.event_writer import (
     add_execution_completed_event,
     add_operation_completed_event,
     add_step_history_completed_event,
+)
+from executor_service.infrastructure.execution_worker.handover import (
+    begin_handover,
+    running_step_attempt,
 )
 from executor_service.infrastructure.execution_worker.session_recovery import (
     RuntimeSessionRecovery,
@@ -87,7 +94,12 @@ class LeaseRecoveryProcessor:
                 )
             )
             for execution in expired:
+                if await session.get(ExecutionHandoverORM, execution.id):
+                    # Released for another Worker; claim_handover owns it.
+                    continue
                 recovered_count += 1
+                if await self._hand_over(session, execution, now):
+                    continue
                 running_step_attempts = list(
                     await session.execute(
                         select(
@@ -309,6 +321,47 @@ class LeaseRecoveryProcessor:
             execution_count=recovered_count,
             cleanup_targets=tuple(cleanup_targets),
         )
+
+    @staticmethod
+    async def _hand_over(
+        session: AsyncSession, execution: ExecutionORM, now: datetime
+    ) -> bool:
+        """Leave a Step that is still running on its kernel to another Worker.
+
+        The Jupyter journal holds its output, so nothing is lost and the code
+        is not run again. A pending abort keeps the failure path.
+        """
+
+        if (
+            execution.runtime_session_id is None
+            or execution.runtime_abort_status == RuntimeAbortStatus.PENDING
+        ):
+            return False
+        step_attempt = await running_step_attempt(session, execution.id)
+        attempt = await session.scalar(
+            select(ExecutionAttemptORM)
+            .where(
+                ExecutionAttemptORM.execution_id == execution.id,
+                ExecutionAttemptORM.status == AttemptStatus.RUNNING,
+            )
+            .with_for_update()
+        )
+        if (
+            step_attempt is None
+            or attempt is None
+            or step_attempt.execution_attempt_id != attempt.id
+        ):
+            return False
+        await begin_handover(
+            session,
+            execution,
+            attempt,
+            step_attempt,
+            HandoverReason.EXECUTOR_UNRESPONSIVE,
+            now=now,
+            paused_since=execution.heartbeat_at or now,
+        )
+        return True
 
     async def cleanup_targets(
         self,

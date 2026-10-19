@@ -114,7 +114,10 @@ def test_deployment_has_inline_settings_and_safe_update_strategy() -> None:
     )
     assert deployment["kind"] == "Deployment"
     assert deployment["spec"]["replicas"] == 1
-    assert deployment["spec"]["strategy"] == {"type": "Recreate"}
+    assert deployment["spec"]["strategy"] == {
+        "type": "RollingUpdate",
+        "rollingUpdate": {"maxSurge": 1, "maxUnavailable": 0},
+    }
     container = deployment["spec"]["template"]["spec"]["containers"][0]
     assert "envFrom" not in container
     env = {item["name"]: item.get("value") for item in container["env"]}

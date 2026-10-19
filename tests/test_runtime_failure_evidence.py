@@ -76,7 +76,7 @@ class EvidenceDriver(InMemoryRuntimeStorage):
     async def start_session(self, *_args: object) -> str:
         return "evidence-kernel"
 
-    async def execute_streaming(
+    async def run_code(
         self,
         _session_id: str,
         _code: str,
@@ -105,8 +105,8 @@ class EvidenceDriver(InMemoryRuntimeStorage):
         if self.fault == "timeout":
             await asyncio.sleep(5)
         if self.fault == "tool":
-            raise RuntimeExecutionError("ValueError: primary tool failure", [])
-        return RuntimeExecutionResult([], 1)
+            raise RuntimeExecutionError("ValueError: primary tool failure")
+        return RuntimeExecutionResult(1)
 
     async def abort_session(self, *_args: object) -> RuntimeAbortResult:
         return RuntimeAbortResult(

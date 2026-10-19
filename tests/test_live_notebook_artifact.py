@@ -31,6 +31,7 @@ from executor_service.domain.runtime import (
     RuntimeExecutionResult,
     RuntimeNotebookPreparationResult,
     RuntimeNotebookSourceCell,
+    RuntimeOutputHandler,
 )
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.models import (
@@ -144,12 +145,15 @@ class LiveNotebookDriver(RecordingMultiDriver):
             raise RuntimeDriverError("projection unavailable")
         await super().write_notebook(path, notebook)
 
-    async def execute(
-        self, session_id: str, code: str
+    async def run_code(
+        self,
+        session_id: str,
+        code: str,
+        output_handler: RuntimeOutputHandler,
     ) -> RuntimeExecutionResult:
         self.started.set()
         await self.proceed.wait()
-        return await super().execute(session_id, code)
+        return await super().run_code(session_id, code, output_handler)
 
 
 async def _live_runtime(

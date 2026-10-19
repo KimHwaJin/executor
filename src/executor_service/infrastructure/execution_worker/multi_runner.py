@@ -27,6 +27,10 @@ from executor_service.infrastructure.execution_worker.failure_policy import (
 from executor_service.infrastructure.execution_worker.failure_policy import (
     safe_error as _safe_error,
 )
+from executor_service.infrastructure.execution_worker.handover import (
+    StepHandover,
+    StepRun,
+)
 from executor_service.infrastructure.execution_worker.lease_heartbeat import (
     LeaseHeartbeatManager,
 )
@@ -93,6 +97,7 @@ class MultiExecutionRunner:
         execution: Execution,
         target: RuntimeTargetORM,
         lease: ExecutionLease,
+        handover: StepHandover | None = None,
     ) -> None:
         driver = self._driver_provider.create(target)
         heartbeat = asyncio.create_task(
@@ -100,31 +105,40 @@ class MultiExecutionRunner:
             name=f"heartbeat-{execution.id}",
         )
         runtime_session_id = execution.runtime_session_id
+        # The Step whose result is not yet committed; another Worker can
+        # take it over when this one stops.
+        run_in_flight: StepRun | None = None
         try:
             workspace = self._workspace.plan(execution)
-            await run_runtime_operation(
-                "executor.runtime.workspace.prepare",
-                driver.prepare_workspace(workspace.runtime_relative_path),
-                execution_id=execution.id,
-                target_id=target.id,
-            )
-            if runtime_session_id is None:
-                runtime_session_id = await run_runtime_operation(
-                    "executor.runtime.session.start",
-                    driver.start_session(
-                        execution.runtime_profile,
-                        workspace.runtime_relative_path,
-                    ),
+            taken_over: StepRun | None = None
+            if handover is not None:
+                taken_over = await self._step_executor.load_run(lease)
+            else:
+                await run_runtime_operation(
+                    "executor.runtime.workspace.prepare",
+                    driver.prepare_workspace(workspace.runtime_relative_path),
                     execution_id=execution.id,
                     target_id=target.id,
                 )
-            await self._step_executor.record_runtime_session(
-                lease,
-                runtime_session_id,
-                workspace.runtime_relative_path,
-                workspace.notebook_path,
-            )
-            if execution.finalization_requested:
+                if runtime_session_id is None:
+                    runtime_session_id = await run_runtime_operation(
+                        "executor.runtime.session.start",
+                        driver.start_session(
+                            execution.runtime_profile,
+                            workspace.runtime_relative_path,
+                        ),
+                        execution_id=execution.id,
+                        target_id=target.id,
+                    )
+                await self._step_executor.record_runtime_session(
+                    lease,
+                    runtime_session_id,
+                    workspace.runtime_relative_path,
+                    workspace.notebook_path,
+                )
+            if runtime_session_id is None:
+                raise ValueError("MULTI Execution has no Runtime session.")
+            if taken_over is None and execution.finalization_requested:
                 await self._notebook_projector.project_required(
                     driver, lease, execution.runtime_profile, workspace
                 )
@@ -149,35 +163,53 @@ class MultiExecutionRunner:
                 raise ValueError(
                     "Queued MULTI execution has no active Operation."
                 )
-            pending_steps = [
-                step
-                for step in execution.steps
-                if step.operation_id == operation_id
-                and step.status == StepStatus.PENDING
-            ]
+            pending_steps = sorted(
+                (
+                    step
+                    for step in execution.steps
+                    if step.operation_id == operation_id
+                    and (
+                        step.status == StepStatus.PENDING
+                        or (
+                            taken_over is not None
+                            and step.sequence == taken_over.sequence
+                        )
+                    )
+                ),
+                key=lambda step: step.sequence,
+            )
             if not pending_steps:
                 raise ValueError("Queued MULTI Operation has no pending Step.")
             source_references = {
                 step.sequence: self._step_executor.source_reference(step)
                 for step in pending_steps
             }
-            await self._notebook_projector.prepare(
-                driver,
-                lease,
-                execution.id,
-                execution.runtime_profile,
-                workspace,
-                pending_steps,
-                target.id,
-                source_references,
-            )
+            if taken_over is None:
+                await self._notebook_projector.prepare(
+                    driver,
+                    lease,
+                    execution.id,
+                    execution.runtime_profile,
+                    workspace,
+                    pending_steps,
+                    target.id,
+                    source_references,
+                )
             for pending in pending_steps:
                 source_reference = source_references[pending.sequence]
                 code = await self._result_store.read_source(source_reference)
-                artifact_snapshot = await self._artifacts.snapshot(
-                    driver, workspace
-                )
-                await self._step_executor.mark_started(lease, pending.sequence)
+                if taken_over is not None:
+                    step_run, step_handover = taken_over, handover
+                    taken_over = None
+                else:
+                    step_run = await self._step_executor.mark_started(
+                        lease,
+                        pending.sequence,
+                        await self._artifacts.snapshot(driver, workspace),
+                    )
+                    step_handover = None
+                artifact_snapshot = step_run.artifact_baseline
+                run_in_flight = step_run
                 try:
                     result = await run_runtime_operation(
                         "executor.runtime.code.execute",
@@ -185,19 +217,22 @@ class MultiExecutionRunner:
                             driver,
                             runtime_session_id,
                             code,
-                            execution.id,
-                            pending.sequence,
+                            run=step_run,
                             result_identity=self._step_executor.result_identity(
                                 pending, lease
                             ),
                             lease=lease,
                             source_reference=source_reference,
+                            handover=step_handover,
                         ),
                         execution_id=execution.id,
                         target_id=target.id,
                         sequence=pending.sequence,
                     )
                 except asyncio.CancelledError:
+                    if self._step_executor.shutting_down:
+                        # The next Worker registers this Step's Artifacts.
+                        raise
                     try:
                         await self._artifacts.discover_and_register(
                             driver=driver,
@@ -292,6 +327,10 @@ class MultiExecutionRunner:
                         exc.stored_result,
                         str(exc),
                     )
+                    run_in_flight = None
+                    await self._step_executor.release(
+                        driver, runtime_session_id, step_run
+                    )
                     await self._multi_operation_state.skip_steps_after(
                         lease, operation_id, pending.sequence
                     )
@@ -338,6 +377,10 @@ class MultiExecutionRunner:
                     pending.sequence,
                     result,
                 )
+                run_in_flight = None
+                await self._step_executor.release(
+                    driver, runtime_session_id, step_run
+                )
                 await self._notebook_projector.project_required(
                     driver,
                     lease,
@@ -375,8 +418,18 @@ class MultiExecutionRunner:
                 # terminal event. The interrupted-cell handler above already preserved evidence.
                 await self._finalizer.release_for_cancellation(lease)
                 raise
+            if (
+                self._step_executor.shutting_down
+                and run_in_flight is not None
+                and await self._finalizer.release_for_handover(lease)
+            ):
+                # The kernel keeps running; another Worker follows it.
+                raise
             cleanup_status = RuntimeSessionCleanupStatus.NOT_REQUIRED
-            if runtime_session_id is not None:
+            if (
+                runtime_session_id is not None
+                and await self._lease_heartbeat.owns_execution(lease)
+            ):
                 cleanup_status = await best_effort_session_stop(
                     driver,
                     runtime_session_id,
@@ -415,7 +468,10 @@ class MultiExecutionRunner:
                 runtime_session_id=runtime_session_id,
             )
             cleanup_status = RuntimeSessionCleanupStatus.NOT_REQUIRED
-            if runtime_session_id is not None:
+            if (
+                runtime_session_id is not None
+                and await self._lease_heartbeat.owns_execution(lease)
+            ):
                 cleanup_status = await best_effort_session_stop(
                     driver,
                     runtime_session_id,

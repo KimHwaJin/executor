@@ -420,9 +420,11 @@ failures when required post-code delivery fails. Neither upgrade deletes data.
 Revision `0004` removes only the approved obsolete trace columns and their values;
 Execution, Step, event and Outbox business history is preserved.
 Databases built from that baseline can run `alembic upgrade head` directly;
-current head is `0005`. Revision `0005` preserves historical Runtime UUIDs when
+Revision `0005` preserves historical Runtime UUIDs when
 removing registrations and simplifies purge to an actor-only request; see
 [Runtime deletion](dev_docs/post-runtime-target-purge.md).
+Current head is `0006`, which only adds the Step run and handover tables used by
+[Step handover](docs/execution-recovery.md#step-handover-between-workers).
 Stop old Executor processes before this schema change;
 see [OpenTelemetry removal](docs/opentelemetry-removal.md) for deployment and rollback.
 See [required-result completion](docs/required-result-completion.md)

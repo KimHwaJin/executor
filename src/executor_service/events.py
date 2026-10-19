@@ -16,6 +16,8 @@ type ExecutionEventType = Literal[
     "execution.started",
     "execution.operation_started",
     "execution.step_started",
+    "execution.step_handover_started",
+    "execution.step_handover_completed",
     "execution.step_completed",
     "execution.operation_completed",
     "execution.completed",
@@ -160,6 +162,30 @@ class StepStartedPayload(ContractModel):
     attempt: AttemptReference
 
 
+class StepHandoverStartedPayload(ContractModel):
+    """A Worker stopped following a running Step; the kernel continues."""
+
+    status: Literal["RUNNING"]
+    operation: OperationReference
+    step: StepReference
+    attempt: AttemptReference
+    reason: Literal["EXECUTOR_SHUTDOWN", "EXECUTOR_UNRESPONSIVE"]
+    kernel_running: Literal[True]
+    detected_at: datetime
+
+
+class StepHandoverCompletedPayload(ContractModel):
+    """Another Worker replayed the Step's journal and follows it live."""
+
+    status: Literal["RUNNING"]
+    operation: OperationReference
+    step: StepReference
+    attempt: AttemptReference
+    paused_seconds: float = Field(ge=0)
+    outputs_complete: Literal[True]
+    finished_during_handover: bool
+
+
 class StepCompletedPayload(ContractModel):
     status: Literal["SUCCEEDED", "FAILED", "CANCELLED"]
     operation: OperationReference
@@ -264,6 +290,8 @@ type ExecutionEventPayload = (
     ExecutionStartedPayload
     | OperationStartedPayload
     | StepStartedPayload
+    | StepHandoverStartedPayload
+    | StepHandoverCompletedPayload
     | StepCompletedPayload
     | OperationCompletedPayload
     | ExecutionCompletedPayload
@@ -273,6 +301,8 @@ EVENT_PAYLOAD_MODELS: dict[str, type[ContractModel]] = {
     "execution.started": ExecutionStartedPayload,
     "execution.operation_started": OperationStartedPayload,
     "execution.step_started": StepStartedPayload,
+    "execution.step_handover_started": StepHandoverStartedPayload,
+    "execution.step_handover_completed": StepHandoverCompletedPayload,
     "execution.step_completed": StepCompletedPayload,
     "execution.operation_completed": OperationCompletedPayload,
     "execution.completed": ExecutionCompletedPayload,

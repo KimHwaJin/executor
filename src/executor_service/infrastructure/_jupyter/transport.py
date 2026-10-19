@@ -3,6 +3,7 @@
 from contextlib import AbstractAsyncContextManager
 from typing import Any
 from urllib.parse import urlencode, urlsplit, urlunsplit
+from uuid import UUID
 
 import httpx
 
@@ -102,10 +103,14 @@ class JupyterHttpTransport:
             self.client, path, range_header, self.storage_timeout_seconds
         )
 
-    def channels_uri(self, runtime_session_id: str, session_id: str) -> str:
+    def journal_uri(
+        self, runtime_session_id: str, request_id: UUID, after: int
+    ) -> str:
         parsed = urlsplit(self.endpoint)
         scheme = "wss" if parsed.scheme == "https" else "ws"
-        base_path = parsed.path.rstrip("/")
-        path = f"{base_path}/api/kernels/{runtime_session_id}/channels"
-        query = urlencode({"session_id": session_id})
+        path = (
+            f"{parsed.path.rstrip('/')}/executor/kernels/{runtime_session_id}"
+            f"/executions/{request_id}/stream"
+        )
+        query = urlencode({"after": after})
         return urlunsplit((scheme, parsed.netloc, path, query, ""))
