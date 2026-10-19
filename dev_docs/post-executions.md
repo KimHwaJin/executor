@@ -42,9 +42,10 @@ POST /api/v1/executions
 
 규칙:
 
-- `BATCH` trigger는 `BATCH` actor만 허용한다.
+- `BATCH` trigger는 `USER` 또는 `BATCH` actor를 허용한다. 사용자가 등록한 배치는
+  `USER` actor(등록 사용자 ID)로, 사용자와 무관한 시스템 배치는 `BATCH` actor로 제출한다.
 - `INTERACTIVE` trigger는 `AGENT` 또는 `USER` actor를 허용한다.
-- actor가 `USER`이면 `actor.id`와 `context.user_id`가 같아야 한다.
+- actor가 `USER`이면 trigger와 관계없이 `actor.id`와 `context.user_id`가 같아야 한다.
 - Runtime Pool은 요청으로 직접 받지 않고 `INTERACTIVE`/`BATCH`에서 내부 결정한다.
 
 ### `runtime`
@@ -65,7 +66,7 @@ POST /api/v1/executions
 | `task_id` | O | Agent가 관리하는 상위 Task ID |
 | `project_id` | X | 프로젝트 ID |
 | `session_id` | X | 세션 ID. 지정하려면 `project_id`도 함께 필요 |
-| `workflow_id` | X | 배치 또는 재사용 Workflow ID |
+| `workflow_id` | X | 상위 서비스에 등록된 재사용 Workflow ID. 배치·회차 식별자는 `metadata`와 `task_id`에 둔다 |
 
 `project_id` 또는 `session_id`가 없으면 Executor는 실제 workspace 경로를 만들 때 해당 구간에
 예약값 `unscoped`를 사용한다. 요청 값으로 직접 `unscoped`를 보내는 것은 금지한다.

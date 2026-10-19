@@ -218,6 +218,16 @@ async def test_required_delivery_and_retry_policy(
         ]
         assert len(terminal) == 1
         assert terminal[0].payload["status"] == "FAILED"
+        assert terminal[0].payload["execution"] == {
+            "trigger": {"type": "INTERACTIVE", "actor": None},
+            "context": {
+                "user_id": "lifecycle-user",
+                "task_id": "test-task",
+                "project_id": "lifecycle-project",
+                "session_id": "lifecycle-session",
+                "workflow_id": None,
+            },
+        }
         with pytest.raises(InvalidStateTransitionError):
             await execution_service.retry(
                 RetryExecutionCommand(

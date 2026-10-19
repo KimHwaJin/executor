@@ -40,6 +40,7 @@ from executor_service.domain.enums import (
     RuntimePool,
     RuntimeTargetStatus,
     RuntimeType,
+    TriggerType,
 )
 from executor_service.domain.errors import DomainError, ErrorCode
 from executor_service.execution_specs import ExecutionSpecResolver
@@ -395,6 +396,7 @@ def build_mcp_server(
             session_id: str | None = None,
             task_id: str | None = None,
             workflow_id: str | None = None,
+            trigger_type: TriggerType | None = None,
             status: ExecutionStatus | None = None,
             cursor: str | None = None,
             limit: StandardLimit = 100,
@@ -406,6 +408,7 @@ def build_mcp_server(
                     session_id=session_id,
                     task_id=task_id,
                     workflow_id=workflow_id,
+                    trigger_type=trigger_type,
                     status=status,
                     cursor=cursor,
                     limit=limit,

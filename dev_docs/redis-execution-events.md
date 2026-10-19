@@ -628,7 +628,20 @@ Execution의 현재 수행 주기가 `SUCCEEDED`, `FAILED` 또는 `CANCELLED`로
       "cancelled": 0
     },
     "retry": null,
-    "error": null
+    "error": null,
+    "execution": {
+      "trigger": {
+        "type": "BATCH",
+        "actor": {"type": "USER", "id": "7d1c2a8e-5b3f-4c9a-9e21-0f6a4b8c2d11"}
+      },
+      "context": {
+        "user_id": "7d1c2a8e-5b3f-4c9a-9e21-0f6a4b8c2d11",
+        "task_id": "batch-run-0001",
+        "project_id": null,
+        "session_id": null,
+        "workflow_id": null
+      }
+    }
   },
   "occurred_at": "2026-08-26T10:20:00.123Z"
 }
@@ -677,6 +690,21 @@ Execution의 현재 수행 주기가 `SUCCEEDED`, `FAILED` 또는 `CANCELLED`로
 | `operation_summary` | object | O | Operation 최종 상태 집계 |
 | `retry` | object 또는 null | O | 재시도 접수 정보 |
 | `error` | object 또는 null | O | 실패 또는 취소 요약 |
+| `execution` | object | X | 제출 시점의 trigger와 context. 소비자가 상세 조회 없이 라우팅할 수 있게 한다 |
+
+`execution` 하위 필드:
+
+| 필드 | 타입 | 규칙 |
+|---|---|---|
+| `trigger.type` | enum | `INTERACTIVE`, `BATCH` |
+| `trigger.actor` | object 또는 null | 제출 actor(`created_by_type`/`created_by`). 제출 후 바뀌지 않는다. actor 없이 제출된 Execution은 `null` |
+| `trigger.actor.type` | enum | `AGENT`, `USER`, `BATCH` |
+| `trigger.actor.id` | string | 1~255자 |
+| `context` | object | 제출 요청의 `context`와 같은 필드: `user_id`, `task_id`, `project_id`, `session_id`, `workflow_id` |
+
+`execution`은 schema `1.0`에 추가된 선택 필드다. 소비자는 필드가 없을 수 있다고
+가정하고, 없으면 `GET /api/v1/executions/{execution_id}`로 같은 값을 조회한다.
+`metadata`는 이벤트에 포함하지 않는다.
 
 `operation_summary.total`에는 등록된 모든 Operation이 포함된다. 인프라 장애 복구처럼
 Execution이 Operation 상태를 종결하기 전에 종료된 예외 상황에서는 성공, 실패, 취소의

@@ -6,7 +6,7 @@ from uuid import UUID
 from fastapi import APIRouter, Query
 
 from executor_service.container import ApplicationContainer
-from executor_service.domain.enums import ExecutionStatus
+from executor_service.domain.enums import ExecutionStatus, TriggerType
 from executor_service.interfaces.contracts import (
     ExecutionPageResponse,
     ExecutionResponse,
@@ -36,6 +36,7 @@ def build_query_router(container: ApplicationContainer) -> APIRouter:
         session_id: str | None = None,
         task_id: str | None = None,
         workflow_id: str | None = None,
+        trigger_type: TriggerType | None = None,
         execution_status: Annotated[
             ExecutionStatus | None, Query(alias="status")
         ] = None,
@@ -48,6 +49,7 @@ def build_query_router(container: ApplicationContainer) -> APIRouter:
             session_id=session_id,
             task_id=task_id,
             workflow_id=workflow_id,
+            trigger_type=trigger_type,
             status=execution_status,
             cursor=cursor,
             limit=limit,

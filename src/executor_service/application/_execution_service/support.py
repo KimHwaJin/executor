@@ -111,9 +111,11 @@ def validate_submit(command: SubmitExecutionCommand) -> None:
     if (
         command.actor_type is not None
         and command.trigger_type == TriggerType.BATCH
-        and command.actor_type != ActorType.BATCH
+        and command.actor_type not in {ActorType.USER, ActorType.BATCH}
     ):
-        raise InvalidStateTransitionError("BATCH submit requires BATCH actor.")
+        raise InvalidStateTransitionError(
+            "BATCH submit requires USER or BATCH actor."
+        )
     if (
         command.actor_type is not None
         and command.trigger_type == TriggerType.INTERACTIVE
@@ -127,7 +129,7 @@ def validate_submit(command: SubmitExecutionCommand) -> None:
         and command.actor_id != command.user_id
     ):
         raise InvalidStateTransitionError(
-            "INTERACTIVE submit requires actor.id to match context.user_id."
+            "USER actor.id must match context.user_id."
         )
     if command.session_id is not None and command.project_id is None:
         raise InvalidStateTransitionError("session_id requires project_id.")

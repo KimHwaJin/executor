@@ -655,6 +655,25 @@ async def test_single_execution_rest_lifecycle_and_queries(
 
     assert fetched.status_code == 200
     assert fetched.json()["runtime"]["type"] == "JUPYTER"
+    assert fetched.json()["trigger"] == {
+        "type": "INTERACTIVE",
+        "actor": {"type": "USER", "id": "rest-user"},
+    }
+    assert fetched.json()["metadata"] == {"caller": "integration-test"}
+    assert history.json()["items"][0]["trigger"] == fetched.json()["trigger"]
+    assert history.json()["items"][0]["metadata"] == {
+        "caller": "integration-test"
+    }
+    interactive = await client.get(
+        "/api/v1/executions", params={"trigger_type": "INTERACTIVE"}
+    )
+    batch = await client.get(
+        "/api/v1/executions", params={"trigger_type": "BATCH"}
+    )
+    assert [item["execution_id"] for item in interactive.json()["items"]] == [
+        execution_id
+    ]
+    assert batch.json()["items"] == []
     assert fetched.json()["workspace"]["notebook_projection"] == {
         "status": "NOT_STARTED",
         "attempt_count": 0,

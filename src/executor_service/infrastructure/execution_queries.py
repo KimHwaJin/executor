@@ -16,7 +16,7 @@ from executor_service.application.execution_queries import (
     OperationResultSnapshot,
 )
 from executor_service.application.pagination import Page
-from executor_service.domain.enums import ExecutionStatus
+from executor_service.domain.enums import ExecutionStatus, TriggerType
 from executor_service.domain.models import ExecutionStep
 from executor_service.infrastructure._execution_queries import (
     SQLAlchemyArtifactReader,
@@ -49,6 +49,7 @@ class SQLAlchemyExecutionQueryService:
         session_id: str | None = None,
         task_id: str | None = None,
         workflow_id: str | None = None,
+        trigger_type: TriggerType | None = None,
         status: ExecutionStatus | None = None,
         cursor: str | None = None,
         limit: int = 100,
@@ -59,6 +60,7 @@ class SQLAlchemyExecutionQueryService:
             session_id=session_id,
             task_id=task_id,
             workflow_id=workflow_id,
+            trigger_type=trigger_type,
             status=status,
             cursor=cursor,
             limit=limit,

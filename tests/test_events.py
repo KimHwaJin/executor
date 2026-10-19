@@ -464,3 +464,59 @@ def test_history_reference_requires_persisted_manifest_metadata(
         assert row_result_reference(row) is None
     else:
         assert row_result_reference(row) == _result_reference(False)
+
+
+def test_completed_event_carries_optional_execution_identity() -> None:
+    identity = {
+        "trigger": {
+            "type": "BATCH",
+            "actor": {"type": "USER", "id": "batch-owner"},
+        },
+        "context": {
+            "user_id": "batch-owner",
+            "task_id": "batch-run-1",
+            "project_id": None,
+            "session_id": None,
+            "workflow_id": None,
+        },
+    }
+    base = {
+        "status": "SUCCEEDED",
+        "operation_summary": {
+            "total": 1,
+            "succeeded": 1,
+            "failed": 0,
+            "cancelled": 0,
+        },
+        "retry": None,
+        "error": None,
+    }
+
+    event = build_execution_event(
+        execution_id=uuid4(),
+        event_sequence=1,
+        event_type="execution.completed",
+        payload={**base, "execution": identity},
+    )
+    legacy = build_execution_event(
+        execution_id=uuid4(),
+        event_sequence=1,
+        event_type="execution.completed",
+        payload=base,
+    )
+
+    assert event.payload["execution"] == identity
+    assert "execution" not in legacy.payload
+    with pytest.raises(ValidationError):
+        build_execution_event(
+            execution_id=uuid4(),
+            event_sequence=1,
+            event_type="execution.completed",
+            payload={
+                **base,
+                "execution": {
+                    **identity,
+                    "context": {**identity["context"], "batch_id": "b-1"},
+                },
+            },
+        )

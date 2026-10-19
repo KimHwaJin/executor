@@ -16,9 +16,11 @@ API다. `execution_id`는 Execution 제출 응답에서 받은 UUID다.
 | 필드 | 의미 |
 |---|---|
 | `execution_id` | 조회한 Execution ID |
-| `trigger_type` | 실행 유입 유형: `INTERACTIVE` 또는 `BATCH` |
+| `trigger_type` | 실행 유입 유형: `INTERACTIVE` 또는 `BATCH`. `trigger.type`과 같은 값이며 호환을 위해 유지 |
+| `trigger` | 제출 trigger. `type`과 제출 actor `actor{type, id}`. actor는 `created_by_type`/`created_by`와 같고 제출 후 바뀌지 않음. actor 없이 제출됐다면 `null` |
+| `metadata` | 제출 요청의 최상위 `metadata` 객체. 키 이름에 token/secret/password/credential이 들어간 값은 `[REDACTED]`로 가린다 |
 | `created_by_type`, `created_by` | Execution 생성 주체 유형과 ID |
-| `updated_by_type`, `updated_by` | 마지막 상태 변경 주체 유형과 ID |
+| `updated_by_type`, `updated_by` | 마지막 상태 변경 주체 유형과 ID. 예: 취소 요청 actor |
 | `created_at`, `updated_at` | 생성 및 마지막 변경 시각 |
 
 ### `context`
