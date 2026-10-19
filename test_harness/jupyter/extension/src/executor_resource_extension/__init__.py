@@ -13,8 +13,12 @@ def _load_jupyter_server_extension(server_app: Any) -> None:
     )
 
     from executor_resource_extension.collector import ResourceCollector
+    from executor_resource_extension.executions import ExecutionJournals
     from executor_resource_extension.handlers import (
         ArtifactSnapshotHandler,
+        ExecutionJournalHandler,
+        ExecutionStartHandler,
+        ExecutionStreamHandler,
         FileContentHandler,
         FileMetadataHandler,
         KernelExecutionStateHandler,
@@ -35,7 +39,11 @@ def _load_jupyter_server_extension(server_app: Any) -> None:
     web_app.settings["executor_runtime_storage"] = RuntimeStorage(
         server_app.root_dir
     )
-    web_app.settings["executor_kernel_state_observer"] = KernelStateObserver()
+    kernel_state = KernelStateObserver()
+    web_app.settings["executor_kernel_state_observer"] = kernel_state
+    web_app.settings["executor_journals"] = ExecutionJournals.from_environment(
+        kernel_state
+    )
     web_app.add_handlers(
         ".*$",
         [
@@ -48,6 +56,35 @@ def _load_jupyter_server_extension(server_app: Any) -> None:
                     "execution-state",
                 ),
                 KernelExecutionStateHandler,
+            ),
+            (
+                url_path_join(
+                    base_url, "executor", "kernels", "([^/]+)", "executions"
+                ),
+                ExecutionStartHandler,
+            ),
+            (
+                url_path_join(
+                    base_url,
+                    "executor",
+                    "kernels",
+                    "([^/]+)",
+                    "executions",
+                    "([^/]+)",
+                ),
+                ExecutionJournalHandler,
+            ),
+            (
+                url_path_join(
+                    base_url,
+                    "executor",
+                    "kernels",
+                    "([^/]+)",
+                    "executions",
+                    "([^/]+)",
+                    "stream",
+                ),
+                ExecutionStreamHandler,
             ),
             (
                 url_path_join(base_url, "executor", "resource-status"),

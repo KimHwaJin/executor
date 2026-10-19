@@ -1,14 +1,32 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any
 
+from jupyter_server.auth.decorator import (  # ty: ignore[unresolved-import]
+    ws_authenticated,
+)
 from jupyter_server.base.handlers import (  # ty: ignore[unresolved-import]
     APIHandler,
+    JupyterHandler,
+)
+from jupyter_server.base.websocket import (  # ty: ignore[unresolved-import]
+    WebSocketMixin,
 )
 from tornado import web  # ty: ignore[unresolved-import]
+from tornado.websocket import (  # ty: ignore[unresolved-import]
+    WebSocketClosedError,
+    WebSocketHandler,
+)
 
 from executor_resource_extension.collector import ResourceCollector
+from executor_resource_extension.executions import (
+    ExecutionJournals,
+    JournalBusyError,
+    JournalNotFoundError,
+    KernelNotFoundError,
+)
 from executor_resource_extension.file_download import (
     FileChangedError,
     FileRangeError,
@@ -55,6 +73,92 @@ class KernelExecutionStateHandler(APIHandler):
             raise web.HTTPError(
                 503, reason="Kernel process continuity is unavailable."
             ) from None
+
+
+class ExecutionStartHandler(APIHandler):
+    @web.authenticated
+    async def post(self, kernel_id: str) -> None:
+        journals: ExecutionJournals = self.settings["executor_journals"]
+        payload = self.get_json_body()
+        if not isinstance(payload, dict):
+            raise web.HTTPError(400, reason="JSON object body is required.")
+        try:
+            created = await journals.start(
+                self.kernel_manager,
+                kernel_id,
+                str(payload["request_id"]),
+                str(payload["code"]),
+            )
+        except (KeyError, ValueError) as exc:
+            raise web.HTTPError(
+                422, reason="request_id and code are required."
+            ) from exc
+        except KernelNotFoundError as exc:
+            raise web.HTTPError(404, reason="Kernel was not found.") from exc
+        self.set_status(201 if created else 200)
+        self.finish({"created": created})
+
+
+class ExecutionJournalHandler(APIHandler):
+    @web.authenticated
+    def delete(self, kernel_id: str, request_id: str) -> None:
+        journals: ExecutionJournals = self.settings["executor_journals"]
+        try:
+            journals.delete(kernel_id, request_id)
+        except ValueError as exc:
+            raise web.HTTPError(422, reason="Invalid request_id.") from exc
+        except JournalNotFoundError as exc:
+            raise web.HTTPError(404, reason="Journal was not found.") from exc
+        except JournalBusyError as exc:
+            raise web.HTTPError(
+                409, reason="Execution is still running."
+            ) from exc
+        self.set_status(204)
+        self.finish()
+
+
+class ExecutionStreamHandler(WebSocketMixin, WebSocketHandler, JupyterHandler):
+    """Push journal entries after ?after=N; reconnecting loses nothing."""
+
+    auth_resource = "kernels"
+
+    def set_default_headers(self) -> None:
+        """JupyterHandler's HTTP headers do not apply to WebSockets."""
+
+    @ws_authenticated
+    async def get(self, kernel_id: str, request_id: str) -> None:
+        journals: ExecutionJournals = self.settings["executor_journals"]
+        try:
+            after = int(self.get_argument("after", "0"))
+            self._entries = journals.follow(kernel_id, request_id, after)
+            first = await anext(self._entries)
+        except ValueError as exc:
+            raise web.HTTPError(422, reason="Invalid stream request.") from exc
+        except JournalNotFoundError as exc:
+            raise web.HTTPError(404, reason="Journal was not found.") from exc
+        self._first = first
+        await super().get(kernel_id, request_id)
+
+    def open(self, kernel_id: str, request_id: str) -> None:  # type: ignore[override]
+        super().open()
+        self._push = asyncio.create_task(self._send_entries())
+
+    async def _send_entries(self) -> None:
+        try:
+            await self.write_message(json.dumps(self._first))
+            async for entry in self._entries:
+                await self.write_message(json.dumps(entry))
+        except WebSocketClosedError:
+            return
+        finally:
+            await self._entries.aclose()
+        self.close()
+
+    def on_close(self) -> None:
+        self._push.cancel()
+
+    def on_message(self, message: str | bytes) -> None:
+        """The stream is one-way; client messages are ignored."""
 
 
 class StorageHandler(APIHandler):
