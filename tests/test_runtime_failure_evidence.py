@@ -186,7 +186,8 @@ async def test_failures_preserve_state_reason_partial_refs_and_operator_logs(
                 StepSpec(
                     sequence=0,
                     code="print('evidence')",
-                    step_timeout_seconds=1,
+                    # Only timeout faults need a deadline; others must not race it.
+                    step_timeout_seconds=1 if fault == "timeout" else None,
                 ),
                 StepSpec(sequence=1, code="print('must not run')"),
             ),
