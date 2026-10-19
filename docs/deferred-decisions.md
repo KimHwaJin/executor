@@ -376,6 +376,20 @@ must be addressed before deleting history while retaining usable Artifacts.
   suffice and which intervals require durable measurement. Do not label
   Executor-observed wall time as pure code computation time.
 
+## DD-010: Execution-scoped Python package installation
+
+- Status: DEFERRED
+- Area: Execution request contract, Jupyter runtime image and extension, Agent error handling
+- Deferred on: 2026-10-19
+- Resume when: runtime package installation during Agent executions becomes a confirmed requirement
+- Decision: do not grant write access to standard kernel venvs or copy kernels. If required,
+  implement Executor-owned installation into an execution-local `.pkgs/` directory appended to
+  `sys.path` through a `.pth` hook. No API, image, or execution behavior change is authorized by
+  this review alone.
+- Review: [실행 중 Python 패키지 추가 설치 검토](runtime-package-installation-review.md).
+- Open: package allowlist ownership, per-profile constraints generation, duplicate dependency
+  disk usage, `.pkgs/` cleanup policy, and whether mid-execution additions are in scope.
+
 ## OpenTelemetry removal
 
 - Decision: remove Executor-owned tracing and Phoenix export. Keep standard logs,
