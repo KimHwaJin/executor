@@ -97,6 +97,8 @@ class KernelStartHandler(APIHandler):
         kernel_id = await self.kernel_manager.start_kernel(
             kernel_name=name, path=path, env=env
         )
+        journals: ExecutionJournals = self.settings["executor_journals"]
+        journals.protect(self.kernel_manager, kernel_id, extra_env.values())
         self.set_status(201)
         self.finish({"id": kernel_id})
 
