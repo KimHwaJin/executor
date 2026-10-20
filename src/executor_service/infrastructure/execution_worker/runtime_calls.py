@@ -1,9 +1,11 @@
 """Runtime Driver construction and traced call helpers."""
 
+import json
 import logging
 from collections.abc import Awaitable
 from uuid import UUID
 
+from executor_service.domain.models import Execution
 from executor_service.domain.runtime import RuntimeDriver, RuntimeDriverFactory
 from executor_service.infrastructure.db.models import RuntimeTargetORM
 from executor_service.infrastructure.runtime_diagnostics import (
@@ -36,6 +38,28 @@ class RuntimeDriverProvider:
             target.runtime_type,
             target.connection_config,
             credential,
+        )
+
+    async def start_session(
+        self,
+        driver: RuntimeDriver,
+        execution: Execution,
+        working_directory: str,
+    ) -> str:
+        """Start the Execution's kernel with its memory limit and env."""
+
+        env = (
+            json.loads(
+                self._registry.decrypt(execution.runtime_env_ciphertext)
+            )
+            if execution.runtime_env_ciphertext
+            else {}
+        )
+        return await driver.start_session(
+            execution.runtime_profile,
+            working_directory,
+            execution.memory_limit_bytes,
+            env,
         )
 
 

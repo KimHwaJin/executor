@@ -67,6 +67,7 @@ class ExecutionRuntime(ContractModel):
     type: RuntimeType
     pool: RuntimePool
     profile: str
+    memory_limit_bytes: int | None
     target_id: UUID | None
     session_id: str | None
 
@@ -165,6 +166,7 @@ def _execution_common(
             type=execution.runtime_type,
             pool=execution.runtime_pool,
             profile=execution.runtime_profile,
+            memory_limit_bytes=execution.memory_limit_bytes,
             target_id=execution.runtime_target_id,
             session_id=execution.runtime_session_id,
         ),

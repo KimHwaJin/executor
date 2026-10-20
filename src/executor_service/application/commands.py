@@ -41,6 +41,9 @@ class SubmitExecutionCommand:
     operation_wait_timeout_seconds: int | None = None
     operation_timeout_seconds: int | None = None
     runtime_type: RuntimeType = RuntimeType.JUPYTER
+    memory_limit_bytes: int | None = None
+    # Secret values: never fingerprinted, persisted only encrypted.
+    runtime_env: dict[str, str] = field(default_factory=dict)
     actor_type: ActorType | None = None
     actor_id: str | None = None
     workflow_id: str | None = None

@@ -1,5 +1,6 @@
 """Execution submission command handler."""
 
+import json
 from collections.abc import Mapping
 from uuid import UUID
 
@@ -17,6 +18,7 @@ from executor_service.application._execution_service.types import (
 from executor_service.application.commands import SubmitExecutionCommand
 from executor_service.domain.enums import RuntimePool, RuntimeType
 from executor_service.domain.errors import (
+    InvalidExecutionSpecError,
     PersistenceConflictError,
     UnsupportedRuntimeProfileError,
 )
@@ -25,6 +27,7 @@ from executor_service.domain.models import (
     ExecutionOperation,
     ExecutionStep,
 )
+from executor_service.domain.ports import SecretCipher
 from executor_service.work_messages import build_work_message
 
 
@@ -33,12 +36,19 @@ class ExecutionSubmissionCommands:
         self,
         support: ExecutionCommandSupport,
         runtime_profiles: Mapping[RuntimeType, tuple[str, ...]],
+        *,
+        default_memory_limit_bytes: int | None = None,
+        max_memory_limit_bytes: int | None = None,
+        secret_cipher: SecretCipher | None = None,
     ) -> None:
         self._support = support
         self._runtime_profiles = {
             runtime_type: tuple(profiles)
             for runtime_type, profiles in runtime_profiles.items()
         }
+        self._default_memory_limit_bytes = default_memory_limit_bytes
+        self._max_memory_limit_bytes = max_memory_limit_bytes
+        self._secret_cipher = secret_cipher
 
     @property
     def runtime_profiles(self) -> dict[str, tuple[str, ...]]:
@@ -58,6 +68,20 @@ class ExecutionSubmissionCommands:
                 f"runtime_profile '{command.runtime_profile}' is not supported "
                 f"for runtime_type '{command.runtime_type.value}'."
             )
+        memory_limit_bytes = (
+            command.memory_limit_bytes or self._default_memory_limit_bytes
+        )
+        if (
+            memory_limit_bytes is not None
+            and self._max_memory_limit_bytes is not None
+            and memory_limit_bytes > self._max_memory_limit_bytes
+        ):
+            # It could never be admitted; fail now instead of queueing.
+            raise InvalidExecutionSpecError(
+                "runtime.memory_limit_bytes exceeds the allowed maximum "
+                f"{self._max_memory_limit_bytes}."
+            )
+        runtime_env_ciphertext = self._seal_runtime_env(command.runtime_env)
         request_fingerprint = fingerprint(command)
         try:
             async with self._support.uow_factory() as uow:
@@ -104,6 +128,8 @@ class ExecutionSubmissionCommands:
                     runtime_type=command.runtime_type,
                     runtime_pool=RuntimePool(command.trigger_type.value),
                     runtime_profile=command.runtime_profile,
+                    memory_limit_bytes=memory_limit_bytes,
+                    runtime_env_ciphertext=runtime_env_ciphertext,
                     user_id=command.user_id,
                     project_id=command.project_id,
                     session_id=command.session_id,
@@ -173,3 +199,14 @@ class ExecutionSubmissionCommands:
                     execution=existing,
                     operation_id=required_operation_id(operation_id),
                 )
+
+    def _seal_runtime_env(self, runtime_env: dict[str, str]) -> str | None:
+        if not runtime_env:
+            return None
+        if self._secret_cipher is None:
+            raise InvalidExecutionSpecError(
+                "runtime.env is not supported by this Executor."
+            )
+        return self._secret_cipher.encrypt(
+            json.dumps(runtime_env, sort_keys=True)
+        )

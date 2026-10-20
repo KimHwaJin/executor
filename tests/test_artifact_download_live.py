@@ -171,7 +171,7 @@ async def test_kernel_plot_with_spaces_and_unicode(
     try:
         await driver.prepare_workspace(workspace)
         before = await driver.artifact_snapshot(workspace)
-        session_id = await driver.start_session("default", workspace)
+        session_id = await driver.start_session("default", workspace, None, {})
         await asyncio.wait_for(
             run_cell(
                 driver,
@@ -325,7 +325,7 @@ async def test_real_notebook_download_after_report_and_manual_edits(
     kernel: str | None = None
     try:
         await driver.prepare_workspace(workspace)
-        kernel = await driver.start_session(profile, workspace)
+        kernel = await driver.start_session(profile, workspace, None, {})
         notebook = nbformat.v4.new_notebook()
         for index in range(7):
             code = (

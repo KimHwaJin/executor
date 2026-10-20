@@ -1,8 +1,9 @@
 """Execution submission transport contracts."""
 
+import re
 from typing import Any
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from executor_service.application.commands import (
     StepSpec,
@@ -64,9 +65,53 @@ class ExecutionTriggerInput(ContractModel):
     actor: ActorInput
 
 
+_ENV_NAME = re.compile(r"[A-Z][A-Z0-9_]{0,127}")
+# Names that would let a caller bypass the kernel launcher or its limits.
+_RESERVED_ENV_PREFIXES = (
+    "EXECUTOR_",
+    "JPY_",
+    "JUPYTER",
+    "LD_",
+    "MALLOC_",
+    "PYTHON",
+)
+_RESERVED_ENV_NAMES = {"HOME", "PATH"}
+
+
 class ExecutionRuntimeInput(ContractModel):
     type: RuntimeType
     profile: str = Field(min_length=1, max_length=128)
+    memory_limit_bytes: int | None = Field(
+        default=None,
+        ge=256 * 1024**2,
+        description=(
+            "Kernel virtual memory cap. A kernel reserves about 0.5 GiB of "
+            "address space beyond what it uses. Defaults to the Executor's "
+            "EXECUTION_DEFAULT_MEMORY_LIMIT_BYTES."
+        ),
+    )
+    env: dict[str, str] = Field(
+        default_factory=dict,
+        max_length=64,
+        description=(
+            "Environment variables for this Execution's kernel only, such "
+            "as storage credentials. Stored encrypted and never returned."
+        ),
+    )
+
+    @field_validator("env")
+    @classmethod
+    def validate_env(cls, env: dict[str, str]) -> dict[str, str]:
+        for name, value in env.items():
+            if (
+                not _ENV_NAME.fullmatch(name)
+                or name in _RESERVED_ENV_NAMES
+                or name.startswith(_RESERVED_ENV_PREFIXES)
+            ):
+                raise ValueError(f"runtime.env name '{name}' is not allowed.")
+            if len(value) > 4096 or "\x00" in value:
+                raise ValueError(f"runtime.env value for '{name}' is invalid.")
+        return env
 
 
 class ExecutionOperationInput(ContractModel):
@@ -96,6 +141,8 @@ class ExecutionSubmitRequest(ContractModel):
             trigger_type=self.trigger.type,
             runtime_type=self.runtime.type,
             runtime_profile=self.runtime.profile,
+            memory_limit_bytes=self.runtime.memory_limit_bytes,
+            runtime_env=self.runtime.env,
             user_id=self.context.user_id,
             project_id=self.context.project_id,
             session_id=self.context.session_id,

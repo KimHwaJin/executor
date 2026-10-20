@@ -91,6 +91,18 @@ class Settings(BaseSettings):
     runtime_session_count_max_age_seconds: float = Field(default=45, gt=0)
     runtime_resource_max_age_seconds: float = Field(default=45, gt=0)
     runtime_memory_admission_limit: float = Field(default=0.9, gt=0, le=1)
+    # Admit while the memory limits held on a Target total at most its
+    # memory capacity times this ratio; >1 overcommits. None disables.
+    runtime_memory_overcommit_ratio: float | None = Field(default=None, gt=0)
+    # Kernel virtual memory (RLIMIT_AS) cap per Execution. Kernels reserve
+    # ~0.5 GiB of address space beyond what they use; size caps with it.
+    # None starts kernels without a cap unless the request sets one.
+    execution_default_memory_limit_bytes: int | None = Field(
+        default=None, ge=1
+    )
+    execution_max_memory_limit_bytes: int | None = Field(default=None, ge=1)
+    # Admit while one user's held memory limits total at most this.
+    execution_user_memory_quota_bytes: int | None = Field(default=None, ge=1)
     shared_storage_root: Path = Path("./shared_dir")
     # Caller-authored PATH inputs may live outside Executor's result root.
     # None keeps the single-root deployment option.
@@ -185,6 +197,24 @@ class Settings(BaseSettings):
                 "EXECUTION_MAX_STEPS_PER_EXECUTION."
             )
         if (
+            self.execution_user_memory_quota_bytes is not None
+            or self.runtime_memory_overcommit_ratio is not None
+        ) and self.execution_default_memory_limit_bytes is None:
+            raise ValueError(
+                "Memory admission requires "
+                "EXECUTION_DEFAULT_MEMORY_LIMIT_BYTES so every Execution "
+                "holds a limit."
+            )
+        if (
+            self.max_execution_memory_limit_bytes is not None
+            and (self.execution_default_memory_limit_bytes or 0)
+            > self.max_execution_memory_limit_bytes
+        ):
+            raise ValueError(
+                "EXECUTION_DEFAULT_MEMORY_LIMIT_BYTES must not exceed "
+                "EXECUTION_MAX_MEMORY_LIMIT_BYTES or the user quota."
+            )
+        if (
             self.app_env.lower() != "local"
             and self.runtime_credential_encryption_key
             == "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
@@ -201,6 +231,20 @@ class Settings(BaseSettings):
     @property
     def redis_dsn(self) -> str:
         return self.redis_url.get_secret_value()
+
+    @property
+    def max_execution_memory_limit_bytes(self) -> int | None:
+        """Largest limit one Execution may hold; it must fit the quota."""
+
+        limits = [
+            limit
+            for limit in (
+                self.execution_max_memory_limit_bytes,
+                self.execution_user_memory_quota_bytes,
+            )
+            if limit is not None
+        ]
+        return min(limits, default=None)
 
     @property
     def runtime_credential_encryption_key(self) -> str:

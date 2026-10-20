@@ -1,5 +1,5 @@
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -63,7 +63,14 @@ class ControlledJupyterGateway(InMemoryRuntimeStorage):
         cls.independent_finished = asyncio.Event()
         cls.blocked_started = 0
 
-    async def start_session(self, _runtime_profile: str, _path: str) -> str:
+    async def start_session(
+        self,
+        profile: str,
+        working_directory: str,
+        memory_limit_bytes: int | None,
+        env: Mapping[str, str],
+    ) -> str:
+        del profile, working_directory, memory_limit_bytes, env
         return f"kernel-{uuid4().hex}"
 
     async def run_code(

@@ -61,7 +61,7 @@ async def main() -> None:
     session_id: str | None = None
     try:
         await driver.prepare_workspace(workspace)
-        session_id = await driver.start_session("default", workspace)
+        session_id = await driver.start_session("default", workspace, None, {})
 
         await _expect_timeout(
             driver,
