@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, literal, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from executor_service.domain.enums import RuntimeTargetStatus
@@ -14,6 +14,7 @@ from executor_service.infrastructure.db.models import (
 from executor_service.infrastructure.runtime_admission import (
     admission_used_count,
     count_runtime_reservations,
+    sum_reserved_memory_limits,
 )
 from executor_service.settings import Settings
 
@@ -42,8 +43,14 @@ class RuntimeTargetSelector:
         )
         candidates: list[tuple[RuntimeTargetORM, int]] = []
         now = utc_now()
+        if not await self._within_user_quota(session, execution, now):
+            return None
         for target in targets:
             if execution.runtime_profile not in target.supported_profiles:
+                continue
+            if not await self._fits_target_memory(
+                session, execution, target, now
+            ):
                 continue
             reserved = await count_runtime_reservations(
                 session, target.id, now
@@ -84,6 +91,48 @@ class RuntimeTargetSelector:
                 candidate[0].name,
             ),
         )[0]
+
+    async def _within_user_quota(
+        self, session: AsyncSession, execution: ExecutionORM, now: datetime
+    ) -> bool:
+        quota = self._settings.execution_user_memory_quota_bytes
+        limit = execution.memory_limit_bytes
+        if quota is None or limit is None:
+            return True
+        if session.bind.dialect.name == "postgresql":
+            # Claims for one user on different Targets must not both see
+            # the same headroom. Released when the claim commits.
+            await session.execute(
+                select(
+                    func.pg_advisory_xact_lock(
+                        func.hashtext(
+                            literal(
+                                f"executor-user-memory:{execution.user_id}"
+                            )
+                        )
+                    )
+                )
+            )
+        held = await sum_reserved_memory_limits(
+            session, now, user_id=execution.user_id
+        )
+        return held + limit <= quota
+
+    async def _fits_target_memory(
+        self,
+        session: AsyncSession,
+        execution: ExecutionORM,
+        target: RuntimeTargetORM,
+        now: datetime,
+    ) -> bool:
+        ratio = self._settings.runtime_memory_overcommit_ratio
+        limit = execution.memory_limit_bytes
+        if ratio is None or limit is None or not target.memory_capacity_bytes:
+            return True
+        held = await sum_reserved_memory_limits(
+            session, now, target_id=target.id
+        )
+        return held + limit <= target.memory_capacity_bytes * ratio
 
     def _has_fresh_resource_observation(
         self, target: RuntimeTargetORM, now: datetime
