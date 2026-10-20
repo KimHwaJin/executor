@@ -23,6 +23,21 @@ Executor는 코드를 `POST /executor/kernels/{kernel_id}/executions`로 한 번
 재시작해야 한다. 커널만 재시작해서는 확장 코드가 갱신되지 않는다. 기존 작업이 진행 중인
 서버는 작업을 정리한 뒤 업데이트한다.
 
+## 커널 런처 (실행별 메모리 상한)
+
+모든 kernelspec은 `executor_resource_extension.kernel_launcher`를 거쳐 ipykernel을 실행한다
+(`wrap_kernelspecs.py`가 빌드 때 `kernel.json`의 `argv` 앞에 붙인다). 런처는 다음을 적용한 뒤
+`exec`로 커널 프로세스가 되므로 별도 프로세스가 남지 않고, 커널 재시작에도 같은 값이 적용된다.
+
+- Executor가 `POST /executor/kernels`로 커널을 띄우며 `memory_limit_bytes`를 주면 그 값으로
+  `RLIMIT_AS`를 건다. 넘는 할당은 그 커널 안에서 `MemoryError`가 된다. 노드 커널 3.10에서는
+  `RLIMIT_DATA`가 mmap 할당을 세지 않으므로 `RLIMIT_AS`를 쓴다.
+- 상한이 있으면 `OMP/OPENBLAS/MKL_NUM_THREADS`(기본 `EXECUTOR_KERNEL_THREADS`=4)와
+  `MALLOC_ARENA_MAX=2`를 기본값으로 넣는다. 스레드 수를 고정하지 않으면 BLAS가 노드 코어 수만큼
+  스레드를 만들어 가상 메모리가 수 GiB 잡히고 상한에 바로 걸린다(48코어 노드 실측 약 2GiB).
+- 모든 커널의 `oom_score_adj`를 1000으로 올려, 컨테이너 OOM 때 Jupyter 서버 대신 커널이 죽게 한다.
+- 같은 요청의 `env`는 그 커널에만 환경변수로 들어간다.
+
 Dockerfile의 각 구문, 권한 설정, PVC 적용 시 주의사항은
 [`DOCKERFILE_GUIDE.md`](DOCKERFILE_GUIDE.md)에 상세히 정리되어 있다.
 
@@ -218,6 +233,7 @@ ENV JUPYTER_ROOT_DIR=/workspace/jupyter \
 | `EXECUTOR_JOURNAL_DIR` | 선택. 실행 저널 위치. 기본 `/tmp/executor-journals`(컨테이너 로컬) |
 | `EXECUTOR_JOURNAL_MAX_BYTES` | 선택. 요청 하나의 저널 상한. 기본 `1073741824`(1GiB). 넘으면 `OUTPUT_LIMIT`로 끝남 |
 | `EXECUTOR_JOURNAL_RETENTION_SECONDS` | 선택. Executor가 지우지 않은 저널의 보존 시간. 기본 `86400` |
+| `EXECUTOR_KERNEL_THREADS` | 선택. 메모리 상한이 걸린 커널의 BLAS/OpenMP 스레드 수. 기본 `4`. Pod CPU limit에 맞춘다 |
 | `UV_DEFAULT_INDEX` | 선택. Jupyter 터미널에서 PV 아래 사용자 환경을 만들 때 사용할 Nexus 주소. 표준 커널 빌드 인자와 별개의 런타임 주입값 |
 | 포트 | 기본 `8888`. Service 대상 포트도 일치시킴 |
 | 실행 사용자 | UID/GID `1000:1000`. PVC에 디렉토리·파일 생성 및 수정 권한 필요 |
