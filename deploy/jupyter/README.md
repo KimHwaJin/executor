@@ -36,7 +36,10 @@ Executor는 코드를 `POST /executor/kernels/{kernel_id}/executions`로 한 번
   `MALLOC_ARENA_MAX=2`를 기본값으로 넣는다. 스레드 수를 고정하지 않으면 BLAS가 노드 코어 수만큼
   스레드를 만들어 가상 메모리가 수 GiB 잡히고 상한에 바로 걸린다(48코어 노드 실측 약 2GiB).
 - 모든 커널의 `oom_score_adj`를 1000으로 올려, 컨테이너 OOM 때 Jupyter 서버 대신 커널이 죽게 한다.
-- 같은 요청의 `env`는 그 커널에만 환경변수로 들어간다.
+- 같은 요청의 `env`는 그 커널에만 환경변수로 들어간다. 그 값(4자 이상)이 stdout/stderr에
+  나오면 실행 기록에는 `***`로 바뀌어 저장된다.
+- 상한도 env도 없는 커널은 Executor가 기존 `/api/kernels`로 띄운다. 전체 동작과 되돌리는
+  방법은 [`docs/execution-memory-limits.md`](../../docs/execution-memory-limits.md)에 있다.
 
 Dockerfile의 각 구문, 권한 설정, PVC 적용 시 주의사항은
 [`DOCKERFILE_GUIDE.md`](DOCKERFILE_GUIDE.md)에 상세히 정리되어 있다.

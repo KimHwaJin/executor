@@ -135,6 +135,16 @@ spec:
               value: "45"
             - name: RUNTIME_MEMORY_ADMISSION_LIMIT
               value: "0.9"
+            # Per-Execution kernel memory limits; all off unless set.
+            # See docs/execution-memory-limits.md.
+            # - name: EXECUTION_DEFAULT_MEMORY_LIMIT_BYTES
+            #   value: "2684354560"
+            # - name: EXECUTION_MAX_MEMORY_LIMIT_BYTES
+            #   value: "8589934592"
+            # - name: EXECUTION_USER_MEMORY_QUOTA_BYTES
+            #   value: "10737418240"
+            # - name: RUNTIME_MEMORY_OVERCOMMIT_RATIO
+            #   value: "1.0"
             - name: RUNTIME_CLEANUP_RETRY_INTERVAL_SECONDS
               value: "60"
             - name: EXECUTION_INLINE_SPEC_MAX_BYTES
