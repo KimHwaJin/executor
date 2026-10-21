@@ -20,6 +20,7 @@ from executor_service.domain.enums import (
     StepStatus,
 )
 from executor_service.domain.models import Execution, utc_now
+from executor_service.domain.transitions import require_execution_transition
 from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
     ExecutionHandoverORM,
@@ -229,6 +230,9 @@ class ExecutionClaimer:
                 waiting_attempt.runtime_abort_status = (
                     RuntimeAbortStatus.NOT_REQUIRED
                 )
+                require_execution_transition(
+                    execution_row.status, ExecutionStatus.RUNNING
+                )
                 execution_row.status = ExecutionStatus.RUNNING
                 execution_row.lease_owner = self._worker_id
                 execution_row.lease_expires_at = lease_expires
@@ -357,6 +361,9 @@ class ExecutionClaimer:
                 operation.execution_attempt_id = attempt_id
                 operation.started_at = now
                 operation.updated_at = now
+            require_execution_transition(
+                execution_row.status, ExecutionStatus.RUNNING
+            )
             execution_row.status = ExecutionStatus.RUNNING
             execution_row.runtime_target_id = target.id
             execution_row.lease_owner = self._worker_id
@@ -490,6 +497,9 @@ class ExecutionClaimer:
             )
             if execution.retry_strategy != RetryStrategy.FROM_FAILED_STEP:
                 return
+            require_execution_transition(
+                execution.status, ExecutionStatus.QUEUED
+            )
             execution.status = ExecutionStatus.QUEUED
             execution.error_message = "The retained Runtime Target is temporarily unavailable; waiting for recovery."
             execution.failure_type = FailureType.RUNTIME_UNAVAILABLE
@@ -539,6 +549,7 @@ class ExecutionClaimer:
         now: datetime,
         error_message: str,
     ) -> None:
+        require_execution_transition(execution.status, ExecutionStatus.FAILED)
         execution.status = ExecutionStatus.FAILED
         execution.error_message = error_message
         execution.failure_type = FailureType.RUNTIME_UNAVAILABLE

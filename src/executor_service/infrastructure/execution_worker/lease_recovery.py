@@ -22,6 +22,7 @@ from executor_service.domain.enums import (
 )
 from executor_service.domain.models import utc_now
 from executor_service.domain.runtime import NotebookProjectionInterruptedError
+from executor_service.domain.transitions import require_execution_transition
 from executor_service.infrastructure.background_diagnostics import (
     RuntimeObservation,
 )
@@ -137,6 +138,9 @@ class LeaseRecoveryProcessor:
                         ExecutionAttemptORM.status == AttemptStatus.RUNNING,
                     )
                     .with_for_update()
+                )
+                require_execution_transition(
+                    execution.status, ExecutionStatus.FAILED
                 )
                 execution.status = ExecutionStatus.FAILED
                 execution.error_message = (

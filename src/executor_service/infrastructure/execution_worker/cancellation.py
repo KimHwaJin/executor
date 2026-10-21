@@ -19,6 +19,7 @@ from executor_service.domain.enums import (
 )
 from executor_service.domain.models import utc_now
 from executor_service.domain.runtime import RuntimeDriverError
+from executor_service.domain.transitions import require_execution_transition
 from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
     ExecutionOperationORM,
@@ -185,6 +186,9 @@ class CancellationProcessor:
                 ).all()
             )
             active_operation_id = execution.active_operation_id
+            require_execution_transition(
+                execution.status, ExecutionStatus.CANCELLED
+            )
             execution.status = ExecutionStatus.CANCELLED
             execution.finished_at = now
             execution.updated_at = now

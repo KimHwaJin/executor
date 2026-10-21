@@ -26,6 +26,7 @@ from executor_service.domain.runtime import (
     RuntimeDriver,
     RuntimeDriverError,
 )
+from executor_service.domain.transitions import require_execution_transition
 from executor_service.infrastructure.db.models import (
     ExecutionOperationORM,
     ExecutionORM,
@@ -374,6 +375,7 @@ class ExecutionRunFinalizer:
             effective_retry_strategy = (
                 retry_strategy if is_failed else RetryStrategy.NOT_RETRYABLE
             )
+            require_execution_transition(execution.status, status)
             execution.status = status
             execution.error_message = error_message if is_failed else None
             execution.failure_type = effective_failure_type

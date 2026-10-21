@@ -12,6 +12,7 @@ from executor_service.domain.enums import (
     StepStatus,
 )
 from executor_service.domain.models import utc_now
+from executor_service.domain.transitions import require_execution_transition
 from executor_service.infrastructure.background_diagnostics import (
     RuntimeObservation,
 )
@@ -112,6 +113,9 @@ class RetainedSessionCleaner:
             for execution in executions:
                 retry_was_queued = execution.status == ExecutionStatus.QUEUED
                 if retry_was_queued:
+                    require_execution_transition(
+                        execution.status, ExecutionStatus.FAILED
+                    )
                     execution.status = ExecutionStatus.FAILED
                     execution.error_message = (
                         "The retained runtime session retry window expired before "
