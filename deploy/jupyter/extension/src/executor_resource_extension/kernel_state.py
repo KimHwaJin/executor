@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import signal
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 from weakref import WeakKeyDictionary
+
+CGROUP_ROOT = Path("/sys/fs/cgroup")
 
 
 class KernelStateObserver:
@@ -54,3 +58,53 @@ class KernelStateObserver:
             "alive": True,
             "instance_id": instance,
         }
+
+
+def memory_limit_events(root: Path = CGROUP_ROOT) -> int | None:
+    """Times this container's memory cgroup hit its limit, if readable.
+
+    cgroup v2 counts OOM kills; cgroup v1 on older kernels only counts
+    allocations that hit the limit (memory.failcnt).
+    """
+
+    try:
+        for line in (root / "memory.events").read_text().splitlines():
+            name, _, value = line.partition(" ")
+            if name == "oom_kill":
+                return int(value)
+    except (OSError, ValueError):
+        pass
+    try:
+        return int((root / "memory" / "memory.failcnt").read_text())
+    except (OSError, ValueError):
+        return None
+
+
+def exit_reason(
+    process: Any, memory_events_before: int | None, memory_events: int | None
+) -> str:
+    """Explain how a stopped kernel process ended, as far as is known."""
+
+    returncode = None if process is None else process.poll()
+    if returncode is None:
+        return ""
+    if returncode >= 0:
+        return f" It exited with code {returncode}."
+    try:
+        name = signal.Signals(-returncode).name
+    except ValueError:
+        name = f"signal {-returncode}"
+    reason = f" It was killed by {name}."
+    if (
+        returncode == -signal.SIGKILL
+        and memory_events_before is not None
+        and memory_events is not None
+        and memory_events > memory_events_before
+    ):
+        # The OOM killer always uses SIGKILL. Without per-process OOM
+        # records this is an inference, not proof.
+        reason += (
+            " The container reached its memory limit during execution, so "
+            "it was most likely killed for running out of memory."
+        )
+    return reason

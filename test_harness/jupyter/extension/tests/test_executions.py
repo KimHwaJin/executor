@@ -53,9 +53,23 @@ class Client:
         )
 
 
+class Process:
+    def __init__(self) -> None:
+        self.returncode: int | None = None
+
+    def poll(self) -> int | None:
+        return self.returncode
+
+
+class Provisioner:
+    def __init__(self) -> None:
+        self.process = Process()
+
+
 class Kernel:
     def __init__(self, client: Client) -> None:
         self._client = client
+        self.provisioner = Provisioner()
 
     def client(self) -> Client:
         return self._client
@@ -103,6 +117,7 @@ def _journals(
         max_bytes=kwargs.get("max_bytes", 1 << 20),
         retention_seconds=3600,
         liveness_seconds=kwargs.get("liveness_seconds", 5),
+        cgroup_root=kwargs.get("cgroup_root", root / "no-cgroup"),
     )
 
 
@@ -171,6 +186,53 @@ async def test_stopped_kernel_finishes_the_journal_as_lost(
     assert entries[-1]["state"] == "LOST"
     with pytest.raises(KernelNotFoundError):
         await journals.start(Manager(client), "kernel", str(uuid4()), "x")
+
+
+@pytest.mark.parametrize(
+    ("returncode", "failcnt_after", "reason"),
+    [
+        (
+            -9,
+            "8",
+            " It was killed by SIGKILL. The container reached its memory "
+            "limit during execution, so it was most likely killed for "
+            "running out of memory.",
+        ),
+        (-9, "5", " It was killed by SIGKILL."),
+        (1, "8", " It exited with code 1."),
+        (None, "8", ""),
+    ],
+)
+async def test_lost_kernel_reason_names_its_exit_and_memory_limit(
+    tmp_path: Path,
+    returncode: int | None,
+    failcnt_after: str,
+    reason: str,
+) -> None:
+    failcnt = tmp_path / "cgroup" / "memory" / "memory.failcnt"
+    failcnt.parent.mkdir(parents=True)
+    failcnt.write_text("5\n")
+    client = Client()
+    state = KernelState()
+    journals = _journals(
+        tmp_path / "journals",
+        state,
+        liveness_seconds=0.01,
+        cgroup_root=tmp_path / "cgroup",
+    )
+    request_id = str(uuid4())
+    manager = Manager(client)
+    await journals.start(manager, "kernel", request_id, "work()")
+    failcnt.write_text(f"{failcnt_after}\n")
+    manager.kernels["kernel"].provisioner.process.returncode = returncode
+    state.instance_id = None
+
+    entries = await _collect(journals, request_id)
+
+    assert entries[-1]["state"] == "LOST"
+    assert entries[-1]["message"] == (
+        "The kernel process stopped or restarted during execution." + reason
+    )
 
 
 async def test_output_beyond_the_journal_limit_stops_recording(
