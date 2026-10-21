@@ -17,6 +17,7 @@ from executor_service.application._execution_service.types import (
 from executor_service.application.commands import SubmitExecutionCommand
 from executor_service.domain.enums import RuntimePool, RuntimeType
 from executor_service.domain.errors import (
+    InvalidExecutionSpecError,
     PersistenceConflictError,
     UnsupportedRuntimeProfileError,
 )
@@ -24,6 +25,10 @@ from executor_service.domain.models import (
     Execution,
     ExecutionOperation,
     ExecutionStep,
+)
+from executor_service.domain.tenants import (
+    ALWAYS_RESERVED_TENANT_IDS,
+    is_valid_tenant_id,
 )
 from executor_service.work_messages import build_work_message
 
@@ -33,8 +38,13 @@ class ExecutionSubmissionCommands:
         self,
         support: ExecutionCommandSupport,
         runtime_profiles: Mapping[RuntimeType, tuple[str, ...]],
+        *,
+        reserved_tenant_ids: frozenset[str] = ALWAYS_RESERVED_TENANT_IDS,
     ) -> None:
         self._support = support
+        self._reserved_tenant_ids = (
+            ALWAYS_RESERVED_TENANT_IDS | reserved_tenant_ids
+        )
         self._runtime_profiles = {
             runtime_type: tuple(profiles)
             for runtime_type, profiles in runtime_profiles.items()
@@ -51,6 +61,7 @@ class ExecutionSubmissionCommands:
         self, command: SubmitExecutionCommand
     ) -> ExecutionCommandResult:
         validate_submit(command)
+        self._validate_tenant(command.tenant_id)
         self._support.validate_step_limits(0, len(command.steps))
         allowed_profiles = self._runtime_profiles.get(command.runtime_type, ())
         if command.runtime_profile not in allowed_profiles:
@@ -109,6 +120,7 @@ class ExecutionSubmissionCommands:
                     session_id=command.session_id,
                     task_id=command.task_id,
                     workflow_id=command.workflow_id,
+                    tenant_id=command.tenant_id,
                     created_by_type=command.actor_type,
                     created_by=command.actor_id,
                     updated_by_type=command.actor_type,
@@ -173,3 +185,15 @@ class ExecutionSubmissionCommands:
                     execution=existing,
                     operation_id=required_operation_id(operation_id),
                 )
+
+    def _validate_tenant(self, tenant_id: str | None) -> None:
+        if tenant_id is None:
+            return
+        if not is_valid_tenant_id(tenant_id):
+            raise InvalidExecutionSpecError(
+                "tenant_id must match ^[a-z][a-z0-9-]{1,62}[a-z0-9]$."
+            )
+        if tenant_id in self._reserved_tenant_ids:
+            raise InvalidExecutionSpecError(
+                f"tenant_id '{tenant_id}' is reserved."
+            )
