@@ -94,39 +94,15 @@ retention limits, test commands, and deployment precautions.
 
 ## Logging
 
-[`src/executor_service/config.py`](src/executor_service/config.py) is the
-deployment configuration entry point. The checked-in implementation is a
-local **dummy**, independent of the internal `hcp` library. It exports
-`Appconfig`, `app_config = Appconfig()`, and `api_tags_meta`. `FOO` and `BAR`
-are empty-default example fields read from environment variables / `.env`,
-not Executor business settings. API tag metadata is passed to FastAPI OpenAPI.
+Startup calls `configure_logging()` in
+[`src/executor_service/logging_setup.py`](src/executor_service/logging_setup.py).
+When the internal `hcp` library is installed it delegates to
+`hcp.framework.logger.init_logger()`, which owns its own `logger.yml` and policy.
+Otherwise the standard `logger.yml` below is applied, so the same code runs both
+outside and inside the company network without an `hcp` dependency. Moving the
+code in only needs the `hcp` dependency and the internal `logger.yml`.
 
-For internal deployment, replace this file with the HCP implementation:
-
-```python
-from hcp.framework.config.config import Config
-
-
-class Appconfig(Config):
-    FOO: str
-    BAR: str
-
-
-app_config = Appconfig()
-api_tags_meta = [
-    {"name": "executions", "description": "Execution requests and results."},
-]
-```
-
-The internal module/library must initialize its configuration and logging when
-imported (for example, through the Config constructor). Executor does not call
-an extra `configure_logging` function on it. The dummy does not emulate HCP's
-`config.yml` format or load a separate config YAML: those rules belong to HCP.
-`settings.py` continues to own Executor's DB/Redis/runtime environment settings.
-There is no separate `logging_config.py` or compatibility import shim.
-
-The following YAML behavior applies to the **local dummy implementation**;
-the internal HCP configuration owns its own YAML paths and logging policy.
+The following YAML behavior applies when `hcp` is **not** installed.
 
 The repository-root `logger.yml` is a standard Python `logging.dictConfig`
 configuration. Executor module logs and Uvicorn server/access logs use its
@@ -153,7 +129,7 @@ Keep this file deployment-owned and trusted: dictConfig can instantiate Python
 handler/formatter factories. Do not put credentials in it. If adding file
 handlers, provision a writable directory for the non-root user separately;
 the read-only Kubernetes root filesystem is not suitable for log files.
-After importing config, startup adds `DatabaseErrorFilter` to configured
+After `configure_logging()`, startup adds `DatabaseErrorFilter` to configured
 handlers without replacing internal handlers, formatters, levels, or filters.
 If the internal library creates/replaces handlers later, call
 `install_database_error_filters()` from
@@ -748,9 +724,13 @@ are documented in [Database Operations](docs/database-operations.md).
 
 ## Configuration and secrets
 
-All settings use environment variables; `.env` is ignored by Git. `DATABASE_URL` and `REDIS_URL`
-are represented as secret settings and are never intentionally logged. `.env.example` contains
-local-only credentials. Inject production values through the Kubernetes secret mechanism.
+Settings come from, highest first, environment variables, `.env` (ignored by Git), and
+`config.{APP_ENV}.yml` in the working directory. `APP_ENV=local` (the default) reads no YAML;
+`dev`, `stg` and `prd` require the matching file and fail startup without it. Copy
+`config.example.yml` to `config.prd.yml` and so on; keys are the setting names in any case. The
+platform offers no ConfigMaps or Secrets, so these files, credentials included, ship in the
+image (`COPY config.*.yml`). `DATABASE_URL` and `REDIS_URL` are secret settings and are never
+intentionally logged. `.env.example` contains local-only credentials.
 
 `MCP_ALLOWED_HOSTS` and `MCP_ALLOWED_ORIGINS` are fail-closed allowlists for the SDK's DNS-rebinding
 protection. Add the Kubernetes gateway hostname and origin before deployment; do not disable the

@@ -108,7 +108,7 @@ async def test_failed_migration_prevents_serving_and_closes_container(
     stop.assert_awaited_once()
 
 
-def test_deployment_has_inline_settings_and_safe_update_strategy() -> None:
+def test_deployment_reads_image_config_and_safe_update_strategy() -> None:
     deployment = yaml.safe_load(
         (ROOT / "deploy/kubernetes/deployment.yaml").read_text()
     )
@@ -120,22 +120,26 @@ def test_deployment_has_inline_settings_and_safe_update_strategy() -> None:
     }
     container = deployment["spec"]["template"]["spec"]["containers"][0]
     assert "envFrom" not in container
-    env = {item["name"]: item.get("value") for item in container["env"]}
-    assert len(env) == len(container["env"])
-    assert env["DB_AUTO_MIGRATE"] == "true"
-    assert env["DB_MIGRATIONS_PATH"] == "/app/migrations"
-    for key in ("DATABASE_URL", "REDIS_URL", "RUNTIME_CREDENTIAL_KEY"):
-        assert "REPLACE" in env[key]
+    env = {item["name"]: item for item in container["env"]}
+    assert set(env) == {"APP_ENV", "EXECUTION_CONSUMER_NAME"}
+    assert env["APP_ENV"]["value"] == "prd"
     assert "secretKeyRef" not in str(deployment)
     assert "configMapKeyRef" not in str(deployment)
+    config = yaml.safe_load((ROOT / "config.example.yml").read_text())
+    assert config["DB_AUTO_MIGRATE"] is True
+    assert config["DB_MIGRATIONS_PATH"] == "/app/migrations"
+    for key in ("DATABASE_URL", "REDIS_URL", "RUNTIME_CREDENTIAL_KEY"):
+        assert "REPLACE" in config[key]
     assert container["startupProbe"]["failureThreshold"] * (
         container["startupProbe"]["periodSeconds"]
-    ) > int(env["DB_MIGRATION_LOCK_TIMEOUT_SECONDS"]) + int(
-        env["DB_MIGRATION_STATEMENT_TIMEOUT_SECONDS"]
+    ) > (
+        config["DB_MIGRATION_LOCK_TIMEOUT_SECONDS"]
+        + config["DB_MIGRATION_STATEMENT_TIMEOUT_SECONDS"]
     )
-    assert env["SHARED_STORAGE_ROOT"] in {
-        mount["mountPath"] for mount in container["volumeMounts"]
-    }
+    mounts = {Path(mount["mountPath"]) for mount in container["volumeMounts"]}
+    for key in ("SHARED_STORAGE_ROOT", "INPUT_STORAGE_ROOT"):
+        root = Path(config[key])
+        assert any(root.is_relative_to(mount) for mount in mounts)
     for old in ("configmap.yaml", "secret.example.yaml", "migration-job.yaml"):
         assert not (ROOT / "deploy/kubernetes" / old).exists()
 

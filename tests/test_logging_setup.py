@@ -1,4 +1,4 @@
-"""Deployment config contract and isolated local logging tests."""
+"""Logging setup: HCP init_logger when installed, else local logger.yml."""
 
 import os
 import subprocess
@@ -11,6 +11,11 @@ import yaml
 from executor_service.settings import Settings
 
 ROOT = Path(__file__).resolve().parents[1]
+SETUP = """
+from executor_service.logging_setup import configure_logging
+from executor_service.settings import Settings
+configure_logging(Settings(_env_file=None))
+"""
 
 
 def _run(script: str, path: Path, **env: str) -> subprocess.CompletedProcess:
@@ -38,24 +43,16 @@ def _yaml(tmp_path: Path) -> Path:
     return path
 
 
-def test_dummy_config_and_root_level_override(tmp_path: Path) -> None:
+def test_local_config_and_root_level_override(tmp_path: Path) -> None:
     result = _run(
-        """
+        SETUP
+        + """
 import logging
-import sys
-from executor_service.config import Appconfig, app_config, api_tags_meta
-assert isinstance(app_config, Appconfig)
-assert app_config.FOO == 'local-foo'
-assert app_config.BAR == 'local-bar'
-assert not any(name == 'hcp' or name.startswith('hcp.') for name in sys.modules)
-assert api_tags_meta[0]['name'] == 'executions'
 logging.getLogger('executor_service').debug('visible')
 logging.getLogger('httpx').info('hidden')
 """,
         _yaml(tmp_path),
         LOG_LEVEL="debug",
-        FOO="local-foo",
-        BAR="local-bar",
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.splitlines() == ["CUSTOM visible"]
@@ -76,19 +73,17 @@ logging.getLogger('httpx').info('hidden')
 def test_invalid_yaml_fails_startup(tmp_path: Path, content: str) -> None:
     path = tmp_path / "bad.yml"
     path.write_text(content, encoding="utf-8")
-    result = _run("import executor_service.config", path)
+    result = _run(SETUP, path)
     assert result.returncode != 0
     assert "LoggingConfigurationError" in result.stderr
     assert "unsafe\n" not in result.stdout
 
 
 def test_missing_file_and_invalid_level(tmp_path: Path) -> None:
-    result = _run("import executor_service.config", tmp_path / "missing.yml")
+    result = _run(SETUP, tmp_path / "missing.yml")
     assert result.returncode != 0
     assert "LOG_CONFIG_FILE" in result.stderr
-    result = _run(
-        "import executor_service.config", _yaml(tmp_path), LOG_LEVEL="invalid"
-    )
+    result = _run(SETUP, _yaml(tmp_path), LOG_LEVEL="invalid")
     assert result.returncode != 0
     assert "LOG_LEVEL" in result.stderr
 
@@ -106,11 +101,12 @@ def test_settings_preserve_logging_env(monkeypatch: pytest.MonkeyPatch):
 
 
 @pytest.mark.parametrize("internal", [False, True])
-def test_entrypoint_accepts_local_or_internal_config(
+def test_entrypoint_uses_local_config_or_hcp_logger(
     tmp_path: Path, internal: bool
 ) -> None:
     script = """
 import logging
+import logging.config
 import sys
 import types
 import uvicorn
@@ -120,27 +116,23 @@ from executor_service.infrastructure.db.logging import DatabaseErrorFilter
 
 uvicorn.Config('unused:app')
 if USE_INTERNAL:
-    # Internal replacement exports only the contract shown by the deployer.
-    # It has no configure_logging function or local YAML dependency.
-    replacement = types.ModuleType('executor_service.config')
-    class Appconfig:
-        pass
-    replacement.Appconfig = Appconfig
-    replacement.app_config = Appconfig()
-    replacement.api_tags_meta = [{'name': 'D-Test', 'description': 'Internal'}]
-    logging.config.dictConfig({
-        'version': 1, 'disable_existing_loggers': False,
-        'formatters': {'custom': {'format': 'INTERNAL %(message)s'}},
-        'handlers': {'console': {'class': 'logging.StreamHandler',
-            'formatter': 'custom', 'stream': 'ext://sys.stdout'}},
-        'root': {'level': 'INFO', 'handlers': ['console']},
-        'loggers': {'uvicorn': {'handlers': [], 'propagate': True}},
-    })
-    sys.modules['executor_service.config'] = replacement
+    # Inside the company network hcp owns logging; no local YAML is read.
+    def init_logger():
+        logging.config.dictConfig({
+            'version': 1, 'disable_existing_loggers': False,
+            'formatters': {'custom': {'format': 'INTERNAL %(message)s'}},
+            'handlers': {'console': {'class': 'logging.StreamHandler',
+                'formatter': 'custom', 'stream': 'ext://sys.stdout'}},
+            'root': {'level': 'INFO', 'handlers': ['console']},
+            'loggers': {'uvicorn': {'handlers': [], 'propagate': True}},
+        })
+    hcp_logger = types.ModuleType('hcp.framework.logger')
+    hcp_logger.init_logger = init_logger
+    sys.modules['hcp.framework.logger'] = hcp_logger
 
 container_module.ApplicationContainer = lambda settings: object()
 def create_app(container, *, openapi_tags):
-    assert openapi_tags[0]['name'] == ('D-Test' if USE_INTERNAL else 'executions')
+    assert openapi_tags[0]['name'] == 'executions'
     return object()
 app_module.create_app = create_app
 import executor_service.main as main
@@ -164,13 +156,13 @@ main.run()
     assert result.stdout.splitlines() == [f"{prefix} once"] * 3
 
 
-def test_image_and_deployment_logging_paths_match() -> None:
+def test_image_ships_logging_and_environment_config() -> None:
     dockerfile = (ROOT / "Dockerfile").read_text()
-    assert "COPY logger.yml ./" in dockerfile
+    assert "COPY logger.yml config.*.yml ./" in dockerfile
     assert "LOG_CONFIG_FILE=/app/logger.yml" in dockerfile
     deployment = yaml.safe_load(
         (ROOT / "deploy/kubernetes/deployment.yaml").read_text()
     )
     container = deployment["spec"]["template"]["spec"]["containers"][0]
     env = {item["name"]: item.get("value") for item in container["env"]}
-    assert env["LOG_CONFIG_FILE"] == "/app/logger.yml"
+    assert env["APP_ENV"] == "prd"

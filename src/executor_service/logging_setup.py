@@ -1,8 +1,8 @@
-"""Local stand-in for the deployment-owned HCP configuration module.
+"""Logging setup that runs with or without the internal HCP library.
 
-The internal deployment replaces this module with Appconfig(Config),
-app_config = Appconfig(), and api_tags_meta. HCP owns configuration and
-logging initialization there. No HCP import or emulation is required here.
+Inside the company network ``hcp.framework.logger.init_logger()`` owns
+logging and reads its own logger.yml. Outside it, LOG_CONFIG_FILE is
+applied with ``logging.dictConfig`` so the same code runs everywhere.
 """
 
 import logging
@@ -10,27 +10,26 @@ import logging.config
 from pathlib import Path
 
 import yaml
-from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from executor_service.settings import get_settings
-
-
-class Appconfig(BaseSettings):
-    """Dummy fields; replace with the internal HCP Config subclass."""
-
-    model_config = SettingsConfigDict(
-        env_file=".env", env_file_encoding="utf-8", extra="ignore"
-    )
-
-    FOO: str = ""
-    BAR: str = ""
+from executor_service.settings import Settings
 
 
 class LoggingConfigurationError(RuntimeError):
     """The configured logging policy could not be applied."""
 
 
-def _configure_logging(path: Path, level: str | None = None) -> None:
+def configure_logging(settings: Settings) -> None:
+    try:
+        from hcp.framework.logger import (  # ty: ignore[unresolved-import]
+            init_logger,
+        )
+    except ImportError:
+        apply_logger_config(settings.log_config_file, settings.log_level)
+    else:
+        init_logger()
+
+
+def apply_logger_config(path: Path, level: str | None = None) -> None:
     """Apply dictConfig YAML; an optional LOG_LEVEL overrides only root.level.
 
     Relative paths are resolved against the process working directory. Missing
@@ -69,19 +68,3 @@ def _configure_logging(path: Path, level: str | None = None) -> None:
         raise LoggingConfigurationError(
             f"Cannot apply logging config {path}."
         ) from exc
-
-
-app_config = Appconfig()
-
-# Keep these names when replacing this file in the internal deployment.
-# Optional externalDocs entries use {"description": "...", "url": "..."}.
-api_tags_meta = [
-    {"name": "executions", "description": "Execution requests and results."},
-    {"name": "runtime-targets", "description": "Runtime target management."},
-    {"name": "maintenance", "description": "Executor maintenance controls."},
-]
-
-# Local-only initialization, performed once when main imports this module.
-# The internal Config constructor/library supplies its own initialization.
-_settings = get_settings()
-_configure_logging(_settings.log_config_file, _settings.log_level)
