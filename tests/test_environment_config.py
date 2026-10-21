@@ -71,3 +71,9 @@ def test_common_file_applies_and_environment_file_wins(workdir, monkeypatch):
     monkeypatch.setenv("APP_ENV", "dev")
     settings = Settings(_env_file=None)
     assert (settings.database_pool_size, settings.outbox_batch_size) == (6, 50)
+
+
+def test_port_comes_from_config_yml(workdir, monkeypatch):
+    monkeypatch.delenv("PORT", raising=False)
+    (workdir / "config.yml").write_text("PORT: 9300\n")
+    assert Settings(_env_file=None).port == 9300
