@@ -57,3 +57,17 @@ def test_unknown_env_and_missing_file_fail(workdir, monkeypatch):
     monkeypatch.setenv("APP_ENV", "stg")
     with pytest.raises(FileNotFoundError, match=r"config\.stg\.yml"):
         Settings(_env_file=None)
+
+
+def test_common_file_applies_and_environment_file_wins(workdir, monkeypatch):
+    (workdir / "config.yml").write_text(
+        "database_pool_size: 4\nOUTBOX_BATCH_SIZE: 50\n"
+    )
+    assert Settings(_env_file=None).database_pool_size == 4
+    (workdir / "config.dev.yml").write_text(
+        "database_pool_size: 6\n"
+        "RUNTIME_CREDENTIAL_KEY: not-the-local-placeholder\n"
+    )
+    monkeypatch.setenv("APP_ENV", "dev")
+    settings = Settings(_env_file=None)
+    assert (settings.database_pool_size, settings.outbox_batch_size) == (6, 50)

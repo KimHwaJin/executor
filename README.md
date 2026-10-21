@@ -724,12 +724,14 @@ are documented in [Database Operations](docs/database-operations.md).
 
 ## Configuration and secrets
 
-Settings come from, highest first, environment variables, `.env` (ignored by Git), and
-`config.{APP_ENV}.yml` in the working directory. `APP_ENV=local` (the default) reads no YAML;
-`dev`, `stg` and `prd` require the matching file and fail startup without it. Copy
+Settings come from, highest first, environment variables, `.env` (ignored by Git),
+`config.{APP_ENV}.yml` (per environment) and `config.yml` (shared by every environment), both in
+the working directory. `config.yml` is read whenever it exists. `APP_ENV=local` (the default)
+reads no environment file; `dev`, `stg` and `prd` require the matching file and fail startup
+without it. Copy
 `config.example.yml` to `config.prd.yml` and so on; keys are the setting names in any case. The
 platform offers no ConfigMaps or Secrets, so these files, credentials included, ship in the
-image (`COPY config.*.yml`). `DATABASE_URL` and `REDIS_URL` are secret settings and are never
+image (`COPY config*.yml`). `DATABASE_URL` and `REDIS_URL` are secret settings and are never
 intentionally logged. `.env.example` contains local-only credentials.
 
 `MCP_ALLOWED_HOSTS` and `MCP_ALLOWED_ORIGINS` are fail-closed allowlists for the SDK's DNS-rebinding
