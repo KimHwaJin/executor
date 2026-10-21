@@ -1,6 +1,6 @@
 """Runtime driver contracts shared by the application and infrastructure layers."""
 
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -253,7 +253,11 @@ class RuntimeDriver(RuntimeStorage, Protocol):
     async def resource_status(self) -> RuntimeResourceObservation: ...
 
     async def start_session(
-        self, profile: str, working_directory: str
+        self,
+        profile: str,
+        working_directory: str,
+        memory_limit_bytes: int | None,
+        env: Mapping[str, str],
     ) -> str: ...
 
     async def interrupt_session(self, session_id: str) -> None: ...

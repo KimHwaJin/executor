@@ -66,6 +66,7 @@ RUN ldconfig \
         --requirements /opt/jupyter-env/default/requirements.txt
 
 COPY deploy/jupyter/extension /opt/jupyter-resource-extension
+COPY deploy/jupyter/wrap_kernelspecs.py /tmp/wrap_kernelspecs.py
 COPY deploy/jupyter/executor_resource_extension.json \
     /opt/venvs/jupyter/etc/jupyter/jupyter_server_config.d/executor_resource_extension.json
 
@@ -79,7 +80,10 @@ RUN uv pip install --strict --python /opt/venvs/jupyter/bin/python \
         --prefix=/opt/venvs/jupyter \
         --name=3102311 \
         --display-name="3102311 (Python 3.10)" \
-    && rm -rf /opt/venvs/jupyter/share/jupyter/kernels/python3
+    && rm -rf /opt/venvs/jupyter/share/jupyter/kernels/python3 \
+    && /opt/venvs/jupyter/bin/python /tmp/wrap_kernelspecs.py \
+        /opt/venvs/jupyter/share/jupyter/kernels \
+    && rm /tmp/wrap_kernelspecs.py
 
 RUN rm -rf /home/jovyan \
     && groupadd --gid 1000 jovyan \

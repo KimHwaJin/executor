@@ -20,6 +20,7 @@ from executor_service.application.commands import (
 )
 from executor_service.domain.enums import RuntimeType
 from executor_service.domain.models import Execution
+from executor_service.domain.ports import SecretCipher
 from executor_service.domain.results import ExecutionResultStore
 
 
@@ -34,6 +35,9 @@ class ExecutionService:
         *,
         max_steps_per_operation: int = 100,
         max_steps_per_execution: int = 1000,
+        default_memory_limit_bytes: int | None = None,
+        max_memory_limit_bytes: int | None = None,
+        secret_cipher: SecretCipher | None = None,
     ) -> None:
         support = ExecutionCommandSupport(
             uow_factory,
@@ -42,7 +46,11 @@ class ExecutionService:
             max_steps_per_execution=max_steps_per_execution,
         )
         self._submission = ExecutionSubmissionCommands(
-            support, runtime_profiles
+            support,
+            runtime_profiles,
+            default_memory_limit_bytes=default_memory_limit_bytes,
+            max_memory_limit_bytes=max_memory_limit_bytes,
+            secret_cipher=secret_cipher,
         )
         self._operations = ExecutionOperationCommands(support)
         self._lifecycle = ExecutionLifecycleCommands(support)

@@ -71,6 +71,7 @@ class ExecutionDetailView:
     runtime_type: RuntimeType
     runtime_pool: RuntimePool
     runtime_profile: str
+    memory_limit_bytes: int | None
     runtime_target_id: UUID | None
     runtime_session_id: str | None
     status: ExecutionStatus

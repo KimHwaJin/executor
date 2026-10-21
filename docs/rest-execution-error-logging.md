@@ -12,7 +12,9 @@ Execution 경로(`/api/v1/executions` 및 하위 경로)의 POST/PUT/PATCH/DELET
 - 오류 응답은 최대 16KiB, 미처리 예외는 타입·메시지를 기록한다.
 - request_id는 이 로그의 식별자이며 Agent 요청 ID나 응답 헤더는 아니다.
 
-요청 body는 마스킹하지 않는다. 코드·토큰·개인정보도 포함될 수 있으므로 로그 접근권한과
+요청 body는 `runtime.env` 값만 `***`로 바꾸고 나머지는 마스킹하지 않는다. body가 잘려 JSON으로
+읽을 수 없는데 `"env"`가 들어 있으면 body 전체를 생략한다. 코드·토큰·개인정보도 포함될 수
+있으므로 로그 접근권한과
 보관정책을 별도로 관리한다. Authorization 등 요청 헤더는 수집하지 않는다.
 JSON 문자열로 기록하여 줄바꿈을 escape하며 잘못된 UTF-8은 대체 문자로 표시한다.
 

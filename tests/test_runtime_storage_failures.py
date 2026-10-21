@@ -71,7 +71,7 @@ class FailingRuntimeStorageDriver(InMemoryRuntimeStorage):
             raise RuntimeDriverError("workspace prepare failed")
         await super().prepare_workspace(workspace_path)
 
-    async def start_session(self, _runtime_profile: str, _path: str) -> str:
+    async def start_session(self, *_args: object) -> str:
         return "storage-failure-kernel"
 
     async def run_code(

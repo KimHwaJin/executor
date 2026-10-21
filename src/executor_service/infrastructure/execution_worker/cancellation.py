@@ -197,6 +197,7 @@ class CancellationProcessor:
             execution.operation_wait_expires_at = None
             execution.failure_type = None
             execution.retry_strategy = RetryStrategy.NOT_RETRYABLE
+            execution.runtime_env_ciphertext = None
             execution.retry_from_sequence = None
             execution.retained_runtime_session_until = None
             execution.runtime_session_cleanup_status = cleanup_status
