@@ -36,11 +36,11 @@ from executor_service.infrastructure.db.models import (
     OutboxEventORM,
 )
 from executor_service.infrastructure.db.session import create_session_factory
-from executor_service.infrastructure.execution_worker._event_writer.payloads import (
-    row_result_reference,
-)
 from executor_service.infrastructure.execution_worker.event_writer import (
     persist_execution_event,
+)
+from executor_service.infrastructure.execution_worker.event_writer.payloads import (
+    row_result_reference,
 )
 from executor_service.infrastructure.outbox import OutboxPublisher
 

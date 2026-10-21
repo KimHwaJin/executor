@@ -71,7 +71,7 @@
 
 ## 코드 참조
 
-- `src/executor_service/interfaces/_contracts/execution_inputs.py`
+- `src/executor_service/interfaces/contracts/execution_inputs.py`
 - `src/executor_service/execution_specs.py`
 - `src/executor_service/settings.py`
 - `src/executor_service/infrastructure/execution_worker/step_executor.py`

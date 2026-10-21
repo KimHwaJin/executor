@@ -10,7 +10,7 @@ from uuid import uuid4
 
 import pytest
 
-from executor_service.interfaces._contracts.execution_inputs import (
+from executor_service.interfaces.contracts.execution_inputs import (
     ExecutionSubmitRequest,
 )
 

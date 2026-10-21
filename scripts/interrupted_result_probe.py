@@ -24,7 +24,7 @@ from executor_service.infrastructure.db.session import create_session_factory
 from executor_service.infrastructure.execution_queries import (
     SQLAlchemyExecutionQueryService,
 )
-from executor_service.interfaces._contracts.results import (
+from executor_service.interfaces.contracts.results import (
     ExecutionResultResponse,
 )
 

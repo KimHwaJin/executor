@@ -45,7 +45,7 @@ marks an error only for an error execute reply or error output, so the successfu
 and idle status complete the Step. The files and notebook faithfully preserve the warning but
 never receive the requested stdout. Their checksums match, yet `complete=true` is misleading.
 
-- Relevant code: `src/executor_service/infrastructure/_jupyter/execution.py` and `protocol.py`.
+- Relevant code: `src/executor_service/infrastructure/jupyter/execution.py` and `protocol.py`.
 - Text notebooks were only 1,138–1,141 bytes, containing source and the warning, not 5–25 MiB output.
 - Missing output cannot be recovered from those saved notebooks or result files.
 - Agents relying on success/completeness can wrongly assume they received the actual result.

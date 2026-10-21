@@ -65,7 +65,7 @@ from executor_service.infrastructure.result_storage import (
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
 )
-from executor_service.interfaces._contracts.steps import ExecutionStepResponse
+from executor_service.interfaces.contracts.steps import ExecutionStepResponse
 from executor_service.settings import Settings
 
 

@@ -268,7 +268,7 @@ async def test_runtime_purge_serializes_with_target_mutations(
         RuntimeTargetNotFoundError,
         RuntimeTargetPurgeConflictError,
     )
-    from executor_service.infrastructure._runtime_registry.purge import (
+    from executor_service.infrastructure.runtime_registry.purge import (
         purge_target,
     )
     from tests.test_runtime_management_safety import _registry

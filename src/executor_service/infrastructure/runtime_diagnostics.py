@@ -20,7 +20,7 @@ from executor_service.domain.runtime import (
     RuntimeExecutionTimeoutError,
     RuntimeOutputLimitExceededError,
 )
-from executor_service.infrastructure._result_storage.errors import (
+from executor_service.infrastructure.result_storage.errors import (
     ResultStorageError,
 )
 

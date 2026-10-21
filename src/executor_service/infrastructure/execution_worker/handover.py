@@ -27,11 +27,11 @@ from executor_service.infrastructure.db.models import (
     ExecutionStepORM,
     ExecutionStepRunORM,
 )
-from executor_service.infrastructure.execution_worker._event_writer.payloads import (
+from executor_service.infrastructure.execution_worker.event_writer.payloads import (
     attempt_payload,
     operation_payload,
 )
-from executor_service.infrastructure.execution_worker._event_writer.persistence import (
+from executor_service.infrastructure.execution_worker.event_writer.persistence import (
     persist_execution_event,
 )
 

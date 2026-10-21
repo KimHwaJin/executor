@@ -23,9 +23,6 @@ from executor_service.domain.diagnostics import (
 )
 from executor_service.domain.enums import ExecutionStatus
 from executor_service.domain.models import utc_now
-from executor_service.infrastructure._execution_queries.guards import (
-    require_execution,
-)
 from executor_service.infrastructure.db.models import (
     ExecutionDiagnosticORM,
     ExecutionStepORM,
@@ -37,6 +34,9 @@ from executor_service.infrastructure.execution_leases import (
     ExecutionLeaseLostError,
     require_active_cancellation_lease,
     require_active_lease,
+)
+from executor_service.infrastructure.execution_queries.guards import (
+    require_execution,
 )
 from executor_service.infrastructure.runtime_diagnostics import (
     log_runtime_failure,

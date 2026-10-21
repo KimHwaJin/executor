@@ -1,44 +1,9 @@
-"""Contracts for SQLAlchemy model registration and compatibility imports."""
+"""Contracts for SQLAlchemy model registration."""
 
 from sqlalchemy.orm import configure_mappers
 
-from executor_service.infrastructure.db import _models as internal_models
-from executor_service.infrastructure.db import models as public_models
+from executor_service.infrastructure.db import models  # noqa: F401
 from executor_service.infrastructure.db.base import Base
-
-
-def test_public_module_reexports_internal_orm_models() -> None:
-    names = (
-        "CommandReceiptORM",
-        "BackgroundPassLeaseORM",
-        "ExecutionArtifactORM",
-        "ExecutionAttemptORM",
-        "ExecutionEventORM",
-        "ExecutionEventSequenceORM",
-        "ExecutionHandoverORM",
-        "ExecutionORM",
-        "ExecutionOperationORM",
-        "ExecutionRetryORM",
-        "ExecutionStepAttemptORM",
-        "ExecutionStepORM",
-        "ExecutionStepRunORM",
-        "ExecutorMaintenanceORM",
-        "MaintenanceRunORM",
-        "MaintenanceRunTargetORM",
-        "OutboxEventORM",
-        "RuntimeTargetORM",
-        "RuntimeTargetPurgeORM",
-    )
-
-    for name in names:
-        assert getattr(public_models, name) is getattr(internal_models, name)
-
-    assert (
-        public_models.audit_actor_constraints
-        is internal_models.audit_actor_constraints
-    )
-    assert public_models.enum_type is internal_models.enum_type
-    assert public_models.__all__ == internal_models.__all__
 
 
 def test_public_module_registers_complete_model_metadata() -> None:

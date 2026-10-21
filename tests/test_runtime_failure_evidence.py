@@ -57,10 +57,10 @@ from executor_service.infrastructure.result_storage import (
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
 )
-from executor_service.interfaces._contracts.diagnostics import (
+from executor_service.interfaces.contracts.diagnostics import (
     ExecutionDiagnosticPageResponse,
 )
-from executor_service.interfaces._contracts.steps import ExecutionStepResponse
+from executor_service.interfaces.contracts.steps import ExecutionStepResponse
 from executor_service.settings import Settings
 from tests.result_evidence_assertions import assert_result_evidence_surfaces
 from tests.runtime_credentials import runtime_credential_fields
