@@ -18,10 +18,13 @@ def workdir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return tmp_path
 
 
-def test_example_file_is_a_valid_prd_config(workdir, monkeypatch):
-    shutil.copy(ROOT / "config.example.yml", workdir / "config.prd.yml")
+def test_example_files_are_a_valid_prd_config(workdir, monkeypatch):
+    shutil.copy(ROOT / "config.example.yml", workdir / "config.yml")
+    shutil.copy(ROOT / "config.env.example.yml", workdir / "config.prd.yml")
     monkeypatch.setenv("APP_ENV", "prd")
     settings = Settings(_env_file=None)
+    assert settings.db_auto_migrate is True
+    assert settings.runtime_allowed_profiles == ("default", "3102311")
     assert settings.shared_storage_root == Path("/mnt/data/dtest/executor")
     assert settings.effective_input_storage_root == Path("/mnt/data/dtest")
     assert settings.mcp_allowed_hosts == (
@@ -77,3 +80,13 @@ def test_port_comes_from_config_yml(workdir, monkeypatch):
     monkeypatch.delenv("PORT", raising=False)
     (workdir / "config.yml").write_text("PORT: 9300\n")
     assert Settings(_env_file=None).port == 9300
+
+
+def test_dotenv_is_read_only_locally(workdir, monkeypatch):
+    (workdir / ".env").write_text("DATABASE_POOL_SIZE=3\n")
+    assert Settings().database_pool_size == 3
+    (workdir / "config.dev.yml").write_text(
+        "RUNTIME_CREDENTIAL_KEY: not-the-local-placeholder\n"
+    )
+    monkeypatch.setenv("APP_ENV", "dev")
+    assert Settings().database_pool_size == 10

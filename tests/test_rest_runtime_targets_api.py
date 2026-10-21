@@ -85,6 +85,7 @@ async def fleet_client(
         database_url="sqlite+aiosqlite:///:memory:",
         redis_url="redis://localhost:6399/15",
         runtime_enabled=False,
+        runtime_allowed_profiles=("default", "3102311"),
         shared_storage_root=tmp_path,
     )
     container = ApplicationContainer(settings)

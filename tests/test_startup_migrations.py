@@ -119,16 +119,17 @@ def test_deployment_reads_image_config_and_safe_update_strategy() -> None:
     assert env["APP_ENV"]["value"] == "prd"
     assert "secretKeyRef" not in str(deployment)
     assert "configMapKeyRef" not in str(deployment)
-    config = yaml.safe_load((ROOT / "config.example.yml").read_text())
-    assert config["DB_AUTO_MIGRATE"] is True
-    assert config["DB_MIGRATIONS_PATH"] == "/app/migrations"
+    common = yaml.safe_load((ROOT / "config.example.yml").read_text())
+    config = yaml.safe_load((ROOT / "config.env.example.yml").read_text())
+    assert common["DB_AUTO_MIGRATE"] is True
     for key in ("DATABASE_URL", "REDIS_URL", "RUNTIME_CREDENTIAL_KEY"):
         assert "REPLACE" in config[key]
+    defaults = Settings(_env_file=None)
     assert container["startupProbe"]["failureThreshold"] * (
         container["startupProbe"]["periodSeconds"]
     ) > (
-        config["DB_MIGRATION_LOCK_TIMEOUT_SECONDS"]
-        + config["DB_MIGRATION_STATEMENT_TIMEOUT_SECONDS"]
+        defaults.db_migration_lock_timeout_seconds
+        + defaults.db_migration_statement_timeout_seconds
     )
     mounts = {Path(mount["mountPath"]) for mount in container["volumeMounts"]}
     for key in ("SHARED_STORAGE_ROOT", "INPUT_STORAGE_ROOT"):

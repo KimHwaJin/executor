@@ -9,7 +9,7 @@
 | `DB_MIGRATION_LOCK_TIMEOUT_SECONDS` | `60` | 마이그레이션/DDL 잠금 대기 제한 |
 | `DB_MIGRATION_STATEMENT_TIMEOUT_SECONDS` | `300` | SQL 문 하나의 실행시간 제한. 전체 기동 제한이 아님 |
 
-`.env.example`, Compose, Kubernetes Deployment 예시는 자동 적용을 켠다.
+`config.example.yml`(이미지에 포함되는 공통 설정), `.env.example`, Compose 예시는 자동 적용을 켠다.
 기존 `.env`에 false가 있으면 Compose 기본값보다 우선하므로 true로 변경해야 한다.
 false일 때는 기존처럼 앱 실행 전에 `uv run alembic upgrade head`를 수행한다.
 이미 최신 head이면 스키마 변경 없이 진행한다. DB와 사용자를 생성하는 기능은 아니다.

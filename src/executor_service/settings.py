@@ -1,11 +1,12 @@
 """Executor settings.
 
 Sources, highest first: constructor arguments, environment variables,
-``.env``, ``config.{APP_ENV}.yml`` (values for one environment, when
-``APP_ENV`` is dev, stg or prd; ``local`` has none), then ``config.yml``
-(values shared by every environment, when present), both in the working
-directory. ConfigMaps and Secrets are unavailable on the platform, so the
-files ship in the image.
+``.env`` (``local`` only), ``config.{APP_ENV}.yml`` (values for one
+environment, when ``APP_ENV`` is dev, stg or prd; ``local`` has none), then
+``config.yml`` (values shared by every environment, when present), both in
+the working directory, and finally the field defaults below, which are the
+only place a default is written. ConfigMaps and Secrets are unavailable on
+the platform, so the files ship in the image.
 """
 
 import os
@@ -26,11 +27,15 @@ LOCAL_ENV = "local"
 APP_ENVS = ("dev", "stg", "prd")
 
 
+def _app_env() -> str:
+    return os.environ.get("APP_ENV", LOCAL_ENV).strip().lower() or LOCAL_ENV
+
+
 def config_files() -> list[Path]:
     """YAML settings files, highest precedence first."""
     files = []
-    app_env = os.environ.get("APP_ENV", LOCAL_ENV).strip().lower()
-    if app_env not in ("", LOCAL_ENV):
+    app_env = _app_env()
+    if app_env != LOCAL_ENV:
         if app_env not in APP_ENVS:
             raise ValueError(
                 f"APP_ENV must be {LOCAL_ENV} or one of {', '.join(APP_ENVS)}."
@@ -112,7 +117,6 @@ class Settings(BaseSettings):
     )
     runtime_allowed_profiles: Annotated[tuple[str, ...], NoDecode] = (
         "default",
-        "3102311",
     )
     runtime_default_max_concurrent_executions: int = Field(default=2, ge=1)
     runtime_health_poll_interval_seconds: float = Field(default=15, gt=0)
@@ -156,10 +160,12 @@ class Settings(BaseSettings):
             YamlConfigSettingsSource(settings_cls, yaml_file=path)
             for path in config_files()
         ]
+        # A developer's .env must never leak into an image-built environment.
+        dotenv = (dotenv_settings,) if _app_env() == LOCAL_ENV else ()
         return (
             init_settings,
             env_settings,
-            dotenv_settings,
+            *dotenv,
             *files,
             file_secret_settings,
         )

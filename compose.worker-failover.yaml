@@ -77,20 +77,14 @@ services:
     environment: &executor-environment
       APP_ENV: local
       LOG_LEVEL: INFO
-      HOST: 0.0.0.0
-      PORT: "8000"
       DATABASE_URL: postgresql+psycopg://executor:executor@postgres:5432/executor
       DATABASE_POOL_SIZE: "5"
       DATABASE_MAX_OVERFLOW: "2"
       REDIS_URL: redis://redis:6379/0
-      REDIS_EVENT_STREAM: executor.events
       MCP_ALLOWED_HOSTS: localhost:*,127.0.0.1:*,executor-primary:*,executor-secondary:*
       MCP_ALLOWED_ORIGINS: http://localhost:*,http://127.0.0.1:*
-      RUNTIME_CREDENTIAL_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
       SHARED_STORAGE_ROOT: /workspace/shared
-      RUNTIME_ENABLED: "true"
       RUNTIME_ALLOWED_PROFILES: default,3102311
-      RUNTIME_DEFAULT_MAX_CONCURRENT_EXECUTIONS: "2"
       RUNTIME_HEALTH_POLL_INTERVAL_SECONDS: "2"
       RUNTIME_SESSION_COUNT_MAX_AGE_SECONDS: "10"
       RUNTIME_RESOURCE_MAX_AGE_SECONDS: "10"

@@ -20,7 +20,7 @@ uv run alembic check
 ```
 
 `DB_AUTO_MIGRATE=true` runs the same upgrade during app startup before Worker initialization.
-The checked-in `.env.example` and Compose opt in; code defaults to false without an override.
+The checked-in `config.example.yml`, `.env.example` and Compose opt in; code defaults to false without an override.
 Manual CLI and app startup use the same PostgreSQL advisory transaction lock.
 See [startup migration settings and deployment](startup-migrations.md).
 

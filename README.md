@@ -607,7 +607,9 @@ remain valid. `runtime_target_list` reports capacity, active executions, observe
 supported profiles, and the latest health result. The scheduler selects within the requested
 `INTERACTIVE` or `BATCH` pool and skips full, disabled, unhealthy, or incompatible targets.
 Only profiles listed in `RUNTIME_ALLOWED_PROFILES` are advertised and schedulable, even if a
-Runtime Driver reports additional environments.
+Runtime Driver reports additional environments. The code default is only `default`; deployment
+profiles such as `3102311` are listed in `config.yml` (see `config.example.yml`), and the local
+`.env.example` and Compose files list the same set.
 
 Capacity admission uses `max(active_execution_count, active_session_count)` while the persisted
 session observation is fresh. The DB count includes running/waiting Attempts, retained retries,
@@ -725,15 +727,17 @@ are documented in [Database Operations](docs/database-operations.md).
 
 ## Configuration and secrets
 
-Settings come from, highest first, environment variables, `.env` (ignored by Git),
-`config.{APP_ENV}.yml` (per environment) and `config.yml` (shared by every environment), both in
-the working directory. `config.yml` is read whenever it exists. `APP_ENV=local` (the default)
-reads no environment file; `dev`, `stg` and `prd` require the matching file and fail startup
-without it. Copy
-`config.example.yml` to `config.prd.yml` and so on; keys are the setting names in any case. The
-platform offers no ConfigMaps or Secrets, so these files, credentials included, ship in the
-image (`COPY config*.yml`). `DATABASE_URL` and `REDIS_URL` are secret settings and are never
-intentionally logged. `.env.example` contains local-only credentials.
+Settings come from, highest first, environment variables, `.env` (local only, ignored by Git),
+`config.{APP_ENV}.yml` (per environment), `config.yml` (shared by every environment), and the
+field defaults in `src/executor_service/settings.py`, which are the only place a default is
+written. `config.yml` is read whenever it exists. `APP_ENV=local` (the default) reads no
+environment file; `dev`, `stg` and `prd` require the matching file, fail startup without it, and
+ignore `.env`. Copy `config.example.yml` to `config.yml` and `config.env.example.yml` to
+`config.prd.yml` and so on; both list only values that differ from the defaults, and keys are the
+setting names in any case. The platform offers no ConfigMaps or Secrets, so these files,
+credentials included, ship in the image (`COPY config*.yml`). `DATABASE_URL` and `REDIS_URL` are
+secret settings and are never intentionally logged. `.env.example` holds only local overrides and
+Docker Compose variables.
 
 `MCP_ALLOWED_HOSTS` and `MCP_ALLOWED_ORIGINS` are fail-closed allowlists for the SDK's DNS-rebinding
 protection. Add the Kubernetes gateway hostname and origin before deployment; do not disable the
