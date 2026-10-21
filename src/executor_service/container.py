@@ -57,6 +57,7 @@ from executor_service.infrastructure.runtime_drivers import (
     ConfiguredRuntimeDriverFactory,
 )
 from executor_service.infrastructure.runtime_registry import (
+    RuntimeCredentialCipher,
     RuntimeTargetRegistry,
 )
 from executor_service.infrastructure.runtime_storage import (
@@ -64,7 +65,7 @@ from executor_service.infrastructure.runtime_storage import (
 )
 from executor_service.settings import Settings
 
-EXPECTED_SCHEMA_REVISION = "0006"
+EXPECTED_SCHEMA_REVISION = "0007"
 
 
 class ApplicationContainer:
@@ -92,6 +93,13 @@ class ApplicationContainer:
             ),
             max_steps_per_execution=(
                 settings.execution_max_steps_per_execution
+            ),
+            default_memory_limit_bytes=(
+                settings.execution_default_memory_limit_bytes
+            ),
+            max_memory_limit_bytes=settings.max_execution_memory_limit_bytes,
+            secret_cipher=RuntimeCredentialCipher(
+                settings.runtime_credential_encryption_key
             ),
         )
         self.execution_queries = SQLAlchemyExecutionQueryService(

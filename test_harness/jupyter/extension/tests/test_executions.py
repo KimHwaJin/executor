@@ -156,6 +156,25 @@ async def test_code_is_sent_once_and_any_follower_replays_everything(
     assert [entry.get("seq") for entry in resumed] == [3, 4, 4]
 
 
+async def test_protected_env_values_never_reach_the_journal(
+    tmp_path: Path,
+) -> None:
+    client = Client()
+    manager = Manager(client)
+    journals = _journals(tmp_path)
+    journals.protect(manager, "kernel", ['s3"cret\\key', "abc"])
+    request_id = str(uuid4())
+    await journals.start(manager, "kernel", request_id, "print(key)")
+    client.output('key=s3"cret\\key abc\n')
+    client.finish()
+
+    entries = await _collect(journals, request_id)
+
+    outputs = [e for e in entries if e.get("msg_type") == "stream"]
+    assert outputs[0]["content"]["text"] == "key=*** abc\n"
+    assert "cret" not in (tmp_path / f"{request_id}.jsonl").read_text()
+
+
 async def test_stopped_kernel_finishes_the_journal_as_lost(
     tmp_path: Path,
 ) -> None:

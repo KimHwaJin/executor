@@ -123,8 +123,9 @@ class MultiExecutionRunner:
                 if runtime_session_id is None:
                     runtime_session_id = await run_runtime_operation(
                         "executor.runtime.session.start",
-                        driver.start_session(
-                            execution.runtime_profile,
+                        self._driver_provider.start_session(
+                            driver,
+                            execution,
                             workspace.runtime_relative_path,
                         ),
                         execution_id=execution.id,

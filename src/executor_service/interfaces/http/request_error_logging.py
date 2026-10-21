@@ -1,4 +1,7 @@
-"""Bounded, unmasked body logging for failed REST Execution commands only."""
+"""Bounded body logging for failed REST Execution commands only.
+
+Bodies are logged as sent except ``runtime.env`` values.
+"""
 
 import json
 import logging
@@ -7,6 +10,29 @@ from uuid import uuid4
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 logger = logging.getLogger(__name__)
+SECRET_MASK = "***"
+
+
+def _mask_runtime_env(body: str) -> str:
+    """Keep the logged body except runtime.env values, which are secrets."""
+
+    try:
+        payload = json.loads(body)
+    except ValueError:
+        # A truncated or malformed body cannot be masked field by field.
+        return (
+            "[omitted: may contain runtime.env]" if '"env"' in body else body
+        )
+    runtime = payload.get("runtime") if isinstance(payload, dict) else None
+    if not isinstance(runtime, dict) or not runtime.get("env"):
+        return body
+    env = runtime["env"]
+    runtime["env"] = (
+        {name: SECRET_MASK for name in env}
+        if isinstance(env, dict)
+        else SECRET_MASK
+    )
+    return json.dumps(payload, ensure_ascii=False)
 
 
 class ExecutionRequestErrorLoggingMiddleware:
@@ -64,7 +90,9 @@ class ExecutionRequestErrorLoggingMiddleware:
                         "method": scope["method"],
                         "path": path,
                         "status_code": response_status,
-                        "request_body": body.decode("utf-8", errors="replace"),
+                        "request_body": _mask_runtime_env(
+                            body.decode("utf-8", errors="replace")
+                        ),
                         "body_observed_bytes": observed_bytes,
                         "body_complete": body_complete,
                         "body_truncated": observed_bytes > len(body),

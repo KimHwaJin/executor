@@ -144,3 +144,32 @@ async def test_chunked_body_bounded_without_changing_received_bytes(
     assert entry["request_body"] == "12345"
     assert entry["body_observed_bytes"] == 9
     assert entry["body_truncated"] is True
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        (
+            '{"runtime":{"type":"JUPYTER","env":{"S3_SECRET":"s3-value"}}}',
+            {"runtime": {"type": "JUPYTER", "env": {"S3_SECRET": "***"}}},
+        ),
+        ('{"runtime":{"env":{"S3_SECRET":"s3-val', None),
+    ],
+)
+async def test_runtime_env_values_are_never_logged(
+    rest_client,
+    caplog: pytest.LogCaptureFixture,
+    body: str,
+    expected: dict[str, Any] | None,
+) -> None:
+    client, _ = rest_client
+    with caplog.at_level(logging.ERROR, logger=LOGGER):
+        await client.post(
+            "/api/v1/executions",
+            content=body,
+            headers={"Content-Type": "application/json"},
+        )
+    (entry,) = records(caplog)
+    assert "s3-val" not in json.dumps(entry)
+    if expected is not None:
+        assert json.loads(entry["request_body"]) == expected

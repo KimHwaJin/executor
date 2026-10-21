@@ -60,7 +60,7 @@ class FileWritingBlockedDriver(InMemoryRuntimeStorage):
         cls.reset_storage()
         cls.started = asyncio.Event()
 
-    async def start_session(self, _runtime_profile: str, path: str) -> str:
+    async def start_session(self, _profile: str, path: str, *_: object) -> str:
         self.workspace = path
         return "cancel-artifact-kernel"
 

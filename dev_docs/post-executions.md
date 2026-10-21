@@ -54,9 +54,12 @@ POST /api/v1/executions
 |---|---:|---|
 | `type` | O | Runtime provider 유형. 현재 지원 값은 `JUPYTER` |
 | `profile` | O | 실행 환경 프로파일. 기본 허용값은 `default`, `3102311`. 실제 배포의 `RUNTIME_ALLOWED_PROFILES` 및 Target 지원 프로파일과 일치해야 함 |
+| `memory_limit_bytes` | X | 이 실행 커널의 가상 메모리 상한(최소 256MiB). 커널은 실제 사용량보다 약 0.5GiB를 더 잡는다. 없으면 `EXECUTION_DEFAULT_MEMORY_LIMIT_BYTES`, 그것도 없으면 상한 없음. `EXECUTION_MAX_MEMORY_LIMIT_BYTES`나 유저 쿼터보다 크면 400 |
+| `env` | X | 이 실행 커널에만 넣을 환경변수(예: S3 자격증명). 최대 64개, 이름 `[A-Z][A-Z0-9_]*`, 값 4096자 이하. 암호화해 저장하며 응답·이벤트·로그에 나오지 않는다 |
 
 실제 Runtime target과 session은 Worker가 실행을 할당할 때 결정되므로 제출 요청에는 넣지
-않는다.
+않는다. 메모리 상한과 env의 동작, 제한, 대기 규칙은
+[`docs/execution-memory-limits.md`](../docs/execution-memory-limits.md)에 있다.
 
 ### `context`
 
