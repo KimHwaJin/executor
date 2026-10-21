@@ -1,5 +1,4 @@
 import asyncio
-from collections.abc import Mapping
 from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
@@ -131,14 +130,8 @@ class RecordingMultiDriver(InMemoryRuntimeStorage):
             memory=empty,
         )
 
-    async def start_session(
-        self,
-        profile: str,
-        working_directory: str,
-        memory_limit_bytes: int | None,
-        env: Mapping[str, str],
-    ) -> str:
-        del profile, working_directory, memory_limit_bytes, env
+    async def start_session(self, profile: str, working_directory: str) -> str:
+        del profile, working_directory
         return "operation-kernel"
 
     async def delete_session(self, session_id: str) -> None:

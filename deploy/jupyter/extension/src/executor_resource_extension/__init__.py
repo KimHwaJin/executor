@@ -21,7 +21,6 @@ def _load_jupyter_server_extension(server_app: Any) -> None:
         ExecutionStreamHandler,
         FileContentHandler,
         FileMetadataHandler,
-        KernelStartHandler,
         ManifestReadHandler,
         NotebookPrepareHandler,
         NotebookProjectHandler,
@@ -45,10 +44,6 @@ def _load_jupyter_server_extension(server_app: Any) -> None:
     web_app.add_handlers(
         ".*$",
         [
-            (
-                url_path_join(base_url, "executor", "kernels"),
-                KernelStartHandler,
-            ),
             (
                 url_path_join(
                     base_url, "executor", "kernels", "([^/]+)", "executions"

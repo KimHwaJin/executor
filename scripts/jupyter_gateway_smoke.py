@@ -57,7 +57,7 @@ async def main() -> None:
         }
         for profile, (version, imports) in probes.items():
             runtime_session_id = await gateway.start_session(
-                profile, relative_path, None, {}
+                profile, relative_path
             )
             runtime_session_ids.append(runtime_session_id)
             code = (

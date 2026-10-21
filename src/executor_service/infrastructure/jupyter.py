@@ -1,6 +1,5 @@
 """Public Jupyter implementation of the RuntimeDriver contract."""
 
-from collections.abc import Mapping
 from contextlib import AbstractAsyncContextManager
 from typing import Any
 from uuid import UUID
@@ -78,16 +77,8 @@ class JupyterRuntimeDriver:
     async def resource_status(self) -> RuntimeResourceObservation:
         return await self._observability.resource_status()
 
-    async def start_session(
-        self,
-        profile: str,
-        working_directory: str,
-        memory_limit_bytes: int | None,
-        env: Mapping[str, str],
-    ) -> str:
-        return await self._sessions.start(
-            profile, working_directory, memory_limit_bytes, env
-        )
+    async def start_session(self, profile: str, working_directory: str) -> str:
+        return await self._sessions.start(profile, working_directory)
 
     async def interrupt_session(self, session_id: str) -> None:
         await self._sessions.interrupt(session_id)

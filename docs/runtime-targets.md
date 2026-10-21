@@ -179,9 +179,6 @@ signal, while memory at or above `RUNTIME_MEMORY_ADMISSION_LIMIT` blocks new adm
 memory utilization, reservation count, and stable target name. If every candidate lacks a fresh
 observation (`RUNTIME_RESOURCE_MAX_AGE_SECONDS`), scheduling safely falls back to the least
 effective admission usage.
-Optionally, `RUNTIME_MEMORY_OVERCOMMIT_RATIO` and `EXECUTION_USER_MEMORY_QUOTA_BYTES` also hold an
-Execution until its memory limit fits the limits already held on the Target and by its user; see
-[execution-memory-limits.md](execution-memory-limits.md).
 A resource-only probe failure leaves an otherwise healthy target `ACTIVE`, marks resource data
 stale, and does not erase its last successful observation.
 

@@ -130,6 +130,3 @@ class RuntimeTargetRegistry:
         self, credential_ref: str, credential_ciphertext: str | None
     ) -> str:
         return self._credentials.resolve(credential_ref, credential_ciphertext)
-
-    def decrypt(self, ciphertext: str) -> str:
-        return self._credentials.decrypt(ciphertext)

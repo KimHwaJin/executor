@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 from typing import Any
 
 from jupyter_server.auth.decorator import (  # ty: ignore[unresolved-import]
@@ -34,7 +33,6 @@ from executor_resource_extension.file_download import (
     OpenedFileDownload,
     open_download,
 )
-from executor_resource_extension.kernel_launcher import MEMORY_LIMIT_ENV
 from executor_resource_extension.storage import (
     RuntimeStorage,
     StoragePathError,
@@ -58,49 +56,6 @@ class ResourceStatusHandler(APIHandler):
                 "message": "Resource status collection failed.",
             }
         )
-
-
-class KernelStartHandler(APIHandler):
-    """Start a kernel with Execution-scoped environment and memory limit.
-
-    The stock ``POST /api/kernels`` cannot pass ``env``; the kernel manager
-    keeps these launch arguments, so automatic restarts reuse them.
-    """
-
-    @web.authenticated
-    async def post(self) -> None:
-        payload = self.get_json_body()
-        if not isinstance(payload, dict):
-            raise web.HTTPError(400, reason="JSON object body is required.")
-        try:
-            name = str(payload["name"])
-            path = str(payload["path"])
-            extra_env = payload.get("env") or {}
-            memory_limit = payload.get("memory_limit_bytes")
-            if not isinstance(extra_env, dict) or not all(
-                isinstance(key, str) and isinstance(value, str)
-                for key, value in extra_env.items()
-            ):
-                raise ValueError("env must map strings to strings.")
-            if memory_limit is not None and (
-                not isinstance(memory_limit, int) or memory_limit <= 0
-            ):
-                raise ValueError("memory_limit_bytes must be positive.")
-        except (KeyError, ValueError) as exc:
-            raise web.HTTPError(
-                422, reason="Invalid kernel start request."
-            ) from exc
-        env = {**os.environ, **extra_env}
-        env.pop(MEMORY_LIMIT_ENV, None)
-        if memory_limit is not None:
-            env[MEMORY_LIMIT_ENV] = str(memory_limit)
-        kernel_id = await self.kernel_manager.start_kernel(
-            kernel_name=name, path=path, env=env
-        )
-        journals: ExecutionJournals = self.settings["executor_journals"]
-        journals.protect(self.kernel_manager, kernel_id, extra_env.values())
-        self.set_status(201)
-        self.finish({"id": kernel_id})
 
 
 class ExecutionStartHandler(APIHandler):

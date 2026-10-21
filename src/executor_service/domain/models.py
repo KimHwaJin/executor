@@ -103,10 +103,6 @@ class Execution:
     task_id: str
     operation_wait_timeout_seconds: int | None = None
     runtime_type: RuntimeType = RuntimeType.JUPYTER
-    memory_limit_bytes: int | None = None
-    # Encrypted JSON of the kernel's extra environment; cleared once no
-    # retry can start a new kernel.
-    runtime_env_ciphertext: str | None = None
     workflow_id: str | None = None
     created_by_type: ActorType | None = None
     created_by: str | None = None

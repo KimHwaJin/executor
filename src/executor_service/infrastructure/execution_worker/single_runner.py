@@ -184,9 +184,8 @@ class SingleExecutionRunner:
                 if not resume:
                     runtime_session_id = await run_runtime_operation(
                         "executor.runtime.session.start",
-                        self._driver_provider.start_session(
-                            driver,
-                            execution,
+                        driver.start_session(
+                            execution.runtime_profile,
                             workspace.runtime_relative_path,
                         ),
                         execution_id=execution.id,

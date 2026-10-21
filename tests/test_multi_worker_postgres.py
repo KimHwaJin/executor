@@ -6,7 +6,6 @@ import os
 import subprocess
 import sys
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
@@ -346,43 +345,6 @@ async def test_runtime_purge_serializes_with_target_mutations(
             await asyncio.gather(task, return_exceptions=True)
 
 
-# Added by 0007. Tests that write "old" rows below 0007 with the current ORM
-# add these for the writes only, so the rows match what old code wrote.
-EXECUTION_COLUMNS_0007 = {"memory_limit_bytes", "runtime_env_ciphertext"}
-
-
-@asynccontextmanager
-async def _current_execution_columns(
-    engine: AsyncEngine,
-) -> AsyncIterator[None]:
-    async with engine.begin() as connection:
-        await connection.execute(
-            text(
-                "ALTER TABLE executions "
-                "ADD COLUMN memory_limit_bytes BIGINT, "
-                "ADD COLUMN runtime_env_ciphertext TEXT"
-            )
-        )
-    try:
-        yield
-    finally:
-        async with engine.begin() as connection:
-            await connection.execute(
-                text(
-                    "ALTER TABLE executions "
-                    "DROP COLUMN memory_limit_bytes, "
-                    "DROP COLUMN runtime_env_ciphertext"
-                )
-            )
-
-
-def _without_0007_columns(rows) -> list[dict]:
-    return [
-        {k: v for k, v in row.items() if k not in EXECUTION_COLUMNS_0007}
-        for row in rows
-    ]
-
-
 def _downgrade_to_before_runtime_purge(database_url: str) -> None:
     config = Config(str(REPOSITORY_ROOT / "alembic.ini"))
     config.attributes["database_url"] = database_url
@@ -406,12 +368,11 @@ async def test_runtime_purge_migration_preserves_rows_and_guards_rollback(
     await asyncio.to_thread(_downgrade_to_before_runtime_purge, url)
     registry, _, registration = _registry(postgres_engine, monkeypatch)
     target = await registry.upsert(registration)
+    execution = await _service(postgres_engine, tmp_path).submit(
+        _command("migrate-purge")
+    )
     factory = create_session_factory(postgres_engine)
-    async with _current_execution_columns(postgres_engine):
-        execution = await _service(postgres_engine, tmp_path).submit(
-            _command("migrate-purge")
-        )
-        await _history(factory, execution.id, target.id)
+    await _history(factory, execution.id, target.id)
     old_deleted_id = uuid4()
     async with postgres_engine.begin() as connection:
         await connection.execute(
@@ -449,13 +410,11 @@ async def test_runtime_purge_migration_preserves_rows_and_guards_rollback(
     await asyncio.to_thread(_upgrade_and_check_baseline, url)
     async with postgres_engine.connect() as connection:
         for table in tables:
-            assert _without_0007_columns(
-                (
-                    await connection.execute(
-                        text(f"SELECT * FROM {table} ORDER BY id")
-                    )
-                ).mappings()
-            ) == [dict(row) for row in before[table]]
+            assert (
+                await connection.execute(
+                    text(f"SELECT * FROM {table} ORDER BY id")
+                )
+            ).mappings().all() == before[table]
     old_result = await registry.purge(
         PurgeRuntimeTargetCommand(old_deleted_id)
     )
@@ -647,8 +606,7 @@ async def test_trace_removal_preserves_business_rows_and_restores_only_schema(
     url = postgres_engine.url.render_as_string(hide_password=False)
     await asyncio.to_thread(_downgrade_to_pre_trace_removal, url)
     service = _service(postgres_engine, tmp_path)
-    async with _current_execution_columns(postgres_engine):
-        execution = await service.submit(_command("remove-traces"))
+    execution = await service.submit(_command("remove-traces"))
     event = build_execution_event(
         execution_id=execution.id,
         event_sequence=1,
@@ -713,7 +671,7 @@ async def test_trace_removal_preserves_business_rows_and_restores_only_schema(
                 .mappings()
                 .all()
             )
-            assert _without_0007_columns(rows) == before[table]
+            assert [dict(row) for row in rows] == before[table]
         columns = await connection.run_sync(
             lambda sync: {
                 table: {c["name"] for c in inspect(sync).get_columns(table)}
@@ -761,16 +719,13 @@ async def test_completion_upgrade_preserves_rows_and_blocks_lossy_downgrade(
     url = postgres_engine.url.render_as_string(hide_password=False)
     await asyncio.to_thread(_downgrade_to_diagnostics, url)
     service = _service(postgres_engine, tmp_path)
+    execution = await service.submit(_command("before-completion-upgrade"))
     factory = create_session_factory(postgres_engine)
+    async with factory() as session, session.begin():
+        session.add(_server(capacity=1))
     workers, clients = _workers(postgres_engine, tmp_path, count=1)
     try:
-        async with _current_execution_columns(postgres_engine):
-            execution = await service.submit(
-                _command("before-completion-upgrade")
-            )
-            async with factory() as session, session.begin():
-                session.add(_server(capacity=1))
-            claim = await workers[0]._claimer.claim(execution.id)
+        claim = await workers[0]._claimer.claim(execution.id)
         assert claim is not None
         lease = claim[2]
         await asyncio.to_thread(_upgrade_and_check_baseline, url)
@@ -809,8 +764,7 @@ async def test_diagnostics_upgrade_preserves_existing_execution_and_cascades(
     url = postgres_engine.url.render_as_string(hide_password=False)
     await asyncio.to_thread(_downgrade_to_pre_diagnostics, url)
     service = _service(postgres_engine, tmp_path)
-    async with _current_execution_columns(postgres_engine):
-        execution = await service.submit(_command("preserve-before-upgrade"))
+    execution = await service.submit(_command("preserve-before-upgrade"))
     await asyncio.to_thread(_upgrade_and_check_baseline, url)
     assert (await service.get(execution.id)).task_id == execution.task_id
     factory = create_session_factory(postgres_engine)
@@ -2213,7 +2167,7 @@ async def test_current_baseline_repeated_upgrade_preserves_events(
             text("SELECT count(*) FROM event_retention_lease")
         )
 
-    assert revision == EXPECTED_SCHEMA_REVISION == "0007"
+    assert revision == EXPECTED_SCHEMA_REVISION == "0006"
     assert maintenance_count == retention_count == 1
     assert migrated_event is not None
     assert migrated_event.execution_id == execution.id
@@ -2254,7 +2208,7 @@ async def test_current_baseline_downgrade_and_recreate(
             text("SELECT singleton_key FROM event_retention_lease")
         )
     assert tables == set(Base.metadata.tables) | {"alembic_version"}
-    assert revision == EXPECTED_SCHEMA_REVISION == "0007"
+    assert revision == EXPECTED_SCHEMA_REVISION == "0006"
     assert admission == "ACTIVE"
     assert retention_key == "events"
 

@@ -15,7 +15,7 @@ import json
 import os
 import tempfile
 import time
-from collections.abc import AsyncIterator, Iterable
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -25,9 +25,6 @@ from executor_resource_extension.kernel_state import KernelStateObserver
 COMPLETED = "COMPLETED"
 LOST = "LOST"
 OUTPUT_LIMIT = "OUTPUT_LIMIT"
-MASK = "***"
-# Shorter values would mask unrelated output.
-MIN_MASKED_LENGTH = 4
 
 
 class JournalNotFoundError(LookupError):
@@ -71,7 +68,6 @@ class ExecutionJournals:
         # Journals written by an earlier server process can never finish.
         self._server_id = uuid4().hex
         self._recordings: dict[str, _Recording] = {}
-        self._secrets: dict[str, tuple[str, ...]] = {}
         self._root.mkdir(parents=True, exist_ok=True)
 
     @classmethod
@@ -91,22 +87,6 @@ class ExecutionJournals:
                 os.environ.get("EXECUTOR_JOURNAL_RETENTION_SECONDS", 86400)
             ),
         )
-
-    def protect(
-        self, manager: Any, kernel_id: str, secrets: Iterable[str]
-    ) -> None:
-        """Mask the kernel's secret env values in its journals."""
-
-        for stale in [key for key in self._secrets if key not in manager]:
-            del self._secrets[stale]
-        # Journal lines are JSON; match each value as it is encoded there.
-        encoded = tuple(
-            json.dumps(secret, ensure_ascii=False)[1:-1]
-            for secret in secrets
-            if len(secret) >= MIN_MASKED_LENGTH
-        )
-        if encoded:
-            self._secrets[kernel_id] = encoded
 
     async def start(
         self, manager: Any, kernel_id: str, request_id: str, code: str
@@ -261,7 +241,6 @@ class ExecutionJournals:
         recording: _Recording,
     ) -> None:
         seq = 0
-        secrets = self._secrets.get(kernel_id, ())
         reply_received = idle_received = False
         # One handle for the whole recording; flush makes each whole line
         # visible to followers.
@@ -271,8 +250,6 @@ class ExecutionJournals:
             nonlocal seq, size
             seq += 1
             line = _line({"seq": seq, **entry})
-            for secret in secrets:
-                line = line.replace(secret, MASK)
             journal.write(line)
             journal.flush()
             size += len(line.encode("utf-8"))

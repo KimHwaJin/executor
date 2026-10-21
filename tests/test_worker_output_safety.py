@@ -1,7 +1,6 @@
 """Worker consistency when Runtime output delivery hits size/rate limits."""
 
 import json
-from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, cast
 
@@ -72,13 +71,8 @@ class OutputLimitRuntimeDriver(InMemoryRuntimeStorage):
         self.abort_status = abort_status
 
     async def start_session(
-        self,
-        profile: str,
-        working_directory: str,
-        memory_limit_bytes: int | None,
-        env: Mapping[str, str],
+        self, _runtime_profile: str, _working_directory: str
     ) -> str:
-        del profile, working_directory, memory_limit_bytes, env
         return "output-limit-kernel"
 
     async def run_code(

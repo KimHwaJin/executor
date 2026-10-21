@@ -108,7 +108,6 @@ RUN UV_PROJECT_ENVIRONMENT=/opt/venvs/jupyter \
             --python /opt/python/3.10/bin/python3.10
 
 COPY extension /opt/jupyter-resource-extension
-COPY wrap_kernelspecs.py /tmp/wrap_kernelspecs.py
 COPY executor_resource_extension.json \
     /opt/venvs/jupyter/etc/jupyter/jupyter_server_config.d/executor_resource_extension.json
 
@@ -122,10 +121,7 @@ RUN uv pip install --strict --python /opt/venvs/jupyter/bin/python \
         --prefix=/opt/venvs/jupyter \
         --name=3102311 \
         --display-name="3102311 (Python 3.10.11)" \
-    && rm -rf /opt/venvs/jupyter/share/jupyter/kernels/python3 \
-    && /opt/venvs/jupyter/bin/python /tmp/wrap_kernelspecs.py \
-        /opt/venvs/jupyter/share/jupyter/kernels \
-    && rm /tmp/wrap_kernelspecs.py
+    && rm -rf /opt/venvs/jupyter/share/jupyter/kernels/python3
 
 RUN rm -rf /home/jovyan \
     && groupadd --gid 1000 jovyan \

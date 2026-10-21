@@ -383,9 +383,6 @@ class ExecutionRunFinalizer:
             execution.lease_expires_at = None
             execution.operation_wait_expires_at = None
             execution.retry_strategy = effective_retry_strategy
-            if effective_retry_strategy == RetryStrategy.NOT_RETRYABLE:
-                # No retry can start another kernel that needs the secrets.
-                execution.runtime_env_ciphertext = None
             execution.retry_from_sequence = None
             if effective_retry_strategy == RetryStrategy.FROM_FAILED_STEP:
                 execution.retry_from_sequence = retry_from_sequence

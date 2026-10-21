@@ -119,10 +119,6 @@ class ExecutionORM(Base):
             "notebook_projection_attempt_count >= 0",
             name="non_negative_notebook_projection_attempt_count",
         ),
-        CheckConstraint(
-            "memory_limit_bytes IS NULL OR memory_limit_bytes > 0",
-            name="positive_memory_limit_bytes",
-        ),
         Index("ix_executions_status_created_at", "status", "created_at", "id"),
         Index("ix_executions_created_cursor", "created_at", "id"),
         Index(
@@ -192,8 +188,6 @@ class ExecutionORM(Base):
         enum_type(RuntimePool, "runtime_pool"), nullable=False
     )
     runtime_profile: Mapped[str] = mapped_column(String(128), nullable=False)
-    memory_limit_bytes: Mapped[int | None] = mapped_column(BigInteger)
-    runtime_env_ciphertext: Mapped[str | None] = mapped_column(Text)
     user_id: Mapped[str] = mapped_column(String(255), nullable=False)
     project_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     session_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -339,8 +333,6 @@ class ExecutionORM(Base):
             runtime_type=execution.runtime_type,
             runtime_pool=execution.runtime_pool,
             runtime_profile=execution.runtime_profile,
-            memory_limit_bytes=execution.memory_limit_bytes,
-            runtime_env_ciphertext=execution.runtime_env_ciphertext,
             user_id=execution.user_id,
             project_id=execution.project_id,
             session_id=execution.session_id,
@@ -401,8 +393,6 @@ class ExecutionORM(Base):
             runtime_type=self.runtime_type,
             runtime_pool=self.runtime_pool,
             runtime_profile=self.runtime_profile,
-            memory_limit_bytes=self.memory_limit_bytes,
-            runtime_env_ciphertext=self.runtime_env_ciphertext,
             user_id=self.user_id,
             project_id=self.project_id,
             session_id=self.session_id,

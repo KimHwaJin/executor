@@ -1,7 +1,6 @@
 """Jupyter kernel session lifecycle."""
 
 import asyncio
-from collections.abc import Mapping
 
 from executor_service.domain.enums import RuntimeAbortStatus
 from executor_service.domain.runtime import (
@@ -17,30 +16,12 @@ class JupyterSessionClient:
     def __init__(self, transport: JupyterHttpTransport) -> None:
         self._transport = transport
 
-    async def start(
-        self,
-        profile: str,
-        working_directory: str,
-        memory_limit_bytes: int | None,
-        env: Mapping[str, str],
-    ) -> str:
-        request = {"name": profile, "path": working_directory}
-        if memory_limit_bytes is None and not env:
-            # Plain kernels keep working against a Jupyter image without
-            # the kernel start endpoint, so either side can roll back.
-            response = await self._transport.request(
-                "POST", "/api/kernels", json=request
-            )
-        else:
-            response = await self._transport.request(
-                "POST",
-                "/executor/kernels",
-                json={
-                    **request,
-                    "memory_limit_bytes": memory_limit_bytes,
-                    "env": dict(env),
-                },
-            )
+    async def start(self, profile: str, working_directory: str) -> str:
+        response = await self._transport.request(
+            "POST",
+            "/api/kernels",
+            json={"name": profile, "path": working_directory},
+        )
         return str(response.json()["id"])
 
     async def interrupt(self, session_id: str) -> None:

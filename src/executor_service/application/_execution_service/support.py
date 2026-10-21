@@ -89,10 +89,6 @@ def fingerprint(
 ) -> str:
     payload = asdict(command)
     payload.pop("idempotency_key")
-    payload.pop("runtime_env", None)
-    if payload.get("memory_limit_bytes") is None:
-        # Keeps fingerprints recorded before this field existed valid.
-        payload.pop("memory_limit_bytes", None)
     encoded = json.dumps(
         payload, sort_keys=True, separators=(",", ":"), default=str
     ).encode()
