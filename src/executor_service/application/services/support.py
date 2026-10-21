@@ -89,6 +89,9 @@ def fingerprint(
 ) -> str:
     payload = asdict(command)
     payload.pop("idempotency_key")
+    if payload.get("tenant_id") is None:
+        # Keeps fingerprints recorded before this field existed valid.
+        payload.pop("tenant_id", None)
     encoded = json.dumps(
         payload, sort_keys=True, separators=(",", ":"), default=str
     ).encode()

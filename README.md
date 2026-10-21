@@ -447,7 +447,16 @@ or trigger and may differ from the owning user.
 `runtime_pool` is not accepted from callers. Executor derives `INTERACTIVE` or `BATCH` from
 `trigger.type`, then selects a healthy compatible Runtime Target with available capacity inside
 that pool.
-`context.workflow_id` is optional for both triggers.
+`context.user_id` is the only required context field; `context.task_id` and
+`context.workflow_id` are optional for both triggers.
+
+An optional top-level `tenant_id` routes one Execution's events to its own Redis Stream,
+`{REDIS_EVENT_STREAM}.{tenant_id}` (for example `executor.events.pr-batch`). Executions without it
+keep using `REDIS_EVENT_STREAM`. The value must match `^[a-z][a-z0-9-]{1,62}[a-z0-9]$`, must not be
+`dlq`, `work`, or the suffix of an internal Stream below `REDIS_EVENT_STREAM`, never changes, and
+is part of the submit idempotency fingerprint. Tenant Stream entries carry an extra `tenant_id`
+field; the payload is unchanged. Detail and list responses expose `tenant_id`, and lists filter on
+it. See [Redis execution events](dev_docs/redis-execution-events.md) for subscriber rules.
 
 ExecutionSpec stays at schema version `1.0` during pre-release development. Each ordered Step uses
 `PYTHON_EXECUTE` and independently embeds INLINE code or references one UTF-8 `.py` file below
@@ -739,6 +748,9 @@ costs a bounded number of claims and spreads across replicas.
 `REDIS_EVENT_RETENTION_SECONDS` controls the event Stream window;
 `PUBLISHED_OUTBOX_RETENTION_SECONDS` and `EXECUTION_EVENT_RETENTION_SECONDS` independently bound
 transport rows and durable terminal-event history. Executor never trims the Agent-owned Event DLQ.
+The event window applies to the shared event Stream and to every tenant Stream recorded in
+PostgreSQL. Set `REDIS_EVENT_STREAM_MAXLEN` to also add `MAXLEN ~ <value>` to every event `XADD`
+(per Stream, approximate). It is unset by default; `MINID` is not used because Redis 6.0 lacks it.
 
 Each Worker names itself `<hostname>-<pid>-<suffix>` as its lease owner (shown on `/workerz`). See
 [Multi-Executor Operations](docs/multi-executor-operations.md) for locking invariants, lease

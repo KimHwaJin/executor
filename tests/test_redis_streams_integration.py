@@ -104,6 +104,6 @@ async def test_retention_manager_caps_total_work_per_pass(
             redis_event_retention_seconds=3600,
         ),
     )
-    assert await manager._trim_event_stream() == 1500
+    assert await manager._trim_event_stream(stream) == 1500
     assert await redis.xlen(stream) == 700
-    assert await manager._trim_event_stream() == 700
+    assert await manager._trim_event_stream(stream) == 700

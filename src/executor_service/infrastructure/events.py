@@ -276,7 +276,7 @@ class ExecutionTriggerSummary(ContractModel):
 
 class ExecutionContextSummary(ContractModel):
     user_id: str = Field(min_length=1, max_length=255)
-    task_id: str = Field(min_length=1, max_length=255)
+    task_id: str | None = Field(default=None, min_length=1, max_length=255)
     project_id: str | None = Field(default=None, max_length=255)
     session_id: str | None = Field(default=None, max_length=255)
     workflow_id: str | None = Field(default=None, max_length=255)
@@ -345,6 +345,8 @@ class ExecutionStreamEnvelope(ContractModel):
     event_sequence: int = Field(ge=1)
     payload: dict[str, Any]
     occurred_at: datetime
+    # Present only on a tenant's own Stream; the payload never carries it.
+    tenant_id: str | None = None
 
     @model_validator(mode="after")
     def validate_payload_contract(self) -> Self:

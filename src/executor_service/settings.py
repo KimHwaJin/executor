@@ -87,6 +87,9 @@ class Settings(BaseSettings):
     redis_connect_timeout_seconds: float = Field(default=5, gt=0)
     redis_socket_timeout_seconds: float = Field(default=5, gt=0)
     redis_event_stream: str = Field(default="executor.events", min_length=1)
+    # Approximate per-Stream cap on every event XADD. None keeps only the
+    # age-based retention below.
+    redis_event_stream_maxlen: int | None = Field(default=None, ge=1)
     outbox_poll_interval_seconds: float = Field(default=0.5, gt=0)
     outbox_batch_size: int = Field(default=100, ge=1, le=1000)
     outbox_publish_timeout_seconds: float = Field(default=5, gt=0)

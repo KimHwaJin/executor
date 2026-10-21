@@ -18,6 +18,7 @@ API다. `execution_id`는 Execution 제출 응답에서 받은 UUID다.
 | `execution_id` | 조회한 Execution ID |
 | `trigger_type` | 실행 유입 유형: `INTERACTIVE` 또는 `BATCH`. `trigger.type`과 같은 값이며 호환을 위해 유지 |
 | `trigger` | 제출 trigger. `type`과 제출 actor `actor{type, id}`. actor는 `created_by_type`/`created_by`와 같고 제출 후 바뀌지 않음. actor 없이 제출됐다면 `null` |
+| `tenant_id` | 제출 시 지정한 tenant ID 또는 `null`. 바뀌지 않으며, 이 Execution의 이벤트가 발행되는 Stream(`{REDIS_EVENT_STREAM}.{tenant_id}`)을 결정한다 |
 | `metadata` | 제출 요청의 최상위 `metadata` 객체. 키 이름에 token/secret/password/credential이 들어간 값은 `[REDACTED]`로 가린다 |
 | `created_by_type`, `created_by` | Execution 생성 주체 유형과 ID |
 | `updated_by_type`, `updated_by` | 마지막 상태 변경 주체 유형과 ID. 예: 취소 요청 actor |
@@ -28,7 +29,7 @@ API다. `execution_id`는 Execution 제출 응답에서 받은 UUID다.
 | 필드 | 의미 |
 |---|---|
 | `user_id` | 작업 소유 사용자 ID |
-| `task_id` | Agent의 상위 Task ID |
+| `task_id` | Agent의 상위 Task ID 또는 `null` |
 | `project_id` | 프로젝트 ID 또는 `null` |
 | `session_id` | 세션 ID 또는 `null` |
 | `workflow_id` | Workflow ID 또는 `null` |
@@ -128,3 +129,14 @@ heartbeat는 Worker 소유권 갱신 시각이지 코드 진척도가 아니다.
 - MULTI가 `WAITING_FOR_OPERATION`이면 응답의 최신 `state.version`을 operations 또는
   finalize 요청의 `expected_version`으로 사용한다.
 - `SUCCEEDED`, `FAILED`, `CANCELLED`는 terminal 상태다.
+
+## 목록 조회
+
+```http
+GET /api/v1/executions?tenant_id=analytics-agent
+```
+
+목록 API(`GET /api/v1/executions`, MCP `execution_list`)의 각 항목에도 `tenant_id`가 있다.
+필터 `user_id`, `project_id`, `session_id`, `task_id`, `workflow_id`, `tenant_id`,
+`trigger_type`, `status`는 모두 선택이고 함께 쓰면 AND로 묶는다. `tenant_id` 필터는
+해당 tenant로 제출된 Execution만 돌려주며, tenant 없이 제출된 Execution은 포함하지 않는다.

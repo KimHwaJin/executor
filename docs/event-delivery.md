@@ -1,7 +1,8 @@
 # Event Delivery and Work Admission
 
-PostgreSQL is the Execution state source of truth. Redis carries one Stream, `executor.events`,
-populated through the Transactional Outbox for Agent consumers. Workers do not use Redis to find
+PostgreSQL is the Execution state source of truth. Redis carries only Agent-facing event
+Streams, populated through the Transactional Outbox: `executor.events`, and
+`executor.events.{tenant_id}` for Executions submitted with a `tenant_id`. Workers do not use Redis to find
 work; they poll PostgreSQL.
 
 ## Stream boundary
@@ -74,7 +75,8 @@ keys are no longer read and can be deleted once every Pod runs this release.
 Event retention runs on one Pod per `EVENT_RETENTION_INTERVAL_SECONDS`, claimed through the
 PostgreSQL `event_retention_lease` table. Every pass is bounded by `EVENT_RETENTION_BATCH_SIZE`.
 
-- `executor.events` is time-trimmed after `REDIS_EVENT_RETENTION_SECONDS`. An Agent offline beyond
+- `executor.events` and every tenant Stream are time-trimmed after
+  `REDIS_EVENT_RETENTION_SECONDS`. An Agent offline beyond
   that window recovers from durable PostgreSQL history by `event_sequence`.
 - `executor.events.dlq` remains Agent-owned and is never modified by Executor.
 - Only `PUBLISHED` Outbox rows older than `PUBLISHED_OUTBOX_RETENTION_SECONDS` are deleted.

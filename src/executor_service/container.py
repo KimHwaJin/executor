@@ -64,7 +64,7 @@ from executor_service.infrastructure.runtime_storage import (
 from executor_service.interfaces.execution_specs import ExecutionSpecResolver
 from executor_service.settings import Settings
 
-EXPECTED_SCHEMA_REVISION = "0006"
+EXPECTED_SCHEMA_REVISION = "0007"
 
 
 class ApplicationContainer:
@@ -141,6 +141,7 @@ class ApplicationContainer:
             session_factory=self.session_factory,
             redis=self.redis,
             event_stream_name=settings.redis_event_stream,
+            event_stream_maxlen=settings.redis_event_stream_maxlen,
             poll_interval_seconds=settings.outbox_poll_interval_seconds,
             batch_size=settings.outbox_batch_size,
             publish_timeout_seconds=settings.outbox_publish_timeout_seconds,

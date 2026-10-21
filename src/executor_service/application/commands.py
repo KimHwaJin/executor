@@ -36,7 +36,7 @@ class SubmitExecutionCommand:
     user_id: str
     project_id: str | None
     session_id: str | None
-    task_id: str
+    task_id: str | None
     spec_schema_version: str = "1.0"
     operation_wait_timeout_seconds: int | None = None
     operation_timeout_seconds: int | None = None
@@ -44,6 +44,7 @@ class SubmitExecutionCommand:
     actor_type: ActorType | None = None
     actor_id: str | None = None
     workflow_id: str | None = None
+    tenant_id: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
     operation_metadata: dict[str, Any] = field(default_factory=dict)
     steps: tuple[StepSpec, ...] = ()

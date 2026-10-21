@@ -72,9 +72,13 @@ authoritative state store and execution happens asynchronously through the Worke
 }
 ```
 
-`task_id` and `user_id` are required. `project_id`, `session_id`, and `workflow_id` are optional;
+`user_id` is required. `task_id`, `project_id`, `session_id`, and `workflow_id` are optional;
 `session_id` requires `project_id`. When project or session is absent, the Runtime workspace uses the
 reserved path segment `unscoped`. Clients cannot submit `unscoped` as an external ID.
+
+The optional top-level `tenant_id` (`^[a-z][a-z0-9-]{1,62}[a-z0-9]$`, not `dlq`, `work`, or an
+internal Stream suffix) is immutable and part of the idempotency fingerprint. Its events go to
+`{REDIS_EVENT_STREAM}.{tenant_id}` instead of the shared event Stream.
 
 SINGLE rejects `operation_wait_timeout_seconds`. MULTI requires it and supports only INTERACTIVE
 triggering. `operation_timeout_seconds` limits all Steps in that Operation; each
@@ -130,7 +134,8 @@ All list endpoints use opaque cursor pagination. Clients must return `next_curso
 OpenAPI is available at `/openapi.json`, Swagger UI at `/docs`, and ReDoc at `/redoc`.
 
 Execution history can be filtered by `user_id`, `project_id`, `session_id`, `task_id`,
-`workflow_id`, `trigger_type`, and `status`. Detail and history items expose `trigger{type,
+`workflow_id`, `tenant_id`, `trigger_type`, and `status`. Detail and history items expose
+`tenant_id`. Detail and history items expose `trigger{type,
 actor}` (the immutable submit actor) and the submit `metadata` object. Executor accepts at most
 `EXECUTION_MAX_STEPS_PER_OPERATION` Steps in one Operation and
 `EXECUTION_MAX_STEPS_PER_EXECUTION` Steps across one Execution. The configured defaults are 100

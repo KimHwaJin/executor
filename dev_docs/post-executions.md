@@ -14,12 +14,28 @@ POST /api/v1/executions
 | 필드 | 필수 | 의미 |
 |---|---:|---|
 | `idempotency_key` | O | 호출자가 생성하는 멱등성 키. 같은 키와 같은 요청은 같은 Execution을 반환하며, 같은 키로 다른 요청을 보내면 `409` |
+| `tenant_id` | X | 이벤트를 받을 시스템(tenant) ID. 지정하면 이 Execution의 Redis 이벤트가 전용 Stream으로 간다. 아래 [`tenant_id`](#tenant_id) 참고 |
 | `lifecycle` | O | SINGLE/MULTI 실행 생명주기 설정 |
 | `trigger` | O | 실행을 발생시킨 유형과 주체 |
 | `runtime` | O | 필요한 Runtime 종류와 프로파일 |
 | `context` | O | Agent 도메인 객체와의 추적 정보 |
 | `operation` | O | 최초 Operation과 실행 Step |
 | `metadata` | X | Execution 전체에 저장할 자유 형식 metadata. 기본값 `{}` |
+
+### `tenant_id`
+
+`tenant_id`는 요청 최상위 선택 필드이며 `context` 안에 넣지 않는다.
+
+- 형식: `^[a-z][a-z0-9-]{1,62}[a-z0-9]$` (소문자로 시작, 소문자·숫자·`-`, 3~64자, `-`로 끝나지 않음)
+- 예약어: `dlq`, `work`. Executor와 Agent가 쓰는 Stream 이름(`executor.events.dlq` 등)과
+  겹치지 않게 한다.
+- 형식 위반·예약어는 `422` `REQUEST_VALIDATION_ERROR`다.
+- 값은 바뀌지 않는다. 후속 Operation 추가, 재시도, 취소, finalize는 받은 값이 아니라
+  Execution에 저장된 `tenant_id`를 따른다. 해당 요청에는 `tenant_id` 필드가 없다.
+- 멱등성 fingerprint에 포함된다. 같은 `idempotency_key`로 `tenant_id`만 바꿔 보내면 `409`다.
+- 이벤트 Stream: `tenant_id`가 있으면 `{REDIS_EVENT_STREAM}.{tenant_id}`
+  (기본 `executor.events.{tenant_id}`), 없으면 기존 공용 `REDIS_EVENT_STREAM`이다.
+  구독 방법은 [Redis Execution 이벤트](redis-execution-events.md)를 따른다.
 
 ### `lifecycle`
 
@@ -63,7 +79,7 @@ POST /api/v1/executions
 | 필드 | 필수 | 의미 |
 |---|---:|---|
 | `user_id` | O | 작업 소유 사용자 ID |
-| `task_id` | O | Agent가 관리하는 상위 Task ID |
+| `task_id` | X | Agent가 관리하는 상위 Task ID. Task 개념이 없는 시스템은 생략한다 |
 | `project_id` | X | 프로젝트 ID |
 | `session_id` | X | 세션 ID. 지정하려면 `project_id`도 함께 필요 |
 | `workflow_id` | X | 상위 서비스에 등록된 재사용 Workflow ID. 배치·회차 식별자는 `metadata`와 `task_id`에 둔다 |
@@ -136,6 +152,7 @@ INLINE/PATH 최대 크기와 Operation/Execution 최대 Step 수는 Executor 설
     "actor": {"type": "AGENT", "id": "analytics-agent"}
   },
   "runtime": {"type": "JUPYTER", "profile": "default"},
+  "tenant_id": "analytics-agent",
   "context": {
     "user_id": "user-100",
     "task_id": "task-100",
@@ -165,6 +182,39 @@ INLINE/PATH 최대 크기와 Operation/Execution 최대 Step 수는 Executor 설
     "metadata": {}
   },
   "metadata": {}
+}
+```
+
+위 요청의 이벤트는 `executor.events.analytics-agent` Stream으로 발행된다.
+
+## Request 예시 — task_id 없는 BATCH
+
+```json
+{
+  "idempotency_key": "batch-daily-report-2026-10-21",
+  "tenant_id": "pr-batch",
+  "lifecycle": {"operation_mode": "SINGLE"},
+  "trigger": {
+    "type": "BATCH",
+    "actor": {"type": "USER", "id": "user-100"}
+  },
+  "runtime": {"type": "JUPYTER", "profile": "default"},
+  "context": {"user_id": "user-100"},
+  "operation": {
+    "spec": {
+      "schema_version": "1.0",
+      "steps": [
+        {
+          "sequence": 0,
+          "payload": {
+            "type": "PYTHON_EXECUTE",
+            "source": {"type": "INLINE", "content": "print('daily')"}
+          }
+        }
+      ]
+    }
+  },
+  "metadata": {"schedule_id": "daily-report", "run_date": "2026-10-21"}
 }
 ```
 

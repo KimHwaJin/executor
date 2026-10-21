@@ -49,6 +49,7 @@ class SQLAlchemyExecutionReader:
         session_id: str | None = None,
         task_id: str | None = None,
         workflow_id: str | None = None,
+        tenant_id: str | None = None,
         trigger_type: TriggerType | None = None,
         status: ExecutionStatus | None = None,
         cursor: str | None = None,
@@ -78,6 +79,8 @@ class SQLAlchemyExecutionReader:
             statement = statement.where(
                 ExecutionORM.workflow_id == workflow_id
             )
+        if tenant_id is not None:
+            statement = statement.where(ExecutionORM.tenant_id == tenant_id)
         if trigger_type is not None:
             statement = statement.where(
                 ExecutionORM.trigger_type == trigger_type

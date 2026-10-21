@@ -18,6 +18,7 @@ from executor_service.domain.enums import (
     OutboxStatus,
 )
 from executor_service.domain.models import utc_now
+from executor_service.domain.tenants import tenant_event_stream
 from executor_service.infrastructure.cluster_passes import (
     claim_pass,
     run_cluster_pass_loop,
@@ -104,7 +105,9 @@ class EventRetentionManager:
 
     async def run_pass(self) -> EventRetentionResult:
         outbox_deleted, events_deleted = await self._cleanup_database()
-        event_trimmed = await self._trim_event_stream()
+        event_trimmed = 0
+        for stream in await self._event_streams():
+            event_trimmed += await self._trim_event_stream(stream)
         return EventRetentionResult(
             published_outbox_deleted=outbox_deleted,
             execution_events_deleted=events_deleted,
@@ -180,7 +183,24 @@ class EventRetentionManager:
                 )
         return len(outbox_ids), len(event_ids)
 
-    async def _trim_event_stream(self) -> int:
+    async def _event_streams(self) -> list[str]:
+        """The shared event Stream and every tenant Stream ever written."""
+
+        async with self._session_factory() as session:
+            tenant_ids = list(
+                await session.scalars(
+                    select(ExecutionORM.tenant_id)
+                    .where(ExecutionORM.tenant_id.is_not(None))
+                    .distinct()
+                    .order_by(ExecutionORM.tenant_id)
+                )
+            )
+        base = self._settings.redis_event_stream
+        return [base] + [
+            tenant_event_stream(base, tenant_id) for tenant_id in tenant_ids
+        ]
+
+    async def _trim_event_stream(self, stream: str) -> int:
         remaining = self._settings.event_retention_batch_size
         deleted = 0
         boundary = _cutoff_stream_id(
@@ -190,7 +210,7 @@ class EventRetentionManager:
             batch_size = min(remaining, MAX_BATCH_SIZE)
             count = await trim_before(
                 self._redis,
-                self._settings.redis_event_stream,
+                stream,
                 boundary,
                 count=batch_size,
             )

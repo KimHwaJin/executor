@@ -160,6 +160,7 @@ def _execution_common(
             task_id=execution.task_id,
             workflow_id=execution.workflow_id,
         ),
+        "tenant_id": execution.tenant_id,
         "metadata": dict(execution.metadata),
         "runtime": ExecutionRuntime(
             type=execution.runtime_type,
@@ -247,6 +248,7 @@ class ExecutionResponse(AuditFields):
     execution_id: UUID
     trigger_type: TriggerType
     trigger: ExecutionTrigger
+    tenant_id: str | None
     context: ExecutionContext
     metadata: dict[str, Any]
     runtime: ExecutionRuntime
@@ -298,6 +300,7 @@ class ExecutionSummaryResponse(AuditFields):
     operation_mode: OperationMode
     trigger_type: TriggerType
     trigger: ExecutionTrigger
+    tenant_id: str | None
     context: ExecutionContext
     metadata: dict[str, Any]
     state: ExecutionCommandState
@@ -325,6 +328,7 @@ class ExecutionSummaryResponse(AuditFields):
                 task_id=execution.task_id,
                 workflow_id=execution.workflow_id,
             ),
+            tenant_id=execution.tenant_id,
             metadata=dict(execution.metadata),
             state=ExecutionCommandState(
                 status=execution.status,
