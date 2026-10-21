@@ -26,7 +26,6 @@ from executor_service.domain.enums import (
 )
 from executor_service.domain.models import (
     ExecutionEvent,
-    OutboxEvent,
     utc_now,
 )
 from executor_service.infrastructure.db._models.common import (
@@ -219,30 +218,6 @@ class OutboxEventORM(Base):
     execution_event: Mapped[ExecutionEventORM | None] = relationship(
         lazy="selectin"
     )
-
-    @classmethod
-    def from_domain(cls, event: OutboxEvent) -> "OutboxEventORM":
-        return cls(
-            id=event.id,
-            aggregate_type=event.aggregate_type,
-            aggregate_id=event.aggregate_id,
-            event_type=event.event_type,
-            event_sequence=event.event_sequence,
-            execution_event_id=None,
-            destination=event.destination,
-            payload=event.payload,
-            created_by_type=event.created_by_type,
-            created_by=event.created_by,
-            updated_by_type=event.updated_by_type,
-            updated_by=event.updated_by,
-            status=event.status,
-            attempt_count=event.attempt_count,
-            available_at=event.available_at,
-            created_at=event.created_at,
-            updated_at=event.updated_at,
-            published_at=event.published_at,
-            last_error=event.last_error,
-        )
 
     @classmethod
     def from_execution_event(cls, event: ExecutionEvent) -> "OutboxEventORM":

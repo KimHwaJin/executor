@@ -175,7 +175,6 @@ async def run_case(
         submitted_id = execution.id
         worker = ExecutionWorker(
             session_factory=factory,
-            redis=redis,
             settings=settings,
             registry=RuntimeTargetRegistry(factory, settings),
             artifact_manager=ExecutionArtifactManager(factory),

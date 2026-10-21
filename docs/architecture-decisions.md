@@ -104,8 +104,9 @@ PlanStep inside Executor.
   executed Steps are immutable.
 
 Both REST and MCP expose the same application commands. Submit and Operation creation return
-Executor-generated ID receipts immediately. PostgreSQL commits state and Outbox records in one
-transaction. `executor.work` wakes Workers; `executor.events` wakes Agent/frontend consumers.
+Executor-generated ID receipts immediately. PostgreSQL commits state and event Outbox records in
+one transaction. Workers find work by polling PostgreSQL; `executor.events` wakes Agent/frontend
+consumers.
 
 `execution.step_completed` carries only a bounded output summary and a structured shared-volume
 result reference. Full text and image payloads stay in immutable shared files and never enter

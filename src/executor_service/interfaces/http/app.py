@@ -235,6 +235,7 @@ def create_app(
     async def workerz() -> dict[str, object]:
         worker = container.execution_worker
         return {
+            "worker_id": worker.worker_id,
             "state": worker.lifecycle_state,
             "accepting_new_executions": worker.accepting_work,
             "active_execution_count": worker.active_job_count,

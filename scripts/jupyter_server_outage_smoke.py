@@ -69,8 +69,7 @@ async def main() -> None:
     await require_exclusive_executor_control()
     unique = uuid4().hex
     port = available_port("JUPYTER_OUTAGE_SMOKE_PORT")
-    work_stream = f"executor.work.jupyter-outage-smoke.{unique}"
-    group = f"executor-jupyter-outage-smoke-{unique}"
+    stream_prefix = f"executor.smoke.jupyter-outage-smoke.{unique}"
     process: asyncio.subprocess.Process | None = None
     secondary_restored = False
     try:
@@ -83,9 +82,7 @@ async def main() -> None:
         )
         process = await start_executor(
             port=port,
-            consumer_name="jupyter-outage-smoke",
-            stream=work_stream,
-            group=group,
+            stream=stream_prefix,
         )
         await wait_ready(port)
         async with Client(f"http://127.0.0.1:{port}/mcp") as client:
@@ -214,7 +211,7 @@ async def main() -> None:
             decode_responses=True,
         )
         try:
-            await cleanup_streams(redis, work_stream)
+            await cleanup_streams(redis, stream_prefix)
         finally:
             await redis.aclose()
 

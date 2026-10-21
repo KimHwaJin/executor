@@ -13,10 +13,17 @@ from executor_service.application.services import ExecutionService
 from executor_service.domain.enums import OutboxStatus
 from executor_service.infrastructure.db.models import OutboxEventORM
 from executor_service.infrastructure.db.session import create_session_factory
+from executor_service.infrastructure.execution_worker.event_writer import (
+    persist_execution_event,
+)
 from executor_service.infrastructure.outbox import OutboxPublisher
 from executor_service.infrastructure.redis_client import create_redis_client
 from executor_service.settings import Settings
-from tests.test_events import RecordingRedis, _submit_command
+from tests.test_events import (
+    RecordingRedis,
+    _started_payload,
+    _submit_command,
+)
 
 
 async def test_redis_blackhole_has_a_socket_deadline() -> None:
@@ -56,7 +63,15 @@ async def test_redis_blackhole_has_a_socket_deadline() -> None:
 async def test_outbox_stall_leaves_retryable_db_state(
     execution_service: ExecutionService, engine: AsyncEngine, shutdown: bool
 ) -> None:
-    await execution_service.submit(_submit_command())
+    execution = await execution_service.submit(_submit_command())
+    factory = create_session_factory(engine)
+    async with factory() as session, session.begin():
+        await persist_execution_event(
+            session,
+            execution_id=execution.id,
+            event_type="execution.started",
+            payload=_started_payload(),
+        )
     entered = asyncio.Event()
 
     class StalledRedis:
@@ -64,12 +79,10 @@ async def test_outbox_stall_leaves_retryable_db_state(
             entered.set()
             await asyncio.Event().wait()
 
-    factory = create_session_factory(engine)
     publisher = OutboxPublisher(
         factory,
         cast(Redis, StalledRedis()),
-        "work",
-        "events",
+        "event-contract-v1",
         0.01,
         100,
         publish_timeout_seconds=60 if shutdown else 0.02,
@@ -91,7 +104,7 @@ async def test_outbox_stall_leaves_retryable_db_state(
         row.available_at = row.created_at
     # Both deadline and shutdown paths release DB transaction resources.
     recovered = OutboxPublisher(
-        factory, cast(Redis, RecordingRedis()), "work", "events", 0.01, 100
+        factory, cast(Redis, RecordingRedis()), "event-contract-v1", 0.01, 100
     )
     assert await recovered.publish_batch() == 1
 

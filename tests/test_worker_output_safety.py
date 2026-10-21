@@ -173,7 +173,6 @@ async def test_output_limit_aborts_runtime_and_persists_incomplete_result(
     )
     worker = ExecutionWorker(
         session_factory=session_factory,
-        redis=redis,
         settings=settings,
         registry=RuntimeTargetRegistry(session_factory, settings),
         artifact_manager=ExecutionArtifactManager(session_factory),

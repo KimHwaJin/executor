@@ -153,7 +153,6 @@ async def test_cancelled_cell_registers_partial_file_as_incomplete_artifact(
     redis = Redis.from_url("redis://127.0.0.1:6379/15", decode_responses=True)
     worker = ExecutionWorker(
         session_factory=session_factory,
-        redis=redis,
         settings=settings,
         registry=RuntimeTargetRegistry(session_factory, settings),
         artifact_manager=ExecutionArtifactManager(session_factory),

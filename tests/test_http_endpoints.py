@@ -25,6 +25,7 @@ async def test_health_endpoint() -> None:
     assert health.json() == {"status": "ok"}
     assert worker.status_code == 200
     assert worker.json() == {
+        "worker_id": container.execution_worker.worker_id,
         "state": "STOPPED",
         "accepting_new_executions": False,
         "active_execution_count": 0,

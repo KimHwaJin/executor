@@ -17,16 +17,19 @@ from executor_service.infrastructure.execution_worker.cancellation import (
 from executor_service.infrastructure.execution_worker.dispatcher import (
     ExecutionJobDispatcher,
 )
-from executor_service.infrastructure.execution_worker.message_validation import (
-    RUN_MESSAGE_TYPES,
-)
 from executor_service.infrastructure.execution_worker.runner import (
     ExecutionRunner,
 )
 
 
 class WorkAdmissionProcessor:
-    """Maps Redis signals and durable DB state to local execution jobs."""
+    """Polls PostgreSQL, the source of truth, for work this Worker can take.
+
+    Cancellations and released Steps are always dispatched: they need no new
+    Runtime capacity. New runs are limited to the Worker's free slots so a
+    backlog costs each Pod a bounded number of claims per pass, and work
+    spreads across replicas.
+    """
 
     def __init__(
         self,
@@ -34,113 +37,80 @@ class WorkAdmissionProcessor:
         dispatcher: ExecutionJobDispatcher,
         runner: ExecutionRunner,
         cancellation: CancellationProcessor,
+        *,
+        max_active_jobs: int,
     ) -> None:
         self._session_factory = session_factory
         self._dispatcher = dispatcher
         self._runner = runner
         self._cancellation = cancellation
-        self._reconcile_cursor: tuple[datetime, UUID] | None = None
-        self._reconcile_upper_bound: tuple[datetime, UUID] | None = None
-
-    async def handle_message(self, fields: dict[str, str]) -> bool:
-        """Dispatch one validated Redis work message."""
-        message_type = fields.get("message_type")
-        execution_id = UUID(fields["aggregate_id"])
-        if message_type in RUN_MESSAGE_TYPES:
-            self._dispatcher.dispatch(
-                execution_id,
-                self._runner.run(execution_id),
-            )
-        elif message_type == "execution.cancellation_ready":
-            self._dispatcher.dispatch(
-                execution_id,
-                self._cancellation.cancel(execution_id),
-                replace=True,
-            )
-        else:
-            return False
-        return True
+        self._max_active_jobs = max_active_jobs
+        self._run_cursor: tuple[datetime, UUID] | None = None
 
     async def reconcile(self) -> int:
-        """Redis-independent admission from PostgreSQL source-of-truth state."""
-        query = select(
-            ExecutionORM.id, ExecutionORM.status, ExecutionORM.created_at
-        ).where(
-            or_(
-                ExecutionORM.status.in_(
-                    [
-                        ExecutionStatus.QUEUED,
-                        ExecutionStatus.FINALIZING,
-                        ExecutionStatus.CANCEL_REQUESTED,
-                    ]
-                ),
-                # A running Step released for another Worker to follow.
-                and_(
-                    ExecutionORM.status == ExecutionStatus.RUNNING,
-                    ExecutionORM.id.in_(
-                        select(ExecutionHandoverORM.execution_id)
-                    ),
-                ),
-            )
-        )
-        if self._reconcile_cursor is not None:
-            query = query.where(
-                tuple_(ExecutionORM.created_at, ExecutionORM.id)
-                > self._reconcile_cursor
-            )
         async with self._session_factory() as session:
-            if self._reconcile_upper_bound is None:
-                newest = (
-                    await session.execute(
-                        query.with_only_columns(
-                            ExecutionORM.created_at, ExecutionORM.id
-                        )
-                        .order_by(
-                            ExecutionORM.created_at.desc(),
-                            ExecutionORM.id.desc(),
-                        )
-                        .limit(1)
-                    )
-                ).first()
-                if newest is None:
-                    self._reconcile_cursor = None
-                    return 0
-                self._reconcile_upper_bound = (newest[0], newest[1])
-            # Bound the pass to the original tail. Continuous new submissions
-            # must not prevent us from returning to older waiting work.
-            query = query.where(
-                tuple_(ExecutionORM.created_at, ExecutionORM.id)
-                <= self._reconcile_upper_bound
-            )
-            rows = list(
+            urgent = list(
                 await session.execute(
-                    query.order_by(
-                        ExecutionORM.created_at, ExecutionORM.id
-                    ).limit(100)
+                    select(ExecutionORM.id, ExecutionORM.status).where(
+                        or_(
+                            ExecutionORM.status
+                            == ExecutionStatus.CANCEL_REQUESTED,
+                            # A running Step released for another Worker.
+                            and_(
+                                ExecutionORM.status == ExecutionStatus.RUNNING,
+                                ExecutionORM.id.in_(
+                                    select(ExecutionHandoverORM.execution_id)
+                                ),
+                            ),
+                        )
+                    )
                 )
             )
-        self._reconcile_cursor = (
-            (rows[-1][2], rows[-1][0]) if len(rows) == 100 else None
-        )
-        if self._reconcile_cursor is None:
-            self._reconcile_upper_bound = None
-        for execution_id, status, _created_at in rows:
-            self._dispatch_durable_state(execution_id, status)
-        return len(rows)
-
-    def _dispatch_durable_state(
-        self,
-        execution_id: UUID,
-        status: ExecutionStatus,
-    ) -> None:
-        if status == ExecutionStatus.CANCEL_REQUESTED:
-            self._dispatcher.dispatch(
-                execution_id,
-                self._cancellation.cancel(execution_id),
-                replace=True,
+            for execution_id, status in urgent:
+                if status == ExecutionStatus.CANCEL_REQUESTED:
+                    self._dispatcher.dispatch(
+                        execution_id,
+                        self._cancellation.cancel(execution_id),
+                        replace=True,
+                    )
+                else:
+                    self._dispatcher.dispatch(
+                        execution_id, self._runner.run(execution_id)
+                    )
+            free_slots = (
+                self._max_active_jobs - self._dispatcher.active_job_count
             )
-            return
-        self._dispatcher.dispatch(
-            execution_id,
-            self._runner.run(execution_id),
+            if free_slots <= 0:
+                return len(urgent)
+            runs = await self._next_runs(session, free_slots)
+        for execution_id in runs:
+            self._dispatcher.dispatch(
+                execution_id, self._runner.run(execution_id)
+            )
+        return len(urgent) + len(runs)
+
+    async def _next_runs(
+        self, session: AsyncSession, limit: int
+    ) -> list[UUID]:
+        """Oldest waiting runs, rotating so blocked ones cannot starve others."""
+
+        query = (
+            select(ExecutionORM.created_at, ExecutionORM.id)
+            .where(
+                ExecutionORM.status.in_(
+                    [ExecutionStatus.QUEUED, ExecutionStatus.FINALIZING]
+                )
+            )
+            .order_by(ExecutionORM.created_at, ExecutionORM.id)
+            .limit(limit)
         )
+        if self._run_cursor is not None:
+            query = query.where(
+                tuple_(ExecutionORM.created_at, ExecutionORM.id)
+                > self._run_cursor
+            )
+        rows = list(await session.execute(query))
+        self._run_cursor = (
+            (rows[-1][0], rows[-1][1]) if len(rows) == limit else None
+        )
+        return [execution_id for _created_at, execution_id in rows]

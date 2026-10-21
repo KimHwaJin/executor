@@ -211,7 +211,6 @@ async def test_failures_preserve_state_reason_partial_refs_and_operator_logs(
     redis = Redis.from_url("redis://127.0.0.1:6379/15", decode_responses=True)
     worker = ExecutionWorker(
         session_factory=factory,
-        redis=redis,
         settings=settings,
         registry=RuntimeTargetRegistry(factory, settings),
         artifact_manager=ExecutionArtifactManager(factory),

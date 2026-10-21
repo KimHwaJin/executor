@@ -37,9 +37,9 @@ async def require_exclusive_executor_control() -> None:
             "An unmanaged Executor is running against the shared queue at "
             f"{existing_url}. Stop it before this real-process resilience test "
             "(for Compose: `docker compose stop executor`). Concurrent Executors can "
-            "claim the test rows through PostgreSQL reconciliation even when Redis Stream "
-            "names differ. Set RESILIENCE_ALLOW_CONCURRENT_EXECUTOR=true only when the "
-            "other process uses an isolated database."
+            "claim the test rows through PostgreSQL reconciliation. Set "
+            "RESILIENCE_ALLOW_CONCURRENT_EXECUTOR=true only when the other "
+            "process uses an isolated database."
         )
 
 
@@ -55,24 +55,17 @@ def available_port(environment_name: str) -> int:
 async def start_executor(
     *,
     port: int,
-    consumer_name: str,
     stream: str,
-    group: str,
     extra_environment: Mapping[str, str] | None = None,
 ) -> asyncio.subprocess.Process:
     environment = os.environ.copy()
     environment.update(
         {
-            "EXECUTION_CONSUMER_NAME": consumer_name,
-            "EXECUTION_CONSUMER_GROUP": group,
             "EXECUTION_LEASE_SECONDS": "30",
             "EXECUTION_HEARTBEAT_SECONDS": "5",
             "RUNTIME_HEALTH_POLL_INTERVAL_SECONDS": "2",
             "RUNTIME_DEFAULT_MAX_CONCURRENT_EXECUTIONS": "1",
-            "REDIS_WORK_STREAM": stream,
             "REDIS_EVENT_STREAM": f"{stream}.events",
-            "REDIS_WORK_DEAD_LETTER_STREAM": f"{stream}.dlq",
-            "REDIS_EVENT_DEAD_LETTER_STREAM": f"{stream}.events.dlq",
             "LOG_LEVEL": "WARNING",
         }
     )
@@ -116,9 +109,15 @@ async def cleanup_streams(redis: Redis, stream: str) -> None:
         "yes",
     }:
         return
-    await redis.delete(
-        stream, f"{stream}.dlq", f"{stream}.events", f"{stream}.events.dlq"
-    )
+    await redis.delete(f"{stream}.events")
+
+
+async def worker_id(port: int) -> str:
+    """The lease owner name a running Executor writes on its Attempts."""
+    async with httpx.AsyncClient() as client:
+        response = await client.get(f"http://127.0.0.1:{port}/workerz")
+        response.raise_for_status()
+        return str(response.json()["worker_id"])
 
 
 async def wait_ready(port: int, *, attempts: int = 160) -> None:

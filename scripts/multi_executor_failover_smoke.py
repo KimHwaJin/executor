@@ -14,26 +14,19 @@ from redis.asyncio import Redis
 from resilience_common import (
     cleanup_streams,
     require_exclusive_executor_control,
+    worker_id,
 )
-
-PRIMARY_CONSUMER = "multi-smoke-primary"
-SECONDARY_CONSUMER = "multi-smoke-secondary"
 
 
 async def _start_executor(
-    *, port: int, consumer_name: str, work_stream: str, group: str
+    *, port: int, stream_prefix: str
 ) -> asyncio.subprocess.Process:
     environment = os.environ.copy()
     environment.update(
         {
-            "EXECUTION_CONSUMER_NAME": consumer_name,
-            "EXECUTION_CONSUMER_GROUP": group,
             "EXECUTION_LEASE_SECONDS": "30",
             "EXECUTION_HEARTBEAT_SECONDS": "5",
-            "REDIS_WORK_STREAM": work_stream,
-            "REDIS_EVENT_STREAM": f"{work_stream}.events",
-            "REDIS_WORK_DEAD_LETTER_STREAM": f"{work_stream}.dlq",
-            "REDIS_EVENT_DEAD_LETTER_STREAM": f"{work_stream}.events.dlq",
+            "REDIS_EVENT_STREAM": f"{stream_prefix}.events",
             "LOG_LEVEL": "WARNING",
         }
     )
@@ -147,8 +140,7 @@ async def main() -> None:
     unique = uuid4().hex
     primary_port = int(os.getenv("MULTI_EXECUTOR_PRIMARY_PORT", "8010"))
     secondary_port = int(os.getenv("MULTI_EXECUTOR_SECONDARY_PORT", "8011"))
-    work_stream = f"executor.work.multi-smoke.{unique}"
-    group = f"executor-multi-smoke-{unique}"
+    stream_prefix = f"executor.smoke.multi-smoke.{unique}"
     primary: asyncio.subprocess.Process | None = None
     secondary: asyncio.subprocess.Process | None = None
     execution_id = ""
@@ -166,11 +158,10 @@ async def main() -> None:
     try:
         primary = await _start_executor(
             port=primary_port,
-            consumer_name=PRIMARY_CONSUMER,
-            work_stream=work_stream,
-            group=group,
+            stream_prefix=stream_prefix,
         )
         await _wait_ready(primary_port)
+        primary_id = await worker_id(primary_port)
         async with Client(f"http://127.0.0.1:{primary_port}/mcp") as client:
             submitted = await client.call_tool(
                 "execution_submit",
@@ -211,7 +202,7 @@ async def main() -> None:
             first_attempts = await _attempts(client, execution_id)
             if (
                 len(first_attempts) != 1
-                or first_attempts[0]["lease"]["owner"] != PRIMARY_CONSUMER
+                or first_attempts[0]["lease"]["owner"] != primary_id
             ):
                 raise RuntimeError(
                     f"Primary did not own the first Attempt: {first_attempts}"
@@ -219,11 +210,10 @@ async def main() -> None:
 
         secondary = await _start_executor(
             port=secondary_port,
-            consumer_name=SECONDARY_CONSUMER,
-            work_stream=work_stream,
-            group=group,
+            stream_prefix=stream_prefix,
         )
         await _wait_ready(secondary_port)
+        secondary_id = await worker_id(secondary_port)
         primary.kill()
         await primary.wait()
 
@@ -267,7 +257,7 @@ async def main() -> None:
                 succeeded["state"]["status"] != "SUCCEEDED"
                 or len(attempts) != 2
                 or [item["lease"]["owner"] for item in attempts]
-                != [None, SECONDARY_CONSUMER]
+                != [None, secondary_id]
                 or [item["state"]["status"] for item in attempts]
                 != ["FAILED", "SUCCEEDED"]
                 or attempts[0]["runtime"]["session_id"]
@@ -303,7 +293,7 @@ async def main() -> None:
             decode_responses=True,
         )
         try:
-            await cleanup_streams(redis, work_stream)
+            await cleanup_streams(redis, stream_prefix)
         finally:
             await redis.aclose()
 

@@ -3,11 +3,9 @@
 import asyncio
 from datetime import timedelta
 from pathlib import Path
-from typing import cast
 from uuid import UUID, uuid4
 
 import pytest
-from redis.asyncio import Redis
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -47,10 +45,6 @@ from executor_service.settings import Settings
 from tests.runtime_credentials import runtime_credential_fields
 
 
-class UnusedRedis:
-    """A placeholder for tests that invoke no Redis operation."""
-
-
 def _command(name: str) -> SubmitExecutionCommand:
     return SubmitExecutionCommand(
         idempotency_key=f"cancellation-owner-{name}-{uuid4().hex}",
@@ -81,17 +75,14 @@ def _target() -> RuntimeTargetORM:
 def _worker(
     engine: AsyncEngine,
     tmp_path: Path,
-    consumer_name: str,
 ) -> ExecutionWorker:
     session_factory = create_session_factory(engine)
     settings = Settings(
         runtime_enabled=False,
         shared_storage_root=tmp_path,
-        execution_consumer_name=consumer_name,
     )
     return ExecutionWorker(
         session_factory=session_factory,
-        redis=cast(Redis, UnusedRedis()),
         settings=settings,
         registry=RuntimeTargetRegistry(session_factory, settings),
         artifact_manager=ExecutionArtifactManager(session_factory),
@@ -119,8 +110,8 @@ async def test_cancellation_claim_fences_the_running_worker(
     async with session_factory() as session, session.begin():
         session.add(_target())
     execution = await execution_service.submit(_command("fence"))
-    running_worker = _worker(engine, tmp_path, "running-worker")
-    cancellation_worker = _worker(engine, tmp_path, "cancellation-worker")
+    running_worker = _worker(engine, tmp_path)
+    cancellation_worker = _worker(engine, tmp_path)
 
     claimed = await running_worker._claimer.claim(execution.id)
     assert claimed is not None
@@ -156,8 +147,8 @@ async def test_expired_cancellation_lease_is_taken_over_and_stale_final_is_rejec
 ) -> None:
     execution = await execution_service.submit(_command("takeover"))
     await _request_cancel(execution_service, execution.id)
-    first = _worker(engine, tmp_path, "cancellation-worker-a")
-    second = _worker(engine, tmp_path, "cancellation-worker-b")
+    first = _worker(engine, tmp_path)
+    second = _worker(engine, tmp_path)
 
     first_work = await first._claimer.claim_cancellation(execution.id)
     assert first_work is not None
@@ -213,7 +204,7 @@ async def test_duplicate_local_cancellation_dispatch_keeps_the_live_job(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    worker = _worker(engine, tmp_path, "local-cancellation-worker")
+    worker = _worker(engine, tmp_path)
     worker._dispatcher.set_accepting(True)
     execution_id = uuid4()
     started = asyncio.Event()
@@ -250,7 +241,7 @@ async def test_local_cancellation_waits_for_execution_evidence_handoff(
     engine: AsyncEngine,
     tmp_path: Path,
 ) -> None:
-    worker = _worker(engine, tmp_path, "handoff-worker")
+    worker = _worker(engine, tmp_path)
     worker._dispatcher.set_accepting(True)
     execution_id = uuid4()
     execution_started = asyncio.Event()

@@ -140,7 +140,6 @@ class ApplicationContainer:
         self.outbox_publisher = OutboxPublisher(
             session_factory=self.session_factory,
             redis=self.redis,
-            work_stream_name=settings.redis_work_stream,
             event_stream_name=settings.redis_event_stream,
             poll_interval_seconds=settings.outbox_poll_interval_seconds,
             batch_size=settings.outbox_batch_size,
@@ -154,7 +153,6 @@ class ApplicationContainer:
         )
         self.execution_worker = ExecutionWorker(
             session_factory=self.session_factory,
-            redis=self.redis,
             settings=settings,
             registry=self.runtime_registry,
             driver_factory=self.runtime_driver_factory,

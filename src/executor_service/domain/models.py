@@ -12,8 +12,6 @@ from executor_service.domain.enums import (
     FailureType,
     OperationMode,
     OperationStatus,
-    OutboxDestination,
-    OutboxStatus,
     RetryStrategy,
     RuntimeAbortStatus,
     RuntimePool,
@@ -312,28 +310,6 @@ class ExecutionOperation:
     updated_at: datetime = field(default_factory=utc_now)
     started_at: datetime | None = None
     finished_at: datetime | None = None
-
-
-@dataclass(slots=True)
-class OutboxEvent:
-    aggregate_type: str
-    aggregate_id: UUID
-    event_type: str
-    payload: dict[str, Any]
-    event_sequence: int | None = None
-    destination: OutboxDestination = OutboxDestination.EVENTS
-    created_by_type: ActorType | None = None
-    created_by: str | None = None
-    updated_by_type: ActorType | None = None
-    updated_by: str | None = None
-    id: UUID = field(default_factory=uuid4)
-    status: OutboxStatus = OutboxStatus.PENDING
-    attempt_count: int = 0
-    available_at: datetime = field(default_factory=utc_now)
-    created_at: datetime = field(default_factory=utc_now)
-    updated_at: datetime = field(default_factory=utc_now)
-    published_at: datetime | None = None
-    last_error: str | None = None
 
 
 @dataclass(slots=True)

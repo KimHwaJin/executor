@@ -9,10 +9,14 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from redis.asyncio import Redis
-from sqlalchemy import delete, exists, select
+from sqlalchemy import and_, delete, exists, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from executor_service.domain.enums import ExecutionStatus, OutboxStatus
+from executor_service.domain.enums import (
+    ExecutionStatus,
+    OutboxDestination,
+    OutboxStatus,
+)
 from executor_service.domain.models import utc_now
 from executor_service.infrastructure.db.models import (
     EventRetentionLeaseORM,
@@ -40,9 +44,7 @@ _TERMINAL_EXECUTION_STATUSES = (
 class EventRetentionResult:
     published_outbox_deleted: int
     execution_events_deleted: int
-    work_stream_trimmed: int
     event_stream_trimmed: int
-    work_dlq_trimmed: int
 
 
 class EventRetentionManager:
@@ -113,15 +115,7 @@ class EventRetentionManager:
             return None
         try:
             outbox_deleted, events_deleted = await self._cleanup_database()
-            work_trimmed = await self._trim_work_stream()
-            event_trimmed = await self._trim_by_age(
-                self._settings.redis_event_stream,
-                self._settings.redis_event_retention_seconds,
-            )
-            work_dlq_trimmed = await self._trim_by_age(
-                self._settings.redis_work_dead_letter_stream,
-                self._settings.redis_work_dlq_retention_seconds,
-            )
+            event_trimmed = await self._trim_event_stream()
         except Exception as exc:
             await self._release_lease(error=str(exc)[:1000])
             raise
@@ -129,9 +123,7 @@ class EventRetentionManager:
         return EventRetentionResult(
             published_outbox_deleted=outbox_deleted,
             execution_events_deleted=events_deleted,
-            work_stream_trimmed=work_trimmed,
             event_stream_trimmed=event_trimmed,
-            work_dlq_trimmed=work_dlq_trimmed,
         )
 
     async def _acquire_lease(self) -> bool:
@@ -202,9 +194,16 @@ class EventRetentionManager:
                 await session.scalars(
                     select(OutboxEventORM.id)
                     .where(
-                        OutboxEventORM.status == OutboxStatus.PUBLISHED,
-                        OutboxEventORM.published_at.is_not(None),
-                        OutboxEventORM.published_at < outbox_cutoff,
+                        or_(
+                            and_(
+                                OutboxEventORM.status
+                                == OutboxStatus.PUBLISHED,
+                                OutboxEventORM.published_at.is_not(None),
+                                OutboxEventORM.published_at < outbox_cutoff,
+                            ),
+                            OutboxEventORM.destination
+                            == OutboxDestination.WORK,
+                        )
                     )
                     .order_by(OutboxEventORM.published_at, OutboxEventORM.id)
                     .limit(batch_size)
@@ -250,31 +249,18 @@ class EventRetentionManager:
                 )
         return len(outbox_ids), len(event_ids)
 
-    async def _trim_work_stream(self) -> int:
-        return await self._trim_stream(
-            self._settings.redis_work_stream,
-            self._settings.redis_work_retention_seconds,
-            protect_groups=True,
-        )
-
-    async def _trim_by_age(self, stream: str, retention_seconds: int) -> int:
-        return await self._trim_stream(
-            stream, retention_seconds, protect_groups=False
-        )
-
-    async def _trim_stream(
-        self, stream: str, retention_seconds: int, *, protect_groups: bool
-    ) -> int:
+    async def _trim_event_stream(self) -> int:
         remaining = self._settings.event_retention_batch_size
         deleted = 0
-        boundary = _cutoff_stream_id(retention_seconds)
+        boundary = _cutoff_stream_id(
+            self._settings.redis_event_retention_seconds
+        )
         while remaining > 0:
             batch_size = min(remaining, MAX_BATCH_SIZE)
             count = await trim_before(
                 self._redis,
-                stream,
+                self._settings.redis_event_stream,
                 boundary,
-                protect_groups=protect_groups,
                 count=batch_size,
             )
             deleted += count

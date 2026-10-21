@@ -1,11 +1,9 @@
 import asyncio
 from pathlib import Path
-from typing import Any, cast
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
-from redis.asyncio import Redis
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -22,20 +20,6 @@ from executor_service.infrastructure.runtime_registry import (
 from executor_service.settings import Settings
 
 
-class IdleRedis:
-    async def xgroup_create(self, *_args: Any, **_kwargs: Any) -> None:
-        pass
-
-    async def xreadgroup(self, *_args: Any, **_kwargs: Any) -> list[Any]:
-        await asyncio.Event().wait()
-        return []
-
-    async def execute_command(
-        self, *_args: Any, **_kwargs: Any
-    ) -> tuple[str, list[Any], list[Any]]:
-        return "0-0", [], []
-
-
 def _worker(
     engine: AsyncEngine,
     tmp_path: Path,
@@ -46,12 +30,10 @@ def _worker(
         runtime_enabled=True,
         shared_storage_root=tmp_path,
         execution_drain_timeout_seconds=drain_timeout,
-        execution_pending_claim_interval_seconds=60,
     )
     session_factory = create_session_factory(engine)
     return ExecutionWorker(
         session_factory=session_factory,
-        redis=cast(Redis, IdleRedis()),
         settings=settings,
         registry=RuntimeTargetRegistry(session_factory, settings),
         artifact_manager=ExecutionArtifactManager(session_factory),

@@ -1129,12 +1129,10 @@ def _workers(
         settings = Settings(
             runtime_enabled=False,
             shared_storage_root=tmp_path / f"worker-{index}",
-            execution_consumer_name=f"postgres-worker-{index}",
         )
         workers.append(
             ExecutionWorker(
                 session_factory=session_factory,
-                redis=redis,
                 settings=settings,
                 registry=RuntimeTargetRegistry(session_factory, settings),
                 artifact_manager=ExecutionArtifactManager(session_factory),
@@ -1510,11 +1508,10 @@ async def test_partial_result_outbox_redis_and_history_agree(
     )
     redis = Redis.from_url(_redis_test_url(), decode_responses=True)
     unique = f"test:partial-results:{uuid4().hex}"
-    work_stream, event_stream = f"{unique}:work", f"{unique}:events"
+    event_stream = f"{unique}:events"
     settings = Settings(runtime_enabled=False, shared_storage_root=tmp_path)
     worker = ExecutionWorker(
         session_factory=factory,
-        redis=redis,
         settings=settings,
         registry=RuntimeTargetRegistry(factory, settings),
         artifact_manager=ExecutionArtifactManager(factory),
@@ -1525,7 +1522,6 @@ async def test_partial_result_outbox_redis_and_history_agree(
         publisher = OutboxPublisher(
             session_factory=factory,
             redis=redis,
-            work_stream_name=work_stream,
             event_stream_name=event_stream,
             poll_interval_seconds=0.01,
             batch_size=100,
@@ -1558,7 +1554,7 @@ async def test_partial_result_outbox_redis_and_history_agree(
         assert step_event.payload["status"] == "FAILED"
         assert "partial evidence" not in step_event.model_dump_json()
     finally:
-        await redis.delete(work_stream, event_stream)
+        await redis.delete(event_stream)
         await redis.aclose()
 
 
@@ -1895,14 +1891,12 @@ async def test_concurrent_outbox_publishers_emit_one_stream_message(
         OutboxPublisher(
             session_factory=session_factory,
             redis=redis,
-            work_stream_name=stream,
             event_stream_name=event_stream,
             poll_interval_seconds=1,
             batch_size=100,
         )
         for redis in redis_clients
     ]
-    messages: list[tuple[str, dict[str, str]]] = []
     event_messages: list[tuple[str, dict[str, str]]] = []
     try:
         first_round = await asyncio.gather(
@@ -1911,10 +1905,9 @@ async def test_concurrent_outbox_publishers_emit_one_stream_message(
         second_round = await asyncio.gather(
             *(publisher.publish_batch() for publisher in publishers)
         )
-        messages = await redis_clients[0].xrange(stream)
         event_messages = await redis_clients[0].xrange(event_stream)
     finally:
-        await redis_clients[0].delete(stream, event_stream)
+        await redis_clients[0].delete(event_stream)
         await _close_redis(redis_clients)
 
     async with session_factory() as session:
@@ -1923,14 +1916,13 @@ async def test_concurrent_outbox_publishers_emit_one_stream_message(
                 OutboxEventORM.status == OutboxStatus.PUBLISHED
             )
         )
-    assert sum(first_round) + sum(second_round) == 3
-    assert len(messages) == 1
+    assert sum(first_round) + sum(second_round) == 2
     assert len(event_messages) == 2
     assert [int(fields["event_sequence"]) for _, fields in event_messages] == [
         1,
         2,
     ]
-    assert published_rows == 3
+    assert published_rows == 2
 
 
 async def test_ordered_outbox_backlog_load(
@@ -1992,7 +1984,6 @@ async def test_ordered_outbox_backlog_load(
         )
 
     unique = uuid4().hex
-    work_stream = f"test:executor:outbox-load:{unique}:work"
     event_stream = f"test:executor:outbox-load:{unique}:events"
     redis_clients = [
         Redis.from_url(_redis_test_url(), decode_responses=True)
@@ -2002,14 +1993,13 @@ async def test_ordered_outbox_backlog_load(
         OutboxPublisher(
             session_factory=session_factory,
             redis=redis,
-            work_stream_name=work_stream,
             event_stream_name=event_stream,
             poll_interval_seconds=0.01,
             batch_size=100,
         )
         for redis in redis_clients
     ]
-    expected_count = execution_count * (events_per_execution + 1)
+    expected_count = execution_count * events_per_execution
     published_count = 0
     rounds = 0
     started_at = perf_counter()
@@ -2031,9 +2021,8 @@ async def test_ordered_outbox_backlog_load(
                 )
         elapsed_seconds = perf_counter() - started_at
         event_messages = await redis_clients[0].xrange(event_stream)
-        work_messages = await redis_clients[0].xrange(work_stream)
     finally:
-        await redis_clients[0].delete(work_stream, event_stream)
+        await redis_clients[0].delete(event_stream)
         await _close_redis(redis_clients)
 
     sequences_by_execution = {
@@ -2049,7 +2038,6 @@ async def test_ordered_outbox_backlog_load(
         for sequences in sequences_by_execution.values()
     )
     assert len(event_messages) == execution_count * events_per_execution
-    assert len(work_messages) == execution_count
     events_per_second = len(event_messages) / elapsed_seconds
     print(
         {
@@ -2083,14 +2071,7 @@ async def test_event_retention_has_one_postgres_lease_owner(
     unique = uuid4().hex
     settings = Settings(
         runtime_enabled=False,
-        redis_work_stream=f"test:retention-lease:{unique}:work",
         redis_event_stream=f"test:retention-lease:{unique}:events",
-        redis_work_dead_letter_stream=(
-            f"test:retention-lease:{unique}:work-dlq"
-        ),
-        redis_event_dead_letter_stream=(
-            f"test:retention-lease:{unique}:event-dlq"
-        ),
     )
     session_factory = create_session_factory(postgres_engine)
     redis_clients = [

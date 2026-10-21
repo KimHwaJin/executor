@@ -32,9 +32,8 @@ async def main() -> None:
         raise ValueError(
             "REDIS_OUTAGE_PAUSE_MILLISECONDS must be at least 5000."
         )
-    work_stream = f"executor.work.redis-outage-smoke.{unique}"
-    event_stream = f"{work_stream}.events"
-    group = f"executor-redis-outage-smoke-{unique}"
+    stream_prefix = f"executor.smoke.redis-outage-smoke.{unique}"
+    event_stream = f"{stream_prefix}.events"
     process: asyncio.subprocess.Process | None = None
     pause_started: float | None = None
     redis = Redis.from_url(
@@ -44,9 +43,7 @@ async def main() -> None:
     try:
         process = await start_executor(
             port=port,
-            consumer_name="redis-outage-smoke",
-            stream=work_stream,
-            group=group,
+            stream=stream_prefix,
             extra_environment={"OUTBOX_POLL_INTERVAL_SECONDS": "0.1"},
         )
         await wait_ready(port)
@@ -105,12 +102,7 @@ async def main() -> None:
                 raise RuntimeError(
                     f"Outbox did not recover after Redis resumed: {timeline}"
                 )
-            work_entries = await redis.xrange(work_stream)
             event_entries = await redis.xrange(event_stream)
-            if not work_entries:
-                raise RuntimeError(
-                    "Recovered Outbox did not publish to the work Stream."
-                )
             postgres_event_ids = {str(event["event_id"]) for event in timeline}
             redis_event_ids = {
                 fields["event_id"]
@@ -129,7 +121,6 @@ async def main() -> None:
         print("redis_pause_milliseconds:", pause_milliseconds)
         print("outbox_event_count:", len(timeline))
         print("all_events_published:", True)
-        print("work_stream_entry_count:", len(work_entries))
         print("event_stream_entry_count:", len(redis_event_ids))
     finally:
         if pause_started is not None:
@@ -140,7 +131,7 @@ async def main() -> None:
                 await asyncio.sleep(remaining_pause + 0.1)
         await stop_executor(process)
         try:
-            await cleanup_streams(redis, work_stream)
+            await cleanup_streams(redis, stream_prefix)
         finally:
             await redis.aclose()
 

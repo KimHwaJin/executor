@@ -362,10 +362,6 @@ async def main() -> None:
         raise RuntimeError(
             "Redis event Stream is missing published integration events."
         )
-    if redis_snapshot["work_pending_count"]:
-        raise RuntimeError(
-            f"Redis work messages remain pending: {redis_snapshot}"
-        )
 
     report = write_report(
         "jupyter-multi-operation-soak",

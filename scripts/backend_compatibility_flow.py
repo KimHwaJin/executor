@@ -56,9 +56,6 @@ from executor_service.infrastructure.execution_worker.lease_heartbeat import (
 from executor_service.infrastructure.execution_worker.runtime_calls import (
     RuntimeDriverProvider,
 )
-from executor_service.infrastructure.execution_worker.stream_consumer import (
-    WorkStreamConsumer,
-)
 from executor_service.infrastructure.execution_worker.target_selector import (
     RuntimeTargetSelector,
 )
@@ -76,7 +73,6 @@ from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
 )
 from executor_service.settings import Settings
-from executor_service.work_messages import WorkStreamEnvelope
 
 
 class FlowFailure(Exception):
@@ -110,7 +106,6 @@ async def lifecycle_check(
     publisher = OutboxPublisher(
         sessions,
         redis,
-        settings.redis_work_stream,
         settings.redis_event_stream,
         poll_interval_seconds=0.1,
         batch_size=100,
@@ -130,26 +125,6 @@ async def lifecycle_check(
             ConfiguredRuntimeDriverFactory(settings),
         ),
     )
-    handled: list[str] = []
-
-    async def handle(fields: dict[str, str]) -> bool:
-        message = WorkStreamEnvelope.from_redis_fields(fields)
-        if message.message_type == "operation.ready":
-            work = await claimer.claim(message.aggregate_id)
-            verify(
-                work is None, "Unexpected runtime assignment in isolated DB."
-            )
-        elif message.message_type == "execution.cancellation_ready":
-            await cancellation.cancel(message.aggregate_id)
-        else:
-            raise FlowFailure("Unexpected work message type.")
-        handled.append(message.message_type)
-        return True
-
-    consumer = WorkStreamConsumer(
-        redis, settings, "compatibility-worker", handle
-    )
-    await consumer.ensure_group()
     await redis.xgroup_create(
         settings.redis_event_stream, "external-consumer", id="0", mkstream=True
     )
@@ -168,26 +143,6 @@ async def lifecycle_check(
                 return
         raise FlowFailure(
             "Outbox rows remain unpublished; check Redis write ACL."
-        )
-
-    async def consume_work() -> None:
-        batches = await redis.xreadgroup(
-            settings.execution_consumer_group,
-            "compatibility-worker",
-            {settings.redis_work_stream: ">"},
-            count=100,
-            block=1000,
-        )
-        verify(bool(batches), "Work stream did not receive an Outbox message.")
-        for _stream, messages in batches:
-            for message_id, fields in messages:
-                await consumer.process_message(message_id, fields)
-        pending = await redis.xpending(
-            settings.redis_work_stream, settings.execution_consumer_group
-        )
-        verify(
-            pending["pending"] == 0,
-            "Work handler failed or ACK was denied; pending entries remain.",
         )
 
     command = SubmitExecutionCommand(
@@ -211,9 +166,10 @@ async def lifecycle_check(
         "Submitted Execution was not QUEUED.",
     )
     await publish_all()
-    await consume_work()
+    # What a Worker does when it finds the QUEUED Execution.
     verify(
-        handled == ["operation.ready"], "Submission work was not processed."
+        await claimer.claim(execution.id) is None,
+        "Unexpected runtime assignment in isolated DB.",
     )
     verify(
         (await service.get(execution.id)).status == ExecutionStatus.QUEUED,
@@ -231,12 +187,7 @@ async def lifecycle_check(
         requested.status == ExecutionStatus.CANCEL_REQUESTED,
         "Cancel request did not persist CANCEL_REQUESTED.",
     )
-    await publish_all()
-    await consume_work()
-    verify(
-        handled == ["operation.ready", "execution.cancellation_ready"],
-        "Cancellation work was missing or duplicated.",
-    )
+    await cancellation.cancel(execution.id)
     await publish_all()
 
     async with sessions() as session:
@@ -315,16 +266,6 @@ async def lifecycle_check(
         "External event consumer could not ACK all events.",
     )
 
-    # The actual consumer must quarantine invalid work, not silently lose it.
-    bad_id = await redis.xadd(settings.redis_work_stream, {"invalid": "probe"})
-    await consume_work()
-    dead_letters = await redis.xrange(settings.redis_work_dead_letter_stream)
-    verify(
-        len(dead_letters) == 1
-        and dead_letters[0][1]["source_message_id"] == bad_id,
-        "Invalid work was not persisted in the DLQ before ACK.",
-    )
-
     retention = EventRetentionManager(sessions, redis, settings)
     await retention.initialize()
     verify(
@@ -368,7 +309,6 @@ async def lifecycle_check(
     return {
         "execution_id": str(execution.id),
         "execution_status": "CANCELLED",
-        "work_messages": handled,
         "outbox_rows": outbox_count,
         "event_types": [event.event_type for event in envelopes],
         "event_sequences": [event.event_sequence for event in envelopes],

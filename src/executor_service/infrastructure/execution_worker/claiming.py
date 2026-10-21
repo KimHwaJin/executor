@@ -61,12 +61,12 @@ class ExecutionClaimer:
         self,
         session_factory: async_sessionmaker[AsyncSession],
         settings: Settings,
-        consumer_name: str,
+        worker_id: str,
         target_selector: RuntimeTargetSelector,
     ) -> None:
         self._session_factory = session_factory
         self._settings = settings
-        self._consumer_name = consumer_name
+        self._worker_id = worker_id
         self._target_selector = target_selector
 
     async def claim_cancellation(
@@ -102,7 +102,7 @@ class ExecutionClaimer:
             )
             if (
                 has_active_owner
-                and execution.cancellation_lease_owner != self._consumer_name
+                and execution.cancellation_lease_owner != self._worker_id
             ):
                 return None
             if not has_active_owner:
@@ -116,14 +116,14 @@ class ExecutionClaimer:
                         ExecutionHandoverORM.execution_id == execution.id
                     )
                 )
-            execution.cancellation_lease_owner = self._consumer_name
+            execution.cancellation_lease_owner = self._worker_id
             execution.cancellation_lease_expires_at = lease_expires
             execution.cancellation_heartbeat_at = now
             execution.updated_at = now
             return CancellationWork(
                 lease=CancellationLease(
                     execution_id=execution.id,
-                    owner=self._consumer_name,
+                    owner=self._worker_id,
                     fencing_token=execution.fencing_token,
                 ),
                 runtime_target_id=execution.runtime_target_id,
@@ -138,11 +138,12 @@ class ExecutionClaimer:
             seconds=self._settings.execution_lease_seconds
         )
         async with self._session_factory() as session, session.begin():
+            # Another Worker holding the row is already claiming it.
             execution_row = await session.scalar(
                 select(ExecutionORM)
                 .where(ExecutionORM.id == execution_id)
                 .options(selectinload(ExecutionORM.steps))
-                .with_for_update()
+                .with_for_update(skip_locked=True)
             )
             if execution_row is None or execution_row.status not in {
                 ExecutionStatus.QUEUED,
@@ -215,7 +216,7 @@ class ExecutionClaimer:
                     return None
                 waiting_attempt.status = AttemptStatus.RUNNING
                 fencing_token = execution_row.fencing_token + 1
-                waiting_attempt.lease_owner = self._consumer_name
+                waiting_attempt.lease_owner = self._worker_id
                 waiting_attempt.lease_expires_at = lease_expires
                 waiting_attempt.heartbeat_at = now
                 waiting_attempt.fencing_token = fencing_token
@@ -229,7 +230,7 @@ class ExecutionClaimer:
                     RuntimeAbortStatus.NOT_REQUIRED
                 )
                 execution_row.status = ExecutionStatus.RUNNING
-                execution_row.lease_owner = self._consumer_name
+                execution_row.lease_owner = self._worker_id
                 execution_row.lease_expires_at = lease_expires
                 execution_row.heartbeat_at = now
                 execution_row.fencing_token = fencing_token
@@ -261,7 +262,7 @@ class ExecutionClaimer:
                     ExecutionLease(
                         execution_id=execution_id,
                         attempt_id=waiting_attempt.id,
-                        owner=self._consumer_name,
+                        owner=self._worker_id,
                         fencing_token=fencing_token,
                     ),
                 )
@@ -332,7 +333,7 @@ class ExecutionClaimer:
                     runtime_profile=execution_row.runtime_profile,
                     runtime_target_id=target.id,
                     status=AttemptStatus.RUNNING,
-                    lease_owner=self._consumer_name,
+                    lease_owner=self._worker_id,
                     lease_expires_at=lease_expires,
                     heartbeat_at=now,
                     fencing_token=fencing_token,
@@ -358,7 +359,7 @@ class ExecutionClaimer:
                 operation.updated_at = now
             execution_row.status = ExecutionStatus.RUNNING
             execution_row.runtime_target_id = target.id
-            execution_row.lease_owner = self._consumer_name
+            execution_row.lease_owner = self._worker_id
             execution_row.lease_expires_at = lease_expires
             execution_row.heartbeat_at = now
             execution_row.fencing_token = fencing_token
@@ -389,7 +390,7 @@ class ExecutionClaimer:
                 ExecutionLease(
                     execution_id=execution_id,
                     attempt_id=attempt_id,
-                    owner=self._consumer_name,
+                    owner=self._worker_id,
                     fencing_token=fencing_token,
                 ),
             )
@@ -407,11 +408,12 @@ class ExecutionClaimer:
 
         now = utc_now()
         async with self._session_factory() as session, session.begin():
+            # Another Worker holding the row is already claiming it.
             execution_row = await session.scalar(
                 select(ExecutionORM)
                 .where(ExecutionORM.id == execution_id)
                 .options(selectinload(ExecutionORM.steps))
-                .with_for_update()
+                .with_for_update(skip_locked=True)
             )
             if (
                 execution_row is None
@@ -454,7 +456,7 @@ class ExecutionClaimer:
             )
             fencing_token = execution_row.fencing_token + 1
             for row in (execution_row, attempt):
-                row.lease_owner = self._consumer_name
+                row.lease_owner = self._worker_id
                 row.lease_expires_at = lease_expires
                 row.heartbeat_at = now
                 row.fencing_token = fencing_token
@@ -466,7 +468,7 @@ class ExecutionClaimer:
                 ExecutionLease(
                     execution_id=execution_id,
                     attempt_id=attempt.id,
-                    owner=self._consumer_name,
+                    owner=self._worker_id,
                     fencing_token=fencing_token,
                 ),
                 handover,

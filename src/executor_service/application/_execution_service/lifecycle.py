@@ -26,7 +26,6 @@ from executor_service.domain.errors import (
     PersistenceConflictError,
 )
 from executor_service.domain.models import Execution
-from executor_service.work_messages import build_work_message
 
 
 class ExecutionLifecycleCommands:
@@ -71,14 +70,6 @@ class ExecutionLifecycleCommands:
                     request_fingerprint,
                     {"execution_id": str(execution.id)},
                 )
-                await uow.outbox.add(
-                    build_work_message(
-                        execution_id=execution.id,
-                        message_type="execution.finalization_ready",
-                        actor_type=command.actor_type,
-                        actor_id=command.actor_id,
-                    )
-                )
                 await uow.commit()
                 return execution
         except PersistenceConflictError as exc:
@@ -119,14 +110,6 @@ class ExecutionLifecycleCommands:
                 )
                 apply_actor(execution, command.actor_type, command.actor_id)
                 await uow.executions.save(execution)
-                await uow.outbox.add(
-                    build_work_message(
-                        execution_id=execution.id,
-                        message_type="execution.cancellation_ready",
-                        actor_type=command.actor_type,
-                        actor_id=command.actor_id,
-                    )
-                )
                 await uow.commit()
                 return execution
         except PersistenceConflictError as exc:
@@ -196,15 +179,6 @@ class ExecutionLifecycleCommands:
                     execution.id,
                     command.idempotency_key,
                     execution.retry_from_sequence,
-                )
-                await uow.outbox.add(
-                    build_work_message(
-                        execution_id=execution.id,
-                        message_type="execution.retry_ready",
-                        operation_id=operation_id,
-                        actor_type=command.actor_type,
-                        actor_id=command.actor_id,
-                    )
                 )
                 await uow.commit()
                 return ExecutionCommandResult(

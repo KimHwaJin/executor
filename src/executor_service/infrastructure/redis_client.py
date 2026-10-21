@@ -1,4 +1,4 @@
-"""Redis transport deadlines shared by startup, workers and publication."""
+"""Redis transport deadlines shared by startup, publication and retention."""
 
 from typing import Any
 
@@ -13,7 +13,7 @@ from executor_service.settings import Settings
 def create_redis_client(settings: Settings) -> Redis:
     options: dict[str, Any] = dict(parse_url(settings.redis_dsn))
     # Explicit service settings win over URL query overrides (including zero
-    # timeouts). Outbox/consumer recovery owns retries, not the socket driver.
+    # timeouts). The Outbox owns retries, not the socket driver.
     options.update(
         decode_responses=True,
         socket_connect_timeout=settings.redis_connect_timeout_seconds,

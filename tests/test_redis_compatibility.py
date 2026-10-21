@@ -11,33 +11,20 @@ from redis.exceptions import ResponseError
 from executor_service.container import ApplicationContainer
 from executor_service.infrastructure.redis_streams import (
     check_redis_compatibility,
-    claim_pending,
-    next_stream_id,
     trim_before,
 )
 from executor_service.settings import Settings
 
 
 @pytest.mark.parametrize(
-    ("value", "expected"),
-    [
-        ("0-0", "0-1"),
-        ("123-9007199254740993", "123-9007199254740994"),
-        ("123-18446744073709551615", "124-0"),
-        ("18446744073709551615-18446744073709551615", "0-0"),
-    ],
-)
-def test_cursor_preserves_uint64_precision(value: str, expected: str) -> None:
-    assert next_stream_id(value) == expected
-
-
-@pytest.mark.parametrize(
     "value",
     ["-", "(1-0", "1", "-1-0", "1--1", "1-18446744073709551616", "\uff11-0"],
 )
-def test_invalid_stream_id_is_rejected(value: str) -> None:
+async def test_invalid_stream_id_is_rejected(value: str) -> None:
+    redis = AsyncMock()
     with pytest.raises(ValueError):
-        next_stream_id(value)
+        await trim_before(cast(Redis, redis), "s", value, count=1)
+    redis.execute_command.assert_not_awaited()
 
 
 @pytest.mark.parametrize("version", ["6.0.7", "5.0.14", "6.0", "unknown"])
@@ -73,13 +60,7 @@ async def test_missing_commands_have_clear_startup_error(
 async def test_batch_limits_apply_before_any_redis_call(count: int) -> None:
     redis = AsyncMock()
     with pytest.raises(ValueError):
-        await claim_pending(
-            cast(Redis, redis), "s", "g", "c", min_idle_ms=1, count=count
-        )
-    with pytest.raises(ValueError):
-        await trim_before(
-            cast(Redis, redis), "s", "100-0", protect_groups=True, count=count
-        )
+        await trim_before(cast(Redis, redis), "s", "100-0", count=count)
     redis.execute_command.assert_not_awaited()
 
 

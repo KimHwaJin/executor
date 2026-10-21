@@ -24,14 +24,14 @@ Executor API와 PostgreSQL 상태를 기준으로 조회/복구한다.
 
 ## 2. Stream과 전달 원칙
 
-Executor는 내부 명령과 외부 이벤트를 서로 다른 Stream으로 관리한다.
+Executor가 Redis에 쓰는 Stream은 하나다. Worker는 Redis가 아니라 PostgreSQL을 조회해
+실행할 작업을 찾는다.
 
 | Stream | 기본 이름 | 생산자 | 소비자 | 용도 |
 |---|---|---|---|---|
-| Work Stream | `executor.work` | Executor API | Executor Worker | 내부 실행 명령 전달 |
 | Event Stream | `executor.events` | Outbox Publisher | Agent 등 외부 시스템 | 실행 상태와 결과 알림 |
 
-외부 시스템은 `executor.events`만 소비한다. 독립적으로 모든 이벤트를 받아야 하는
+외부 시스템은 `executor.events`를 소비한다. 독립적으로 모든 이벤트를 받아야 하는
 시스템끼리는 consumer group을 공유하지 않는다.
 
 Execution 상태 변경, 영구 ExecutionEvent, 전송용 OutboxEvent 생성은 하나의 PostgreSQL

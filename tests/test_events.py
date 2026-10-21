@@ -149,13 +149,12 @@ async def test_event_stream_serializes_the_ordered_public_envelope(
     publisher = OutboxPublisher(
         session_factory=session_factory,
         redis=cast(Redis, recording_redis),
-        work_stream_name="work-contract-v1",
         event_stream_name="event-contract-v1",
         poll_interval_seconds=0.01,
         batch_size=10,
     )
 
-    assert await publisher.publish_batch() == 2
+    assert await publisher.publish_batch() == 1
     raw_fields = recording_redis.messages["event-contract-v1"][0]
     fields = {key: str(value) for key, value in raw_fields.items()}
     envelope = ExecutionStreamEnvelope.from_redis_fields(fields)
@@ -281,13 +280,12 @@ async def test_failed_event_blocks_later_sequence_until_retry(
     publisher = OutboxPublisher(
         session_factory=session_factory,
         redis=cast(Redis, recording_redis),
-        work_stream_name="work-contract-v1",
         event_stream_name="event-contract-v1",
         poll_interval_seconds=0.01,
         batch_size=10,
     )
 
-    assert await publisher.publish_batch() == 1
+    assert await publisher.publish_batch() == 0
     assert recording_redis.messages.get("event-contract-v1") is None
 
     async with session_factory() as session, session.begin():
@@ -332,13 +330,12 @@ async def test_delayed_event_blocks_later_sequence_in_same_batch(
     publisher = OutboxPublisher(
         session_factory=session_factory,
         redis=cast(Redis, recording_redis),
-        work_stream_name="work-contract-v1",
         event_stream_name="event-contract-v1",
         poll_interval_seconds=0.01,
         batch_size=10,
     )
 
-    assert await publisher.publish_batch() == 2
+    assert await publisher.publish_batch() == 1
     assert [
         int(fields["event_sequence"])
         for fields in recording_redis.messages["event-contract-v1"]

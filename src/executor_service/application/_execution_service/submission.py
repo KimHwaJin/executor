@@ -25,7 +25,6 @@ from executor_service.domain.models import (
     ExecutionOperation,
     ExecutionStep,
 )
-from executor_service.work_messages import build_work_message
 
 
 class ExecutionSubmissionCommands:
@@ -142,15 +141,6 @@ class ExecutionSubmissionCommands:
                 )
                 await uow.executions.add(execution)
                 await uow.executions.add_operation(operation)
-                await uow.outbox.add(
-                    build_work_message(
-                        execution_id=execution.id,
-                        message_type="operation.ready",
-                        operation_id=operation.id,
-                        actor_type=command.actor_type,
-                        actor_id=command.actor_id,
-                    )
-                )
                 await uow.commit()
                 return ExecutionCommandResult(
                     execution=execution,

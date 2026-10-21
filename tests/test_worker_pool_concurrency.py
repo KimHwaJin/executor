@@ -151,7 +151,6 @@ def _worker(
     return (
         ExecutionWorker(
             session_factory=session_factory,
-            redis=redis,
             settings=settings,
             registry=RuntimeTargetRegistry(session_factory, settings),
             artifact_manager=ExecutionArtifactManager(session_factory),

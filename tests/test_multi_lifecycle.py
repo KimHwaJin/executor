@@ -322,7 +322,6 @@ def _worker(
     registry = RuntimeTargetRegistry(session_factory, settings)
     worker = ExecutionWorker(
         session_factory=session_factory,
-        redis=redis,
         settings=settings,
         registry=registry,
         artifact_manager=ExecutionArtifactManager(session_factory),

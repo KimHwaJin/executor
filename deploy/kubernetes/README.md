@@ -137,9 +137,8 @@ Executor maintenance row.
 ## Shutdown and scaling
 
 The manifest uses one replica by default. Executor supports multiple replicas, but every Pod must
-share PostgreSQL, Redis, the consumer group, credential key, input PVC, and Runtime Target registry.
-Each worker names itself `<hostname>-<pid>`; the hostname is the Pod name, so replicas do not share
-worker identities. Do not set `EXECUTION_CONSUMER_NAME` in a config file, which every Pod shares.
+share PostgreSQL, Redis, credential key, input PVC, and Runtime Target registry. Each Worker names
+itself `<hostname>-<pid>-<suffix>`, so replicas never share a lease owner identity.
 
 The 90-second Pod grace period is greater than the default 30-second execution drain plus 20-second
 shutdown cleanup and buffer. If those settings increase, increase `terminationGracePeriodSeconds`

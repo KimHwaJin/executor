@@ -99,6 +99,7 @@ class OutboxStatus(StrEnum):
 
 
 class OutboxDestination(StrEnum):
+    # Worker wake-ups queued by earlier releases; retention deletes them.
     WORK = "WORK"
     EVENTS = "EVENTS"
 

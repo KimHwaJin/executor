@@ -4,8 +4,8 @@ Artifact filename and path policy: [규칙 및 배포 안내](docs/artifact-file
 
 Asynchronous Runtime execution control plane exposed through MCP 2026-07-28 Streamable HTTP and a
 versioned REST API. PostgreSQL is the source of truth. MCP Tool and REST calls persist work and
-return immediately while a Redis consumer worker executes SINGLE work or incrementally submitted
-MULTI Operations through a Runtime Driver. Jupyter REST/WebSocket is the first implemented driver.
+return immediately while Workers, polling PostgreSQL, execute SINGLE work or incrementally
+submitted MULTI Operations through a Runtime Driver. Jupyter REST/WebSocket is the first implemented driver.
 
 ## Implemented scope
 
@@ -25,7 +25,8 @@ MULTI Operations through a Runtime Driver. Jupyter REST/WebSocket is the first i
 - Execution, ExecutionStep, durable ExecutionEvent, and Outbox persistence with SQLAlchemy 2 and Alembic
 - Transactional Outbox publisher with at-least-once Redis Stream delivery
 - PostgreSQL-issued per-Execution event ordering with bounded REST/MCP gap recovery
-- Redis consumer group worker with PostgreSQL reconciliation, stale Pending recovery, and DLQ
+- PostgreSQL-polling Workers: each takes at most `EXECUTION_WORKER_MAX_ACTIVE` Executions, and
+  contended rows are skipped rather than waited on
 - Multi-Executor coordination through PostgreSQL row locks, unique lease owners, and crash recovery
 - Jupyter REST/WebSocket kernel execution, interrupt, and deletion
 - Active execution-loss detection without treating silence/low CPU as failure;
@@ -74,7 +75,7 @@ for permissions, optional JSON output and limitations.
 
 This branch supports Redis server **6.0.8 and newer**, using `redis-py` 5.3.x
 (`uv.lock` pins the tested client). Both Redis 6.0.8 and 7.4 use the same bounded
-`XPENDING`/`XCLAIM` recovery and `XRANGE`/`XDEL` retention implementation.
+`XRANGE`/`XDEL` retention implementation.
 Redis must permit `EVAL` and the Stream commands used inside its Lua scripts.
 Startup checks server version, command availability, and basic scripting access
 before starting background work. Existing readiness responses remain unchanged.
@@ -85,7 +86,7 @@ validating another supported version. `REDIS_URL` does not select a server
 version: Docker Compose (or the infrastructure operator) selects the image.
 
 Do not attach the former Redis 7.x `executor-redis` volume to Redis 6.0.8.
-Existing checkouts need a logical Stream migration if old events and consumer
+Existing checkouts need a logical Stream migration if old events and Agent consumer
 positions must be retained. Merely changing the volume starts an empty Redis.
 The old volume may be kept detached for rollback; PostgreSQL and Jupyter storage
 are unaffected. See [local version switch](docs/redis-6-0-8-local-default.md).
@@ -738,22 +739,16 @@ intentionally logged. `.env.example` contains local-only credentials.
 protection. Add the Kubernetes gateway hostname and origin before deployment; do not disable the
 protection to make a proxy work.
 
-`REDIS_WORK_STREAM`, `REDIS_EVENT_STREAM`, `REDIS_WORK_DEAD_LETTER_STREAM`, and
-`REDIS_EVENT_DEAD_LETTER_STREAM` must all differ. Pending recovery cadence, minimum idle
-time, and batch size are configured with `EXECUTION_PENDING_CLAIM_INTERVAL_SECONDS`,
-`EXECUTION_PENDING_CLAIM_IDLE_MILLISECONDS`, and `EXECUTION_PENDING_CLAIM_BATCH_SIZE`. The minimum
-idle time should exceed normal message dispatch latency; it does not need to match the much longer
-Execution lease because Redis only wakes the PostgreSQL-backed Worker.
+Redis carries only the Agent-facing `REDIS_EVENT_STREAM`. Workers find work by polling PostgreSQL
+every second; `EXECUTION_WORKER_MAX_ACTIVE` caps the Executions one Pod runs at once so a backlog
+costs a bounded number of claims and spreads across replicas.
 
 `EVENT_RETENTION_*` configures the singleton cleanup cadence, lease, and bounded batch size.
-`REDIS_WORK_RETENTION_SECONDS`, `REDIS_EVENT_RETENTION_SECONDS`, and
-`REDIS_WORK_DLQ_RETENTION_SECONDS` control Executor-owned Stream windows;
+`REDIS_EVENT_RETENTION_SECONDS` controls the event Stream window;
 `PUBLISHED_OUTBOX_RETENTION_SECONDS` and `EXECUTION_EVENT_RETENTION_SECONDS` independently bound
 transport rows and durable terminal-event history. Executor never trims the Agent-owned Event DLQ.
 
-Every Executor process must share `EXECUTION_CONSUMER_GROUP` and use a unique
-`EXECUTION_CONSUMER_NAME`. Left empty, it is `<hostname>-<pid>`, which is unique per Kubernetes Pod;
-never set it in a shared config file. See
+Each Worker names itself `<hostname>-<pid>-<suffix>` as its lease owner (shown on `/workerz`). See
 [Multi-Executor Operations](docs/multi-executor-operations.md) for locking invariants, lease
 recovery, deployment behavior, and the real crash E2E.
 

@@ -15,39 +15,11 @@
 - Reverting code to the baseline also restores its Redis 7.2+ client support
   requirement; it will not work correctly on Redis 6.0.8.
 
-## Recovery
-
-`infrastructure/redis_streams.py` is the common primitive used by the Worker and
-the reference Agent consumer. All server versions use this path, with no
-exception-driven legacy fallback.
-
-1. Scan one bounded `XPENDING` page, using inclusive ID bounds supported by 6.0.
-2. Select entries that satisfy the idle timeout.
-3. Check missing payloads, remove their PEL references with `XACK`, and report
-   the missing count/ID sample in warning logs. This does not recover missing
-   payloads: Executor relies on PostgreSQL reconciliation, and Agents on durable
-   history reconciliation.
-4. Claim existing payloads with `XCLAIM`, retaining the idle condition.
-5. Process through the unchanged validation/dispatch/ACK path.
-
-Steps 1–4 run atomically in a bounded Lua script. Redis message ownership is not
-execution ownership: PostgreSQL leases, fencing and duplicate guards remain.
-`EXECUTION_PENDING_CLAIM_BATCH_SIZE` now limits entries *scanned* (default 100,
-maximum 1,000). Non-idle entries also advance the cursor, avoiding starvation.
-The cursor advances with Python integers, not floating-point IDs or Redis 6.2
-exclusive-range syntax. A full traversal wraps to `0-0`.
-
 ## Retention
 
 Age-based deletion uses `XRANGE` and `XDEL`, not unsupported `XTRIM MINID`.
-For work, the same Lua invocation calculates the minimum of the time cutoff,
-every group's last-delivered ID, and each nonempty group's earliest Pending ID.
-Only IDs strictly below the boundary are deleted. No groups or an unread group
-mean work deletion is skipped. Concurrent group/claim operations cannot interleave
-with boundary checking and deletion; explicit operator group resets after deletion
-cannot restore already expired payloads.
-
-Public events and the work DLQ retain their existing age policy. An Agent offline
+Only IDs strictly below the age boundary are deleted. Executor writes only the
+public event Stream; Workers find work through PostgreSQL. An Agent offline
 beyond the event retention window must recover from durable history. The Agent's
 own event DLQ remains Agent-owned.
 
@@ -58,7 +30,7 @@ own event DLQ remains Agent-owned.
   deletion, not a promise of immediate deletion or a hard memory ceiling.
 - `XDEL` does not necessarily return memory for each individual entry immediately.
   Monitor actual Stream length and Redis memory; provision cleanup throughput
-  above long-term ingress. Group count also contributes to work-boundary cost.
+  above long-term ingress.
 - Numeric Stream ID components are compared as decimal strings in Lua to avoid
   loss of precision above 2^53.
 
@@ -72,8 +44,7 @@ treated as compatibility fallbacks. `/readyz` keeps its existing response shape;
 it is not an exhaustive live ACL test on every request.
 
 Allow `AUTH`/`SELECT` as applicable, `PING`, `INFO`, `COMMAND INFO`, `EVAL`, `EXISTS`,
-`XADD`, `XGROUP CREATE`, `XREADGROUP`, `XPENDING`, `XCLAIM`, `XRANGE`, `XINFO GROUPS`,
-`XACK`, and `XDEL` on Executor's configured Streams. Scripts use only these
+`XADD`, `XRANGE`, and `XDEL` on Executor's event Stream. Scripts use only these
 standard commands, no server module or installation. Redis 6.0 and newer versions
 can differ in scripting ACL enforcement; verify using the actual service account.
 The preflight proves basic scripting access, not all per-key/per-command ACLs.
