@@ -31,15 +31,17 @@ Before deployment:
 
 1. Copy `deployment.yaml` to the Git-ignored `deployment.local.yaml`, or render it
    privately in CI/CD. Replace `executor-service:latest` with an immutable image digest/tag.
-2. Edit `containers[0].env`: database/Redis URLs, MCP host/origin allowlists, Runtime
-   profiles, storage root, migration timeouts and pool size. Edit resource limits as needed.
-3. Replace `REPLACE_USER`, `REPLACE_PASSWORD`, and `REPLACE_WITH_FERNET_KEY` privately.
+2. Settings live in `config.prd.yml` (copied from `config.example.yml`) inside the image; the
+   Deployment sets only `APP_ENV=prd` and `EXECUTION_CONSUMER_NAME`. Edit database/Redis URLs, MCP
+   host/origin allowlists, Runtime profiles, storage roots, migration timeouts and pool size there.
+   An environment variable with the same name still overrides a file value.
+3. Replace `REPLACE_USER`, `REPLACE_PASSWORD`, and `REPLACE_WITH_FERNET_KEY` in that file.
    `RUNTIME_CREDENTIAL_KEY` must be a Fernet key and must remain stable while encrypted
    Runtime credentials exist in PostgreSQL. URL-encode special characters in URL credentials.
 4. Change `executor-shared-pvc` in `deployment.yaml` to the existing Agent/Executor RWX claim.
-   By default both input/result roots use `/workspace/shared`. For separate directories set
-   `INPUT_STORAGE_ROOT=/mnt/data/agent` and `SHARED_STORAGE_ROOT=/mnt/data/executor`, and mount
-   the PVC at `/mnt/data` (or mount both subdirectories separately). Executor must be able to read
+   The PVC is mounted at `/mnt/data`. The project root (`/mnt/data/dtest`) holds one folder per
+   service: `INPUT_STORAGE_ROOT=/mnt/data/dtest` so callers send `batch/inputs/...` or
+   `agent/...`, and `SHARED_STORAGE_ROOT=/mnt/data/dtest/executor` for results. Executor must be able to read
    the Agent directory and write its own result directory. Agent must resolve every result/manifest
    reference against its own mount of the Executor directory, not its authoring directory.
    Do not change the result root for existing executions unless the existing result files are

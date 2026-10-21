@@ -86,7 +86,9 @@ async def test_unobservable_live_provisioner_is_not_assumed_safe() -> None:
         await KernelStateObserver().observe(Manager(kernel), "kernel")
 
 
-async def test_shutdown_before_process_exit_is_already_execution_loss() -> None:
+async def test_shutdown_before_process_exit_is_already_execution_loss() -> (
+    None
+):
     kernel = Kernel()
     kernel.shutting_down = True
     assert (await KernelStateObserver().observe(Manager(kernel), "kernel"))[

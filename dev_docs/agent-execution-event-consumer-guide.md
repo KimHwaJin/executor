@@ -147,8 +147,9 @@ while True:
 
     while last + 1 < event.event_sequence:
         # after_sequence는 exclusive. 처리한 순번 이후를 반복 조회한다.
-        page = await list_events_after(execution_id, after_sequence=last,
-                                       limit=500)
+        page = await list_events_after(
+            execution_id, after_sequence=last, limit=500
+        )
         if not page.items:
             raise HistoryGapUnresolved()  # ACK하지 않고 복구/운영 경로로
         for recovered in page.items:

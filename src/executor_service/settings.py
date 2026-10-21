@@ -1,11 +1,43 @@
-"""Executor settings loaded from environment variables and .env."""
+"""Executor settings.
 
+Sources, highest first: constructor arguments, environment variables,
+``.env``, then ``config.{APP_ENV}.yml`` in the working directory when
+``APP_ENV`` is dev, stg or prd. ``local`` reads no YAML file. ConfigMaps
+and Secrets are unavailable on the platform, so each environment ships
+its own YAML file in the image.
+"""
+
+import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Self
 
 from pydantic import Field, SecretStr, field_validator, model_validator
-from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+from pydantic_settings import (
+    BaseSettings,
+    NoDecode,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+    YamlConfigSettingsSource,
+)
+
+LOCAL_ENV = "local"
+APP_ENVS = ("dev", "stg", "prd")
+
+
+def environment_file() -> Path | None:
+    """The YAML file for ``APP_ENV``; None for local or when unset."""
+    app_env = os.environ.get("APP_ENV", LOCAL_ENV).strip().lower()
+    if app_env in ("", LOCAL_ENV):
+        return None
+    if app_env not in APP_ENVS:
+        raise ValueError(
+            f"APP_ENV must be {LOCAL_ENV} or one of {', '.join(APP_ENVS)}."
+        )
+    path = Path(f"config.{app_env}.yml")
+    if not path.is_file():
+        raise FileNotFoundError(f"APP_ENV={app_env} needs {path.resolve()}.")
+    return path
 
 
 class Settings(BaseSettings):
@@ -18,7 +50,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    app_env: str = "local"
+    app_env: str = LOCAL_ENV
     log_level: str | None = None
     log_config_file: Path = Path("logger.yml")
     rest_error_body_logging_enabled: bool = False
@@ -117,6 +149,23 @@ class Settings(BaseSettings):
     failed_session_retention_seconds: int = Field(default=3600, ge=60)
     execution_max_runtime_seconds: int = Field(default=432000, ge=60)
 
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        sources = [init_settings, env_settings, dotenv_settings]
+        path = environment_file()
+        if path is not None:
+            sources.append(
+                YamlConfigSettingsSource(settings_cls, yaml_file=path)
+            )
+        return (*sources, file_secret_settings)
+
     @field_validator("log_level", mode="before")
     @classmethod
     def normalize_log_level(cls, value: object) -> object:
@@ -185,7 +234,7 @@ class Settings(BaseSettings):
                 "EXECUTION_MAX_STEPS_PER_EXECUTION."
             )
         if (
-            self.app_env.lower() != "local"
+            self.app_env.lower() != LOCAL_ENV
             and self.runtime_credential_encryption_key
             == "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
         ):
