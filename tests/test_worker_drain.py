@@ -186,17 +186,17 @@ async def test_readiness_fails_as_soon_as_worker_enters_drain(
         await connection.execute(
             text("INSERT INTO alembic_version VALUES ('0006')")
         )
-    monkeypatch.setattr(container.redis, "ping", AsyncMock(return_value=True))
+    monkeypatch.setattr(
+        container.redis, "ping", AsyncMock(side_effect=ConnectionError)
+    )
     container.execution_worker._stopped = False
     container.execution_worker._dispatcher.set_accepting(True)
 
     try:
         initial_checks = await container.readiness()
-        assert initial_checks == {
-            "postgresql": True,
-            "redis": True,
-            "worker_accepting": True,
-        }
+        # A Redis outage does not make the Pod unready.
+        assert initial_checks == {"postgresql": True, "worker_accepting": True}
+        assert await container.redis_reachable() is False
         await container.execution_worker.begin_drain()
         checks = await container.readiness()
     finally:

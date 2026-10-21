@@ -40,8 +40,9 @@ The existing URL and credential mechanism remains unchanged. Use the primary
 write endpoint, not a read-only replica. Service startup performs `INFO server`,
 `COMMAND INFO`, and a read-only `EVAL` before DB-backed service initialization and
 background tasks (after optional Alembic migration). Connection errors are not
-treated as compatibility fallbacks. `/readyz` keeps its existing response shape;
-it is not an exhaustive live ACL test on every request.
+treated as compatibility fallbacks. `/readyz` reports `redis_reachable` but does
+not fail on a Redis outage: the Outbox keeps events until Redis returns. It is not an exhaustive
+live ACL test on every request.
 
 Allow `AUTH`/`SELECT` as applicable, `PING`, `INFO`, `COMMAND INFO`, `EVAL`, `EXISTS`,
 `XADD`, `XRANGE`, and `XDEL` on Executor's event Stream. Scripts use only these

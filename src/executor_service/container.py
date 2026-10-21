@@ -183,7 +183,6 @@ class ApplicationContainer:
 
     async def readiness(self) -> dict[str, bool]:
         database_ready = False
-        redis_ready = False
         try:
             async with self.engine.connect() as connection:
                 revision = await connection.scalar(
@@ -198,11 +197,15 @@ class ApplicationContainer:
             )
         except Exception:
             pass
-        try:
-            redis_ready = bool(await self.redis.ping())
-        except Exception:
-            pass
-        checks = {"postgresql": database_ready, "redis": redis_ready}
+        # Redis only carries Agent events, which the Outbox retries, so a
+        # Redis outage must not pull every Pod out of the Service.
+        checks = {"postgresql": database_ready}
         if self.settings.runtime_enabled:
             checks["worker_accepting"] = self.execution_worker.accepting_work
         return checks
+
+    async def redis_reachable(self) -> bool:
+        try:
+            return bool(await self.redis.ping())
+        except Exception:
+            return False

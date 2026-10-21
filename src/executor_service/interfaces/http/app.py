@@ -229,7 +229,12 @@ def create_app(
         ready = all(checks.values())
         if not ready:
             response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
-        return {"status": "ready" if ready else "not_ready", "checks": checks}
+        return {
+            "status": "ready" if ready else "not_ready",
+            "checks": checks,
+            # Reported for operators; event publication retries on its own.
+            "redis_reachable": await container.redis_reachable(),
+        }
 
     @app.get("/workerz", include_in_schema=False)
     async def workerz() -> dict[str, object]:

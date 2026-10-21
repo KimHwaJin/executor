@@ -291,7 +291,7 @@ Operational endpoints:
 - Swagger UI: `http://127.0.0.1:8000/docs`
 - OpenAPI: `http://127.0.0.1:8000/openapi.json`
 - liveness: `http://127.0.0.1:8000/healthz`
-- readiness (PostgreSQL, Redis, Jupyter, Worker admission): `http://127.0.0.1:8000/readyz`
+- readiness (PostgreSQL schema, Worker admission; Redis reported, not required): `http://127.0.0.1:8000/readyz`
 - Worker lifecycle, active execution count, and startup reconciliation summary:
   `http://127.0.0.1:8000/workerz`
 

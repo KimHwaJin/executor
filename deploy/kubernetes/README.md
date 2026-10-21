@@ -120,13 +120,14 @@ This deployment path requires no Kubernetes API access from inside the applicati
 ## Probes and endpoints
 
 - Startup/liveness: `GET /healthz` checks that the process serves HTTP.
-- Readiness: `GET /readyz` requires the expected database schema, Redis, and a Worker accepting
-  work. An empty Runtime Fleet does not make the control API unready.
+- Readiness: `GET /readyz` requires the expected database schema and a Worker accepting
+  work. Redis is reported as `redis_reachable` but does not gate readiness, because the Outbox
+  retries event publication. An empty Runtime Fleet does not make the control API unready.
 - REST/OpenAPI: `GET /docs`, `GET /redoc`, `GET /openapi.json`
 - MCP Streamable HTTP: `POST /mcp`
 - Internal Service URL: `http://executor:8000`
 
-If the Pod is running but not Ready, inspect `/readyz`; a missing migration, Redis outage, or
+If the Pod is running but not Ready, inspect `/readyz`; a missing migration or a
 draining Worker is intentionally reported there. Inspect `/api/v1/runtime-targets` separately for
 Runtime Fleet health.
 

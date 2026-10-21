@@ -37,7 +37,7 @@ loss, one replacement resumes unfinished targets after lease expiry while stale 
 rejected.
 
 On graceful shutdown, the owning Worker first enters `DRAINING`: it rejects new claims, cancels its
-Redis intake and queue reconciliation loops, and makes `/readyz` fail through the
+queue reconciliation loop, and makes `/readyz` fail through the
 `worker_accepting` check. Already-dispatched jobs keep their heartbeats and may finish for up to
 `EXECUTION_DRAIN_TIMEOUT_SECONDS`. Other Pods continue claiming queued work from the shared
 PostgreSQL state.
