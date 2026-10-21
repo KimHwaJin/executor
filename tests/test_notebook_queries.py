@@ -15,9 +15,9 @@ from executor_service.domain.errors import (
     NotebookCellNotFoundError,
     NotebookReadError,
 )
+from executor_service.domain.result_summaries import summarize_outputs
 from executor_service.domain.runtime import RuntimeFileMetadata
 from executor_service.interfaces.mcp.server import _notebook_cell_content
-from executor_service.result_summaries import summarize_outputs
 
 
 class ExecutionLookup:

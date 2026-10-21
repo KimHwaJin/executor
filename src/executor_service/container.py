@@ -16,7 +16,6 @@ from executor_service.application.notebook_queries import (
 )
 from executor_service.application.services import ExecutionService
 from executor_service.domain.enums import RuntimeType
-from executor_service.execution_specs import ExecutionSpecResolver
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.migrations import upgrade_database
 from executor_service.infrastructure.db.repositories import (
@@ -62,6 +61,7 @@ from executor_service.infrastructure.runtime_registry import (
 from executor_service.infrastructure.runtime_storage import (
     FleetRuntimeStorageAccess,
 )
+from executor_service.interfaces.execution_specs import ExecutionSpecResolver
 from executor_service.settings import Settings
 
 EXPECTED_SCHEMA_REVISION = "0006"

@@ -9,13 +9,13 @@ from executor_service.application.execution_queries import (
 from executor_service.application.pagination import Page
 from executor_service.domain.enums import CodeSourceType, StepStatus
 from executor_service.domain.models import ExecutionStep
+from executor_service.domain.result_summaries import OutputSummary
 from executor_service.interfaces.contracts.common import (
     AuditFields,
     ContractModel,
     Lifecycle,
     PageResponse,
 )
-from executor_service.result_summaries import OutputSummary
 
 
 class ToolReference(ContractModel):

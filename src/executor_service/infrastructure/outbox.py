@@ -16,8 +16,10 @@ from sqlalchemy.orm import aliased
 
 from executor_service.domain.enums import OutboxDestination, OutboxStatus
 from executor_service.domain.models import utc_now
-from executor_service.events import validate_execution_event_payload
 from executor_service.infrastructure.db.models import OutboxEventORM
+from executor_service.infrastructure.events import (
+    validate_execution_event_payload,
+)
 
 logger = logging.getLogger(__name__)
 

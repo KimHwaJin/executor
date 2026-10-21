@@ -59,10 +59,6 @@ from executor_service.domain.enums import (
 )
 from executor_service.domain.models import utc_now
 from executor_service.domain.runtime import RuntimeStorageSnapshot
-from executor_service.events import (
-    ExecutionStreamEnvelope,
-    build_execution_event,
-)
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.background_diagnostics import (
     BackgroundDiagnosticRecorder,
@@ -101,6 +97,10 @@ from executor_service.infrastructure.diagnostic_store import (
 from executor_service.infrastructure.event_retention import (
     RETENTION_PASS_KEY,
     EventRetentionManager,
+)
+from executor_service.infrastructure.events import (
+    ExecutionStreamEnvelope,
+    build_execution_event,
 )
 from executor_service.infrastructure.execution_leases import (
     ExecutionLeaseLostError,

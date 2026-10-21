@@ -6,13 +6,13 @@ from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from executor_service.events import build_execution_event
 from executor_service.infrastructure.db.models import (
     ExecutionEventORM,
     ExecutionEventSequenceORM,
     ExecutionORM,
     OutboxEventORM,
 )
+from executor_service.infrastructure.events import build_execution_event
 
 
 async def persist_execution_event(

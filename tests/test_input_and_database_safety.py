@@ -17,7 +17,6 @@ from executor_service.domain.errors import (
     ArtifactRegistrationError,
     InvalidExecutionSpecError,
 )
-from executor_service.execution_specs import ExecutionSpecResolver
 from executor_service.infrastructure.db.logging import (
     DatabaseErrorFilter,
     install_database_error_filters,
@@ -25,6 +24,7 @@ from executor_service.infrastructure.db.logging import (
 from executor_service.infrastructure.materialized_artifacts.content import (
     ArtifactContentResolver,
 )
+from executor_service.interfaces.execution_specs import ExecutionSpecResolver
 from tests.test_execution_specs import _spec
 
 

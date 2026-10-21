@@ -203,7 +203,7 @@ if the old extension remains deployed: its next atomic rewrite can recreate the 
 
 Regression tests cover new files, replacement of existing files, restrictive umasks, preservation
 of unrelated permissions, and failures during publication. The opt-in Linux/root test
-`extension/tests/test_notebook_shared_read.py` additionally checks a UID 1000:GID 100 writer
+`deploy/jupyter/extension/tests/test_notebook_shared_read.py` additionally checks a UID 1000:GID 100 writer
 and a UID 65534:GID 65534 reader, including nbformat validation and nbconvert HTML rendering.
 Run this identity-switching test only in a disposable container; it is skipped by default on
 non-Linux or non-root hosts and is not an image build step.
@@ -386,5 +386,5 @@ The server extension has its own dependency boundary and test environment:
 
 ```text
 uv run --project deploy/jupyter/extension --with pytest \
-  pytest -q test_harness/jupyter/extension/tests
+  pytest -q deploy/jupyter/extension/tests
 ```

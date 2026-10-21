@@ -7,6 +7,7 @@
 test_harness/jupyter/.native
 deploy/jupyter/extension/.venv
 deploy/jupyter/extension/build
+deploy/jupyter/extension/tests
 __pycache__
 *.py[cod]
 *.egg-info

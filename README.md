@@ -43,12 +43,10 @@ submitted MULTI Operations through a Runtime Driver. Jupyter REST/WebSocket is t
 - Runtime-owned `.ipynb` output and execution-scoped artifacts on Jupyter shared storage
 - Fenced immutable source and Step-result files on the Agent/Executor shared volume; PostgreSQL
   retains authoritative state, bounded summaries, and canonical relative references
-- W3C trace-context propagation across HTTP/MCP, PostgreSQL Outbox, Redis Streams, Worker,
-  and Jupyter operations with optional OTLP export to Arize Phoenix
 - `/healthz` and `/readyz` operational endpoints
 - PostgreSQL-backed Executor-wide drain, activate, and shutdown-readiness status APIs
-- PostgreSQL, Redis, custom Python slim INTERACTIVE/BATCH Jupyter fleets, and opt-in Phoenix
-  through Docker Compose
+- PostgreSQL, Redis, and custom Python slim INTERACTIVE/BATCH Jupyter fleets through Docker
+  Compose
 - Authenticated Jupyter resource endpoint with cgroup v2 CPU and memory measurement
 
 MCP Tasks are deliberately not used. `execution_submit` returns an `execution_id` while the
@@ -677,22 +675,13 @@ The reusable processed-data hierarchy is intentionally not fixed until
 
 ## Consistency and delivery
 
-Submission commits the Execution state and internal `operation.ready` message in one PostgreSQL
-transaction. Cancellation uses the same Work Stream pattern. Public events begin when Runtime
-execution actually starts. A background publisher claims pending rows with `FOR UPDATE SKIP
-LOCKED`, routes each row to either
-`executor.events` or `executor.work`, and
-then marks it published. A crash between Redis `XADD` and the database update can create a
-duplicate, so consumers must deduplicate on `event_id`.
-
-The consumer group treats Redis as a wake-up channel and reconciles `QUEUED` and
-`CANCEL_REQUESTED` rows from PostgreSQL, so an acknowledged or lost work message does not lose the
-execution. A message left Pending by a dead consumer is reclaimed with bounded `XPENDING`/`XCLAIM` after
-`EXECUTION_PENDING_CLAIM_IDLE_MILLISECONDS`; the new Worker handles and acknowledges it using the
-same PostgreSQL state guards. Malformed internal messages are acknowledged only after sanitized
-metadata is written to `REDIS_WORK_DEAD_LETTER_STREAM`. Executor Workers never consume Agent
-integration events. See [Event Delivery](docs/event-delivery.md)
-for the ACK, reclaim, and DLQ contract.
+Submission and cancellation commit only PostgreSQL state; Workers find the work by polling
+PostgreSQL (see [Event Delivery](docs/event-delivery.md#work-admission)). Public events begin when
+Runtime execution actually starts and are written to the Outbox in the same transaction as the
+state change. A background publisher claims pending rows with `FOR UPDATE SKIP LOCKED`, publishes
+them to `executor.events`, and then marks them published. A crash between Redis `XADD` and the
+database update can create a duplicate, so consumers must deduplicate on `event_id`. Executor
+Workers never consume Agent integration events.
 
 Active attempts renew a PostgreSQL lease. A MULTI Attempt in
 `WAITING_FOR_OPERATION` releases its worker lease but keeps its session reservation, so it counts
@@ -700,9 +689,8 @@ against that Runtime Target's capacity. A background audit verifies retained ses
 both stored deadlines after Executor restarts. An expired active lease is failed safely and can be
 retried by a later retry workflow; automatic re-execution is intentionally not enabled yet.
 
-The retention manager bounds Executor-owned transport data under a PostgreSQL lease. It preserves
-Work Pending and undelivered entries, time-trims Agent events and the Work DLQ, deletes only old
-`PUBLISHED` Outbox rows, and retains public `execution_events` independently for gap recovery.
+The retention manager bounds Executor-owned transport data on one Pod per interval. It
+time-trims Agent events, deletes only old `PUBLISHED` Outbox rows, and retains public `execution_events` independently for gap recovery.
 The Agent-owned Event DLQ is not modified by Executor. Retention intervals and batch size are
 environment-configurable; see [Event Delivery](docs/event-delivery.md).
 

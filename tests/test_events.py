@@ -20,7 +20,14 @@ from executor_service.domain.enums import (
     OutboxDestination,
     TriggerType,
 )
-from executor_service.events import (
+from executor_service.infrastructure.db.models import (
+    ExecutionEventORM,
+    ExecutionEventSequenceORM,
+    ExecutionStepAttemptORM,
+    OutboxEventORM,
+)
+from executor_service.infrastructure.db.session import create_session_factory
+from executor_service.infrastructure.events import (
     EVENT_PAYLOAD_MODELS,
     EXECUTION_EVENT_SCHEMA_VERSION,
     ExecutionStreamEnvelope,
@@ -29,13 +36,6 @@ from executor_service.events import (
     StepResult,
     build_execution_event,
 )
-from executor_service.infrastructure.db.models import (
-    ExecutionEventORM,
-    ExecutionEventSequenceORM,
-    ExecutionStepAttemptORM,
-    OutboxEventORM,
-)
-from executor_service.infrastructure.db.session import create_session_factory
 from executor_service.infrastructure.execution_worker.event_writer import (
     persist_execution_event,
 )

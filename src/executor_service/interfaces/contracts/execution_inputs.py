@@ -13,13 +13,13 @@ from executor_service.domain.enums import (
     RuntimeType,
     TriggerType,
 )
-from executor_service.execution_specs import (
-    ExecutionSpec,
-    ResolvedExecutionSpec,
-)
 from executor_service.interfaces.contracts.common import (
     ActorInput,
     ContractModel,
+)
+from executor_service.interfaces.execution_specs import (
+    ExecutionSpec,
+    ResolvedExecutionSpec,
 )
 
 

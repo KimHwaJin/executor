@@ -34,64 +34,80 @@ class DomainError(Exception):
     """Base class for expected business errors."""
 
     code = ErrorCode.INTERNAL_ERROR
+    # The REST status for this error; transports without HTTP ignore it.
+    http_status = 400
 
 
 class ExecutionNotFoundError(DomainError):
     code = ErrorCode.EXECUTION_NOT_FOUND
+    http_status = 404
 
 
 class ExecutionAttemptNotFoundError(DomainError):
     code = ErrorCode.EXECUTION_ATTEMPT_NOT_FOUND
+    http_status = 404
 
 
 class ExecutionOperationNotFoundError(DomainError):
     code = ErrorCode.EXECUTION_OPERATION_NOT_FOUND
+    http_status = 404
 
 
 class ExecutionNotebookNotAvailableError(DomainError):
     code = ErrorCode.EXECUTION_NOTEBOOK_NOT_AVAILABLE
+    http_status = 409
 
 
 class NotebookCellNotFoundError(DomainError):
     code = ErrorCode.NOTEBOOK_CELL_NOT_FOUND
+    http_status = 404
 
 
 class NotebookReadError(DomainError):
     code = ErrorCode.NOTEBOOK_READ_ERROR
+    http_status = 422
 
 
 class InvalidStateTransitionError(DomainError):
     code = ErrorCode.INVALID_STATE_TRANSITION
+    http_status = 409
 
 
 class ExecutionVersionConflictError(DomainError):
     code = ErrorCode.EXECUTION_VERSION_CONFLICT
+    http_status = 409
 
 
 class IdempotencyConflictError(DomainError):
     code = ErrorCode.IDEMPOTENCY_CONFLICT
+    http_status = 409
 
 
 class InvalidExecutionSpecError(DomainError):
     code = ErrorCode.INVALID_EXECUTION_SPEC
+    http_status = 422
 
 
 class UnsupportedRuntimeProfileError(DomainError):
     code = ErrorCode.UNSUPPORTED_RUNTIME_PROFILE
+    http_status = 422
 
 
 class InvalidCursorError(DomainError):
     code = ErrorCode.INVALID_CURSOR
+    http_status = 422
 
 
 class PersistenceConflictError(DomainError):
     """A uniqueness or optimistic concurrency constraint was violated."""
 
     code = ErrorCode.PERSISTENCE_CONFLICT
+    http_status = 409
 
 
 class RuntimeTargetNotFoundError(DomainError):
     code = ErrorCode.RUNTIME_TARGET_NOT_FOUND
+    http_status = 404
 
 
 class RuntimeTargetConfigurationError(DomainError):
@@ -100,18 +116,22 @@ class RuntimeTargetConfigurationError(DomainError):
 
 class RuntimeTargetPurgeConflictError(DomainError):
     code = ErrorCode.RUNTIME_TARGET_PURGE_CONFLICT
+    http_status = 409
 
 
 class MaintenanceRunNotFoundError(DomainError):
     code = ErrorCode.MAINTENANCE_RUN_NOT_FOUND
+    http_status = 404
 
 
 class MaintenanceRunConflictError(DomainError):
     code = ErrorCode.MAINTENANCE_RUN_CONFLICT
+    http_status = 409
 
 
 class ExecutionArtifactNotFoundError(DomainError):
     code = ErrorCode.ARTIFACT_NOT_FOUND
+    http_status = 404
 
 
 class ArtifactRegistrationError(DomainError):
@@ -120,10 +140,12 @@ class ArtifactRegistrationError(DomainError):
 
 class ArtifactContentUnavailableError(DomainError):
     code = ErrorCode.ARTIFACT_CONTENT_UNAVAILABLE
+    http_status = 409
 
 
 class ArtifactRangeNotSatisfiableError(DomainError):
     code = ErrorCode.ARTIFACT_RANGE_NOT_SATISFIABLE
+    http_status = 416
 
     def __init__(self, message: str, size_bytes: int) -> None:
         super().__init__(message)

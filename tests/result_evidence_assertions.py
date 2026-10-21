@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from executor_service.application.execution_results import (
     ExecutionResultQueryService,
 )
-from executor_service.events import ExecutionStreamEnvelope
+from executor_service.infrastructure.events import ExecutionStreamEnvelope
 from executor_service.infrastructure.execution_queries import (
     SQLAlchemyExecutionQueryService,
 )

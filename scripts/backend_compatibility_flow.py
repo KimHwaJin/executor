@@ -28,7 +28,6 @@ from executor_service.domain.enums import (
     TriggerType,
 )
 from executor_service.domain.models import utc_now
-from executor_service.events import ExecutionStreamEnvelope
 from executor_service.infrastructure.db.models import (
     ExecutionEventORM,
     ExecutionOperationORM,
@@ -44,6 +43,7 @@ from executor_service.infrastructure.db.session import create_session_factory
 from executor_service.infrastructure.event_retention import (
     EventRetentionManager,
 )
+from executor_service.infrastructure.events import ExecutionStreamEnvelope
 from executor_service.infrastructure.execution_worker.cancellation import (
     CancellationProcessor,
 )

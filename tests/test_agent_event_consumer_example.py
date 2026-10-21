@@ -7,7 +7,7 @@ from uuid import uuid4
 
 import pytest
 
-from executor_service.events import (
+from executor_service.infrastructure.events import (
     ExecutionStreamEnvelope,
     build_execution_event,
 )

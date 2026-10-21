@@ -45,9 +45,9 @@ ConfigMap/Secret/별도 migration Job 의존 파일은 제거했다. 실제 값�
 `deployment.local.yaml`에 작성하고 저장소/빌드 로그에 남기지 않는다.
 Deployment/Pod 조회 권한자는 평문 비밀값을 볼 수 있다는 보안상 제한이 있다.
 
-기본 전략은 replicas=1, Recreate다. 구버전 종료 후 새 프로세스가 마이그레이션한다.
-여러 별도 Deployment나 수동 프로세스가 같은 DB를 쓴다면 해당 구버전도 먼저 종료해야 한다.
-DB 잠금은 구버전 애플리케이션의 쿼리와 호환성을 보장하지 않는다.
+기본 전략은 RollingUpdate(maxSurge 1, maxUnavailable 0)다. 새 Pod가 기동하며 마이그레이션하고
+구버전 Pod는 그동안 계속 동작하므로, 마이그레이션은 구버전 코드와 호환되는 추가 변경만 한다.
+`/readyz`는 스키마가 기대 리비전 이상이면 준비 상태로 본다.
 긴 실행은 사전 drain 및 완료 확인 후 배포한다. 강제 취소나 자동 재개는 하지 않는다.
 
 startupProbe는 600초를 허용한다. 실제 마이그레이션의 전체 시간에 맞춰 조정한다.
@@ -61,7 +61,7 @@ Pod 내부에서 Kubernetes API를 호출하지 않는다. 상세 절차는
 - 실패 시 HTTP 기동 중단과 컨테이너 리소스 정리.
 - 격리 PostgreSQL에서 빈 DB 초기화, 반복 실행, 다중 프로세스 경합.
 - 잠금 시간초과, 취소 후 재기동, 실패 롤백 및 오류 정보 마스킹.
-- Deployment의 inline 값, Recreate 전략, startupProbe 예산, 기존 외부 설정 참조 제거.
+- Deployment의 inline 값, RollingUpdate 전략, startupProbe 예산, 기존 외부 설정 참조 제거.
 
 ### 확인 결과
 

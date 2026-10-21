@@ -44,7 +44,7 @@ were run separately and passed; PostgreSQL multi-worker tests were not rerun for
 
 Focused coverage includes `tests/test_artifact_content.py`, `tests/test_runtime_file_content.py`,
 `tests/test_artifact_streaming_response.py`, REST/Jupyter adapter regressions and
-`test_harness/jupyter/extension/tests/test_file_download.py`.
+`deploy/jupyter/extension/tests/test_file_download.py`.
 
 ## Real HTTP / Jupyter verification
 

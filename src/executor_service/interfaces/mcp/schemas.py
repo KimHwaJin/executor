@@ -8,12 +8,15 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from executor_service.execution_specs import ExecutionSpec, ExecutionStepInput
 from executor_service.interfaces.contracts import (
     ActorInput,
     ExecutionArtifactMaterializeRequest,
     ExecutionSubmitRequest,
     RuntimeTargetUpsertRequest,
+)
+from executor_service.interfaces.execution_specs import (
+    ExecutionSpec,
+    ExecutionStepInput,
 )
 
 __all__ = [

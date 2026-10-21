@@ -18,10 +18,6 @@ from redis.asyncio import Redis
 from sqlalchemy import select
 
 from executor_service.domain.enums import OutboxDestination
-from executor_service.events import (
-    EXECUTION_EVENT_SCHEMA_VERSION,
-    ExecutionStreamEnvelope,
-)
 from executor_service.infrastructure.db.models import (
     ExecutionArtifactORM,
     ExecutionAttemptORM,
@@ -33,6 +29,10 @@ from executor_service.infrastructure.db.models import (
 from executor_service.infrastructure.db.session import (
     create_engine,
     create_session_factory,
+)
+from executor_service.infrastructure.events import (
+    EXECUTION_EVENT_SCHEMA_VERSION,
+    ExecutionStreamEnvelope,
 )
 from executor_service.settings import get_settings
 

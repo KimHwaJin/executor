@@ -12,28 +12,9 @@ from mcp.server.transport_security import TransportSecuritySettings
 
 from executor_service.container import ApplicationContainer
 from executor_service.domain.errors import (
-    ArtifactContentUnavailableError,
     ArtifactRangeNotSatisfiableError,
     DomainError,
     ErrorCode,
-    ExecutionArtifactNotFoundError,
-    ExecutionAttemptNotFoundError,
-    ExecutionNotebookNotAvailableError,
-    ExecutionNotFoundError,
-    ExecutionOperationNotFoundError,
-    ExecutionVersionConflictError,
-    IdempotencyConflictError,
-    InvalidCursorError,
-    InvalidExecutionSpecError,
-    InvalidStateTransitionError,
-    MaintenanceRunConflictError,
-    MaintenanceRunNotFoundError,
-    NotebookCellNotFoundError,
-    NotebookReadError,
-    PersistenceConflictError,
-    RuntimeTargetNotFoundError,
-    RuntimeTargetPurgeConflictError,
-    UnsupportedRuntimeProfileError,
 )
 from executor_service.interfaces.http.executions import build_execution_router
 from executor_service.interfaces.http.maintenance import (
@@ -132,30 +113,9 @@ def create_app(
     async def domain_error_handler(
         _request: Request, exc: DomainError
     ) -> JSONResponse:
-        if isinstance(
-            exc,
-            (
-                ExecutionNotFoundError,
-                ExecutionAttemptNotFoundError,
-                ExecutionOperationNotFoundError,
-                ExecutionArtifactNotFoundError,
-                NotebookCellNotFoundError,
-                RuntimeTargetNotFoundError,
-                MaintenanceRunNotFoundError,
-            ),
-        ):
-            http_status = status.HTTP_404_NOT_FOUND
-        elif isinstance(
-            exc,
-            (
-                ArtifactContentUnavailableError,
-                ExecutionNotebookNotAvailableError,
-            ),
-        ):
-            http_status = status.HTTP_409_CONFLICT
-        elif isinstance(exc, ArtifactRangeNotSatisfiableError):
+        if isinstance(exc, ArtifactRangeNotSatisfiableError):
             return JSONResponse(
-                status_code=status.HTTP_416_RANGE_NOT_SATISFIABLE,
+                status_code=exc.http_status,
                 headers={
                     "Accept-Ranges": "bytes",
                     "Content-Range": f"bytes */{exc.size_bytes}",
@@ -167,33 +127,8 @@ def create_app(
                     }
                 },
             )
-        elif isinstance(
-            exc,
-            (
-                InvalidCursorError,
-                InvalidExecutionSpecError,
-                UnsupportedRuntimeProfileError,
-            ),
-        ):
-            http_status = status.HTTP_422_UNPROCESSABLE_CONTENT
-        elif isinstance(
-            exc,
-            (
-                ExecutionVersionConflictError,
-                IdempotencyConflictError,
-                InvalidStateTransitionError,
-                RuntimeTargetPurgeConflictError,
-                PersistenceConflictError,
-                MaintenanceRunConflictError,
-            ),
-        ):
-            http_status = status.HTTP_409_CONFLICT
-        elif isinstance(exc, NotebookReadError):
-            http_status = status.HTTP_422_UNPROCESSABLE_CONTENT
-        else:
-            http_status = status.HTTP_400_BAD_REQUEST
         return JSONResponse(
-            status_code=http_status,
+            status_code=exc.http_status,
             content={
                 "error": {
                     "code": exc.code,

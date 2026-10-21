@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from executor_service.domain.errors import InvalidExecutionSpecError
-from executor_service.execution_specs import (
+from executor_service.interfaces.execution_specs import (
     ExecutionSpec,
     ExecutionSpecResolver,
 )

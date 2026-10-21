@@ -8,8 +8,8 @@ from executor_service.application.notebook_queries import (
     NotebookResponseFormat,
     NotebookView,
 )
+from executor_service.domain.result_summaries import OutputSummary
 from executor_service.interfaces.contracts.common import ContractModel
-from executor_service.result_summaries import OutputSummary
 
 
 class NotebookCellSummaryResponse(ContractModel):

@@ -20,10 +20,6 @@ from redis.asyncio import Redis
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from executor_service.events import (
-    EXECUTION_EVENT_SCHEMA_VERSION,
-    ExecutionStreamEnvelope,
-)
 from executor_service.infrastructure.db.models import (
     ExecutionArtifactORM,
     ExecutionAttemptORM,
@@ -38,6 +34,10 @@ from executor_service.infrastructure.db.models import (
 from executor_service.infrastructure.db.session import (
     create_engine,
     create_session_factory,
+)
+from executor_service.infrastructure.events import (
+    EXECUTION_EVENT_SCHEMA_VERSION,
+    ExecutionStreamEnvelope,
 )
 from executor_service.infrastructure.runtime_drivers import (
     ConfiguredRuntimeDriverFactory,

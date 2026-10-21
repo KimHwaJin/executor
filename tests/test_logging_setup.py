@@ -140,7 +140,9 @@ import executor_service.main as main
 class Server:
     def __init__(self, config):
         assert config.log_config is None
+        self.config = config
     def run(self):
+        self.config.load()
         for handler in logging.getLogger().handlers:
             assert any(isinstance(f, DatabaseErrorFilter) for f in handler.filters)
         for name in ('executor_service.preexisting', 'uvicorn.error', 'uvicorn.access'):
