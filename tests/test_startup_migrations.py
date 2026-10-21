@@ -50,11 +50,6 @@ async def test_migration_precedes_any_db_initialization_or_background_task(
         AsyncMock(side_effect=lambda: calls.append("maintenance")),
     )
     monkeypatch.setattr(
-        container.event_retention,
-        "initialize",
-        AsyncMock(side_effect=lambda: calls.append("retention-init")),
-    )
-    monkeypatch.setattr(
         container.outbox_publisher, "start", lambda: calls.append("outbox")
     )
     monkeypatch.setattr(
@@ -67,7 +62,6 @@ async def test_migration_precedes_any_db_initialization_or_background_task(
         expected = [
             "redis-compatibility",
             "maintenance",
-            "retention-init",
             "outbox",
             "retention-start",
         ]

@@ -166,7 +166,6 @@ class ApplicationContainer:
             await upgrade_database(self.engine, self.settings)
         await check_redis_compatibility(self.redis)
         await self.maintenance.initialize()
-        await self.event_retention.initialize()
         self.outbox_publisher.start()
         self.event_retention.start()
         if self.settings.runtime_enabled:

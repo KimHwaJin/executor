@@ -88,7 +88,6 @@ class Settings(BaseSettings):
     outbox_shutdown_timeout_seconds: float = Field(default=10, gt=0)
     event_retention_enabled: bool = True
     event_retention_interval_seconds: float = Field(default=3600, gt=0)
-    event_retention_lease_seconds: int = Field(default=300, ge=30)
     event_retention_batch_size: int = Field(default=1000, ge=1, le=10000)
     redis_event_retention_seconds: int = Field(default=604800, ge=3600)
     published_outbox_retention_seconds: int = Field(default=604800, ge=3600)

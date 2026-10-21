@@ -17,7 +17,7 @@ import pytest_asyncio
 from alembic import command
 from alembic.config import Config
 from redis.asyncio import Redis
-from sqlalchemy import func, inspect, select, text, update
+from sqlalchemy import delete, func, inspect, select, text, update
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
@@ -75,6 +75,7 @@ from executor_service.infrastructure.db.migrations import (
     upgrade_database,
 )
 from executor_service.infrastructure.db.models import (
+    BackgroundPassLeaseORM,
     ExecutionAttemptORM,
     ExecutionDiagnosticORM,
     ExecutionEventORM,
@@ -98,6 +99,7 @@ from executor_service.infrastructure.diagnostic_store import (
     SQLAlchemyDiagnosticQueryService,
 )
 from executor_service.infrastructure.event_retention import (
+    RETENTION_PASS_KEY,
     EventRetentionManager,
 )
 from executor_service.infrastructure.execution_leases import (
@@ -2065,7 +2067,7 @@ async def test_ordered_outbox_query_uses_pending_event_index(
     assert "ix_outbox_pending_event_order" in plan, plan
 
 
-async def test_event_retention_has_one_postgres_lease_owner(
+async def test_event_retention_runs_once_per_interval_cluster_wide(
     postgres_engine: AsyncEngine,
 ) -> None:
     unique = uuid4().hex
@@ -2074,6 +2076,12 @@ async def test_event_retention_has_one_postgres_lease_owner(
         redis_event_stream=f"test:retention-lease:{unique}:events",
     )
     session_factory = create_session_factory(postgres_engine)
+    async with session_factory() as session, session.begin():
+        await session.execute(
+            delete(BackgroundPassLeaseORM).where(
+                BackgroundPassLeaseORM.singleton_key == RETENTION_PASS_KEY
+            )
+        )
     redis_clients = [
         Redis.from_url(_redis_test_url(), decode_responses=True)
         for _ in range(2)
@@ -2083,15 +2091,13 @@ async def test_event_retention_has_one_postgres_lease_owner(
         for redis in redis_clients
     ]
     try:
-        claims = await asyncio.gather(
-            *(manager._acquire_lease() for manager in managers)
+        results = await asyncio.gather(
+            *(manager.run_once() for manager in managers)
         )
-        assert sum(claims) == 1
-        winner = managers[claims.index(True)]
-        loser = managers[claims.index(False)]
-        assert await loser.run_once() is None
-        await winner._release_lease(error=None)
-        assert await loser.run_once() is not None
+        assert sum(result is not None for result in results) == 1
+        # The interval has not elapsed, so neither Pod runs again.
+        assert await managers[0].run_once() is None
+        assert await managers[1].run_once() is None
     finally:
         await _close_redis(redis_clients)
 

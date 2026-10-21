@@ -267,7 +267,6 @@ async def lifecycle_check(
     )
 
     retention = EventRetentionManager(sessions, redis, settings)
-    await retention.initialize()
     verify(
         await retention.run_once() is not None,
         "Retention lease could not be acquired in isolated DB.",
@@ -293,10 +292,10 @@ async def lifecycle_check(
         await session.execute(
             update(ExecutionORM).values(finished_at=expired_at)
         )
-    cleaned = await retention.run_once()
+    # The first pass claimed this interval; run the next one directly.
+    cleaned = await retention.run_pass()
     verify(
-        cleaned is not None
-        and cleaned.published_outbox_deleted == outbox_count
+        cleaned.published_outbox_deleted == outbox_count
         and cleaned.execution_events_deleted == len(events),
         "Retention did not delete expired Outbox and terminal history.",
     )

@@ -4,6 +4,7 @@ import asyncio
 import logging
 import os
 import socket
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from uuid import uuid4
 
@@ -19,6 +20,9 @@ from executor_service.domain.runtime import (
     RuntimeDriverFactory,
 )
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
+from executor_service.infrastructure.cluster_passes import (
+    run_cluster_pass_loop,
+)
 from executor_service.infrastructure.execution_worker.cancellation import (
     CancellationProcessor,
 )
@@ -253,17 +257,28 @@ class ExecutionWorker:
         self._startup_cleanup_target_count = len(
             startup_recovery.cleanup_targets
         )
+        diagnostics = self._session_recovery.diagnostics
         self._maintenance_loops = [
-            asyncio.create_task(
-                self._lease_recovery_loop(), name="execution-lease-recovery"
+            self._cluster_pass(
+                "lease-recovery",
+                self._lease_recovery.recover,
+                lambda exc: diagnostics.log_loop_failure(
+                    exc, phase="LEASE_RECOVERY_SCAN"
+                ),
             ),
-            asyncio.create_task(
-                self._retained_runtime_session_cleanup_loop(),
-                name="retained-session-cleanup",
+            self._cluster_pass(
+                "retained-session-cleanup",
+                self._retained_session_cleaner.reconcile,
+                lambda exc: diagnostics.log_loop_failure(
+                    exc, phase="RETAINED_CLEANUP_SCAN"
+                ),
             ),
-            asyncio.create_task(
-                self._multi_lifecycle_loop(),
-                name="multi-lifecycle-auditor",
+            self._cluster_pass(
+                "multi-lifecycle-audit",
+                self._multi_lifecycle.audit,
+                lambda exc: diagnostics.log_loop_failure(
+                    exc, phase="MULTI_LIFECYCLE_SCAN"
+                ),
             ),
         ]
         if startup_recovery.cleanup_targets:
@@ -276,10 +291,14 @@ class ExecutionWorker:
                 )
             )
         if self._maintenance_runs is not None:
+            maintenance_runs = self._maintenance_runs
             self._maintenance_loops.append(
-                asyncio.create_task(
-                    self._maintenance_run_loop(),
-                    name="maintenance-run-reconciler",
+                self._cluster_pass(
+                    "maintenance-runs",
+                    lambda: maintenance_runs.reconcile_once(self._worker_id),
+                    lambda _exc: logger.exception(
+                        "Maintenance Run reconciliation failed"
+                    ),
                 )
             )
         self._dispatcher.set_accepting(True)
@@ -344,50 +363,22 @@ class ExecutionWorker:
                 logger.exception("Execution reconciliation failed")
             await asyncio.sleep(RECONCILE_INTERVAL_SECONDS)
 
-    async def _lease_recovery_loop(self) -> None:
-        while not self._stop_event.is_set():
-            try:
-                await self._lease_recovery.recover()
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:
-                self._session_recovery.diagnostics.log_loop_failure(
-                    exc, phase="LEASE_RECOVERY_SCAN"
-                )
-            await asyncio.sleep(self._settings.execution_heartbeat_seconds)
-
-    async def _retained_runtime_session_cleanup_loop(self) -> None:
-        while not self._stop_event.is_set():
-            try:
-                await self._retained_session_cleaner.reconcile()
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:
-                self._session_recovery.diagnostics.log_loop_failure(
-                    exc, phase="RETAINED_CLEANUP_SCAN"
-                )
-            await asyncio.sleep(self._settings.execution_heartbeat_seconds)
-
-    async def _multi_lifecycle_loop(self) -> None:
-        while not self._stop_event.is_set():
-            try:
-                await self._multi_lifecycle.audit()
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:
-                self._session_recovery.diagnostics.log_loop_failure(
-                    exc, phase="MULTI_LIFECYCLE_SCAN"
-                )
-            await asyncio.sleep(self._settings.execution_heartbeat_seconds)
-
-    async def _maintenance_run_loop(self) -> None:
-        if self._maintenance_runs is None:
-            return
-        while not self._stop_event.is_set():
-            try:
-                await self._maintenance_runs.reconcile_once(self._worker_id)
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                logger.exception("Maintenance Run reconciliation failed")
-            await asyncio.sleep(self._settings.execution_heartbeat_seconds)
+    def _cluster_pass(
+        self,
+        key: str,
+        run_pass: Callable[[], Awaitable[object]],
+        on_error: Callable[[Exception], None],
+    ) -> asyncio.Task[None]:
+        # Passes scan shared PostgreSQL state, so one Pod per interval is
+        # enough; running them everywhere only multiplies the load.
+        return asyncio.create_task(
+            run_cluster_pass_loop(
+                self._session_factory,
+                key=key,
+                owner=self._worker_id,
+                interval_seconds=self._settings.execution_heartbeat_seconds,
+                run_pass=run_pass,
+                on_error=on_error,
+            ),
+            name=key,
+        )

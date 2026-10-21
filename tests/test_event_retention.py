@@ -111,7 +111,6 @@ async def test_published_outbox_expires_before_durable_event_history(
     manager = EventRetentionManager(
         session_factory, cast(Redis, redis), _settings()
     )
-    await manager.initialize()
     result = await manager.run_once()
 
     assert result is not None
@@ -193,7 +192,6 @@ async def test_terminal_event_history_expires_only_without_outbox_reference(
         cast(Redis, RecordingRetentionRedis()),
         _settings(),
     )
-    await manager.initialize()
     result = await manager.run_once()
 
     assert result is not None

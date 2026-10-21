@@ -15,8 +15,13 @@ truth and the only way Workers find work; Redis carries only Agent-facing events
 - Target selection locks Runtime Target rows with `FOR UPDATE SKIP LOCKED`. The running/waiting
   Attempt count is checked while that lock is held, so concurrent Pods cannot exceed registered
   target capacity.
-- Polling intentionally runs in every Pod. An unsuccessful claim leaves the Execution durably
-  `QUEUED` for the next poll.
+- Work polling intentionally runs in every Pod. An unsuccessful claim leaves the Execution
+  durably `QUEUED` for the next poll.
+- Background scans (expired-lease recovery, retained-session cleanup, MULTI lifecycle audit,
+  Maintenance Run reconciliation, Runtime health probes, event retention) run on one Pod per
+  interval. Each pass claims a row in the `event_retention_lease` table, whose name predates
+  this use. Passes are safe to overlap, so a Pod that dies mid-pass only delays the next pass
+  by one interval.
 - Cancellation uses a separate PostgreSQL owner, expiry, heartbeat, and monotonic fence. Polling
   in several Pods cannot make two Pods own Runtime cleanup for one Execution. After lease expiry, exactly one replacement Pod can continue the idempotent cleanup.
 - Executor-wide admission is a singleton PostgreSQL state. A new claim takes a shared lock on that

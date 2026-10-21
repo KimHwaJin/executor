@@ -3,7 +3,7 @@
 import executor_service.infrastructure.db._models as internal_models
 
 CommandReceiptORM = internal_models.CommandReceiptORM
-EventRetentionLeaseORM = internal_models.EventRetentionLeaseORM
+BackgroundPassLeaseORM = internal_models.BackgroundPassLeaseORM
 ExecutionArtifactORM = internal_models.ExecutionArtifactORM
 ExecutionAttemptORM = internal_models.ExecutionAttemptORM
 ExecutionDiagnosticORM = internal_models.ExecutionDiagnosticORM

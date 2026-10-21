@@ -10,7 +10,7 @@ from executor_service.infrastructure.db.base import Base
 def test_public_module_reexports_internal_orm_models() -> None:
     names = (
         "CommandReceiptORM",
-        "EventRetentionLeaseORM",
+        "BackgroundPassLeaseORM",
         "ExecutionArtifactORM",
         "ExecutionAttemptORM",
         "ExecutionEventORM",

@@ -74,7 +74,8 @@ class ExecutorMaintenanceORM(Base):
     )
 
 
-class EventRetentionLeaseORM(Base):
+class BackgroundPassLeaseORM(Base):
+    # The table name predates its use by every cluster-wide pass.
     __tablename__ = "event_retention_lease"
     __table_args__ = (
         CheckConstraint(

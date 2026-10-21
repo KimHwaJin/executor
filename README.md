@@ -596,7 +596,7 @@ eligible for scheduling. A target's `runtime_type` is immutable after creation; 
 target name when introducing a different Runtime Driver.
 
 The background health monitor repeats the probe at
-`RUNTIME_HEALTH_POLL_INTERVAL_SECONDS`. A failed health or kernel-profile probe makes the target
+`RUNTIME_HEALTH_POLL_INTERVAL_SECONDS` on one Pod per interval. A failed health or kernel-profile probe makes the target
 `OFFLINE`; a resource-only failure leaves it `ACTIVE` with stale resource data. Fresh targets are
 ranked by slot, CPU, and memory pressure, with the memory admission threshold configured by
 `RUNTIME_MEMORY_ADMISSION_LIMIT`. If all resource observations exceed

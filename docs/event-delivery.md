@@ -71,8 +71,8 @@ keys are no longer read and can be deleted once every Pod runs this release.
 
 ## Retention boundary
 
-The Executor retention manager runs under the singleton PostgreSQL `event_retention_lease`; only
-one replica performs a pass at a time. Every pass is bounded by `EVENT_RETENTION_BATCH_SIZE`.
+Event retention runs on one Pod per `EVENT_RETENTION_INTERVAL_SECONDS`, claimed through the
+PostgreSQL `event_retention_lease` table. Every pass is bounded by `EVENT_RETENTION_BATCH_SIZE`.
 
 - `executor.events` is time-trimmed after `REDIS_EVENT_RETENTION_SECONDS`. An Agent offline beyond
   that window recovers from durable PostgreSQL history by `event_sequence`.

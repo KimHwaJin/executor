@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from uuid import uuid4
 
 from redis.asyncio import Redis
@@ -18,8 +18,11 @@ from executor_service.domain.enums import (
     OutboxStatus,
 )
 from executor_service.domain.models import utc_now
+from executor_service.infrastructure.cluster_passes import (
+    claim_pass,
+    run_cluster_pass_loop,
+)
 from executor_service.infrastructure.db.models import (
-    EventRetentionLeaseORM,
     ExecutionEventORM,
     ExecutionORM,
     OutboxEventORM,
@@ -32,7 +35,7 @@ from executor_service.settings import Settings
 
 logger = logging.getLogger(__name__)
 
-RETENTION_LEASE_KEY = "events"
+RETENTION_PASS_KEY = "events"
 _TERMINAL_EXECUTION_STATUSES = (
     ExecutionStatus.SUCCEEDED,
     ExecutionStatus.FAILED,
@@ -48,7 +51,7 @@ class EventRetentionResult:
 
 
 class EventRetentionManager:
-    """Run one bounded retention pass under a PostgreSQL-backed lease."""
+    """Run bounded retention passes on one Pod per interval."""
 
     def __init__(
         self,
@@ -61,22 +64,6 @@ class EventRetentionManager:
         self._settings = settings
         self._owner = f"retention-{uuid4()}"
         self._task: asyncio.Task[None] | None = None
-        self._stopping = asyncio.Event()
-
-    async def initialize(self) -> None:
-        async with self._session_factory() as session, session.begin():
-            row = await session.get(
-                EventRetentionLeaseORM, RETENTION_LEASE_KEY
-            )
-            if row is None:
-                now = utc_now()
-                session.add(
-                    EventRetentionLeaseORM(
-                        singleton_key=RETENTION_LEASE_KEY,
-                        created_at=now,
-                        updated_at=now,
-                    )
-                )
 
     def start(self) -> None:
         if (
@@ -84,101 +71,45 @@ class EventRetentionManager:
             or self._task is not None
         ):
             return
-        self._stopping.clear()
         self._task = asyncio.create_task(
-            self._run_loop(), name="event-retention"
+            run_cluster_pass_loop(
+                self._session_factory,
+                key=RETENTION_PASS_KEY,
+                owner=self._owner,
+                interval_seconds=self._settings.event_retention_interval_seconds,
+                run_pass=self.run_pass,
+                on_error=lambda _exc: logger.exception(
+                    "Event retention pass failed"
+                ),
+            ),
+            name="event-retention",
         )
 
     async def stop(self) -> None:
-        self._stopping.set()
         if self._task is None:
             return
         self._task.cancel()
         await asyncio.gather(self._task, return_exceptions=True)
         self._task = None
 
-    async def _run_loop(self) -> None:
-        interval = self._settings.event_retention_interval_seconds
-        while not self._stopping.is_set():
-            try:
-                await asyncio.wait_for(self._stopping.wait(), timeout=interval)
-                continue
-            except TimeoutError:
-                pass
-            try:
-                await self.run_once()
-            except Exception:
-                logger.exception("Event retention pass failed")
-
     async def run_once(self) -> EventRetentionResult | None:
-        if not await self._acquire_lease():
+        if not await claim_pass(
+            self._session_factory,
+            RETENTION_PASS_KEY,
+            self._owner,
+            self._settings.event_retention_interval_seconds,
+        ):
             return None
-        try:
-            outbox_deleted, events_deleted = await self._cleanup_database()
-            event_trimmed = await self._trim_event_stream()
-        except Exception as exc:
-            await self._release_lease(error=str(exc)[:1000])
-            raise
-        await self._release_lease(error=None)
+        return await self.run_pass()
+
+    async def run_pass(self) -> EventRetentionResult:
+        outbox_deleted, events_deleted = await self._cleanup_database()
+        event_trimmed = await self._trim_event_stream()
         return EventRetentionResult(
             published_outbox_deleted=outbox_deleted,
             execution_events_deleted=events_deleted,
             event_stream_trimmed=event_trimmed,
         )
-
-    async def _acquire_lease(self) -> bool:
-        now = utc_now()
-        async with self._session_factory() as session, session.begin():
-            row = await session.scalar(
-                select(EventRetentionLeaseORM)
-                .where(
-                    EventRetentionLeaseORM.singleton_key == RETENTION_LEASE_KEY
-                )
-                .with_for_update()
-            )
-            if row is None:
-                row = EventRetentionLeaseORM(
-                    singleton_key=RETENTION_LEASE_KEY,
-                    created_at=now,
-                    updated_at=now,
-                )
-                session.add(row)
-                await session.flush()
-            if (
-                row.lease_owner is not None
-                and row.lease_owner != self._owner
-                and row.lease_expires_at is not None
-                and _as_utc(row.lease_expires_at) > now
-            ):
-                return False
-            row.lease_owner = self._owner
-            row.lease_expires_at = now + timedelta(
-                seconds=self._settings.event_retention_lease_seconds
-            )
-            row.last_started_at = now
-            row.last_error = None
-            row.updated_at = now
-        return True
-
-    async def _release_lease(self, *, error: str | None) -> None:
-        now = utc_now()
-        async with self._session_factory() as session, session.begin():
-            row = await session.scalar(
-                select(EventRetentionLeaseORM)
-                .where(
-                    EventRetentionLeaseORM.singleton_key
-                    == RETENTION_LEASE_KEY,
-                    EventRetentionLeaseORM.lease_owner == self._owner,
-                )
-                .with_for_update()
-            )
-            if row is None:
-                return
-            row.lease_owner = None
-            row.lease_expires_at = None
-            row.last_completed_at = now
-            row.last_error = error
-            row.updated_at = now
 
     async def _cleanup_database(self) -> tuple[int, int]:
         now = utc_now()
@@ -273,7 +204,3 @@ class EventRetentionManager:
 def _cutoff_stream_id(retention_seconds: int) -> str:
     cutoff = utc_now() - timedelta(seconds=retention_seconds)
     return f"{int(cutoff.timestamp() * 1000)}-0"
-
-
-def _as_utc(value: datetime) -> datetime:
-    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)

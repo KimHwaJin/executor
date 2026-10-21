@@ -29,7 +29,7 @@ from executor_service.infrastructure.db._models.handovers import (
     ExecutionStepRunORM,
 )
 from executor_service.infrastructure.db._models.maintenance import (
-    EventRetentionLeaseORM,
+    BackgroundPassLeaseORM,
     ExecutorMaintenanceORM,
     MaintenanceRunORM,
     MaintenanceRunTargetORM,
@@ -46,8 +46,8 @@ from executor_service.infrastructure.db._models.runtime import (
 )
 
 __all__ = [
+    "BackgroundPassLeaseORM",
     "CommandReceiptORM",
-    "EventRetentionLeaseORM",
     "ExecutionArtifactORM",
     "ExecutionAttemptORM",
     "ExecutionDiagnosticORM",
