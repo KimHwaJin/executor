@@ -121,7 +121,7 @@ def test_deployment_reads_image_config_and_safe_update_strategy() -> None:
     container = deployment["spec"]["template"]["spec"]["containers"][0]
     assert "envFrom" not in container
     env = {item["name"]: item for item in container["env"]}
-    assert set(env) == {"APP_ENV", "EXECUTION_CONSUMER_NAME"}
+    assert set(env) == {"APP_ENV"}
     assert env["APP_ENV"]["value"] == "prd"
     assert "secretKeyRef" not in str(deployment)
     assert "configMapKeyRef" not in str(deployment)

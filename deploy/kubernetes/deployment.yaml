@@ -50,11 +50,6 @@ spec:
           env:
             - name: APP_ENV
               value: "prd"
-            # Consumer group is shared; the Pod name must be unique for each worker process.
-            - name: EXECUTION_CONSUMER_NAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.name
           ports:
             - name: http
               containerPort: 8000

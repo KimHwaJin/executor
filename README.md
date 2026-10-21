@@ -752,7 +752,8 @@ Execution lease because Redis only wakes the PostgreSQL-backed Worker.
 transport rows and durable terminal-event history. Executor never trims the Agent-owned Event DLQ.
 
 Every Executor process must share `EXECUTION_CONSUMER_GROUP` and use a unique
-`EXECUTION_CONSUMER_NAME`; inject the Kubernetes Pod name in production. See
+`EXECUTION_CONSUMER_NAME`. Left empty, it is `<hostname>-<pid>`, which is unique per Kubernetes Pod;
+never set it in a shared config file. See
 [Multi-Executor Operations](docs/multi-executor-operations.md) for locking invariants, lease
 recovery, deployment behavior, and the real crash E2E.
 
