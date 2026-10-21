@@ -32,6 +32,24 @@ Jupyter 확장이 Step마다 실행 저널을 기록하고, 소실 판정도 확
 이벤트와 failure/diagnostics에 사유를 남긴다. 정리 실패는 기존 cleanup 재시도 체계로
 관리한다. 완료/오류/취소/타임아웃 시 감시 태스크도 취소하고 회수한다.
 
+## 커널 종료 사유
+
+커널 프로세스가 끝나서 `LOST`를 쓸 때, 확장은 실행 시작 때 잡아 둔 그 프로세스의 종료
+상태를 메시지에 덧붙인다. 새 폴링이나 메모리 샘플링은 없고, 실행 시작과 종료 감지
+시점에 파일 하나씩만 읽는다.
+
+- 종료 코드: `It exited with code N.`
+- 시그널: `It was killed by SIGKILL.` 등
+- SIGKILL이고 실행 중 컨테이너 메모리 cgroup이 한도에 닿았으면(cgroup v2
+  `memory.events`의 `oom_kill`, 없으면 cgroup v1 `memory.failcnt`가 증가):
+  `... most likely killed for running out of memory.`
+- 같은 Kernel ID 수동 재시작처럼 종료 상태를 알 수 없으면 덧붙이지 않는다.
+
+OOM killer는 항상 SIGKILL을 쓰므로 메모리 부족을 강하게 시사하지만, 프로세스별 OOM
+기록이 없는 cgroup v1(노드 커널 3.10)에서는 추정이다. 같은 시점의 수동 `kill -9`와는
+구분하지 못한다. Executor는 이 메시지를 그대로 Step/Execution 오류
+(`RUNTIME_SESSION_LOST`)로 남긴다.
+
 ## 커널 식별 (확장 내부)
 
 확장은 `KernelStateObserver`로 커널 프로세스의 생존과 instance_id를 확인한다. 별도 HTTP
@@ -81,7 +99,7 @@ PYTHONPATH=scripts uv run python -c 'import asyncio; from redis_compatibility_li
 
 ## 남는 한계
 
-- OOM 확정/개별 커널 OOM 귀속은 이번 범위에 없다.
+- OOM 확정/개별 커널 OOM 귀속은 하지 않는다. 위의 종료 사유는 추정이다.
 - 살아 있는 커널 내부의 교착/무한루프/자식 작업만의 소실은 기존 제한시간으로 보호한다.
 - 활성 Step 실행 중 감시가 범위다. MULTI 대기 중 재시작된 프로세스의 메모리 연속성을
   다음 Operation까지 영속 추적하는 것은 별도 보완 사항이다. 기존 대기 중 세션 존재,

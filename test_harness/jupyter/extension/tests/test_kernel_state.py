@@ -1,8 +1,12 @@
 import gc
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from executor_resource_extension.kernel_state import KernelStateObserver
+from executor_resource_extension.kernel_state import (
+    KernelStateObserver,
+    memory_limit_events,
+)
 
 
 class Process:
@@ -94,3 +98,16 @@ async def test_shutdown_before_process_exit_is_already_execution_loss() -> (
     assert (await KernelStateObserver().observe(Manager(kernel), "kernel"))[
         "alive"
     ] is False
+
+
+def test_memory_limit_events_prefers_cgroup_v2_oom_kills(
+    tmp_path: Path,
+) -> None:
+    assert memory_limit_events(tmp_path) is None
+    (tmp_path / "memory").mkdir()
+    (tmp_path / "memory" / "memory.failcnt").write_text("12\n")
+    assert memory_limit_events(tmp_path) == 12
+    (tmp_path / "memory.events").write_text(
+        "low 0\nmax 40\noom 3\noom_kill 2\n"
+    )
+    assert memory_limit_events(tmp_path) == 2

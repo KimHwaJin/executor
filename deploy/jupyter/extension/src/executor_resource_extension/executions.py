@@ -20,7 +20,12 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
-from executor_resource_extension.kernel_state import KernelStateObserver
+from executor_resource_extension.kernel_state import (
+    CGROUP_ROOT,
+    KernelStateObserver,
+    exit_reason,
+    memory_limit_events,
+)
 
 COMPLETED = "COMPLETED"
 LOST = "LOST"
@@ -58,6 +63,7 @@ class ExecutionJournals:
         # a slow kernel fails the request before the Executor stops waiting
         # instead of receiving code after it.
         ready_timeout_seconds: float = 20,
+        cgroup_root: Path = CGROUP_ROOT,
     ) -> None:
         self._root = root
         self._kernel_state = kernel_state
@@ -65,6 +71,7 @@ class ExecutionJournals:
         self._retention_seconds = retention_seconds
         self._liveness_seconds = liveness_seconds
         self._ready_timeout_seconds = ready_timeout_seconds
+        self._cgroup_root = cgroup_root
         # Journals written by an earlier server process can never finish.
         self._server_id = uuid4().hex
         self._recordings: dict[str, _Recording] = {}
@@ -140,6 +147,9 @@ class ExecutionJournals:
                 manager,
                 kernel_id,
                 identity["instance_id"],
+                # Held to read how this process ended once it is replaced.
+                getattr(kernel.provisioner, "process", None),
+                memory_limit_events(self._cgroup_root),
                 client,
                 message_id,
                 path,
@@ -234,6 +244,8 @@ class ExecutionJournals:
         manager: Any,
         kernel_id: str,
         instance_id: str,
+        process: Any,
+        memory_events_before: int | None,
         client: Any,
         message_id: str,
         path: Path,
@@ -274,7 +286,12 @@ class ExecutionJournals:
                             _terminal_entry(
                                 LOST,
                                 "The kernel process stopped or restarted "
-                                "during execution.",
+                                "during execution."
+                                + exit_reason(
+                                    process,
+                                    memory_events_before,
+                                    memory_limit_events(self._cgroup_root),
+                                ),
                             )
                         )
                         return
