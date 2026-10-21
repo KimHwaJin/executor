@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from executor_service.application.commands import (
     StepSpec,
@@ -12,6 +12,10 @@ from executor_service.domain.enums import (
     OperationMode,
     RuntimeType,
     TriggerType,
+)
+from executor_service.domain.tenants import (
+    ALWAYS_RESERVED_TENANT_IDS,
+    TENANT_ID_PATTERN,
 )
 from executor_service.execution_specs import (
     ExecutionSpec,
@@ -25,7 +29,7 @@ from executor_service.interfaces._contracts.common import (
 
 class ExecutionContext(ContractModel):
     user_id: str = Field(min_length=1, max_length=255)
-    task_id: str = Field(min_length=1, max_length=255)
+    task_id: str | None = Field(default=None, min_length=1, max_length=255)
     project_id: str | None = Field(default=None, min_length=1, max_length=255)
     session_id: str | None = Field(default=None, min_length=1, max_length=255)
     workflow_id: str | None = Field(default=None, max_length=255)
@@ -77,12 +81,27 @@ class ExecutionOperationInput(ContractModel):
 
 class ExecutionSubmitRequest(ContractModel):
     idempotency_key: str = Field(min_length=1, max_length=255)
+    tenant_id: str | None = Field(
+        default=None,
+        pattern=TENANT_ID_PATTERN,
+        description=(
+            "Immutable tenant. Its events go to the Redis Stream "
+            "'<event stream>.<tenant_id>' instead of the shared one."
+        ),
+    )
     lifecycle: ExecutionLifecycleInput
     trigger: ExecutionTriggerInput
     runtime: ExecutionRuntimeInput
     context: ExecutionContext
     operation: ExecutionOperationInput
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("tenant_id")
+    @classmethod
+    def validate_tenant_id(cls, tenant_id: str | None) -> str | None:
+        if tenant_id in ALWAYS_RESERVED_TENANT_IDS:
+            raise ValueError(f"tenant_id '{tenant_id}' is reserved.")
+        return tenant_id
 
     def to_command(
         self, resolved: ResolvedExecutionSpec
@@ -107,6 +126,7 @@ class ExecutionSubmitRequest(ContractModel):
             actor_type=self.trigger.actor.type,
             actor_id=self.trigger.actor.id,
             workflow_id=self.context.workflow_id,
+            tenant_id=self.tenant_id,
             metadata=self.metadata,
             operation_metadata=self.operation.metadata,
             steps=tuple(

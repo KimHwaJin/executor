@@ -100,10 +100,12 @@ class Execution:
     user_id: str
     project_id: str | None
     session_id: str | None
-    task_id: str
+    task_id: str | None
     operation_wait_timeout_seconds: int | None = None
     runtime_type: RuntimeType = RuntimeType.JUPYTER
     workflow_id: str | None = None
+    # Immutable; routes this Execution's events to its own Redis Stream.
+    tenant_id: str | None = None
     created_by_type: ActorType | None = None
     created_by: str | None = None
     updated_by_type: ActorType | None = None

@@ -22,6 +22,8 @@ from pydantic_settings import (
     YamlConfigSettingsSource,
 )
 
+from executor_service.domain.tenants import reserved_tenant_ids
+
 LOCAL_ENV = "local"
 APP_ENVS = ("dev", "stg", "prd")
 
@@ -90,6 +92,9 @@ class Settings(BaseSettings):
     redis_event_dead_letter_stream: str = Field(
         default="executor.events.dlq", min_length=1
     )
+    # Approximate per-Stream cap on every event XADD. None keeps only the
+    # age-based retention below.
+    redis_event_stream_maxlen: int | None = Field(default=None, ge=1)
     outbox_poll_interval_seconds: float = Field(default=0.5, gt=0)
     outbox_batch_size: int = Field(default=100, ge=1, le=1000)
     outbox_publish_timeout_seconds: float = Field(default=5, gt=0)
@@ -257,6 +262,19 @@ class Settings(BaseSettings):
     @property
     def database_dsn(self) -> str:
         return self.database_url.get_secret_value()
+
+    @property
+    def reserved_tenant_ids(self) -> frozenset[str]:
+        """Tenant ids whose event Stream would collide with an internal one."""
+
+        return reserved_tenant_ids(
+            self.redis_event_stream,
+            (
+                self.redis_work_stream,
+                self.redis_work_dead_letter_stream,
+                self.redis_event_dead_letter_stream,
+            ),
+        )
 
     @property
     def redis_dsn(self) -> str:

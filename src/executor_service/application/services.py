@@ -34,6 +34,7 @@ class ExecutionService:
         *,
         max_steps_per_operation: int = 100,
         max_steps_per_execution: int = 1000,
+        reserved_tenant_ids: frozenset[str] = frozenset(),
     ) -> None:
         support = ExecutionCommandSupport(
             uow_factory,
@@ -42,7 +43,9 @@ class ExecutionService:
             max_steps_per_execution=max_steps_per_execution,
         )
         self._submission = ExecutionSubmissionCommands(
-            support, runtime_profiles
+            support,
+            runtime_profiles,
+            reserved_tenant_ids=reserved_tenant_ids,
         )
         self._operations = ExecutionOperationCommands(support)
         self._lifecycle = ExecutionLifecycleCommands(support)
