@@ -7,8 +7,8 @@ source of truth; Redis only wakes a Worker.
 ## Coordination invariants
 
 - Every process uses the same `EXECUTION_CONSUMER_GROUP` and a unique
-  `EXECUTION_CONSUMER_NAME`. Inject the Pod name in Kubernetes. The hostname and PID fallback is
-  suitable for local execution but should not replace an explicit production identity.
+  `EXECUTION_CONSUMER_NAME`. Left empty, it is `<hostname>-<pid>`; in Kubernetes the hostname is
+  the Pod name, so it is unique per Pod. Never set it in a config file shared by every Pod.
 - Claiming locks the Execution row. Duplicate Redis delivery or simultaneous reconciliation can
   therefore create only one running Attempt for an Execution.
 - Target selection locks Runtime Target rows with `FOR UPDATE SKIP LOCKED`. The running/waiting

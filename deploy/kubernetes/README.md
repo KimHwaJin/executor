@@ -32,7 +32,7 @@ Before deployment:
 1. Copy `deployment.yaml` to the Git-ignored `deployment.local.yaml`, or render it
    privately in CI/CD. Replace `executor-service:latest` with an immutable image digest/tag.
 2. Settings live in `config.prd.yml` (copied from `config.example.yml`) inside the image; the
-   Deployment sets only `APP_ENV=prd` and `EXECUTION_CONSUMER_NAME`. Edit database/Redis URLs, MCP
+   Deployment sets only `APP_ENV=prd`. Edit database/Redis URLs, MCP
    host/origin allowlists, Runtime profiles, storage roots, migration timeouts and pool size there.
    An environment variable with the same name still overrides a file value.
 3. Replace `REPLACE_USER`, `REPLACE_PASSWORD`, and `REPLACE_WITH_FERNET_KEY` in that file.
@@ -138,8 +138,8 @@ Executor maintenance row.
 
 The manifest uses one replica by default. Executor supports multiple replicas, but every Pod must
 share PostgreSQL, Redis, the consumer group, credential key, input PVC, and Runtime Target registry.
-The Downward API assigns the Pod name to `EXECUTION_CONSUMER_NAME` so replicas do not share worker
-identities.
+Each worker names itself `<hostname>-<pid>`; the hostname is the Pod name, so replicas do not share
+worker identities. Do not set `EXECUTION_CONSUMER_NAME` in a config file, which every Pod shares.
 
 The 90-second Pod grace period is greater than the default 30-second execution drain plus 20-second
 shutdown cleanup and buffer. If those settings increase, increase `terminationGracePeriodSeconds`
