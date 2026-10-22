@@ -24,7 +24,7 @@ Operation event references now contain an explicit `complete` boolean.
 This phase repairs lost operational evidence without changing REST/MCP request or response
 schemas, Redis event schemas, database columns, or Alembic revision `0001`.
 It is not a production-readiness sign-off. The initial IOPub suppression failure is preserved as
-historical evidence in [expanded output validation](output-expansion-validation.md); its supported
+historical evidence in the expanded output validation; its supported
 native-server detection path is now implemented in Phase 2.
 
 ## Implemented

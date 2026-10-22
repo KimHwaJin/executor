@@ -326,8 +326,7 @@ Initial observation on 2026-08-31: the local Jupyter IOPub data-rate limit suppr
 recognizes native Jupyter rate-limit warnings, preserves that evidence and fails
 the Step with `OUTPUT_LIMIT_EXCEEDED`, `complete=false`. The supported path passed
 live basic 5/10/25 MiB and ML 5 MiB checks; this does not recover dropped output.
-See [expanded output validation](output-expansion-validation.md) for historical
-measurements and [output completeness](runtime-output-completeness.md) for the
+See [output completeness](runtime-output-completeness.md) for the
 fix, compatibility boundary and validation scope. Full T35 load measurements and
 production threshold selection remain open.
 
@@ -660,8 +659,7 @@ operations requirements determine the production values.
 
 ### Verified baseline
 
-- Verified again on 2026-08-31 against the reset `0001` baseline; see
-  [baseline reset validation](schema-baseline-validation.md).
+- Verified again on 2026-08-31 against the reset `0001` baseline.
 - Static/unit gate: Ruff passed, format passed, ty passed, 251 tests passed.
 - Redis integration gate: 10 tests passed.
 - PostgreSQL concurrency and migration gate: 18 tests passed, including repeated upgrade and
@@ -844,7 +842,7 @@ failure. It must retain Runtime release evidence and inject all service credenti
   unknown remote causes remain explicitly unknown and correlate with operational logs.
 
 Phase 2 resolves the reproduced native-warning false-success case in
-[expanded output validation](output-expansion-validation.md). Phase 3 adds DB/REST
+expanded output validation. Phase 3 adds DB/REST
 diagnostics; Phase 4 implements mandatory delivery policy and Phase 5 covers
 background cleanup/probe observations. Phase 6 aligns partial evidence references
 across events/REST/manifests. Phase 7 validates real cancellation/SIGTERM and

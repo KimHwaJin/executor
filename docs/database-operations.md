@@ -75,9 +75,6 @@ runs `alembic check`, and only then executes the concurrency scenario:
 EXECUTOR_RUN_POSTGRES_TESTS=1 uv run pytest tests/test_multi_worker_postgres.py
 ```
 
-See [2026-08-31 baseline reset validation](schema-baseline-validation.md) for the local reset,
-container startup, SINGLE/MULTI execution, and result-integrity evidence.
-
 ## Pool settings
 
 | Environment variable | Default | Meaning |
