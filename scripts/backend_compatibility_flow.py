@@ -28,6 +28,7 @@ from executor_service.domain.enums import (
     TriggerType,
 )
 from executor_service.domain.models import utc_now
+from executor_service.domain.runtime import RuntimeOffering
 from executor_service.infrastructure.db.models import (
     ExecutionEventORM,
     ExecutionOperationORM,
@@ -66,8 +67,9 @@ from executor_service.infrastructure.outbox import OutboxPublisher
 from executor_service.infrastructure.result_storage import (
     FilesystemExecutionResultStore,
 )
-from executor_service.infrastructure.runtime_drivers import (
-    ConfiguredRuntimeDriverFactory,
+from executor_service.infrastructure.runtime_adapters import (
+    JupyterRuntimeAdapter,
+    RuntimeAdapterRegistry,
 )
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
@@ -100,7 +102,11 @@ async def lifecycle_check(
     await ExecutorMaintenanceService(sessions).initialize()
     service = ExecutionService(
         lambda: SQLAlchemyUnitOfWork(sessions),
-        {RuntimeType.JUPYTER: ("default",)},
+        {
+            RuntimeType.JUPYTER: RuntimeOffering(
+                ("default",), JupyterRuntimeAdapter.capabilities
+            )
+        },
         FilesystemExecutionResultStore(settings.shared_storage_root),
     )
     publisher = OutboxPublisher(
@@ -122,7 +128,7 @@ async def lifecycle_check(
         LeaseHeartbeatManager(sessions, settings),
         RuntimeDriverProvider(
             RuntimeTargetRegistry(sessions, settings),
-            ConfiguredRuntimeDriverFactory(settings),
+            RuntimeAdapterRegistry(settings),
         ),
     )
     await redis.xgroup_create(

@@ -55,6 +55,9 @@ from executor_service.infrastructure.execution_worker.types import (
     RuntimeAbortResolution,
     StoredStepFailure,
 )
+from executor_service.infrastructure.runtime_adapters import (
+    runtime_capabilities,
+)
 from executor_service.infrastructure.runtime_diagnostics import (
     failure_message,
     log_runtime_failure,
@@ -284,6 +287,9 @@ class ExecutionRunFinalizer:
                 if (
                     step_attempt is None
                     or step_attempt.execution_attempt_id != lease.attempt_id
+                    or not runtime_capabilities(
+                        execution.runtime_type
+                    ).execution_journal
                     or execution.runtime_session_id is None
                     or execution.runtime_abort_status
                     == RuntimeAbortStatus.PENDING

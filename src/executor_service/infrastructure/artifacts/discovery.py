@@ -51,6 +51,7 @@ class ArtifactDiscovery:
                 metadata,
                 artifact_type,
                 status,
+                runtime_type=workspace.runtime_type,
                 metadata={"discovery": "runtime-workspace-diff"},
             )
             if descriptor.uri not in manifest_uris:

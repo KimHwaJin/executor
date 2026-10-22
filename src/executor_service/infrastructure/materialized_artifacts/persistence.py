@@ -21,6 +21,7 @@ from executor_service.infrastructure.db.models import (
     ExecutionArtifactORM,
     ExecutionORM,
 )
+from executor_service.infrastructure.runtime_adapters import artifact_uri
 
 
 class MaterializedArtifactPersistence:
@@ -151,6 +152,11 @@ class MaterializedArtifactPersistence:
                 )
             )
             if artifact is None:
+                execution = await session.get(
+                    ExecutionORM, command.execution_id
+                )
+                if execution is None:
+                    raise ArtifactRegistrationError("Execution is missing.")
                 artifact = ExecutionArtifactORM(
                     id=artifact_id,
                     execution_id=command.execution_id,
@@ -162,7 +168,7 @@ class MaterializedArtifactPersistence:
                     status=ArtifactStatus.AVAILABLE,
                     name=name,
                     description=command.description,
-                    uri=f"jupyter-pv:///{file.path}",
+                    uri=artifact_uri(execution.runtime_type, file.path),
                     relative_path=file.path,
                     media_type=media_type,
                     size_bytes=file.size_bytes,

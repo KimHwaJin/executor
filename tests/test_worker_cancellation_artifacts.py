@@ -177,7 +177,7 @@ async def test_cancelled_cell_registers_partial_file_as_incomplete_artifact(
             worker._step_executor, "_record_interrupted_result", fail_reference
         )
     monkeypatch.setattr(
-        "executor_service.infrastructure.runtime_drivers.JupyterRuntimeDriver",
+        "executor_service.infrastructure.runtime_adapters.JupyterRuntimeDriver",
         FileWritingBlockedDriver,
     )
     task = asyncio.create_task(worker._runner.run(execution.id))

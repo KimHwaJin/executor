@@ -10,12 +10,12 @@ from executor_service.domain.enums import ActorType, RuntimeTargetStatus
 from executor_service.domain.models import utc_now
 from executor_service.domain.runtime import RuntimeResourceObservation
 from executor_service.infrastructure.db.models import RuntimeTargetORM
+from executor_service.infrastructure.runtime_adapters import (
+    RuntimeAdapterRegistry,
+)
 from executor_service.infrastructure.runtime_diagnostics import (
     failure_message,
     redact_message,
-)
-from executor_service.infrastructure.runtime_drivers import (
-    ConfiguredRuntimeDriverFactory,
 )
 from executor_service.infrastructure.runtime_registry.credentials import (
     RuntimeCredentialCipher,
@@ -48,7 +48,7 @@ class RuntimeTargetProber:
         self._session_factory = session_factory
         self._settings = settings
         self._credentials = credentials
-        self._driver_factory = ConfiguredRuntimeDriverFactory(settings)
+        self._driver_factory = RuntimeAdapterRegistry(settings)
 
     async def probe(
         self,
@@ -98,7 +98,11 @@ class RuntimeTargetProber:
             except Exception as exc:
                 error = _probe_failure("RUNTIME_PROFILES_UNAVAILABLE", exc)
             else:
-                allowed_profiles = set(self._settings.runtime_allowed_profiles)
+                allowed_profiles = set(
+                    self._driver_factory.adapter(
+                        target.runtime_type
+                    ).allowed_profiles()
+                )
                 profiles = [
                     profile
                     for profile in reported_profiles

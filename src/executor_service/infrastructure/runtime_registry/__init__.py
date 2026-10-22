@@ -43,9 +43,6 @@ from executor_service.infrastructure.runtime_registry.mappers import (
 from executor_service.infrastructure.runtime_registry.monitor import (
     RuntimeHealthMonitor,
 )
-from executor_service.infrastructure.runtime_registry.normalization import (
-    normalize_connection_config,
-)
 from executor_service.infrastructure.runtime_registry.probe import (
     RuntimeTargetProber,
 )
@@ -168,7 +165,6 @@ __all__ = [
     "as_float",
     "as_int",
     "fingerprint",
-    "normalize_connection_config",
     "pool_summary",
     "purge_view",
     "required_target",

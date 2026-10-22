@@ -29,6 +29,7 @@ from executor_service.application.services.types import (
 from executor_service.domain.enums import RuntimeType
 from executor_service.domain.models import Execution
 from executor_service.domain.results import ExecutionResultStore
+from executor_service.domain.runtime import RuntimeOffering
 
 
 class ExecutionService:
@@ -37,7 +38,7 @@ class ExecutionService:
     def __init__(
         self,
         uow_factory: UnitOfWorkFactory,
-        runtime_profiles: Mapping[RuntimeType, tuple[str, ...]],
+        runtime_offerings: Mapping[RuntimeType, RuntimeOffering],
         result_store: ExecutionResultStore,
         *,
         max_steps_per_operation: int = 100,
@@ -50,7 +51,7 @@ class ExecutionService:
             max_steps_per_execution=max_steps_per_execution,
         )
         self._submission = ExecutionSubmissionCommands(
-            support, runtime_profiles
+            support, runtime_offerings
         )
         self._operations = ExecutionOperationCommands(support)
         self._lifecycle = ExecutionLifecycleCommands(support)

@@ -71,8 +71,8 @@ from executor_service.infrastructure.maintenance_runs import (
 from executor_service.infrastructure.result_storage import (
     FilesystemExecutionResultStore,
 )
-from executor_service.infrastructure.runtime_drivers import (
-    ConfiguredRuntimeDriverFactory,
+from executor_service.infrastructure.runtime_adapters import (
+    RuntimeAdapterRegistry,
 )
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
@@ -100,8 +100,8 @@ class ExecutionWorker:
     ) -> None:
         self._session_factory = session_factory
         self._settings = settings
-        resolved_driver_factory = (
-            driver_factory or ConfiguredRuntimeDriverFactory(settings)
+        resolved_driver_factory = driver_factory or RuntimeAdapterRegistry(
+            settings
         )
         self._driver_provider = RuntimeDriverProvider(
             registry,

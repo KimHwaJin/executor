@@ -14,6 +14,33 @@ from executor_service.domain.enums import (
 )
 
 
+@dataclass(frozen=True)
+class RuntimeCapabilities:
+    """What a Runtime type supports beyond the core RuntimeDriver contract.
+
+    The core contract (sessions, code execution, ordered outputs, workspace
+    files while a session lives) is required of every Runtime. Executor
+    checks these flags instead of the Runtime type before relying on more.
+    """
+
+    # Session state survives between Operations, which MULTI requires.
+    stateful_sessions: bool
+    # follow_execution can replay a started request from another process,
+    # so a running Step can move to another Worker without re-running.
+    execution_journal: bool
+    # Workspace files outlive the session and are shared by every Target
+    # of the type, so notebooks and Artifacts can stay on Runtime storage.
+    durable_workspace: bool
+
+
+@dataclass(frozen=True)
+class RuntimeOffering:
+    """Profiles and capabilities that one Runtime type offers callers."""
+
+    profiles: tuple[str, ...]
+    capabilities: RuntimeCapabilities
+
+
 class RuntimeDriverError(RuntimeError):
     """An execution runtime could not be reached or used."""
 

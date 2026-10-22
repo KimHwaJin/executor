@@ -20,6 +20,9 @@ from executor_service.domain.models import utc_now
 from executor_service.infrastructure.db.models import (
     RuntimeTargetORM,
 )
+from executor_service.infrastructure.runtime_adapters import (
+    normalize_connection_config,
+)
 from executor_service.infrastructure.runtime_admission import (
     count_runtime_reservations,
 )
@@ -30,9 +33,6 @@ from executor_service.infrastructure.runtime_registry.idempotency import (
     RuntimeCommandReceipts,
     fingerprint,
     secret_hash,
-)
-from executor_service.infrastructure.runtime_registry.normalization import (
-    normalize_connection_config,
 )
 from executor_service.infrastructure.runtime_registry.probe import (
     RuntimeTargetProber,

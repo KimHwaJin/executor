@@ -9,6 +9,7 @@ from executor_service.domain.enums import (
     ArtifactStatus,
     ArtifactStorageType,
     ArtifactType,
+    RuntimeType,
 )
 from executor_service.domain.errors import ArtifactRegistrationError
 from executor_service.domain.runtime import RuntimeFileMetadata, RuntimeStorage
@@ -21,6 +22,7 @@ from executor_service.infrastructure.artifacts.validation import (
     redact,
     validate_s3_uri,
 )
+from executor_service.infrastructure.runtime_adapters import artifact_uri
 from executor_service.infrastructure.workspace import ExecutionWorkspace
 
 
@@ -29,6 +31,7 @@ def runtime_file_descriptor(
     artifact_type: ArtifactType,
     status: ArtifactStatus,
     *,
+    runtime_type: RuntimeType,
     name: str | None = None,
     description: str | None = None,
     media_type: str | None = None,
@@ -42,7 +45,7 @@ def runtime_file_descriptor(
         status=status,
         name=name or file.name,
         description=description,
-        uri=f"jupyter-pv:///{file.path}",
+        uri=artifact_uri(runtime_type, file.path),
         relative_path=file.path,
         media_type=media_type or file.media_type,
         size_bytes=file.size_bytes,
@@ -69,6 +72,7 @@ async def manifest_descriptor(
             metadata,
             entry.artifact_type,
             status,
+            runtime_type=workspace.runtime_type,
             name=entry.name,
             description=entry.description,
             media_type=entry.media_type,

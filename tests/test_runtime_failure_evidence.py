@@ -204,7 +204,7 @@ async def test_failures_preserve_state_reason_partial_refs_and_operator_logs(
         monkeypatch.setattr(store, storage_fault, fail_storage)
     driver = EvidenceDriver(fault, cleanup_failure)
     monkeypatch.setattr(
-        "executor_service.infrastructure.runtime_drivers.JupyterRuntimeDriver",
+        "executor_service.infrastructure.runtime_adapters.JupyterRuntimeDriver",
         lambda *_args, **_kwargs: driver,
     )
     settings = Settings(runtime_enabled=False, shared_storage_root=tmp_path)

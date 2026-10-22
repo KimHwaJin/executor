@@ -36,6 +36,7 @@ from executor_service.domain.errors import (
     IdempotencyConflictError,
     InvalidExecutionSpecError,
 )
+from executor_service.domain.runtime import RuntimeOffering
 from executor_service.domain.tenants import tenant_event_stream
 from executor_service.infrastructure.db.base import Base
 from executor_service.infrastructure.db.models import (
@@ -64,6 +65,9 @@ from executor_service.infrastructure.execution_worker.event_writer.completion im
 from executor_service.infrastructure.outbox import OutboxPublisher
 from executor_service.infrastructure.result_storage import (
     FilesystemExecutionResultStore,
+)
+from executor_service.infrastructure.runtime_adapters import (
+    JupyterRuntimeAdapter,
 )
 from executor_service.interfaces.http.app import create_app
 from executor_service.settings import Settings
@@ -115,7 +119,11 @@ def _service(engine: AsyncEngine, tmp_path: Path) -> ExecutionService:
     session_factory = create_session_factory(engine)
     return ExecutionService(
         lambda: SQLAlchemyUnitOfWork(session_factory),
-        {RuntimeType.JUPYTER: ("basic",)},
+        {
+            RuntimeType.JUPYTER: RuntimeOffering(
+                ("basic",), JupyterRuntimeAdapter.capabilities
+            )
+        },
         FilesystemExecutionResultStore(tmp_path),
     )
 

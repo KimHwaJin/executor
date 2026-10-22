@@ -15,7 +15,6 @@ from executor_service.application.notebook_queries import (
     ExecutionNotebookQueryService,
 )
 from executor_service.application.services import ExecutionService
-from executor_service.domain.enums import RuntimeType
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.migrations import upgrade_database
 from executor_service.infrastructure.db.repositories import (
@@ -52,8 +51,8 @@ from executor_service.infrastructure.redis_streams import (
 from executor_service.infrastructure.result_storage import (
     FilesystemExecutionResultStore,
 )
-from executor_service.infrastructure.runtime_drivers import (
-    ConfiguredRuntimeDriverFactory,
+from executor_service.infrastructure.runtime_adapters import (
+    RuntimeAdapterRegistry,
 )
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
@@ -83,9 +82,10 @@ class ApplicationContainer:
         self.result_store = FilesystemExecutionResultStore(
             settings.shared_storage_root
         )
+        self.runtime_adapters = RuntimeAdapterRegistry(settings)
         self.execution_service = ExecutionService(
             lambda: SQLAlchemyUnitOfWork(self.session_factory),
-            {RuntimeType.JUPYTER: settings.runtime_allowed_profiles},
+            self.runtime_adapters.offerings(),
             self.result_store,
             max_steps_per_operation=(
                 settings.execution_max_steps_per_operation
@@ -109,7 +109,6 @@ class ApplicationContainer:
             file_max_bytes=settings.execution_file_spec_max_bytes,
             max_steps=settings.execution_max_steps_per_operation,
         )
-        self.runtime_driver_factory = ConfiguredRuntimeDriverFactory(settings)
         self.runtime_registry = RuntimeTargetRegistry(
             self.session_factory, settings
         )
@@ -122,7 +121,7 @@ class ApplicationContainer:
         self.runtime_storage = FleetRuntimeStorageAccess(
             self.session_factory,
             self.runtime_registry,
-            self.runtime_driver_factory,
+            self.runtime_adapters,
         )
         self.artifact_content = ArtifactContentService(
             self.execution_queries, self.runtime_storage
@@ -156,7 +155,7 @@ class ApplicationContainer:
             session_factory=self.session_factory,
             settings=settings,
             registry=self.runtime_registry,
-            driver_factory=self.runtime_driver_factory,
+            driver_factory=self.runtime_adapters,
             artifact_manager=self.artifact_manager,
             result_store=self.result_store,
             maintenance_runs=self.maintenance_runs,

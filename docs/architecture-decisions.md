@@ -1,5 +1,54 @@
 # Architecture decisions
 
+## ADR-006: Pluggable Runtime types
+
+- Status: ACCEPTED
+- Recorded on: 2026-10-22
+
+Jupyter is the only Runtime today, but other execution environments, such as per-run containers
+or sandboxes, must be addable without changing the Worker, the API or the persistence model.
+
+Everything Executor knows about one Runtime type lives in its adapter in
+`infrastructure/runtime_adapters.py`, registered in `ADAPTER_TYPES`. An adapter provides:
+
+- `normalize_connection_config()`: validates a Target's `connection_config`; the API contract and
+  the registry both call it, so there is one rule per type.
+- `create_driver()`: builds the `RuntimeDriver` for a stored Target from its config and credential.
+- `allowed_profiles()`: the profiles callers may request.
+- `capabilities`: a `RuntimeCapabilities` declaration.
+- `artifact_uri_scheme`: the scheme of URIs recorded for Artifacts on its storage.
+
+No code outside that module branches on `RuntimeType`. Adding a type means a `RuntimeType` value,
+a driver and an adapter; Targets, Executions and Attempts already store `runtime_type`, and
+selection and claiming only match the same type.
+
+### Driver contract
+
+Every driver implements the `RuntimeDriver` protocol in `domain/runtime.py`:
+
+- Sessions: `start_session(profile, working_directory)`, `interrupt_session`, `abort_session`,
+  `delete_session`, `session_exists`. A session may be a kernel, a container or a sandbox.
+- Execution: `start_execution(session, request_id, code)` runs code at most once per request ID;
+  `follow_execution` delivers its outputs in order and then the result; `release_execution`
+  drops what the Runtime kept for it.
+- Health: `status`, `supported_profiles`, `resource_status`.
+- Workspace files while the session lives: `prepare_workspace`, `artifact_snapshot`,
+  `file_metadata`, `read_manifest`, `read_notebook`, `write_notebook`, `write_text`, and
+  `open_file` for downloads.
+
+### Capabilities
+
+Executor checks capabilities, never the type, before relying on more than the core contract:
+
+| Capability | Meaning | Without it |
+|---|---|---|
+| `stateful_sessions` | Session state survives between Operations | MULTI submissions are rejected with `UNSUPPORTED_RUNTIME_CAPABILITY` (422) |
+| `execution_journal` | Another process can `follow_execution` a started request from the start | A Worker that stops takes the normal failure and retry path instead of handing the Step over |
+| `durable_workspace` | Workspace files outlive the session and are shared by every Target of the type | Not yet supported: notebooks and Artifacts would have to move to Executor storage before the session is released |
+
+Jupyter declares all three, so its behaviour is unchanged. The `durable_workspace = False` path
+is deliberately left for the first Runtime that needs it, where it can be verified end to end.
+
 ## ADR-005: Remove Executor-owned tracing
 
 - Status: DONE

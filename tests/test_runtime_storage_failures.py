@@ -192,7 +192,7 @@ async def test_runtime_storage_failure_finalizes_consistent_state_and_events(
     )
     FailingRuntimeStorageDriver.configure(failure_point)
     monkeypatch.setattr(
-        "executor_service.infrastructure.runtime_drivers.JupyterRuntimeDriver",
+        "executor_service.infrastructure.runtime_adapters.JupyterRuntimeDriver",
         FailingRuntimeStorageDriver,
     )
     try:

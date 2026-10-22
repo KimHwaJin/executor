@@ -359,7 +359,7 @@ def _patch_runtime_driver(
     monkeypatch: pytest.MonkeyPatch, driver_type: type[Any]
 ) -> None:
     monkeypatch.setattr(
-        "executor_service.infrastructure.runtime_drivers.JupyterRuntimeDriver",
+        "executor_service.infrastructure.runtime_adapters.JupyterRuntimeDriver",
         driver_type,
     )
 

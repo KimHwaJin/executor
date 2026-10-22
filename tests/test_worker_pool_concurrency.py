@@ -91,7 +91,7 @@ class ControlledJupyterGateway(InMemoryRuntimeStorage):
 
 def _patch_runtime_driver(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "executor_service.infrastructure.runtime_drivers.JupyterRuntimeDriver",
+        "executor_service.infrastructure.runtime_adapters.JupyterRuntimeDriver",
         ControlledJupyterGateway,
     )
 

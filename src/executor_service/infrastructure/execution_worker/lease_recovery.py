@@ -52,6 +52,9 @@ from executor_service.infrastructure.execution_worker.session_recovery import (
 from executor_service.infrastructure.execution_worker.types import (
     ExpiredLeaseRecovery,
 )
+from executor_service.infrastructure.runtime_adapters import (
+    runtime_capabilities,
+)
 from executor_service.infrastructure.runtime_diagnostics import (
     log_runtime_failure,
 )
@@ -333,12 +336,14 @@ class LeaseRecoveryProcessor:
     ) -> bool:
         """Leave a Step that is still running on its kernel to another Worker.
 
-        The Jupyter journal holds its output, so nothing is lost and the code
-        is not run again. A pending abort keeps the failure path.
+        The Runtime's execution journal holds its output, so nothing is lost
+        and the code is not run again. A Runtime without a journal, or a
+        pending abort, keeps the failure path.
         """
 
         if (
-            execution.runtime_session_id is None
+            not runtime_capabilities(execution.runtime_type).execution_journal
+            or execution.runtime_session_id is None
             or execution.runtime_target_id is None
             or execution.runtime_abort_status == RuntimeAbortStatus.PENDING
             or await session.get(RuntimeTargetORM, execution.runtime_target_id)

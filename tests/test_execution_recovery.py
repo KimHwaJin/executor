@@ -435,7 +435,7 @@ async def test_orphan_running_execution_without_attempt_is_fenced_and_cleaned(
     RecoveryCleanupDriver.delete_fails = False
     RecoveryCleanupDriver.deleted = []
     monkeypatch.setattr(
-        "executor_service.infrastructure.runtime_drivers.JupyterRuntimeDriver",
+        "executor_service.infrastructure.runtime_adapters.JupyterRuntimeDriver",
         RecoveryCleanupDriver,
     )
     settings = Settings(
@@ -563,7 +563,7 @@ async def test_expired_lease_resolves_pending_runtime_abort(
     RecoveryCleanupDriver.delete_fails = delete_fails
     RecoveryCleanupDriver.deleted = []
     monkeypatch.setattr(
-        "executor_service.infrastructure.runtime_drivers.JupyterRuntimeDriver",
+        "executor_service.infrastructure.runtime_adapters.JupyterRuntimeDriver",
         RecoveryCleanupDriver,
     )
     settings = Settings(

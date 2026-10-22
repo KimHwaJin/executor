@@ -15,10 +15,15 @@ from executor_service.application.services.support import (
 from executor_service.application.services.types import (
     ExecutionCommandResult,
 )
-from executor_service.domain.enums import RuntimePool, RuntimeType
+from executor_service.domain.enums import (
+    OperationMode,
+    RuntimePool,
+    RuntimeType,
+)
 from executor_service.domain.errors import (
     InvalidExecutionSpecError,
     PersistenceConflictError,
+    UnsupportedRuntimeCapabilityError,
     UnsupportedRuntimeProfileError,
 )
 from executor_service.domain.models import (
@@ -26,6 +31,7 @@ from executor_service.domain.models import (
     ExecutionOperation,
     ExecutionStep,
 )
+from executor_service.domain.runtime import RuntimeOffering
 from executor_service.domain.tenants import (
     RESERVED_TENANT_IDS,
     is_valid_tenant_id,
@@ -36,19 +42,16 @@ class ExecutionSubmissionCommands:
     def __init__(
         self,
         support: ExecutionCommandSupport,
-        runtime_profiles: Mapping[RuntimeType, tuple[str, ...]],
+        runtime_offerings: Mapping[RuntimeType, RuntimeOffering],
     ) -> None:
         self._support = support
-        self._runtime_profiles = {
-            runtime_type: tuple(profiles)
-            for runtime_type, profiles in runtime_profiles.items()
-        }
+        self._runtime_offerings = dict(runtime_offerings)
 
     @property
     def runtime_profiles(self) -> dict[str, tuple[str, ...]]:
         return {
-            runtime_type.value: profiles
-            for runtime_type, profiles in self._runtime_profiles.items()
+            runtime_type.value: offering.profiles
+            for runtime_type, offering in self._runtime_offerings.items()
         }
 
     async def submit(
@@ -57,11 +60,22 @@ class ExecutionSubmissionCommands:
         validate_submit(command)
         self._validate_tenant(command.tenant_id)
         self._support.validate_step_limits(0, len(command.steps))
-        allowed_profiles = self._runtime_profiles.get(command.runtime_type, ())
-        if command.runtime_profile not in allowed_profiles:
+        offering = self._runtime_offerings.get(command.runtime_type)
+        if (
+            offering is None
+            or command.runtime_profile not in offering.profiles
+        ):
             raise UnsupportedRuntimeProfileError(
                 f"runtime_profile '{command.runtime_profile}' is not supported "
                 f"for runtime_type '{command.runtime_type.value}'."
+            )
+        if (
+            command.operation_mode == OperationMode.MULTI
+            and not offering.capabilities.stateful_sessions
+        ):
+            raise UnsupportedRuntimeCapabilityError(
+                f"runtime_type '{command.runtime_type.value}' keeps no session "
+                "state between Operations, so it supports only SINGLE."
             )
         request_fingerprint = fingerprint(command)
         try:

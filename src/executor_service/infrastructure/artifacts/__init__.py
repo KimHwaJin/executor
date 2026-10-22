@@ -74,6 +74,7 @@ class ExecutionArtifactManager:
             metadata,
             ArtifactType.NOTEBOOK,
             ArtifactStatus.AVAILABLE,
+            runtime_type=workspace.runtime_type,
             metadata={"content_semantics": "CURRENT_FILE"},
         )
         return await self._persistence.persist_notebook(

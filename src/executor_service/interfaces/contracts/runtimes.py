@@ -17,6 +17,10 @@ from executor_service.domain.enums import (
     RuntimeTargetStatus,
     RuntimeType,
 )
+from executor_service.domain.errors import RuntimeTargetConfigurationError
+from executor_service.infrastructure.runtime_adapters import (
+    normalize_connection_config,
+)
 from executor_service.interfaces.contracts.common import (
     ActorInput,
     AuditFields,
@@ -39,16 +43,12 @@ class RuntimeTargetUpsertRequest(ContractModel):
 
     @model_validator(mode="after")
     def validate_connection_config(self) -> "RuntimeTargetUpsertRequest":
-        if self.runtime_type == RuntimeType.JUPYTER:
-            endpoint = self.connection_config.get("endpoint")
-            if set(self.connection_config) != {"endpoint"} or not isinstance(
-                endpoint, str
-            ):
-                raise ValueError(
-                    "JUPYTER connection_config must contain only a non-empty endpoint."
-                )
-            if not endpoint.startswith(("http://", "https://")):
-                raise ValueError("JUPYTER endpoint must use http or https.")
+        try:
+            normalize_connection_config(
+                self.runtime_type, self.connection_config
+            )
+        except RuntimeTargetConfigurationError as exc:
+            raise ValueError(str(exc)) from exc
         return self
 
     def to_command(self) -> UpsertRuntimeTargetCommand:

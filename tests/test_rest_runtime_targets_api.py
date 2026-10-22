@@ -78,7 +78,7 @@ async def fleet_client(
     HealthyGateway.active_session_count = 1
     HealthyGateway.profiles = ["default", "3102311"]
     monkeypatch.setattr(
-        "executor_service.infrastructure.runtime_drivers.JupyterRuntimeDriver",
+        "executor_service.infrastructure.runtime_adapters.JupyterRuntimeDriver",
         HealthyGateway,
     )
     settings = Settings(

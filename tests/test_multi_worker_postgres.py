@@ -59,7 +59,10 @@ from executor_service.domain.enums import (
     TriggerType,
 )
 from executor_service.domain.models import utc_now
-from executor_service.domain.runtime import RuntimeStorageSnapshot
+from executor_service.domain.runtime import (
+    RuntimeOffering,
+    RuntimeStorageSnapshot,
+)
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.background_diagnostics import (
     BackgroundDiagnosticRecorder,
@@ -119,6 +122,9 @@ from executor_service.infrastructure.maintenance_runs import (
 from executor_service.infrastructure.outbox import OutboxPublisher
 from executor_service.infrastructure.result_storage import (
     FilesystemExecutionResultStore,
+)
+from executor_service.infrastructure.runtime_adapters import (
+    JupyterRuntimeAdapter,
 )
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
@@ -1176,7 +1182,11 @@ def _service(engine: AsyncEngine, root: Path) -> ExecutionService:
     session_factory = create_session_factory(engine)
     return ExecutionService(
         lambda: SQLAlchemyUnitOfWork(session_factory),
-        {RuntimeType.JUPYTER: ("basic", "ml")},
+        {
+            RuntimeType.JUPYTER: RuntimeOffering(
+                ("basic", "ml"), JupyterRuntimeAdapter.capabilities
+            )
+        },
         FilesystemExecutionResultStore(root),
     )
 
@@ -1566,7 +1576,7 @@ async def test_partial_result_outbox_redis_and_history_agree(
     execution = await service.submit(command)
     driver = EvidenceDriver("disconnect", False)
     monkeypatch.setattr(
-        "executor_service.infrastructure.runtime_drivers.JupyterRuntimeDriver",
+        "executor_service.infrastructure.runtime_adapters.JupyterRuntimeDriver",
         lambda *_args, **_kwargs: driver,
     )
     redis = Redis.from_url(_redis_test_url(), decode_responses=True)
@@ -2339,7 +2349,7 @@ async def test_expired_cleanup_is_reserved_once_across_workers(
             pass
 
     monkeypatch.setattr(
-        "executor_service.infrastructure.runtime_drivers.JupyterRuntimeDriver",
+        "executor_service.infrastructure.runtime_adapters.JupyterRuntimeDriver",
         Driver,
     )
     task = None

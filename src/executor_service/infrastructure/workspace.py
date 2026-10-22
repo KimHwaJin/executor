@@ -6,6 +6,7 @@ from typing import Any
 
 import nbformat
 
+from executor_service.domain.enums import RuntimeType
 from executor_service.domain.models import Execution
 
 SAFE_SEGMENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$")
@@ -22,6 +23,7 @@ class ExecutionWorkspace:
     reports_path: str
     artifacts_path: str
     manifest_path: str
+    runtime_type: RuntimeType = RuntimeType.JUPYTER
 
 
 class WorkspaceManager:
@@ -46,6 +48,7 @@ class WorkspaceManager:
             reports_path=f"{relative}/reports",
             artifacts_path=f"{relative}/artifacts",
             manifest_path=f"{relative}/artifacts/manifest.jsonl",
+            runtime_type=execution.runtime_type,
         )
 
     def notebook_document(
