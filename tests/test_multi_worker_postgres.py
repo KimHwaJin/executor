@@ -370,9 +370,14 @@ async def _current_execution_columns(
             )
 
 
-def _without_0007_columns(rows) -> list[dict]:
+# Columns that differ between an older revision and head: added by 0007,
+# dropped by 0008. Compare rows across an upgrade without them.
+CHANGED_SINCE_0006 = EXECUTION_COLUMNS_0007 | {"cancellation_heartbeat_at"}
+
+
+def _without_changed_columns(rows) -> list[dict]:
     return [
-        {k: v for k, v in row.items() if k not in EXECUTION_COLUMNS_0007}
+        {k: v for k, v in row.items() if k not in CHANGED_SINCE_0006}
         for row in rows
     ]
 
@@ -443,13 +448,13 @@ async def test_runtime_purge_migration_preserves_rows_and_guards_rollback(
     await asyncio.to_thread(_upgrade_and_check_baseline, url)
     async with postgres_engine.connect() as connection:
         for table in tables:
-            assert _without_0007_columns(
+            assert _without_changed_columns(
                 (
                     await connection.execute(
                         text(f"SELECT * FROM {table} ORDER BY id")
                     )
                 ).mappings()
-            ) == [dict(row) for row in before[table]]
+            ) == _without_changed_columns(before[table])
     old_result = await registry.purge(
         PurgeRuntimeTargetCommand(old_deleted_id)
     )
@@ -708,7 +713,9 @@ async def test_trace_removal_preserves_business_rows_and_restores_only_schema(
                 .mappings()
                 .all()
             )
-            assert _without_0007_columns(rows) == before[table]
+            assert _without_changed_columns(rows) == _without_changed_columns(
+                before[table]
+            )
         columns = await connection.run_sync(
             lambda sync: {
                 table: {c["name"] for c in inspect(sync).get_columns(table)}
@@ -2193,7 +2200,7 @@ async def test_current_baseline_repeated_upgrade_preserves_events(
             text("SELECT count(*) FROM event_retention_lease")
         )
 
-    assert revision == EXPECTED_SCHEMA_REVISION == "0007"
+    assert revision == EXPECTED_SCHEMA_REVISION == "0008"
     assert maintenance_count == retention_count == 1
     assert migrated_event is not None
     assert migrated_event.execution_id == execution.id
@@ -2234,7 +2241,7 @@ async def test_current_baseline_downgrade_and_recreate(
             text("SELECT singleton_key FROM event_retention_lease")
         )
     assert tables == set(Base.metadata.tables) | {"alembic_version"}
-    assert revision == EXPECTED_SCHEMA_REVISION == "0007"
+    assert revision == EXPECTED_SCHEMA_REVISION == "0008"
     assert admission == "ACTIVE"
     assert retention_key == "events"
 

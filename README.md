@@ -403,8 +403,10 @@ Databases built from that baseline can run `alembic upgrade head` directly;
 Revision `0005` preserves historical Runtime UUIDs when
 removing registrations and simplifies purge to an actor-only request; see
 [Runtime deletion](dev_docs/post-runtime-target-purge.md).
-Current head is `0006`, which only adds the Step run and handover tables used by
-[Step handover](docs/execution-recovery.md#step-handover-between-workers).
+Revision `0006` adds the Step run and handover tables used by
+[Step handover](docs/execution-recovery.md#step-handover-between-workers), and `0007` adds the
+Execution tenant. Current head is `0008`, which drops the unused `cancellation_heartbeat_at`
+column; stop older Executor processes before applying it.
 See [required-result completion](docs/required-result-completion.md)
 for Step versus Operation/Execution success semantics.
 Background cleanup/probe failures and sealed partial output references are described in

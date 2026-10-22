@@ -197,7 +197,6 @@ class CancellationProcessor:
             execution.heartbeat_at = None
             execution.cancellation_lease_owner = None
             execution.cancellation_lease_expires_at = None
-            execution.cancellation_heartbeat_at = None
             execution.operation_wait_expires_at = None
             execution.failure_type = None
             execution.retry_strategy = RetryStrategy.NOT_RETRYABLE

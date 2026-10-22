@@ -36,8 +36,10 @@ are discarded. Stop all old Executor processes before this migration.
 For a DB built from the actual 2026-08-31 baseline, `upgrade head` preserves business rows and
 requires no Redis reset. `check` must report no new upgrade operations.
 
-Current head is `0006`. It only adds `execution_step_runs` and `execution_handovers`, so
-older Pods keep working against it; downgrade drops both tables.
+Current head is `0008`, which drops the unused `executions.cancellation_heartbeat_at`. Pods on
+`0007` still write that column, so stop them before upgrading; downgrade re-adds it as nullable.
+`0007` adds the nullable Execution `tenant_id`, and `0006` adds `execution_step_runs` and
+`execution_handovers`; older Pods keep working against both.
 
 Revision `0005` removes the two foreign keys from
 Execution/Attempt `runtime_target_id` to active registrations while retaining

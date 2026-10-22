@@ -119,7 +119,6 @@ class ExecutionClaimer:
                 )
             execution.cancellation_lease_owner = self._worker_id
             execution.cancellation_lease_expires_at = lease_expires
-            execution.cancellation_heartbeat_at = now
             execution.updated_at = now
             return CancellationWork(
                 lease=CancellationLease(
