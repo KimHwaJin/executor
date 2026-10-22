@@ -98,12 +98,6 @@ class OutboxStatus(StrEnum):
     PUBLISHED = "PUBLISHED"
 
 
-class OutboxDestination(StrEnum):
-    # Worker wake-ups queued by earlier releases; retention deletes them.
-    WORK = "WORK"
-    EVENTS = "EVENTS"
-
-
 class RuntimeTargetStatus(StrEnum):
     ACTIVE = "ACTIVE"
     DRAINING = "DRAINING"

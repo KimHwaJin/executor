@@ -21,7 +21,6 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from executor_service.domain.enums import (
     ActorType,
-    OutboxDestination,
     OutboxStatus,
 )
 from executor_service.domain.models import (
@@ -125,21 +124,10 @@ class OutboxEventORM(Base):
         CheckConstraint(
             "status IN ('PENDING', 'PUBLISHED')", name="valid_outbox_status"
         ),
-        CheckConstraint(
-            "destination IN ('WORK', 'EVENTS')",
-            name="valid_outbox_destination",
-        ),
-        CheckConstraint(
-            "(destination = 'EVENTS' AND event_sequence >= 1 "
-            "AND execution_event_id IS NOT NULL AND payload IS NULL) OR "
-            "(destination = 'WORK' AND event_sequence IS NULL "
-            "AND execution_event_id IS NULL AND payload IS NOT NULL)",
-            name="valid_outbox_content",
-        ),
+        CheckConstraint("event_sequence >= 1", name="valid_outbox_sequence"),
         UniqueConstraint(
             "aggregate_type",
             "aggregate_id",
-            "destination",
             "event_sequence",
             name="uq_outbox_aggregate_event_sequence",
         ),
@@ -153,16 +141,8 @@ class OutboxEventORM(Base):
             "aggregate_type",
             "aggregate_id",
             "event_sequence",
-            postgresql_where=text(
-                "destination = 'EVENTS' AND status = 'PENDING'"
-            ),
-            sqlite_where=text("destination = 'EVENTS' AND status = 'PENDING'"),
-        ),
-        Index(
-            "ix_outbox_execution_cursor",
-            "aggregate_type",
-            "aggregate_id",
-            "event_sequence",
+            postgresql_where=text("status = 'PENDING'"),
+            sqlite_where=text("status = 'PENDING'"),
         ),
     )
 
@@ -174,19 +154,11 @@ class OutboxEventORM(Base):
         Uuid(as_uuid=True), nullable=False, index=True
     )
     event_type: Mapped[str] = mapped_column(String(255), nullable=False)
-    event_sequence: Mapped[int | None] = mapped_column(
-        BigInteger, nullable=True
-    )
-    execution_event_id: Mapped[UUID | None] = mapped_column(
+    event_sequence: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    execution_event_id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey("execution_events.id", ondelete="RESTRICT"),
-        nullable=True,
-    )
-    destination: Mapped[OutboxDestination] = mapped_column(
-        enum_type(OutboxDestination, "outbox_destination"), nullable=False
-    )
-    payload: Mapped[dict[str, Any] | None] = mapped_column(
-        JSON(none_as_null=True), nullable=True
+        nullable=False,
     )
     created_by_type: Mapped[ActorType | None] = mapped_column(
         enum_type(ActorType, "actor_type"), nullable=True
@@ -215,9 +187,7 @@ class OutboxEventORM(Base):
         DateTime(timezone=True), nullable=True
     )
     last_error: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    execution_event: Mapped[ExecutionEventORM | None] = relationship(
-        lazy="selectin"
-    )
+    execution_event: Mapped[ExecutionEventORM] = relationship(lazy="selectin")
 
     @classmethod
     def from_execution_event(cls, event: ExecutionEvent) -> "OutboxEventORM":
@@ -227,8 +197,6 @@ class OutboxEventORM(Base):
             event_type=event.event_type,
             event_sequence=event.event_sequence,
             execution_event_id=event.id,
-            destination=OutboxDestination.EVENTS,
-            payload=None,
             created_by_type=event.created_by_type,
             created_by=event.created_by,
             updated_by_type=event.updated_by_type,

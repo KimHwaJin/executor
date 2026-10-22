@@ -273,8 +273,7 @@ async def run_case(
         first_step_event = next(
             event.execution_event
             for event in step_events
-            if event.execution_event is not None
-            and event.execution_event.payload["step"]["sequence"] == 0
+            if event.execution_event.payload["step"]["sequence"] == 0
         )
         assert first_step_event is not None
         assert first_step_event.payload["status"] == step.status.value

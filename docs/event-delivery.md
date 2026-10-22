@@ -66,9 +66,9 @@ other on one row; the in-process job map suppresses a duplicate in one Worker, a
 state guards allow only one Worker to create the active Attempt. A backlog therefore costs each Pod
 at most its free slots in claims per second, and new work spreads across replicas.
 
-Earlier releases also woke Workers through an `executor.work` Stream. Event retention deletes the
-`WORK` Outbox rows those releases left behind. The old `executor.work` and `executor.work.dlq`
-keys are no longer read and can be deleted once every Pod runs this release.
+Earlier releases also woke Workers through an `executor.work` Stream. Migration `0009` deleted the
+Outbox rows they queued and reduced the Outbox to public events only. The old `executor.work` and
+`executor.work.dlq` Redis keys are no longer read and can be deleted.
 
 ## Retention boundary
 

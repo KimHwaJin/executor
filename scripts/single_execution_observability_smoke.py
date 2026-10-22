@@ -17,7 +17,6 @@ from mcp import Client
 from redis.asyncio import Redis
 from sqlalchemy import select
 
-from executor_service.domain.enums import OutboxDestination
 from executor_service.infrastructure.db.models import (
     ExecutionArtifactORM,
     ExecutionAttemptORM,
@@ -319,7 +318,6 @@ async def _database_snapshot(
                 .where(
                     OutboxEventORM.aggregate_type == "Execution",
                     OutboxEventORM.aggregate_id == execution_id,
-                    OutboxEventORM.destination == OutboxDestination.EVENTS,
                 )
                 .order_by(OutboxEventORM.created_at, OutboxEventORM.id)
             )

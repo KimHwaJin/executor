@@ -349,7 +349,8 @@ async def test_runtime_purge_serializes_with_target_mutations(
 
 
 # Added by 0007. Tests that write "old" rows below 0007 with the current ORM
-# add these for the writes only, so the rows match what old code wrote.
+# add these for the writes only, so the rows match what old code wrote. The
+# current ORM also no longer sets the Outbox destination dropped by 0009.
 EXECUTION_COLUMNS_0007 = {"tenant_id"}
 
 
@@ -361,6 +362,12 @@ async def _current_execution_columns(
         await connection.execute(
             text("ALTER TABLE executions ADD COLUMN tenant_id VARCHAR(64)")
         )
+        await connection.execute(
+            text(
+                "ALTER TABLE outbox_events "
+                "ALTER COLUMN destination SET DEFAULT 'EVENTS'"
+            )
+        )
     try:
         yield
     finally:
@@ -368,18 +375,25 @@ async def _current_execution_columns(
             await connection.execute(
                 text("ALTER TABLE executions DROP COLUMN tenant_id")
             )
+            await connection.execute(
+                text(
+                    "ALTER TABLE outbox_events "
+                    "ALTER COLUMN destination DROP DEFAULT"
+                )
+            )
 
 
 # Columns that differ between an older revision and head: added by 0007,
-# dropped by 0008. Compare rows across an upgrade without them.
+# dropped by 0008 and 0009. Compare rows across an upgrade without them.
 CHANGED_SINCE_0006 = EXECUTION_COLUMNS_0007 | {"cancellation_heartbeat_at"}
+OUTBOX_COLUMNS_DROPPED_BY_0009 = {"destination", "payload"}
 
 
-def _without_changed_columns(rows) -> list[dict]:
-    return [
-        {k: v for k, v in row.items() if k not in CHANGED_SINCE_0006}
-        for row in rows
-    ]
+def _without_changed_columns(rows, table: str) -> list[dict]:
+    changed = CHANGED_SINCE_0006
+    if table == "outbox_events":
+        changed = changed | OUTBOX_COLUMNS_DROPPED_BY_0009
+    return [{k: v for k, v in row.items() if k not in changed} for row in rows]
 
 
 def _downgrade_to_before_runtime_purge(database_url: str) -> None:
@@ -453,8 +467,9 @@ async def test_runtime_purge_migration_preserves_rows_and_guards_rollback(
                     await connection.execute(
                         text(f"SELECT * FROM {table} ORDER BY id")
                     )
-                ).mappings()
-            ) == _without_changed_columns(before[table])
+                ).mappings(),
+                table,
+            ) == _without_changed_columns(before[table], table)
     old_result = await registry.purge(
         PurgeRuntimeTargetCommand(old_deleted_id)
     )
@@ -649,24 +664,24 @@ async def test_trace_removal_preserves_business_rows_and_restores_only_schema(
     service = _service(postgres_engine, tmp_path)
     async with _current_execution_columns(postgres_engine):
         execution = await service.submit(_command("remove-traces"))
-    event = build_execution_event(
-        execution_id=execution.id,
-        event_sequence=1,
-        event_type="execution.started",
-        payload={
-            "status": "RUNNING",
-            "runtime": {
-                "provider": "JUPYTER",
-                "profile": "basic",
-                "target_id": str(uuid4()),
-                "session_id": "migration-test-session",
+        event = build_execution_event(
+            execution_id=execution.id,
+            event_sequence=1,
+            event_type="execution.started",
+            payload={
+                "status": "RUNNING",
+                "runtime": {
+                    "provider": "JUPYTER",
+                    "profile": "basic",
+                    "target_id": str(uuid4()),
+                    "session_id": "migration-test-session",
+                },
             },
-        },
-    )
-    factory = create_session_factory(postgres_engine)
-    async with factory() as session, session.begin():
-        session.add(ExecutionEventORM.from_domain(event))
-        session.add(OutboxEventORM.from_execution_event(event))
+        )
+        factory = create_session_factory(postgres_engine)
+        async with factory() as session, session.begin():
+            session.add(ExecutionEventORM.from_domain(event))
+            session.add(OutboxEventORM.from_execution_event(event))
 
     trace_tables = ("executions", "execution_events", "outbox_events")
     # Include dependent history to detect unintended cascade/data changes.
@@ -713,9 +728,9 @@ async def test_trace_removal_preserves_business_rows_and_restores_only_schema(
                 .mappings()
                 .all()
             )
-            assert _without_changed_columns(rows) == _without_changed_columns(
-                before[table]
-            )
+            assert _without_changed_columns(
+                rows, table
+            ) == _without_changed_columns(before[table], table)
         columns = await connection.run_sync(
             lambda sync: {
                 table: {c["name"] for c in inspect(sync).get_columns(table)}
@@ -2200,7 +2215,7 @@ async def test_current_baseline_repeated_upgrade_preserves_events(
             text("SELECT count(*) FROM event_retention_lease")
         )
 
-    assert revision == EXPECTED_SCHEMA_REVISION == "0008"
+    assert revision == EXPECTED_SCHEMA_REVISION == "0009"
     assert maintenance_count == retention_count == 1
     assert migrated_event is not None
     assert migrated_event.execution_id == execution.id
@@ -2208,7 +2223,7 @@ async def test_current_baseline_repeated_upgrade_preserves_events(
     assert migrated_event.payload == event.payload
     assert migrated_outbox is not None
     assert migrated_outbox.id == outbox_id
-    assert migrated_outbox.payload is None
+    assert migrated_outbox.execution_event_id == migrated_event.id
 
 
 async def test_current_baseline_downgrade_and_recreate(
@@ -2241,7 +2256,7 @@ async def test_current_baseline_downgrade_and_recreate(
             text("SELECT singleton_key FROM event_retention_lease")
         )
     assert tables == set(Base.metadata.tables) | {"alembic_version"}
-    assert revision == EXPECTED_SCHEMA_REVISION == "0008"
+    assert revision == EXPECTED_SCHEMA_REVISION == "0009"
     assert admission == "ACTIVE"
     assert retention_key == "events"
 

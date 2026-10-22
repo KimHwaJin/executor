@@ -405,8 +405,9 @@ removing registrations and simplifies purge to an actor-only request; see
 [Runtime deletion](dev_docs/post-runtime-target-purge.md).
 Revision `0006` adds the Step run and handover tables used by
 [Step handover](docs/execution-recovery.md#step-handover-between-workers), and `0007` adds the
-Execution tenant. Current head is `0008`, which drops the unused `cancellation_heartbeat_at`
-column; stop older Executor processes before applying it.
+Execution tenant. `0008` drops the unused `cancellation_heartbeat_at` column, and the current
+head `0009` reduces the Outbox to public events (no `destination`/`payload`). Stop older
+Executor processes before applying either.
 See [required-result completion](docs/required-result-completion.md)
 for Step versus Operation/Execution success semantics.
 Background cleanup/probe failures and sealed partial output references are described in

@@ -5,7 +5,6 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from executor_service.domain.enums import OutboxDestination
 from executor_service.infrastructure.db.models import (
     ExecutionEventORM,
     ExecutionOperationORM,
@@ -29,7 +28,6 @@ async def add_start_events(session: AsyncSession, execution_id: UUID) -> None:
     started_count = await session.scalar(
         select(func.count(OutboxEventORM.id)).where(
             OutboxEventORM.aggregate_id == execution_id,
-            OutboxEventORM.destination == OutboxDestination.EVENTS,
             OutboxEventORM.event_type == "execution.started",
         )
     )

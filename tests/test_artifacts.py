@@ -18,7 +18,6 @@ from executor_service.domain.enums import (
     AttemptStatus,
     ExecutionStatus,
     OperationMode,
-    OutboxDestination,
     RuntimePool,
     RuntimeTargetStatus,
     StepStatus,
@@ -271,9 +270,7 @@ async def test_artifact_discovery_manifest_lineage_and_idempotency(
             select(func.count(ExecutionArtifactORM.id))
         )
         artifact_events = await session.scalar(
-            select(func.count(OutboxEventORM.id)).where(
-                OutboxEventORM.destination == OutboxDestination.EVENTS
-            )
+            select(func.count(OutboxEventORM.id))
         )
     assert artifact_rows == 5
     assert artifact_events == 0

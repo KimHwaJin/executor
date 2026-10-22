@@ -9,12 +9,11 @@ from datetime import timedelta
 from uuid import uuid4
 
 from redis.asyncio import Redis
-from sqlalchemy import and_, delete, exists, or_, select
+from sqlalchemy import delete, exists, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from executor_service.domain.enums import (
     ExecutionStatus,
-    OutboxDestination,
     OutboxStatus,
 )
 from executor_service.domain.models import utc_now
@@ -128,16 +127,9 @@ class EventRetentionManager:
                 await session.scalars(
                     select(OutboxEventORM.id)
                     .where(
-                        or_(
-                            and_(
-                                OutboxEventORM.status
-                                == OutboxStatus.PUBLISHED,
-                                OutboxEventORM.published_at.is_not(None),
-                                OutboxEventORM.published_at < outbox_cutoff,
-                            ),
-                            OutboxEventORM.destination
-                            == OutboxDestination.WORK,
-                        )
+                        OutboxEventORM.status == OutboxStatus.PUBLISHED,
+                        OutboxEventORM.published_at.is_not(None),
+                        OutboxEventORM.published_at < outbox_cutoff,
                     )
                     .order_by(OutboxEventORM.published_at, OutboxEventORM.id)
                     .limit(batch_size)

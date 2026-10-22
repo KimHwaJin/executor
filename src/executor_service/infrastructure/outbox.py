@@ -14,7 +14,7 @@ from sqlalchemy import exists, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import aliased
 
-from executor_service.domain.enums import OutboxDestination, OutboxStatus
+from executor_service.domain.enums import OutboxStatus
 from executor_service.domain.models import utc_now
 from executor_service.domain.tenants import tenant_event_stream
 from executor_service.infrastructure.db.models import (
@@ -97,7 +97,6 @@ class OutboxPublisher:
                     select(OutboxEventORM)
                     .where(
                         OutboxEventORM.status == OutboxStatus.PENDING,
-                        OutboxEventORM.destination == OutboxDestination.EVENTS,
                         OutboxEventORM.available_at <= now,
                         ~exists(
                             select(earlier.id).where(
@@ -105,8 +104,6 @@ class OutboxPublisher:
                                 == OutboxEventORM.aggregate_type,
                                 earlier.aggregate_id
                                 == OutboxEventORM.aggregate_id,
-                                earlier.destination
-                                == OutboxDestination.EVENTS,
                                 earlier.event_sequence
                                 < OutboxEventORM.event_sequence,
                                 earlier.status == OutboxStatus.PENDING,
@@ -204,10 +201,7 @@ class OutboxPublisher:
         self, session: AsyncSession, events: list[OutboxEventORM]
     ) -> dict[UUID, str | None]:
         execution_ids = {
-            event.execution_event.execution_id
-            for event in events
-            if event.destination == OutboxDestination.EVENTS
-            and event.execution_event is not None
+            event.execution_event.execution_id for event in events
         }
         if not execution_ids:
             return {}
@@ -240,7 +234,6 @@ class OutboxPublisher:
                 select(OutboxEventORM)
                 .where(
                     OutboxEventORM.status == OutboxStatus.PENDING,
-                    OutboxEventORM.destination == OutboxDestination.EVENTS,
                     OutboxEventORM.available_at <= now,
                     tuple_(
                         OutboxEventORM.aggregate_type,
@@ -253,8 +246,6 @@ class OutboxPublisher:
                             == OutboxEventORM.aggregate_type,
                             unavailable_predecessor.aggregate_id
                             == OutboxEventORM.aggregate_id,
-                            unavailable_predecessor.destination
-                            == OutboxDestination.EVENTS,
                             unavailable_predecessor.status
                             == OutboxStatus.PENDING,
                             unavailable_predecessor.event_sequence

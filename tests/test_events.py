@@ -17,7 +17,6 @@ from executor_service.application.commands import (
 from executor_service.application.services import ExecutionService
 from executor_service.domain.enums import (
     OperationMode,
-    OutboxDestination,
     TriggerType,
 )
 from executor_service.infrastructure.db.models import (
@@ -207,7 +206,6 @@ async def test_multiple_events_in_one_transaction_receive_unique_sequences(
                 select(OutboxEventORM.event_sequence)
                 .where(
                     OutboxEventORM.aggregate_id == execution.id,
-                    OutboxEventORM.destination == OutboxDestination.EVENTS,
                 )
                 .order_by(OutboxEventORM.event_sequence)
             )

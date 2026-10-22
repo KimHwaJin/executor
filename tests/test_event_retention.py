@@ -14,7 +14,6 @@ from executor_service.application.services import ExecutionService
 from executor_service.domain.enums import (
     ExecutionStatus,
     OperationMode,
-    OutboxDestination,
     OutboxStatus,
     TriggerType,
 )
@@ -207,27 +206,10 @@ async def test_terminal_event_history_expires_only_without_outbox_reference(
     assert [event.id for event in remaining] == [retained.id]
 
 
-async def test_event_trim_is_bounded_and_drops_legacy_work_rows(
+async def test_event_trim_is_bounded(
     engine: AsyncEngine,
 ) -> None:
     session_factory = create_session_factory(engine)
-    now = utc_now()
-    async with session_factory() as session, session.begin():
-        # A wake-up queued by an earlier release; nothing publishes it now.
-        session.add(
-            OutboxEventORM(
-                aggregate_type="Execution",
-                aggregate_id=uuid4(),
-                event_type="operation.ready",
-                destination=OutboxDestination.WORK,
-                payload={"schema_version": "1.0"},
-                status=OutboxStatus.PENDING,
-                attempt_count=0,
-                available_at=now,
-                created_at=now,
-                updated_at=now,
-            )
-        )
     redis = RecordingRetentionRedis()
     manager = EventRetentionManager(
         session_factory, cast(Redis, redis), _settings()
@@ -235,10 +217,8 @@ async def test_event_trim_is_bounded_and_drops_legacy_work_rows(
 
     result = await manager.run_once()
     assert result is not None
-    assert result.published_outbox_deleted == 1
+    assert result.published_outbox_deleted == 0
     assert len(redis.trim_calls) == 1
     assert redis.trim_calls[0][0] == "EVAL"
     assert redis.trim_calls[0][3] == "executor.events"
     assert redis.trim_calls[0][-1] == 1000
-    async with session_factory() as session:
-        assert await session.scalar(select(OutboxEventORM.id)) is None
