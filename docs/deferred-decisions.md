@@ -130,43 +130,33 @@ reusable across all projects owned by the same user or only within its source pr
 
 ## DD-004: REST idempotency key transport
 
-- Status: DEFERRED
+- Status: DECIDED
 - Area: REST mutation contracts, MCP Tool contracts, client retry behavior
-- Deferred on: 2026-08-13
-- Resume when: the public REST API contract is finalized or an upstream client requires the
-  conventional `Idempotency-Key` HTTP header
+- Decided on: 2026-10-22
+- Revisit when: a third-party client, an API gateway that enforces idempotency, or a mutation
+  without a request body appears
 
-### Current decision
+### Decision
 
-- Mutation callers create the idempotency key before sending a command. Executor does not issue
-  the key.
-- The Agent/API service creates keys for interactive commands, and the Batch service creates keys
-  for batch commands.
-- A retry of the same logical command reuses the same key and payload. A new command uses a new
-  key; reusing a key with different command content is rejected as a conflict.
-- REST and MCP currently carry `idempotency_key` in their request bodies so both transports can
-  map directly to the same application Command contract.
+- REST and MCP both carry `idempotency_key` in the request body and map to the same
+  `Command.idempotency_key`. One Pydantic contract serves both transports, and validation,
+  conflict detection and logging stay identical.
+- Callers create the key before sending a command; Executor never issues one. The Agent/API
+  service creates keys for interactive commands and the Batch service for batch commands.
+- A retry of the same logical command reuses the same key and payload. Reusing a key with
+  different content is rejected as a conflict.
 
-### Deferred option
+### Why not the `Idempotency-Key` header
 
-- Move REST mutation keys to the `Idempotency-Key` HTTP header while keeping
-  `request.idempotency_key` as an MCP Tool argument.
-- Normalize both transport forms into the existing internal `Command.idempotency_key`; persistence
-  and idempotency semantics should remain transport-independent.
+The header pays off when generic HTTP infrastructure handles idempotency: public APIs used by
+many unknown clients, gateways that deduplicate by header, client libraries that add the header to
+retries, or mutations without a body. Executor has none of these: its callers are the in-house
+Agent and Batch services on a closed network, every mutation already has a body, and MCP has no
+headers. A header would add a second transport form without removing the body field from MCP.
 
-### Questions still open
-
-- Whether every REST mutation or only public execution commands should use the header.
-- Whether a temporary compatibility period should accept both header and body, and how conflicting
-  duplicate values should be rejected.
-- Whether OpenAPI examples, client helpers, and upstream retry documentation require a coordinated
-  breaking-version release.
-
-### Explicitly excluded until resumed
-
-- No REST request field or header change.
-- No Executor-generated idempotency keys.
-- No change to MCP Tool input schemas or database uniqueness behavior.
+If one of the revisit conditions appears, accept the header as an alternative REST form,
+normalise it into the same `Command.idempotency_key`, and reject requests whose header and body
+values differ. Persistence and uniqueness rules do not change.
 
 ## DD-005: MULTI Runtime-state recovery and replay
 
