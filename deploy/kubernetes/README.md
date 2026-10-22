@@ -14,8 +14,8 @@ No ConfigMap, Secret, or migration Job is required. If only Deployment creation 
 allowed, the platform must supply the existing Service/routing and PVC. A Deployment
 alone does not create a stable network endpoint, database, Redis server, or volume claim.
 
-The Executor image contains both the API and Redis consumer Worker. PostgreSQL remains the source of
-truth, while Redis wakes Workers and carries outbound events. A Pod therefore needs connectivity to
+The Executor image contains both the API and the Worker. PostgreSQL is the source of truth and
+Workers find work by polling it; Redis only carries outbound events. A Pod therefore needs connectivity to
 PostgreSQL, Redis, and the registered Jupyter fleet.
 
 Redis server 6.0.8 or newer is required by this branch. Build the image with its
@@ -109,7 +109,7 @@ Current head is `0006`, which adds the Step run and handover tables. Runtime pur
 historical IDs after deletion.
 See [purge and rollback](../../dev_docs/post-runtime-target-purge.md).
 Before rollback, review whether the old image is compatible with the new schema; startup
-does not automatically downgrade. See [trace removal](../../docs/opentelemetry-removal.md).
+does not automatically downgrade.
 
 ```bash
 kubectl apply -n <namespace> -f deploy/kubernetes/deployment.local.yaml

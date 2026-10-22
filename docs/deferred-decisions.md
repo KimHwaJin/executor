@@ -349,7 +349,7 @@ must be addressed before deleting history while retaining usable Artifacts.
 - Whether and how user/project/session/Task context is retained as a snapshot.
 - Retention of Agent/Executor shared-PV source snapshots, native cell outputs
   and manifests versus Jupyter-owned notebooks, reports and plot files.
-- Outbox publication, already delivered Redis events, late work messages,
+- Outbox publication, already delivered Redis events,
   idempotency records, and maintenance-history references during deletion.
 - Safe file ownership boundaries and protection of retained Artifacts, their
   supporting files, and caller-owned input source files.
@@ -389,16 +389,3 @@ must be addressed before deleting history while retaining usable Artifacts.
 - Review: [실행 중 Python 패키지 추가 설치 검토](runtime-package-installation-review.md).
 - Open: package allowlist ownership, per-profile constraints generation, duplicate dependency
   disk usage, `.pkgs/` cleanup policy, and whether mid-execution additions are in scope.
-
-## OpenTelemetry removal
-
-- Decision: remove Executor-owned tracing and Phoenix export. Keep standard logs,
-  execution diagnostics, business IDs, and public event sequencing.
-- MCP SDK's transitive `opentelemetry-api` dependency remains; Executor does not
-  configure a tracer provider, exporter, or span processor.
-- Approved: permanently discard existing `traceparent`/`tracestate` columns and
-  values in executions, execution_events, and outbox_events. Migration `0004`
-  removes them and their ORM declarations, preserving business history.
-- Previously queued Redis work messages may contain those fields; the reader
-  discards only those two keys and keeps strict validation for all other fields.
-- Details: [Removal and deployment](opentelemetry-removal.md).

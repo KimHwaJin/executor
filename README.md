@@ -76,18 +76,14 @@ This branch supports Redis server **6.0.8 and newer**, using `redis-py` 5.3.x
 `XRANGE`/`XDEL` retention implementation.
 Redis must permit `EVAL` and the Stream commands used inside its Lua scripts.
 Startup checks server version, command availability, and basic scripting access
-before starting background work. Existing readiness responses remain unchanged.
+before starting background work. `/readyz` reports `redis_reachable` but does not fail on a
+Redis outage.
 Local Docker Compose now defaults to the exact **`redis:6.0.8`** image and
 the dedicated `executor-redis-608` volume. The integration quality gate also
 expects 6.0.8 by default; set `EXECUTOR_EXPECT_REDIS_VERSION` explicitly when
 validating another supported version. `REDIS_URL` does not select a server
 version: Docker Compose (or the infrastructure operator) selects the image.
 
-Do not attach the former Redis 7.x `executor-redis` volume to Redis 6.0.8.
-Existing checkouts need a logical Stream migration if old events and Agent consumer
-positions must be retained. Merely changing the volume starts an empty Redis.
-The old volume may be kept detached for rollback; PostgreSQL and Jupyter storage
-are unaffected. See [local version switch](docs/redis-6-0-8-local-default.md).
 See [Redis 6.0 compatibility](docs/redis-6-compatibility.md) for ACL requirements,
 retention limits, test commands, and deployment precautions.
 
@@ -307,7 +303,7 @@ Operational endpoints:
 Executor uses standard Python logging (`logger.yml`) and durable execution diagnostics.
 It does not collect or export OpenTelemetry spans. Execution IDs, Step IDs, failure details,
 and ordered public events remain available independently of any trace collector.
-See [OpenTelemetry removal and deployment](docs/opentelemetry-removal.md) when upgrading.
+See [ADR-005](docs/architecture-decisions.md#adr-005-remove-executor-owned-tracing).
 
 Run the official SDK client smoke test in a second terminal:
 
@@ -409,8 +405,6 @@ removing registrations and simplifies purge to an actor-only request; see
 [Runtime deletion](dev_docs/post-runtime-target-purge.md).
 Current head is `0006`, which only adds the Step run and handover tables used by
 [Step handover](docs/execution-recovery.md#step-handover-between-workers).
-Stop old Executor processes before this schema change;
-see [OpenTelemetry removal](docs/opentelemetry-removal.md) for deployment and rollback.
 See [required-result completion](docs/required-result-completion.md)
 for Step versus Operation/Execution success semantics.
 Background cleanup/probe failures and sealed partial output references are described in
@@ -530,7 +524,7 @@ against target capacity and is deleted automatically when its retry window expir
 [Execution Recovery](docs/execution-recovery.md) for the state and event contract.
 
 On graceful process shutdown, Worker admission stops before active jobs are touched. `/readyz`
-reports `worker_accepting=false`, Redis consumption and PostgreSQL queue reconciliation stop, and
+reports `worker_accepting=false`, PostgreSQL work admission stops, and
 active jobs may finish for up to `EXECUTION_DRAIN_TIMEOUT_SECONDS`. Only jobs still running after
 that deadline enter the existing `WORKER_SHUTDOWN` cleanup and recovery path. `/healthz` remains a
 process liveness check, while `/workerz` reports `STARTING`, `ACCEPTING`, `DRAINING`, or `STOPPED`,

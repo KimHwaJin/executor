@@ -118,9 +118,10 @@ A handover starts when:
   reason `EXECUTOR_UNRESPONSIVE`, paused since its last heartbeat.
 
 In one transaction the Execution lease is cleared, its fencing token is incremented, an
-`execution_handovers` row is written, `execution.step_handover_started` is emitted, and an
-`execution.handover_ready` work message is queued. The same Attempt continues; no retry or
-`recovery_count` increment is recorded. A pending abort (timeout or cancellation) is not handed
+`execution_handovers` row is written and `execution.step_handover_started` is emitted. Work
+admission dispatches the released Step on the next poll of any Worker, ahead of new runs and
+regardless of free slots. The same Attempt continues; no retry or `recovery_count` increment is
+recorded. A pending abort (timeout or cancellation) is not handed
 over and keeps its failure path.
 
 The Worker that claims the handover deletes the row, takes a new fence, skips Runtime preparation,

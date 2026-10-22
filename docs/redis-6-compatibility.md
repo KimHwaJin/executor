@@ -1,25 +1,31 @@
 # Redis 6.0.8 compatibility
 
-## Scope and rollback
+## Requirements
 
-- Baseline before this work: `318fb98` on `main`.
-- Feature branch: `feature/redis-6-0-compatibility`.
-- Server minimum for this branch: Redis 6.0.8. Python client: redis-py 5.3.x,
-  frozen at 5.3.1 in both Executor and test Agent lockfiles.
-- No PostgreSQL migration, API field, public event envelope, result path, or
-  SINGLE/MULTI lifecycle change. Existing Streams and groups can be reused.
-- This is application compatibility, not a claim that Redis 6.0.8 is a secure
-  or currently maintained server release. The platform owns patching decisions.
-- Rebuild the Executor image or run `uv sync --frozen`; rebuild/sync the test Agent
-  independently. Do not reset Redis or downgrade the existing 7.4 AOF/RDB volume.
-- Reverting code to the baseline also restores its Redis 7.2+ client support
-  requirement; it will not work correctly on Redis 6.0.8.
+- Server minimum: Redis 6.0.8. Python client: redis-py 5.3.x, frozen at 5.3.1 in both Executor
+  and test Agent lockfiles.
+- This is application compatibility, not a claim that Redis 6.0.8 is a secure or currently
+  maintained server release. The platform owns patching decisions.
+
+## Local Compose
+
+`docker-compose.infra.yml` and `compose.worker-failover.yaml` pin `redis:6.0.8` with AOF enabled
+on port 6379. The shared Compose volume reuses external volume `executor_executor-redis-608`
+(override with `SHARED_REDIS_VOLUME`); create it once with
+`docker volume create executor_executor-redis-608`. The integration quality gate expects 6.0.8
+unless `EXECUTOR_EXPECT_REDIS_VERSION` says otherwise. `REDIS_URL` never selects a server
+version, and Redis outside local Compose stays the infrastructure operator's responsibility.
+
+Do not attach a Redis 7 volume to Redis 6.0.8: Redis 6 cannot read it, and a new volume starts
+empty. Keeping old events or Agent consumer positions needs a separately reviewed logical
+migration with writers and consumers stopped.
 
 ## Retention
 
 Age-based deletion uses `XRANGE` and `XDEL`, not unsupported `XTRIM MINID`.
 Only IDs strictly below the age boundary are deleted. Executor writes only the
-public event Stream; Workers find work through PostgreSQL. An Agent offline
+shared `executor.events` Stream and the per-tenant `executor.events.{tenant_id}` Streams, and
+retention trims each of them; Workers find work through PostgreSQL. An Agent offline
 beyond the event retention window must recover from durable history. The Agent's
 own event DLQ remains Agent-owned.
 
@@ -87,35 +93,3 @@ checks DB/Outbox/Redis/results. It deletes only its own DB and Streams afterward
 It leaves result files and an Executor log under a printed temporary directory;
 Jupyter-side notebooks/artifacts remain available for inspection. It does not
 restart the running Executor or Jupyter services, and does not require an LLM.
-
-## Local verification record — 2026-09-04
-
-- Redis 6.0.8: official `redis:6.0.8-alpine`, no volume, loopback-only random
-  port, isolated from the existing Compose Redis 7.4.10.
-- Core unit gate: 569 passed, 4 existing opt-in Docker/Linux-identity skips.
-- Real Redis integration: 27 passed on 6.0.8 and 27 passed on 7.4.10.
-- Disposable PostgreSQL integration/migration tests: 30 passed.
-- Separate test Agent with redis-py 5.3.1: 39 passed (no live LLM).
-- Ruff lint/format and ty checks passed.
-- Real Jupyter + temporary Executor/DB + Redis 6.0.8: all four existing lifecycle
-  scenarios passed, including REST/MCP, DB state, Outbox events, Redis envelopes,
-  runtime outputs and Artifact state checks:
-  - SINGLE failure/retry: `dfffa418-5609-4b52-965f-a18286270732`
-  - SINGLE running cancellation: `f1e86454-e497-459c-ad16-87c550ab0373`
-  - MULTI correction/finalization: `433e6464-5b05-4f6d-b9a1-14d8144e766d`
-  - MULTI running cancellation: `06948368-adb6-4118-8f4f-87ad6d2e8a4e`
-- Evidence directory on the test machine:
-  `/var/folders/jj/fc4wsmcj6x1d8vp23f0m9bzh0000gn/T/executor-redis-compat-soq1sw8q`.
-  Its log includes intentionally injected code failures and cancellation
-  diagnostics, but no Redis unsupported-command errors. The first smoke attempt
-  failed before submission due to JSON instead of comma-separated allowlists in
-  the new test runner; the runner was fixed before the successful rerun.
-- Bounded local load sample: 30 concurrent claim calls with distinct 100-entry
-  pages recovered 3,000 unique messages without duplication on both versions.
-  Work retention deleted 2,999 ACKed entries, intentionally keeping the delivery
-  boundary. Observed wall times: 6.0.8 claim 58.21 ms / retention 9.22 ms;
-  7.4.10 claim 50.84 ms / retention 11.25 ms. This is a single loopback sample
-  with small payloads, not a production SLA or a comparison to native XAUTOCLAIM.
-- Existing Executor/Redis/Jupyter containers were not restarted. The E2E runner
-  removed only its generated PostgreSQL databases and Redis keys; retained
-  notebook/result evidence is test data. No production/Kubernetes test was run.

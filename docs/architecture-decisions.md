@@ -1,11 +1,52 @@
 # Architecture decisions
 
+## ADR-005: Remove Executor-owned tracing
+
+- Status: DONE
+- Recorded on: 2026-09-04
+
+Executor keeps standard logs (`logger.yml`), durable execution diagnostics, business IDs and public
+event sequencing, and does not create spans, propagate trace context or export to OTLP/Phoenix.
+The MCP SDK still pulls in `opentelemetry-api` transitively; Executor configures no tracer
+provider, exporter or span processor.
+
+Migration `0004` dropped the `traceparent`/`tracestate` columns of `executions`,
+`execution_events` and `outbox_events` together with their values. Business history was kept.
+`alembic downgrade 0003` restores the nullable columns but not the discarded values.
+
+## ADR-004: PostgreSQL work admission and cluster-wide background passes
+
+- Status: ACCEPTED
+- Recorded on: 2026-10-21
+
+Workers find work only by polling PostgreSQL; Redis carries outbound events and nothing else.
+Every second each Worker dispatches all `CANCEL_REQUESTED` Executions and released Steps (they
+need no new Runtime capacity), then claims `QUEUED`/`FINALIZING` work only up to its free slots
+(`EXECUTION_WORKER_MAX_ACTIVE`). A rotating `(created_at, id)` cursor keeps one blocked Execution
+from starving the rest, and the bounded claim spreads a backlog across replicas. Claims use
+`FOR UPDATE SKIP LOCKED` and fencing tokens, so overlapping polls are safe.
+
+This replaced the former `executor.work` Stream, its consumer group, DLQ and Outbox `WORK` rows.
+A wake-up queue duplicated state PostgreSQL already held, and needed its own retention, DLQ and
+reconciliation. Polling adds a bounded, indexed query per Worker per second and at most one
+second of admission latency, which is acceptable for notebook-scale work.
+
+Maintenance passes (event retention, Runtime health probes, lease recovery, retained-session
+cleanup, MULTI audit, maintenance runs) run on one Pod per interval. `claim_pass()` in
+`infrastructure/cluster_passes.py` takes a per-key lease row with a conditional `UPDATE`. Every
+pass stays safe to overlap; the lease only throttles, so a Pod dying mid-pass delays the next
+run by at most one interval.
+
+Execution status changes are validated against one table, `EXECUTION_TRANSITIONS` in
+`domain/transitions.py`. Domain methods and every Worker status write call
+`require_execution_transition()`, so a new path cannot invent a transition silently.
+
 ## ADR-003: Decompose the Execution Worker by responsibility
 
 - Status: ACCEPTED
 - Recorded on: 2026-08-30
 
-`ExecutionWorker` remains the process-lifecycle facade, but Redis consumption,
+`ExecutionWorker` remains the process-lifecycle facade, but work admission,
 job dispatch, durable claiming, Runtime execution, Step result handling,
 notebook projection, cancellation, recovery, and event persistence are separate
 collaborators below `infrastructure/execution_worker/`. The split is a
@@ -17,8 +58,10 @@ The Worker package follows these dependency rules:
 
 - `worker.py` owns lifecycle and coordinates collaborators; collaborators never
   import the facade.
-- Redis transport code does not execute Runtime work directly. It validates and
-  acknowledges envelopes around a supplied dispatch callback.
+- Work admission (`work_admission.py`) only selects work and hands it to the
+  dispatcher; it never executes Runtime work directly.
+- The SINGLE and MULTI runners share Step and Runtime-session handling through
+  `StepFlow` (`step_flow.py`) instead of duplicating it.
 - Runtime execution orchestration uses the existing domain Runtime ports and
   shared-result port. Jupyter-specific behavior remains in the Jupyter Driver.
 - Execution event persistence is isolated from Runtime execution and preserves
