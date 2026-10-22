@@ -100,7 +100,7 @@ DB가 계속 불가용하면 안전한 운영 로그만 남을 수 있다.
 백그라운드 관측에는 `RECOVERY_TARGET`, `RECOVERY_DRIVER_CREATE`,
 `RECOVERY_SESSION_DELETE`, `RECOVERY_DRIVER_CLOSE`, `RECOVERY_RESULT_PERSIST`,
 `MULTI_DRIVER_CREATE`, `MULTI_SESSION_PROBE`, `MULTI_DRIVER_CLOSE`도 포함된다.
-세부 운영 기준은 [백그라운드 Runtime 진단](../docs/background-runtime-diagnostics.md)을 참고한다.
+세부 운영 기준은 [Runtime 진단](../docs/runtime-diagnostics.md#background-observations)을 참고한다.
 
 일시적인 MULTI 연결 오류는 WAITING 상태를 유지하면서 ERROR 관측을 남긴다.
 이력 존재만으로 실행이 실패했다는 의미는 아니다. 반복 백그라운드 오류는 5분 단위로

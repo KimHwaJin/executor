@@ -168,8 +168,8 @@ Confirmed hardening work that must be completed before production is tracked in
 [Production Readiness](docs/production-readiness.md). These items are implementation requirements,
 not deferred product decisions.
 
-Runtime error evidence, operator log fields, validation and remaining diagnostic work are tracked
-in [Runtime Diagnostics Hardening](docs/runtime-diagnostics-hardening.md).
+Runtime error evidence, partial result references, diagnostics rows and operator log fields are
+described in [Runtime Diagnostics](docs/runtime-diagnostics.md).
 
 ## Local setup
 
@@ -413,12 +413,8 @@ Stop old Executor processes before this schema change;
 see [OpenTelemetry removal](docs/opentelemetry-removal.md) for deployment and rollback.
 See [required-result completion](docs/required-result-completion.md)
 for Step versus Operation/Execution success semantics.
-Background cleanup/probe failures use the existing diagnostics API; see
-[Background Runtime Diagnostics](docs/background-runtime-diagnostics.md) for
-stale-observation protection and five-minute duplicate suppression.
-Sealed partial output is available through Step/Operation event references;
-see [Partial Result Event References](docs/partial-result-event-references.md)
-for `complete` semantics, cancellation evidence and development contract cutover.
+Background cleanup/probe failures and sealed partial output references are described in
+[Runtime Diagnostics](docs/runtime-diagnostics.md).
 Databases from older, discarded development baselines still require separate
 recreation after backup, even when their revision string happens to be `0001`. See
 [Database Operations](docs/database-operations.md).
