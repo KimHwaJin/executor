@@ -258,10 +258,19 @@ is acceptable) to `MCP_ALLOWED_HOSTS_DOCKER` and its browser origin to
 `MCP_ALLOWED_ORIGINS_DOCKER` before recreating `executor`. Keep these allowlists narrow; the
 Streamable HTTP transport rejects unlisted Host headers by design.
 
-Native Windows is supported. Alembic and the `executor-service` console entry point run psycopg
-on a `SelectorEventLoop`, because psycopg async connections are incompatible with Windows'
-default `ProactorEventLoop`. Use `uv run executor-service` instead of invoking Uvicorn directly so
-the compatible loop runner is applied.
+On native Windows, psycopg async connections need a `SelectorEventLoop` instead of the default
+`ProactorEventLoop`. The code does not switch loops (deployments run on Linux), so start the
+Executor locally with:
+
+```powershell
+uv run uvicorn executor_service.main:create --factory --loop asyncio:SelectorEventLoop
+```
+
+Startup migration (`DB_AUTO_MIGRATE=true`) reuses that loop. To run migrations by hand:
+
+```powershell
+uv run python -c "import asyncio; asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy()); from alembic.config import main; main(['upgrade','head'])"
+```
 
 The Runtime Compose stack starts four Jupyter servers against the same local PV:
 

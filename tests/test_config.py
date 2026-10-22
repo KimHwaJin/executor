@@ -1,9 +1,7 @@
-import asyncio
 from pathlib import Path
 
 import pytest
 
-from executor_service.event_loop import run_async
 from executor_service.settings import Settings
 
 
@@ -52,12 +50,3 @@ def test_settings_have_no_bootstrap_runtime_target_fields() -> None:
     assert not hasattr(settings, "jupyter_endpoint")
     assert not hasattr(settings, "jupyter_token")
     assert not hasattr(settings, "runtime_pool")
-
-
-def test_windows_async_runner_uses_selector_event_loop() -> None:
-    async def current_loop() -> asyncio.AbstractEventLoop:
-        return asyncio.get_running_loop()
-
-    loop = run_async(current_loop(), platform="win32")
-
-    assert isinstance(loop, asyncio.SelectorEventLoop)

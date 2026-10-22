@@ -22,7 +22,8 @@ DB/Redis/PVC 관련 기존 설정은 그대로 필요하다.
 
 설정·로깅 → 마이그레이션 → maintenance/retention DB 초기화 → Outbox/Worker → HTTP 수신.
 FastAPI lifespan에서 수행하므로 공식 실행 명령과 직접 ASGI로 실행할 때 모두 적용된다.
-Windows에서도 이미 설정된 psycopg 호환 이벤트 루프를 재사용하고 중첩 `asyncio.run`을 하지 않는다.
+기동 시 마이그레이션은 서버의 이벤트 루프와 연결을 재사용하고 중첩 `asyncio.run`을 하지 않는다.
+Windows 로컬 실행 명령은 README를 따른다.
 
 동일 DB의 자동 실행과 새 CLI 모두 고정 PostgreSQL advisory transaction lock을 사용한다.
 Alembic의 프로세스 전역 환경도 동일 프로세스 내 비동기 잠금으로 직렬화한다.

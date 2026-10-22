@@ -1,12 +1,9 @@
 """Process entry point."""
 
-import sys
-
 import uvicorn
 from fastapi import FastAPI
 
 from executor_service.container import ApplicationContainer
-from executor_service.event_loop import run_async
 from executor_service.infrastructure.db.logging import (
     install_database_error_filters,
 )
@@ -41,8 +38,4 @@ def run() -> None:
         # Keep configure_logging's setup (HCP or logger.yml) for Uvicorn too.
         log_config=None,
     )
-    server = uvicorn.Server(config)
-    if sys.platform == "win32":
-        run_async(server.serve(), platform="win32")
-    else:
-        server.run()
+    uvicorn.Server(config).run()

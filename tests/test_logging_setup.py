@@ -148,7 +148,6 @@ class Server:
         for name in ('executor_service.preexisting', 'uvicorn.error', 'uvicorn.access'):
             logging.getLogger(name).info('once')
 main.uvicorn.Server = Server
-main.sys.platform = 'linux'
 main.run()
 """.replace("USE_INTERNAL", str(internal))
     path = tmp_path / "absent.yml" if internal else _yaml(tmp_path)

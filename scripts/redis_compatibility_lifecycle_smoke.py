@@ -161,6 +161,4 @@ async def main(
 
 
 if __name__ == "__main__":
-    from executor_service.event_loop import run_async
-
-    run_async(main())
+    asyncio.run(main())

@@ -481,8 +481,9 @@ async def test_startup_migrations_serialize_across_processes(
     url = postgres_engine.url.render_as_string(hide_password=False)
     await asyncio.to_thread(_downgrade_baseline, url)
     script = """
+import asyncio
+
 from executor_service.settings import Settings
-from executor_service.event_loop import run_async
 from executor_service.infrastructure.db.session import create_engine
 from executor_service.infrastructure.db.migrations import upgrade_database
 
@@ -494,7 +495,7 @@ async def main():
     finally:
         await engine.dispose()
 
-run_async(main())
+asyncio.run(main())
 """
     manual_script = (
         "from alembic import command; from alembic.config import Config; "
