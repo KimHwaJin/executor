@@ -15,7 +15,8 @@ false일 때는 기존처럼 앱 실행 전에 `uv run alembic upgrade head`를 
 이미 최신 head이면 스키마 변경 없이 진행한다. DB와 사용자를 생성하는 기능은 아니다.
 
 기존 로컬 `.env`에는 `DB_AUTO_MIGRATE=true`를 추가하면 된다. PowerShell에서
-일회성으로 설정하려면 `$env:DB_AUTO_MIGRATE="true"` 후 `uv run executor-service`를 실행한다.
+일회성으로 설정하려면 `$env:DB_AUTO_MIGRATE="true"` 후 README의 Windows 기동 명령
+(`uv run uvicorn executor_service.main:create --factory --loop asyncio:SelectorEventLoop`)을 실행한다.
 DB/Redis/PVC 관련 기존 설정은 그대로 필요하다.
 
 ## 시작 순서와 안전장치
