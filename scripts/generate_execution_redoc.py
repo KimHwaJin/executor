@@ -39,35 +39,54 @@ def _parse_args() -> argparse.Namespace:
         type=Path,
         help="Destination HTML path.",
     )
+    parser.add_argument(
+        "--operation",
+        help='Document only this operation, e.g. "POST /api/v1/executions".',
+    )
     return parser.parse_args()
 
 
-def _execution_openapi() -> dict[str, Any]:
+def _execution_openapi(operation: str | None = None) -> dict[str, Any]:
     settings = Settings(runtime_enabled=False)
     app = create_app(ApplicationContainer(settings))
     source = app.openapi()
+    only_method, only_path = (
+        operation.split(maxsplit=1) if operation else (None, None)
+    )
     selected_paths: dict[str, Any] = {}
     for path, path_item in source.get("paths", {}).items():
+        if only_path is not None and path != only_path:
+            continue
         selected_item = {
             key: deepcopy(value)
             for key, value in path_item.items()
             if key not in HTTP_METHODS
         }
-        for method, operation in path_item.items():
-            if method in HTTP_METHODS and EXECUTION_TAG in operation.get(
-                "tags", []
+        for method, operation_item in path_item.items():
+            if (
+                method in HTTP_METHODS
+                and EXECUTION_TAG in operation_item.get("tags", [])
+                and (only_method is None or method == only_method.lower())
             ):
-                selected_item[method] = deepcopy(operation)
+                selected_item[method] = deepcopy(operation_item)
         if any(method in selected_item for method in HTTP_METHODS):
             selected_paths[path] = selected_item
+    if operation and not selected_paths:
+        raise ValueError(f"No Execution operation matches {operation!r}.")
 
     document: dict[str, Any] = {
         "openapi": source["openapi"],
         "info": {
             **deepcopy(source["info"]),
-            "title": "Executor Execution REST API",
+            "title": (
+                f"Executor {operation}"
+                if operation
+                else "Executor Execution REST API"
+            ),
             "description": (
-                "Execution 제출, 제어, 상태·결과·이력 및 산출물 조회를 위한 "
+                f"Executor REST API `{operation}` 전용 문서입니다."
+                if operation
+                else "Execution 제출, 제어, 상태·결과·이력 및 산출물 조회를 위한 "
                 "Executor REST API 전용 문서입니다."
             ),
         },
@@ -131,6 +150,7 @@ def _find_component_refs(value: Any) -> set[str]:
 
 
 def _render_html(spec: dict[str, Any], redoc_js: str) -> str:
+    title = spec["info"]["title"]
     encoded_spec = json.dumps(
         spec,
         ensure_ascii=False,
@@ -141,7 +161,7 @@ def _render_html(spec: dict[str, Any], redoc_js: str) -> str:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Executor Execution REST API</title>
+  <title>{title}</title>
   <style>
     html, body {{ margin: 0; padding: 0; }}
     body {{ font-family: Arial, "Apple SD Gothic Neo", sans-serif; }}
@@ -182,7 +202,7 @@ def main() -> None:
     output = args.output.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(
-        _render_html(_execution_openapi(), redoc_js),
+        _render_html(_execution_openapi(args.operation), redoc_js),
         encoding="utf-8",
     )
     print(output)

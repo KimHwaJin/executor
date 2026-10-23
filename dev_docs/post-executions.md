@@ -6,6 +6,8 @@
 POST /api/v1/executions
 ```
 
+전체 요청·응답 스키마는 [이 API 전용 ReDoc HTML](post-executions-redoc.html)에서 볼 수 있다.
+
 새 비동기 Execution과 첫 번째 Operation을 생성한다. 응답 코드 `202 Accepted`는 요청이
 저장되고 실행 대기열에 들어갔다는 뜻이며, 실행 완료를 의미하지 않는다.
 
