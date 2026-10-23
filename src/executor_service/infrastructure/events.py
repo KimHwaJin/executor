@@ -287,6 +287,8 @@ class ExecutionSummary(ContractModel):
 
     trigger: ExecutionTriggerSummary
     context: ExecutionContextSummary
+    # Caller-owned submit metadata, echoed as given.
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class ExecutionCompletedPayload(ContractModel):

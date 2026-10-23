@@ -315,6 +315,29 @@ async def test_submit_contract_validates_lifecycle_and_optional_scope(
     assert response.status_code == 422
 
 
+async def test_submit_contract_bounds_execution_metadata(
+    rest_client: tuple[httpx.AsyncClient, ApplicationContainer],
+) -> None:
+    client, _ = rest_client
+
+    accepted = _submit_payload(key="metadata-accepted")
+    accepted["metadata"] = {"batch_id": "batch-1", "run_id": "run-1"}
+    response = await client.post("/api/v1/executions", json=accepted)
+    assert response.status_code == 202
+    fetched = await client.get(response.headers["location"])
+    assert fetched.json()["metadata"] == accepted["metadata"]
+
+    for key, metadata in (
+        ("metadata-too-many-keys", {f"k{i}": i for i in range(33)}),
+        ("metadata-invalid-key", {"batchId": "batch-1"}),
+        ("metadata-too-large", {"note": "x" * 4097}),
+    ):
+        payload = _submit_payload(key=key)
+        payload["metadata"] = metadata
+        response = await client.post("/api/v1/executions", json=payload)
+        assert response.status_code == 422, key
+
+
 async def test_rest_reads_runtime_owned_notebook_and_cell_outputs(
     rest_client: tuple[httpx.AsyncClient, ApplicationContainer],
 ) -> None:

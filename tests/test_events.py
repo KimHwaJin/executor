@@ -476,6 +476,7 @@ def test_completed_event_carries_optional_execution_identity() -> None:
             "session_id": None,
             "workflow_id": None,
         },
+        "metadata": {"batch_id": "b-1", "run_id": "batch-run-1"},
     }
     base = {
         "status": "SUCCEEDED",
@@ -502,8 +503,23 @@ def test_completed_event_carries_optional_execution_identity() -> None:
         payload=base,
     )
 
+    # Events written before metadata was echoed stay publishable as they are.
+    without_metadata = build_execution_event(
+        execution_id=uuid4(),
+        event_sequence=1,
+        event_type="execution.completed",
+        payload={
+            **base,
+            "execution": {
+                "trigger": identity["trigger"],
+                "context": identity["context"],
+            },
+        },
+    )
+
     assert event.payload["execution"] == identity
     assert "execution" not in legacy.payload
+    assert "metadata" not in without_metadata.payload["execution"]
     with pytest.raises(ValidationError):
         build_execution_event(
             execution_id=uuid4(),
