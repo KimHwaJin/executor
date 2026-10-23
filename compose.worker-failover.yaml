@@ -75,7 +75,6 @@ services:
   executor-primary:
     image: executor-service:failover
     environment: &executor-environment
-      APP_ENV: local
       LOG_LEVEL: INFO
       DATABASE_URL: postgresql+psycopg://executor:executor@postgres:5432/executor
       DATABASE_POOL_SIZE: "5"

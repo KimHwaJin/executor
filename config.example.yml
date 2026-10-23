@@ -1,9 +1,0 @@
-# Copy to config.yml: values shared by every environment. List only what
-# differs from the field defaults in src/executor_service/settings.py;
-# per-environment values go in config.{dev,stg,prd}.yml
-# (see config.env.example.yml). Keys are Settings field names in any case,
-# and an environment variable with the same name still overrides.
-DB_AUTO_MIGRATE: true
-RUNTIME_ALLOWED_PROFILES:
-  - "default"
-  - "3102311"

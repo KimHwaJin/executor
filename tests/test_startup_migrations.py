@@ -119,9 +119,11 @@ def test_deployment_reads_image_config_and_safe_update_strategy() -> None:
     assert env["APP_ENV"]["value"] == "prd"
     assert "secretKeyRef" not in str(deployment)
     assert "configMapKeyRef" not in str(deployment)
-    common = yaml.safe_load((ROOT / "config.example.yml").read_text())
-    config = yaml.safe_load((ROOT / "config.env.example.yml").read_text())
-    assert common["DB_AUTO_MIGRATE"] is True
+    config = {
+        **yaml.safe_load((ROOT / "config.yml").read_text()),
+        **yaml.safe_load((ROOT / "config.prd.yml").read_text()),
+    }
+    assert config["DB_AUTO_MIGRATE"] is True
     for key in ("DATABASE_URL", "REDIS_URL", "RUNTIME_CREDENTIAL_KEY"):
         assert "REPLACE" in config[key]
     defaults = Settings(_env_file=None)

@@ -24,7 +24,7 @@ def _run(script: str, path: Path, **env: str) -> subprocess.CompletedProcess:
         cwd=path.parent,
         env={
             **os.environ,
-            "APP_ENV": "local",
+            "APP_ENV": "",
             "LOG_CONFIG_FILE": str(path),
             "LOG_LEVEL": "",
             **env,
