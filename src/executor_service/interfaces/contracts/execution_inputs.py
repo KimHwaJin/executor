@@ -1,5 +1,7 @@
 """Execution submission transport contracts."""
 
+import json
+import re
 from typing import Any
 
 from pydantic import Field, field_validator, model_validator
@@ -25,6 +27,11 @@ from executor_service.interfaces.execution_specs import (
     ExecutionSpec,
     ResolvedExecutionSpec,
 )
+
+# Execution metadata is echoed in execution.completed, so it stays small.
+METADATA_MAX_KEYS = 32
+METADATA_MAX_BYTES = 4096
+METADATA_KEY_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 
 
 class ExecutionContext(ContractModel):
@@ -94,7 +101,39 @@ class ExecutionSubmitRequest(ContractModel):
     runtime: ExecutionRuntimeInput
     context: ExecutionContext
     operation: ExecutionOperationInput
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "Caller-owned identifiers such as batch or run IDs, stored as "
+            "given and echoed in execution.completed. At most 32 keys "
+            "matching ^[a-z][a-z0-9_]{0,63}$, 4096 serialized bytes."
+        ),
+    )
+
+    @field_validator("metadata")
+    @classmethod
+    def validate_metadata(cls, metadata: dict[str, Any]) -> dict[str, Any]:
+        if len(metadata) > METADATA_MAX_KEYS:
+            raise ValueError(
+                f"metadata allows at most {METADATA_MAX_KEYS} keys."
+            )
+        invalid = [k for k in metadata if not METADATA_KEY_PATTERN.match(k)]
+        if invalid:
+            raise ValueError(
+                f"metadata keys must match {METADATA_KEY_PATTERN.pattern}: "
+                f"{invalid}"
+            )
+        size = len(
+            json.dumps(
+                metadata, ensure_ascii=False, separators=(",", ":")
+            ).encode()
+        )
+        if size > METADATA_MAX_BYTES:
+            raise ValueError(
+                f"metadata must serialize to at most {METADATA_MAX_BYTES} "
+                "bytes."
+            )
+        return metadata
 
     @field_validator("tenant_id")
     @classmethod

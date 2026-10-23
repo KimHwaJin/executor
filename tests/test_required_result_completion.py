@@ -134,6 +134,7 @@ async def test_required_delivery_and_retry_policy(
         if mode == OperationMode.MULTI
         else None,
         steps=(StepSpec(0, "value = 1"), StepSpec(1, "print(value)")),
+        metadata={"batch_id": "batch-1", "api_token": "secret"},
     )
     execution = await execution_service.submit(command)
     try:
@@ -227,6 +228,7 @@ async def test_required_delivery_and_retry_policy(
                 "session_id": "lifecycle-session",
                 "workflow_id": None,
             },
+            "metadata": {"batch_id": "batch-1", "api_token": "[REDACTED]"},
         }
         with pytest.raises(InvalidStateTransitionError):
             await execution_service.retry(

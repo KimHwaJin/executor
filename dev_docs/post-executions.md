@@ -22,7 +22,7 @@ POST /api/v1/executions
 | `runtime` | O | 필요한 Runtime 종류와 프로파일 |
 | `context` | O | Agent 도메인 객체와의 추적 정보 |
 | `operation` | O | 최초 Operation과 실행 Step |
-| `metadata` | X | Execution 전체에 저장할 자유 형식 metadata. 기본값 `{}` |
+| `metadata` | X | Execution 전체에 저장할 호출자 소유 metadata. 그대로 저장되고 상세 조회와 `execution.completed` 이벤트의 `execution.metadata`로 돌려받는다. 최상위 키 32개 이하, 키는 `^[a-z][a-z0-9_]{0,63}$`, JSON 직렬화 4096 bytes 이하. 이벤트로 공개되므로 비밀값을 넣지 않는다. 기본값 `{}` |
 
 ### `tenant_id`
 

@@ -19,6 +19,7 @@ from executor_service.infrastructure.db.models import (
     ExecutionStepAttemptORM,
     ExecutionStepORM,
 )
+from executor_service.infrastructure.execution_queries.mappers import redact
 from executor_service.infrastructure.execution_worker.event_writer.payloads import (
     row_result_reference,
 )
@@ -273,6 +274,7 @@ async def add_execution_completed_event(
                     "session_id": execution.session_id,
                     "workflow_id": execution.workflow_id,
                 },
+                "metadata": redact(execution.execution_metadata),
             },
         },
     )

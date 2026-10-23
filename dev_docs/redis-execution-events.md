@@ -767,7 +767,8 @@ Execution의 현재 수행 주기가 `SUCCEEDED`, `FAILED` 또는 `CANCELLED`로
         "project_id": null,
         "session_id": null,
         "workflow_id": null
-      }
+      },
+      "metadata": {"batch_id": "3f0c9a52-6d1e-4b7a-8c25-1e9d4f6a7b80"}
     }
   },
   "occurred_at": "2026-08-26T10:20:00.123Z"
@@ -817,7 +818,7 @@ Execution의 현재 수행 주기가 `SUCCEEDED`, `FAILED` 또는 `CANCELLED`로
 | `operation_summary` | object | O | Operation 최종 상태 집계 |
 | `retry` | object 또는 null | O | 재시도 접수 정보 |
 | `error` | object 또는 null | O | 실패 또는 취소 요약 |
-| `execution` | object | X | 제출 시점의 trigger와 context. 소비자가 상세 조회 없이 라우팅할 수 있게 한다 |
+| `execution` | object | X | 제출 시점의 trigger, context, metadata. 소비자가 상세 조회 없이 라우팅할 수 있게 한다 |
 
 `execution` 하위 필드:
 
@@ -828,10 +829,13 @@ Execution의 현재 수행 주기가 `SUCCEEDED`, `FAILED` 또는 `CANCELLED`로
 | `trigger.actor.type` | enum | `AGENT`, `USER`, `BATCH` |
 | `trigger.actor.id` | string | 1~255자 |
 | `context` | object | 제출 요청의 `context`와 같은 필드: `user_id`, `task_id`, `project_id`, `session_id`, `workflow_id`. `user_id`만 항상 있고 `task_id`를 포함한 나머지는 `null`일 수 있다 |
+| `metadata` | object | 제출 요청의 최상위 `metadata`. 상세 조회와 같이 키 이름에 token/secret/password/credential이 들어간 값은 `[REDACTED]`로 가린다. 빈 객체일 수 있다 |
 
 `execution`은 schema `1.0`에 추가된 선택 필드다. 소비자는 필드가 없을 수 있다고
 가정하고, 없으면 `GET /api/v1/executions/{execution_id}`로 같은 값을 조회한다.
-`metadata`는 이벤트에 포함하지 않는다.
+`execution.metadata`도 나중에 추가된 필드라, 이전 Executor가 기록한 이벤트에는 없을 수 있다.
+batch, run처럼 서비스마다 다른 하위 식별자는 `metadata`에 담아 이 필드로 돌려받는다.
+Operation의 `operation.metadata`는 이벤트에 포함하지 않는다.
 
 `operation_summary.total`에는 등록된 모든 Operation이 포함된다. 인프라 장애 복구처럼
 Execution이 Operation 상태를 종결하기 전에 종료된 예외 상황에서는 성공, 실패, 취소의

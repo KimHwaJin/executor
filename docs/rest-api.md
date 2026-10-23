@@ -136,7 +136,9 @@ OpenAPI is available at `/openapi.json`, Swagger UI at `/docs`, and ReDoc at `/r
 Execution history can be filtered by `user_id`, `project_id`, `session_id`, `task_id`,
 `workflow_id`, `tenant_id`, `trigger_type`, and `status`. Detail and history items expose
 `tenant_id`. Detail and history items expose `trigger{type,
-actor}` (the immutable submit actor) and the submit `metadata` object. Executor accepts at most
+actor}` (the immutable submit actor) and the submit `metadata` object, which `execution.completed`
+also carries. Submit `metadata` holds at most 32 keys matching `^[a-z][a-z0-9_]{0,63}$` and
+4096 serialized bytes. Executor accepts at most
 `EXECUTION_MAX_STEPS_PER_OPERATION` Steps in one Operation and
 `EXECUTION_MAX_STEPS_PER_EXECUTION` Steps across one Execution. The configured defaults are 100
 and 1000.
