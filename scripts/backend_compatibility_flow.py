@@ -248,8 +248,8 @@ async def lifecycle_check(
         steps = list(await session.scalars(select(ExecutionStepORM)))
         operations = list(await session.scalars(select(ExecutionOperationORM)))
         verify(
-            len(steps) == 1 and steps[0].status == StepStatus.CANCELLED,
-            "Step cancellation was not persisted.",
+            len(steps) == 1 and steps[0].status == StepStatus.SKIPPED,
+            "Never-started Step was not SKIPPED on cancellation.",
         )
         verify(
             len(operations) == 1

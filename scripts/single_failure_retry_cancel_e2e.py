@@ -916,7 +916,7 @@ async def _run_cancel_case(
         snapshot.execution_status != "CANCELLED"
         or snapshot.runtime_session_id is not None
         or snapshot.cleanup_status != "SUCCEEDED"
-        or snapshot.step_statuses != ("CANCELLED", "CANCELLED")
+        or snapshot.step_statuses != ("CANCELLED", "SKIPPED")
         or tuple(_enum_value(attempt.status) for attempt in snapshot.attempts)
         != ("CANCELLED",)
         or tuple(_enum_value(step.status) for step in snapshot.step_attempts)

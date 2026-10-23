@@ -24,13 +24,16 @@ from executor_service.domain.enums import (
     RuntimePool,
     RuntimeSessionCleanupStatus,
     RuntimeTargetStatus,
+    StepStatus,
     TriggerType,
 )
 from executor_service.domain.models import utc_now
+from executor_service.domain.runtime import RuntimeStorageSnapshot
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.models import (
     ExecutionEventORM,
     ExecutionORM,
+    ExecutionStepORM,
     OutboxEventORM,
     RuntimeTargetORM,
 )
@@ -51,7 +54,12 @@ class UnusedRedis:
     """A placeholder for tests that invoke no Redis operation."""
 
 
-def _command(name: str) -> SubmitExecutionCommand:
+def _command(
+    name: str,
+    steps: tuple[StepSpec, ...] = (
+        StepSpec(sequence=0, code="print('work')"),
+    ),
+) -> SubmitExecutionCommand:
     return SubmitExecutionCommand(
         idempotency_key=f"cancellation-owner-{name}-{uuid4().hex}",
         operation_mode=OperationMode.SINGLE,
@@ -61,7 +69,7 @@ def _command(name: str) -> SubmitExecutionCommand:
         project_id="cancellation-owner-project",
         session_id=f"cancellation-owner-{name}",
         task_id="cancellation-owner-task",
-        steps=(StepSpec(sequence=0, code="print('work')"),),
+        steps=steps,
     )
 
 
@@ -281,3 +289,75 @@ async def test_local_cancellation_waits_for_execution_evidence_handoff(
     await worker._dispatcher.wait_idle()
     assert evidence_committed.is_set()
     assert cancellation_started.is_set()
+
+
+async def test_cancellation_skips_steps_that_never_started(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+    tmp_path: Path,
+) -> None:
+    session_factory = create_session_factory(engine)
+    async with session_factory() as session, session.begin():
+        session.add(_target())
+    execution = await execution_service.submit(
+        _command(
+            "skip",
+            steps=(
+                StepSpec(sequence=0, code="print('running')"),
+                StepSpec(sequence=1, code="print('never runs')"),
+            ),
+        )
+    )
+    worker = _worker(engine, tmp_path, "skip-worker")
+    claimed = await worker._claimer.claim(execution.id)
+    assert claimed is not None
+    lease = claimed[2]
+    await worker._step_executor.mark_started(
+        lease, 0, RuntimeStorageSnapshot((), 0)
+    )
+    await _request_cancel(execution_service, execution.id)
+    await worker._runner._finalizer.release_for_cancellation(lease)
+    cancellation = await worker._claimer.claim_cancellation(execution.id)
+    assert cancellation is not None
+    await worker._cancellation.finalize(
+        cancellation.lease, RuntimeSessionCleanupStatus.NOT_REQUIRED
+    )
+
+    async with session_factory() as session:
+        steps = list(
+            await session.scalars(
+                select(ExecutionStepORM)
+                .where(ExecutionStepORM.execution_id == execution.id)
+                .order_by(ExecutionStepORM.sequence)
+            )
+        )
+        events = {
+            event.event_type: event.payload
+            for event in await session.scalars(
+                select(ExecutionEventORM).where(
+                    ExecutionEventORM.execution_id == execution.id,
+                    ExecutionEventORM.event_type.in_(
+                        [
+                            "execution.step_completed",
+                            "execution.operation_completed",
+                        ]
+                    ),
+                )
+            )
+        }
+    assert [step.status for step in steps] == [
+        StepStatus.CANCELLED,
+        StepStatus.SKIPPED,
+    ]
+    assert events["execution.step_completed"]["step"]["sequence"] == 0
+    operation_completed = events["execution.operation_completed"]
+    assert operation_completed["step_summary"] == {
+        "total": 2,
+        "completed": 1,
+        "succeeded": 0,
+        "failed": 0,
+        "cancelled": 1,
+    }
+    assert [
+        result["sequence"] for result in operation_completed["step_results"]
+    ] == [0]
