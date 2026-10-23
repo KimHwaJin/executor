@@ -75,7 +75,6 @@ services:
   executor-primary:
     image: executor-service:failover
     environment: &executor-environment
-      APP_ENV: local
       LOG_LEVEL: INFO
       HOST: 0.0.0.0
       PORT: "8000"

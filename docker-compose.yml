@@ -5,7 +5,7 @@ services:
       context: .
       dockerfile: Dockerfile
     environment:
-      APP_ENV: ${APP_ENV:-local}
+      APP_ENV: ${APP_ENV:-}
       LOG_LEVEL: ${LOG_LEVEL:-}
       REST_ERROR_BODY_LOGGING_ENABLED: ${REST_ERROR_BODY_LOGGING_ENABLED:-false}
       REST_ERROR_BODY_LOG_MAX_BYTES: ${REST_ERROR_BODY_LOG_MAX_BYTES:-65536}
