@@ -46,6 +46,10 @@ terminal 상태인 `SUCCEEDED`, `FAILED`, `CANCELLED`에는 취소를 요청할 
 기다리고, timeout이면
 `GET /api/v1/executions/{execution_id}`로 확인한다.
 
+취소가 확정되면 실행 중이던 Step은 `CANCELLED`, 아직 시작하지 않은 Step은 `SKIPPED`가
+된다. `execution.step_completed`는 실행 중이던 Step에만 발행된다. 실패로 끝날 때와 같은
+규칙이다.
+
 `CANCELLED`는 취소 상태가 확정됐다는 뜻이지, 원격 커널 정리가 반드시 성공했다는
 뜻은 아니다. 상태조회 응답의 `recovery.runtime_session_cleanup_status`를 별도로
 확인한다. `PENDING`/`FAILED`이면 정리 상태와 diagnostics를 확인해야 한다.

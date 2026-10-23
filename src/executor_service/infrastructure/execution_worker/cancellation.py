@@ -242,20 +242,20 @@ class CancellationProcessor:
                     finished_at=now,
                 )
             )
-            await session.execute(
-                update(ExecutionStepORM)
-                .where(
-                    ExecutionStepORM.execution_id == execution_id,
-                    ExecutionStepORM.status.in_(
-                        [StepStatus.PENDING, StepStatus.RUNNING]
-                    ),
+            # Only a Step that started is CANCELLED; one that never ran is
+            # SKIPPED, as on the failure paths, and gets no Step event.
+            for from_status, to_status in (
+                (StepStatus.RUNNING, StepStatus.CANCELLED),
+                (StepStatus.PENDING, StepStatus.SKIPPED),
+            ):
+                await session.execute(
+                    update(ExecutionStepORM)
+                    .where(
+                        ExecutionStepORM.execution_id == execution_id,
+                        ExecutionStepORM.status == from_status,
+                    )
+                    .values(status=to_status, finished_at=now, updated_at=now)
                 )
-                .values(
-                    status=StepStatus.CANCELLED,
-                    finished_at=now,
-                    updated_at=now,
-                )
-            )
             await session.execute(
                 update(ExecutionOperationORM)
                 .where(
