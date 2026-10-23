@@ -510,6 +510,98 @@ async def test_hard_purge_requires_disable_and_keeps_tombstone(
         assert tombstone.created_by == "fleet-admin"
 
 
+async def test_endpoint_has_one_registration_until_purged(
+    fleet_client: tuple[httpx.AsyncClient, ApplicationContainer],
+) -> None:
+    client, _ = fleet_client
+    first = await client.post(
+        "/api/v1/runtime-targets",
+        json={
+            **_upsert_payload(20),
+            "connection_config": {"endpoint": "http://Shared-Jupyter:80/"},
+        },
+    )
+    assert first.json()["runtime"]["connection_config"] == {
+        "endpoint": "http://shared-jupyter"
+    }
+    target_id = first.json()["target_id"]
+
+    duplicate_payload = {
+        **_upsert_payload(21),
+        "connection_config": {"endpoint": "http://shared-jupyter"},
+    }
+    duplicate = await client.post(
+        "/api/v1/runtime-targets", json=duplicate_payload
+    )
+    assert duplicate.status_code == 409
+    error = duplicate.json()["error"]
+    assert error["code"] == "RUNTIME_TARGET_ENDPOINT_CONFLICT"
+    assert "fleet-target-20" in error["message"]
+    moved = await client.post(
+        "/api/v1/runtime-targets",
+        json={**_upsert_payload(22), "idempotency_key": "fleet-move-22"},
+    )
+    assert moved.status_code == 200
+    moved_onto_shared = await client.post(
+        "/api/v1/runtime-targets",
+        json={
+            **_upsert_payload(22),
+            "idempotency_key": "fleet-move-22-shared",
+            "connection_config": {"endpoint": "http://shared-jupyter/"},
+        },
+    )
+    assert moved_onto_shared.status_code == 409
+
+    await client.post(
+        f"/api/v1/runtime-targets/{target_id}/disable",
+        json=_mutation_payload("fleet-disable-20"),
+    )
+    still_registered = await client.post(
+        "/api/v1/runtime-targets",
+        json={**duplicate_payload, "idempotency_key": "fleet-retry-21"},
+    )
+    assert still_registered.status_code == 409
+    await client.post(
+        f"/api/v1/runtime-targets/{target_id}/purge",
+        json={"actor": {"type": "USER", "id": "fleet-admin"}},
+    )
+    replaced = await client.post(
+        "/api/v1/runtime-targets",
+        json={**duplicate_payload, "idempotency_key": "fleet-replace-21"},
+    )
+    assert replaced.status_code == 200
+
+
+async def test_invalid_connection_config_has_one_configuration_error(
+    fleet_client: tuple[httpx.AsyncClient, ApplicationContainer],
+) -> None:
+    client, _ = fleet_client
+    for index, connection_config in enumerate(
+        (
+            {"endpoint": "ftp://jupyter:8888"},
+            {"endpoint": "http://jupyter:8888", "token": "secret"},
+            {"endpoint": 8888},
+            {"endpoint": "http://user:secret@jupyter:8888"},
+            {"endpoint": "http://jupyter:8888/?token=secret"},
+            {"endpoint": "http://jupyter:8888/#lab"},
+            {"endpoint": "http://jupyter:not-a-port"},
+        )
+    ):
+        response = await client.post(
+            "/api/v1/runtime-targets",
+            json={
+                **_upsert_payload(30 + index),
+                "connection_config": connection_config,
+            },
+        )
+        assert response.status_code == 400
+        assert (
+            response.json()["error"]["code"]
+            == "RUNTIME_TARGET_CONFIGURATION_ERROR"
+        )
+        assert "secret" not in response.text
+
+
 async def test_purge_requires_actor_and_distinguishes_unknown_id(
     fleet_client: tuple[httpx.AsyncClient, ApplicationContainer],
 ) -> None:

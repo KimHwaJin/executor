@@ -9,6 +9,7 @@ from executor_service.domain.enums import (
     RuntimePool,
     RuntimeTargetStatus,
 )
+from executor_service.domain.models import utc_now
 from executor_service.infrastructure.db.models import RuntimeTargetORM
 from executor_service.infrastructure.db.session import create_session_factory
 from executor_service.infrastructure.runtime_registry.monitor import (
@@ -71,6 +72,59 @@ async def test_monitor_probes_enabled_targets_and_isolates_failures(
 
     assert set(prober.calls) == expected_ids
     assert disabled_id not in prober.calls
+
+
+async def test_hung_target_does_not_delay_other_targets(
+    engine: AsyncEngine,
+) -> None:
+    session_factory = create_session_factory(engine)
+    hung = _target("monitor-hung", enabled=True)
+    healthy = _target("monitor-healthy", enabled=True)
+    async with session_factory() as session, session.begin():
+        session.add_all([hung, healthy])
+    released = asyncio.Event()
+
+    class HangingProber(RecordingProber):
+        async def probe(self, target_id: UUID) -> object:
+            result = await super().probe(target_id)
+            if target_id == hung.id:
+                await released.wait()
+            return result
+
+    prober = HangingProber(expected_calls=4)
+    monitor = RuntimeHealthMonitor(session_factory, 0.01, prober)
+
+    await monitor.start()
+    try:
+        await asyncio.wait_for(prober.completed.wait(), timeout=1)
+    finally:
+        released.set()
+        await monitor.stop()
+
+    assert prober.calls.count(hung.id) == 1
+    assert prober.calls.count(healthy.id) >= 3
+
+
+async def test_monitor_skips_target_checked_recently_by_another_replica(
+    engine: AsyncEngine,
+) -> None:
+    session_factory = create_session_factory(engine)
+    checked = _target("monitor-checked", enabled=True)
+    checked.last_health_check_at = utc_now()
+    due = _target("monitor-due", enabled=True)
+    async with session_factory() as session, session.begin():
+        session.add_all([checked, due])
+
+    prober = RecordingProber(expected_calls=1)
+    monitor = RuntimeHealthMonitor(session_factory, 60, prober)
+
+    await monitor.start()
+    try:
+        await asyncio.wait_for(prober.completed.wait(), timeout=1)
+    finally:
+        await monitor.stop()
+
+    assert prober.calls == [due.id]
 
 
 async def test_monitor_start_and_stop_are_idempotent(

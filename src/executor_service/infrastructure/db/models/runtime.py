@@ -17,7 +17,7 @@ from sqlalchemy import (
     Text,
     Uuid,
 )
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, validates
 
 from executor_service.domain.enums import (
     ActorType,
@@ -66,6 +66,11 @@ class RuntimeTargetORM(Base):
     )
     connection_config: Mapped[dict[str, Any]] = mapped_column(
         JSON, nullable=False
+    )
+    # One registration per physical Runtime, so capacity is not multiplied.
+    # Derived from connection_config; never assign it directly.
+    connection_key: Mapped[str] = mapped_column(
+        String(2048), nullable=False, unique=True
     )
     credential_ref: Mapped[str] = mapped_column(String(255), nullable=False)
     credential_ciphertext: Mapped[str | None] = mapped_column(
@@ -128,6 +133,13 @@ class RuntimeTargetORM(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, onupdate=utc_now
     )
+
+    @validates("connection_config")
+    def _derive_connection_key(
+        self, _key: str, connection_config: dict[str, Any]
+    ) -> dict[str, Any]:
+        self.connection_key = connection_config["endpoint"]
+        return connection_config
 
 
 class RuntimeTargetPurgeORM(Base):

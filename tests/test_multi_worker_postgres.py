@@ -259,6 +259,47 @@ async def test_runtime_purge_is_idempotent_across_concurrent_sessions(
         )
 
 
+async def test_concurrent_registrations_keep_one_target_per_endpoint(
+    postgres_engine: AsyncEngine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from executor_service.domain.errors import (
+        PersistenceConflictError,
+        RuntimeTargetEndpointConflictError,
+    )
+    from tests.test_runtime_management_safety import _registry
+
+    registry, _, registration = _registry(postgres_engine, monkeypatch)
+    results = await asyncio.gather(
+        *[
+            registry.upsert(
+                replace(
+                    registration,
+                    idempotency_key=f"race-{i}",
+                    name=f"race-target-{i}",
+                )
+            )
+            for i in range(8)
+        ],
+        return_exceptions=True,
+    )
+    failures = [r for r in results if isinstance(r, BaseException)]
+    assert len(failures) == len(results) - 1
+    assert all(
+        isinstance(
+            failure,
+            (PersistenceConflictError, RuntimeTargetEndpointConflictError),
+        )
+        for failure in failures
+    )
+    async with create_session_factory(postgres_engine)() as session:
+        assert (
+            await session.scalar(
+                select(func.count()).select_from(RuntimeTargetORM)
+            )
+            == 1
+        )
+
+
 @pytest.mark.parametrize("winner", ["purge", "activate", "reservation"])
 async def test_runtime_purge_serializes_with_target_mutations(
     postgres_engine: AsyncEngine,
@@ -354,20 +395,22 @@ async def test_runtime_purge_serializes_with_target_mutations(
             await asyncio.gather(task, return_exceptions=True)
 
 
-# Added by 0007. Tests that write "old" rows below 0007 with the current ORM
+# Added by 0007 and 0008. Tests that write "old" rows with the current ORM
 # add these for the writes only, so the rows match what old code wrote. The
-# current ORM also no longer sets the Outbox destination dropped by 0009.
-EXECUTION_COLUMNS_0007 = {"tenant_id"}
+# current ORM also no longer sets the Outbox destination dropped by 0010.
+LATER_COLUMNS = {
+    "executions": ("tenant_id", "VARCHAR(64)"),
+    "runtime_targets": ("connection_key", "VARCHAR(2048)"),
+}
 
 
 @asynccontextmanager
-async def _current_execution_columns(
-    engine: AsyncEngine,
-) -> AsyncIterator[None]:
+async def _current_columns(engine: AsyncEngine) -> AsyncIterator[None]:
     async with engine.begin() as connection:
-        await connection.execute(
-            text("ALTER TABLE executions ADD COLUMN tenant_id VARCHAR(64)")
-        )
+        for table, (column, column_type) in LATER_COLUMNS.items():
+            await connection.execute(
+                text(f"ALTER TABLE {table} ADD COLUMN {column} {column_type}")
+            )
         await connection.execute(
             text(
                 "ALTER TABLE outbox_events "
@@ -378,9 +421,10 @@ async def _current_execution_columns(
         yield
     finally:
         async with engine.begin() as connection:
-            await connection.execute(
-                text("ALTER TABLE executions DROP COLUMN tenant_id")
-            )
+            for table, (column, _) in LATER_COLUMNS.items():
+                await connection.execute(
+                    text(f"ALTER TABLE {table} DROP COLUMN {column}")
+                )
             await connection.execute(
                 text(
                     "ALTER TABLE outbox_events "
@@ -389,16 +433,18 @@ async def _current_execution_columns(
             )
 
 
-# Columns that differ between an older revision and head: added by 0007,
-# dropped by 0008 and 0009. Compare rows across an upgrade without them.
-CHANGED_SINCE_0006 = EXECUTION_COLUMNS_0007 | {"cancellation_heartbeat_at"}
-OUTBOX_COLUMNS_DROPPED_BY_0009 = {"destination", "payload"}
+# Columns that differ between an older revision and head: added by 0007 and
+# 0008, dropped by 0009 and 0010. Compare rows across an upgrade without them.
+CHANGED_COLUMNS = {column for column, _ in LATER_COLUMNS.values()} | {
+    "cancellation_heartbeat_at"
+}
+OUTBOX_COLUMNS_DROPPED_BY_0010 = {"destination", "payload"}
 
 
 def _without_changed_columns(rows, table: str) -> list[dict]:
-    changed = CHANGED_SINCE_0006
+    changed = CHANGED_COLUMNS
     if table == "outbox_events":
-        changed = changed | OUTBOX_COLUMNS_DROPPED_BY_0009
+        changed = changed | OUTBOX_COLUMNS_DROPPED_BY_0010
     return [{k: v for k, v in row.items() if k not in changed} for row in rows]
 
 
@@ -424,9 +470,9 @@ async def test_runtime_purge_migration_preserves_rows_and_guards_rollback(
     url = postgres_engine.url.render_as_string(hide_password=False)
     await asyncio.to_thread(_downgrade_to_before_runtime_purge, url)
     registry, _, registration = _registry(postgres_engine, monkeypatch)
-    target = await registry.upsert(registration)
     factory = create_session_factory(postgres_engine)
-    async with _current_execution_columns(postgres_engine):
+    async with _current_columns(postgres_engine):
+        target = await registry.upsert(registration)
         execution = await _service(postgres_engine, tmp_path).submit(
             _command("migrate-purge")
         )
@@ -668,7 +714,7 @@ async def test_trace_removal_preserves_business_rows_and_restores_only_schema(
     url = postgres_engine.url.render_as_string(hide_password=False)
     await asyncio.to_thread(_downgrade_to_pre_trace_removal, url)
     service = _service(postgres_engine, tmp_path)
-    async with _current_execution_columns(postgres_engine):
+    async with _current_columns(postgres_engine):
         execution = await service.submit(_command("remove-traces"))
         event = build_execution_event(
             execution_id=execution.id,
@@ -787,7 +833,7 @@ async def test_completion_upgrade_preserves_rows_and_blocks_lossy_downgrade(
     factory = create_session_factory(postgres_engine)
     workers, clients = _workers(postgres_engine, tmp_path, count=1)
     try:
-        async with _current_execution_columns(postgres_engine):
+        async with _current_columns(postgres_engine):
             execution = await service.submit(
                 _command("before-completion-upgrade")
             )
@@ -826,13 +872,72 @@ async def test_completion_upgrade_preserves_rows_and_blocks_lossy_downgrade(
         await _close_redis(clients)
 
 
+def _downgrade_to_before_connection_key(database_url: str) -> None:
+    config = Config(str(REPOSITORY_ROOT / "alembic.ini"))
+    config.attributes["database_url"] = database_url
+    config.attributes["configure_logger"] = False
+    command.downgrade(config, "0007")
+
+
+async def test_connection_key_upgrade_normalizes_and_rejects_duplicates(
+    postgres_engine: AsyncEngine,
+) -> None:
+    url = postgres_engine.url.render_as_string(hide_password=False)
+    await asyncio.to_thread(_downgrade_to_before_connection_key, url)
+    first, second = _server(capacity=1), _server(capacity=1)
+    factory = create_session_factory(postgres_engine)
+    async with postgres_engine.begin() as connection:
+        await connection.execute(
+            text(
+                "ALTER TABLE runtime_targets "
+                "ADD COLUMN connection_key VARCHAR(2048)"
+            )
+        )
+    async with factory() as session, session.begin():
+        session.add_all([first, second])
+    async with postgres_engine.begin() as connection:
+        await connection.execute(
+            text("ALTER TABLE runtime_targets DROP COLUMN connection_key")
+        )
+        await connection.execute(
+            text(
+                "UPDATE runtime_targets SET connection_config = :config "
+                "WHERE id = :id"
+            ),
+            [
+                {
+                    "id": first.id,
+                    "config": '{"endpoint": "HTTP://Jupyter:80/"}',
+                },
+                {
+                    "id": second.id,
+                    "config": '{"endpoint": "http://jupyter"}',
+                },
+            ],
+        )
+    with pytest.raises(RuntimeError, match="share endpoint http://jupyter"):
+        await asyncio.to_thread(_upgrade_and_check_baseline, url)
+
+    async with postgres_engine.begin() as connection:
+        await connection.execute(
+            text("DELETE FROM runtime_targets WHERE id = :id"),
+            {"id": second.id},
+        )
+    await asyncio.to_thread(_upgrade_and_check_baseline, url)
+    async with factory() as session:
+        row = await session.get(RuntimeTargetORM, first.id)
+    assert row is not None
+    assert row.connection_config == {"endpoint": "http://jupyter"}
+    assert row.connection_key == "http://jupyter"
+
+
 async def test_diagnostics_upgrade_preserves_existing_execution_and_cascades(
     postgres_engine: AsyncEngine, tmp_path: Path
 ) -> None:
     url = postgres_engine.url.render_as_string(hide_password=False)
     await asyncio.to_thread(_downgrade_to_pre_diagnostics, url)
     service = _service(postgres_engine, tmp_path)
-    async with _current_execution_columns(postgres_engine):
+    async with _current_columns(postgres_engine):
         execution = await service.submit(_command("preserve-before-upgrade"))
     await asyncio.to_thread(_upgrade_and_check_baseline, url)
     assert (await service.get(execution.id)).task_id == execution.task_id
@@ -2225,7 +2330,7 @@ async def test_current_baseline_repeated_upgrade_preserves_events(
             text("SELECT count(*) FROM event_retention_lease")
         )
 
-    assert revision == EXPECTED_SCHEMA_REVISION == "0009"
+    assert revision == EXPECTED_SCHEMA_REVISION == "0010"
     assert maintenance_count == retention_count == 1
     assert migrated_event is not None
     assert migrated_event.execution_id == execution.id
@@ -2266,7 +2371,7 @@ async def test_current_baseline_downgrade_and_recreate(
             text("SELECT singleton_key FROM event_retention_lease")
         )
     assert tables == set(Base.metadata.tables) | {"alembic_version"}
-    assert revision == EXPECTED_SCHEMA_REVISION == "0009"
+    assert revision == EXPECTED_SCHEMA_REVISION == "0010"
     assert admission == "ACTIVE"
     assert retention_key == "events"
 

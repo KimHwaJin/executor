@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import Field, SecretStr, model_validator
+from pydantic import Field, SecretStr
 
 from executor_service.application.pagination import Page
 from executor_service.application.runtime_targets import (
@@ -16,10 +16,6 @@ from executor_service.domain.enums import (
     RuntimePool,
     RuntimeTargetStatus,
     RuntimeType,
-)
-from executor_service.domain.errors import RuntimeTargetConfigurationError
-from executor_service.infrastructure.runtime_adapters import (
-    normalize_connection_config,
 )
 from executor_service.interfaces.contracts.common import (
     ActorInput,
@@ -40,16 +36,6 @@ class RuntimeTargetUpsertRequest(ContractModel):
     pool: RuntimePool
     max_concurrent_executions: int | None = Field(default=None, ge=1, le=1000)
     actor: ActorInput
-
-    @model_validator(mode="after")
-    def validate_connection_config(self) -> "RuntimeTargetUpsertRequest":
-        try:
-            normalize_connection_config(
-                self.runtime_type, self.connection_config
-            )
-        except RuntimeTargetConfigurationError as exc:
-            raise ValueError(str(exc)) from exc
-        return self
 
     def to_command(self) -> UpsertRuntimeTargetCommand:
         return UpsertRuntimeTargetCommand(

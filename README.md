@@ -405,8 +405,8 @@ removing registrations and simplifies purge to an actor-only request; see
 [Runtime deletion](dev_docs/post-runtime-target-purge.md).
 Revision `0006` adds the Step run and handover tables used by
 [Step handover](docs/execution-recovery.md#step-handover-between-workers), and `0007` adds the
-Execution tenant. `0008` drops the unused `cancellation_heartbeat_at` column, and the current
-head `0009` reduces the Outbox to public events (no `destination`/`payload`). Stop older
+Execution tenant. `0008` allows one Runtime Target per normalized endpoint, `0009` drops the
+unused `cancellation_heartbeat_at` column, and the current head `0010` reduces the Outbox to public events (no `destination`/`payload`). Stop older
 Executor processes before applying either.
 See [required-result completion](docs/required-result-completion.md)
 for Step versus Operation/Execution success semantics.
@@ -605,7 +605,9 @@ eligible for scheduling. A target's `runtime_type` is immutable after creation; 
 target name when introducing a different Runtime Driver.
 
 The background health monitor repeats the probe at
-`RUNTIME_HEALTH_POLL_INTERVAL_SECONDS` on one Pod per interval. A failed health or kernel-profile probe makes the target
+`RUNTIME_HEALTH_POLL_INTERVAL_SECONDS` on one Pod per interval. Each target is probed on its own
+task, so a hung Runtime does not delay the others, and a pass skips targets checked within the
+last half interval. A failed health or kernel-profile probe makes the target
 `OFFLINE`; a resource-only failure leaves it `ACTIVE` with stale resource data. Fresh targets are
 ranked by slot, CPU, and memory pressure, with the memory admission threshold configured by
 `RUNTIME_MEMORY_ADMISSION_LIMIT`. If all resource observations exceed

@@ -200,6 +200,12 @@ pool. Executions remain durably queued until a compatible ACTIVE target is regis
    `connection_config={"endpoint": "..."}`, credential, `pool=BATCH`, and configured capacity.
 3. Confirm the response is `ACTIVE`, supported profiles are populated, and
    `runtime_target_list(pool=BATCH)` includes the new target and capacity.
+
+One endpoint has at most one registration, so a Runtime's capacity is never counted twice.
+Endpoints are compared after normalization: lowercase host, default port (80/443) and trailing `/`
+removed. Credentials, query, and fragment are rejected. Registering another name on an endpoint
+that is already registered, enabled or disabled, returns `409 RUNTIME_TARGET_ENDPOINT_CONFLICT`
+naming the existing Target. Update that Target by its name instead, or disable and purge it first.
 4. Queued BATCH work is picked up automatically by PostgreSQL reconciliation.
 
 ## Drain and scale down
@@ -216,8 +222,8 @@ pool. Executions remain durably queued until a compatible ACTIVE target is regis
    deletion. No live probe is required. `drain_complete` alone is not proof of
    kernel cleanup. See [purge contract](../dev_docs/post-runtime-target-purge.md).
 
-Re-registering the same name/endpoint requires a fresh registration idempotency
-key and produces a new UUID. Historical executions keep the old UUID. Downloads
+Re-registering the same name/endpoint after purge requires a fresh registration
+idempotency key and produces a new UUID. Historical executions keep the old UUID. Downloads
 and notebook storage access can use another eligible target of the same type and
 pool, including this new registration, provided it mounts the existing shared
 storage at the correct root. Purging the last target does not remove files but
