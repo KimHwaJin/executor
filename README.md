@@ -730,8 +730,10 @@ the working directory. `config.yml` is read whenever it exists. Deployments set 
 `dev`, `stg` or `prd`, which requires the matching file and fails startup without it. Local runs
 leave `APP_ENV` unset or empty and read only `config.yml`, `.env` and environment variables, so
 local values go in `config.yml` or `.env`. `APP_ENV` is read from the process environment only,
-never from `.env`. Copy
-`config.example.yml` to `config.prd.yml` and so on; keys are the setting names in any case. The
+never from `.env`. `config.yml`
+holds tuning shared by every environment; `config.dev.yml`, `config.stg.yml` and `config.prd.yml`
+hold credentials, MCP host/origin allowlists, storage roots and other deployment-only values. Keys
+are the setting names in any case. The
 platform offers no ConfigMaps or Secrets, so these files, credentials included, ship in the
 image (`COPY config*.yml`). `DATABASE_URL` and `REDIS_URL` are secret settings and are never
 intentionally logged. `.env.example` contains local-only credentials.

@@ -1,0 +1,17 @@
+# APP_ENV=stg. Values that differ per environment, or apply only to
+# deployments; shared ones are in config.yml. Credentials live in this
+# file: the platform has no Secrets.
+DATABASE_URL: "postgresql+psycopg://REPLACE_USER:REPLACE_PASSWORD@postgresql.infra.svc.cluster.local:5432/executor"
+REDIS_URL: "redis://:REPLACE_PASSWORD@redis-master.infra.svc.cluster.local:6379/3"
+# Fernet key; keep it stable while encrypted Runtime credentials exist.
+RUNTIME_CREDENTIAL_KEY: REPLACE_WITH_FERNET_KEY
+MCP_ALLOWED_HOSTS:
+  - "executor:*"
+  - "executor.stg.example.internal:*"
+MCP_ALLOWED_ORIGINS:
+  - "https://agent.stg.example.internal"
+# Project root layout: <root>/executor holds results; callers send
+# inputs relative to <root> (batch/inputs/..., agent/...).
+SHARED_STORAGE_ROOT: /mnt/data/dtest/executor
+INPUT_STORAGE_ROOT: /mnt/data/dtest
+DB_AUTO_MIGRATE: true

@@ -5,7 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from executor_service.settings import Settings
+from executor_service import settings as settings_module
+from executor_service.settings import APP_ENVS, Settings
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -18,16 +19,25 @@ def workdir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return tmp_path
 
 
-def test_example_file_is_a_valid_prd_config(workdir, monkeypatch):
-    shutil.copy(ROOT / "config.example.yml", workdir / "config.prd.yml")
-    monkeypatch.setenv("APP_ENV", "prd")
+@pytest.mark.parametrize("app_env", APP_ENVS)
+def test_shipped_files_are_valid(workdir, monkeypatch, app_env):
+    for name in ("config.yml", f"config.{app_env}.yml"):
+        shutil.copy(ROOT / name, workdir / name)
+    monkeypatch.setenv("APP_ENV", app_env)
     settings = Settings(_env_file=None)
+    assert settings.db_auto_migrate is True
     assert settings.shared_storage_root == Path("/mnt/data/dtest/executor")
     assert settings.effective_input_storage_root == Path("/mnt/data/dtest")
-    assert settings.mcp_allowed_hosts == (
-        "executor:*",
-        "executor.example.internal:*",
-    )
+    assert settings.mcp_allowed_hosts[0] == "executor:*"
+
+
+def test_local_values_match_settings_defaults(monkeypatch):
+    """config.yml is read locally too, so it must not change local behaviour."""
+    monkeypatch.chdir(ROOT)
+    monkeypatch.delenv("APP_ENV", raising=False)
+    from_files = Settings(_env_file=None)
+    monkeypatch.setattr(settings_module, "config_files", list)
+    assert from_files == Settings(_env_file=None)
 
 
 def test_keys_are_case_insensitive_and_env_wins(workdir, monkeypatch):

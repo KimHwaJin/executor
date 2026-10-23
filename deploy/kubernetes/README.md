@@ -31,9 +31,10 @@ Before deployment:
 
 1. Copy `deployment.yaml` to the Git-ignored `deployment.local.yaml`, or render it
    privately in CI/CD. Replace `executor-service:latest` with an immutable image digest/tag.
-2. Settings live in `config.prd.yml` (copied from `config.example.yml`) inside the image; the
-   Deployment sets only `APP_ENV=prd`. Edit database/Redis URLs, MCP
-   host/origin allowlists, Runtime profiles, storage roots, migration timeouts and pool size there.
+2. Settings live in `config.yml` (shared) and `config.prd.yml` (per environment) inside the image; the
+   Deployment sets only `APP_ENV=prd`. Edit database/Redis URLs, MCP host/origin allowlists and
+   storage roots in `config.prd.yml`, and Runtime profiles, migration timeouts and pool size in
+   `config.yml`.
    An environment variable with the same name still overrides a file value.
 3. Replace `REPLACE_USER`, `REPLACE_PASSWORD`, and `REPLACE_WITH_FERNET_KEY` in that file.
    `RUNTIME_CREDENTIAL_KEY` must be a Fernet key and must remain stable while encrypted

@@ -1,6 +1,6 @@
-# Copy to config.dev.yml, config.stg.yml or config.prd.yml and set
-# APP_ENV=dev|stg|prd (local leaves APP_ENV unset). Keys are Settings field names
-# in any case; an environment variable with the same name still overrides.
+# Shared by every environment and read even without APP_ENV (local runs
+# too); config.{APP_ENV}.yml overrides a key, .env and environment
+# variables override both. Keys are Settings field names in any case.
 # Unmasked bodies: opt in only after approving log access/retention.
 REST_ERROR_BODY_LOGGING_ENABLED: false
 REST_ERROR_BODY_LOG_MAX_BYTES: 65536
@@ -31,15 +31,6 @@ REDIS_EVENT_RETENTION_SECONDS: 604800
 REDIS_WORK_DLQ_RETENTION_SECONDS: 2592000
 PUBLISHED_OUTBOX_RETENTION_SECONDS: 604800
 EXECUTION_EVENT_RETENTION_SECONDS: 7776000
-MCP_ALLOWED_HOSTS:
-  - "executor:*"
-  - "executor.example.internal:*"
-MCP_ALLOWED_ORIGINS:
-  - "https://agent.example.internal"
-# Project root layout: <root>/executor holds results; callers send
-# inputs relative to <root> (batch/inputs/..., agent/...).
-SHARED_STORAGE_ROOT: /mnt/data/dtest/executor
-INPUT_STORAGE_ROOT: /mnt/data/dtest
 RUNTIME_ENABLED: true
 # Requires Jupyter's /executor/kernels/{id}/executions endpoints.
 JUPYTER_STREAM_RECONNECT_SECONDS: 30
@@ -68,11 +59,5 @@ RUNTIME_ABORT_TIMEOUT_SECONDS: 15
 RUNTIME_MAX_OUTPUT_MESSAGE_BYTES: 33554432
 FAILED_SESSION_RETENTION_SECONDS: 3600
 EXECUTION_MAX_RUNTIME_SECONDS: 432000
-DB_AUTO_MIGRATE: true
-DB_MIGRATIONS_PATH: /app/migrations
 DB_MIGRATION_LOCK_TIMEOUT_SECONDS: 60
 DB_MIGRATION_STATEMENT_TIMEOUT_SECONDS: 300
-# Credentials live in this file: the platform has no Secrets.
-DATABASE_URL: "postgresql+psycopg://REPLACE_USER:REPLACE_PASSWORD@postgresql.infra.svc.cluster.local:5432/executor"
-REDIS_URL: "redis://:REPLACE_PASSWORD@redis-master.infra.svc.cluster.local:6379/3"
-RUNTIME_CREDENTIAL_KEY: REPLACE_WITH_FERNET_KEY
