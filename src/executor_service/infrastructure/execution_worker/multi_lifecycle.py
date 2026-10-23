@@ -17,6 +17,7 @@ from executor_service.domain.enums import (
 )
 from executor_service.domain.models import utc_now
 from executor_service.domain.runtime import RuntimeDriver
+from executor_service.domain.transitions import require_execution_transition
 from executor_service.infrastructure.background_diagnostics import (
     RuntimeObservation,
 )
@@ -185,6 +186,9 @@ class MultiLifecycleAuditor:
                 )
             )
             for execution in expired:
+                require_execution_transition(
+                    execution.status, ExecutionStatus.CANCEL_REQUESTED
+                )
                 execution.status = ExecutionStatus.CANCEL_REQUESTED
                 execution.cancellation_reason = (
                     "Execution exceeded its maximum runtime."
@@ -232,6 +236,9 @@ class MultiLifecycleAuditor:
                 RuntimeSessionCleanupStatus.PENDING
                 if cleanup_required
                 else RuntimeSessionCleanupStatus.NOT_REQUIRED
+            )
+            require_execution_transition(
+                execution.status, ExecutionStatus.FAILED
             )
             execution.status = ExecutionStatus.FAILED
             execution.error_message = error_message

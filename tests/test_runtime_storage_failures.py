@@ -186,14 +186,13 @@ async def test_runtime_storage_failure_finalizes_consistent_state_and_events(
     redis = Redis.from_url("redis://127.0.0.1:6379/15", decode_responses=True)
     worker = ExecutionWorker(
         session_factory=session_factory,
-        redis=redis,
         settings=settings,
         registry=RuntimeTargetRegistry(session_factory, settings),
         artifact_manager=ExecutionArtifactManager(session_factory),
     )
     FailingRuntimeStorageDriver.configure(failure_point)
     monkeypatch.setattr(
-        "executor_service.infrastructure.runtime_drivers.JupyterRuntimeDriver",
+        "executor_service.infrastructure.runtime_adapters.JupyterRuntimeDriver",
         FailingRuntimeStorageDriver,
     )
     try:

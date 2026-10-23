@@ -4,8 +4,8 @@ Artifact filename and path policy: [규칙 및 배포 안내](docs/artifact-file
 
 Asynchronous Runtime execution control plane exposed through MCP 2026-07-28 Streamable HTTP and a
 versioned REST API. PostgreSQL is the source of truth. MCP Tool and REST calls persist work and
-return immediately while a Redis consumer worker executes SINGLE work or incrementally submitted
-MULTI Operations through a Runtime Driver. Jupyter REST/WebSocket is the first implemented driver.
+return immediately while Workers, polling PostgreSQL, execute SINGLE work or incrementally
+submitted MULTI Operations through a Runtime Driver. Jupyter REST/WebSocket is the first implemented driver.
 
 ## Implemented scope
 
@@ -25,7 +25,8 @@ MULTI Operations through a Runtime Driver. Jupyter REST/WebSocket is the first i
 - Execution, ExecutionStep, durable ExecutionEvent, and Outbox persistence with SQLAlchemy 2 and Alembic
 - Transactional Outbox publisher with at-least-once Redis Stream delivery
 - PostgreSQL-issued per-Execution event ordering with bounded REST/MCP gap recovery
-- Redis consumer group worker with PostgreSQL reconciliation, stale Pending recovery, and DLQ
+- PostgreSQL-polling Workers: each takes at most `EXECUTION_WORKER_MAX_ACTIVE` Executions, and
+  contended rows are skipped rather than waited on
 - Multi-Executor coordination through PostgreSQL row locks, unique lease owners, and crash recovery
 - Jupyter REST/WebSocket kernel execution, interrupt, and deletion
 - Active execution-loss detection without treating silence/low CPU as failure;
@@ -42,12 +43,10 @@ MULTI Operations through a Runtime Driver. Jupyter REST/WebSocket is the first i
 - Runtime-owned `.ipynb` output and execution-scoped artifacts on Jupyter shared storage
 - Fenced immutable source and Step-result files on the Agent/Executor shared volume; PostgreSQL
   retains authoritative state, bounded summaries, and canonical relative references
-- W3C trace-context propagation across HTTP/MCP, PostgreSQL Outbox, Redis Streams, Worker,
-  and Jupyter operations with optional OTLP export to Arize Phoenix
 - `/healthz` and `/readyz` operational endpoints
 - PostgreSQL-backed Executor-wide drain, activate, and shutdown-readiness status APIs
-- PostgreSQL, Redis, custom Python slim INTERACTIVE/BATCH Jupyter fleets, and opt-in Phoenix
-  through Docker Compose
+- PostgreSQL, Redis, and custom Python slim INTERACTIVE/BATCH Jupyter fleets through Docker
+  Compose
 - Authenticated Jupyter resource endpoint with cgroup v2 CPU and memory measurement
 
 MCP Tasks are deliberately not used. `execution_submit` returns an `execution_id` while the
@@ -74,21 +73,17 @@ for permissions, optional JSON output and limitations.
 
 This branch supports Redis server **6.0.8 and newer**, using `redis-py` 5.3.x
 (`uv.lock` pins the tested client). Both Redis 6.0.8 and 7.4 use the same bounded
-`XPENDING`/`XCLAIM` recovery and `XRANGE`/`XDEL` retention implementation.
+`XRANGE`/`XDEL` retention implementation.
 Redis must permit `EVAL` and the Stream commands used inside its Lua scripts.
 Startup checks server version, command availability, and basic scripting access
-before starting background work. Existing readiness responses remain unchanged.
+before starting background work. `/readyz` reports `redis_reachable` but does not fail on a
+Redis outage.
 Local Docker Compose now defaults to the exact **`redis:6.0.8`** image and
 the dedicated `executor-redis-608` volume. The integration quality gate also
 expects 6.0.8 by default; set `EXECUTOR_EXPECT_REDIS_VERSION` explicitly when
 validating another supported version. `REDIS_URL` does not select a server
 version: Docker Compose (or the infrastructure operator) selects the image.
 
-Do not attach the former Redis 7.x `executor-redis` volume to Redis 6.0.8.
-Existing checkouts need a logical Stream migration if old events and consumer
-positions must be retained. Merely changing the volume starts an empty Redis.
-The old volume may be kept detached for rollback; PostgreSQL and Jupyter storage
-are unaffected. See [local version switch](docs/redis-6-0-8-local-default.md).
 See [Redis 6.0 compatibility](docs/redis-6-compatibility.md) for ACL requirements,
 retention limits, test commands, and deployment precautions.
 
@@ -169,8 +164,8 @@ Confirmed hardening work that must be completed before production is tracked in
 [Production Readiness](docs/production-readiness.md). These items are implementation requirements,
 not deferred product decisions.
 
-Runtime error evidence, operator log fields, validation and remaining diagnostic work are tracked
-in [Runtime Diagnostics Hardening](docs/runtime-diagnostics-hardening.md).
+Runtime error evidence, partial result references, diagnostics rows and operator log fields are
+described in [Runtime Diagnostics](docs/runtime-diagnostics.md).
 
 ## Local setup
 
@@ -259,10 +254,19 @@ is acceptable) to `MCP_ALLOWED_HOSTS_DOCKER` and its browser origin to
 `MCP_ALLOWED_ORIGINS_DOCKER` before recreating `executor`. Keep these allowlists narrow; the
 Streamable HTTP transport rejects unlisted Host headers by design.
 
-Native Windows is supported. Alembic and the `executor-service` console entry point run psycopg
-on a `SelectorEventLoop`, because psycopg async connections are incompatible with Windows'
-default `ProactorEventLoop`. Use `uv run executor-service` instead of invoking Uvicorn directly so
-the compatible loop runner is applied.
+On native Windows, psycopg async connections need a `SelectorEventLoop` instead of the default
+`ProactorEventLoop`. The code does not switch loops (deployments run on Linux), so start the
+Executor locally with:
+
+```powershell
+uv run uvicorn executor_service.main:create --factory --loop asyncio:SelectorEventLoop
+```
+
+Startup migration (`DB_AUTO_MIGRATE=true`) reuses that loop. To run migrations by hand:
+
+```powershell
+uv run python -c "import asyncio; asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy()); from alembic.config import main; main(['upgrade','head'])"
+```
 
 The Runtime Compose stack starts four Jupyter servers against the same local PV:
 
@@ -290,7 +294,7 @@ Operational endpoints:
 - Swagger UI: `http://127.0.0.1:8000/docs`
 - OpenAPI: `http://127.0.0.1:8000/openapi.json`
 - liveness: `http://127.0.0.1:8000/healthz`
-- readiness (PostgreSQL, Redis, Jupyter, Worker admission): `http://127.0.0.1:8000/readyz`
+- readiness (PostgreSQL schema, Worker admission; Redis reported, not required): `http://127.0.0.1:8000/readyz`
 - Worker lifecycle, active execution count, and startup reconciliation summary:
   `http://127.0.0.1:8000/workerz`
 
@@ -299,7 +303,7 @@ Operational endpoints:
 Executor uses standard Python logging (`logger.yml`) and durable execution diagnostics.
 It does not collect or export OpenTelemetry spans. Execution IDs, Step IDs, failure details,
 and ordered public events remain available independently of any trace collector.
-See [OpenTelemetry removal and deployment](docs/opentelemetry-removal.md) when upgrading.
+See [ADR-005](docs/architecture-decisions.md#adr-005-remove-executor-owned-tracing).
 
 Run the official SDK client smoke test in a second terminal:
 
@@ -399,18 +403,15 @@ Databases built from that baseline can run `alembic upgrade head` directly;
 Revision `0005` preserves historical Runtime UUIDs when
 removing registrations and simplifies purge to an actor-only request; see
 [Runtime deletion](dev_docs/post-runtime-target-purge.md).
-Current head is `0006`, which only adds the Step run and handover tables used by
-[Step handover](docs/execution-recovery.md#step-handover-between-workers).
-Stop old Executor processes before this schema change;
-see [OpenTelemetry removal](docs/opentelemetry-removal.md) for deployment and rollback.
+Revision `0006` adds the Step run and handover tables used by
+[Step handover](docs/execution-recovery.md#step-handover-between-workers), and `0007` adds the
+Execution tenant. `0008` allows one Runtime Target per normalized endpoint, `0009` drops the
+unused `cancellation_heartbeat_at` column, and the current head `0010` reduces the Outbox to public events (no `destination`/`payload`). Stop older
+Executor processes before applying either.
 See [required-result completion](docs/required-result-completion.md)
 for Step versus Operation/Execution success semantics.
-Background cleanup/probe failures use the existing diagnostics API; see
-[Background Runtime Diagnostics](docs/background-runtime-diagnostics.md) for
-stale-observation protection and five-minute duplicate suppression.
-Sealed partial output is available through Step/Operation event references;
-see [Partial Result Event References](docs/partial-result-event-references.md)
-for `complete` semantics, cancellation evidence and development contract cutover.
+Background cleanup/probe failures and sealed partial output references are described in
+[Runtime Diagnostics](docs/runtime-diagnostics.md).
 Databases from older, discarded development baselines still require separate
 recreation after backup, even when their revision string happens to be `0001`. See
 [Database Operations](docs/database-operations.md).
@@ -526,7 +527,7 @@ against target capacity and is deleted automatically when its retry window expir
 [Execution Recovery](docs/execution-recovery.md) for the state and event contract.
 
 On graceful process shutdown, Worker admission stops before active jobs are touched. `/readyz`
-reports `worker_accepting=false`, Redis consumption and PostgreSQL queue reconciliation stop, and
+reports `worker_accepting=false`, PostgreSQL work admission stops, and
 active jobs may finish for up to `EXECUTION_DRAIN_TIMEOUT_SECONDS`. Only jobs still running after
 that deadline enter the existing `WORKER_SHUTDOWN` cleanup and recovery path. `/healthz` remains a
 process liveness check, while `/workerz` reports `STARTING`, `ACCEPTING`, `DRAINING`, or `STOPPED`,
@@ -604,9 +605,9 @@ eligible for scheduling. A target's `runtime_type` is immutable after creation; 
 target name when introducing a different Runtime Driver.
 
 The background health monitor repeats the probe at
-`RUNTIME_HEALTH_POLL_INTERVAL_SECONDS`. Each target is probed on its own task, so a hung Runtime
-does not delay the others, and a replica skips targets another replica checked within the last
-half interval. A failed health or kernel-profile probe makes the target
+`RUNTIME_HEALTH_POLL_INTERVAL_SECONDS` on one Pod per interval. Each target is probed on its own
+task, so a hung Runtime does not delay the others, and a pass skips targets checked within the
+last half interval. A failed health or kernel-profile probe makes the target
 `OFFLINE`; a resource-only failure leaves it `ACTIVE` with stale resource data. Fresh targets are
 ranked by slot, CPU, and memory pressure, with the memory admission threshold configured by
 `RUNTIME_MEMORY_ADMISSION_LIMIT`. If all resource observations exceed
@@ -617,7 +618,8 @@ remain valid. `runtime_target_list` reports capacity, active executions, observe
 supported profiles, and the latest health result. The scheduler selects within the requested
 `INTERACTIVE` or `BATCH` pool and skips full, disabled, unhealthy, or incompatible targets.
 Only profiles listed in `RUNTIME_ALLOWED_PROFILES` are advertised and schedulable, even if a
-Runtime Driver reports additional environments.
+Runtime Driver reports additional environments. The code default is `default` and `3102311`, and
+`config.yml` lists the same set.
 
 Capacity admission uses `max(active_execution_count, active_session_count)` while the persisted
 session observation is fresh. The DB count includes running/waiting Attempts, retained retries,
@@ -685,22 +687,13 @@ The reusable processed-data hierarchy is intentionally not fixed until
 
 ## Consistency and delivery
 
-Submission commits the Execution state and internal `operation.ready` message in one PostgreSQL
-transaction. Cancellation uses the same Work Stream pattern. Public events begin when Runtime
-execution actually starts. A background publisher claims pending rows with `FOR UPDATE SKIP
-LOCKED`, routes each row to either
-`executor.events` or `executor.work`, and
-then marks it published. A crash between Redis `XADD` and the database update can create a
-duplicate, so consumers must deduplicate on `event_id`.
-
-The consumer group treats Redis as a wake-up channel and reconciles `QUEUED` and
-`CANCEL_REQUESTED` rows from PostgreSQL, so an acknowledged or lost work message does not lose the
-execution. A message left Pending by a dead consumer is reclaimed with bounded `XPENDING`/`XCLAIM` after
-`EXECUTION_PENDING_CLAIM_IDLE_MILLISECONDS`; the new Worker handles and acknowledges it using the
-same PostgreSQL state guards. Malformed internal messages are acknowledged only after sanitized
-metadata is written to `REDIS_WORK_DEAD_LETTER_STREAM`. Executor Workers never consume Agent
-integration events. See [Event Delivery](docs/event-delivery.md)
-for the ACK, reclaim, and DLQ contract.
+Submission and cancellation commit only PostgreSQL state; Workers find the work by polling
+PostgreSQL (see [Event Delivery](docs/event-delivery.md#work-admission)). Public events begin when
+Runtime execution actually starts and are written to the Outbox in the same transaction as the
+state change. A background publisher claims pending rows with `FOR UPDATE SKIP LOCKED`, publishes
+them to `executor.events`, and then marks them published. A crash between Redis `XADD` and the
+database update can create a duplicate, so consumers must deduplicate on `event_id`. Executor
+Workers never consume Agent integration events.
 
 Active attempts renew a PostgreSQL lease. A MULTI Attempt in
 `WAITING_FOR_OPERATION` releases its worker lease but keeps its session reservation, so it counts
@@ -708,9 +701,8 @@ against that Runtime Target's capacity. A background audit verifies retained ses
 both stored deadlines after Executor restarts. An expired active lease is failed safely and can be
 retried by a later retry workflow; automatic re-execution is intentionally not enabled yet.
 
-The retention manager bounds Executor-owned transport data under a PostgreSQL lease. It preserves
-Work Pending and undelivered entries, time-trims Agent events and the Work DLQ, deletes only old
-`PUBLISHED` Outbox rows, and retains public `execution_events` independently for gap recovery.
+The retention manager bounds Executor-owned transport data on one Pod per interval. It
+time-trims Agent events, deletes only old `PUBLISHED` Outbox rows, and retains public `execution_events` independently for gap recovery.
 The Agent-owned Event DLQ is not modified by Executor. Retention intervals and batch size are
 environment-configurable; see [Event Delivery](docs/event-delivery.md).
 
@@ -735,7 +727,7 @@ are documented in [Database Operations](docs/database-operations.md).
 
 ## Configuration and secrets
 
-Settings come from, highest first, environment variables, `.env` (ignored by Git),
+Settings come from, highest first, environment variables, `.env` (local runs only, ignored by Git),
 `config.{APP_ENV}.yml` (per environment) and `config.yml` (shared by every environment), both in
 the working directory. `config.yml` is read whenever it exists. Deployments set `APP_ENV` to
 `dev`, `stg` or `prd`, which requires the matching file and fails startup without it. Local runs
@@ -753,25 +745,19 @@ intentionally logged. `.env.example` contains local-only credentials.
 protection. Add the Kubernetes gateway hostname and origin before deployment; do not disable the
 protection to make a proxy work.
 
-`REDIS_WORK_STREAM`, `REDIS_EVENT_STREAM`, `REDIS_WORK_DEAD_LETTER_STREAM`, and
-`REDIS_EVENT_DEAD_LETTER_STREAM` must all differ. Pending recovery cadence, minimum idle
-time, and batch size are configured with `EXECUTION_PENDING_CLAIM_INTERVAL_SECONDS`,
-`EXECUTION_PENDING_CLAIM_IDLE_MILLISECONDS`, and `EXECUTION_PENDING_CLAIM_BATCH_SIZE`. The minimum
-idle time should exceed normal message dispatch latency; it does not need to match the much longer
-Execution lease because Redis only wakes the PostgreSQL-backed Worker.
+Redis carries only the Agent-facing `REDIS_EVENT_STREAM`. Workers find work by polling PostgreSQL
+every second; `EXECUTION_WORKER_MAX_ACTIVE` caps the Executions one Pod runs at once so a backlog
+costs a bounded number of claims and spreads across replicas.
 
 `EVENT_RETENTION_*` configures the singleton cleanup cadence, lease, and bounded batch size.
-`REDIS_WORK_RETENTION_SECONDS`, `REDIS_EVENT_RETENTION_SECONDS`, and
-`REDIS_WORK_DLQ_RETENTION_SECONDS` control Executor-owned Stream windows;
+`REDIS_EVENT_RETENTION_SECONDS` controls the event Stream window;
 `PUBLISHED_OUTBOX_RETENTION_SECONDS` and `EXECUTION_EVENT_RETENTION_SECONDS` independently bound
 transport rows and durable terminal-event history. Executor never trims the Agent-owned Event DLQ.
 The event window applies to the shared event Stream and to every tenant Stream recorded in
 PostgreSQL. Set `REDIS_EVENT_STREAM_MAXLEN` to also add `MAXLEN ~ <value>` to every event `XADD`
 (per Stream, approximate). It is unset by default; `MINID` is not used because Redis 6.0 lacks it.
 
-Every Executor process must share `EXECUTION_CONSUMER_GROUP` and use a unique
-`EXECUTION_CONSUMER_NAME`. Left empty, it is `<hostname>-<pid>`, which is unique per Kubernetes Pod;
-never set it in a shared config file. See
+Each Worker names itself `<hostname>-<pid>-<suffix>` as its lease owner (shown on `/workerz`). See
 [Multi-Executor Operations](docs/multi-executor-operations.md) for locking invariants, lease
 recovery, deployment behavior, and the real crash E2E.
 

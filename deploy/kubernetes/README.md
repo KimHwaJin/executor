@@ -14,8 +14,8 @@ No ConfigMap, Secret, or migration Job is required. If only Deployment creation 
 allowed, the platform must supply the existing Service/routing and PVC. A Deployment
 alone does not create a stable network endpoint, database, Redis server, or volume claim.
 
-The Executor image contains both the API and Redis consumer Worker. PostgreSQL remains the source of
-truth, while Redis wakes Workers and carries outbound events. A Pod therefore needs connectivity to
+The Executor image contains both the API and the Worker. PostgreSQL is the source of truth and
+Workers find work by polling it; Redis only carries outbound events. A Pod therefore needs connectivity to
 PostgreSQL, Redis, and the registered Jupyter fleet.
 
 Redis server 6.0.8 or newer is required by this branch. Build the image with its
@@ -108,7 +108,7 @@ Current head is `0006`, which adds the Step run and handover tables. Runtime pur
 historical IDs after deletion.
 See [purge and rollback](../../dev_docs/post-runtime-target-purge.md).
 Before rollback, review whether the old image is compatible with the new schema; startup
-does not automatically downgrade. See [trace removal](../../docs/opentelemetry-removal.md).
+does not automatically downgrade.
 
 ```bash
 kubectl apply -n <namespace> -f deploy/kubernetes/deployment.local.yaml
@@ -121,13 +121,14 @@ This deployment path requires no Kubernetes API access from inside the applicati
 ## Probes and endpoints
 
 - Startup/liveness: `GET /healthz` checks that the process serves HTTP.
-- Readiness: `GET /readyz` requires the expected database schema, Redis, and a Worker accepting
-  work. An empty Runtime Fleet does not make the control API unready.
+- Readiness: `GET /readyz` requires the expected database schema and a Worker accepting
+  work. Redis is reported as `redis_reachable` but does not gate readiness, because the Outbox
+  retries event publication. An empty Runtime Fleet does not make the control API unready.
 - REST/OpenAPI: `GET /docs`, `GET /redoc`, `GET /openapi.json`
 - MCP Streamable HTTP: `POST /mcp`
 - Internal Service URL: `http://executor:8000`
 
-If the Pod is running but not Ready, inspect `/readyz`; a missing migration, Redis outage, or
+If the Pod is running but not Ready, inspect `/readyz`; a missing migration or a
 draining Worker is intentionally reported there. Inspect `/api/v1/runtime-targets` separately for
 Runtime Fleet health.
 
@@ -138,9 +139,8 @@ Executor maintenance row.
 ## Shutdown and scaling
 
 The manifest uses one replica by default. Executor supports multiple replicas, but every Pod must
-share PostgreSQL, Redis, the consumer group, credential key, input PVC, and Runtime Target registry.
-Each worker names itself `<hostname>-<pid>`; the hostname is the Pod name, so replicas do not share
-worker identities. Do not set `EXECUTION_CONSUMER_NAME` in a config file, which every Pod shares.
+share PostgreSQL, Redis, credential key, input PVC, and Runtime Target registry. Each Worker names
+itself `<hostname>-<pid>-<suffix>`, so replicas never share a lease owner identity.
 
 The 90-second Pod grace period is greater than the default 30-second execution drain plus 20-second
 shutdown cleanup and buffer. If those settings increase, increase `terminationGracePeriodSeconds`

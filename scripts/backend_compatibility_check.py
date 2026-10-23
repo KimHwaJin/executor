@@ -33,7 +33,6 @@ from executor_service.infrastructure.db.migrations import upgrade_database
 from executor_service.infrastructure.redis_client import create_redis_client
 from executor_service.infrastructure.redis_streams import (
     check_redis_compatibility,
-    claim_pending,
     trim_before,
 )
 from executor_service.settings import Settings
@@ -197,60 +196,20 @@ def inspect_schema(connection: Connection, schema: str) -> str:
 
 
 async def redis_checks(redis: Redis, prefix: str) -> str:
-    """Execute the production compatibility, recovery and retention helpers."""
+    """Execute the production compatibility and retention helpers."""
     await redis.ping()
     await check_redis_compatibility(redis)
-    stream = f"{prefix}:recovery"
-    await redis.xgroup_create(stream, "workers", id="0", mkstream=True)
-    first = await redis.xadd(stream, {"probe": "한국어-output"})
-    missing = await redis.xadd(stream, {"probe": "missing"})
-    unread = await redis.xadd(stream, {"probe": "unread"})
-    await redis.xreadgroup("workers", "old", {stream: ">"}, count=2)
-    # Deterministic idle state, without a sleep or server-clock assumption.
-    await redis.xclaim(
-        stream, "workers", "old", 0, [first, missing], idle=60000
-    )
-    await redis.xdel(stream, missing)
-    recovered = await claim_pending(
-        redis, stream, "workers", "new", min_idle_ms=1, count=10
+    stream = f"{prefix}:retention"
+    old = await redis.xadd(stream, {"probe": "한국어-output"})
+    kept = await redis.xadd(stream, {"probe": "kept"})
+    require(
+        await trim_before(redis, stream, kept, count=10) == 1,
+        "Retention did not remove expired events.",
     )
     require(
-        recovered.messages == [(first, {"probe": "한국어-output"})]
-        and recovered.deleted_ids == [missing],
-        "Pending reclaim or missing-body acknowledgement did not match.",
-    )
-    require(
-        await trim_before(redis, stream, unread, protect_groups=True, count=10)
-        == 0,
-        "Retention removed pending work.",
-    )
-    await redis.xack(stream, "workers", first)
-    require(
-        await trim_before(redis, stream, unread, protect_groups=True, count=10)
-        == 1,
-        "Retention did not remove acknowledged work.",
-    )
-    require(
-        await trim_before(
-            redis,
-            stream,
-            "18446744073709551615-0",
-            protect_groups=True,
-            count=10,
-        )
-        == 0,
-        "Retention removed unread work.",
-    )
-    require(
-        await trim_before(
-            redis,
-            stream,
-            "18446744073709551615-0",
-            protect_groups=False,
-            count=10,
-        )
-        == 1,
-        "Event/DLQ retention did not remove expired data.",
+        [key for key, _ in await redis.xrange(stream)] == [kept]
+        and old != kept,
+        "Retention removed events at or after its boundary.",
     )
     return str((await redis.info("server"))["redis_version"])
 
@@ -270,11 +229,7 @@ def isolated_settings(
         ),
         runtime_allowed_profiles=("default",),
         shared_storage_root=directory,
-        redis_work_stream=f"{prefix}:work",
         redis_event_stream=f"{prefix}:events",
-        redis_work_dead_letter_stream=f"{prefix}:dlq",
-        redis_event_dead_letter_stream=f"{prefix}:events-dlq",
-        execution_consumer_group="compatibility-workers",
     )
     # No implicit localhost defaults for a deployment diagnostic.
     import os
@@ -301,8 +256,7 @@ async def run_check(args: argparse.Namespace, report: Report) -> bool:
     successful = False
     # Includes only exact run-owned keys, never a scan/glob or FLUSH command.
     keys = [
-        f"{report.redis_prefix}:{suffix}"
-        for suffix in ("recovery", "work", "events", "dlq", "events-dlq")
+        f"{report.redis_prefix}:{suffix}" for suffix in ("retention", "events")
     ]
     redis_owned = False
     with tempfile.TemporaryDirectory(prefix="executor-compat-") as temp:
@@ -345,7 +299,7 @@ async def run_check(args: argparse.Namespace, report: Report) -> bool:
                 )
 
             await report.check(
-                "Redis commands / Lua / recovery / retention", redis_probe, 60
+                "Redis commands / Lua / retention", redis_probe, 60
             )
 
             async def migrate() -> None:

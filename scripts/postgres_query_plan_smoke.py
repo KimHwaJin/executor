@@ -12,13 +12,12 @@ ORDERED_EVENT_PUBLICATION_QUERY = (
     "SELECT current_event.id FROM outbox_events AS current_event "
     "WHERE current_event.status = 'PENDING' "
     "AND current_event.available_at <= now() "
-    "AND (current_event.destination <> 'EVENTS' OR NOT EXISTS ("
+    "AND NOT EXISTS ("
     "SELECT earlier.id FROM outbox_events AS earlier "
     "WHERE earlier.aggregate_type = current_event.aggregate_type "
     "AND earlier.aggregate_id = current_event.aggregate_id "
-    "AND earlier.destination = 'EVENTS' "
     "AND earlier.event_sequence < current_event.event_sequence "
-    "AND earlier.status = 'PENDING')) "
+    "AND earlier.status = 'PENDING') "
     "ORDER BY current_event.created_at LIMIT 100"
 )
 

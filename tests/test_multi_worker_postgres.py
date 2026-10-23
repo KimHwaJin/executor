@@ -18,7 +18,7 @@ import pytest_asyncio
 from alembic import command
 from alembic.config import Config
 from redis.asyncio import Redis
-from sqlalchemy import func, inspect, select, text, update
+from sqlalchemy import delete, func, inspect, select, text, update
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
@@ -59,10 +59,9 @@ from executor_service.domain.enums import (
     TriggerType,
 )
 from executor_service.domain.models import utc_now
-from executor_service.domain.runtime import RuntimeStorageSnapshot
-from executor_service.events import (
-    ExecutionStreamEnvelope,
-    build_execution_event,
+from executor_service.domain.runtime import (
+    RuntimeOffering,
+    RuntimeStorageSnapshot,
 )
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.background_diagnostics import (
@@ -76,6 +75,7 @@ from executor_service.infrastructure.db.migrations import (
     upgrade_database,
 )
 from executor_service.infrastructure.db.models import (
+    BackgroundPassLeaseORM,
     ExecutionAttemptORM,
     ExecutionDiagnosticORM,
     ExecutionEventORM,
@@ -99,7 +99,12 @@ from executor_service.infrastructure.diagnostic_store import (
     SQLAlchemyDiagnosticQueryService,
 )
 from executor_service.infrastructure.event_retention import (
+    RETENTION_PASS_KEY,
     EventRetentionManager,
+)
+from executor_service.infrastructure.events import (
+    ExecutionStreamEnvelope,
+    build_execution_event,
 )
 from executor_service.infrastructure.execution_leases import (
     ExecutionLeaseLostError,
@@ -117,6 +122,9 @@ from executor_service.infrastructure.maintenance_runs import (
 from executor_service.infrastructure.outbox import OutboxPublisher
 from executor_service.infrastructure.result_storage import (
     FilesystemExecutionResultStore,
+)
+from executor_service.infrastructure.runtime_adapters import (
+    JupyterRuntimeAdapter,
 )
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
@@ -308,7 +316,7 @@ async def test_runtime_purge_serializes_with_target_mutations(
         RuntimeTargetNotFoundError,
         RuntimeTargetPurgeConflictError,
     )
-    from executor_service.infrastructure._runtime_registry.purge import (
+    from executor_service.infrastructure.runtime_registry.purge import (
         purge_target,
     )
     from tests.test_runtime_management_safety import _registry
@@ -388,7 +396,8 @@ async def test_runtime_purge_serializes_with_target_mutations(
 
 
 # Added by 0007 and 0008. Tests that write "old" rows with the current ORM
-# add these for the writes only, so the rows match what old code wrote.
+# add these for the writes only, so the rows match what old code wrote. The
+# current ORM also no longer sets the Outbox destination dropped by 0010.
 LATER_COLUMNS = {
     "executions": ("tenant_id", "VARCHAR(64)"),
     "runtime_targets": ("connection_key", "VARCHAR(2048)"),
@@ -402,6 +411,12 @@ async def _current_columns(engine: AsyncEngine) -> AsyncIterator[None]:
             await connection.execute(
                 text(f"ALTER TABLE {table} ADD COLUMN {column} {column_type}")
             )
+        await connection.execute(
+            text(
+                "ALTER TABLE outbox_events "
+                "ALTER COLUMN destination SET DEFAULT 'EVENTS'"
+            )
+        )
     try:
         yield
     finally:
@@ -410,11 +425,27 @@ async def _current_columns(engine: AsyncEngine) -> AsyncIterator[None]:
                 await connection.execute(
                     text(f"ALTER TABLE {table} DROP COLUMN {column}")
                 )
+            await connection.execute(
+                text(
+                    "ALTER TABLE outbox_events "
+                    "ALTER COLUMN destination DROP DEFAULT"
+                )
+            )
 
 
-def _without_later_columns(rows) -> list[dict]:
-    later = {column for column, _ in LATER_COLUMNS.values()}
-    return [{k: v for k, v in row.items() if k not in later} for row in rows]
+# Columns that differ between an older revision and head: added by 0007 and
+# 0008, dropped by 0009 and 0010. Compare rows across an upgrade without them.
+CHANGED_COLUMNS = {column for column, _ in LATER_COLUMNS.values()} | {
+    "cancellation_heartbeat_at"
+}
+OUTBOX_COLUMNS_DROPPED_BY_0010 = {"destination", "payload"}
+
+
+def _without_changed_columns(rows, table: str) -> list[dict]:
+    changed = CHANGED_COLUMNS
+    if table == "outbox_events":
+        changed = changed | OUTBOX_COLUMNS_DROPPED_BY_0010
+    return [{k: v for k, v in row.items() if k not in changed} for row in rows]
 
 
 def _downgrade_to_before_runtime_purge(database_url: str) -> None:
@@ -483,13 +514,14 @@ async def test_runtime_purge_migration_preserves_rows_and_guards_rollback(
     await asyncio.to_thread(_upgrade_and_check_baseline, url)
     async with postgres_engine.connect() as connection:
         for table in tables:
-            assert _without_later_columns(
+            assert _without_changed_columns(
                 (
                     await connection.execute(
                         text(f"SELECT * FROM {table} ORDER BY id")
                     )
-                ).mappings()
-            ) == [dict(row) for row in before[table]]
+                ).mappings(),
+                table,
+            ) == _without_changed_columns(before[table], table)
     old_result = await registry.purge(
         PurgeRuntimeTargetCommand(old_deleted_id)
     )
@@ -521,8 +553,9 @@ async def test_startup_migrations_serialize_across_processes(
     url = postgres_engine.url.render_as_string(hide_password=False)
     await asyncio.to_thread(_downgrade_baseline, url)
     script = """
+import asyncio
+
 from executor_service.settings import Settings
-from executor_service.event_loop import run_async
 from executor_service.infrastructure.db.session import create_engine
 from executor_service.infrastructure.db.migrations import upgrade_database
 
@@ -534,7 +567,7 @@ async def main():
     finally:
         await engine.dispose()
 
-run_async(main())
+asyncio.run(main())
 """
     manual_script = (
         "from alembic import command; from alembic.config import Config; "
@@ -683,24 +716,24 @@ async def test_trace_removal_preserves_business_rows_and_restores_only_schema(
     service = _service(postgres_engine, tmp_path)
     async with _current_columns(postgres_engine):
         execution = await service.submit(_command("remove-traces"))
-    event = build_execution_event(
-        execution_id=execution.id,
-        event_sequence=1,
-        event_type="execution.started",
-        payload={
-            "status": "RUNNING",
-            "runtime": {
-                "provider": "JUPYTER",
-                "profile": "basic",
-                "target_id": str(uuid4()),
-                "session_id": "migration-test-session",
+        event = build_execution_event(
+            execution_id=execution.id,
+            event_sequence=1,
+            event_type="execution.started",
+            payload={
+                "status": "RUNNING",
+                "runtime": {
+                    "provider": "JUPYTER",
+                    "profile": "basic",
+                    "target_id": str(uuid4()),
+                    "session_id": "migration-test-session",
+                },
             },
-        },
-    )
-    factory = create_session_factory(postgres_engine)
-    async with factory() as session, session.begin():
-        session.add(ExecutionEventORM.from_domain(event))
-        session.add(OutboxEventORM.from_execution_event(event))
+        )
+        factory = create_session_factory(postgres_engine)
+        async with factory() as session, session.begin():
+            session.add(ExecutionEventORM.from_domain(event))
+            session.add(OutboxEventORM.from_execution_event(event))
 
     trace_tables = ("executions", "execution_events", "outbox_events")
     # Include dependent history to detect unintended cascade/data changes.
@@ -747,7 +780,9 @@ async def test_trace_removal_preserves_business_rows_and_restores_only_schema(
                 .mappings()
                 .all()
             )
-            assert _without_later_columns(rows) == before[table]
+            assert _without_changed_columns(
+                rows, table
+            ) == _without_changed_columns(before[table], table)
         columns = await connection.run_sync(
             lambda sync: {
                 table: {c["name"] for c in inspect(sync).get_columns(table)}
@@ -1252,7 +1287,11 @@ def _service(engine: AsyncEngine, root: Path) -> ExecutionService:
     session_factory = create_session_factory(engine)
     return ExecutionService(
         lambda: SQLAlchemyUnitOfWork(session_factory),
-        {RuntimeType.JUPYTER: ("basic", "ml")},
+        {
+            RuntimeType.JUPYTER: RuntimeOffering(
+                ("basic", "ml"), JupyterRuntimeAdapter.capabilities
+            )
+        },
         FilesystemExecutionResultStore(root),
     )
 
@@ -1268,12 +1307,10 @@ def _workers(
         settings = Settings(
             runtime_enabled=False,
             shared_storage_root=tmp_path / f"worker-{index}",
-            execution_consumer_name=f"postgres-worker-{index}",
         )
         workers.append(
             ExecutionWorker(
                 session_factory=session_factory,
-                redis=redis,
                 settings=settings,
                 registry=RuntimeTargetRegistry(session_factory, settings),
                 artifact_manager=ExecutionArtifactManager(session_factory),
@@ -1644,16 +1681,15 @@ async def test_partial_result_outbox_redis_and_history_agree(
     execution = await service.submit(command)
     driver = EvidenceDriver("disconnect", False)
     monkeypatch.setattr(
-        "executor_service.infrastructure.runtime_drivers.JupyterRuntimeDriver",
+        "executor_service.infrastructure.runtime_adapters.JupyterRuntimeDriver",
         lambda *_args, **_kwargs: driver,
     )
     redis = Redis.from_url(_redis_test_url(), decode_responses=True)
     unique = f"test:partial-results:{uuid4().hex}"
-    work_stream, event_stream = f"{unique}:work", f"{unique}:events"
+    event_stream = f"{unique}:events"
     settings = Settings(runtime_enabled=False, shared_storage_root=tmp_path)
     worker = ExecutionWorker(
         session_factory=factory,
-        redis=redis,
         settings=settings,
         registry=RuntimeTargetRegistry(factory, settings),
         artifact_manager=ExecutionArtifactManager(factory),
@@ -1664,7 +1700,6 @@ async def test_partial_result_outbox_redis_and_history_agree(
         publisher = OutboxPublisher(
             session_factory=factory,
             redis=redis,
-            work_stream_name=work_stream,
             event_stream_name=event_stream,
             poll_interval_seconds=0.01,
             batch_size=100,
@@ -1697,7 +1732,7 @@ async def test_partial_result_outbox_redis_and_history_agree(
         assert step_event.payload["status"] == "FAILED"
         assert "partial evidence" not in step_event.model_dump_json()
     finally:
-        await redis.delete(work_stream, event_stream)
+        await redis.delete(event_stream)
         await redis.aclose()
 
 
@@ -2034,14 +2069,12 @@ async def test_concurrent_outbox_publishers_emit_one_stream_message(
         OutboxPublisher(
             session_factory=session_factory,
             redis=redis,
-            work_stream_name=stream,
             event_stream_name=event_stream,
             poll_interval_seconds=1,
             batch_size=100,
         )
         for redis in redis_clients
     ]
-    messages: list[tuple[str, dict[str, str]]] = []
     event_messages: list[tuple[str, dict[str, str]]] = []
     try:
         first_round = await asyncio.gather(
@@ -2050,10 +2083,9 @@ async def test_concurrent_outbox_publishers_emit_one_stream_message(
         second_round = await asyncio.gather(
             *(publisher.publish_batch() for publisher in publishers)
         )
-        messages = await redis_clients[0].xrange(stream)
         event_messages = await redis_clients[0].xrange(event_stream)
     finally:
-        await redis_clients[0].delete(stream, event_stream)
+        await redis_clients[0].delete(event_stream)
         await _close_redis(redis_clients)
 
     async with session_factory() as session:
@@ -2062,14 +2094,13 @@ async def test_concurrent_outbox_publishers_emit_one_stream_message(
                 OutboxEventORM.status == OutboxStatus.PUBLISHED
             )
         )
-    assert sum(first_round) + sum(second_round) == 3
-    assert len(messages) == 1
+    assert sum(first_round) + sum(second_round) == 2
     assert len(event_messages) == 2
     assert [int(fields["event_sequence"]) for _, fields in event_messages] == [
         1,
         2,
     ]
-    assert published_rows == 3
+    assert published_rows == 2
 
 
 async def test_ordered_outbox_backlog_load(
@@ -2131,7 +2162,6 @@ async def test_ordered_outbox_backlog_load(
         )
 
     unique = uuid4().hex
-    work_stream = f"test:executor:outbox-load:{unique}:work"
     event_stream = f"test:executor:outbox-load:{unique}:events"
     redis_clients = [
         Redis.from_url(_redis_test_url(), decode_responses=True)
@@ -2141,14 +2171,13 @@ async def test_ordered_outbox_backlog_load(
         OutboxPublisher(
             session_factory=session_factory,
             redis=redis,
-            work_stream_name=work_stream,
             event_stream_name=event_stream,
             poll_interval_seconds=0.01,
             batch_size=100,
         )
         for redis in redis_clients
     ]
-    expected_count = execution_count * (events_per_execution + 1)
+    expected_count = execution_count * events_per_execution
     published_count = 0
     rounds = 0
     started_at = perf_counter()
@@ -2170,9 +2199,8 @@ async def test_ordered_outbox_backlog_load(
                 )
         elapsed_seconds = perf_counter() - started_at
         event_messages = await redis_clients[0].xrange(event_stream)
-        work_messages = await redis_clients[0].xrange(work_stream)
     finally:
-        await redis_clients[0].delete(work_stream, event_stream)
+        await redis_clients[0].delete(event_stream)
         await _close_redis(redis_clients)
 
     sequences_by_execution = {
@@ -2188,7 +2216,6 @@ async def test_ordered_outbox_backlog_load(
         for sequences in sequences_by_execution.values()
     )
     assert len(event_messages) == execution_count * events_per_execution
-    assert len(work_messages) == execution_count
     events_per_second = len(event_messages) / elapsed_seconds
     print(
         {
@@ -2216,22 +2243,21 @@ async def test_ordered_outbox_query_uses_pending_event_index(
     assert "ix_outbox_pending_event_order" in plan, plan
 
 
-async def test_event_retention_has_one_postgres_lease_owner(
+async def test_event_retention_runs_once_per_interval_cluster_wide(
     postgres_engine: AsyncEngine,
 ) -> None:
     unique = uuid4().hex
     settings = Settings(
         runtime_enabled=False,
-        redis_work_stream=f"test:retention-lease:{unique}:work",
         redis_event_stream=f"test:retention-lease:{unique}:events",
-        redis_work_dead_letter_stream=(
-            f"test:retention-lease:{unique}:work-dlq"
-        ),
-        redis_event_dead_letter_stream=(
-            f"test:retention-lease:{unique}:event-dlq"
-        ),
     )
     session_factory = create_session_factory(postgres_engine)
+    async with session_factory() as session, session.begin():
+        await session.execute(
+            delete(BackgroundPassLeaseORM).where(
+                BackgroundPassLeaseORM.singleton_key == RETENTION_PASS_KEY
+            )
+        )
     redis_clients = [
         Redis.from_url(_redis_test_url(), decode_responses=True)
         for _ in range(2)
@@ -2241,15 +2267,13 @@ async def test_event_retention_has_one_postgres_lease_owner(
         for redis in redis_clients
     ]
     try:
-        claims = await asyncio.gather(
-            *(manager._acquire_lease() for manager in managers)
+        results = await asyncio.gather(
+            *(manager.run_once() for manager in managers)
         )
-        assert sum(claims) == 1
-        winner = managers[claims.index(True)]
-        loser = managers[claims.index(False)]
-        assert await loser.run_once() is None
-        await winner._release_lease(error=None)
-        assert await loser.run_once() is not None
+        assert sum(result is not None for result in results) == 1
+        # The interval has not elapsed, so neither Pod runs again.
+        assert await managers[0].run_once() is None
+        assert await managers[1].run_once() is None
     finally:
         await _close_redis(redis_clients)
 
@@ -2306,7 +2330,7 @@ async def test_current_baseline_repeated_upgrade_preserves_events(
             text("SELECT count(*) FROM event_retention_lease")
         )
 
-    assert revision == EXPECTED_SCHEMA_REVISION == "0008"
+    assert revision == EXPECTED_SCHEMA_REVISION == "0010"
     assert maintenance_count == retention_count == 1
     assert migrated_event is not None
     assert migrated_event.execution_id == execution.id
@@ -2314,7 +2338,7 @@ async def test_current_baseline_repeated_upgrade_preserves_events(
     assert migrated_event.payload == event.payload
     assert migrated_outbox is not None
     assert migrated_outbox.id == outbox_id
-    assert migrated_outbox.payload is None
+    assert migrated_outbox.execution_event_id == migrated_event.id
 
 
 async def test_current_baseline_downgrade_and_recreate(
@@ -2347,7 +2371,7 @@ async def test_current_baseline_downgrade_and_recreate(
             text("SELECT singleton_key FROM event_retention_lease")
         )
     assert tables == set(Base.metadata.tables) | {"alembic_version"}
-    assert revision == EXPECTED_SCHEMA_REVISION == "0008"
+    assert revision == EXPECTED_SCHEMA_REVISION == "0010"
     assert admission == "ACTIVE"
     assert retention_key == "events"
 
@@ -2430,7 +2454,7 @@ async def test_expired_cleanup_is_reserved_once_across_workers(
             pass
 
     monkeypatch.setattr(
-        "executor_service.infrastructure.runtime_drivers.JupyterRuntimeDriver",
+        "executor_service.infrastructure.runtime_adapters.JupyterRuntimeDriver",
         Driver,
     )
     task = None

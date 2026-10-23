@@ -41,7 +41,7 @@ from executor_service.domain.enums import (
     RuntimeType,
 )
 from executor_service.domain.models import utc_now
-from executor_service.infrastructure._artifacts.discovery import (
+from executor_service.infrastructure.artifacts.discovery import (
     ArtifactDiscovery,
 )
 from executor_service.infrastructure.db.models import (

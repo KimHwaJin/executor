@@ -40,17 +40,17 @@ def _config() -> object:
 
 def test_owner_target_kills_only_owner_and_selects_survivor_api() -> None:
     config = _config()
-    assert owner_target("docker-failover-primary", config) == (
+    assert owner_target("docker-failover-primary-7-1a2b3c4d", config) == (
         "executor-primary",
         "http://127.0.0.1:8011",
     )
-    assert owner_target("docker-failover-secondary", config) == (
+    assert owner_target("docker-failover-secondary-7-1a2b3c4d", config) == (
         "executor-secondary",
         "http://127.0.0.1:8010",
     )
 
 
-def test_owner_target_rejects_unmanaged_consumer() -> None:
+def test_owner_target_rejects_unmanaged_worker() -> None:
     with pytest.raises(FailoverValidationError, match="Unexpected"):
         owner_target("unmanaged-worker", _config())
 

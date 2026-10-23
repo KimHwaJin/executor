@@ -39,6 +39,7 @@ from executor_service.domain.enums import (
 )
 from executor_service.domain.models import utc_now
 from executor_service.domain.results import StepResultReference
+from executor_service.domain.runtime import RuntimeOffering
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.base import Base
 from executor_service.infrastructure.db.models import (
@@ -62,10 +63,13 @@ from executor_service.infrastructure.jupyter import JupyterRuntimeDriver
 from executor_service.infrastructure.result_storage import (
     FilesystemExecutionResultStore,
 )
+from executor_service.infrastructure.runtime_adapters import (
+    JupyterRuntimeAdapter,
+)
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
 )
-from executor_service.interfaces._contracts.steps import ExecutionStepResponse
+from executor_service.interfaces.contracts.steps import ExecutionStepResponse
 from executor_service.settings import Settings
 
 
@@ -119,7 +123,11 @@ async def run_case(
     submitted_id = None
     service = ExecutionService(
         lambda: SQLAlchemyUnitOfWork(factory),
-        {RuntimeType.JUPYTER: ("default", "3102311")},
+        {
+            RuntimeType.JUPYTER: RuntimeOffering(
+                ("default", "3102311"), JupyterRuntimeAdapter.capabilities
+            )
+        },
         store,
     )
     try:
@@ -175,7 +183,6 @@ async def run_case(
         submitted_id = execution.id
         worker = ExecutionWorker(
             session_factory=factory,
-            redis=redis,
             settings=settings,
             registry=RuntimeTargetRegistry(factory, settings),
             artifact_manager=ExecutionArtifactManager(factory),
@@ -274,8 +281,7 @@ async def run_case(
         first_step_event = next(
             event.execution_event
             for event in step_events
-            if event.execution_event is not None
-            and event.execution_event.payload["step"]["sequence"] == 0
+            if event.execution_event.payload["step"]["sequence"] == 0
         )
         assert first_step_event is not None
         assert first_step_event.payload["status"] == step.status.value

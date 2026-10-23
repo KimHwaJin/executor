@@ -27,12 +27,9 @@ POST /api/v1/executions
 `tenant_id`는 요청 최상위 선택 필드이며 `context` 안에 넣지 않는다.
 
 - 형식: `^[a-z][a-z0-9-]{1,62}[a-z0-9]$` (소문자로 시작, 소문자·숫자·`-`, 3~64자, `-`로 끝나지 않음)
-- 예약어: `dlq`, `work`, 그리고 Executor 내부 Stream 이름(`REDIS_WORK_STREAM`,
-  `REDIS_WORK_DEAD_LETTER_STREAM`, `REDIS_EVENT_DEAD_LETTER_STREAM`) 중
-  `REDIS_EVENT_STREAM.` 접두사로 시작하는 이름의 나머지 부분. 기본 설정에서는
-  `executor.events.dlq` 때문에 `dlq`가 예약된다.
-- 형식 위반·예약어는 `422`다. 형식과 고정 예약어(`dlq`, `work`)는 `REQUEST_VALIDATION_ERROR`,
-  설정에서 나온 예약어는 `INVALID_EXECUTION_SPEC`이다.
+- 예약어: `dlq`, `work`. Executor와 Agent가 쓰는 Stream 이름(`executor.events.dlq` 등)과
+  겹치지 않게 한다.
+- 형식 위반·예약어는 `422` `REQUEST_VALIDATION_ERROR`다.
 - 값은 바뀌지 않는다. 후속 Operation 추가, 재시도, 취소, finalize는 받은 값이 아니라
   Execution에 저장된 `tenant_id`를 따른다. 해당 요청에는 `tenant_id` 필드가 없다.
 - 멱등성 fingerprint에 포함된다. 같은 `idempotency_key`로 `tenant_id`만 바꿔 보내면 `409`다.

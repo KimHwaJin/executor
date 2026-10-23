@@ -12,8 +12,6 @@ from executor_service.domain.enums import (
     FailureType,
     OperationMode,
     OperationStatus,
-    OutboxDestination,
-    OutboxStatus,
     RetryStrategy,
     RuntimeAbortStatus,
     RuntimePool,
@@ -26,6 +24,7 @@ from executor_service.domain.errors import (
     ExecutionVersionConflictError,
     InvalidStateTransitionError,
 )
+from executor_service.domain.transitions import require_execution_transition
 
 
 def utc_now() -> datetime:
@@ -155,6 +154,9 @@ class Execution:
             )
         if self.status == ExecutionStatus.CANCEL_REQUESTED:
             return
+        require_execution_transition(
+            self.status, ExecutionStatus.CANCEL_REQUESTED
+        )
         self.status = ExecutionStatus.CANCEL_REQUESTED
         self.cancel_idempotency_key = idempotency_key
         self.cancellation_reason = reason
@@ -215,6 +217,7 @@ class Execution:
             raise InvalidStateTransitionError(
                 f"Execution {self.id} has no retry start sequence."
             )
+        require_execution_transition(self.status, ExecutionStatus.QUEUED)
         self.status = ExecutionStatus.QUEUED
         self.error_message = None
         self.finished_at = None
@@ -248,6 +251,7 @@ class Execution:
             raise ExecutionVersionConflictError(
                 f"Execution version is {self.version}, expected {expected_version}."
             )
+        require_execution_transition(self.status, ExecutionStatus.QUEUED)
         self.status = ExecutionStatus.QUEUED
         self.finalization_requested = False
         self.operation_wait_expires_at = None
@@ -279,6 +283,7 @@ class Execution:
                 "Finalization requires a successful last Operation; "
                 "append a corrective Operation or cancel the Execution."
             )
+        require_execution_transition(self.status, ExecutionStatus.FINALIZING)
         self.status = ExecutionStatus.FINALIZING
         self.finalization_requested = True
         self.operation_wait_expires_at = None
@@ -314,28 +319,6 @@ class ExecutionOperation:
     updated_at: datetime = field(default_factory=utc_now)
     started_at: datetime | None = None
     finished_at: datetime | None = None
-
-
-@dataclass(slots=True)
-class OutboxEvent:
-    aggregate_type: str
-    aggregate_id: UUID
-    event_type: str
-    payload: dict[str, Any]
-    event_sequence: int | None = None
-    destination: OutboxDestination = OutboxDestination.EVENTS
-    created_by_type: ActorType | None = None
-    created_by: str | None = None
-    updated_by_type: ActorType | None = None
-    updated_by: str | None = None
-    id: UUID = field(default_factory=uuid4)
-    status: OutboxStatus = OutboxStatus.PENDING
-    attempt_count: int = 0
-    available_at: datetime = field(default_factory=utc_now)
-    created_at: datetime = field(default_factory=utc_now)
-    updated_at: datetime = field(default_factory=utc_now)
-    published_at: datetime | None = None
-    last_error: str | None = None
 
 
 @dataclass(slots=True)

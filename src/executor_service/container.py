@@ -15,8 +15,6 @@ from executor_service.application.notebook_queries import (
     ExecutionNotebookQueryService,
 )
 from executor_service.application.services import ExecutionService
-from executor_service.domain.enums import RuntimeType
-from executor_service.execution_specs import ExecutionSpecResolver
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.migrations import upgrade_database
 from executor_service.infrastructure.db.repositories import (
@@ -53,8 +51,8 @@ from executor_service.infrastructure.redis_streams import (
 from executor_service.infrastructure.result_storage import (
     FilesystemExecutionResultStore,
 )
-from executor_service.infrastructure.runtime_drivers import (
-    ConfiguredRuntimeDriverFactory,
+from executor_service.infrastructure.runtime_adapters import (
+    RuntimeAdapterRegistry,
 )
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
@@ -62,9 +60,10 @@ from executor_service.infrastructure.runtime_registry import (
 from executor_service.infrastructure.runtime_storage import (
     FleetRuntimeStorageAccess,
 )
+from executor_service.interfaces.execution_specs import ExecutionSpecResolver
 from executor_service.settings import Settings
 
-EXPECTED_SCHEMA_REVISION = "0008"
+EXPECTED_SCHEMA_REVISION = "0010"
 
 
 class ApplicationContainer:
@@ -83,9 +82,10 @@ class ApplicationContainer:
         self.result_store = FilesystemExecutionResultStore(
             settings.shared_storage_root
         )
+        self.runtime_adapters = RuntimeAdapterRegistry(settings)
         self.execution_service = ExecutionService(
             lambda: SQLAlchemyUnitOfWork(self.session_factory),
-            {RuntimeType.JUPYTER: settings.runtime_allowed_profiles},
+            self.runtime_adapters.offerings(),
             self.result_store,
             max_steps_per_operation=(
                 settings.execution_max_steps_per_operation
@@ -93,7 +93,6 @@ class ApplicationContainer:
             max_steps_per_execution=(
                 settings.execution_max_steps_per_execution
             ),
-            reserved_tenant_ids=settings.reserved_tenant_ids,
         )
         self.execution_queries = SQLAlchemyExecutionQueryService(
             self.session_factory
@@ -110,7 +109,6 @@ class ApplicationContainer:
             file_max_bytes=settings.execution_file_spec_max_bytes,
             max_steps=settings.execution_max_steps_per_operation,
         )
-        self.runtime_driver_factory = ConfiguredRuntimeDriverFactory(settings)
         self.runtime_registry = RuntimeTargetRegistry(
             self.session_factory, settings
         )
@@ -123,7 +121,7 @@ class ApplicationContainer:
         self.runtime_storage = FleetRuntimeStorageAccess(
             self.session_factory,
             self.runtime_registry,
-            self.runtime_driver_factory,
+            self.runtime_adapters,
         )
         self.artifact_content = ArtifactContentService(
             self.execution_queries, self.runtime_storage
@@ -141,7 +139,6 @@ class ApplicationContainer:
         self.outbox_publisher = OutboxPublisher(
             session_factory=self.session_factory,
             redis=self.redis,
-            work_stream_name=settings.redis_work_stream,
             event_stream_name=settings.redis_event_stream,
             event_stream_maxlen=settings.redis_event_stream_maxlen,
             poll_interval_seconds=settings.outbox_poll_interval_seconds,
@@ -156,10 +153,9 @@ class ApplicationContainer:
         )
         self.execution_worker = ExecutionWorker(
             session_factory=self.session_factory,
-            redis=self.redis,
             settings=settings,
             registry=self.runtime_registry,
-            driver_factory=self.runtime_driver_factory,
+            driver_factory=self.runtime_adapters,
             artifact_manager=self.artifact_manager,
             result_store=self.result_store,
             maintenance_runs=self.maintenance_runs,
@@ -170,7 +166,6 @@ class ApplicationContainer:
             await upgrade_database(self.engine, self.settings)
         await check_redis_compatibility(self.redis)
         await self.maintenance.initialize()
-        await self.event_retention.initialize()
         self.outbox_publisher.start()
         self.event_retention.start()
         if self.settings.runtime_enabled:
@@ -187,7 +182,6 @@ class ApplicationContainer:
 
     async def readiness(self) -> dict[str, bool]:
         database_ready = False
-        redis_ready = False
         try:
             async with self.engine.connect() as connection:
                 revision = await connection.scalar(
@@ -202,11 +196,15 @@ class ApplicationContainer:
             )
         except Exception:
             pass
-        try:
-            redis_ready = bool(await self.redis.ping())
-        except Exception:
-            pass
-        checks = {"postgresql": database_ready, "redis": redis_ready}
+        # Redis only carries Agent events, which the Outbox retries, so a
+        # Redis outage must not pull every Pod out of the Service.
+        checks = {"postgresql": database_ready}
         if self.settings.runtime_enabled:
             checks["worker_accepting"] = self.execution_worker.accepting_work
         return checks
+
+    async def redis_reachable(self) -> bool:
+        try:
+            return bool(await self.redis.ping())
+        except Exception:
+            return False

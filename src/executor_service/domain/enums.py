@@ -98,11 +98,6 @@ class OutboxStatus(StrEnum):
     PUBLISHED = "PUBLISHED"
 
 
-class OutboxDestination(StrEnum):
-    WORK = "WORK"
-    EVENTS = "EVENTS"
-
-
 class RuntimeTargetStatus(StrEnum):
     ACTIVE = "ACTIVE"
     DRAINING = "DRAINING"

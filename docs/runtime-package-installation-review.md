@@ -22,7 +22,7 @@ Agent가 MULTI 모드로 실행하다가 특정 패키지가 없어 `ModuleNotFo
 | `!uv pip install --target <쓰기 가능 경로> x` | 설치됨 | `sys.path`에 경로를 추가해야 import 가능 |
 
 커널 수명은 실행 단위다. Executor는 실행마다 `POST /api/kernels`로 커널을 만들고 종료·취소 시
-interrupt 후 `DELETE`한다(`_jupyter/sessions.py`, `execution_worker/runtime_cleanup.py`).
+interrupt 후 `DELETE`한다(`infrastructure/jupyter/sessions.py`, `execution_worker/runtime_cleanup.py`).
 커널스펙 `default`, `3102311`은 이미지에 고정된 venv를 가리키므로 다음 실행은 항상 이미지 상태로 시작한다.
 표준 커널 패키지 변경 경로는 `deploy/jupyter/environments/<프로필>`의 `pyproject.toml`·`uv.lock`
 수정과 이미지 재빌드다(`deploy/jupyter/README.md`).

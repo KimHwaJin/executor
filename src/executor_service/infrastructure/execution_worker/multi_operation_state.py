@@ -13,6 +13,7 @@ from executor_service.domain.enums import (
     StepStatus,
 )
 from executor_service.domain.models import utc_now
+from executor_service.domain.transitions import require_execution_transition
 from executor_service.infrastructure.db.models import (
     ExecutionOperationORM,
     ExecutionStepORM,
@@ -68,6 +69,9 @@ class MultiOperationState:
                     operation_id,
                     require_notebook_artifact=False,
                 )
+            require_execution_transition(
+                execution.status, ExecutionStatus.WAITING_FOR_OPERATION
+            )
             execution.status = ExecutionStatus.WAITING_FOR_OPERATION
             execution.lease_owner = None
             execution.lease_expires_at = None

@@ -18,10 +18,8 @@ from resilience_common import (
     upsert_runtime_target,
     wait_for_status,
     wait_ready,
+    worker_id,
 )
-
-PRIMARY_CONSUMER = "drain-smoke-primary"
-SECONDARY_CONSUMER = "drain-smoke-secondary"
 
 
 def _attempt_owner(rows: list[dict[str, Any]]) -> str | None:
@@ -37,8 +35,7 @@ async def main() -> None:
     secondary_port = available_port("DRAIN_SMOKE_SECONDARY_PORT")
     if secondary_port == primary_port:
         raise ValueError("Drain smoke Executor ports must differ.")
-    work_stream = f"executor.work.drain-smoke.{unique}"
-    group = f"executor-drain-smoke-{unique}"
+    stream_prefix = f"executor.smoke.drain-smoke.{unique}"
     primary: asyncio.subprocess.Process | None = None
     secondary: asyncio.subprocess.Process | None = None
     try:
@@ -48,12 +45,11 @@ async def main() -> None:
         }
         primary = await start_executor(
             port=primary_port,
-            consumer_name=PRIMARY_CONSUMER,
-            stream=work_stream,
-            group=group,
+            stream=stream_prefix,
             extra_environment=process_environment,
         )
         await wait_ready(primary_port)
+        primary_id = await worker_id(primary_port)
         async with Client(f"http://127.0.0.1:{primary_port}/mcp") as client:
             await upsert_runtime_target(
                 client,
@@ -105,12 +101,11 @@ async def main() -> None:
 
         secondary = await start_executor(
             port=secondary_port,
-            consumer_name=SECONDARY_CONSUMER,
-            stream=work_stream,
-            group=group,
+            stream=stream_prefix,
             extra_environment=process_environment,
         )
         await wait_ready(secondary_port)
+        secondary_id = await worker_id(secondary_port)
         primary.terminate()
         async with asyncio.timeout(20):
             await primary.wait()
@@ -147,15 +142,15 @@ async def main() -> None:
             raise RuntimeError(
                 f"Queued execution was not handed off: {queued}"
             )
-        if _attempt_owner(short_attempts) != PRIMARY_CONSUMER:
+        if _attempt_owner(short_attempts) != primary_id:
             raise RuntimeError(
                 f"Short execution owner changed unexpectedly: {short_attempts}"
             )
-        if _attempt_owner(long_attempts) != PRIMARY_CONSUMER:
+        if _attempt_owner(long_attempts) != primary_id:
             raise RuntimeError(
                 f"Long execution owner changed unexpectedly: {long_attempts}"
             )
-        if _attempt_owner(queued_attempts) != SECONDARY_CONSUMER:
+        if _attempt_owner(queued_attempts) != secondary_id:
             raise RuntimeError(
                 f"Queued execution was not claimed by secondary: {queued_attempts}"
             )
@@ -185,7 +180,7 @@ async def main() -> None:
             decode_responses=True,
         )
         try:
-            await cleanup_streams(redis, work_stream)
+            await cleanup_streams(redis, stream_prefix)
         finally:
             await redis.aclose()
 

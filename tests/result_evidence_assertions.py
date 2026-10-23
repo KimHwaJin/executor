@@ -10,18 +10,18 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from executor_service.application.execution_results import (
     ExecutionResultQueryService,
 )
-from executor_service.events import ExecutionStreamEnvelope
+from executor_service.infrastructure.events import ExecutionStreamEnvelope
 from executor_service.infrastructure.execution_queries import (
     SQLAlchemyExecutionQueryService,
 )
-from executor_service.interfaces._contracts.events import (
+from executor_service.interfaces.contracts.events import (
     ExecutionEventPageResponse,
 )
-from executor_service.interfaces._contracts.results import (
+from executor_service.interfaces.contracts.results import (
     ExecutionOperationResultResponse,
     ExecutionResultResponse,
 )
-from executor_service.interfaces._contracts.steps import (
+from executor_service.interfaces.contracts.steps import (
     ExecutionStepAttemptResponse,
     ExecutionStepResponse,
 )

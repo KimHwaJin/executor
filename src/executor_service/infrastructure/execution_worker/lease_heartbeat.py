@@ -87,7 +87,6 @@ class LeaseHeartbeatManager:
                     ExecutionORM.cancellation_lease_expires_at > now,
                 )
                 .values(
-                    cancellation_heartbeat_at=now,
                     cancellation_lease_expires_at=lease_expires,
                     updated_at=now,
                 )

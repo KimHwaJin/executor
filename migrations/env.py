@@ -1,5 +1,6 @@
 """Alembic environment configured from the same environment variables as the service."""
 
+import asyncio
 from logging.config import fileConfig
 
 from alembic import context
@@ -7,7 +8,6 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from executor_service.event_loop import run_async
 from executor_service.infrastructure.db import models as _models  # noqa: F401
 from executor_service.infrastructure.db.base import Base
 from executor_service.infrastructure.db.migrations import migration_transaction
@@ -69,7 +69,7 @@ def run_migrations_online() -> None:
     if connection is not None:
         do_run_migrations(connection)
     else:
-        run_async(run_async_migrations())
+        asyncio.run(run_async_migrations())
 
 
 if context.is_offline_mode():

@@ -16,11 +16,6 @@ from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from executor_service.domain.enums import OutboxDestination
-from executor_service.events import (
-    EXECUTION_EVENT_SCHEMA_VERSION,
-    ExecutionStreamEnvelope,
-)
 from executor_service.infrastructure.db.models import (
     ExecutionArtifactORM,
     ExecutionAttemptORM,
@@ -34,8 +29,12 @@ from executor_service.infrastructure.db.session import (
     create_engine,
     create_session_factory,
 )
-from executor_service.infrastructure.runtime_drivers import (
-    ConfiguredRuntimeDriverFactory,
+from executor_service.infrastructure.events import (
+    EXECUTION_EVENT_SCHEMA_VERSION,
+    ExecutionStreamEnvelope,
+)
+from executor_service.infrastructure.runtime_adapters import (
+    RuntimeAdapterRegistry,
 )
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
@@ -306,7 +305,6 @@ async def _database_snapshot(
                 .where(
                     OutboxEventORM.aggregate_type == "Execution",
                     OutboxEventORM.aggregate_id == execution_id,
-                    OutboxEventORM.destination == OutboxDestination.EVENTS,
                 )
                 .order_by(OutboxEventORM.created_at, OutboxEventORM.id)
             )
@@ -404,7 +402,7 @@ async def _runtime_session_exists(
     )
     connection_config = dict(target.connection_config)
     connection_config["endpoint"] = _host_jupyter_endpoint(target)
-    driver = ConfiguredRuntimeDriverFactory(settings).create(
+    driver = RuntimeAdapterRegistry(settings).create(
         target.runtime_type,
         connection_config,
         credential,
@@ -431,7 +429,7 @@ async def _runtime_file_exists(
     )
     connection_config = dict(target.connection_config)
     connection_config["endpoint"] = _host_jupyter_endpoint(target)
-    driver = ConfiguredRuntimeDriverFactory(settings).create(
+    driver = RuntimeAdapterRegistry(settings).create(
         target.runtime_type, connection_config, credential
     )
     try:

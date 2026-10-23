@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from executor_service.application.services import ExecutionService
 from executor_service.domain.enums import RuntimeType
+from executor_service.domain.runtime import RuntimeOffering
 from executor_service.infrastructure.db.base import Base
 from executor_service.infrastructure.db.repositories import (
     SQLAlchemyUnitOfWork,
@@ -18,6 +19,9 @@ from executor_service.infrastructure.db.session import (
 )
 from executor_service.infrastructure.result_storage import (
     FilesystemExecutionResultStore,
+)
+from executor_service.infrastructure.runtime_adapters import (
+    JupyterRuntimeAdapter,
 )
 
 
@@ -38,7 +42,11 @@ async def execution_service(
     return ExecutionService(
         lambda: SQLAlchemyUnitOfWork(session_factory),
         # Domain tests intentionally exercise arbitrary profile identifiers.
-        # Deployment defaults are covered by test_config_and_event_loop.py.
-        {RuntimeType.JUPYTER: ("basic", "ml")},
+        # Deployment defaults are covered by test_config.py.
+        {
+            RuntimeType.JUPYTER: RuntimeOffering(
+                ("basic", "ml"), JupyterRuntimeAdapter.capabilities
+            )
+        },
         FilesystemExecutionResultStore(tmp_path),
     )

@@ -68,7 +68,7 @@ Redis event lifecycle remains unchanged:
   must not interpret `WAITING_FOR_OPERATION` as Operation success.
 - SINGLE `execution.completed`: `status=FAILED`, error code
   `EXECUTION_OUTPUT_LIMIT_EXCEEDED`.
-- Since [Phase 6](partial-result-event-references.md), sealed incomplete results
+- [Sealed incomplete results](runtime-diagnostics.md#partial-result-references)
   are also exposed in Step and Operation events with `result_ref.complete=false`.
   Read their manifest directly; only missing/unattached references require further diagnosis.
 

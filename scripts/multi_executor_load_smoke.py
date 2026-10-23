@@ -18,10 +18,9 @@ from resilience_common import (
     submit_static,
     upsert_runtime_target,
     wait_ready,
+    worker_id,
 )
 
-PRIMARY_CONSUMER = "load-smoke-primary"
-SECONDARY_CONSUMER = "load-smoke-secondary"
 TERMINAL_STATUSES = {"SUCCEEDED", "FAILED", "CANCELLED"}
 
 
@@ -60,25 +59,22 @@ async def main() -> None:
     secondary_port = available_port("LOAD_SMOKE_SECONDARY_PORT")
     if secondary_port == primary_port:
         raise ValueError("Load smoke Executor ports must differ.")
-    work_stream = f"executor.work.load-smoke.{unique}"
-    group = f"executor-load-smoke-{unique}"
+    stream_prefix = f"executor.smoke.load-smoke.{unique}"
     primary: asyncio.subprocess.Process | None = None
     secondary: asyncio.subprocess.Process | None = None
     try:
         primary = await start_executor(
             port=primary_port,
-            consumer_name=PRIMARY_CONSUMER,
-            stream=work_stream,
-            group=group,
+            stream=stream_prefix,
         )
         await wait_ready(primary_port)
+        primary_id = await worker_id(primary_port)
         secondary = await start_executor(
             port=secondary_port,
-            consumer_name=SECONDARY_CONSUMER,
-            stream=work_stream,
-            group=group,
+            stream=stream_prefix,
         )
         await wait_ready(secondary_port)
+        secondary_id = await worker_id(secondary_port)
 
         async with Client(f"http://127.0.0.1:{primary_port}/mcp") as client:
             specs = (
@@ -242,7 +238,7 @@ async def main() -> None:
                     f"Unexpected Attempt history: {duplicate_attempts}"
                 )
             owners = {str(rows[0]["lease"]["owner"]) for rows in all_attempts}
-            if owners != {PRIMARY_CONSUMER, SECONDARY_CONSUMER}:
+            if owners != {primary_id, secondary_id}:
                 raise RuntimeError(
                     f"Both Executor processes were not used: {owners}"
                 )
@@ -281,7 +277,7 @@ async def main() -> None:
             decode_responses=True,
         )
         try:
-            await cleanup_streams(redis, work_stream)
+            await cleanup_streams(redis, stream_prefix)
         finally:
             await redis.aclose()
 

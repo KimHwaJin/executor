@@ -13,8 +13,11 @@ from executor_service.domain.errors import (
     NotebookCellNotFoundError,
     NotebookReadError,
 )
+from executor_service.domain.result_summaries import (
+    OutputSummary,
+    summarize_outputs,
+)
 from executor_service.domain.runtime import RuntimeStorageAccess
-from executor_service.result_summaries import OutputSummary, summarize_outputs
 
 NotebookResponseFormat = Literal["SUMMARY", "FULL"]
 

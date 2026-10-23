@@ -173,7 +173,7 @@ async def test_cleanup_failed_session_reserves_until_maintenance_succeeds(
 
     CleanupDriver.deleted = []
     monkeypatch.setattr(
-        "executor_service.infrastructure.runtime_drivers.JupyterRuntimeDriver",
+        "executor_service.infrastructure.runtime_adapters.JupyterRuntimeDriver",
         CleanupDriver,
     )
     worker, redis = _worker(engine, tmp_path, "cleanup-worker")
@@ -208,14 +208,12 @@ def _worker(
     settings = Settings(
         runtime_enabled=False,
         shared_storage_root=tmp_path,
-        execution_consumer_name=consumer,
     )
     session_factory = create_session_factory(engine)
     redis = Redis.from_url("redis://127.0.0.1:6379/15", decode_responses=True)
     return (
         ExecutionWorker(
             session_factory=session_factory,
-            redis=redis,
             settings=settings,
             registry=RuntimeTargetRegistry(session_factory, settings),
             artifact_manager=ExecutionArtifactManager(session_factory),

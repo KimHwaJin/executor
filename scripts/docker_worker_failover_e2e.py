@@ -28,8 +28,9 @@ from worker_failover_assertions import (
     validate_event_history,
 )
 
-PRIMARY_CONSUMER = "docker-failover-primary"
-SECONDARY_CONSUMER = "docker-failover-secondary"
+# Container hostnames from compose.worker-failover.yaml prefix lease owners.
+PRIMARY_HOST = "docker-failover-primary"
+SECONDARY_HOST = "docker-failover-secondary"
 PRIMARY_SERVICE = "executor-primary"
 SECONDARY_SERVICE = "executor-secondary"
 TERMINAL_STATUSES = {"SUCCEEDED", "FAILED", "CANCELLED"}
@@ -218,9 +219,9 @@ async def _submit(client: Client, config: Config, unique: str) -> str:
 
 
 def _owner_target(owner: str, config: Config) -> tuple[str, str]:
-    if owner == PRIMARY_CONSUMER:
+    if owner.startswith(f"{PRIMARY_HOST}-"):
         return PRIMARY_SERVICE, f"http://127.0.0.1:{config.secondary_port}"
-    if owner == SECONDARY_CONSUMER:
+    if owner.startswith(f"{SECONDARY_HOST}-"):
         return SECONDARY_SERVICE, f"http://127.0.0.1:{config.primary_port}"
     raise FailoverValidationError(f"Unexpected Attempt owner: {owner}")
 

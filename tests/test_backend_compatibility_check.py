@@ -363,13 +363,7 @@ async def test_real_redis_acl_denial_is_a_failure(
         await redis.delete(
             *(
                 f"{report.redis_prefix}:{suffix}"
-                for suffix in (
-                    "recovery",
-                    "work",
-                    "events",
-                    "dlq",
-                    "events-dlq",
-                )
+                for suffix in ("retention", "events")
             )
         )
     await verify_cleanup(engine, redis, report)

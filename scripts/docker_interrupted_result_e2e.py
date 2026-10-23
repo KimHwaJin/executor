@@ -27,7 +27,8 @@ from resilience_common import upsert_runtime_target
 
 REPOSITORY = Path(__file__).resolve().parents[1]
 SERVICES = ("executor-primary", "executor-secondary")
-CONSUMERS = {
+# Container hostnames from compose.worker-failover.yaml prefix lease owners.
+HOSTS = {
     "docker-failover-primary": SERVICES[0],
     "docker-failover-secondary": SERVICES[1],
 }
@@ -241,7 +242,7 @@ async def run_case(
         assert len(attempts["items"]) == 1
         attempt_id = attempts["items"][0]["attempt_id"]
         attempt = await request(api, "GET", f"{path}/attempts/{attempt_id}")
-        owner = CONSUMERS[attempt["lease"]["owner"]]
+        owner = HOSTS[attempt["lease"]["owner"].rsplit("-", 2)[0]]
         kernel_id = attempt["runtime"]["session_id"]
         live = await kernels(compose)
         assert len(live) == 1 and live[0]["id"] == kernel_id

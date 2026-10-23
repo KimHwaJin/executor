@@ -43,7 +43,6 @@ from executor_service.domain.enums import (
     TriggerType,
 )
 from executor_service.domain.errors import DomainError, ErrorCode
-from executor_service.execution_specs import ExecutionSpecResolver
 from executor_service.infrastructure.materialized_artifacts import (
     MaterializedArtifactService,
 )
@@ -68,6 +67,7 @@ from executor_service.interfaces.contracts import (
     RuntimeTargetResponse,
     RuntimeTargetUpsertRequest,
 )
+from executor_service.interfaces.execution_specs import ExecutionSpecResolver
 from executor_service.interfaces.mcp.schemas import (
     ExecutionArtifactMaterializeToolRequest,
     ExecutionCancelRequest,

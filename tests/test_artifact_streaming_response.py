@@ -9,7 +9,7 @@ from starlette.types import Message
 
 from executor_service.application.artifact_content import ArtifactContent
 from executor_service.domain.runtime import RuntimeByteRange
-from executor_service.interfaces.http._executions.file_response import (
+from executor_service.interfaces.http.executions.file_response import (
     ArtifactStreamingResponse,
 )
 

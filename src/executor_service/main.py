@@ -1,11 +1,9 @@
 """Process entry point."""
 
-import sys
-
 import uvicorn
+from fastapi import FastAPI
 
 from executor_service.container import ApplicationContainer
-from executor_service.event_loop import run_async
 from executor_service.infrastructure.db.logging import (
     install_database_error_filters,
 )
@@ -20,23 +18,24 @@ api_tags_meta = [
     {"name": "maintenance", "description": "Executor maintenance controls."},
 ]
 
-settings = get_settings()
-configure_logging(settings)
-install_database_error_filters()
-container = ApplicationContainer(settings)
-app = create_app(container, openapi_tags=api_tags_meta)
+
+def create() -> FastAPI:
+    """Build the app; Uvicorn calls this, so importing the module is inert."""
+    settings = get_settings()
+    configure_logging(settings)
+    install_database_error_filters()
+    container = ApplicationContainer(settings)
+    return create_app(container, openapi_tags=api_tags_meta)
 
 
 def run() -> None:
+    settings = get_settings()
     config = uvicorn.Config(
-        "executor_service.main:app",
+        "executor_service.main:create",
+        factory=True,
         host=settings.host,
         port=settings.port,
         # Keep configure_logging's setup (HCP or logger.yml) for Uvicorn too.
         log_config=None,
     )
-    server = uvicorn.Server(config)
-    if sys.platform == "win32":
-        run_async(server.serve(), platform="win32")
-    else:
-        server.run()
+    uvicorn.Server(config).run()

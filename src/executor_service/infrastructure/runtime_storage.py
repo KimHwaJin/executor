@@ -15,6 +15,7 @@ from executor_service.domain.enums import (
 )
 from executor_service.domain.runtime import (
     RuntimeDriverError,
+    RuntimeDriverFactory,
     RuntimeFileContent,
     RuntimeFileMetadata,
     RuntimeFileRangeError,
@@ -22,9 +23,6 @@ from executor_service.domain.runtime import (
     RuntimeFileUnavailableError,
 )
 from executor_service.infrastructure.db.models import RuntimeTargetORM
-from executor_service.infrastructure.runtime_drivers import (
-    ConfiguredRuntimeDriverFactory,
-)
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
 )
@@ -39,7 +37,7 @@ class FleetRuntimeStorageAccess:
         self,
         session_factory: async_sessionmaker[AsyncSession],
         registry: RuntimeTargetRegistry,
-        driver_factory: ConfiguredRuntimeDriverFactory,
+        driver_factory: RuntimeDriverFactory,
     ) -> None:
         self._session_factory = session_factory
         self._registry = registry

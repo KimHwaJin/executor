@@ -26,16 +26,14 @@ from executor_service.infrastructure.db.models import (
     ExecutionStepAttemptORM,
     ExecutionStepORM,
     ExecutionStepRunORM,
-    OutboxEventORM,
 )
-from executor_service.infrastructure.execution_worker._event_writer.payloads import (
+from executor_service.infrastructure.execution_worker.event_writer.payloads import (
     attempt_payload,
     operation_payload,
 )
-from executor_service.infrastructure.execution_worker._event_writer.persistence import (
+from executor_service.infrastructure.execution_worker.event_writer.persistence import (
     persist_execution_event,
 )
-from executor_service.work_messages import build_work_message
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,16 +126,6 @@ async def begin_handover(
             "kernel_running": True,
             "detected_at": now,
         },
-    )
-    session.add(
-        OutboxEventORM.from_domain(
-            build_work_message(
-                execution_id=execution.id,
-                message_type="execution.handover_ready",
-                actor_type=execution.updated_by_type,
-                actor_id=execution.updated_by,
-            )
-        )
     )
 
 

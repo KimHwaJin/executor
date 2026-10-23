@@ -196,7 +196,7 @@ def _patch_runtime_driver(
     monkeypatch: pytest.MonkeyPatch, driver_type: type[Any]
 ) -> None:
     monkeypatch.setattr(
-        "executor_service.infrastructure.runtime_drivers.JupyterRuntimeDriver",
+        "executor_service.infrastructure.runtime_adapters.JupyterRuntimeDriver",
         driver_type,
     )
 
@@ -322,7 +322,6 @@ def _worker(
     registry = RuntimeTargetRegistry(session_factory, settings)
     worker = ExecutionWorker(
         session_factory=session_factory,
-        redis=redis,
         settings=settings,
         registry=registry,
         artifact_manager=ExecutionArtifactManager(session_factory),

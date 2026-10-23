@@ -140,13 +140,14 @@ import executor_service.main as main
 class Server:
     def __init__(self, config):
         assert config.log_config is None
+        self.config = config
     def run(self):
+        self.config.load()
         for handler in logging.getLogger().handlers:
             assert any(isinstance(f, DatabaseErrorFilter) for f in handler.filters)
         for name in ('executor_service.preexisting', 'uvicorn.error', 'uvicorn.access'):
             logging.getLogger(name).info('once')
 main.uvicorn.Server = Server
-main.sys.platform = 'linux'
 main.run()
 """.replace("USE_INTERNAL", str(internal))
     path = tmp_path / "absent.yml" if internal else _yaml(tmp_path)

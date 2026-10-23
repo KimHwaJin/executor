@@ -46,7 +46,7 @@ addopts = "-ra"
 asyncio_mode = "auto"
 testpaths = [
     "tests",
-    "test_harness/jupyter/extension/tests",
+    "deploy/jupyter/extension/tests",
     "test_harness/jupyter/tests",
 ]
 pythonpath = ["deploy/jupyter/extension/src"]

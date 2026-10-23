@@ -15,7 +15,6 @@ from executor_service.domain.models import (
     Execution,
     ExecutionOperation,
     ExecutionStep,
-    OutboxEvent,
     utc_now,
 )
 from executor_service.infrastructure.db.models import (
@@ -24,7 +23,6 @@ from executor_service.infrastructure.db.models import (
     ExecutionORM,
     ExecutionRetryORM,
     ExecutionStepORM,
-    OutboxEventORM,
 )
 
 
@@ -258,14 +256,6 @@ class SQLAlchemyExecutionRepository:
             )
 
 
-class SQLAlchemyOutboxRepository:
-    def __init__(self, session: AsyncSession) -> None:
-        self._session = session
-
-    async def add(self, event: OutboxEvent) -> None:
-        self._session.add(OutboxEventORM.from_domain(event))
-
-
 class SQLAlchemyUnitOfWork:
     def __init__(
         self, session_factory: async_sessionmaker[AsyncSession]
@@ -276,7 +266,6 @@ class SQLAlchemyUnitOfWork:
     async def __aenter__(self) -> Self:
         self._session = self._session_factory()
         self.executions = SQLAlchemyExecutionRepository(self._session)
-        self.outbox = SQLAlchemyOutboxRepository(self._session)
         return self
 
     async def __aexit__(

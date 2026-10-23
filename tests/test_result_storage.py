@@ -13,11 +13,11 @@ from executor_service.domain.runtime import (
     RuntimeOutputRecord,
     RuntimeOutputRepresentation,
 )
-from executor_service.infrastructure._result_storage.io import atomic_write
 from executor_service.infrastructure.result_storage import (
     FilesystemExecutionResultStore,
     ResultStorageError,
 )
+from executor_service.infrastructure.result_storage.io import atomic_write
 
 
 @pytest.mark.parametrize("terminal", ["FINALIZED", "FAILED", "ABORTED"])
@@ -157,7 +157,7 @@ def test_atomic_write_does_not_publish_partial_file_on_os_failure(
         raise OSError(error_number, "injected storage failure")
 
     monkeypatch.setattr(
-        "executor_service.infrastructure._result_storage.io.os."
+        "executor_service.infrastructure.result_storage.io.os."
         f"{failure_point}",
         fail,
     )

@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from executor_service.events import ExecutionStreamEnvelope
+from executor_service.infrastructure.events import ExecutionStreamEnvelope
 
 
 def validate_evidence(

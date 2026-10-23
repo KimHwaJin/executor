@@ -46,7 +46,6 @@ from executor_service.infrastructure.db.models import (
     ExecutionHandoverORM,
     ExecutionORM,
     ExecutionStepORM,
-    OutboxEventORM,
     RuntimeTargetORM,
 )
 from executor_service.infrastructure.db.session import create_session_factory
@@ -142,11 +141,9 @@ def _worker(
     settings = Settings(
         runtime_enabled=False,
         shared_storage_root=tmp_path,
-        execution_consumer_name=name,
     )
     return ExecutionWorker(
         session_factory=factory,
-        redis=redis,
         settings=settings,
         registry=RuntimeTargetRegistry(factory, settings),
         artifact_manager=ExecutionArtifactManager(factory),
@@ -252,19 +249,11 @@ async def test_shutdown_hands_the_running_step_to_another_worker(
         async with create_session_factory(engine)() as session:
             released = await session.get(ExecutionORM, execution_id)
             handover = await session.get(ExecutionHandoverORM, execution_id)
-            work = list(
-                await session.scalars(
-                    select(OutboxEventORM.event_type).where(
-                        OutboxEventORM.aggregate_id == execution_id
-                    )
-                )
-            )
         assert released is not None
         assert released.status == ExecutionStatus.RUNNING
         assert released.lease_owner is None
         assert handover is not None
         assert handover.reason == HandoverReason.EXECUTOR_SHUTDOWN
-        assert "execution.handover_ready" in work
         assert JournalKernel.deleted == []
         [started] = await _event_payloads(
             engine, execution_id, "execution.step_handover_started"

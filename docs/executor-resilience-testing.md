@@ -300,8 +300,7 @@ This uses Redis `CLIENT PAUSE ... ALL` for eight seconds. The command affects th
 instance, so do not run it against a shared or production Redis. The submitted execution must
 finish while Redis is paused through PostgreSQL reconciliation. After Redis resumes, every durable
 integration Outbox event must become `PUBLISHED` and have the same `event_id` in the configured
-event Stream. The internal `operation.ready` work message is verified separately in the work
-Stream.
+event Stream.
 
 Set `REDIS_OUTAGE_PAUSE_MILLISECONDS` to a value of at least 5000 when a longer pause is needed.
 

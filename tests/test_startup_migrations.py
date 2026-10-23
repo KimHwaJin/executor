@@ -50,11 +50,6 @@ async def test_migration_precedes_any_db_initialization_or_background_task(
         AsyncMock(side_effect=lambda: calls.append("maintenance")),
     )
     monkeypatch.setattr(
-        container.event_retention,
-        "initialize",
-        AsyncMock(side_effect=lambda: calls.append("retention-init")),
-    )
-    monkeypatch.setattr(
         container.outbox_publisher, "start", lambda: calls.append("outbox")
     )
     monkeypatch.setattr(
@@ -67,7 +62,6 @@ async def test_migration_precedes_any_db_initialization_or_background_task(
         expected = [
             "redis-compatibility",
             "maintenance",
-            "retention-init",
             "outbox",
             "retention-start",
         ]
@@ -132,11 +126,12 @@ def test_deployment_reads_image_config_and_safe_update_strategy() -> None:
     assert config["DB_AUTO_MIGRATE"] is True
     for key in ("DATABASE_URL", "REDIS_URL", "RUNTIME_CREDENTIAL_KEY"):
         assert "REPLACE" in config[key]
+    defaults = Settings(_env_file=None)
     assert container["startupProbe"]["failureThreshold"] * (
         container["startupProbe"]["periodSeconds"]
     ) > (
-        config["DB_MIGRATION_LOCK_TIMEOUT_SECONDS"]
-        + config["DB_MIGRATION_STATEMENT_TIMEOUT_SECONDS"]
+        defaults.db_migration_lock_timeout_seconds
+        + defaults.db_migration_statement_timeout_seconds
     )
     mounts = {Path(mount["mountPath"]) for mount in container["volumeMounts"]}
     for key in ("SHARED_STORAGE_ROOT", "INPUT_STORAGE_ROOT"):

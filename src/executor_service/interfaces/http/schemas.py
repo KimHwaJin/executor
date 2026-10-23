@@ -21,13 +21,13 @@ from executor_service.domain.enums import (
     MaintenanceRunAction,
     RuntimeTargetStatus,
 )
-from executor_service.execution_specs import ExecutionSpec
 from executor_service.interfaces.contracts import (
     ActorInput,
     AuditFields,
     ExecutionSubmitRequest,
     RuntimeTargetUpsertRequest,
 )
+from executor_service.interfaces.execution_specs import ExecutionSpec
 
 __all__ = [
     "ActorInput",

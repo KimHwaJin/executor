@@ -9,7 +9,6 @@ from executor_service.domain.models import (
     Execution,
     ExecutionOperation,
     ExecutionStep,
-    OutboxEvent,
 )
 
 
@@ -71,16 +70,9 @@ class ExecutionRepository(Protocol):
     async def save(self, execution: Execution) -> None: ...
 
 
-class OutboxRepository(Protocol):
-    async def add(self, event: OutboxEvent) -> None: ...
-
-
 class UnitOfWork(Protocol):
     @property
     def executions(self) -> ExecutionRepository: ...
-
-    @property
-    def outbox(self) -> OutboxRepository: ...
 
     async def __aenter__(self) -> Self: ...
 

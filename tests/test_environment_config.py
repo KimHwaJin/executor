@@ -106,3 +106,13 @@ def test_port_comes_from_config_yml(workdir, monkeypatch):
     monkeypatch.delenv("PORT", raising=False)
     (workdir / "config.yml").write_text("PORT: 9300\n")
     assert Settings(_env_file=None).port == 9300
+
+
+def test_dotenv_is_read_only_locally(workdir, monkeypatch):
+    (workdir / ".env").write_text("DATABASE_POOL_SIZE=3\n")
+    assert Settings().database_pool_size == 3
+    (workdir / "config.dev.yml").write_text(
+        "RUNTIME_CREDENTIAL_KEY: not-the-local-placeholder\n"
+    )
+    monkeypatch.setenv("APP_ENV", "dev")
+    assert Settings().database_pool_size == 10

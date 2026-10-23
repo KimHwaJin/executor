@@ -15,7 +15,6 @@ from executor_service.domain.enums import (
     OperationStatus,
     RetryStrategy,
 )
-from executor_service.execution_specs import ExecutionSpecResolver
 from executor_service.infrastructure.db.models import (
     ExecutionOperationORM,
     ExecutionORM,
@@ -27,6 +26,7 @@ from executor_service.infrastructure.execution_queries import (
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
 )
+from executor_service.interfaces.execution_specs import ExecutionSpecResolver
 from executor_service.interfaces.mcp.server import build_mcp_server
 from executor_service.settings import Settings
 

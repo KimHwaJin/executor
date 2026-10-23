@@ -30,7 +30,7 @@ from executor_service.infrastructure.jupyter import (
 )
 
 _CONNECT = (
-    "executor_service.infrastructure._jupyter.execution.websockets.connect"
+    "executor_service.infrastructure.jupyter.execution.websockets.connect"
 )
 _REQUEST_ID = UUID("00000000-0000-4000-8000-000000000001")
 
@@ -565,7 +565,7 @@ def _connect_sequence(
 
     monkeypatch.setattr(_CONNECT, connect)
     monkeypatch.setattr(
-        "executor_service.infrastructure._jupyter.execution."
+        "executor_service.infrastructure.jupyter.execution."
         "_RECONNECT_DELAY_SECONDS",
         0,
     )
@@ -641,7 +641,7 @@ async def test_start_execution_resubmits_after_a_lost_response(
         base_url="http://jupyter.invalid",
     )
     monkeypatch.setattr(
-        "executor_service.infrastructure._jupyter.execution."
+        "executor_service.infrastructure.jupyter.execution."
         "_RECONNECT_DELAY_SECONDS",
         0,
     )
@@ -805,7 +805,7 @@ async def test_follow_gives_up_after_the_reconnect_window(
         "http://jupyter.invalid", "secret", stream_reconnect_seconds=0.001
     )
     monkeypatch.setattr(
-        "executor_service.infrastructure._jupyter.execution."
+        "executor_service.infrastructure.jupyter.execution."
         "_RECONNECT_DELAY_SECONDS",
         0.01,
     )

@@ -42,6 +42,9 @@ from executor_service.infrastructure.execution_worker.single_runner import (
 from executor_service.infrastructure.execution_worker.step_executor import (
     ExecutionStepExecutor,
 )
+from executor_service.infrastructure.execution_worker.step_flow import (
+    StepFlow,
+)
 from executor_service.infrastructure.workspace import WorkspaceManager
 from executor_service.settings import Settings
 
@@ -66,9 +69,15 @@ class ExecutionRunner:
         self._claimer = claimer
         self._finalizer = ExecutionRunFinalizer(session_factory, settings)
         operation_state = MultiOperationState(session_factory)
-        self._single = SingleExecutionRunner(
+        steps = StepFlow(
             settings,
             artifacts,
+            lease_heartbeat,
+            notebook_projector,
+            step_executor,
+            self._finalizer,
+        )
+        self._single = SingleExecutionRunner(
             result_store,
             workspace,
             claimer,
@@ -77,9 +86,9 @@ class ExecutionRunner:
             step_executor,
             self._finalizer,
             driver_provider,
+            steps,
         )
         self._multi = MultiExecutionRunner(
-            artifacts,
             result_store,
             workspace,
             lease_heartbeat,
@@ -88,6 +97,7 @@ class ExecutionRunner:
             self._finalizer,
             operation_state,
             driver_provider,
+            steps,
         )
 
     async def run(self, execution_id: UUID) -> None:

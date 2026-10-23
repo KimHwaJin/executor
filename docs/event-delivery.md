@@ -1,19 +1,16 @@
-# Event Delivery and Recovery
+# Event Delivery and Work Admission
 
-PostgreSQL is the Execution state source of truth. Redis Streams is an at-least-once wake-up and
-notification channel populated through the Transactional Outbox. This document defines how an
-Executor replica acknowledges, reclaims, and quarantines internal work messages, while Agent
-consumers independently process integration events.
+PostgreSQL is the Execution state source of truth. Redis carries only Agent-facing event
+Streams, populated through the Transactional Outbox: `executor.events`, and
+`executor.events.{tenant_id}` for Executions submitted with a `tenant_id`. Workers do not use Redis to find
+work; they poll PostgreSQL.
 
 ## Stream boundary
 
-- `executor.work`: internal commands consumed only by the shared `executor-workers` group
 - `executor.events`: integration events consumed by an Agent-owned consumer group
-- `executor.work.dlq`: invalid internal work-message metadata
 - `executor.events.dlq`: reserved for the Agent consumer's invalid integration-event policy
 
-The two primary Streams must never share a consumer group. PostgreSQL Execution state and durable
-`execution_events` are the source of truth; Redis is not used as an Execution cache.
+Redis is not used as an Execution cache.
 
 ## Integration event contract
 
@@ -29,7 +26,7 @@ Every Executor-produced Stream entry contains:
 
 The decoded `payload` is a JSON object and does not duplicate envelope fields. Executor validates
 this contract before durable event/Outbox persistence and again immediately before Redis publication to
-`executor.events`. Trace context remains internal to Outbox publishing and Phoenix spans. See
+`executor.events`. See
 [Redis Execution Event Contract 1.0](../dev_docs/redis-execution-events.md).
 
 The sequence is allocated in the same PostgreSQL transaction as the event. A Publisher does not
@@ -54,67 +51,38 @@ with `execution_event_list` or
 `GET /api/v1/executions/{execution_id}/events?after_sequence={last}` before the later Redis event
 is applied. Normal contiguous delivery performs no recovery query.
 
-## Internal work contract
+## Work admission
 
-Internal entries use `message_id`, `message_type`, the same aggregate and trace fields, and a strict
-versioned payload. Supported message types are `operation.ready`,
-`execution.finalization_ready`, `execution.retry_ready`, and
-`execution.cancellation_ready`. The Worker never reads or acknowledges `executor.events`.
+Every Worker polls PostgreSQL once a second:
 
-## ACK and duplicate rules
+1. Every `CANCEL_REQUESTED` Execution and every running Step released for handover is dispatched.
+   These need no new Runtime capacity.
+2. `QUEUED` and `FINALIZING` Executions are dispatched only up to the Worker's free slots
+   (`EXECUTION_WORKER_MAX_ACTIVE` minus its active jobs), oldest first. A cursor rotates through
+   the backlog so Executions that cannot be placed do not starve later ones.
 
-New messages and reclaimed messages use the same processing path:
+The claim locks the Execution row with `FOR UPDATE SKIP LOCKED`, so Workers never queue behind each
+other on one row; the in-process job map suppresses a duplicate in one Worker, and the row and
+state guards allow only one Worker to create the active Attempt. A backlog therefore costs each Pod
+at most its free slots in claims per second, and new work spreads across replicas.
 
-1. Validate bounded routing metadata.
-2. Dispatch a supported command or intentionally ignore a valid notification.
-3. ACK only after the routing action succeeds.
-
-If a process dies before step 3, its entry remains in the consumer group's Pending Entries List.
-Another live replica reclaims it with bounded `XPENDING`/`XCLAIM` in an atomic Lua script
-(Redis 6.0.8 compatible). Duplicate delivery is expected: the in-process
-job map suppresses a concurrent duplicate in one replica, and PostgreSQL row/state guards allow
-only one Worker to create the active Attempt across replicas. Reconciliation independently scans
-`QUEUED` and `CANCEL_REQUESTED` rows, so correctness never depends on a Redis entry surviving.
-
-## Pending recovery settings
-
-- `EXECUTION_PENDING_CLAIM_INTERVAL_SECONDS`: how often each Worker scans for stale Pending entries
-- `EXECUTION_PENDING_CLAIM_IDLE_MILLISECONDS`: minimum idle time before ownership may move
-- `EXECUTION_PENDING_CLAIM_BATCH_SIZE`: maximum Pending entries scanned per pass;
-  only idle-enough entries are reclaimed (maximum 1,000)
-
-The claim cursor is retained between scans so a large PEL can be traversed without repeatedly
-examining only its first segment. A handler or ACK failure leaves the entry Pending for a later
-claim rather than discarding it.
-
-## Dead-letter stream
-
-Work messages with missing/invalid UUID routing fields, a non-`Execution` aggregate, an unsupported
-message type/schema version, or an invalid payload are copied to
-`REDIS_WORK_DEAD_LETTER_STREAM` and then ACKed from the Worker group. DLQ entries contain only source
-Stream/message IDs, UUIDs that passed validation, a fixed reason code, and timestamp. They
-deliberately exclude unvalidated routing text, payload, trace headers, code, outputs, and secrets.
-
-There is no automatic DLQ replay. PostgreSQL reconciliation already recovers valid Executor work.
-For producer defects, fix the producer and create a new durable command rather than copying an
-untrusted DLQ entry back to the primary Stream.
+Earlier releases also woke Workers through an `executor.work` Stream. Migration `0010` deleted the
+Outbox rows they queued and reduced the Outbox to public events only. The old `executor.work` and
+`executor.work.dlq` Redis keys are no longer read and can be deleted.
 
 ## Retention boundary
 
-The Executor retention manager runs under the singleton PostgreSQL `event_retention_lease`; only
-one replica performs a pass at a time. Every pass is bounded by `EVENT_RETENTION_BATCH_SIZE`.
+Event retention runs on one Pod per `EVENT_RETENTION_INTERVAL_SECONDS`, claimed through the
+PostgreSQL `event_retention_lease` table. Every pass is bounded by `EVENT_RETENTION_BATCH_SIZE`.
 
-- `executor.work` is trimmed only up to the most conservative age, delivered, and earliest Pending
-  boundary across its consumer groups. A Stream without a group is not trimmed.
-- `executor.events` is time-trimmed after `REDIS_EVENT_RETENTION_SECONDS`. An Agent offline beyond
+- `executor.events` and every tenant Stream are time-trimmed after
+  `REDIS_EVENT_RETENTION_SECONDS`. An Agent offline beyond
   that window recovers from durable PostgreSQL history by `event_sequence`.
-- `executor.work.dlq` is time-trimmed after `REDIS_WORK_DLQ_RETENTION_SECONDS`.
 - `executor.events.dlq` remains Agent-owned and is never modified by Executor.
 - Only `PUBLISHED` Outbox rows older than `PUBLISHED_OUTBOX_RETENTION_SECONDS` are deleted.
   Pending and failed publication state is retained.
 - Durable `execution_events` are deleted only after the Execution is terminal, its configured
   history window elapsed, and no Outbox row still references the event.
 
-Defaults are Work 3 days, Agent events 7 days, Work DLQ 30 days, published Outbox 7 days, and
-terminal Execution event history 90 days. They are configurable operational defaults rather than
-protocol guarantees.
+Defaults are Agent events 7 days, published Outbox 7 days, and terminal Execution event history
+90 days. They are configurable operational defaults rather than protocol guarantees.

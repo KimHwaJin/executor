@@ -17,7 +17,7 @@ from executor_service.domain.runtime import (
     RuntimeFileRangeError,
     RuntimeFileUnavailableError,
 )
-from executor_service.infrastructure._jupyter.file_content import (
+from executor_service.infrastructure.jupyter.file_content import (
     open_file_response,
 )
 from executor_service.infrastructure.runtime_storage import (

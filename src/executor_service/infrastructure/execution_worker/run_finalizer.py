@@ -26,6 +26,7 @@ from executor_service.domain.runtime import (
     RuntimeDriver,
     RuntimeDriverError,
 )
+from executor_service.domain.transitions import require_execution_transition
 from executor_service.infrastructure.db.models import (
     ExecutionOperationORM,
     ExecutionORM,
@@ -53,6 +54,9 @@ from executor_service.infrastructure.execution_worker.handover import (
 from executor_service.infrastructure.execution_worker.types import (
     RuntimeAbortResolution,
     StoredStepFailure,
+)
+from executor_service.infrastructure.runtime_adapters import (
+    runtime_capabilities,
 )
 from executor_service.infrastructure.runtime_diagnostics import (
     failure_message,
@@ -283,6 +287,9 @@ class ExecutionRunFinalizer:
                 if (
                     step_attempt is None
                     or step_attempt.execution_attempt_id != lease.attempt_id
+                    or not runtime_capabilities(
+                        execution.runtime_type
+                    ).execution_journal
                     or execution.runtime_session_id is None
                     or execution.runtime_abort_status
                     == RuntimeAbortStatus.PENDING
@@ -374,6 +381,7 @@ class ExecutionRunFinalizer:
             effective_retry_strategy = (
                 retry_strategy if is_failed else RetryStrategy.NOT_RETRYABLE
             )
+            require_execution_transition(execution.status, status)
             execution.status = status
             execution.error_message = error_message if is_failed else None
             execution.failure_type = effective_failure_type

@@ -1,26 +1,29 @@
 # Multi-Executor Operations
 
-Executor supports multiple Kubernetes Pods sharing PostgreSQL, Redis Streams, and the Jupyter
-registry. The Jupyter fleet—not Executor—mounts Jupyter shared storage. PostgreSQL is the execution
-source of truth; Redis only wakes a Worker.
+Executor supports multiple Kubernetes Pods sharing PostgreSQL, Redis, and the Jupyter registry.
+The Jupyter fleet—not Executor—mounts Jupyter shared storage. PostgreSQL is the execution source of
+truth and the only way Workers find work; Redis carries only Agent-facing events.
 
 ## Coordination invariants
 
-- Every process uses the same `EXECUTION_CONSUMER_GROUP` and a unique
-  `EXECUTION_CONSUMER_NAME`. Left empty, it is `<hostname>-<pid>`; in Kubernetes the hostname is
-  the Pod name, so it is unique per Pod. Never set it in a config file shared by every Pod.
-- Claiming locks the Execution row. Duplicate Redis delivery or simultaneous reconciliation can
-  therefore create only one running Attempt for an Execution.
+- Every Worker names itself `<hostname>-<pid>-<suffix>` as its lease owner; it is not
+  configurable, so no shared config can give two Pods one identity.
+- Claiming locks the Execution row with `FOR UPDATE SKIP LOCKED`. Simultaneous polling can
+  therefore create only one running Attempt, and a Pod never waits behind another on one row.
+- Each Pod runs at most `EXECUTION_WORKER_MAX_ACTIVE` Executions, so a backlog spreads across
+  replicas and costs each Pod a bounded number of claims per poll.
 - Target selection locks Runtime Target rows with `FOR UPDATE SKIP LOCKED`. The running/waiting
   Attempt count is checked while that lock is held, so concurrent Pods cannot exceed registered
   target capacity.
-- Reconciliation intentionally runs in every Pod. Losing the Redis notification does not lose the
-  Execution because an unsuccessful claim leaves it durably `QUEUED`.
-- Cancellation uses a separate PostgreSQL owner, expiry, heartbeat, and monotonic fence. Duplicate
-  notifications and reconciliation candidates cannot make two Pods own Runtime cleanup for one
-  Execution. After lease expiry, exactly one replacement Pod can continue the idempotent cleanup.
-- A Redis message is acknowledged after dispatch, not after a multi-day execution completes.
-  PostgreSQL status, leases, and reconciliation own the long-running lifecycle.
+- Work polling intentionally runs in every Pod. An unsuccessful claim leaves the Execution
+  durably `QUEUED` for the next poll.
+- Background scans (expired-lease recovery, retained-session cleanup, MULTI lifecycle audit,
+  Maintenance Run reconciliation, Runtime health probes, event retention) run on one Pod per
+  interval. Each pass claims a row in the `event_retention_lease` table, whose name predates
+  this use. Passes are safe to overlap, so a Pod that dies mid-pass only delays the next pass
+  by one interval.
+- Cancellation uses a separate PostgreSQL owner, expiry, heartbeat, and monotonic fence. Polling
+  in several Pods cannot make two Pods own Runtime cleanup for one Execution. After lease expiry, exactly one replacement Pod can continue the idempotent cleanup.
 - Executor-wide admission is a singleton PostgreSQL state. A new claim takes a shared lock on that
   row, while drain or activate takes an exclusive lock, so the drain response cannot race with a
   late claim in another Pod.
@@ -39,7 +42,7 @@ loss, one replacement resumes unfinished targets after lease expiry while stale 
 rejected.
 
 On graceful shutdown, the owning Worker first enters `DRAINING`: it rejects new claims, cancels its
-Redis intake and queue reconciliation loops, and makes `/readyz` fail through the
+queue reconciliation loop, and makes `/readyz` fail through the
 `worker_accepting` check. Already-dispatched jobs keep their heartbeats and may finish for up to
 `EXECUTION_DRAIN_TIMEOUT_SECONDS`. Other Pods continue claiming queued work from the shared
 PostgreSQL state.

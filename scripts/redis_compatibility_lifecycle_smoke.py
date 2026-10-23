@@ -92,12 +92,7 @@ async def main(
             "RUNTIME_ENABLED": "true",
             "RUNTIME_ALLOWED_PROFILES": profile,
             "RUNTIME_CREDENTIAL_KEY": Fernet.generate_key().decode(),
-            "REDIS_WORK_STREAM": stream,
             "REDIS_EVENT_STREAM": f"{stream}.events",
-            "REDIS_WORK_DEAD_LETTER_STREAM": f"{stream}.dlq",
-            "REDIS_EVENT_DEAD_LETTER_STREAM": f"{stream}.events.dlq",
-            "EXECUTION_CONSUMER_NAME": f"compat-{unique}",
-            "EXECUTION_CONSUMER_GROUP": f"compat-{unique}",
             "EXECUTOR_MCP_URL": f"http://127.0.0.1:{port}/mcp",
             "EXECUTOR_REST_URL": f"http://127.0.0.1:{port}/api/v1",
             "MCP_ALLOWED_HOSTS": f"127.0.0.1:{port},localhost:{port}",
@@ -154,12 +149,7 @@ async def main(
             await stop_executor(process)
         finally:
             try:
-                await redis.delete(
-                    stream,
-                    f"{stream}.events",
-                    f"{stream}.dlq",
-                    f"{stream}.events.dlq",
-                )
+                await redis.delete(f"{stream}.events")
             finally:
                 try:
                     await redis.aclose()
@@ -171,6 +161,4 @@ async def main(
 
 
 if __name__ == "__main__":
-    from executor_service.event_loop import run_async
-
-    run_async(main())
+    asyncio.run(main())

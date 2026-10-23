@@ -1,7 +1,7 @@
 """Executor settings.
 
 Sources, highest first: constructor arguments, environment variables,
-``.env``, ``config.{APP_ENV}.yml`` (values for one environment, when
+``.env`` (local runs only), ``config.{APP_ENV}.yml`` (values for one environment, when
 ``APP_ENV`` is set; local runs leave it unset or empty), then ``config.yml``
 (values shared by every environment, when present), both in the working
 directory. ConfigMaps and Secrets are unavailable on the platform, so the
@@ -21,8 +21,6 @@ from pydantic_settings import (
     SettingsConfigDict,
     YamlConfigSettingsSource,
 )
-
-from executor_service.domain.tenants import reserved_tenant_ids
 
 APP_ENVS = ("dev", "stg", "prd")
 
@@ -78,16 +76,8 @@ class Settings(BaseSettings):
     db_migration_statement_timeout_seconds: int = Field(default=300, ge=1)
     redis_url: SecretStr = SecretStr("redis://localhost:6379/0")
     redis_connect_timeout_seconds: float = Field(default=5, gt=0)
-    # Work consumption uses XREADGROUP BLOCK 1000; allow response overhead.
-    redis_socket_timeout_seconds: float = Field(default=5, gt=1)
-    redis_work_stream: str = Field(default="executor.work", min_length=1)
+    redis_socket_timeout_seconds: float = Field(default=5, gt=0)
     redis_event_stream: str = Field(default="executor.events", min_length=1)
-    redis_work_dead_letter_stream: str = Field(
-        default="executor.work.dlq", min_length=1
-    )
-    redis_event_dead_letter_stream: str = Field(
-        default="executor.events.dlq", min_length=1
-    )
     # Approximate per-Stream cap on every event XADD. None keeps only the
     # age-based retention below.
     redis_event_stream_maxlen: int | None = Field(default=None, ge=1)
@@ -97,11 +87,8 @@ class Settings(BaseSettings):
     outbox_shutdown_timeout_seconds: float = Field(default=10, gt=0)
     event_retention_enabled: bool = True
     event_retention_interval_seconds: float = Field(default=3600, gt=0)
-    event_retention_lease_seconds: int = Field(default=300, ge=30)
     event_retention_batch_size: int = Field(default=1000, ge=1, le=10000)
-    redis_work_retention_seconds: int = Field(default=259200, ge=3600)
     redis_event_retention_seconds: int = Field(default=604800, ge=3600)
-    redis_work_dlq_retention_seconds: int = Field(default=2592000, ge=3600)
     published_outbox_retention_seconds: int = Field(default=604800, ge=3600)
     execution_event_retention_seconds: int = Field(default=7776000, ge=3600)
 
@@ -139,11 +126,9 @@ class Settings(BaseSettings):
     execution_file_spec_max_bytes: int = Field(default=52428800, ge=1)
     execution_max_steps_per_operation: int = Field(default=100, ge=1)
     execution_max_steps_per_execution: int = Field(default=1000, ge=1)
-    execution_consumer_group: str = "executor-workers"
-    execution_consumer_name: str = ""
-    execution_pending_claim_interval_seconds: float = Field(default=5, gt=0)
-    execution_pending_claim_idle_milliseconds: int = Field(default=30000, ge=1)
-    execution_pending_claim_batch_size: int = Field(default=100, ge=1, le=1000)
+    # Executions one Worker runs at once. Keeps a backlog's claims bounded
+    # and spreads work across replicas.
+    execution_worker_max_active: int = Field(default=20, ge=1)
     execution_lease_seconds: int = Field(default=60, ge=30)
     execution_heartbeat_seconds: int = Field(default=15, ge=5)
     execution_drain_timeout_seconds: float = Field(default=30, ge=0)
@@ -170,10 +155,12 @@ class Settings(BaseSettings):
             YamlConfigSettingsSource(settings_cls, yaml_file=path)
             for path in config_files()
         ]
+        # A developer's .env must never leak into an image-built environment.
+        dotenv = () if os.environ.get("APP_ENV") else (dotenv_settings,)
         return (
             init_settings,
             env_settings,
-            dotenv_settings,
+            *dotenv,
             *files,
             file_secret_settings,
         )
@@ -211,21 +198,11 @@ class Settings(BaseSettings):
         return value
 
     @model_validator(mode="after")
-    def validate_redis_streams(self) -> Self:
+    def validate_settings(self) -> Self:
         if self.execution_heartbeat_seconds >= self.execution_lease_seconds:
             raise ValueError(
                 "EXECUTION_HEARTBEAT_SECONDS must be less than "
                 "EXECUTION_LEASE_SECONDS."
-            )
-        stream_names = {
-            self.redis_work_stream,
-            self.redis_event_stream,
-            self.redis_work_dead_letter_stream,
-            self.redis_event_dead_letter_stream,
-        }
-        if len(stream_names) != 4:
-            raise ValueError(
-                "Redis work, event, and dead-letter Stream names must be distinct."
             )
         if not self.runtime_allowed_profiles:
             raise ValueError(
@@ -258,19 +235,6 @@ class Settings(BaseSettings):
     @property
     def database_dsn(self) -> str:
         return self.database_url.get_secret_value()
-
-    @property
-    def reserved_tenant_ids(self) -> frozenset[str]:
-        """Tenant ids whose event Stream would collide with an internal one."""
-
-        return reserved_tenant_ids(
-            self.redis_event_stream,
-            (
-                self.redis_work_stream,
-                self.redis_work_dead_letter_stream,
-                self.redis_event_dead_letter_stream,
-            ),
-        )
 
     @property
     def redis_dsn(self) -> str:

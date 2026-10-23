@@ -4,7 +4,6 @@ import asyncio
 import logging
 
 from executor_service.domain.enums import (
-    ArtifactStatus,
     ExecutionStatus,
     FailureType,
     RetryStrategy,
@@ -13,11 +12,9 @@ from executor_service.domain.enums import (
 from executor_service.domain.models import Execution
 from executor_service.domain.results import ExecutionResultStore
 from executor_service.domain.runtime import (
-    ExecutionCompletionError,
     RuntimeDriverError,
     RuntimeExecutionError,
 )
-from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.models import RuntimeTargetORM
 from executor_service.infrastructure.execution_leases import (
     ExecutionLease,
@@ -49,11 +46,11 @@ from executor_service.infrastructure.execution_worker.runtime_calls import (
     RuntimeDriverProvider,
     run_runtime_operation,
 )
-from executor_service.infrastructure.execution_worker.runtime_cleanup import (
-    best_effort_session_stop,
-)
 from executor_service.infrastructure.execution_worker.step_executor import (
     ExecutionStepExecutor,
+)
+from executor_service.infrastructure.execution_worker.step_flow import (
+    StepFlow,
 )
 from executor_service.infrastructure.execution_worker.types import (
     RetainedRuntimeSessionLostError,
@@ -66,7 +63,6 @@ from executor_service.infrastructure.runtime_diagnostics import (
     log_runtime_failure,
 )
 from executor_service.infrastructure.workspace import WorkspaceManager
-from executor_service.settings import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -76,8 +72,6 @@ class SingleExecutionRunner:
 
     def __init__(
         self,
-        settings: Settings,
-        artifacts: ExecutionArtifactManager,
         result_store: ExecutionResultStore,
         workspace: WorkspaceManager,
         claimer: ExecutionClaimer,
@@ -86,9 +80,8 @@ class SingleExecutionRunner:
         step_executor: ExecutionStepExecutor,
         finalizer: ExecutionRunFinalizer,
         driver_provider: RuntimeDriverProvider,
+        steps: StepFlow,
     ) -> None:
-        self._settings = settings
-        self._artifacts = artifacts
         self._result_store = result_store
         self._workspace = workspace
         self._claimer = claimer
@@ -97,6 +90,7 @@ class SingleExecutionRunner:
         self._step_executor = step_executor
         self._finalizer = finalizer
         self._driver_provider = driver_provider
+        self._steps = steps
 
     async def run(
         self,
@@ -203,65 +197,41 @@ class SingleExecutionRunner:
                 )
             if runtime_session_id is None or start_sequence is None:
                 raise RuntimeError("Runtime session ID was not established.")
+            profile = execution.runtime_profile
             for sequence in range(start_sequence, len(cells)):
-                code = cells[sequence]
                 if taken_over is not None:
                     step_run, step_handover = taken_over, handover
                     taken_over = None
                 else:
-                    step_run = await self._step_executor.mark_started(
-                        lease,
-                        sequence,
-                        await self._artifacts.snapshot(driver, workspace),
+                    step_run = await self._steps.start(
+                        driver, workspace, lease, sequence
                     )
                     step_handover = None
-                artifact_snapshot = step_run.artifact_baseline
                 run_in_flight = step_run
                 try:
-                    result = await run_runtime_operation(
-                        "executor.runtime.code.execute",
-                        self._step_executor.execute(
-                            driver,
-                            runtime_session_id,
-                            code,
-                            run=step_run,
-                            result_identity=self._step_executor.result_identity(
-                                steps_by_sequence[sequence], lease
-                            ),
-                            lease=lease,
-                            source_reference=source_references[sequence],
-                            handover=step_handover,
-                        ),
-                        execution_id=execution.id,
+                    result = await self._steps.execute(
+                        driver,
+                        runtime_session_id,
+                        cells[sequence],
+                        step=steps_by_sequence[sequence],
+                        run=step_run,
+                        lease=lease,
+                        source_reference=source_references[sequence],
+                        handover=step_handover,
                         target_id=target.id,
-                        sequence=sequence,
                     )
                 except asyncio.CancelledError:
-                    if self._step_executor.shutting_down:
-                        # The next Worker registers this Step's Artifacts.
-                        raise
-                    # A user cancellation or Worker drain can interrupt a cell after it has
-                    # written files. Preserve those files as incomplete execution evidence
-                    # before the outer cancellation path tears down the Runtime session.
-                    try:
-                        await self._artifacts.discover_and_register(
-                            driver=driver,
-                            workspace=workspace,
-                            before=artifact_snapshot,
-                            lease=lease,
-                            sequence=sequence,
-                            status=ArtifactStatus.INCOMPLETE,
-                            allow_cancel_requested=True,
-                        )
-                    except Exception as artifact_exc:
-                        await self._finalizer.record_artifact_failure(
+                    if not self._step_executor.shutting_down:
+                        # Keep files the interrupted cell wrote before the
+                        # cancellation path tears down the session. On
+                        # shutdown the next Worker registers them instead.
+                        await self._steps.register_incomplete(
+                            driver,
+                            workspace,
                             lease,
                             sequence,
-                            artifact_exc,
-                        )
-                        logger.warning(
-                            "Cancelled-cell Artifact registration failed",
-                            extra={"execution_id": str(execution.id)},
+                            step_run.artifact_baseline,
+                            allow_cancel_requested=True,
                         )
                     raise
                 except (
@@ -273,40 +243,20 @@ class SingleExecutionRunner:
                 except StoredRuntimeExecutionError as exc:
                     failed_sequence = sequence
                     await self._step_executor.mark_failed(
-                        lease,
-                        sequence,
-                        exc.stored_result,
-                        str(exc),
+                        lease, sequence, exc.stored_result, str(exc)
                     )
                     run_in_flight = None
                     await self._step_executor.release(
                         driver, runtime_session_id, step_run
                     )
-                    await self._notebook_projector.project_after_failure(
+                    await self._steps.record_failure_evidence(
                         driver,
-                        lease,
-                        execution.runtime_profile,
                         workspace,
+                        profile,
+                        lease,
+                        sequence,
+                        step_run.artifact_baseline,
                     )
-                    try:
-                        await self._artifacts.discover_and_register(
-                            driver=driver,
-                            workspace=workspace,
-                            before=artifact_snapshot,
-                            lease=lease,
-                            sequence=sequence,
-                            status=ArtifactStatus.INCOMPLETE,
-                        )
-                    except Exception as artifact_exc:
-                        await self._finalizer.record_artifact_failure(
-                            lease,
-                            sequence,
-                            artifact_exc,
-                        )
-                        logger.warning(
-                            "Incomplete Artifact registration failed",
-                            extra={"execution_id": str(execution.id)},
-                        )
                     raise
                 except StoredStepFailure as exc:
                     failed_sequence = sequence
@@ -323,95 +273,32 @@ class SingleExecutionRunner:
                         )
                     raise
                 await self._step_executor.mark_succeeded(
-                    lease,
-                    sequence,
-                    result,
+                    lease, sequence, result
                 )
                 run_in_flight = None
-                await self._step_executor.release(
-                    driver, runtime_session_id, step_run
-                )
-                await self._notebook_projector.project_required(
+                await self._steps.publish_success(
                     driver,
-                    lease,
-                    execution.runtime_profile,
+                    runtime_session_id,
                     workspace,
+                    profile,
+                    lease,
+                    step_run,
                 )
-                try:
-                    await self._artifacts.discover_and_register(
-                        driver=driver,
-                        workspace=workspace,
-                        before=artifact_snapshot,
-                        lease=lease,
-                        sequence=sequence,
-                        status=ArtifactStatus.AVAILABLE,
-                    )
-                except ExecutionLeaseLostError:
-                    raise
-                except Exception as artifact_exc:
-                    await self._finalizer.record_artifact_failure(
-                        lease,
-                        sequence,
-                        artifact_exc,
-                    )
-                    raise ExecutionCompletionError(
-                        "ARTIFACT_REGISTER"
-                    ) from artifact_exc
-            await self._lease_heartbeat.assert_execution(lease)
-            await run_runtime_operation(
-                "executor.runtime.session.delete",
-                self._finalizer.release_completed_session(
-                    lease, driver, runtime_session_id
-                ),
-                execution_id=execution.id,
-                target_id=target.id,
-            )
-            await self._finalizer.finalize(
-                lease,
-                ExecutionStatus.SUCCEEDED,
-                runtime_session_cleanup_status=RuntimeSessionCleanupStatus.SUCCEEDED,
+            await self._steps.complete_session(
+                driver, runtime_session_id, lease, target.id
             )
         except asyncio.CancelledError:
-            if await self._finalizer.cancellation_owns_terminal(execution.id):
-                # The replacement cancellation job exclusively owns Runtime cleanup and the
-                # CANCELLED transition. This execution job only preserves cell evidence.
-                await self._finalizer.release_for_cancellation(lease)
+            if await self._steps.hand_off_cancelled(lease, run_in_flight):
                 raise
-            if (
-                self._step_executor.shutting_down
-                and run_in_flight is not None
-                and await self._finalizer.release_for_handover(lease)
-            ):
-                # The kernel keeps running; another Worker follows it.
-                raise
-            cleanup_status = RuntimeSessionCleanupStatus.NOT_REQUIRED
-            if (
-                runtime_session_id is not None
-                and await self._lease_heartbeat.owns_execution(lease)
-            ):
-                try:
-                    async with asyncio.timeout(
-                        self._settings.execution_shutdown_cleanup_seconds
-                    ):
-                        cleanup_status = await best_effort_session_stop(
-                            driver,
-                            runtime_session_id,
-                            lease=lease,
-                            diagnostics=self._finalizer.diagnostics,
-                        )
-                except TimeoutError:
-                    cleanup_status = RuntimeSessionCleanupStatus.FAILED
-                    logger.warning(
-                        "Runtime session cleanup exceeded the Worker shutdown deadline",
-                        extra={"execution_id": str(execution.id)},
-                    )
             await self._finalizer.finalize(
                 lease,
                 ExecutionStatus.FAILED,
                 "Executor worker stopped while the execution was running.",
                 failure_type=FailureType.WORKER_SHUTDOWN,
                 retry_strategy=RetryStrategy.FROM_START,
-                runtime_session_cleanup_status=cleanup_status,
+                runtime_session_cleanup_status=await self._steps.stop_session(
+                    driver, runtime_session_id, lease
+                ),
             )
             raise
         except (
@@ -422,52 +309,17 @@ class SingleExecutionRunner:
                 raise RuntimeError(
                     "Runtime abort workflow has no active session or Step."
                 ) from exc
-            failure_type = (
-                FailureType.OUTPUT_LIMIT_EXCEEDED
-                if isinstance(exc, StoredRuntimeOutputLimitExceededError)
-                else (
-                    FailureType.STEP_TIMEOUT
-                    if exc.scope == "Step"
-                    else FailureType.OPERATION_TIMEOUT
-                )
+            failure_type, resolution = await self._steps.abort(
+                driver, runtime_session_id, lease, failed_sequence, exc
             )
-            resolution = await self._finalizer.resolve_runtime_abort(
-                lease,
+            await self._steps.record_failure_evidence(
                 driver,
-                runtime_session_id,
-                failure_type,
-            )
-            await self._step_executor.mark_failed(
+                workspace,
+                execution.runtime_profile,
                 lease,
                 failed_sequence,
-                exc.stored_result,
-                str(exc),
+                step_run.artifact_baseline,
             )
-            await self._notebook_projector.project_after_failure(
-                driver,
-                lease,
-                execution.runtime_profile,
-                workspace,
-            )
-            try:
-                await self._artifacts.discover_and_register(
-                    driver=driver,
-                    workspace=workspace,
-                    before=artifact_snapshot,
-                    lease=lease,
-                    sequence=failed_sequence,
-                    status=ArtifactStatus.INCOMPLETE,
-                )
-            except Exception as artifact_exc:
-                await self._finalizer.record_artifact_failure(
-                    lease,
-                    failed_sequence,
-                    artifact_exc,
-                )
-                logger.warning(
-                    "Aborted-step Artifact registration failed",
-                    extra={"execution_id": str(execution.id)},
-                )
             await self._finalizer.finalize(
                 lease,
                 ExecutionStatus.FAILED,
@@ -479,15 +331,7 @@ class SingleExecutionRunner:
                 runtime_session_cleanup_status=resolution.cleanup_status,
             )
         except ExecutionLeaseLostError:
-            logger.warning(
-                "Execution Worker lost its lease fence; stale results "
-                "were discarded",
-                extra={
-                    "execution_id": str(lease.execution_id),
-                    "execution_attempt_id": str(lease.attempt_id),
-                    "fencing_token": lease.fencing_token,
-                },
-            )
+            self._steps.log_lease_lost(lease)
         except Exception as exc:
             await self._finalizer.record_execution_failure(lease, exc)
             log_runtime_failure(
@@ -506,18 +350,6 @@ class SingleExecutionRunner:
                 and failed_sequence is not None
             )
             failure_type, retry_strategy = _failure_policy(exc, retain_session)
-            cleanup_status = RuntimeSessionCleanupStatus.NOT_REQUIRED
-            if (
-                runtime_session_id is not None
-                and not retain_session
-                and await self._lease_heartbeat.owns_execution(lease)
-            ):
-                cleanup_status = await best_effort_session_stop(
-                    driver,
-                    runtime_session_id,
-                    lease=lease,
-                    diagnostics=self._finalizer.diagnostics,
-                )
             await self._finalizer.finalize(
                 lease,
                 ExecutionStatus.FAILED,
@@ -526,10 +358,15 @@ class SingleExecutionRunner:
                 retry_from_sequence=failed_sequence,
                 failure_type=failure_type,
                 retry_strategy=retry_strategy,
-                runtime_session_cleanup_status=cleanup_status,
+                runtime_session_cleanup_status=(
+                    RuntimeSessionCleanupStatus.NOT_REQUIRED
+                    if retain_session
+                    else await self._steps.stop_session(
+                        driver, runtime_session_id, lease
+                    )
+                ),
             )
         finally:
-            if heartbeat is not None:
-                heartbeat.cancel()
-                await asyncio.gather(heartbeat, return_exceptions=True)
+            heartbeat.cancel()
+            await asyncio.gather(heartbeat, return_exceptions=True)
             await driver.close()

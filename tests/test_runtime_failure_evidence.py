@@ -57,10 +57,10 @@ from executor_service.infrastructure.result_storage import (
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
 )
-from executor_service.interfaces._contracts.diagnostics import (
+from executor_service.interfaces.contracts.diagnostics import (
     ExecutionDiagnosticPageResponse,
 )
-from executor_service.interfaces._contracts.steps import ExecutionStepResponse
+from executor_service.interfaces.contracts.steps import ExecutionStepResponse
 from executor_service.settings import Settings
 from tests.result_evidence_assertions import assert_result_evidence_surfaces
 from tests.runtime_credentials import runtime_credential_fields
@@ -204,14 +204,13 @@ async def test_failures_preserve_state_reason_partial_refs_and_operator_logs(
         monkeypatch.setattr(store, storage_fault, fail_storage)
     driver = EvidenceDriver(fault, cleanup_failure)
     monkeypatch.setattr(
-        "executor_service.infrastructure.runtime_drivers.JupyterRuntimeDriver",
+        "executor_service.infrastructure.runtime_adapters.JupyterRuntimeDriver",
         lambda *_args, **_kwargs: driver,
     )
     settings = Settings(runtime_enabled=False, shared_storage_root=tmp_path)
     redis = Redis.from_url("redis://127.0.0.1:6379/15", decode_responses=True)
     worker = ExecutionWorker(
         session_factory=factory,
-        redis=redis,
         settings=settings,
         registry=RuntimeTargetRegistry(factory, settings),
         artifact_manager=ExecutionArtifactManager(factory),

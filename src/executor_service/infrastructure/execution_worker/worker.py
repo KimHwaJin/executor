@@ -1,12 +1,13 @@
-"""Redis-triggered Runtime execution worker with PostgreSQL leases."""
+"""Runtime execution worker driven by PostgreSQL state and leases."""
 
 import asyncio
 import logging
 import os
 import socket
+from collections.abc import Awaitable, Callable
 from datetime import datetime
+from uuid import uuid4
 
-from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from executor_service.domain.models import (
@@ -19,6 +20,9 @@ from executor_service.domain.runtime import (
     RuntimeDriverFactory,
 )
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
+from executor_service.infrastructure.cluster_passes import (
+    run_cluster_pass_loop,
+)
 from executor_service.infrastructure.execution_worker.cancellation import (
     CancellationProcessor,
 )
@@ -55,9 +59,6 @@ from executor_service.infrastructure.execution_worker.session_recovery import (
 from executor_service.infrastructure.execution_worker.step_executor import (
     ExecutionStepExecutor,
 )
-from executor_service.infrastructure.execution_worker.stream_consumer import (
-    WorkStreamConsumer,
-)
 from executor_service.infrastructure.execution_worker.target_selector import (
     RuntimeTargetSelector,
 )
@@ -70,8 +71,8 @@ from executor_service.infrastructure.maintenance_runs import (
 from executor_service.infrastructure.result_storage import (
     FilesystemExecutionResultStore,
 )
-from executor_service.infrastructure.runtime_drivers import (
-    ConfiguredRuntimeDriverFactory,
+from executor_service.infrastructure.runtime_adapters import (
+    RuntimeAdapterRegistry,
 )
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
@@ -83,12 +84,13 @@ from executor_service.settings import Settings
 
 logger = logging.getLogger(__name__)
 
+RECONCILE_INTERVAL_SECONDS = 1
+
 
 class ExecutionWorker:
     def __init__(
         self,
         session_factory: async_sessionmaker[AsyncSession],
-        redis: Redis,
         settings: Settings,
         registry: RuntimeTargetRegistry,
         artifact_manager: ExecutionArtifactManager,
@@ -98,8 +100,8 @@ class ExecutionWorker:
     ) -> None:
         self._session_factory = session_factory
         self._settings = settings
-        resolved_driver_factory = (
-            driver_factory or ConfiguredRuntimeDriverFactory(settings)
+        resolved_driver_factory = driver_factory or RuntimeAdapterRegistry(
+            settings
         )
         self._driver_provider = RuntimeDriverProvider(
             registry,
@@ -121,14 +123,15 @@ class ExecutionWorker:
             session_factory,
             self._result_store,
         )
-        self._consumer_name = settings.execution_consumer_name or (
-            f"{socket.gethostname()}-{os.getpid()}"
+        # Lease owner identity: unique per Worker, so never configurable.
+        self._worker_id = (
+            f"{socket.gethostname()}-{os.getpid()}-{uuid4().hex[:8]}"
         )
         self._target_selector = RuntimeTargetSelector(settings)
         self._claimer = ExecutionClaimer(
             session_factory,
             settings,
-            self._consumer_name,
+            self._worker_id,
             self._target_selector,
         )
         self._lease_heartbeat = LeaseHeartbeatManager(
@@ -172,12 +175,7 @@ class ExecutionWorker:
             self._dispatcher,
             self._runner,
             self._cancellation,
-        )
-        self._stream_consumer = WorkStreamConsumer(
-            redis,
-            settings,
-            self._consumer_name,
-            self._work_admission.handle_message,
+            max_active_jobs=settings.execution_worker_max_active,
         )
         self._multi_lifecycle = MultiLifecycleAuditor(
             session_factory,
@@ -194,6 +192,10 @@ class ExecutionWorker:
         self._startup_reconciliation_completed_at: datetime | None = None
         self._startup_recovered_execution_count = 0
         self._startup_cleanup_target_count = 0
+
+    @property
+    def worker_id(self) -> str:
+        return self._worker_id
 
     @property
     def accepting_work(self) -> bool:
@@ -232,7 +234,6 @@ class ExecutionWorker:
             or self._maintenance_loops
         ):
             return
-        await self._stream_consumer.ensure_group()
         self._stop_event.clear()
         self._step_executor.set_shutting_down(False)
         self._stopped = False
@@ -256,17 +257,28 @@ class ExecutionWorker:
         self._startup_cleanup_target_count = len(
             startup_recovery.cleanup_targets
         )
+        diagnostics = self._session_recovery.diagnostics
         self._maintenance_loops = [
-            asyncio.create_task(
-                self._lease_recovery_loop(), name="execution-lease-recovery"
+            self._cluster_pass(
+                "lease-recovery",
+                self._lease_recovery.recover,
+                lambda exc: diagnostics.log_loop_failure(
+                    exc, phase="LEASE_RECOVERY_SCAN"
+                ),
             ),
-            asyncio.create_task(
-                self._retained_runtime_session_cleanup_loop(),
-                name="retained-session-cleanup",
+            self._cluster_pass(
+                "retained-session-cleanup",
+                self._retained_session_cleaner.reconcile,
+                lambda exc: diagnostics.log_loop_failure(
+                    exc, phase="RETAINED_CLEANUP_SCAN"
+                ),
             ),
-            asyncio.create_task(
-                self._multi_lifecycle_loop(),
-                name="multi-lifecycle-auditor",
+            self._cluster_pass(
+                "multi-lifecycle-audit",
+                self._multi_lifecycle.audit,
+                lambda exc: diagnostics.log_loop_failure(
+                    exc, phase="MULTI_LIFECYCLE_SCAN"
+                ),
             ),
         ]
         if startup_recovery.cleanup_targets:
@@ -279,22 +291,18 @@ class ExecutionWorker:
                 )
             )
         if self._maintenance_runs is not None:
+            maintenance_runs = self._maintenance_runs
             self._maintenance_loops.append(
-                asyncio.create_task(
-                    self._maintenance_run_loop(),
-                    name="maintenance-run-reconciler",
+                self._cluster_pass(
+                    "maintenance-runs",
+                    lambda: maintenance_runs.reconcile_once(self._worker_id),
+                    lambda _exc: logger.exception(
+                        "Maintenance Run reconciliation failed"
+                    ),
                 )
             )
         self._dispatcher.set_accepting(True)
         self._admission_loops = [
-            asyncio.create_task(
-                self._stream_consumer.run(self._stop_event),
-                name="execution-stream-consumer",
-            ),
-            asyncio.create_task(
-                self._stream_consumer.pending_recovery_loop(self._stop_event),
-                name="execution-pending-recovery",
-            ),
             asyncio.create_task(
                 self._reconcile_loop(), name="execution-reconciler"
             ),
@@ -353,54 +361,24 @@ class ExecutionWorker:
                 raise
             except Exception:
                 logger.exception("Execution reconciliation failed")
-            await asyncio.sleep(2)
+            await asyncio.sleep(RECONCILE_INTERVAL_SECONDS)
 
-    async def _lease_recovery_loop(self) -> None:
-        while not self._stop_event.is_set():
-            try:
-                await self._lease_recovery.recover()
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:
-                self._session_recovery.diagnostics.log_loop_failure(
-                    exc, phase="LEASE_RECOVERY_SCAN"
-                )
-            await asyncio.sleep(self._settings.execution_heartbeat_seconds)
-
-    async def _retained_runtime_session_cleanup_loop(self) -> None:
-        while not self._stop_event.is_set():
-            try:
-                await self._retained_session_cleaner.reconcile()
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:
-                self._session_recovery.diagnostics.log_loop_failure(
-                    exc, phase="RETAINED_CLEANUP_SCAN"
-                )
-            await asyncio.sleep(self._settings.execution_heartbeat_seconds)
-
-    async def _multi_lifecycle_loop(self) -> None:
-        while not self._stop_event.is_set():
-            try:
-                await self._multi_lifecycle.audit()
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:
-                self._session_recovery.diagnostics.log_loop_failure(
-                    exc, phase="MULTI_LIFECYCLE_SCAN"
-                )
-            await asyncio.sleep(self._settings.execution_heartbeat_seconds)
-
-    async def _maintenance_run_loop(self) -> None:
-        if self._maintenance_runs is None:
-            return
-        while not self._stop_event.is_set():
-            try:
-                await self._maintenance_runs.reconcile_once(
-                    self._consumer_name
-                )
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                logger.exception("Maintenance Run reconciliation failed")
-            await asyncio.sleep(self._settings.execution_heartbeat_seconds)
+    def _cluster_pass(
+        self,
+        key: str,
+        run_pass: Callable[[], Awaitable[object]],
+        on_error: Callable[[Exception], None],
+    ) -> asyncio.Task[None]:
+        # Passes scan shared PostgreSQL state, so one Pod per interval is
+        # enough; running them everywhere only multiplies the load.
+        return asyncio.create_task(
+            run_cluster_pass_loop(
+                self._session_factory,
+                key=key,
+                owner=self._worker_id,
+                interval_seconds=self._settings.execution_heartbeat_seconds,
+                run_pass=run_pass,
+                on_error=on_error,
+            ),
+            name=key,
+        )

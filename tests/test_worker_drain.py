@@ -1,11 +1,9 @@
 import asyncio
 from pathlib import Path
-from typing import Any, cast
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
-from redis.asyncio import Redis
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -22,20 +20,6 @@ from executor_service.infrastructure.runtime_registry import (
 from executor_service.settings import Settings
 
 
-class IdleRedis:
-    async def xgroup_create(self, *_args: Any, **_kwargs: Any) -> None:
-        pass
-
-    async def xreadgroup(self, *_args: Any, **_kwargs: Any) -> list[Any]:
-        await asyncio.Event().wait()
-        return []
-
-    async def execute_command(
-        self, *_args: Any, **_kwargs: Any
-    ) -> tuple[str, list[Any], list[Any]]:
-        return "0-0", [], []
-
-
 def _worker(
     engine: AsyncEngine,
     tmp_path: Path,
@@ -46,12 +30,10 @@ def _worker(
         runtime_enabled=True,
         shared_storage_root=tmp_path,
         execution_drain_timeout_seconds=drain_timeout,
-        execution_pending_claim_interval_seconds=60,
     )
     session_factory = create_session_factory(engine)
     return ExecutionWorker(
         session_factory=session_factory,
-        redis=cast(Redis, IdleRedis()),
         settings=settings,
         registry=RuntimeTargetRegistry(session_factory, settings),
         artifact_manager=ExecutionArtifactManager(session_factory),
@@ -202,19 +184,19 @@ async def test_readiness_fails_as_soon_as_worker_enters_drain(
             text("CREATE TABLE alembic_version (version_num VARCHAR(32))")
         )
         await connection.execute(
-            text("INSERT INTO alembic_version VALUES ('0008')")
+            text("INSERT INTO alembic_version VALUES ('0010')")
         )
-    monkeypatch.setattr(container.redis, "ping", AsyncMock(return_value=True))
+    monkeypatch.setattr(
+        container.redis, "ping", AsyncMock(side_effect=ConnectionError)
+    )
     container.execution_worker._stopped = False
     container.execution_worker._dispatcher.set_accepting(True)
 
     try:
         initial_checks = await container.readiness()
-        assert initial_checks == {
-            "postgresql": True,
-            "redis": True,
-            "worker_accepting": True,
-        }
+        # A Redis outage does not make the Pod unready.
+        assert initial_checks == {"postgresql": True, "worker_accepting": True}
+        assert await container.redis_reachable() is False
         await container.execution_worker.begin_drain()
         checks = await container.readiness()
     finally:

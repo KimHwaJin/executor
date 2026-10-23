@@ -20,7 +20,6 @@ from local_test_support import (
 )
 from mcp import Client
 from redis.asyncio import Redis
-from redis.exceptions import ResponseError
 
 TERMINAL_STATUSES = {"SUCCEEDED", "FAILED", "CANCELLED"}
 
@@ -202,9 +201,7 @@ async def _redis_snapshot(execution_id: str) -> dict[str, Any]:
         "LOCAL_TEST_REDIS_URL",
         os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0"),
     )
-    work_stream = os.getenv("REDIS_WORK_STREAM", "executor.work")
     event_stream = os.getenv("REDIS_EVENT_STREAM", "executor.events")
-    work_group = os.getenv("EXECUTION_CONSUMER_GROUP", "executor-workers")
     redis = Redis.from_url(redis_url, decode_responses=True)
     try:
         entries = await redis.xrange(event_stream)
@@ -213,16 +210,9 @@ async def _redis_snapshot(execution_id: str) -> dict[str, Any]:
             for _, fields in entries
             if fields.get("execution_id") == execution_id
         )
-        try:
-            pending = await redis.xpending(work_stream, work_group)
-            pending_count = int(pending.get("pending", 0))
-        except ResponseError:
-            pending_count = 0
         return {
-            "work_stream": work_stream,
             "event_stream": event_stream,
             "matching_event_count": matching_events,
-            "work_pending_count": pending_count,
         }
     finally:
         await redis.aclose()
@@ -447,13 +437,6 @@ async def main() -> None:
         raise RuntimeError(
             "Redis event count is smaller than the published integration Outbox count: "
             f"{redis_snapshot} vs {len(events)}"
-        )
-    if (
-        env_bool("SOAK_REQUIRE_EMPTY_WORK_PENDING", True)
-        and redis_snapshot["work_pending_count"]
-    ):
-        raise RuntimeError(
-            f"Redis work Stream still has pending messages: {redis_snapshot}"
         )
 
     report = write_report(

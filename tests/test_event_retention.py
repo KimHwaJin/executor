@@ -18,7 +18,6 @@ from executor_service.domain.enums import (
     TriggerType,
 )
 from executor_service.domain.models import utc_now
-from executor_service.events import build_execution_event
 from executor_service.infrastructure.db.models import (
     ExecutionEventORM,
     ExecutionORM,
@@ -28,6 +27,7 @@ from executor_service.infrastructure.db.session import create_session_factory
 from executor_service.infrastructure.event_retention import (
     EventRetentionManager,
 )
+from executor_service.infrastructure.events import build_execution_event
 from executor_service.infrastructure.execution_queries import (
     SQLAlchemyExecutionQueryService,
 )
@@ -61,9 +61,7 @@ def _settings() -> Settings:
     return Settings(
         runtime_enabled=False,
         event_retention_interval_seconds=3600,
-        redis_work_retention_seconds=3 * 24 * 3600,
         redis_event_retention_seconds=7 * 24 * 3600,
-        redis_work_dlq_retention_seconds=30 * 24 * 3600,
         published_outbox_retention_seconds=7 * 24 * 3600,
         execution_event_retention_seconds=90 * 24 * 3600,
     )
@@ -112,7 +110,6 @@ async def test_published_outbox_expires_before_durable_event_history(
     manager = EventRetentionManager(
         session_factory, cast(Redis, redis), _settings()
     )
-    await manager.initialize()
     result = await manager.run_once()
 
     assert result is not None
@@ -194,7 +191,6 @@ async def test_terminal_event_history_expires_only_without_outbox_reference(
         cast(Redis, RecordingRetentionRedis()),
         _settings(),
     )
-    await manager.initialize()
     result = await manager.run_once()
 
     assert result is not None
@@ -210,16 +206,19 @@ async def test_terminal_event_history_expires_only_without_outbox_reference(
     assert [event.id for event in remaining] == [retained.id]
 
 
-async def test_work_trim_requests_atomic_group_protection(
+async def test_event_trim_is_bounded(
     engine: AsyncEngine,
 ) -> None:
+    session_factory = create_session_factory(engine)
     redis = RecordingRetentionRedis()
     manager = EventRetentionManager(
-        create_session_factory(engine), cast(Redis, redis), _settings()
+        session_factory, cast(Redis, redis), _settings()
     )
 
-    assert await manager._trim_work_stream() == 0
+    result = await manager.run_once()
+    assert result is not None
+    assert result.published_outbox_deleted == 0
     assert len(redis.trim_calls) == 1
     assert redis.trim_calls[0][0] == "EVAL"
-    assert redis.trim_calls[0][3] == "executor.work"
-    assert redis.trim_calls[0][-2:] == (1000, 1)
+    assert redis.trim_calls[0][3] == "executor.events"
+    assert redis.trim_calls[0][-1] == 1000

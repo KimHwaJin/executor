@@ -47,30 +47,28 @@ uv run python scripts/backend_compatibility_check.py --report /tmp/backend-check
 1. **기존 DB 읽기 전용 검사**: 접속, 서버 버전, 현재 Alembic HEAD 일치,
    ORM에서 요구하는 테이블·컬럼 존재. 같은 revision인데 컬럼이 빠진 경우도 실패한다.
 2. **Redis 실동작**: PING, INFO, COMMAND INFO, EVAL 및 Lua 안에서 필요한 명령 권한.
-   Streams 그룹 생성, 쓰기, 수신, ACK, Pending 회수, 본문이 삭제된 Pending 정리,
-   미처리·미수신 작업 보호 및 보존기간 삭제를 실제 서비스 함수로 확인한다.
+   Stream 쓰기와 보존기간 삭제(경계 이전만 삭제)를 실제 서비스 함수로 확인한다.
 3. **격리 DB 초기화**: 같은 DB 안에 임시 스키마를 만들고 실제 Alembic 마이그레이션을
    처음부터 실행한다. 운영 스키마로 fallback하지 않는 독립 `search_path`를 사용한다.
 4. **실제 서비스 처리 한 바퀴**:
-   `submit → DB/Outbox → Redis work → Worker 수신/ACK → cancel → DB CANCELLED
-   → Outbox → Redis events → 외부 소비자 수신/ACK`.
+   `submit → DB → Worker claim → cancel → DB CANCELLED → Outbox → Redis events
+   → 외부 소비자 수신/ACK`.
    Submit/cancel 멱등성, Operation/Step 상태, 이벤트 ID·내용·순번과 DB 원본의 일치도
    검증한다. 런타임을 등록하지 않아 최초 작업은 QUEUED로 남고, 해당 작업을 취소한다.
-5. **잘못된 메시지 및 정리**: 실제 Worker의 DLQ 저장 후 ACK, 보존기간 관리자의
-   DB lease와 정리 SQL, 최신 이력 보호 및 만료된 테스트 이력 삭제까지 검증한다.
+5. **정리**: 보존기간 관리자의 DB lease와 정리 SQL, 최신 이력 보호 및 만료된 테스트
+   이력 삭제까지 검증한다.
 6. 성공/실패와 무관하게 **이번 실행에서 만든 스키마·Redis 키·로컬 임시 파일만 정리**한다.
 
-Redis 명령 범위는 PING, INFO, COMMAND INFO, EVAL, EXISTS, XGROUP CREATE,
-XADD, XREADGROUP, XPENDING, XCLAIM, XRANGE, XACK, XINFO GROUPS, XDEL이다.
-진단 데이터 정리를 위해 서비스 명령 외에 DEL 권한도 필요하다.
-실제 `claim_pending` / `trim_before` Lua를 실행하며 `XAUTOCLAIM`은 사용하지 않는다.
+서비스의 Redis 명령 범위는 PING, INFO, COMMAND INFO, EVAL, EXISTS, XADD, XRANGE,
+XDEL이다. 외부 소비자 흉내를 위해 XGROUP CREATE, XREADGROUP, XACK, XPENDING을,
+진단 데이터 정리를 위해 DEL 권한을 추가로 쓴다. 실제 `trim_before` Lua를 실행한다.
 
 ## 안전 범위와 필요한 권한
 
 - 현재 서비스 스키마에는 읽기 전용 트랜잭션만 사용한다. 운영 테이블 수정·초기화,
   자동 업그레이드, FLUSHDB/FLUSHALL, 운영 Stream 소비는 하지 않는다.
 - 점검용 스키마는 `executor_probe_<UUID>`, Redis 키는
-  `<접두사>:<UUID>:{work,events,dlq,events-dlq,recovery}`다. UUID가 충돌하거나 기존 키가
+  `<접두사>:<UUID>:{events,retention}`다. UUID가 충돌하거나 기존 키가
   있으면 재사용/삭제하지 않는다. 서비스 설정의 실제 Stream 이름은 사용하지 않는다.
 - **DB를 새로 생성하지 않으므로 CREATEDB는 불필요**하다. 단 해당 DB에서 임시 스키마를
   만들 CREATE 권한 및 본인 스키마의 테이블/인덱스 생성·삭제 권한이 필요하다.
@@ -97,7 +95,7 @@ XADD, XREADGROUP, XPENDING, XCLAIM, XRANGE, XACK, XINFO GROUPS, XDEL이다.
 | service schema | 접속 주소·인증·TLS, 지정 스키마, Alembic revision, 빠진 테이블/컬럼 |
 | Redis commands / Lua | Redis 6.0.8 이상, 인증, EVAL과 Lua 내부 명령의 ACL, 테스트 키 ACL |
 | isolated schema / migration | DB CREATE 권한, 마이그레이션 파일, 다른 배포가 잡은 lock |
-| submit / Outbox / consume | DB 저장, Redis 발행·ACK 권한, Pending/DLQ, 이벤트 계약 불일치 |
+| submit / Outbox / consume | DB 저장, Redis 발행·ACK 권한, 이벤트 계약 불일치 |
 | cleanup | 연결 복구, DEL/스키마 삭제 권한, 출력된 테스트 대상의 잔여 여부 |
 
 예를 들어 서비스 DB가 `0004`, 코드 HEAD가 `0005`이면 FAIL로 알려주며

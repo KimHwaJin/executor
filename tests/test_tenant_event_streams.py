@@ -17,14 +17,14 @@ from redis.typing import EncodableT, FieldT
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from executor_service.application._execution_service.support import (
-    fingerprint,
-)
 from executor_service.application.commands import (
     StepSpec,
     SubmitExecutionCommand,
 )
 from executor_service.application.services import ExecutionService
+from executor_service.application.services.support import (
+    fingerprint,
+)
 from executor_service.container import ApplicationContainer
 from executor_service.domain.enums import (
     ExecutionStatus,
@@ -36,15 +36,8 @@ from executor_service.domain.errors import (
     IdempotencyConflictError,
     InvalidExecutionSpecError,
 )
-from executor_service.domain.tenants import (
-    reserved_tenant_ids,
-    tenant_event_stream,
-)
-from executor_service.events import (
-    ExecutionCompletedPayload,
-    ExecutionStreamEnvelope,
-    build_execution_event,
-)
+from executor_service.domain.runtime import RuntimeOffering
+from executor_service.domain.tenants import tenant_event_stream
 from executor_service.infrastructure.db.base import Base
 from executor_service.infrastructure.db.models import (
     ExecutionEventORM,
@@ -58,15 +51,23 @@ from executor_service.infrastructure.db.session import create_session_factory
 from executor_service.infrastructure.event_retention import (
     EventRetentionManager,
 )
+from executor_service.infrastructure.events import (
+    ExecutionCompletedPayload,
+    ExecutionStreamEnvelope,
+    build_execution_event,
+)
 from executor_service.infrastructure.execution_queries import (
     SQLAlchemyExecutionQueryService,
 )
-from executor_service.infrastructure.execution_worker._event_writer.completion import (
+from executor_service.infrastructure.execution_worker.event_writer.completion import (
     add_execution_completed_event,
 )
 from executor_service.infrastructure.outbox import OutboxPublisher
 from executor_service.infrastructure.result_storage import (
     FilesystemExecutionResultStore,
+)
+from executor_service.infrastructure.runtime_adapters import (
+    JupyterRuntimeAdapter,
 )
 from executor_service.interfaces.http.app import create_app
 from executor_service.settings import Settings
@@ -114,17 +115,16 @@ def _command(
     )
 
 
-def _service(
-    engine: AsyncEngine,
-    tmp_path: Path,
-    reserved: frozenset[str] = frozenset(),
-) -> ExecutionService:
+def _service(engine: AsyncEngine, tmp_path: Path) -> ExecutionService:
     session_factory = create_session_factory(engine)
     return ExecutionService(
         lambda: SQLAlchemyUnitOfWork(session_factory),
-        {RuntimeType.JUPYTER: ("basic",)},
+        {
+            RuntimeType.JUPYTER: RuntimeOffering(
+                ("basic",), JupyterRuntimeAdapter.capabilities
+            )
+        },
         FilesystemExecutionResultStore(tmp_path),
-        reserved_tenant_ids=reserved,
     )
 
 
@@ -155,20 +155,19 @@ async def _publish_started_event(
     publisher = OutboxPublisher(
         session_factory=session_factory,
         redis=cast(Redis, redis),
-        work_stream_name="tenant-work",
         event_stream_name=EVENT_STREAM,
         poll_interval_seconds=0.01,
         batch_size=10,
         event_stream_maxlen=maxlen,
     )
-    assert await publisher.publish_batch() == 2
+    assert await publisher.publish_batch() == 1
     return redis
 
 
 def _event_calls(
     redis: RecordingRedis,
 ) -> list[tuple[str, dict[str, str], dict[str, Any]]]:
-    return [call for call in redis.calls if call[0] != "tenant-work"]
+    return redis.calls
 
 
 async def test_tenant_events_use_their_own_stream_and_envelope(
@@ -202,7 +201,7 @@ async def test_events_without_tenant_keep_the_shared_stream(
     assert ExecutionStreamEnvelope.from_redis_fields(fields).tenant_id is None
 
 
-async def test_event_maxlen_trims_approximately_but_not_work(
+async def test_event_maxlen_trims_approximately(
     engine: AsyncEngine, tmp_path: Path
 ) -> None:
     execution = await _service(engine, tmp_path).submit(
@@ -216,7 +215,6 @@ async def test_event_maxlen_trims_approximately_but_not_work(
         "maxlen": 5000,
         "approximate": True,
     }
-    assert by_stream["tenant-work"] == {}
 
 
 def test_maxlen_setting_reads_from_environment(
@@ -249,30 +247,7 @@ async def test_invalid_or_reserved_tenant_is_rejected(
         await _service(engine, tmp_path).submit(_command(tenant_id=tenant_id))
 
 
-async def test_internal_stream_suffixes_are_reserved(
-    engine: AsyncEngine, tmp_path: Path
-) -> None:
-    settings = Settings(
-        _env_file=None,
-        redis_event_stream="executor.events",
-        redis_work_stream="executor.events.jobs",
-        redis_event_dead_letter_stream="executor.events.dlq",
-    )
-    assert settings.reserved_tenant_ids == {"dlq", "work", "jobs"}
-    service = _service(engine, tmp_path, settings.reserved_tenant_ids)
-
-    with pytest.raises(InvalidExecutionSpecError, match="reserved"):
-        await service.submit(_command(tenant_id="jobs"))
-    accepted = await service.submit(_command(tenant_id="jobs-team"))
-    assert accepted.tenant_id == "jobs-team"
-
-
-def test_reserved_ids_only_cover_streams_below_the_event_stream() -> None:
-    assert reserved_tenant_ids("a.events", ["a.events.x", "a.work"]) == {
-        "dlq",
-        "work",
-        "x",
-    }
+def test_tenant_stream_is_below_the_event_stream() -> None:
     assert tenant_event_stream("a.events", None) == "a.events"
     assert tenant_event_stream("a.events", "acme") == "a.events.acme"
 
@@ -525,14 +500,13 @@ async def test_real_redis_tenant_stream_is_capped(
     publisher = OutboxPublisher(
         session_factory=session_factory,
         redis=client,
-        work_stream_name=f"{base}:work",
         event_stream_name=base,
         poll_interval_seconds=0.01,
         batch_size=1000,
         event_stream_maxlen=10,
     )
     try:
-        assert await publisher.publish_batch() == 301
+        assert await publisher.publish_batch() == 300
         assert not await client.exists(base)
         # MAXLEN ~ trims whole macro nodes, so a few extra entries remain.
         assert 10 <= await client.xlen(stream) < 300
@@ -541,5 +515,5 @@ async def test_real_redis_tenant_stream_is_capped(
         assert envelope.tenant_id == "acme-data"
         assert envelope.event_sequence == 300
     finally:
-        await client.delete(base, stream, f"{base}:work")
+        await client.delete(base, stream)
         await client.aclose()

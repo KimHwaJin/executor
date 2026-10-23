@@ -36,6 +36,7 @@ from executor_service.domain.errors import (
     UnsupportedRuntimeProfileError,
 )
 from executor_service.domain.models import utc_now
+from executor_service.domain.runtime import RuntimeOffering
 from executor_service.infrastructure.db.models import (
     ExecutionOperationORM,
     ExecutionORM,
@@ -47,6 +48,9 @@ from executor_service.infrastructure.db.repositories import (
 from executor_service.infrastructure.db.session import create_session_factory
 from executor_service.infrastructure.result_storage import (
     FilesystemExecutionResultStore,
+)
+from executor_service.infrastructure.runtime_adapters import (
+    JupyterRuntimeAdapter,
 )
 
 
@@ -111,7 +115,11 @@ async def test_step_limits_apply_to_submit_and_appended_operations(
     session_factory = create_session_factory(engine)
     service = ExecutionService(
         lambda: SQLAlchemyUnitOfWork(session_factory),
-        {RuntimeType.JUPYTER: ("basic",)},
+        {
+            RuntimeType.JUPYTER: RuntimeOffering(
+                ("basic",), JupyterRuntimeAdapter.capabilities
+            )
+        },
         FilesystemExecutionResultStore(tmp_path),
         max_steps_per_operation=2,
         max_steps_per_execution=2,

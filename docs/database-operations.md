@@ -20,7 +20,7 @@ uv run alembic check
 ```
 
 `DB_AUTO_MIGRATE=true` runs the same upgrade during app startup before Worker initialization.
-The checked-in `.env.example` and Compose opt in; code defaults to false without an override.
+`config.yml` (read in every environment), `.env.example` and Compose opt in; code defaults to false without an override.
 Manual CLI and app startup use the same PostgreSQL advisory transaction lock.
 See [startup migration settings and deployment](startup-migrations.md).
 
@@ -36,8 +36,13 @@ are discarded. Stop all old Executor processes before this migration.
 For a DB built from the actual 2026-08-31 baseline, `upgrade head` preserves business rows and
 requires no Redis reset. `check` must report no new upgrade operations.
 
-Current head is `0006`. It only adds `execution_step_runs` and `execution_handovers`, so
-older Pods keep working against it; downgrade drops both tables.
+Current head is `0010`, which deletes leftover Worker wake-up rows and drops the Outbox
+`destination` and `payload` columns, leaving only public events. `0009` drops the unused
+`executions.cancellation_heartbeat_at`. `0008` adds `runtime_targets.connection_key` (one
+registration per normalized endpoint) and fails if two Targets share an endpoint. Older Pods still write those columns, so stop them before
+upgrading; downgrades re-add the columns.
+`0007` adds the nullable Execution `tenant_id`, and `0006` adds `execution_step_runs` and
+`execution_handovers`; older Pods keep working against both.
 
 Revision `0005` removes the two foreign keys from
 Execution/Attempt `runtime_target_id` to active registrations while retaining
@@ -74,9 +79,6 @@ runs `alembic check`, and only then executes the concurrency scenario:
 ```bash
 EXECUTOR_RUN_POSTGRES_TESTS=1 uv run pytest tests/test_multi_worker_postgres.py
 ```
-
-See [2026-08-31 baseline reset validation](schema-baseline-validation.md) for the local reset,
-container startup, SINGLE/MULTI execution, and result-integrity evidence.
 
 ## Pool settings
 

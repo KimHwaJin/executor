@@ -188,7 +188,7 @@ cleanup clears the session ID and releases capacity. A fresh observed session co
 reservations blocks admission and emits an operational warning, but does not automatically
 quarantine or delete an unowned Runtime session.
 
-Executor starts with an empty Runtime Fleet. `/readyz` covers PostgreSQL, Redis, and Worker
+Executor starts with an empty Runtime Fleet. `/readyz` covers PostgreSQL and Worker
 admission, so the control API remains reachable while no target is registered. Use
 `runtime_target_list` or `GET /api/v1/runtime-targets` to inspect the status and capacity of each
 pool. Executions remain durably queued until a compatible ACTIVE target is registered.

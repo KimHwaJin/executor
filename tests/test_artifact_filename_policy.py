@@ -12,10 +12,10 @@ from executor_resource_extension.storage import (
 
 from executor_service.domain.errors import ArtifactRegistrationError
 from executor_service.domain.runtime import RuntimeDriverError
-from executor_service.infrastructure._artifacts.validation import (
+from executor_service.infrastructure.artifacts.validation import (
     manifest_runtime_path,
 )
-from executor_service.infrastructure._jupyter.transport import (
+from executor_service.infrastructure.jupyter.transport import (
     JupyterHttpTransport,
 )
 from executor_service.infrastructure.workspace import ExecutionWorkspace

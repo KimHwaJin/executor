@@ -204,7 +204,6 @@ async def test_expired_lease_is_failed_once_and_can_restart_from_zero(
     registry = RuntimeTargetRegistry(session_factory, settings)
     worker = ExecutionWorker(
         session_factory=session_factory,
-        redis=redis,
         settings=settings,
         registry=registry,
         artifact_manager=ExecutionArtifactManager(session_factory),
@@ -436,7 +435,7 @@ async def test_orphan_running_execution_without_attempt_is_fenced_and_cleaned(
     RecoveryCleanupDriver.delete_fails = False
     RecoveryCleanupDriver.deleted = []
     monkeypatch.setattr(
-        "executor_service.infrastructure.runtime_drivers.JupyterRuntimeDriver",
+        "executor_service.infrastructure.runtime_adapters.JupyterRuntimeDriver",
         RecoveryCleanupDriver,
     )
     settings = Settings(
@@ -449,7 +448,6 @@ async def test_orphan_running_execution_without_attempt_is_fenced_and_cleaned(
     )
     worker = ExecutionWorker(
         session_factory=session_factory,
-        redis=redis,
         settings=settings,
         registry=RuntimeTargetRegistry(session_factory, settings),
         artifact_manager=ExecutionArtifactManager(session_factory),
@@ -565,7 +563,7 @@ async def test_expired_lease_resolves_pending_runtime_abort(
     RecoveryCleanupDriver.delete_fails = delete_fails
     RecoveryCleanupDriver.deleted = []
     monkeypatch.setattr(
-        "executor_service.infrastructure.runtime_drivers.JupyterRuntimeDriver",
+        "executor_service.infrastructure.runtime_adapters.JupyterRuntimeDriver",
         RecoveryCleanupDriver,
     )
     settings = Settings(
@@ -577,7 +575,6 @@ async def test_expired_lease_resolves_pending_runtime_abort(
     redis = Redis.from_url("redis://127.0.0.1:6379/15", decode_responses=True)
     worker = ExecutionWorker(
         session_factory=session_factory,
-        redis=redis,
         settings=settings,
         registry=RuntimeTargetRegistry(session_factory, settings),
         artifact_manager=ExecutionArtifactManager(session_factory),
