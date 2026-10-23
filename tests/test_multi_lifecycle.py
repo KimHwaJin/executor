@@ -238,7 +238,7 @@ async def _make_waiting(
     async with session_factory() as session, session.begin():
         target = RuntimeTargetORM(
             name=f"target-{key}",
-            connection_config={"endpoint": "http://fake-jupyter"},
+            connection_config={"endpoint": f"http://fake-jupyter-{key}"},
             **runtime_credential_fields(),
             pool=RuntimePool.INTERACTIVE,
             status=(

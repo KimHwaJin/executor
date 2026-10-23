@@ -1,6 +1,7 @@
 """Transactional commands for managing Runtime Targets."""
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from executor_service.application.runtime_targets import (
@@ -14,7 +15,9 @@ from executor_service.application.runtime_targets import (
 from executor_service.domain.enums import RuntimeTargetStatus
 from executor_service.domain.errors import (
     IdempotencyConflictError,
+    PersistenceConflictError,
     RuntimeTargetConfigurationError,
+    RuntimeTargetEndpointConflictError,
 )
 from executor_service.domain.models import utc_now
 from executor_service.infrastructure._runtime_registry.credentials import (
@@ -109,6 +112,19 @@ class RuntimeTargetCommands:
                 .where(RuntimeTargetORM.name == command.name)
                 .with_for_update()
             )
+            duplicate = await session.scalar(
+                select(RuntimeTargetORM).where(
+                    RuntimeTargetORM.connection_key
+                    == connection_config["endpoint"],
+                    RuntimeTargetORM.name != command.name,
+                )
+            )
+            if duplicate is not None:
+                raise RuntimeTargetEndpointConflictError(
+                    f"Runtime Target {duplicate.name} ({duplicate.id}) "
+                    "already uses this endpoint. Update that Target, or "
+                    "disable and purge it before registering another."
+                )
             if target is None:
                 if not command.credential:
                     raise RuntimeTargetConfigurationError(
@@ -137,7 +153,6 @@ class RuntimeTargetCommands:
                     updated_by=command.actor_id,
                 )
                 session.add(target)
-                await session.flush()
             else:
                 if target.runtime_type != command.runtime_type:
                     raise RuntimeTargetConfigurationError(
@@ -184,6 +199,14 @@ class RuntimeTargetCommands:
                 if command.actor_type is not None:
                     target.updated_by_type = command.actor_type
                     target.updated_by = command.actor_id
+            try:
+                await session.flush()
+            except IntegrityError as exc:
+                # Another replica registered the same name or endpoint first.
+                raise PersistenceConflictError(
+                    "A concurrent Runtime Target registration conflicted. "
+                    "Retry to see the conflicting Target."
+                ) from exc
             self._receipts.add(
                 session,
                 command.idempotency_key,

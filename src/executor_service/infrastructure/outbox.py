@@ -16,8 +16,12 @@ from sqlalchemy.orm import aliased
 
 from executor_service.domain.enums import OutboxDestination, OutboxStatus
 from executor_service.domain.models import utc_now
+from executor_service.domain.tenants import tenant_event_stream
 from executor_service.events import validate_execution_event_payload
-from executor_service.infrastructure.db.models import OutboxEventORM
+from executor_service.infrastructure.db.models import (
+    ExecutionORM,
+    OutboxEventORM,
+)
 from executor_service.work_messages import validate_work_payload
 
 logger = logging.getLogger(__name__)
@@ -34,6 +38,7 @@ class OutboxPublisher:
         batch_size: int,
         publish_timeout_seconds: float = 5,
         shutdown_timeout_seconds: float = 10,
+        event_stream_maxlen: int | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._redis = redis
@@ -41,6 +46,7 @@ class OutboxPublisher:
             OutboxDestination.WORK: work_stream_name,
             OutboxDestination.EVENTS: event_stream_name,
         }
+        self._event_stream_maxlen = event_stream_maxlen
         self._poll_interval_seconds = poll_interval_seconds
         self._batch_size = batch_size
         self._publish_timeout_seconds = publish_timeout_seconds
@@ -123,6 +129,7 @@ class OutboxPublisher:
                 events,
                 now=now,
             )
+            tenants = await self._execution_tenants(session, events)
             published = 0
             blocked_aggregates: set[tuple[str, UUID]] = set()
             for event in events:
@@ -132,6 +139,7 @@ class OutboxPublisher:
                     and aggregate_key in blocked_aggregates
                 ):
                     continue
+                tenant_id: str | None = None
                 try:
                     if event.destination == OutboxDestination.WORK:
                         if event.payload is None:
@@ -183,6 +191,7 @@ class OutboxPublisher:
                             raise ValueError(
                                 "Durable Execution event is required."
                             )
+                        tenant_id = tenants.get(public_event.execution_id)
                         fields = cast(
                             dict[FieldT, EncodableT],
                             {
@@ -201,10 +210,21 @@ class OutboxPublisher:
                                 ),
                             },
                         )
+                        if tenant_id is not None:
+                            fields["tenant_id"] = tenant_id
+                    stream = self._stream_names[event.destination]
+                    maxlen = None
+                    if event.destination == OutboxDestination.EVENTS:
+                        stream = tenant_event_stream(stream, tenant_id)
+                        maxlen = self._event_stream_maxlen
                     async with asyncio.timeout(self._publish_timeout_seconds):
-                        await self._redis.xadd(
-                            self._stream_names[event.destination], fields
-                        )
+                        if maxlen is None:
+                            await self._redis.xadd(stream, fields)
+                        else:
+                            # Redis 6.0 has no MINID; MAXLEN ~ is cheap.
+                            await self._redis.xadd(
+                                stream, fields, maxlen=maxlen, approximate=True
+                            )
                     event.status = OutboxStatus.PUBLISHED
                     event.published_at = utc_now()
                     event.last_error = None
@@ -232,6 +252,24 @@ class OutboxPublisher:
                         break
             await session.flush()
             return published
+
+    async def _execution_tenants(
+        self, session: AsyncSession, events: list[OutboxEventORM]
+    ) -> dict[UUID, str | None]:
+        execution_ids = {
+            event.execution_event.execution_id
+            for event in events
+            if event.destination == OutboxDestination.EVENTS
+            and event.execution_event is not None
+        }
+        if not execution_ids:
+            return {}
+        rows = await session.execute(
+            select(ExecutionORM.id, ExecutionORM.tenant_id).where(
+                ExecutionORM.id.in_(execution_ids)
+            )
+        )
+        return {execution_id: tenant_id for execution_id, tenant_id in rows}
 
     async def _append_contiguous_execution_events(
         self,

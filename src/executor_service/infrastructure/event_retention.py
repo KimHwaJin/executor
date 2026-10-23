@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from executor_service.domain.enums import ExecutionStatus, OutboxStatus
 from executor_service.domain.models import utc_now
+from executor_service.domain.tenants import tenant_event_stream
 from executor_service.infrastructure.db.models import (
     EventRetentionLeaseORM,
     ExecutionEventORM,
@@ -114,10 +115,11 @@ class EventRetentionManager:
         try:
             outbox_deleted, events_deleted = await self._cleanup_database()
             work_trimmed = await self._trim_work_stream()
-            event_trimmed = await self._trim_by_age(
-                self._settings.redis_event_stream,
-                self._settings.redis_event_retention_seconds,
-            )
+            event_trimmed = 0
+            for stream in await self._event_streams():
+                event_trimmed += await self._trim_by_age(
+                    stream, self._settings.redis_event_retention_seconds
+                )
             work_dlq_trimmed = await self._trim_by_age(
                 self._settings.redis_work_dead_letter_stream,
                 self._settings.redis_work_dlq_retention_seconds,
@@ -249,6 +251,23 @@ class EventRetentionManager:
                     )
                 )
         return len(outbox_ids), len(event_ids)
+
+    async def _event_streams(self) -> list[str]:
+        """The shared event Stream and every tenant Stream ever written."""
+
+        async with self._session_factory() as session:
+            tenant_ids = list(
+                await session.scalars(
+                    select(ExecutionORM.tenant_id)
+                    .where(ExecutionORM.tenant_id.is_not(None))
+                    .distinct()
+                    .order_by(ExecutionORM.tenant_id)
+                )
+            )
+        base = self._settings.redis_event_stream
+        return [base] + [
+            tenant_event_stream(base, tenant_id) for tenant_id in tenant_ids
+        ]
 
     async def _trim_work_stream(self) -> int:
         return await self._trim_stream(

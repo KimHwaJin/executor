@@ -76,7 +76,8 @@ Attempt, 이벤트, Artifact 및 실제 파일은 보존한다. Execution/Attemp
 
 ## 재등록과 반복 요청
 
-같은 이름·endpoint·token으로 다시 등록 가능하지만 **새 등록 멱등성 키**를 사용한다.
+purge 후에는 같은 이름·endpoint·token으로 다시 등록 가능하지만 **새 등록 멱등성 키**를 사용한다.
+purge 전에는 같은 endpoint를 다른 이름으로 등록할 수 없다(`409 RUNTIME_TARGET_ENDPOINT_CONFLICT`).
 새 UUID와 새 probe 관측값을 갖는 별도 등록이며, 과거 실행 ID나 커널을 인계하지 않는다.
 삭제된 등록에 쓰였던 upsert 키를 재사용하면 `409 IDEMPOTENCY_CONFLICT`이다.
 이전 UUID로 purge를 반복해도 새 등록에는 영향이 없고 최초 삭제 결과만 반환한다.

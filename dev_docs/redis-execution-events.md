@@ -9,7 +9,8 @@
 파일의 크기·checksum·참조 대상을 보장하는 실행 fixture는 아니다.
 
 - 이벤트 스키마 버전: `1.0`
-- 대상 Stream 기본 이름: `executor.events`
+- 대상 Stream 기본 이름: `executor.events` (tenant 없는 Execution),
+  `executor.events.{tenant_id}` (tenant로 제출한 Execution)
 - 전달 방식: Redis Streams
 - 전달 보장: at-least-once
 - 상태 원본: PostgreSQL
@@ -29,10 +30,58 @@ Executor는 내부 명령과 외부 이벤트를 서로 다른 Stream으로 관�
 | Stream | 기본 이름 | 생산자 | 소비자 | 용도 |
 |---|---|---|---|---|
 | Work Stream | `executor.work` | Executor API | Executor Worker | 내부 실행 명령 전달 |
-| Event Stream | `executor.events` | Outbox Publisher | Agent 등 외부 시스템 | 실행 상태와 결과 알림 |
+| Event Stream | `executor.events` | Outbox Publisher | Agent 등 외부 시스템 | tenant 없는 Execution의 상태와 결과 알림 |
+| Tenant Event Stream | `executor.events.{tenant_id}` | Outbox Publisher | 해당 tenant 시스템 | 그 tenant로 제출한 Execution의 상태와 결과 알림 |
 
-외부 시스템은 `executor.events`만 소비한다. 독립적으로 모든 이벤트를 받아야 하는
-시스템끼리는 consumer group을 공유하지 않는다.
+외부 시스템은 Event Stream만 소비하고 Work Stream은 읽지 않는다. 독립적으로 모든
+이벤트를 받아야 하는 시스템끼리는 consumer group을 공유하지 않는다.
+
+### 2.1 Tenant별 Stream
+
+`POST /api/v1/executions`에 최상위 `tenant_id`를 넣으면 그 Execution의 모든 이벤트는
+`{REDIS_EVENT_STREAM}.{tenant_id}` 한 곳으로만 발행된다. 공용 `executor.events`에는
+복사하지 않는다. `tenant_id`가 없으면 지금처럼 공용 Stream으로 간다.
+
+- 한 Execution의 이벤트는 처음부터 끝까지 같은 Stream으로 간다. `tenant_id`는
+  바뀌지 않고, 후속 Operation과 재시도도 제출 시 값을 따른다.
+- Stream 이름 접미사는 `tenant_id` 그대로다. 형식과 예약어 규칙은
+  [Execution 제출 API](post-executions.md#tenant_id)를 따른다.
+- Stream은 첫 이벤트를 발행할 때 생긴다. 구독자는 아래처럼 `MKSTREAM`으로 미리
+  group을 만들어 둔다.
+- `REDIS_EVENT_RETENTION_SECONDS` 기준 시간 정리는 공용 Stream과 PostgreSQL에 기록된
+  모든 tenant Stream에 똑같이 적용된다.
+- `REDIS_EVENT_STREAM_MAXLEN`을 설정하면 모든 이벤트 `XADD`에
+  `MAXLEN ~ {값}`이 붙는다. Stream마다 따로 적용되며 근사치라 실제 길이는 값보다 조금
+  클 수 있다. 미설정이면 길이 제한 없이 시간 정리만 한다. Redis 6.0 호환을 위해
+  `MINID`는 쓰지 않는다.
+
+### 2.2 구독자 안내
+
+시스템마다 자기 Stream에 자기 consumer group을 만든다. 처음 만들 때는 이미 쌓인
+이벤트도 받도록 `0`부터 시작한다.
+
+```text
+XGROUP CREATE executor.events.{tenant_id} {group} 0 MKSTREAM
+XREADGROUP GROUP {group} {consumer} COUNT 100 BLOCK 5000 STREAMS executor.events.{tenant_id} >
+```
+
+group이 이미 있으면 `BUSYGROUP` 오류가 나므로 무시한다. 이후 처리 규칙은 다음과 같다.
+
+- 중복: 같은 `event_id`가 두 번 이상 올 수 있다. 처리한 `event_id`를 저장해 두고
+  다시 오면 적용하지 않고 `XACK`한다.
+- 순서: Redis message ID가 아니라 Execution별 `event_sequence`로 판단한다. 처리 규칙은
+  [15.1](#151-중복순서누락-처리)을 따른다.
+- 모르는 `event_type`: 적용하지 않고 기록만 한 뒤 `XACK`한다. 새 이벤트 종류가 추가돼도
+  구독자가 멈추지 않게 하기 위해서다. 단 `schema_version`이 지원 범위 밖이면 적용하지 않는다.
+- 빠진 이벤트: 보관 한도(`MAXLEN` 또는 보관 기간)를 넘겨 Stream에서 지워졌거나
+  순번이 건너뛰면 `GET /api/v1/executions/{execution_id}/events?after_sequence={last}`로
+  채운다. PostgreSQL 이력이 원본이다.
+- 미처리 메시지 회수: Redis 6.0이라 `XAUTOCLAIM`이 없다. 주기적으로
+  `XPENDING {stream} {group} - + {count}`로 오래 걸린 메시지를 찾고
+  `XCLAIM {stream} {group} {consumer} {min-idle-ms} {id...}`로 가져온다.
+  `XCLAIM` 결과에 본문이 없는 ID는 이미 Stream에서 지워진 것이므로 `XACK`하고
+  이벤트 이력 API로 채운다.
+- Stream 필드 `tenant_id`는 tenant Stream에만 있다. 공용 Stream에는 없다.
 
 Execution 상태 변경, 영구 ExecutionEvent, 전송용 OutboxEvent 생성은 하나의 PostgreSQL
 트랜잭션으로 처리한다.
@@ -101,7 +150,8 @@ Jupyter가 IOPub 데이터/메시지 전송량 제한으로 출력을 차단한 
 
 ## 4. 공통 이벤트 Envelope
 
-모든 외부 실행 이벤트는 다음 일곱 필드를 최상위에 가진다.
+모든 외부 실행 이벤트는 다음 일곱 필드를 최상위에 가진다. tenant Stream의 이벤트에는
+여덟 번째 필드 `tenant_id`가 더해진다.
 
 ```json
 {
@@ -124,6 +174,7 @@ Jupyter가 IOPub 데이터/메시지 전송량 제한으로 출력을 차단한 
 | `event_sequence` | integer | O | Execution별 논리 이벤트 순번, `1`부터 증가 |
 | `payload` | object | O | 이벤트별 데이터 |
 | `occurred_at` | RFC 3339 UTC datetime | O | 이벤트에 해당하는 상태 전환 시각 |
+| `tenant_id` | string | X | 제출 시 지정한 tenant. tenant Stream에만 있고 공용 Stream에는 없다. `payload`에는 넣지 않는다 |
 
 `payload`에는 `execution_id`와 `schema_version`을 반복하지 않는다. Redis Stream
 entry의 값은 문자열이므로 wire level에서는 `payload`가 JSON 문자열이다. 소비자는
@@ -387,7 +438,8 @@ Retry에서는 다시 발행하지 않는다.
 
 ## 10. `execution.step_completed`
 
-Step이 `SUCCEEDED`, `FAILED` 또는 `CANCELLED`로 종료된 뒤 발행한다. 결과가 있으면
+실행을 시작한 Step이 `SUCCEEDED`, `FAILED` 또는 `CANCELLED`로 종료된 뒤 발행한다.
+시작하지 못한 Step은 앞 Step 실패든 취소든 `SKIPPED`가 되며 이 이벤트가 없다. 결과가 있으면
 Manifest를 원자적으로 저장하고 검증한 다음 DB 상태와 OutboxEvent를 커밋한다.
 
 ```text
@@ -657,12 +709,13 @@ MULTI 성공 예시:
 | `continuation` | object 또는 null | O | 다음 Operation 추가 정보 |
 | `error` | object 또는 null | O | 실패 또는 취소 요약 |
 
-`step_summary.completed`는 성공, 실패, 취소 Step의 합이다. 실행되지 않은 Step 수는
-`total - completed`로 계산한다.
+`step_summary.completed`는 성공, 실패, 취소 Step의 합이다. 취소는 실행 중에 멈춘
+Step만 세며, 시작하지 못한 Step은 실패·취소 어느 경우든 `SKIPPED`라 `completed`에서
+빠진다. 실행되지 않은 Step 수는 `total - completed`로 계산한다.
 
 `step_results`는 sequence 순으로 정렬하며, 저장이 완료되어 참조할 수 있는 Step 결과만
-포함한다. 따라서 결과 파일이 없는 취소 Step이나 비정상 복구 상태에서는
-`step_summary.completed`보다 항목 수가 적을 수 있다. Retry된 Step은 과거 Attempt를 모두
+포함한다. 성공했지만 결과 참조가 없는 비정상 복구 상태에서만 `step_summary.completed`보다
+항목 수가 적을 수 있다. 결과 파일이 없는 실패·취소 Step은 `result_ref=null`로 포함된다. Retry된 Step은 과거 Attempt를 모두
 나열하지 않고 Operation 종료 시점의 최종 Attempt만 포함한다. 전체 Attempt 이력은
 Result API로 확인한다.
 
@@ -774,7 +827,7 @@ Execution의 현재 수행 주기가 `SUCCEEDED`, `FAILED` 또는 `CANCELLED`로
 | `trigger.actor` | object 또는 null | 제출 actor(`created_by_type`/`created_by`). 제출 후 바뀌지 않는다. actor 없이 제출된 Execution은 `null` |
 | `trigger.actor.type` | enum | `AGENT`, `USER`, `BATCH` |
 | `trigger.actor.id` | string | 1~255자 |
-| `context` | object | 제출 요청의 `context`와 같은 필드: `user_id`, `task_id`, `project_id`, `session_id`, `workflow_id` |
+| `context` | object | 제출 요청의 `context`와 같은 필드: `user_id`, `task_id`, `project_id`, `session_id`, `workflow_id`. `user_id`만 항상 있고 `task_id`를 포함한 나머지는 `null`일 수 있다 |
 
 `execution`은 schema `1.0`에 추가된 선택 필드다. 소비자는 필드가 없을 수 있다고
 가정하고, 없으면 `GET /api/v1/executions/{execution_id}`로 같은 값을 조회한다.
@@ -927,14 +980,16 @@ GET /api/v1/executions/{execution_id}/result
 
 ## 16. 소비자 체크리스트
 
-- `executor.events`에 전용 consumer group을 생성한다.
+- 자기 Stream(`executor.events` 또는 `executor.events.{tenant_id}`)에 전용 consumer
+  group을 `0`부터 `MKSTREAM`으로 생성한다.
 - 처리 완료 후에만 `XACK`한다.
 - `event_id`를 DB에 저장하고 중복 이벤트를 무시한다.
 - Execution별 마지막 연속 `event_sequence`를 영속적으로 저장한다.
 - 순번이 건너뛰면 Event Subscriber가 이벤트 이력 API로 누락 구간만 복구한다.
 - Redis 처리와 복구 로직을 LLM 또는 LangGraph 업무 노드에 직접 구현하지 않는다.
 - 지원하는 `schema_version`인지 먼저 검사한다.
-- 알 수 없는 이벤트를 조용히 폐기하지 않고 별도 오류 채널에 기록한다.
+- 알 수 없는 `event_type`은 적용하지 않고 로그에 남긴 뒤 `XACK`한다.
+- 오래 미처리된 메시지는 `XPENDING`/`XCLAIM`으로 회수한다(Redis 6.0에는 `XAUTOCLAIM`이 없다).
 - `execution_id`를 현재 상태 조회의 대표 키로 사용한다.
 - Attempt ID를 Execution의 대표 조회 키로 사용하지 않는다.
 - `relative_path`를 Executor 결과 루트에 안전하게 결합한다.
