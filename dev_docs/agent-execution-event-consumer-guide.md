@@ -1,12 +1,15 @@
 # 에이전트 실행 이벤트 소비 가이드
 
-이 문서는 Executor에 Execution을 제출한 Agent가 `executor.events`를 안전하게 소비하고,
+이 문서는 Executor에 Execution을 제출한 Agent가 자기 이벤트 Stream을 안전하게 소비하고,
 필요한 경우 PostgreSQL 기반 이벤트 이력으로 누락 구간을 복구하는 방법을 정의한다.
 Redis 처리 세부사항은 LLM이나 LangGraph 업무 노드가 아니라 Agent 공통 Event Subscriber가
 담당해야 한다.
 
 ## 1. 책임 경계
 
+- 구독할 Stream은 제출 요청의 `tenant_id`로 정해진다. `tenant_id`로 제출했다면
+  `executor.events.{tenant_id}`, 없이 제출했다면 공용 `executor.events`다(기본 이름 기준).
+  한 Execution의 이벤트는 처음부터 끝까지 한 Stream으로만 간다.
 - Executor는 Execution별 `event_sequence`를 PostgreSQL 트랜잭션에서 `1`부터 발급한다.
 - Executor Outbox Publisher는 같은 Execution의 앞 순번이 발행되기 전에는 뒤 순번을
   발행하지 않는다.
@@ -29,7 +32,8 @@ Redis 처리 세부사항은 LLM이나 LangGraph 업무 노드가 아니라 Agen
 
 ## 2. Redis 이벤트 Envelope
 
-모든 공개 Execution 이벤트는 다음 일곱 필드만 최상위에 갖는다.
+모든 공개 Execution 이벤트는 다음 일곱 필드를 최상위에 갖는다. tenant Stream의
+이벤트에는 `tenant_id`가 더해진다.
 
 ```json
 {
@@ -50,6 +54,7 @@ Redis 처리 세부사항은 LLM이나 LangGraph 업무 노드가 아니라 Agen
 - `event_sequence`: 해당 Execution 안에서만 증가하는 논리 순번
 - `payload`: 이벤트 타입별 데이터
 - `occurred_at`: 이벤트가 PostgreSQL `execution_events`에 기록된 시각
+- `tenant_id`: tenant Stream에만 있는 제출 tenant. 공용 Stream에는 없다
 
 `event_sequence`는 Redis Stream message ID, Step의 `sequence`, Attempt 번호,
 `occurred_at`과 서로 다른 값이다. 이벤트 순서 판단에는 오직
@@ -191,12 +196,17 @@ Redis 메시지는 Pending에 남긴다. 예외를 잡고 무조건 ACK하는 fi
 5. 최종 리포트 전 필요하면 `GET /api/v1/executions/{execution_id}/result`로 전체 상태를
    한 번 대조한다.
 
+Step 인계 이벤트(`execution.step_handover_*`)는 실행 중 Step의 담당 Executor가 바뀔 때만
+온다. 같은 Attempt가 이어지므로 wake 경계가 아니며, 순번 checkpoint만 올리고 필요하면
+진행 상태 표시에 쓴다.
+
 대표 이벤트 흐름:
 
 ```text
 execution.started
 execution.operation_started
 execution.step_started
+(execution.step_handover_started → execution.step_handover_completed)  # Executor 교체 시에만
 execution.step_completed
 ... 반복 ...
 execution.operation_completed

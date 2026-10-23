@@ -19,14 +19,15 @@
 | `POST /api/v1/runtime-targets/{target_id}/purge` | [서버 등록 제거, REST 전용](post-runtime-target-purge.md) |
 
 [Execution 전용 ReDoc HTML](execution-api-redoc.html)은 현재 Execution 태그의
-22개 경로와 110개 component schema를 포함한다. Artifact 작성/목록/상세,
+22개 경로와 112개 component schema를 포함한다. Artifact 작성/목록/상세,
 Operation·Step·Attempt·Event·Notebook 조회의 전체 필드도 이 문서에서 확인한다.
 Runtime 관리와 maintenance 전체 계약은 서비스 `/docs`, `/redoc` 또는
 [전체 REST 가이드](../docs/rest-api.md)를 사용한다.
 
 ## 이벤트와 파일
 
-- [Redis 이벤트 1.0](redis-execution-events.md): 7개 envelope 필드와 6개 이벤트 유형.
+- [Redis 이벤트 1.0](redis-execution-events.md): 7개 envelope 필드(tenant Stream은 `tenant_id`까지 8개)와
+  8개 이벤트 유형.
 - [Agent 소비 가이드](agent-execution-event-consumer-guide.md): 순서·중복·누락 복구,
   SINGLE/MULTI wake-up 경계와 실패 처리.
 - [Manifest 설명](step-result-manifest.md) / [JSON Schema](step-result-manifest.schema.json):
