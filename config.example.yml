@@ -1,5 +1,5 @@
 # Copy to config.dev.yml, config.stg.yml or config.prd.yml and set
-# APP_ENV=dev|stg|prd (local reads no file). Keys are Settings field names
+# APP_ENV=dev|stg|prd (local leaves APP_ENV unset). Keys are Settings field names
 # in any case; an environment variable with the same name still overrides.
 # Unmasked bodies: opt in only after approving log access/retention.
 REST_ERROR_BODY_LOGGING_ENABLED: false

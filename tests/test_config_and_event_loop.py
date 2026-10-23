@@ -1,8 +1,6 @@
 import asyncio
 from pathlib import Path
 
-import pytest
-
 from executor_service.event_loop import run_async
 from executor_service.settings import Settings
 
@@ -38,11 +36,6 @@ def test_comma_separated_lists_load_from_dotenv(tmp_path: Path) -> None:
     assert settings.database_pool_timeout_seconds == 7.5
     assert settings.database_pool_recycle_seconds == 900
     assert settings.database_connect_timeout_seconds == 4
-
-
-def test_non_local_environment_rejects_placeholder_secrets() -> None:
-    with pytest.raises(ValueError, match="RUNTIME_CREDENTIAL_KEY"):
-        Settings(app_env="production")
 
 
 def test_settings_have_no_bootstrap_runtime_target_fields() -> None:

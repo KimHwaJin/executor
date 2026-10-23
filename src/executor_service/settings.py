@@ -2,7 +2,7 @@
 
 Sources, highest first: constructor arguments, environment variables,
 ``.env``, ``config.{APP_ENV}.yml`` (values for one environment, when
-``APP_ENV`` is dev, stg or prd; ``local`` has none), then ``config.yml``
+``APP_ENV`` is set; local runs leave it unset or empty), then ``config.yml``
 (values shared by every environment, when present), both in the working
 directory. ConfigMaps and Secrets are unavailable on the platform, so the
 files ship in the image.
@@ -22,19 +22,16 @@ from pydantic_settings import (
     YamlConfigSettingsSource,
 )
 
-LOCAL_ENV = "local"
 APP_ENVS = ("dev", "stg", "prd")
 
 
 def config_files() -> list[Path]:
     """YAML settings files, highest precedence first."""
     files = []
-    app_env = os.environ.get("APP_ENV", LOCAL_ENV).strip().lower()
-    if app_env not in ("", LOCAL_ENV):
+    app_env = os.environ.get("APP_ENV")
+    if app_env:
         if app_env not in APP_ENVS:
-            raise ValueError(
-                f"APP_ENV must be {LOCAL_ENV} or one of {', '.join(APP_ENVS)}."
-            )
+            raise ValueError(f"APP_ENV must be one of {', '.join(APP_ENVS)}.")
         path = Path(f"config.{app_env}.yml")
         if not path.is_file():
             raise FileNotFoundError(
@@ -57,7 +54,6 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    app_env: str = LOCAL_ENV
     log_level: str | None = None
     log_config_file: Path = Path("logger.yml")
     rest_error_body_logging_enabled: bool = False
@@ -245,7 +241,7 @@ class Settings(BaseSettings):
                 "EXECUTION_MAX_STEPS_PER_EXECUTION."
             )
         if (
-            self.app_env.lower() != LOCAL_ENV
+            os.environ.get("APP_ENV")
             and self.runtime_credential_encryption_key
             == "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
         ):

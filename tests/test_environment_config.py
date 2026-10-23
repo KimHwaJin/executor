@@ -44,16 +44,35 @@ def test_keys_are_case_insensitive_and_env_wins(workdir, monkeypatch):
     assert Settings(_env_file=None).database_pool_size == 7
 
 
-def test_local_reads_no_file(workdir, monkeypatch):
-    (workdir / "config.local.yml").write_text("database_pool_size: 4\n")
-    monkeypatch.setenv("APP_ENV", "local")
-    assert Settings(_env_file=None).database_pool_size == 10
+@pytest.mark.parametrize("app_env", [None, ""])
+def test_local_reads_only_common_file(workdir, monkeypatch, app_env):
+    (workdir / "config.yml").write_text("database_pool_size: 4\n")
+    (workdir / "config.dev.yml").write_text("database_pool_size: 6\n")
+    if app_env is not None:
+        monkeypatch.setenv("APP_ENV", app_env)
+    assert Settings(_env_file=None).database_pool_size == 4
 
 
-def test_unknown_env_and_missing_file_fail(workdir, monkeypatch):
-    monkeypatch.setenv("APP_ENV", "production")
-    with pytest.raises(ValueError, match="APP_ENV must be local"):
+def test_app_env_comes_from_environment_only(workdir, monkeypatch):
+    (workdir / ".env").write_text("APP_ENV=prd\n")
+    assert Settings().database_pool_size == 10
+
+
+def test_deployed_env_rejects_placeholder_credential_key(workdir, monkeypatch):
+    (workdir / "config.prd.yml").write_text("database_pool_size: 4\n")
+    monkeypatch.setenv("APP_ENV", "prd")
+    with pytest.raises(ValueError, match="RUNTIME_CREDENTIAL_KEY"):
         Settings(_env_file=None)
+
+
+@pytest.mark.parametrize("app_env", ["local", "production", "PRD", "../dev"])
+def test_unknown_env_fails(workdir, monkeypatch, app_env):
+    monkeypatch.setenv("APP_ENV", app_env)
+    with pytest.raises(ValueError, match="APP_ENV must be one of"):
+        Settings(_env_file=None)
+
+
+def test_missing_environment_file_fails(workdir, monkeypatch):
     monkeypatch.setenv("APP_ENV", "stg")
     with pytest.raises(FileNotFoundError, match=r"config\.stg\.yml"):
         Settings(_env_file=None)

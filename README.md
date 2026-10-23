@@ -726,9 +726,11 @@ are documented in [Database Operations](docs/database-operations.md).
 
 Settings come from, highest first, environment variables, `.env` (ignored by Git),
 `config.{APP_ENV}.yml` (per environment) and `config.yml` (shared by every environment), both in
-the working directory. `config.yml` is read whenever it exists. `APP_ENV=local` (the default)
-reads no environment file; `dev`, `stg` and `prd` require the matching file and fail startup
-without it. Copy
+the working directory. `config.yml` is read whenever it exists. Deployments set `APP_ENV` to
+`dev`, `stg` or `prd`, which requires the matching file and fails startup without it. Local runs
+leave `APP_ENV` unset or empty and read only `config.yml`, `.env` and environment variables, so
+local values go in `config.yml` or `.env`. `APP_ENV` is read from the process environment only,
+never from `.env`. Copy
 `config.example.yml` to `config.prd.yml` and so on; keys are the setting names in any case. The
 platform offers no ConfigMaps or Secrets, so these files, credentials included, ship in the
 image (`COPY config*.yml`). `DATABASE_URL` and `REDIS_URL` are secret settings and are never
