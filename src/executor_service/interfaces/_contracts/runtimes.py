@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import Field, SecretStr, model_validator
+from pydantic import Field, SecretStr
 
 from executor_service.application.pagination import Page
 from executor_service.application.runtime_targets import (
@@ -36,20 +36,6 @@ class RuntimeTargetUpsertRequest(ContractModel):
     pool: RuntimePool
     max_concurrent_executions: int | None = Field(default=None, ge=1, le=1000)
     actor: ActorInput
-
-    @model_validator(mode="after")
-    def validate_connection_config(self) -> "RuntimeTargetUpsertRequest":
-        if self.runtime_type == RuntimeType.JUPYTER:
-            endpoint = self.connection_config.get("endpoint")
-            if set(self.connection_config) != {"endpoint"} or not isinstance(
-                endpoint, str
-            ):
-                raise ValueError(
-                    "JUPYTER connection_config must contain only a non-empty endpoint."
-                )
-            if not endpoint.startswith(("http://", "https://")):
-                raise ValueError("JUPYTER endpoint must use http or https.")
-        return self
 
     def to_command(self) -> UpsertRuntimeTargetCommand:
         return UpsertRuntimeTargetCommand(

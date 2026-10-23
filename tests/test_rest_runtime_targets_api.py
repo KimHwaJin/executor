@@ -571,23 +571,26 @@ async def test_endpoint_has_one_registration_until_purged(
     assert replaced.status_code == 200
 
 
-async def test_endpoint_rejects_credentials_query_and_fragment(
+async def test_invalid_connection_config_has_one_configuration_error(
     fleet_client: tuple[httpx.AsyncClient, ApplicationContainer],
 ) -> None:
     client, _ = fleet_client
-    for index, endpoint in enumerate(
+    for index, connection_config in enumerate(
         (
-            "http://user:secret@jupyter:8888",
-            "http://jupyter:8888/?token=secret",
-            "http://jupyter:8888/#lab",
-            "http://jupyter:not-a-port",
+            {"endpoint": "ftp://jupyter:8888"},
+            {"endpoint": "http://jupyter:8888", "token": "secret"},
+            {"endpoint": 8888},
+            {"endpoint": "http://user:secret@jupyter:8888"},
+            {"endpoint": "http://jupyter:8888/?token=secret"},
+            {"endpoint": "http://jupyter:8888/#lab"},
+            {"endpoint": "http://jupyter:not-a-port"},
         )
     ):
         response = await client.post(
             "/api/v1/runtime-targets",
             json={
                 **_upsert_payload(30 + index),
-                "connection_config": {"endpoint": endpoint},
+                "connection_config": connection_config,
             },
         )
         assert response.status_code == 400
