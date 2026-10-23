@@ -122,8 +122,8 @@ Step metadata로 받은 값을 저장한다.
 | `RUNNING` | 실행 중 |
 | `SUCCEEDED` | 성공 |
 | `FAILED` | 실패 |
-| `SKIPPED` | 이전 Step 실패 등의 이유로 실행하지 않음 |
-| `CANCELLED` | 취소됨 |
+| `SKIPPED` | 한 번도 실행되지 않고 끝남(이전 Step 실패, 시작 전 취소 등). Step 이벤트가 없다 |
+| `CANCELLED` | 실행 중에 취소됨. `execution.step_completed`가 발행된다 |
 
 ### `result.output_summary`
 

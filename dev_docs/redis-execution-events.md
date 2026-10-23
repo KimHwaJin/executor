@@ -438,7 +438,8 @@ Retry에서는 다시 발행하지 않는다.
 
 ## 10. `execution.step_completed`
 
-Step이 `SUCCEEDED`, `FAILED` 또는 `CANCELLED`로 종료된 뒤 발행한다. 결과가 있으면
+실행을 시작한 Step이 `SUCCEEDED`, `FAILED` 또는 `CANCELLED`로 종료된 뒤 발행한다.
+시작하지 못한 Step은 앞 Step 실패든 취소든 `SKIPPED`가 되며 이 이벤트가 없다. 결과가 있으면
 Manifest를 원자적으로 저장하고 검증한 다음 DB 상태와 OutboxEvent를 커밋한다.
 
 ```text
@@ -708,12 +709,13 @@ MULTI 성공 예시:
 | `continuation` | object 또는 null | O | 다음 Operation 추가 정보 |
 | `error` | object 또는 null | O | 실패 또는 취소 요약 |
 
-`step_summary.completed`는 성공, 실패, 취소 Step의 합이다. 실행되지 않은 Step 수는
-`total - completed`로 계산한다.
+`step_summary.completed`는 성공, 실패, 취소 Step의 합이다. 취소는 실행 중에 멈춘
+Step만 세며, 시작하지 못한 Step은 실패·취소 어느 경우든 `SKIPPED`라 `completed`에서
+빠진다. 실행되지 않은 Step 수는 `total - completed`로 계산한다.
 
 `step_results`는 sequence 순으로 정렬하며, 저장이 완료되어 참조할 수 있는 Step 결과만
-포함한다. 따라서 결과 파일이 없는 취소 Step이나 비정상 복구 상태에서는
-`step_summary.completed`보다 항목 수가 적을 수 있다. Retry된 Step은 과거 Attempt를 모두
+포함한다. 성공했지만 결과 참조가 없는 비정상 복구 상태에서만 `step_summary.completed`보다
+항목 수가 적을 수 있다. 결과 파일이 없는 실패·취소 Step은 `result_ref=null`로 포함된다. Retry된 Step은 과거 Attempt를 모두
 나열하지 않고 Operation 종료 시점의 최종 Attempt만 포함한다. 전체 Attempt 이력은
 Result API로 확인한다.
 
