@@ -21,7 +21,8 @@
 [Execution 전용 ReDoc HTML](execution-api-redoc.html)은 현재 Execution 태그의
 22개 경로와 112개 component schema를 포함한다. Artifact 작성/목록/상세,
 Operation·Step·Attempt·Event·Notebook 조회의 전체 필드도 이 문서에서 확인한다.
-Runtime 관리와 maintenance 전체 계약은 서비스 `/docs`, `/redoc` 또는
+제출 API만 볼 때는 [`POST /api/v1/executions` ReDoc HTML](post-executions-redoc.html)을
+사용한다. Runtime 관리와 maintenance 전체 계약은 서비스 `/docs`, `/redoc` 또는
 [전체 REST 가이드](../docs/rest-api.md)를 사용한다.
 
 ## 이벤트와 파일
