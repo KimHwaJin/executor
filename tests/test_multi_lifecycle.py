@@ -59,6 +59,12 @@ from executor_service.infrastructure.db.session import create_session_factory
 from executor_service.infrastructure.execution_leases import ExecutionLease
 from executor_service.infrastructure.execution_worker import ExecutionWorker
 from executor_service.infrastructure.execution_worker.handover import StepRun
+from executor_service.infrastructure.result_storage import (
+    FilesystemExecutionResultStore,
+)
+from executor_service.infrastructure.runtime_adapters import (
+    RuntimeAdapterRegistry,
+)
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
 )
@@ -324,6 +330,10 @@ def _worker(
         settings=settings,
         registry=registry,
         artifact_manager=ExecutionArtifactManager(session_factory),
+        result_store=FilesystemExecutionResultStore(
+            settings.shared_storage_root
+        ),
+        driver_factory=RuntimeAdapterRegistry(settings),
     )
     return worker, redis
 

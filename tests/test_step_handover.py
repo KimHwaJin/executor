@@ -50,6 +50,9 @@ from executor_service.infrastructure.db.models import (
 )
 from executor_service.infrastructure.db.session import create_session_factory
 from executor_service.infrastructure.execution_worker import ExecutionWorker
+from executor_service.infrastructure.result_storage import (
+    FilesystemExecutionResultStore,
+)
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
 )
@@ -147,6 +150,9 @@ def _worker(
         settings=settings,
         registry=RuntimeTargetRegistry(factory, settings),
         artifact_manager=ExecutionArtifactManager(factory),
+        result_store=FilesystemExecutionResultStore(
+            settings.shared_storage_root
+        ),
         driver_factory=cast(RuntimeDriverFactory, JournalKernelFactory()),
     )
 

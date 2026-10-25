@@ -39,6 +39,12 @@ from executor_service.infrastructure.execution_worker import ExecutionWorker
 from executor_service.infrastructure.execution_worker.work_admission import (
     WorkAdmissionProcessor,
 )
+from executor_service.infrastructure.result_storage import (
+    FilesystemExecutionResultStore,
+)
+from executor_service.infrastructure.runtime_adapters import (
+    RuntimeAdapterRegistry,
+)
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
 )
@@ -248,6 +254,10 @@ async def test_reconcile_dispatches_each_durable_work_state(
         settings=settings,
         registry=RuntimeTargetRegistry(session_factory, settings),
         artifact_manager=ExecutionArtifactManager(session_factory),
+        result_store=FilesystemExecutionResultStore(
+            settings.shared_storage_root
+        ),
+        driver_factory=RuntimeAdapterRegistry(settings),
     )
     dispatched: list[tuple[UUID, bool]] = []
 
@@ -344,6 +354,10 @@ def _worker(engine: AsyncEngine, tmp_path: Path) -> ExecutionWorker:
         settings=settings,
         registry=RuntimeTargetRegistry(session_factory, settings),
         artifact_manager=ExecutionArtifactManager(session_factory),
+        result_store=FilesystemExecutionResultStore(
+            settings.shared_storage_root
+        ),
+        driver_factory=RuntimeAdapterRegistry(settings),
     )
     # Exercise active-Worker internals without starting background loops.
     worker._dispatcher.set_accepting(True)

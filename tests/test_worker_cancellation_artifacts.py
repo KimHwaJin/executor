@@ -40,6 +40,12 @@ from executor_service.infrastructure.diagnostic_store import (
     SQLAlchemyDiagnosticQueryService,
 )
 from executor_service.infrastructure.execution_worker import ExecutionWorker
+from executor_service.infrastructure.result_storage import (
+    FilesystemExecutionResultStore,
+)
+from executor_service.infrastructure.runtime_adapters import (
+    RuntimeAdapterRegistry,
+)
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
 )
@@ -155,6 +161,10 @@ async def test_cancelled_cell_registers_partial_file_as_incomplete_artifact(
         settings=settings,
         registry=RuntimeTargetRegistry(session_factory, settings),
         artifact_manager=ExecutionArtifactManager(session_factory),
+        result_store=FilesystemExecutionResultStore(
+            settings.shared_storage_root
+        ),
+        driver_factory=RuntimeAdapterRegistry(settings),
     )
     FileWritingBlockedDriver.configure(tmp_path)
     if result_fault == "seal":

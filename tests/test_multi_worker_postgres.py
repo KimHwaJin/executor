@@ -127,6 +127,7 @@ from executor_service.infrastructure.result_storage import (
 )
 from executor_service.infrastructure.runtime_adapters import (
     JupyterRuntimeAdapter,
+    RuntimeAdapterRegistry,
 )
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
@@ -1422,6 +1423,10 @@ def _workers(
                 settings=settings,
                 registry=RuntimeTargetRegistry(session_factory, settings),
                 artifact_manager=ExecutionArtifactManager(session_factory),
+                result_store=FilesystemExecutionResultStore(
+                    settings.shared_storage_root
+                ),
+                driver_factory=RuntimeAdapterRegistry(settings),
             )
         )
         redis_clients.append(redis)
@@ -1800,6 +1805,10 @@ async def test_partial_result_outbox_redis_and_history_agree(
         settings=settings,
         registry=RuntimeTargetRegistry(factory, settings),
         artifact_manager=ExecutionArtifactManager(factory),
+        result_store=FilesystemExecutionResultStore(
+            settings.shared_storage_root
+        ),
+        driver_factory=RuntimeAdapterRegistry(settings),
     )
     try:
         await worker._runner.run(execution.id)

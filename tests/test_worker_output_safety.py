@@ -50,6 +50,9 @@ from executor_service.infrastructure.diagnostic_store import (
     SQLAlchemyDiagnosticQueryService,
 )
 from executor_service.infrastructure.execution_worker import ExecutionWorker
+from executor_service.infrastructure.result_storage import (
+    FilesystemExecutionResultStore,
+)
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
 )
@@ -175,6 +178,9 @@ async def test_output_limit_aborts_runtime_and_persists_incomplete_result(
         settings=settings,
         registry=RuntimeTargetRegistry(session_factory, settings),
         artifact_manager=ExecutionArtifactManager(session_factory),
+        result_store=FilesystemExecutionResultStore(
+            settings.shared_storage_root
+        ),
         driver_factory=cast(
             RuntimeDriverFactory,
             OutputLimitDriverFactory(driver),
