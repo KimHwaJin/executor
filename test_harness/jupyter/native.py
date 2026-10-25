@@ -23,13 +23,15 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 HARNESS_ROOT = REPOSITORY_ROOT / "test_harness/jupyter"
 DEFAULT_INSTALL_ROOT = HARNESS_ROOT / ".native"
 DEFAULT_CONTENTS_ROOT = HARNESS_ROOT / "workspace"
-JUPYTER_REQUIREMENTS = HARNESS_ROOT / "environments/server/requirements.txt"
-DEFAULT_REQUIREMENTS = HARNESS_ROOT / "environments/default/requirements.txt"
-PYTHON_3102311_REQUIREMENTS = (
-    HARNESS_ROOT / "environments/3102311/requirements.txt"
-)
-# The harness installs the delivered extension and server config, not copies.
+# The harness installs the delivered environments, extension and server
+# config, not copies.
 PACKAGE_ROOT = REPOSITORY_ROOT / "deploy/jupyter"
+ENVIRONMENT_PROJECTS = PACKAGE_ROOT / "environments"
+ENVIRONMENT_PYTHONS = {
+    "server": "3.12",
+    "default": "3.11",
+    "3102311": "3.10.11",
+}
 EXTENSION_ROOT = PACKAGE_ROOT / "extension"
 SERVER_CONFIG = PACKAGE_ROOT / "jupyter_server_config.py"
 EXTENSION_CONFIG = {
@@ -130,17 +132,17 @@ def setup(args: argparse.Namespace) -> None:
     if args.index_url:
         setup_environment["UV_DEFAULT_INDEX"] = args.index_url
 
+    explicit_pythons = {
+        "3.12": args.python_312,
+        "3.11": args.python_311,
+        "3.10.11": args.python_310,
+    }
     python_selectors = {
-        "3.11": _python_selector(args.python_311, "3.11"),
-        "3.10.11": _python_selector(args.python_310, "3.10.11"),
+        version: _python_selector(path, version)
+        for version, path in explicit_pythons.items()
     }
     versions_to_install = [
-        version
-        for version, explicit_path in (
-            ("3.11", args.python_311),
-            ("3.10.11", args.python_310),
-        )
-        if explicit_path is None
+        version for version, path in explicit_pythons.items() if path is None
     ]
     if versions_to_install:
         _run(
@@ -148,11 +150,7 @@ def setup(args: argparse.Namespace) -> None:
             environment=setup_environment,
         )
 
-    for name, version in (
-        ("server", "3.11"),
-        ("default", "3.11"),
-        ("3102311", "3.10.11"),
-    ):
+    for name, version in ENVIRONMENT_PYTHONS.items():
         _run(
             [
                 uv,
@@ -167,29 +165,28 @@ def setup(args: argparse.Namespace) -> None:
             environment=setup_environment,
         )
 
-    server_python = environment_python(environments["server"])
-    default_python = environment_python(environments["default"])
-    python_3102311 = environment_python(environments["3102311"])
-    for python, requirements in (
-        (server_python, JUPYTER_REQUIREMENTS),
-        (default_python, DEFAULT_REQUIREMENTS),
-        (python_3102311, PYTHON_3102311_REQUIREMENTS),
-    ):
-        if python != server_python:
-            _run(
-                [
-                    uv,
-                    "pip",
-                    "install",
-                    "--strict",
-                    "--python",
-                    str(python),
-                    "ipykernel>=6.30,<7",
-                ],
-                environment=setup_environment,
-            )
-        if not requirements.read_text(encoding="utf-8").strip():
-            continue
+    requirements_root = install_root / "requirements"
+    requirements_root.mkdir(exist_ok=True)
+    for name in ENVIRONMENT_PYTHONS:
+        # Exported pins install from any mirror, unlike `uv sync --locked`,
+        # which only accepts the index the lock was made with.
+        requirements = requirements_root / f"{name}.txt"
+        _run(
+            [
+                uv,
+                "export",
+                "--project",
+                str(ENVIRONMENT_PROJECTS / name),
+                "--frozen",
+                "--no-dev",
+                "--no-emit-project",
+                "--no-hashes",
+                "--quiet",
+                "--output-file",
+                str(requirements),
+            ],
+            environment=setup_environment,
+        )
         _run(
             [
                 uv,
@@ -197,13 +194,16 @@ def setup(args: argparse.Namespace) -> None:
                 "install",
                 "--strict",
                 "--python",
-                str(python),
+                str(environment_python(environments[name])),
                 "--requirements",
                 str(requirements),
             ],
             environment=setup_environment,
         )
 
+    server_python = environment_python(environments["server"])
+    default_python = environment_python(environments["default"])
+    python_3102311 = environment_python(environments["3102311"])
     _run(
         [
             uv,
@@ -259,12 +259,8 @@ def setup(args: argparse.Namespace) -> None:
 
 
 def _verify_local_install(environments: dict[str, Path]) -> None:
-    expected = {
-        "server": (3, 11),
-        "default": (3, 11),
-        "3102311": (3, 10, 11),
-    }
-    for name, version in expected.items():
+    for name, selector in ENVIRONMENT_PYTHONS.items():
+        version = tuple(int(part) for part in selector.split("."))
         python = environment_python(environments[name])
         if not python.is_file():
             raise NativeJupyterError(
@@ -520,6 +516,10 @@ def parser() -> argparse.ArgumentParser:
     )
     setup_parser.add_argument(
         "--install-root", default=str(DEFAULT_INSTALL_ROOT)
+    )
+    setup_parser.add_argument(
+        "--python-312",
+        help="Existing Python 3.12 executable; skips its uv-managed Python download.",
     )
     setup_parser.add_argument(
         "--python-311",

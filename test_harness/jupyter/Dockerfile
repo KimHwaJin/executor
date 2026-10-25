@@ -1,7 +1,11 @@
 ARG PYTHON310_IMAGE=astral/uv:python3.10-bookworm-slim
 ARG PYTHON311_IMAGE=astral/uv:python3.11-bookworm-slim
+ARG PYTHON312_IMAGE=astral/uv:python3.12-bookworm-slim
 ARG UV_DEFAULT_INDEX=https://pypi.org/simple
 
+# Each environment installs the pins exported from the deployment lock, so the
+# harness and the delivered image cannot drift. Exported pins also install
+# from a mirror other than the one the lock was made with.
 FROM ${PYTHON310_IMAGE} AS python310
 
 ARG UV_DEFAULT_INDEX
@@ -10,19 +14,35 @@ ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
     UV_NO_CACHE=1
 
-COPY test_harness/jupyter/environments/3102311/requirements.txt \
-    /opt/jupyter-env/3102311/requirements.txt
+COPY deploy/jupyter/environments/3102311 /opt/jupyter-env/3102311
 
-RUN uv venv --no-project --clear \
+RUN uv export --project /opt/jupyter-env/3102311 --frozen --no-dev \
+        --no-emit-project --no-hashes --quiet \
+        --output-file /opt/jupyter-env/3102311/requirements.txt \
+    && uv venv --no-project --clear \
         --python /usr/local/bin/python3.10 /opt/venvs/3102311 \
     && uv pip install --strict --python /opt/venvs/3102311/bin/python \
-        "ipykernel>=6.30,<7" \
-    && if [ -s /opt/jupyter-env/3102311/requirements.txt ]; then \
-        uv pip install --strict --python /opt/venvs/3102311/bin/python \
-            --requirements /opt/jupyter-env/3102311/requirements.txt; \
-    fi
+        --requirements /opt/jupyter-env/3102311/requirements.txt
 
-FROM ${PYTHON311_IMAGE}
+FROM ${PYTHON311_IMAGE} AS python311
+
+ARG UV_DEFAULT_INDEX
+
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_NO_CACHE=1
+
+COPY deploy/jupyter/environments/default /opt/jupyter-env/default
+
+RUN uv export --project /opt/jupyter-env/default --frozen --no-dev \
+        --no-emit-project --no-hashes --quiet \
+        --output-file /opt/jupyter-env/default/requirements.txt \
+    && uv venv --no-project --clear \
+        --python /usr/local/bin/python3.11 /opt/venvs/default \
+    && uv pip install --strict --python /opt/venvs/default/bin/python \
+        --requirements /opt/jupyter-env/default/requirements.txt
+
+FROM ${PYTHON312_IMAGE}
 
 ARG UV_DEFAULT_INDEX
 
@@ -49,21 +69,21 @@ COPY --from=python310 /usr/local/bin/python3.10 /usr/local/bin/python3.10
 COPY --from=python310 /usr/local/lib/libpython3.10.so.1.0 /usr/local/lib/libpython3.10.so.1.0
 COPY --from=python310 /usr/local/lib/python3.10 /usr/local/lib/python3.10
 COPY --from=python310 /opt/venvs/3102311 /opt/venvs/3102311
+COPY --from=python311 /usr/local/bin/python3.11 /usr/local/bin/python3.11
+COPY --from=python311 /usr/local/lib/libpython3.11.so.1.0 /usr/local/lib/libpython3.11.so.1.0
+COPY --from=python311 /usr/local/lib/python3.11 /usr/local/lib/python3.11
+COPY --from=python311 /opt/venvs/default /opt/venvs/default
 
-COPY test_harness/jupyter/environments/server/requirements.txt /opt/jupyter-env/server/requirements.txt
-COPY test_harness/jupyter/environments/default/requirements.txt /opt/jupyter-env/default/requirements.txt
+COPY deploy/jupyter/environments/server /opt/jupyter-env/server
 
 RUN ldconfig \
+    && uv export --project /opt/jupyter-env/server --frozen --no-dev \
+        --no-emit-project --no-hashes --quiet \
+        --output-file /opt/jupyter-env/server/requirements.txt \
     && uv venv --no-project --clear \
-        --python /usr/local/bin/python3.11 /opt/venvs/jupyter \
-    && uv venv --no-project --clear \
-        --python /usr/local/bin/python3.11 /opt/venvs/default \
+        --python /usr/local/bin/python3.12 /opt/venvs/jupyter \
     && uv pip install --strict --python /opt/venvs/jupyter/bin/python \
-        --requirements /opt/jupyter-env/server/requirements.txt \
-    && uv pip install --strict --python /opt/venvs/default/bin/python \
-        "ipykernel>=6.30,<7" \
-    && uv pip install --strict --python /opt/venvs/default/bin/python \
-        --requirements /opt/jupyter-env/default/requirements.txt
+        --requirements /opt/jupyter-env/server/requirements.txt
 
 COPY deploy/jupyter/extension /opt/jupyter-resource-extension
 COPY deploy/jupyter/executor_resource_extension.json \

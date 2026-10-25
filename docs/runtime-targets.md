@@ -107,8 +107,7 @@ the current scheduler still admits work by PostgreSQL reservations and configure
 
 ## Kernel profiles
 
-The local Jupyter harness uses independent uv-managed virtual environments installed from
-environment-specific `requirements.txt` files. The separately deliverable deployment image uses
+Both the local Jupyter harness and the separately deliverable deployment image install the
 independent `pyproject.toml` and `uv.lock` projects under `deploy/jupyter/environments/`. Both
 images expose the same two kernelspecs:
 
@@ -121,10 +120,9 @@ The local `default` environment includes NumPy, pandas, SciPy, PyArrow, Polars, 
 Matplotlib, Seaborn, Plotly, and statsmodels. The `3102311` environment is independent rather than
 `default` plus extra packages. Its approved package list is intentionally supplied separately.
 
-Local harness inputs live under `test_harness/jupyter/environments/`; uv creates the environments
-and installs their `requirements.txt` files. Deployment inputs live under
-`deploy/jupyter/environments/`; `uv sync --locked` installs each `pyproject.toml` using its committed
-`uv.lock`. Neither image exposes an implicit `python3` kernelspec.
+The deployment image runs `uv sync --locked` on each project. The harness installs the pins that
+`uv export --frozen` produces from the same lock, which also works against a different package
+mirror. Neither image exposes an implicit `python3` kernelspec.
 
 ## Probe diagnostics
 

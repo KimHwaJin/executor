@@ -19,26 +19,27 @@ installs them from there, so the tested extension is the delivered one.
 
 ## Image layout
 
-The final image is built from a pinned uv and Python 3.11 Bookworm Slim image and runs JupyterLab
-as the non-root `jovyan` user (UID/GID 1000). Python 3.10.x is copied from a matching uv and Python
-3.10 Bookworm Slim build stage. Both stages use the same Debian generation.
+The final image is built from a pinned uv and Python 3.12 Bookworm Slim image and runs JupyterLab
+as the non-root `jovyan` user (UID/GID 1000). Python 3.11 and 3.10.x are copied from matching uv
+Bookworm Slim build stages, so every stage uses the same Debian generation.
 Three isolated virtual environments are created:
 
-| Environment | Python | Purpose | Package list |
+| Environment | Python | Purpose | Package definition |
 | --- | --- | --- | --- |
-| Jupyter server | 3.11 | JupyterLab and server process | `environments/server/requirements.txt` |
-| `default` kernel | 3.11 | General data analysis | `environments/default/requirements.txt` |
-| `3102311` kernel | 3.10.x | Project-specific environment | `environments/3102311/requirements.txt` |
+| Jupyter server | 3.12 | JupyterLab and server process | `deploy/jupyter/environments/server` |
+| `default` kernel | 3.11 | General data analysis | `deploy/jupyter/environments/default` |
+| `3102311` kernel | 3.10.x | Project-specific environment | `deploy/jupyter/environments/3102311` |
+
+The harness has no package lists of its own. Docker and native setup both run `uv export --frozen`
+on the deployment `pyproject.toml`/`uv.lock` and install the exported pins with `uv pip install`,
+so a package tested here is exactly the one delivered. Exported pins also install from a mirror
+other than the one the lock was made with. To add a package, change the deployment project and its
+lock as described in [`deploy/jupyter/README.md`](../../deploy/jupyter/README.md).
 
 Only the `default` and `3102311` kernelspecs are exposed. The default kernel is `default`.
-`3102311` remains the stable kernelspec ID; the actual Python patch version comes from the selected
-`PYTHON310_IMAGE` and may be any supported Python 3.10.x release.
-The two kernel environments are independent. Both kernels and the Jupyter server environment
-include `scikit-learn==1.7.2`, imported as `sklearn`; this shared version supports both Python 3.10
-and 3.11. Additional project packages can be added to `3102311/requirements.txt`.
-Kernel bootstrap dependency `ipykernel` is installed
-by the Docker/native setup and must not be added to either user package list. Both Docker and native
-setup use `uv venv` and `uv pip install`; `requirements.txt` remains the package-list input format.
+`3102311` remains the stable kernelspec ID; in the Docker image the actual Python patch version
+comes from the selected `PYTHON310_IMAGE` and may be any supported Python 3.10.x release.
+The two kernel environments are independent.
 
 The harness mirrors the deployment image's Debian 12 Bookworm base and kernel layout.
 
@@ -51,13 +52,14 @@ context:
 docker build --tag executor-jupyter:local --file test_harness/jupyter/Dockerfile .
 ```
 
-The Dockerfile uses pinned Python 3.10 and 3.11 uv images. In a closed network, import both images
-into the internal registry and point package resolution at Nexus:
+The Dockerfile uses pinned Python 3.10, 3.11 and 3.12 uv images. In a closed network, import all
+three images into the internal registry and point package resolution at Nexus:
 
 ```bash
 docker build \
   --build-arg PYTHON310_IMAGE=harbor.example.com/library/uv:python3.10-bookworm-slim \
   --build-arg PYTHON311_IMAGE=harbor.example.com/library/uv:python3.11-bookworm-slim \
+  --build-arg PYTHON312_IMAGE=harbor.example.com/library/uv:python3.12-bookworm-slim \
   --build-arg UV_DEFAULT_INDEX=https://nexus.example.com/repository/pypi-group/simple/ \
   --tag executor-jupyter:local \
   --file test_harness/jupyter/Dockerfile .
@@ -73,7 +75,7 @@ For the local Compose topology:
 docker compose -f docker-compose.runtime.yml build jupyter
 ```
 
-Rebuild the image after changing a requirements file, server configuration, startup script, or
+Rebuild the image after changing a deployment environment lock, server configuration, startup script, or
 resource extension. The image intentionally has no separate build-time validation stage.
 
 ## Runtime configuration
@@ -234,7 +236,7 @@ scheduling remain Executor service concerns and are documented in the repository
 
 The repository also provides one Python entry point for Linux, macOS, and Windows PowerShell. It
 uses uv-managed CPython, creates three isolated environments under `test_harness/jupyter/.native`, installs the
-same requirements and Executor extension as the image, and exposes only the `default` and `3102311`
+same locked packages and Executor extension as the image, and exposes only the `default` and `3102311`
 kernels. WSL is not required on Windows.
 
 Prerequisites:
@@ -243,7 +245,7 @@ Prerequisites:
 - network access to the configured Python package index during setup;
 - 64-bit Windows when using binary analysis packages;
 - Microsoft Visual C++ Redistributable on Windows when required by pasted packages;
-- package-specific system libraries required by the approved requirements;
+- package-specific system libraries required by the approved packages;
 - `libgomp` on Linux, normally provided by `libgomp1` or the equivalent distribution package.
 
 The setup command is the same in POSIX shells and PowerShell. From the repository root:
@@ -252,8 +254,9 @@ The setup command is the same in POSIX shells and PowerShell. From the repositor
 uv run python test_harness/jupyter/native.py setup
 ```
 
-The command installs uv-managed Python 3.11 and exact Python 3.10.11 when they are absent. It does not alter the
-system Python installation. Re-run it after changing a requirements file or the Jupyter extension. Existing
+The command installs uv-managed Python 3.12, 3.11 and exact Python 3.10.11 when they are absent. It does not
+alter the system Python installation. Re-run it after changing a deployment environment lock or the Jupyter
+extension. Existing
 `.native/basic` and `.native/ml` directories from the previous layout are ignored and reported; verify the new
 `.native/default` and `.native/3102311` environments before removing those legacy directories manually.
 
@@ -261,15 +264,16 @@ system Python installation. Re-run it after changing a requirements file or the 
 
 The default setup command can download managed Python distributions and packages from public
 repositories. For a closed Windows network, distribute `uv.exe` and the official 64-bit Python
-3.11 and exact 3.10.11 installers through an approved internal channel, install both Python
-versions, and publish all packages required by `environments/server`, `environments/default`,
-`environments/3102311`, plus `ipykernel>=6.30,<7`, to a Nexus PyPI repository.
+3.12, 3.11 and exact 3.10.11 installers through an approved internal channel, install all three
+Python versions, and publish every package pinned by the three `deploy/jupyter/environments/*/uv.lock`
+files to a Nexus PyPI repository.
 
-Resolve the installed Python executables and run the bootstrap script directly with Python 3.11.
-Supplying both executable paths prevents `native.py` from running `uv python install`, while
+Resolve the installed Python executables and run the bootstrap script directly with Python 3.12.
+Supplying all three executable paths prevents `native.py` from running `uv python install`, while
 `--index-url` replaces the public PyPI default for every package installation:
 
 ```powershell
+$Python312 = py -3.12 -c "import sys; print(sys.executable)"
 $Python311 = py -3.11 -c "import sys; print(sys.executable)"
 $Python310 = py -3.10 -c "import sys; assert sys.version_info[:3] == (3, 10, 11); print(sys.executable)"
 $NexusIndex = "https://nexus.example/repository/pypi-group/simple"
@@ -277,7 +281,8 @@ $NexusIndex = "https://nexus.example/repository/pypi-group/simple"
 # Use the Windows certificate store when Nexus is signed by an internal corporate CA.
 $env:UV_SYSTEM_CERTS = "true"
 
-& $Python311 test_harness\jupyter\native.py setup `
+& $Python312 test_harness\jupyter\native.py setup `
+  --python-312 $Python312 `
   --python-311 $Python311 `
   --python-310 $Python310 `
   --index-url $NexusIndex
