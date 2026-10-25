@@ -69,6 +69,7 @@ from executor_service.infrastructure.background_diagnostics import (
     BackgroundDiagnosticRecorder,
     RuntimeObservation,
 )
+from executor_service.infrastructure.cluster_passes import claim_pass
 from executor_service.infrastructure.db.base import Base
 from executor_service.infrastructure.db.migrations import (
     MIGRATION_LOCK_ID,
@@ -99,7 +100,6 @@ from executor_service.infrastructure.diagnostic_store import (
     DiagnosticRecorder,
     SQLAlchemyDiagnosticQueryService,
 )
-from executor_service.infrastructure.cluster_passes import claim_pass
 from executor_service.infrastructure.event_retention import (
     RETENTION_PASS_KEY,
 )

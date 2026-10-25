@@ -29,6 +29,7 @@ from executor_service.domain.enums import (
 )
 from executor_service.domain.models import utc_now
 from executor_service.domain.runtime import RuntimeOffering
+from executor_service.infrastructure.cluster_passes import claim_pass
 from executor_service.infrastructure.db.models import (
     ExecutionEventORM,
     ExecutionOperationORM,
@@ -41,7 +42,6 @@ from executor_service.infrastructure.db.repositories import (
     SQLAlchemyUnitOfWork,
 )
 from executor_service.infrastructure.db.session import create_session_factory
-from executor_service.infrastructure.cluster_passes import claim_pass
 from executor_service.infrastructure.event_retention import (
     RETENTION_PASS_KEY,
     EventRetentionManager,
