@@ -619,8 +619,7 @@ remain valid. `runtime_target_list` reports capacity, active executions, observe
 supported profiles, and the latest health result. The scheduler selects within the requested
 `INTERACTIVE` or `BATCH` pool and skips full, disabled, unhealthy, or incompatible targets.
 Only profiles listed in `RUNTIME_ALLOWED_PROFILES` are advertised and schedulable, even if a
-Runtime Driver reports additional environments. The code default is `default` and `3102311`, and
-`config.yml` lists the same set.
+Runtime Driver reports additional environments. The code default is `default` and `3102311`.
 
 Capacity admission uses `max(active_execution_count, active_session_count)` while the persisted
 session observation is fresh. The DB count includes running/waiting Attempts, retained retries,
@@ -734,8 +733,9 @@ the working directory. `config.yml` is read whenever it exists. Deployments set 
 `dev`, `stg` or `prd`, which requires the matching file and fails startup without it. Local runs
 leave `APP_ENV` unset or empty and read only `config.yml`, `.env` and environment variables, so
 local values go in `config.yml` or `.env`. `APP_ENV` is read from the process environment only,
-never from `.env`. `config.yml`
-holds tuning shared by every environment; `config.dev.yml`, `config.stg.yml` and `config.prd.yml`
+never from `.env`. Defaults live
+only in `src/executor_service/settings.py`. `config.yml` ships empty and holds a key only when every
+environment should change its default; `config.dev.yml`, `config.stg.yml` and `config.prd.yml`
 hold credentials, MCP host/origin allowlists, storage roots and other deployment-only values. Keys
 are the setting names in any case. The
 platform offers no ConfigMaps or Secrets, so these files, credentials included, ship in the
