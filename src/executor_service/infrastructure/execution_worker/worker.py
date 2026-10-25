@@ -175,6 +175,7 @@ class ExecutionWorker:
             self._dispatcher,
             self._runner,
             self._cancellation,
+            worker_id=self._worker_id,
             max_active_jobs=settings.execution_worker_max_active,
         )
         self._multi_lifecycle = MultiLifecycleAuditor(

@@ -78,10 +78,11 @@ class ExecutionClaimer:
             seconds=self._settings.execution_lease_seconds
         )
         async with self._session_factory() as session, session.begin():
+            # Another Worker holding the row is already claiming it.
             execution = await session.scalar(
                 select(ExecutionORM)
                 .where(ExecutionORM.id == execution_id)
-                .with_for_update()
+                .with_for_update(skip_locked=True)
             )
             if (
                 execution is None

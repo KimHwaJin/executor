@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import Coroutine
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, Mock
@@ -19,14 +20,17 @@ from executor_service.application.services import ExecutionService
 from executor_service.domain.enums import (
     AttemptStatus,
     ExecutionStatus,
+    HandoverReason,
     OperationMode,
     RuntimePool,
     RuntimeTargetStatus,
     TriggerType,
 )
+from executor_service.domain.models import utc_now
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
 from executor_service.infrastructure.db.models import (
     ExecutionAttemptORM,
+    ExecutionHandoverORM,
     ExecutionORM,
     RuntimeTargetORM,
 )
@@ -74,6 +78,7 @@ async def test_reconcile_takes_only_free_slots_and_rotates(
         Mock(dispatch=dispatch, active_job_count=1),
         AsyncMock(),
         AsyncMock(),
+        worker_id="worker-a",
         max_active_jobs=3,
     )
     # Cancellation needs no slot; runs fill the two free ones, oldest first.
@@ -107,10 +112,99 @@ async def test_full_worker_dispatches_only_cancellations(
         Mock(dispatch=dispatch, active_job_count=3),
         AsyncMock(),
         AsyncMock(),
+        worker_id="worker-a",
         max_active_jobs=3,
     )
     assert await processor.reconcile() == 0
     assert seen == []
+
+
+async def test_cancellation_under_another_live_lease_is_left_to_its_owner(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+) -> None:
+    others = await execution_service.submit(_command("others"))
+    mine = await execution_service.submit(_command("mine"))
+    expired = await execution_service.submit(_command("expired"))
+    factory = create_session_factory(engine)
+    now = utc_now()
+    leases = {
+        others.id: ("worker-b", now + timedelta(seconds=60)),
+        mine.id: ("worker-a", now + timedelta(seconds=60)),
+        expired.id: ("worker-b", now - timedelta(seconds=1)),
+    }
+    async with factory() as session, session.begin():
+        for execution_id, (owner, expires_at) in leases.items():
+            await session.execute(
+                update(ExecutionORM)
+                .where(ExecutionORM.id == execution_id)
+                .values(
+                    status=ExecutionStatus.CANCEL_REQUESTED,
+                    lease_owner=owner,
+                    lease_expires_at=expires_at,
+                )
+            )
+    seen: list[UUID] = []
+
+    def dispatch(execution_id, coroutine, **kwargs):
+        coroutine.close()
+        seen.append(execution_id)
+
+    processor = WorkAdmissionProcessor(
+        factory,
+        Mock(dispatch=dispatch, active_job_count=3),
+        AsyncMock(),
+        AsyncMock(),
+        worker_id="worker-a",
+        max_active_jobs=3,
+    )
+    assert await processor.reconcile() == 2
+    assert set(seen) == {mine.id, expired.id}
+
+
+async def test_released_steps_take_only_free_slots_oldest_first(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+) -> None:
+    released = [
+        await execution_service.submit(_command(f"released-{index}"))
+        for index in range(3)
+    ]
+    queued = await execution_service.submit(_command("queued"))
+    factory = create_session_factory(engine)
+    now = utc_now()
+    async with factory() as session, session.begin():
+        for age, execution in enumerate(released):
+            await session.execute(
+                update(ExecutionORM)
+                .where(ExecutionORM.id == execution.id)
+                .values(status=ExecutionStatus.RUNNING)
+            )
+            session.add(
+                ExecutionHandoverORM(
+                    execution_id=execution.id,
+                    reason=HandoverReason.EXECUTOR_SHUTDOWN,
+                    paused_since=now - timedelta(seconds=age),
+                    created_at=now,
+                )
+            )
+    seen: list[UUID] = []
+
+    def dispatch(execution_id, coroutine, **kwargs):
+        coroutine.close()
+        seen.append(execution_id)
+
+    processor = WorkAdmissionProcessor(
+        factory,
+        Mock(dispatch=dispatch, active_job_count=1),
+        AsyncMock(),
+        AsyncMock(),
+        worker_id="worker-a",
+        max_active_jobs=3,
+    )
+    assert await processor.reconcile() == 2
+    assert seen == [released[2].id, released[1].id]
+    assert queued.id not in seen
 
 
 def _command(name: str) -> SubmitExecutionCommand:
