@@ -41,7 +41,9 @@ from executor_service.infrastructure.db.repositories import (
     SQLAlchemyUnitOfWork,
 )
 from executor_service.infrastructure.db.session import create_session_factory
+from executor_service.infrastructure.cluster_passes import claim_pass
 from executor_service.infrastructure.event_retention import (
+    RETENTION_PASS_KEY,
     EventRetentionManager,
 )
 from executor_service.infrastructure.events import ExecutionStreamEnvelope
@@ -273,9 +275,15 @@ async def lifecycle_check(
 
     retention = EventRetentionManager(sessions, redis, settings)
     verify(
-        await retention.run_once() is not None,
+        await claim_pass(
+            sessions,
+            RETENTION_PASS_KEY,
+            "compatibility-check",
+            settings.event_retention_interval_seconds,
+        ),
         "Retention lease could not be acquired in isolated DB.",
     )
+    await retention.run_pass()
     # Fresh history is deliberately retained by the production policy.
     async with sessions() as session:
         verify(

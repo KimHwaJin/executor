@@ -99,9 +99,9 @@ from executor_service.infrastructure.diagnostic_store import (
     DiagnosticRecorder,
     SQLAlchemyDiagnosticQueryService,
 )
+from executor_service.infrastructure.cluster_passes import claim_pass
 from executor_service.infrastructure.event_retention import (
     RETENTION_PASS_KEY,
-    EventRetentionManager,
 )
 from executor_service.infrastructure.events import (
     ExecutionStreamEnvelope,
@@ -2365,24 +2365,19 @@ async def test_event_retention_runs_once_per_interval_cluster_wide(
                 BackgroundPassLeaseORM.singleton_key == RETENTION_PASS_KEY
             )
         )
-    redis_clients = [
-        Redis.from_url(_redis_test_url(), decode_responses=True)
-        for _ in range(2)
-    ]
-    managers = [
-        EventRetentionManager(session_factory, redis, settings)
-        for redis in redis_clients
-    ]
-    try:
-        results = await asyncio.gather(
-            *(manager.run_once() for manager in managers)
+    interval = settings.event_retention_interval_seconds
+    claims = await asyncio.gather(
+        *(
+            claim_pass(session_factory, RETENTION_PASS_KEY, owner, interval)
+            for owner in ("pod-a", "pod-b")
         )
-        assert sum(result is not None for result in results) == 1
-        # The interval has not elapsed, so neither Pod runs again.
-        assert await managers[0].run_once() is None
-        assert await managers[1].run_once() is None
-    finally:
-        await _close_redis(redis_clients)
+    )
+    assert sum(claims) == 1
+    # The interval has not elapsed, so neither Pod runs again.
+    for owner in ("pod-a", "pod-b"):
+        assert not await claim_pass(
+            session_factory, RETENTION_PASS_KEY, owner, interval
+        )
 
 
 async def test_current_baseline_repeated_upgrade_preserves_events(
