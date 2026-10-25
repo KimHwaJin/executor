@@ -60,7 +60,6 @@ async def main() -> None:
                 user_id="multi-lifecycle-user",
                 project_id="multi-lifecycle-project",
                 session_id="multi-lifecycle-session",
-                task_id="test-task",
                 steps=(
                     StepSpec(
                         sequence=0,

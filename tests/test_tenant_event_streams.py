@@ -99,7 +99,6 @@ def _command(
     *,
     key: str | None = None,
     tenant_id: str | None = None,
-    task_id: str | None = "tenant-task",
 ) -> SubmitExecutionCommand:
     return SubmitExecutionCommand(
         idempotency_key=key or f"tenant-{uuid4().hex}",
@@ -109,7 +108,6 @@ def _command(
         user_id="tenant-user",
         project_id=None,
         session_id=None,
-        task_id=task_id,
         tenant_id=tenant_id,
         steps=(StepSpec(sequence=0, code="print('tenant')"),),
     )
@@ -281,13 +279,12 @@ def test_fingerprint_without_tenant_matches_the_pre_tenant_encoding() -> None:
     assert fingerprint(replace(command, tenant_id="acme-data")) != legacy
 
 
-async def test_execution_without_task_completes_with_valid_event(
+async def test_tenant_execution_completes_with_valid_event(
     engine: AsyncEngine, tmp_path: Path
 ) -> None:
     execution = await _service(engine, tmp_path).submit(
-        _command(task_id=None, tenant_id="acme-data")
+        _command(tenant_id="acme-data")
     )
-    assert execution.task_id is None
     session_factory = create_session_factory(engine)
     async with session_factory() as session, session.begin():
         await session.execute(
@@ -307,7 +304,6 @@ async def test_execution_without_task_completes_with_valid_event(
     assert event is not None
     payload = ExecutionCompletedPayload.model_validate(event.payload)
     assert payload.execution is not None
-    assert payload.execution.context.task_id is None
     assert payload.execution.context.user_id == "tenant-user"
 
 
@@ -351,12 +347,7 @@ async def rest_client(
     await container.engine.dispose()
 
 
-def _submit_body(
-    key: str, *, tenant_id: str | None = None, task_id: str | None = None
-) -> dict[str, Any]:
-    context: dict[str, Any] = {"user_id": "rest-user"}
-    if task_id is not None:
-        context["task_id"] = task_id
+def _submit_body(key: str, *, tenant_id: str | None = None) -> dict[str, Any]:
     body: dict[str, Any] = {
         "idempotency_key": key,
         "lifecycle": {"operation_mode": "SINGLE"},
@@ -382,7 +373,7 @@ def _submit_body(
                 ],
             }
         },
-        "context": context,
+        "context": {"user_id": "rest-user"},
     }
     if tenant_id is not None:
         body["tenant_id"] = tenant_id
@@ -398,12 +389,16 @@ async def test_rest_submit_detail_and_list_carry_tenant(
     assert submitted.status_code == 202, submitted.text
     await rest_client.post(
         "/api/v1/executions",
-        json=_submit_body("rest-b", task_id="rest-task"),
+        json=_submit_body("rest-b"),
     )
 
     detail = await rest_client.get(submitted.headers["location"])
     assert detail.json()["tenant_id"] == "acme"
-    assert detail.json()["context"]["task_id"] is None
+    assert detail.json()["context"] == {
+        "user_id": "rest-user",
+        "project_id": None,
+        "session_id": None,
+    }
 
     listed = await rest_client.get(
         "/api/v1/executions", params={"tenant_id": "acme"}

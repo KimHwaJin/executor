@@ -168,7 +168,6 @@ async def main() -> None:
                         "user_id": "multi-soak-user",
                         "project_id": "local-resilience",
                         "session_id": f"multi-soak-session-{run_id}",
-                        "task_id": f"multi-soak-task-{run_id}",
                     },
                     metadata={
                         "test_type": "LONG_RUNNING_MULTI_OPERATION_SOAK",

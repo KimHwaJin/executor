@@ -91,7 +91,6 @@ async def main() -> None:
                         "user_id": "shared-storage-user",
                         "project_id": "shared-storage-project",
                         "session_id": f"shared-storage-session-{unique}",
-                        "task_id": f"shared-storage-task-{unique}",
                     },
                     actor={"type": "USER", "id": "shared-storage-user"},
                 )

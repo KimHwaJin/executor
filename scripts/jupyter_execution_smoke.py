@@ -42,7 +42,6 @@ async def main() -> None:
                         "user_id": "smoke-user",
                         "project_id": "smoke-project",
                         "session_id": "smoke-session",
-                        "task_id": f"smoke-task-{unique}",
                     },
                 )
             },

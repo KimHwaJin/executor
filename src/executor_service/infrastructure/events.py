@@ -276,10 +276,8 @@ class ExecutionTriggerSummary(ContractModel):
 
 class ExecutionContextSummary(ContractModel):
     user_id: str = Field(min_length=1, max_length=255)
-    task_id: str | None = Field(default=None, min_length=1, max_length=255)
     project_id: str | None = Field(default=None, max_length=255)
     session_id: str | None = Field(default=None, max_length=255)
-    workflow_id: str | None = Field(default=None, max_length=255)
 
 
 class ExecutionSummary(ContractModel):

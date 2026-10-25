@@ -36,8 +36,12 @@ are discarded. Stop all old Executor processes before this migration.
 For a DB built from the actual 2026-08-31 baseline, `upgrade head` preserves business rows and
 requires no Redis reset. `check` must report no new upgrade operations.
 
-Current head is `0010`, which deletes leftover Worker wake-up rows and drops the Outbox
-`destination` and `payload` columns, leaving only public events. `0009` drops the unused
+Current head is `0011`, which drops `executions.task_id` and `executions.workflow_id` with their
+indexes and removes those keys from stored `execution.completed` payloads; callers keep their own
+identifiers in `metadata`. 0010 Pods still write those columns, so drain them or deploy with
+`Recreate`. Rolling back below `0007` needs `task_id` backfilled first. `0010` deletes leftover
+Worker wake-up rows and drops the Outbox `destination` and `payload` columns, leaving only public
+events. `0009` drops the unused
 `executions.cancellation_heartbeat_at`. `0008` adds `runtime_targets.connection_key` (one
 registration per normalized endpoint) and fails if two Targets share an endpoint. Older Pods still write those columns, so stop them before
 upgrading; downgrades re-add the columns.

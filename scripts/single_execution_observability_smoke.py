@@ -127,7 +127,6 @@ def _submission_payload(
             "user_id": user_id,
             "project_id": "single-observability-project",
             "session_id": f"single-observability-{label}-session-{unique}",
-            "task_id": f"single-observability-{label}-task-{unique}",
         },
         actor={"type": "USER", "id": user_id},
     )

@@ -153,7 +153,6 @@ async def test_output_limit_aborts_runtime_and_persists_incomplete_result(
             user_id="output-user",
             project_id=None,
             session_id=None,
-            task_id="output-task",
             steps=(
                 StepSpec(sequence=0, code="print('large')"),
                 StepSpec(sequence=1, code="print('must not run')"),

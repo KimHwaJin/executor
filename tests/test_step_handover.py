@@ -181,7 +181,6 @@ async def _submit(
             user_id="handover-user",
             project_id=None,
             session_id=None,
-            task_id="handover-task",
             steps=(
                 StepSpec(sequence=0, code="first"),
                 StepSpec(sequence=1, code="second"),

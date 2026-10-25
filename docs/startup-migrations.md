@@ -38,7 +38,7 @@ SQL 파라미터, 임의 예외 메시지는 기동 오류에 노출하지 않�
 현재 마이그레이션은 PostgreSQL 트랜잭션 안에서 실행한다. 향후 `CREATE INDEX CONCURRENTLY`
 같이 autocommit이 필요한 마이그레이션은 그대로 추가하면 안 된다. 트랜잭션 잠금이 풀릴 수
 있으므로 별도 운영 절차 또는 잠금 설계 검토가 필요하다. 자동 기동 기능 자체는
-revision을 추가하지 않았으며, 현재 head는 Outbox를 공개 이벤트 전용으로 줄인 `0010`이다.
+revision을 추가하지 않았으며, 현재 head는 Execution의 `task_id`/`workflow_id`를 제거한 `0011`이다.
 
 ## Deployment만 사용할 수 있는 환경
 

@@ -65,7 +65,6 @@ def submit_command(
         user_id="user-1",
         project_id="project-1",
         session_id="session-1",
-        task_id="test-task",
         steps=(
             StepSpec(
                 sequence=0,
@@ -234,7 +233,6 @@ async def test_batch_submit_allows_actor_to_differ_from_owning_user(
         trigger_type=TriggerType.BATCH,
         actor_type=ActorType.BATCH,
         actor_id="schedule-1",
-        workflow_id="workflow-1",
     )
 
     submitted = await execution_service.submit(command)

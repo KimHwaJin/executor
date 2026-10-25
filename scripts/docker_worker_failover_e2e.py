@@ -205,7 +205,6 @@ async def _submit(client: Client, config: Config, unique: str) -> str:
                     "user_id": "docker-failover-validator",
                     "project_id": "docker-failover-validation",
                     "session_id": f"docker-failover-{unique}",
-                    "task_id": f"docker-failover-{unique}",
                 },
                 operation_timeout_seconds=(config.step_duration_seconds + 360),
             )

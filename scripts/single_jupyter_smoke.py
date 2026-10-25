@@ -110,7 +110,6 @@ async def main() -> None:
                         "user_id": "single-jupyter-user",
                         "project_id": "single-jupyter-project",
                         "session_id": f"single-jupyter-session-{unique}",
-                        "task_id": f"single-jupyter-task-{unique}",
                     },
                 )
             },

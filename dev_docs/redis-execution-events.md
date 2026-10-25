@@ -763,12 +763,13 @@ Execution의 현재 수행 주기가 `SUCCEEDED`, `FAILED` 또는 `CANCELLED`로
       },
       "context": {
         "user_id": "7d1c2a8e-5b3f-4c9a-9e21-0f6a4b8c2d11",
-        "task_id": "batch-run-0001",
         "project_id": null,
-        "session_id": null,
-        "workflow_id": null
+        "session_id": null
       },
-      "metadata": {"batch_id": "3f0c9a52-6d1e-4b7a-8c25-1e9d4f6a7b80"}
+      "metadata": {
+        "batch_id": "3f0c9a52-6d1e-4b7a-8c25-1e9d4f6a7b80",
+        "run_id": "batch-run-0001"
+      }
     }
   },
   "occurred_at": "2026-08-26T10:20:00.123Z"
@@ -828,7 +829,7 @@ Execution의 현재 수행 주기가 `SUCCEEDED`, `FAILED` 또는 `CANCELLED`로
 | `trigger.actor` | object 또는 null | 제출 actor(`created_by_type`/`created_by`). 제출 후 바뀌지 않는다. actor 없이 제출된 Execution은 `null` |
 | `trigger.actor.type` | enum | `AGENT`, `USER`, `BATCH` |
 | `trigger.actor.id` | string | 1~255자 |
-| `context` | object | 제출 요청의 `context`와 같은 필드: `user_id`, `task_id`, `project_id`, `session_id`, `workflow_id`. `user_id`만 항상 있고 `task_id`를 포함한 나머지는 `null`일 수 있다 |
+| `context` | object | 제출 요청의 `context`와 같은 필드: `user_id`, `project_id`, `session_id`. `user_id`만 항상 있고 나머지는 `null`일 수 있다 |
 | `metadata` | object | 제출 요청의 최상위 `metadata`. 상세 조회와 같이 키 이름에 token/secret/password/credential이 들어간 값은 `[REDACTED]`로 가린다. 빈 객체일 수 있다 |
 
 `execution`은 schema `1.0`에 추가된 선택 필드다. 소비자는 필드가 없을 수 있다고

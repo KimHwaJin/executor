@@ -260,7 +260,6 @@ async def main() -> None:
                             "user_id": "mixed-load-user",
                             "project_id": "local-resilience",
                             "session_id": f"mixed-load-session-{run_id}-{index}",
-                            "task_id": f"mixed-load-task-{run_id}-{index}",
                         },
                         metadata={
                             "test_type": "MIXED_OUTPUT_LOAD",

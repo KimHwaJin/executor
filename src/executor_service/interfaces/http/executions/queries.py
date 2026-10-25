@@ -34,8 +34,6 @@ def build_query_router(container: ApplicationContainer) -> APIRouter:
         user_id: str | None = None,
         project_id: str | None = None,
         session_id: str | None = None,
-        task_id: str | None = None,
-        workflow_id: str | None = None,
         tenant_id: str | None = None,
         trigger_type: TriggerType | None = None,
         execution_status: Annotated[
@@ -48,8 +46,6 @@ def build_query_router(container: ApplicationContainer) -> APIRouter:
             user_id=user_id,
             project_id=project_id,
             session_id=session_id,
-            task_id=task_id,
-            workflow_id=workflow_id,
             tenant_id=tenant_id,
             trigger_type=trigger_type,
             status=execution_status,

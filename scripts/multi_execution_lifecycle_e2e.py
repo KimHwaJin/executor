@@ -505,7 +505,6 @@ async def _run_correction_and_finalization_case(
                     "user_id": user_id,
                     "project_id": "multi-flow-project",
                     "session_id": f"multi-flow-session-{unique}",
-                    "task_id": f"multi-flow-task-{unique}",
                 },
             )
         },
@@ -933,7 +932,6 @@ async def _run_running_cancel_case(
                 "user_id": user_id,
                 "project_id": project_id,
                 "session_id": session_id,
-                "task_id": f"multi-cancel-task-{unique}",
             },
         ),
     )

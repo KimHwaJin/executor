@@ -100,7 +100,7 @@ async def main() -> None:
                     trigger_type="INTERACTIVE",
                     actor=actor,
                     runtime_profile=profile,
-                    context={"user_id": actor["id"], "task_id": unique},
+                    context={"user_id": actor["id"]},
                     operation_wait_timeout_seconds=60
                     if mode == "MULTI"
                     else None,

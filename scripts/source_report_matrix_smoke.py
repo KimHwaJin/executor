@@ -61,7 +61,6 @@ async def _submit(
                     "user_id": "source-report-user",
                     "project_id": "source-report-project",
                     "session_id": f"source-report-{label}-session-{unique}",
-                    "task_id": f"source-report-{label}-task-{unique}",
                 },
             )
         },

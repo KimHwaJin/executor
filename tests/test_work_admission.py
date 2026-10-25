@@ -122,7 +122,6 @@ def _command(name: str) -> SubmitExecutionCommand:
         user_id="work-admission-user",
         project_id="work-admission-project",
         session_id="work-admission-session",
-        task_id=f"task-{name}",
         steps=(StepSpec(sequence=0, code="print('ok')"),),
     )
 

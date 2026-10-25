@@ -46,7 +46,6 @@ authoritative state store and execution happens asynchronously through the Worke
   },
   "runtime": {"type": "JUPYTER", "profile": "basic"},
   "context": {
-    "task_id": "task-100",
     "user_id": "user-100",
     "project_id": "project-100",
     "session_id": "session-100"
@@ -72,7 +71,7 @@ authoritative state store and execution happens asynchronously through the Worke
 }
 ```
 
-`user_id` is required. `task_id`, `project_id`, `session_id`, and `workflow_id` are optional;
+`user_id` is required. `project_id` and `session_id` are optional;
 `session_id` requires `project_id`. When project or session is absent, the Runtime workspace uses the
 reserved path segment `unscoped`. Clients cannot submit `unscoped` as an external ID.
 
@@ -133,8 +132,8 @@ session, and reaches a terminal state. The Jupyter driver writes the final noteb
 All list endpoints use opaque cursor pagination. Clients must return `next_cursor` unchanged.
 OpenAPI is available at `/openapi.json`, Swagger UI at `/docs`, and ReDoc at `/redoc`.
 
-Execution history can be filtered by `user_id`, `project_id`, `session_id`, `task_id`,
-`workflow_id`, `tenant_id`, `trigger_type`, and `status`. Detail and history items expose
+Execution history can be filtered by `user_id`, `project_id`, `session_id`, `tenant_id`,
+`trigger_type`, and `status`. Detail and history items expose
 `tenant_id`. Detail and history items expose `trigger{type,
 actor}` (the immutable submit actor) and the submit `metadata` object, which `execution.completed`
 also carries. Submit `metadata` holds at most 32 keys matching `^[a-z][a-z0-9_]{0,63}$` and

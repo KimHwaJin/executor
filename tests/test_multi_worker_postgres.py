@@ -18,6 +18,7 @@ import pytest_asyncio
 from alembic import command
 from alembic.config import Config
 from redis.asyncio import Redis
+from sqlalchemy import create_engine as create_sync_engine
 from sqlalchemy import delete, func, inspect, select, text, update
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
@@ -105,6 +106,7 @@ from executor_service.infrastructure.event_retention import (
 from executor_service.infrastructure.events import (
     ExecutionStreamEnvelope,
     build_execution_event,
+    validate_execution_event_payload,
 )
 from executor_service.infrastructure.execution_leases import (
     ExecutionLeaseLostError,
@@ -153,6 +155,31 @@ def _upgrade_and_check_baseline(database_url: str) -> None:
     command.check(config)
 
 
+def _downgrade_past_task_drop(
+    config: Config, database_url: str, revision: str
+) -> None:
+    # 0011 drops task_id and below 0007 it is required again, so backfill it
+    # as an operator would before such a rollback.
+    command.downgrade(config, "0010")
+    engine = create_sync_engine(database_url)
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "UPDATE executions SET task_id = id::text "
+                    "WHERE task_id IS NULL"
+                )
+            )
+    finally:
+        engine.dispose()
+    try:
+        command.downgrade(config, revision)
+    except Exception:
+        # A rejected rollback leaves the schema where it started.
+        command.upgrade(config, "head")
+        raise
+
+
 def _downgrade_baseline(database_url: str) -> None:
     config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
     config.attributes["database_url"] = database_url
@@ -171,7 +198,7 @@ async def test_startup_migration_creates_empty_db_and_repeats_safely(
     service = _service(postgres_engine, tmp_path)
     execution = await service.submit(_command("auto-migrated"))
     await upgrade_database(postgres_engine, settings)
-    assert (await service.get(execution.id)).task_id == execution.task_id
+    assert (await service.get(execution.id)).user_id == execution.user_id
     await asyncio.to_thread(_upgrade_and_check_baseline, url)
 
 
@@ -397,7 +424,8 @@ async def test_runtime_purge_serializes_with_target_mutations(
 
 # Added by 0007 and 0008. Tests that write "old" rows with the current ORM
 # add these for the writes only, so the rows match what old code wrote. The
-# current ORM also no longer sets the Outbox destination dropped by 0010.
+# current ORM also no longer sets the Outbox destination dropped by 0010, nor
+# the task_id that is required before 0007 and dropped by 0011.
 LATER_COLUMNS = {
     "executions": ("tenant_id", "VARCHAR(64)"),
     "runtime_targets": ("connection_key", "VARCHAR(2048)"),
@@ -417,6 +445,9 @@ async def _current_columns(engine: AsyncEngine) -> AsyncIterator[None]:
                 "ALTER COLUMN destination SET DEFAULT 'EVENTS'"
             )
         )
+        await connection.execute(
+            text("ALTER TABLE executions ALTER COLUMN task_id SET DEFAULT 't'")
+        )
     try:
         yield
     finally:
@@ -431,12 +462,20 @@ async def _current_columns(engine: AsyncEngine) -> AsyncIterator[None]:
                     "ALTER COLUMN destination DROP DEFAULT"
                 )
             )
+            await connection.execute(
+                text(
+                    "ALTER TABLE executions ALTER COLUMN task_id DROP DEFAULT"
+                )
+            )
 
 
 # Columns that differ between an older revision and head: added by 0007 and
-# 0008, dropped by 0009 and 0010. Compare rows across an upgrade without them.
+# 0008, dropped by 0009, 0010 and 0011. Compare rows across an upgrade
+# without them.
 CHANGED_COLUMNS = {column for column, _ in LATER_COLUMNS.values()} | {
-    "cancellation_heartbeat_at"
+    "cancellation_heartbeat_at",
+    "task_id",
+    "workflow_id",
 }
 OUTBOX_COLUMNS_DROPPED_BY_0010 = {"destination", "payload"}
 
@@ -448,11 +487,77 @@ def _without_changed_columns(rows, table: str) -> list[dict]:
     return [{k: v for k, v in row.items() if k not in changed} for row in rows]
 
 
+def _downgrade_to_before_task_drop(database_url: str) -> None:
+    config = Config(str(REPOSITORY_ROOT / "alembic.ini"))
+    config.attributes["database_url"] = database_url
+    config.attributes["configure_logger"] = False
+    command.downgrade(config, "0010")
+
+
+async def test_task_drop_upgrade_strips_stored_completion_context(
+    postgres_engine: AsyncEngine, tmp_path: Path
+) -> None:
+    url = postgres_engine.url.render_as_string(hide_password=False)
+    await asyncio.to_thread(_downgrade_to_before_task_drop, url)
+    execution = await _service(postgres_engine, tmp_path).submit(
+        _command("before-task-drop")
+    )
+    context = {
+        "user_id": execution.user_id,
+        "task_id": "run-1",
+        "project_id": None,
+        "session_id": None,
+        "workflow_id": None,
+    }
+    payload = {
+        "status": "SUCCEEDED",
+        "operation_summary": {
+            "total": 1,
+            "succeeded": 1,
+            "failed": 0,
+            "cancelled": 0,
+        },
+        "retry": None,
+        "error": None,
+        "execution": {
+            "trigger": {"type": "INTERACTIVE", "actor": None},
+            "context": context,
+        },
+    }
+    event = build_execution_event(
+        execution_id=execution.id,
+        event_sequence=1,
+        event_type="execution.completed",
+        payload={k: v for k, v in payload.items() if k != "execution"},
+    )
+    stored = ExecutionEventORM.from_domain(event)
+    # Written as a 0010 Pod did, bypassing today's payload validation.
+    stored.payload = payload
+    factory = create_session_factory(postgres_engine)
+    async with factory() as session, session.begin():
+        session.add(stored)
+
+    await asyncio.to_thread(_upgrade_and_check_baseline, url)
+
+    async with factory() as session:
+        migrated = await session.get(ExecutionEventORM, event.id)
+    assert migrated is not None
+    assert migrated.payload["execution"]["context"] == {
+        "user_id": execution.user_id,
+        "project_id": None,
+        "session_id": None,
+    }
+    assert {k: v for k, v in migrated.payload.items() if k != "execution"} == (
+        event.payload
+    )
+    validate_execution_event_payload("execution.completed", migrated.payload)
+
+
 def _downgrade_to_before_runtime_purge(database_url: str) -> None:
     config = Config(str(REPOSITORY_ROOT / "alembic.ini"))
     config.attributes["database_url"] = database_url
     config.attributes["configure_logger"] = False
-    command.downgrade(config, "0004")
+    _downgrade_past_task_drop(config, database_url, "0004")
 
 
 async def test_runtime_purge_migration_preserves_rows_and_guards_rollback(
@@ -691,21 +796,21 @@ def _downgrade_to_pre_diagnostics(database_url: str) -> None:
     config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
     config.attributes["database_url"] = database_url
     config.attributes["configure_logger"] = False
-    command.downgrade(config, "0001")
+    _downgrade_past_task_drop(config, database_url, "0001")
 
 
 def _downgrade_to_diagnostics(database_url: str) -> None:
     config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
     config.attributes["database_url"] = database_url
     config.attributes["configure_logger"] = False
-    command.downgrade(config, "0002")
+    _downgrade_past_task_drop(config, database_url, "0002")
 
 
 def _downgrade_to_pre_trace_removal(database_url: str) -> None:
     config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
     config.attributes["database_url"] = database_url
     config.attributes["configure_logger"] = False
-    command.downgrade(config, "0003")
+    _downgrade_past_task_drop(config, database_url, "0003")
 
 
 async def test_trace_removal_preserves_business_rows_and_restores_only_schema(
@@ -748,6 +853,10 @@ async def test_trace_removal_preserves_business_rows_and_restores_only_schema(
                 ),
                 {"parent": "old-trace-parent", "state": "old-trace-state"},
             )
+        # The rollback below backfills task_id this way after 0011 drops it.
+        await connection.execute(
+            text("UPDATE executions SET task_id = id::text")
+        )
         for table in tables:
             rows = (
                 (
@@ -819,7 +928,7 @@ async def test_trace_removal_preserves_business_rows_and_restores_only_schema(
                 for row in rows
             ] == before[table]
     await asyncio.to_thread(_upgrade_and_check_baseline, url)
-    assert (await service.get(execution.id)).task_id == execution.task_id
+    assert (await service.get(execution.id)).user_id == execution.user_id
 
 
 async def test_completion_upgrade_preserves_rows_and_blocks_lossy_downgrade(
@@ -867,7 +976,7 @@ async def test_completion_upgrade_preserves_rows_and_blocks_lossy_downgrade(
                 attempt is not None
                 and attempt.failure_type == FailureType.COMPLETION_FAILED
             )
-            assert row.task_id == execution.task_id
+            assert row.user_id == execution.user_id
     finally:
         await _close_redis(clients)
 
@@ -940,7 +1049,7 @@ async def test_diagnostics_upgrade_preserves_existing_execution_and_cascades(
     async with _current_columns(postgres_engine):
         execution = await service.submit(_command("preserve-before-upgrade"))
     await asyncio.to_thread(_upgrade_and_check_baseline, url)
-    assert (await service.get(execution.id)).task_id == execution.task_id
+    assert (await service.get(execution.id)).user_id == execution.user_id
     factory = create_session_factory(postgres_engine)
     async with factory() as session, session.begin():
         session.add(_server(capacity=2))
@@ -1253,7 +1362,6 @@ def _command(name: str) -> SubmitExecutionCommand:
         user_id="postgres-race-user",
         project_id="postgres-race-project",
         session_id=f"postgres-race-session-{name}",
-        task_id="test-task",
         steps=(
             StepSpec(
                 sequence=0,
@@ -1366,7 +1474,6 @@ async def test_followup_multi_operation_flushes_parent_before_steps(
             user_id="postgres-multi-user",
             project_id="postgres-multi-project",
             session_id="postgres-multi-session",
-            task_id="postgres-multi-task",
             steps=(StepSpec(sequence=0, code="value = 40"),),
         )
     )
@@ -2330,7 +2437,7 @@ async def test_current_baseline_repeated_upgrade_preserves_events(
             text("SELECT count(*) FROM event_retention_lease")
         )
 
-    assert revision == EXPECTED_SCHEMA_REVISION == "0010"
+    assert revision == EXPECTED_SCHEMA_REVISION == "0011"
     assert maintenance_count == retention_count == 1
     assert migrated_event is not None
     assert migrated_event.execution_id == execution.id
@@ -2371,7 +2478,7 @@ async def test_current_baseline_downgrade_and_recreate(
             text("SELECT singleton_key FROM event_retention_lease")
         )
     assert tables == set(Base.metadata.tables) | {"alembic_version"}
-    assert revision == EXPECTED_SCHEMA_REVISION == "0010"
+    assert revision == EXPECTED_SCHEMA_REVISION == "0011"
     assert admission == "ACTIVE"
     assert retention_key == "events"
 

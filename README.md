@@ -449,8 +449,9 @@ or trigger and may differ from the owning user.
 `runtime_pool` is not accepted from callers. Executor derives `INTERACTIVE` or `BATCH` from
 `trigger.type`, then selects a healthy compatible Runtime Target with available capacity inside
 that pool.
-`context.user_id` is the only required context field; `context.task_id` and
-`context.workflow_id` are optional for both triggers.
+`context` holds the Executor scope: `user_id` (required), `project_id`, and `session_id`. Callers
+name their own hierarchy (batch, run, task) in the top-level `metadata`, which `execution.completed`
+echoes back.
 
 An optional top-level `tenant_id` routes one Execution's events to its own Redis Stream,
 `{REDIS_EVENT_STREAM}.{tenant_id}` (for example `executor.events.pr-batch`). Executions without it

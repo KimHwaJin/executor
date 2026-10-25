@@ -40,8 +40,6 @@ class ExecutionSummaryView:
     user_id: str
     project_id: str | None
     session_id: str | None
-    task_id: str | None
-    workflow_id: str | None
     tenant_id: str | None
     metadata: dict[str, Any]
     status: ExecutionStatus
@@ -66,8 +64,6 @@ class ExecutionDetailView:
     user_id: str
     project_id: str | None
     session_id: str | None
-    task_id: str | None
-    workflow_id: str | None
     tenant_id: str | None
     metadata: dict[str, Any]
     runtime_type: RuntimeType
@@ -260,8 +256,6 @@ class ExecutionQueryService(Protocol):
         user_id: str | None = None,
         project_id: str | None = None,
         session_id: str | None = None,
-        task_id: str | None = None,
-        workflow_id: str | None = None,
         tenant_id: str | None = None,
         trigger_type: TriggerType | None = None,
         status: ExecutionStatus | None = None,

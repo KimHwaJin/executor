@@ -81,10 +81,11 @@ POST /api/v1/executions
 | 필드 | 필수 | 의미 |
 |---|---:|---|
 | `user_id` | O | 작업 소유 사용자 ID |
-| `task_id` | X | Agent가 관리하는 상위 Task ID. Task 개념이 없는 시스템은 생략한다 |
 | `project_id` | X | 프로젝트 ID |
 | `session_id` | X | 세션 ID. 지정하려면 `project_id`도 함께 필요 |
-| `workflow_id` | X | 상위 서비스에 등록된 재사용 Workflow ID. 배치·회차 식별자는 `metadata`와 `task_id`에 둔다 |
+
+`context`에는 Executor가 경로와 검증에 쓰는 값만 둔다. 서비스마다 다른 하위 식별자(batch, run,
+task 등)는 최상위 `metadata`에 담는다.
 
 `project_id` 또는 `session_id`가 없으면 Executor는 실제 workspace 경로를 만들 때 해당 구간에
 예약값 `unscoped`를 사용한다. 요청 값으로 직접 `unscoped`를 보내는 것은 금지한다.
@@ -157,7 +158,6 @@ INLINE/PATH 최대 크기와 Operation/Execution 최대 Step 수는 Executor 설
   "tenant_id": "analytics-agent",
   "context": {
     "user_id": "user-100",
-    "task_id": "task-100",
     "project_id": "project-100",
     "session_id": "session-100"
   },
@@ -189,7 +189,7 @@ INLINE/PATH 최대 크기와 Operation/Execution 최대 Step 수는 Executor 설
 
 위 요청의 이벤트는 `executor.events.analytics-agent` Stream으로 발행된다.
 
-## Request 예시 — task_id 없는 BATCH
+## Request 예시 — BATCH
 
 ```json
 {
@@ -268,7 +268,6 @@ print(total)
   "runtime": {"type": "JUPYTER", "profile": "default"},
   "context": {
     "user_id": "user-100",
-    "task_id": "task-100",
     "project_id": "project-100",
     "session_id": "session-100"
   },

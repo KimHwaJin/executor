@@ -52,7 +52,6 @@ def _command(key: str) -> SubmitExecutionCommand:
         user_id="unscoped",
         project_id=None,
         session_id=None,
-        task_id=f"task-{key}",
         steps=(StepSpec(sequence=0, code="print('retention')"),),
     )
 

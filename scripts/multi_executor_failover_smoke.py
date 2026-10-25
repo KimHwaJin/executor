@@ -185,7 +185,6 @@ async def main() -> None:
                             "user_id": "multi-executor-user",
                             "project_id": "multi-executor-project",
                             "session_id": f"multi-executor-session-{unique}",
-                            "task_id": f"multi-executor-task-{unique}",
                         },
                     )
                 },

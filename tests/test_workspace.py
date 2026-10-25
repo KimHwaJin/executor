@@ -25,7 +25,6 @@ def execution(
         user_id=user_id,
         project_id="project-1",
         session_id="session-1",
-        task_id="test-task",
         steps=[
             ExecutionStep(
                 sequence=sequence,

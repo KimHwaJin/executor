@@ -102,9 +102,10 @@ code concurrently: it does not know about the new lock.
 The first rollout to `0006` is the exception: older Pods cannot hand over, and their Jupyter
 servers need the journal extension. Drain through the maintenance API, check safe-to-shutdown,
 deploy the Jupyter extension and Executor, then activate admission. A schema change that is not
-backward compatible still needs this drain, or `Recreate` for that release.
+backward compatible still needs this drain, or `Recreate` for that release. `0011` is one: it drops
+`executions.task_id` and `workflow_id`, which `0010` Pods still write.
 
-Current head is `0006`, which adds the Step run and handover tables. Runtime purge preserves
+Current head is `0011`. Runtime purge preserves
 historical IDs after deletion.
 See [purge and rollback](../../dev_docs/post-runtime-target-purge.md).
 Before rollback, review whether the old image is compatible with the new schema; startup
