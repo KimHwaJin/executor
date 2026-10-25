@@ -9,7 +9,6 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
-    DateTime,
     Float,
     Index,
     Integer,
@@ -28,6 +27,7 @@ from executor_service.domain.enums import (
 from executor_service.domain.models import utc_now
 from executor_service.infrastructure.db.base import Base
 from executor_service.infrastructure.db.models.common import (
+    UTCDateTime,
     audit_actor_constraints,
     enum_type,
 )
@@ -93,18 +93,18 @@ class RuntimeTargetORM(Base):
         Boolean, nullable=False, default=True
     )
     last_health_check_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True)
+        UTCDateTime()
     )
     last_health_error: Mapped[str | None] = mapped_column(String(500))
     active_session_count: Mapped[int | None] = mapped_column(Integer)
     session_count_observed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True)
+        UTCDateTime()
     )
     resource_observed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True)
+        UTCDateTime()
     )
     resource_last_check_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True)
+        UTCDateTime()
     )
     resource_last_error: Mapped[str | None] = mapped_column(String(500))
     resource_source: Mapped[str | None] = mapped_column(String(64))
@@ -128,10 +128,10 @@ class RuntimeTargetORM(Base):
     )
     updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utc_now
+        UTCDateTime(), default=utc_now
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+        UTCDateTime(), default=utc_now, onupdate=utc_now
     )
 
     @validates("connection_config")
@@ -179,10 +179,10 @@ class RuntimeTargetPurgeORM(Base):
     )
     updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utc_now
+        UTCDateTime(), nullable=False, default=utc_now
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
+        UTCDateTime(),
         nullable=False,
         default=utc_now,
         onupdate=utc_now,

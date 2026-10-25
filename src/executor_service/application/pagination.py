@@ -33,16 +33,11 @@ class Page[T]:
 
 
 def encode_time_cursor(kind: str, created_at: datetime, item_id: UUID) -> str:
-    value = (
-        created_at
-        if created_at.tzinfo is not None
-        else created_at.replace(tzinfo=UTC)
-    )
     return _encode(
         {
             "v": 1,
             "kind": kind,
-            "created_at": value.astimezone(UTC).isoformat(),
+            "created_at": created_at.astimezone(UTC).isoformat(),
             "id": str(item_id),
         }
     )

@@ -6,7 +6,6 @@ from uuid import UUID, uuid4
 from sqlalchemy import (
     BigInteger,
     CheckConstraint,
-    DateTime,
     ForeignKey,
     Index,
     String,
@@ -27,6 +26,7 @@ from executor_service.domain.enums import (
 from executor_service.domain.models import utc_now
 from executor_service.infrastructure.db.base import Base
 from executor_service.infrastructure.db.models.common import (
+    UTCDateTime,
     audit_actor_constraints,
     enum_type,
 )
@@ -64,10 +64,10 @@ class ExecutorMaintenanceORM(Base):
     )
     updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utc_now
+        UTCDateTime(), nullable=False, default=utc_now
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
+        UTCDateTime(),
         nullable=False,
         default=utc_now,
         onupdate=utc_now,
@@ -87,20 +87,20 @@ class BackgroundPassLeaseORM(Base):
     singleton_key: Mapped[str] = mapped_column(String(32), primary_key=True)
     lease_owner: Mapped[str | None] = mapped_column(String(255), nullable=True)
     lease_expires_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        UTCDateTime(), nullable=True
     )
     last_started_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        UTCDateTime(), nullable=True
     )
     last_completed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        UTCDateTime(), nullable=True
     )
     last_error: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utc_now
+        UTCDateTime(), nullable=False, default=utc_now
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
+        UTCDateTime(),
         nullable=False,
         default=utc_now,
         onupdate=utc_now,
@@ -144,10 +144,10 @@ class MaintenanceRunORM(Base):
     )
     lease_owner: Mapped[str | None] = mapped_column(String(255), nullable=True)
     lease_expires_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        UTCDateTime(), nullable=True
     )
     heartbeat_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        UTCDateTime(), nullable=True
     )
     fencing_token: Mapped[int] = mapped_column(
         BigInteger, nullable=False, default=0
@@ -162,19 +162,19 @@ class MaintenanceRunORM(Base):
     )
     updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utc_now
+        UTCDateTime(), nullable=False, default=utc_now
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
+        UTCDateTime(),
         nullable=False,
         default=utc_now,
         onupdate=utc_now,
     )
     started_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        UTCDateTime(), nullable=True
     )
     finished_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        UTCDateTime(), nullable=True
     )
 
 
@@ -230,10 +230,10 @@ class MaintenanceRunTargetORM(Base):
     )
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     stop_requested_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        UTCDateTime(), nullable=True
     )
     completed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        UTCDateTime(), nullable=True
     )
     created_by_type: Mapped[ActorType | None] = mapped_column(
         enum_type(ActorType, "actor_type"), nullable=True
@@ -244,10 +244,10 @@ class MaintenanceRunTargetORM(Base):
     )
     updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utc_now
+        UTCDateTime(), nullable=False, default=utc_now
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
+        UTCDateTime(),
         nullable=False,
         default=utc_now,
         onupdate=utc_now,

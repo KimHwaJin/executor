@@ -4,11 +4,12 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import JSON, DateTime, String, Uuid
+from sqlalchemy import JSON, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from executor_service.domain.models import utc_now
 from executor_service.infrastructure.db.base import Base
+from executor_service.infrastructure.db.models.common import UTCDateTime
 
 
 class CommandReceiptORM(Base):
@@ -28,5 +29,5 @@ class CommandReceiptORM(Base):
     )
     result: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utc_now
+        UTCDateTime(), nullable=False, default=utc_now
     )

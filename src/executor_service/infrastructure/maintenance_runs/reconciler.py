@@ -1,7 +1,7 @@
 """Leased reconciliation of Executor Maintenance Run targets."""
 
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from uuid import UUID
 
 from sqlalchemy import or_, select
@@ -115,7 +115,7 @@ class MaintenanceRunReconciler:
             active_owner = (
                 run.lease_owner is not None
                 and run.lease_expires_at is not None
-                and as_utc(run.lease_expires_at) > now
+                and run.lease_expires_at > now
             )
             if not active_owner:
                 run.fencing_token += 1
@@ -270,7 +270,3 @@ class MaintenanceRunReconciler:
             )
             .with_for_update()
         )
-
-
-def as_utc(value: datetime) -> datetime:
-    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)

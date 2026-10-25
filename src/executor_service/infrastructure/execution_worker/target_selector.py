@@ -1,6 +1,6 @@
 """Runtime Target admission and load-aware selection."""
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -96,8 +96,6 @@ class RuntimeTargetSelector:
             and target.memory_utilization is None
         ):
             return False
-        if observed_at.tzinfo is None:
-            observed_at = observed_at.replace(tzinfo=UTC)
         return observed_at >= now - timedelta(
             seconds=self._settings.runtime_resource_max_age_seconds
         )

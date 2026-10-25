@@ -1,6 +1,6 @@
 """Transactional claiming of Execution and cancellation work."""
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from uuid import UUID, uuid4
 
 from sqlalchemy import delete, func, select, update
@@ -93,14 +93,14 @@ class ExecutionClaimer:
             if (
                 execution.lease_owner is not None
                 and execution_lease_expiry is not None
-                and _as_utc(execution_lease_expiry) > now
+                and execution_lease_expiry > now
             ):
                 return None
             active_expiry = execution.cancellation_lease_expires_at
             has_active_owner = (
                 execution.cancellation_lease_owner is not None
                 and active_expiry is not None
-                and _as_utc(active_expiry) > now
+                and active_expiry > now
             )
             if (
                 has_active_owner
@@ -281,8 +281,7 @@ class ExecutionClaimer:
             if is_resume:
                 if (
                     execution_row.retained_runtime_session_until is None
-                    or _as_utc(execution_row.retained_runtime_session_until)
-                    <= now
+                    or execution_row.retained_runtime_session_until <= now
                 ):
                     # The retained-session cleanup loop owns expiry finalization and cleanup.
                     return None
@@ -428,7 +427,7 @@ class ExecutionClaimer:
                 or (
                     execution_row.lease_owner is not None
                     and execution_row.lease_expires_at is not None
-                    and _as_utc(execution_row.lease_expires_at) > now
+                    and execution_row.lease_expires_at > now
                 )
             ):
                 return None
@@ -580,8 +579,3 @@ class ExecutionClaimer:
             error_message,
         )
         await add_execution_completed_event(session, execution.id)
-
-
-def _as_utc(value: datetime) -> datetime:
-    """SQLite tests may return timezone-naive values for aware columns."""
-    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)

@@ -8,7 +8,6 @@ from sqlalchemy import (
     JSON,
     BigInteger,
     CheckConstraint,
-    DateTime,
     ForeignKey,
     Index,
     Integer,
@@ -29,6 +28,7 @@ from executor_service.domain.models import (
 )
 from executor_service.infrastructure.db.base import Base
 from executor_service.infrastructure.db.models.common import (
+    UTCDateTime,
     audit_actor_constraints,
     enum_type,
 )
@@ -92,12 +92,8 @@ class ExecutionEventORM(Base):
         enum_type(ActorType, "actor_type"), nullable=True
     )
     updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 
     @classmethod
     def from_domain(cls, event: ExecutionEvent) -> "ExecutionEventORM":
@@ -175,16 +171,14 @@ class OutboxEventORM(Base):
         Integer, nullable=False, default=0
     )
     available_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
+        UTCDateTime(), nullable=False
     )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, onupdate=utc_now
+        UTCDateTime(), nullable=False, onupdate=utc_now
     )
     published_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        UTCDateTime(), nullable=True
     )
     last_error: Mapped[str | None] = mapped_column(String(500), nullable=True)
     execution_event: Mapped[ExecutionEventORM] = relationship(lazy="selectin")

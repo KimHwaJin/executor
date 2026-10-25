@@ -8,13 +8,16 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Uuid
+from sqlalchemy import JSON, ForeignKey, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from executor_service.domain.enums import HandoverReason
 from executor_service.domain.models import utc_now
 from executor_service.infrastructure.db.base import Base
-from executor_service.infrastructure.db.models.common import enum_type
+from executor_service.infrastructure.db.models.common import (
+    UTCDateTime,
+    enum_type,
+)
 
 
 class ExecutionStepRunORM(Base):
@@ -39,11 +42,9 @@ class ExecutionStepRunORM(Base):
     artifact_baseline: Mapped[dict[str, Any]] = mapped_column(
         JSON, nullable=False
     )
-    submitted_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True)
-    )
+    submitted_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utc_now
+        UTCDateTime(), nullable=False, default=utc_now
     )
 
 
@@ -62,8 +63,8 @@ class ExecutionHandoverORM(Base):
     )
     # When output delivery stopped: the last heartbeat after a crash.
     paused_since: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
+        UTCDateTime(), nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utc_now
+        UTCDateTime(), nullable=False, default=utc_now
     )
