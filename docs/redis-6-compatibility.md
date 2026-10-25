@@ -43,12 +43,12 @@ own event DLQ remains Agent-owned.
 ## Connection and permissions
 
 The existing URL and credential mechanism remains unchanged. Use the primary
-write endpoint, not a read-only replica. Service startup performs `INFO server`,
-`COMMAND INFO`, and a read-only `EVAL` before DB-backed service initialization and
-background tasks (after optional Alembic migration). Connection errors are not
-treated as compatibility fallbacks. `/readyz` reports `redis_reachable` but does
-not fail on a Redis outage: the Outbox keeps events until Redis returns. It is not an exhaustive
-live ACL test on every request.
+write endpoint, not a read-only replica. The event retention pass performs `INFO server`,
+`COMMAND INFO`, and a read-only `EVAL` before its first Redis trim and remembers a pass.
+While the check fails (Redis down or unsupported), the pass still cleans PostgreSQL and
+skips Redis trimming. Startup and `/readyz` never need Redis: the Outbox keeps events until
+Redis returns, and `/workerz` reports `redis_reachable`. It is not an exhaustive live ACL test
+on every request.
 
 Allow `AUTH`/`SELECT` as applicable, `PING`, `INFO`, `COMMAND INFO`, `EVAL`, `EXISTS`,
 `XADD`, `XRANGE`, and `XDEL` on Executor's event Stream. Scripts use only these

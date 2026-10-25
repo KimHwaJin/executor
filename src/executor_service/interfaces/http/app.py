@@ -167,8 +167,6 @@ def create_app(
         return {
             "status": "ready" if ready else "not_ready",
             "checks": checks,
-            # Reported for operators; event publication retries on its own.
-            "redis_reachable": await container.redis_reachable(),
         }
 
     @app.get("/workerz", include_in_schema=False)
@@ -179,6 +177,8 @@ def create_app(
             "state": worker.lifecycle_state,
             "accepting_new_executions": worker.accepting_work,
             "active_execution_count": worker.active_job_count,
+            # Reported for operators; event publication retries on its own.
+            "redis_reachable": await container.redis_reachable(),
             "startup_reconciliation": {
                 "completed_at": (
                     worker.startup_reconciliation_completed_at.isoformat()

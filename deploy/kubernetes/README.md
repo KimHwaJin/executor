@@ -21,9 +21,10 @@ PostgreSQL, Redis, and the registered Jupyter fleet.
 Redis server 6.0.8 or newer is required by this branch. Build the image with its
 updated `uv.lock` (redis-py 5.3.x); changing only the Redis URL does not update code
 inside an older image. Permit `INFO`, `COMMAND INFO`, `EVAL`, and the Stream commands
-listed in [Redis compatibility](../../docs/redis-6-compatibility.md). Redis must be
-reachable during startup; unsupported versions and failed compatibility checks
-prevent background work from starting. No Redis data reset is required.
+listed in [Redis compatibility](../../docs/redis-6-compatibility.md). Pods start and
+stay ready while Redis is down; events wait in the Outbox and publish once Redis returns.
+The retention pass checks the Redis version and commands before its first trim and logs an
+error and skips Redis trimming while the check fails. No Redis data reset is required.
 
 ## Required deployment substitutions
 

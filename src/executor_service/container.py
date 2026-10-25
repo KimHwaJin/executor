@@ -1,5 +1,7 @@
 """Application dependency container and process lifecycle."""
 
+import asyncio
+
 from redis.asyncio import Redis
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -45,9 +47,6 @@ from executor_service.infrastructure.materialized_artifacts import (
 )
 from executor_service.infrastructure.outbox import OutboxPublisher
 from executor_service.infrastructure.redis_client import create_redis_client
-from executor_service.infrastructure.redis_streams import (
-    check_redis_compatibility,
-)
 from executor_service.infrastructure.result_storage import (
     FilesystemExecutionResultStore,
 )
@@ -64,6 +63,8 @@ from executor_service.interfaces.execution_specs import ExecutionSpecResolver
 from executor_service.settings import Settings
 
 EXPECTED_SCHEMA_REVISION = "0011"
+READINESS_DATABASE_TIMEOUT_SECONDS = 2
+REDIS_PING_TIMEOUT_SECONDS = 1
 
 
 class ApplicationContainer:
@@ -164,7 +165,6 @@ class ApplicationContainer:
     async def start(self) -> None:
         if self.settings.db_auto_migrate:
             await upgrade_database(self.engine, self.settings)
-        await check_redis_compatibility(self.redis)
         await self.maintenance.initialize()
         self.outbox_publisher.start()
         self.event_retention.start()
@@ -183,12 +183,15 @@ class ApplicationContainer:
     async def readiness(self) -> dict[str, bool]:
         database_ready = False
         try:
-            async with self.engine.connect() as connection:
-                revision = await connection.scalar(
-                    text("SELECT version_num FROM alembic_version")
-                )
-            # Migrations only add backward-compatible changes, so a Pod
-            # stays ready while a rolling update moves the schema ahead.
+            # Stay inside the probe timeout even when the pool is busy.
+            async with asyncio.timeout(READINESS_DATABASE_TIMEOUT_SECONDS):
+                async with self.engine.connect() as connection:
+                    revision = await connection.scalar(
+                        text("SELECT version_num FROM alembic_version")
+                    )
+            # Pods stay ready while a rolling update moves the schema ahead;
+            # migrations that drop columns ship a release after the code
+            # stops using them (CONTRIBUTING.md).
             database_ready = (
                 isinstance(revision, str)
                 and revision.isdigit()
@@ -205,6 +208,9 @@ class ApplicationContainer:
 
     async def redis_reachable(self) -> bool:
         try:
-            return bool(await self.redis.ping())
+            # A silent Redis would otherwise hold the caller for the full
+            # socket timeout.
+            async with asyncio.timeout(REDIS_PING_TIMEOUT_SECONDS):
+                return bool(await self.redis.ping())
         except Exception:
             return False

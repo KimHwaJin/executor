@@ -75,9 +75,9 @@ This branch supports Redis server **6.0.8 and newer**, using `redis-py` 5.3.x
 (`uv.lock` pins the tested client). Both Redis 6.0.8 and 7.4 use the same bounded
 `XRANGE`/`XDEL` retention implementation.
 Redis must permit `EVAL` and the Stream commands used inside its Lua scripts.
-Startup checks server version, command availability, and basic scripting access
-before starting background work. `/readyz` reports `redis_reachable` but does not fail on a
-Redis outage.
+Executor starts and stays ready without Redis: the event retention pass checks server
+version, command availability, and basic scripting access before its first Redis trim, and
+skips Redis work until the check passes. `/workerz` reports `redis_reachable`.
 Local Docker Compose now defaults to the exact **`redis:6.0.8`** image and
 the dedicated `executor-redis-608` volume. The integration quality gate also
 expects 6.0.8 by default; set `EXECUTOR_EXPECT_REDIS_VERSION` explicitly when
@@ -294,8 +294,8 @@ Operational endpoints:
 - Swagger UI: `http://127.0.0.1:8000/docs`
 - OpenAPI: `http://127.0.0.1:8000/openapi.json`
 - liveness: `http://127.0.0.1:8000/healthz`
-- readiness (PostgreSQL schema, Worker admission; Redis reported, not required): `http://127.0.0.1:8000/readyz`
-- Worker lifecycle, active execution count, and startup reconciliation summary:
+- readiness (PostgreSQL schema, Worker admission; Redis not required): `http://127.0.0.1:8000/readyz`
+- Worker lifecycle, active execution count, Redis reachability, and startup reconciliation summary:
   `http://127.0.0.1:8000/workerz`
 
 ### Operational diagnostics
