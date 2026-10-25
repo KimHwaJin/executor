@@ -299,7 +299,6 @@ async def run(config: Config) -> dict[str, Any]:
                 "user_id": "kube-failover-validator",
                 "project_id": "kube-failover-validation",
                 "session_id": f"kube-failover-{unique}",
-                "task_id": f"kube-failover-{unique}",
             },
             operation_timeout_seconds=config.step_duration_seconds + 360,
         )

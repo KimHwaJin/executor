@@ -60,7 +60,6 @@ def _command() -> SubmitExecutionCommand:
         user_id="artifact-user",
         project_id="artifact-project",
         session_id="artifact-session",
-        task_id="test-task",
         steps=(
             StepSpec(
                 sequence=0,

@@ -80,7 +80,6 @@ def _command() -> SubmitExecutionCommand:
         user_id="recovery-user",
         project_id="recovery-project",
         session_id="recovery-session",
-        task_id="test-task",
         steps=(
             StepSpec(
                 sequence=0,

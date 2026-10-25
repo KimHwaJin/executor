@@ -163,7 +163,6 @@ async def run_case(
                 user_id="diagnostics-smoke",
                 project_id="output-completeness",
                 session_id=str(uuid4()),
-                task_id=f"{mode}-{scenario}",
                 steps=(
                     StepSpec(
                         sequence=0,

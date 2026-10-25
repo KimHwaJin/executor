@@ -48,7 +48,6 @@ def _submit_command() -> SubmitExecutionCommand:
         user_id="trace-user",
         project_id="trace-project",
         session_id="trace-session",
-        task_id="test-task",
         steps=(
             StepSpec(
                 sequence=0,
@@ -238,7 +237,7 @@ async def test_execution_reads_do_not_load_source_code_or_step_rows(
     )
 
 
-async def test_result_snapshot_uses_fixed_bulk_queries_and_workflow_filter(
+async def test_result_snapshot_uses_fixed_bulk_queries_and_scope_filter(
     execution_service: ExecutionService,
     engine: AsyncEngine,
 ) -> None:
@@ -247,7 +246,7 @@ async def test_result_snapshot_uses_fixed_bulk_queries_and_workflow_filter(
         idempotency_key="bulk-result-submit",
         operation_mode=OperationMode.MULTI,
         operation_wait_timeout_seconds=600,
-        workflow_id="workflow-bulk",
+        session_id="bulk-session",
     )
     execution = await execution_service.submit(command)
     session_factory = create_session_factory(engine)
@@ -267,9 +266,9 @@ async def test_result_snapshot_uses_fixed_bulk_queries_and_workflow_filter(
     )
 
     queries = SQLAlchemyExecutionQueryService(session_factory)
-    filtered = await queries.executions(workflow_id="workflow-bulk")
+    filtered = await queries.executions(session_id="bulk-session")
     assert [item.id for item in filtered.items] == [execution.id]
-    assert not (await queries.executions(workflow_id="other")).items
+    assert not (await queries.executions(session_id="other")).items
 
     statements: list[str] = []
 

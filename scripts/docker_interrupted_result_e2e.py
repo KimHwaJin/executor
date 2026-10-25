@@ -109,7 +109,7 @@ def case_request(mode: str, profile: str, unique: str) -> dict[str, Any]:
         trigger_type="INTERACTIVE",
         actor=ACTOR,
         runtime_profile=profile,
-        context={"user_id": ACTOR["id"], "task_id": unique},
+        context={"user_id": ACTOR["id"]},
         operation_wait_timeout_seconds=300 if mode == "MULTI" else None,
         operation_timeout_seconds=300,
         spec=inline_spec(

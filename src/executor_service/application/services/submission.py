@@ -126,8 +126,6 @@ class ExecutionSubmissionCommands:
                     user_id=command.user_id,
                     project_id=command.project_id,
                     session_id=command.session_id,
-                    task_id=command.task_id,
-                    workflow_id=command.workflow_id,
                     tenant_id=command.tenant_id,
                     created_by_type=command.actor_type,
                     created_by=command.actor_id,

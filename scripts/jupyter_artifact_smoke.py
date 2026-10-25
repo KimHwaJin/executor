@@ -88,7 +88,6 @@ async def main() -> None:
                         "user_id": user_id,
                         "project_id": "artifact-smoke-project",
                         "session_id": "artifact-smoke-session",
-                        "task_id": f"artifact-smoke-task-{unique}",
                     },
                 )
             },

@@ -68,7 +68,6 @@ def _submit_command() -> SubmitExecutionCommand:
         user_id="event-user",
         project_id="event-project",
         session_id="event-session",
-        task_id="event-task",
         steps=(StepSpec(sequence=0, code="print('event contract')"),),
     )
 
@@ -471,10 +470,8 @@ def test_completed_event_carries_optional_execution_identity() -> None:
         },
         "context": {
             "user_id": "batch-owner",
-            "task_id": "batch-run-1",
             "project_id": None,
             "session_id": None,
-            "workflow_id": None,
         },
         "metadata": {"batch_id": "b-1", "run_id": "batch-run-1"},
     }

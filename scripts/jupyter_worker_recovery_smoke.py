@@ -66,7 +66,6 @@ async def main() -> None:
                 user_id="worker-recovery-user",
                 project_id="worker-recovery-project",
                 session_id="worker-recovery-session",
-                task_id="test-task",
                 steps=(
                     StepSpec(
                         sequence=0,

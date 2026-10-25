@@ -139,7 +139,6 @@ def _submit_payload(
             "user_id": "rest-user",
             "project_id": "rest-project",
             "session_id": "rest-session",
-            "task_id": "rest-task",
         },
         "metadata": {"caller": "integration-test"},
     }

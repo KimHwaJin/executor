@@ -112,7 +112,7 @@ async def main() -> None:
                     trigger_type="INTERACTIVE",
                     actor=actor,
                     runtime_profile=profile,
-                    context={"user_id": actor["id"], "task_id": uuid4().hex},
+                    context={"user_id": actor["id"]},
                     spec=inline_spec([{"code": slow}, {"code": code}]),
                 ),
             )

@@ -156,7 +156,6 @@ def _execution_payload() -> dict[str, Any]:
             "user_id": "fleet-admin",
             "project_id": "fleet-project",
             "session_id": "fleet-session",
-            "task_id": "fleet-task",
         },
     }
 

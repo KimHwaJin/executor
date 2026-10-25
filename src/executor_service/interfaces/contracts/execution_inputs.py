@@ -36,10 +36,8 @@ METADATA_KEY_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 
 class ExecutionContext(ContractModel):
     user_id: str = Field(min_length=1, max_length=255)
-    task_id: str | None = Field(default=None, min_length=1, max_length=255)
     project_id: str | None = Field(default=None, min_length=1, max_length=255)
     session_id: str | None = Field(default=None, min_length=1, max_length=255)
-    workflow_id: str | None = Field(default=None, max_length=255)
 
     @model_validator(mode="after")
     def validate_scope(self) -> "ExecutionContext":
@@ -157,14 +155,12 @@ class ExecutionSubmitRequest(ContractModel):
             user_id=self.context.user_id,
             project_id=self.context.project_id,
             session_id=self.context.session_id,
-            task_id=self.context.task_id,
             spec_schema_version=resolved.spec.schema_version,
             operation_timeout_seconds=(
                 self.operation.operation_timeout_seconds
             ),
             actor_type=self.trigger.actor.type,
             actor_id=self.trigger.actor.id,
-            workflow_id=self.context.workflow_id,
             tenant_id=self.tenant_id,
             metadata=self.metadata,
             operation_metadata=self.operation.metadata,

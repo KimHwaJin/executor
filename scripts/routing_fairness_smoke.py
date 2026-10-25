@@ -54,7 +54,6 @@ async def _submit(
                     "user_id": user_id,
                     "project_id": f"routing-project-{user_id}",
                     "session_id": f"routing-session-{run_id}-{index}",
-                    "task_id": f"routing-task-{run_id}-{index}",
                 },
             )
         },
@@ -137,7 +136,6 @@ async def _assert_unsupported_profile(client: Client, run_id: str) -> str:
                 spec=inline_spec([{"code": "print('must not execute')"}]),
                 context={
                     "user_id": "routing-user",
-                    "task_id": f"unsupported-profile-task-{run_id}",
                 },
             )
         },
@@ -187,7 +185,6 @@ async def _assert_profile_routing(
                         "user_id": "profile-routing-user",
                         "project_id": "profile-routing-project",
                         "session_id": f"profile-routing-session-{run_id}-{index}",
-                        "task_id": f"profile-routing-task-{run_id}-{index}",
                     },
                 )
             },

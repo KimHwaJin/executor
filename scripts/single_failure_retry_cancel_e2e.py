@@ -510,7 +510,6 @@ async def _run_failure_retry_case(
                     "user_id": user_id,
                     "project_id": "single-retry-project",
                     "session_id": f"single-retry-session-{unique}",
-                    "task_id": f"single-retry-task-{unique}",
                 },
             )
         },
@@ -833,7 +832,6 @@ async def _run_cancel_case(
             "user_id": user_id,
             "project_id": "single-cancel-project",
             "session_id": f"single-cancel-session-{unique}",
-            "task_id": f"single-cancel-task-{unique}",
         },
     )
     submitted = await _rest_json(rest, "POST", "/executions", json=payload)

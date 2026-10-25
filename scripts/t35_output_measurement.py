@@ -425,7 +425,6 @@ async def _submit_execution(
             "user_id": "t35-user",
             "project_id": "t35-output-measurement",
             "session_id": f"t35-{run_id}-{scenario.name}-{index}",
-            "task_id": f"t35-{run_id}-{scenario.name}-{index}",
         },
         metadata={
             "test_type": "T35_OUTPUT_MEASUREMENT",

@@ -62,7 +62,6 @@ def _command(
         user_id="cancellation-owner-user",
         project_id="cancellation-owner-project",
         session_id=f"cancellation-owner-{name}",
-        task_id="cancellation-owner-task",
         steps=steps,
     )
 

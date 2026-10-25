@@ -269,10 +269,8 @@ async def add_execution_completed_event(
                 },
                 "context": {
                     "user_id": execution.user_id,
-                    "task_id": execution.task_id,
                     "project_id": execution.project_id,
                     "session_id": execution.session_id,
-                    "workflow_id": execution.workflow_id,
                 },
                 "metadata": redact(execution.execution_metadata),
             },

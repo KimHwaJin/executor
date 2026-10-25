@@ -126,7 +126,6 @@ async def main() -> None:
                         "user_id": "retry-offline-user",
                         "project_id": "retry-offline-project",
                         "session_id": f"retry-offline-session-{unique}",
-                        "task_id": f"retry-offline-task-{unique}",
                     },
                 )
             },

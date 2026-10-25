@@ -85,7 +85,7 @@ def _execution(key: str) -> dict[str, Any]:
                 ],
             }
         },
-        "context": {"user_id": "user-1", "task_id": "task-1"},
+        "context": {"user_id": "user-1"},
     }
 
 

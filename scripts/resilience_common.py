@@ -262,12 +262,6 @@ async def submit_static(
                     "user_id": "resilience-user",
                     "project_id": "resilience-project",
                     "session_id": f"resilience-session-{unique}-{name}",
-                    "task_id": f"resilience-task-{unique}-{name}",
-                    "workflow_id": (
-                        f"resilience-workflow-{unique}-{name}"
-                        if pool == "BATCH"
-                        else None
-                    ),
                 },
             )
         },

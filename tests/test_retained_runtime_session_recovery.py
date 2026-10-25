@@ -55,7 +55,6 @@ def _command(key: str) -> SubmitExecutionCommand:
         user_id="retained-retry-user",
         project_id="retained-retry-project",
         session_id=f"retained-retry-session-{key}",
-        task_id=f"retained-retry-task-{key}",
         steps=(
             StepSpec(
                 0,

@@ -110,10 +110,6 @@ def _command(pool: RuntimePool, name: str) -> SubmitExecutionCommand:
         user_id="worker-pool-user",
         project_id="worker-pool-project",
         session_id=f"worker-pool-session-{name}",
-        task_id="test-task",
-        workflow_id=f"worker-pool-workflow-{name}"
-        if pool == RuntimePool.BATCH
-        else None,
         steps=(
             StepSpec(
                 sequence=0,

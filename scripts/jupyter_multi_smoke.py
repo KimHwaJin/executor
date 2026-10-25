@@ -54,7 +54,6 @@ async def main() -> None:
                 user_id="multi-user",
                 project_id="multi-project",
                 session_id="multi-session",
-                task_id="test-task",
                 steps=(
                     StepSpec(
                         sequence=0,

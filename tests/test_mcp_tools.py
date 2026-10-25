@@ -65,7 +65,6 @@ SUBMIT_ARGUMENTS: dict[str, Any] = {
             "user_id": "user-1",
             "project_id": "project-1",
             "session_id": "session-1",
-            "task_id": "task-1",
         },
     }
 }
@@ -218,16 +217,14 @@ async def test_mcp_execution_list_uses_opaque_next_cursor(
 
     async with Client(target) as client:
         submitted_ids: set[str] = set()
-        workflow_ids: dict[str, str] = {}
+        session_ids: dict[str, str] = {}
         for index in range(2):
             arguments["request"]["idempotency_key"] = f"mcp-page-{index}"
-            arguments["request"]["context"]["workflow_id"] = (
-                f"workflow-{index}"
-            )
+            arguments["request"]["context"]["session_id"] = f"session-{index}"
             submitted = await client.call_tool("execution_submit", arguments)
             submitted_id = submitted.structured_content["execution_id"]
             submitted_ids.add(submitted_id)
-            workflow_ids[f"workflow-{index}"] = submitted_id
+            session_ids[f"session-{index}"] = submitted_id
 
         first = await client.call_tool("execution_list", {"limit": 1})
         assert not first.is_error
@@ -248,12 +245,12 @@ async def test_mcp_execution_list_uses_opaque_next_cursor(
         assert second.structured_content["next_cursor"] is None
 
         filtered = await client.call_tool(
-            "execution_list", {"workflow_id": "workflow-1"}
+            "execution_list", {"session_id": "session-1"}
         )
         assert [
             item["execution_id"]
             for item in filtered.structured_content["items"]
-        ] == [workflow_ids["workflow-1"]]
+        ] == [session_ids["session-1"]]
 
 
 async def test_mcp_list_rejects_limit_outside_declared_contract(
@@ -382,7 +379,7 @@ async def test_execution_submit_reads_path_spec_and_derives_batch_pool(
         "type": "BATCH",
         "actor": {"type": "BATCH", "id": "batch-1"},
     }
-    arguments["request"]["context"]["workflow_id"] = "workflow-batch-1"
+    arguments["request"]["metadata"] = {"batch_id": "batch-1"}
     arguments["request"]["operation"]["spec"]["steps"][0]["payload"] = {
         "type": "PYTHON_EXECUTE",
         "source": {

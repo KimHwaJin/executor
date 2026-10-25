@@ -159,7 +159,6 @@ async def lifecycle_check(
         user_id="compat-user",
         project_id="compat-project",
         session_id="compat-session",
-        task_id="compat-task",
         actor_type=ActorType.BATCH,
         actor_id="compatibility-check",
         steps=(StepSpec(sequence=0, code="print('compatibility')"),),

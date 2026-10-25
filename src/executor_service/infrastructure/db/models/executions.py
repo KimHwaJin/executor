@@ -140,9 +140,6 @@ class ExecutionORM(Base):
             "id",
         ),
         Index(
-            "ix_executions_task_created_cursor", "task_id", "created_at", "id"
-        ),
-        Index(
             "ix_executions_tenant_created_cursor",
             "tenant_id",
             "created_at",
@@ -197,11 +194,7 @@ class ExecutionORM(Base):
     user_id: Mapped[str] = mapped_column(String(255), nullable=False)
     project_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     session_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    task_id: Mapped[str | None] = mapped_column(
-        String(255), nullable=True, index=True
-    )
     tenant_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    workflow_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     execution_metadata: Mapped[dict[str, Any]] = mapped_column(
         "metadata", JSON, nullable=False, default=dict
     )
@@ -340,9 +333,7 @@ class ExecutionORM(Base):
             user_id=execution.user_id,
             project_id=execution.project_id,
             session_id=execution.session_id,
-            task_id=execution.task_id,
             tenant_id=execution.tenant_id,
-            workflow_id=execution.workflow_id,
             created_by_type=execution.created_by_type,
             created_by=execution.created_by,
             updated_by_type=execution.updated_by_type,
@@ -401,9 +392,7 @@ class ExecutionORM(Base):
             user_id=self.user_id,
             project_id=self.project_id,
             session_id=self.session_id,
-            task_id=self.task_id,
             tenant_id=self.tenant_id,
-            workflow_id=self.workflow_id,
             created_by_type=self.created_by_type,
             created_by=self.created_by,
             updated_by_type=self.updated_by_type,

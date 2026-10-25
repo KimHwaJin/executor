@@ -113,7 +113,6 @@ async def main() -> None:
                             "user_id": "path-smoke-user",
                             "project_id": "path-smoke-project",
                             "session_id": f"path-smoke-session-{unique}",
-                            "task_id": f"path-smoke-task-{unique}",
                         },
                         actor={"type": "USER", "id": "path-smoke-user"},
                     )
