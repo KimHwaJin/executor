@@ -1,7 +1,6 @@
 """Shared validation and persistence support for Execution commands."""
 
 import hashlib
-import json
 from dataclasses import asdict
 from uuid import UUID
 
@@ -24,6 +23,7 @@ from executor_service.domain.errors import (
     InvalidStateTransitionError,
     PersistenceConflictError,
 )
+from executor_service.domain.fingerprints import canonical_sha256
 from executor_service.domain.models import Execution, ExecutionStep
 from executor_service.domain.ports import UnitOfWork
 from executor_service.domain.results import ExecutionResultStore
@@ -92,10 +92,7 @@ def fingerprint(
     if payload.get("tenant_id") is None:
         # Keeps fingerprints recorded before this field existed valid.
         payload.pop("tenant_id", None)
-    encoded = json.dumps(
-        payload, sort_keys=True, separators=(",", ":"), default=str
-    ).encode()
-    return hashlib.sha256(encoded).hexdigest()
+    return canonical_sha256(payload)
 
 
 def ensure_same_fingerprint(execution: Execution, value: str) -> None:

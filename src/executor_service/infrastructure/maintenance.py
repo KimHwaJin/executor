@@ -1,8 +1,5 @@
 """PostgreSQL-backed Executor-wide maintenance control."""
 
-import hashlib
-import json
-
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -17,6 +14,7 @@ from executor_service.domain.enums import (
     RuntimeSessionCleanupStatus,
 )
 from executor_service.domain.errors import IdempotencyConflictError
+from executor_service.domain.fingerprints import canonical_sha256
 from executor_service.domain.models import utc_now
 from executor_service.infrastructure.db.models import (
     CommandReceiptORM,
@@ -60,7 +58,7 @@ class ExecutorMaintenanceService:
         command_type = (
             f"executor_maintenance.{command.desired_state.value.lower()}"
         )
-        fingerprint = _fingerprint(
+        fingerprint = canonical_sha256(
             {
                 "desired_state": command.desired_state.value,
                 "actor_type": command.actor_type.value,
@@ -192,8 +190,3 @@ class ExecutorMaintenanceService:
             created_at=state.created_at,
             updated_at=state.updated_at,
         )
-
-
-def _fingerprint(payload: dict[str, str]) -> str:
-    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(canonical.encode()).hexdigest()

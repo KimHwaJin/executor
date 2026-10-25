@@ -18,10 +18,8 @@ from executor_service.infrastructure.execution_leases import (
     ExecutionLeaseLostError,
 )
 from executor_service.infrastructure.execution_worker.failure_policy import (
-    failure_policy as _failure_policy,
-)
-from executor_service.infrastructure.execution_worker.failure_policy import (
-    safe_error as _safe_error,
+    failure_policy,
+    safe_error,
 )
 from executor_service.infrastructure.execution_worker.handover import (
     StepHandover,
@@ -287,7 +285,7 @@ class MultiExecutionRunner:
                             lease,
                             sequence,
                             exc.stored_result,
-                            _safe_error(exc),
+                            safe_error(exc),
                             retryable=False,
                         )
                     raise
@@ -339,8 +337,8 @@ class MultiExecutionRunner:
             await self._finalizer.finalize(
                 lease,
                 ExecutionStatus.FAILED,
-                _safe_error(exc),
-                failure_type=_failure_policy(exc, False)[0],
+                safe_error(exc),
+                failure_type=failure_policy(exc, False)[0],
                 retry_strategy=RetryStrategy.NOT_RETRYABLE,
                 runtime_session_cleanup_status=await self._steps.stop_session(
                     driver, runtime_session_id, lease

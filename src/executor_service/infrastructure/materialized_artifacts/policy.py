@@ -1,7 +1,6 @@
 """Deterministic naming, paths, and identities for materialized Artifacts."""
 
 import hashlib
-import json
 import re
 from dataclasses import asdict
 from pathlib import PurePosixPath
@@ -10,6 +9,7 @@ from uuid import UUID
 from executor_service.application.commands import MaterializeArtifactCommand
 from executor_service.domain.enums import ArtifactType
 from executor_service.domain.errors import ArtifactRegistrationError
+from executor_service.domain.fingerprints import canonical_sha256
 
 SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$")
 ARTIFACT_DIRECTORIES = {
@@ -25,11 +25,7 @@ ARTIFACT_DIRECTORIES = {
 def command_fingerprint(command: MaterializeArtifactCommand) -> str:
     payload = asdict(command)
     payload.pop("idempotency_key")
-    return hashlib.sha256(
-        json.dumps(
-            payload, sort_keys=True, separators=(",", ":"), default=str
-        ).encode()
-    ).hexdigest()
+    return canonical_sha256(payload)
 
 
 def artifact_id(fingerprint: str) -> UUID:

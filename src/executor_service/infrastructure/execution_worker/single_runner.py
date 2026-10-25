@@ -24,10 +24,8 @@ from executor_service.infrastructure.execution_worker.claiming import (
     ExecutionClaimer,
 )
 from executor_service.infrastructure.execution_worker.failure_policy import (
-    failure_policy as _failure_policy,
-)
-from executor_service.infrastructure.execution_worker.failure_policy import (
-    safe_error as _safe_error,
+    failure_policy,
+    safe_error,
 )
 from executor_service.infrastructure.execution_worker.handover import (
     StepHandover,
@@ -265,9 +263,9 @@ class SingleExecutionRunner:
                             lease,
                             sequence,
                             exc.stored_result,
-                            _safe_error(exc),
+                            safe_error(exc),
                             retryable=(
-                                _failure_policy(exc, False)[1]
+                                failure_policy(exc, False)[1]
                                 != RetryStrategy.NOT_RETRYABLE
                             ),
                         )
@@ -349,11 +347,11 @@ class SingleExecutionRunner:
                 and runtime_session_id is not None
                 and failed_sequence is not None
             )
-            failure_type, retry_strategy = _failure_policy(exc, retain_session)
+            failure_type, retry_strategy = failure_policy(exc, retain_session)
             await self._finalizer.finalize(
                 lease,
                 ExecutionStatus.FAILED,
-                _safe_error(exc),
+                safe_error(exc),
                 retain_session=retain_session,
                 retry_from_sequence=failed_sequence,
                 failure_type=failure_type,

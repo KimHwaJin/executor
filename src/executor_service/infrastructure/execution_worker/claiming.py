@@ -5,7 +5,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import lazyload, selectinload
 
 from executor_service.domain.enums import (
     AttemptStatus,
@@ -139,11 +139,13 @@ class ExecutionClaimer:
             seconds=self._settings.execution_lease_seconds
         )
         async with self._session_factory() as session, session.begin():
-            # Another Worker holding the row is already claiming it.
+            # Another Worker holding the row is already claiming it. Steps
+            # load only once a Target is chosen: most claims of a backlog
+            # find no capacity and should not read up to 1000 Step rows.
             execution_row = await session.scalar(
                 select(ExecutionORM)
                 .where(ExecutionORM.id == execution_id)
-                .options(selectinload(ExecutionORM.steps))
+                .options(lazyload(ExecutionORM.steps))
                 .with_for_update(skip_locked=True)
             )
             if execution_row is None or execution_row.status not in {
@@ -260,6 +262,7 @@ class ExecutionClaimer:
                     operation.execution_attempt_id = waiting_attempt.id
                     operation.started_at = now
                     operation.updated_at = now
+                await session.refresh(execution_row, ["steps"])
                 return (
                     execution_row.to_domain(),
                     target,
@@ -390,6 +393,7 @@ class ExecutionClaimer:
             )
             execution_row.updated_at = now
             execution_row.version += 1
+            await session.refresh(execution_row, ["steps"])
             return (
                 execution_row.to_domain(),
                 target,

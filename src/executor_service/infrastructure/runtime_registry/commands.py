@@ -19,6 +19,7 @@ from executor_service.domain.errors import (
     RuntimeTargetConfigurationError,
     RuntimeTargetEndpointConflictError,
 )
+from executor_service.domain.fingerprints import canonical_sha256
 from executor_service.domain.models import utc_now
 from executor_service.infrastructure.db.models import (
     RuntimeTargetORM,
@@ -34,7 +35,6 @@ from executor_service.infrastructure.runtime_registry.credentials import (
 )
 from executor_service.infrastructure.runtime_registry.idempotency import (
     RuntimeCommandReceipts,
-    fingerprint,
     secret_hash,
 )
 from executor_service.infrastructure.runtime_registry.probe import (
@@ -75,7 +75,7 @@ class RuntimeTargetCommands:
         connection_config = normalize_connection_config(
             command.runtime_type, command.connection_config
         )
-        request_fingerprint = fingerprint(
+        request_fingerprint = canonical_sha256(
             {
                 "name": command.name,
                 "runtime_type": command.runtime_type.value,
@@ -224,7 +224,7 @@ class RuntimeTargetCommands:
     async def disable(
         self, command: DisableRuntimeTargetCommand
     ) -> RuntimeTargetView:
-        request_fingerprint = fingerprint(
+        request_fingerprint = canonical_sha256(
             {
                 "target_id": str(command.target_id),
                 "actor_type": command.actor_type.value
@@ -272,7 +272,7 @@ class RuntimeTargetCommands:
                 "desired_state must be ACTIVE or DRAINING. Use disable for "
                 "durable disablement."
             )
-        request_fingerprint = fingerprint(
+        request_fingerprint = canonical_sha256(
             {
                 "target_id": str(command.target_id),
                 "desired_state": command.desired_state.value,

@@ -198,6 +198,7 @@ def create_app(
     app.include_router(build_runtime_target_router(container))
     app.include_router(build_maintenance_router(container))
 
-    # Register this catch-all mount last so operational routes remain reachable.
+    # Mounted at the root because a "/mcp" mount answers POST /mcp with a
+    # 307 to "/mcp/". Registered last so every route above wins.
     app.mount("/", mcp_app)
     return app
