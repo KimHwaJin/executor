@@ -65,6 +65,7 @@ from executor_service.infrastructure.result_storage import (
 )
 from executor_service.infrastructure.runtime_adapters import (
     JupyterRuntimeAdapter,
+    RuntimeAdapterRegistry,
 )
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
@@ -185,6 +186,7 @@ async def run_case(
             settings=settings,
             registry=RuntimeTargetRegistry(factory, settings),
             artifact_manager=ExecutionArtifactManager(factory),
+            driver_factory=RuntimeAdapterRegistry(settings),
             result_store=store,
         )
         async with asyncio.timeout(90):

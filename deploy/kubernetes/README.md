@@ -6,8 +6,9 @@ resources in the target environment.
 
 ## Resources
 
-- `deployment.yaml`: one Executor API/Worker Pod, inline environment settings,
-  automatic startup migration, graceful shutdown and health probes
+- `deployment.yaml`: one Executor API/Worker Pod; settings come from the `config*.yml` files in
+  the image (only `APP_ENV` is set here), automatic startup migration, graceful shutdown and
+  health probes
 - `service.yaml`: optional reference for the platform's internal REST/MCP Service
 
 No ConfigMap, Secret, or migration Job is required. If only Deployment creation is
@@ -21,9 +22,10 @@ PostgreSQL, Redis, and the registered Jupyter fleet.
 Redis server 6.0.8 or newer is required by this branch. Build the image with its
 updated `uv.lock` (redis-py 5.3.x); changing only the Redis URL does not update code
 inside an older image. Permit `INFO`, `COMMAND INFO`, `EVAL`, and the Stream commands
-listed in [Redis compatibility](../../docs/redis-6-compatibility.md). Redis must be
-reachable during startup; unsupported versions and failed compatibility checks
-prevent background work from starting. No Redis data reset is required.
+listed in [Redis compatibility](../../docs/redis-6-compatibility.md). Pods start and
+stay ready while Redis is down; events wait in the Outbox and publish once Redis returns.
+The retention pass checks the Redis version and commands before its first trim and logs an
+error and skips Redis trimming while the check fails. No Redis data reset is required.
 
 ## Required deployment substitutions
 
@@ -31,10 +33,11 @@ Before deployment:
 
 1. Copy `deployment.yaml` to the Git-ignored `deployment.local.yaml`, or render it
    privately in CI/CD. Replace `executor-service:latest` with an immutable image digest/tag.
-2. Settings live in `config.yml` (shared) and `config.prd.yml` (per environment) inside the image; the
-   Deployment sets only `APP_ENV=prd`. Edit database/Redis URLs, MCP host/origin allowlists and
-   storage roots in `config.prd.yml`, and Runtime profiles, migration timeouts and pool size in
-   `config.yml`.
+2. Defaults live in `src/executor_service/settings.py`; the image also carries `config.yml`
+   (shared changes, empty by default) and `config.prd.yml` (per environment). The Deployment sets
+   only `APP_ENV=prd`. Edit database/Redis URLs, MCP host/origin allowlists and storage roots in
+   `config.prd.yml`. To change a default such as Runtime profiles or pool size, add the key to
+   `config.prd.yml` (one environment) or `config.yml` (all environments).
    An environment variable with the same name still overrides a file value.
 3. Replace `REPLACE_USER`, `REPLACE_PASSWORD`, and `REPLACE_WITH_FERNET_KEY` in that file.
    `RUNTIME_CREDENTIAL_KEY` must be a Fernet key and must remain stable while encrypted
@@ -104,6 +107,19 @@ servers need the journal extension. Drain through the maintenance API, check saf
 deploy the Jupyter extension and Executor, then activate admission. A schema change that is not
 backward compatible still needs this drain, or `Recreate` for that release. `0011` is one: it drops
 `executions.task_id` and `workflow_id`, which `0010` Pods still write.
+
+Rolling out `0011` from `0010`:
+
+1. Drain admission through `POST /api/v1/maintenance/drain` and wait until
+   `GET /api/v1/maintenance` reports it is safe to shut down.
+2. In `deployment.local.yaml`, set `strategy.type: Recreate` and remove the `rollingUpdate` block,
+   or scale the Deployment to 0 replicas before switching the image.
+3. Deploy the new image; the first Pod migrates on startup.
+4. Restore `RollingUpdate` (or the replica count) and activate admission through
+   `POST /api/v1/maintenance/activate`.
+
+New migrations follow expand/contract instead: a column is dropped only in the release after the
+code stopped using it, so ordinary releases keep `RollingUpdate`.
 
 Current head is `0011`. Runtime purge preserves
 historical IDs after deletion.

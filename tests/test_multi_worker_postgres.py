@@ -69,6 +69,7 @@ from executor_service.infrastructure.background_diagnostics import (
     BackgroundDiagnosticRecorder,
     RuntimeObservation,
 )
+from executor_service.infrastructure.cluster_passes import claim_pass
 from executor_service.infrastructure.db.base import Base
 from executor_service.infrastructure.db.migrations import (
     MIGRATION_LOCK_ID,
@@ -101,7 +102,6 @@ from executor_service.infrastructure.diagnostic_store import (
 )
 from executor_service.infrastructure.event_retention import (
     RETENTION_PASS_KEY,
-    EventRetentionManager,
 )
 from executor_service.infrastructure.events import (
     ExecutionStreamEnvelope,
@@ -127,6 +127,7 @@ from executor_service.infrastructure.result_storage import (
 )
 from executor_service.infrastructure.runtime_adapters import (
     JupyterRuntimeAdapter,
+    RuntimeAdapterRegistry,
 )
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
@@ -1422,6 +1423,10 @@ def _workers(
                 settings=settings,
                 registry=RuntimeTargetRegistry(session_factory, settings),
                 artifact_manager=ExecutionArtifactManager(session_factory),
+                result_store=FilesystemExecutionResultStore(
+                    settings.shared_storage_root
+                ),
+                driver_factory=RuntimeAdapterRegistry(settings),
             )
         )
         redis_clients.append(redis)
@@ -1800,6 +1805,10 @@ async def test_partial_result_outbox_redis_and_history_agree(
         settings=settings,
         registry=RuntimeTargetRegistry(factory, settings),
         artifact_manager=ExecutionArtifactManager(factory),
+        result_store=FilesystemExecutionResultStore(
+            settings.shared_storage_root
+        ),
+        driver_factory=RuntimeAdapterRegistry(settings),
     )
     try:
         await worker._runner.run(execution.id)
@@ -2365,24 +2374,19 @@ async def test_event_retention_runs_once_per_interval_cluster_wide(
                 BackgroundPassLeaseORM.singleton_key == RETENTION_PASS_KEY
             )
         )
-    redis_clients = [
-        Redis.from_url(_redis_test_url(), decode_responses=True)
-        for _ in range(2)
-    ]
-    managers = [
-        EventRetentionManager(session_factory, redis, settings)
-        for redis in redis_clients
-    ]
-    try:
-        results = await asyncio.gather(
-            *(manager.run_once() for manager in managers)
+    interval = settings.event_retention_interval_seconds
+    claims = await asyncio.gather(
+        *(
+            claim_pass(session_factory, RETENTION_PASS_KEY, owner, interval)
+            for owner in ("pod-a", "pod-b")
         )
-        assert sum(result is not None for result in results) == 1
-        # The interval has not elapsed, so neither Pod runs again.
-        assert await managers[0].run_once() is None
-        assert await managers[1].run_once() is None
-    finally:
-        await _close_redis(redis_clients)
+    )
+    assert sum(claims) == 1
+    # The interval has not elapsed, so neither Pod runs again.
+    for owner in ("pod-a", "pod-b"):
+        assert not await claim_pass(
+            session_factory, RETENTION_PASS_KEY, owner, interval
+        )
 
 
 async def test_current_baseline_repeated_upgrade_preserves_events(

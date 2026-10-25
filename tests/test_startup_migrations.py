@@ -41,10 +41,6 @@ async def test_migration_precedes_any_db_initialization_or_background_task(
     migrate = AsyncMock(side_effect=lambda *_: calls.append("migration"))
     monkeypatch.setattr("executor_service.container.upgrade_database", migrate)
     monkeypatch.setattr(
-        "executor_service.container.check_redis_compatibility",
-        AsyncMock(side_effect=lambda *_: calls.append("redis-compatibility")),
-    )
-    monkeypatch.setattr(
         container.maintenance,
         "initialize",
         AsyncMock(side_effect=lambda: calls.append("maintenance")),
@@ -60,7 +56,6 @@ async def test_migration_precedes_any_db_initialization_or_background_task(
     try:
         await container.start()
         expected = [
-            "redis-compatibility",
             "maintenance",
             "outbox",
             "retention-start",
@@ -120,7 +115,7 @@ def test_deployment_reads_image_config_and_safe_update_strategy() -> None:
     assert "secretKeyRef" not in str(deployment)
     assert "configMapKeyRef" not in str(deployment)
     config = {
-        **yaml.safe_load((ROOT / "config.yml").read_text()),
+        **(yaml.safe_load((ROOT / "config.yml").read_text()) or {}),
         **yaml.safe_load((ROOT / "config.prd.yml").read_text()),
     }
     assert config["DB_AUTO_MIGRATE"] is True

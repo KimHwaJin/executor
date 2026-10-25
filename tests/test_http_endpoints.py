@@ -29,6 +29,7 @@ async def test_health_endpoint() -> None:
         "state": "STOPPED",
         "accepting_new_executions": False,
         "active_execution_count": 0,
+        "redis_reachable": False,
         "startup_reconciliation": {
             "completed_at": None,
             "recovered_execution_count": 0,

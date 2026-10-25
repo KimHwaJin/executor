@@ -8,7 +8,6 @@ from sqlalchemy import (
     JSON,
     BigInteger,
     CheckConstraint,
-    DateTime,
     ForeignKey,
     Index,
     String,
@@ -26,6 +25,7 @@ from executor_service.domain.enums import (
 from executor_service.domain.models import utc_now
 from executor_service.infrastructure.db.base import Base
 from executor_service.infrastructure.db.models.common import (
+    UTCDateTime,
     audit_actor_constraints,
     enum_type,
 )
@@ -120,10 +120,10 @@ class ExecutionArtifactORM(Base):
     )
     updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utc_now
+        UTCDateTime(), nullable=False, default=utc_now
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
+        UTCDateTime(),
         nullable=False,
         default=utc_now,
         onupdate=utc_now,

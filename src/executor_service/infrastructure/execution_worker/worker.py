@@ -68,12 +68,6 @@ from executor_service.infrastructure.execution_worker.work_admission import (
 from executor_service.infrastructure.maintenance_runs import (
     MaintenanceRunService,
 )
-from executor_service.infrastructure.result_storage import (
-    FilesystemExecutionResultStore,
-)
-from executor_service.infrastructure.runtime_adapters import (
-    RuntimeAdapterRegistry,
-)
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
 )
@@ -94,23 +88,18 @@ class ExecutionWorker:
         settings: Settings,
         registry: RuntimeTargetRegistry,
         artifact_manager: ExecutionArtifactManager,
-        result_store: ExecutionResultStore | None = None,
-        driver_factory: RuntimeDriverFactory | None = None,
+        result_store: ExecutionResultStore,
+        driver_factory: RuntimeDriverFactory,
         maintenance_runs: MaintenanceRunService | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._settings = settings
-        resolved_driver_factory = driver_factory or RuntimeAdapterRegistry(
-            settings
-        )
         self._driver_provider = RuntimeDriverProvider(
             registry,
-            resolved_driver_factory,
+            driver_factory,
         )
         self._artifacts = artifact_manager
-        self._result_store = result_store or FilesystemExecutionResultStore(
-            settings.shared_storage_root
-        )
+        self._result_store = result_store
         self._maintenance_runs = maintenance_runs
         self._workspace = WorkspaceManager()
         self._notebook_projector = NotebookProjector(
@@ -175,6 +164,7 @@ class ExecutionWorker:
             self._dispatcher,
             self._runner,
             self._cancellation,
+            worker_id=self._worker_id,
             max_active_jobs=settings.execution_worker_max_active,
         )
         self._multi_lifecycle = MultiLifecycleAuditor(

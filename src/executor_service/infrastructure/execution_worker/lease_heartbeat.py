@@ -1,7 +1,10 @@
 """Fenced Execution lease validation and heartbeat renewal."""
 
 import asyncio
+import logging
+from collections.abc import Awaitable, Callable
 from datetime import timedelta
+from uuid import UUID
 
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -20,6 +23,8 @@ from executor_service.infrastructure.execution_leases import (
     require_active_lease,
 )
 from executor_service.settings import Settings
+
+logger = logging.getLogger(__name__)
 
 
 class LeaseHeartbeatManager:
@@ -63,14 +68,32 @@ class LeaseHeartbeatManager:
             await require_active_cancellation_lease(session, lease)
 
     async def run_execution(self, lease: ExecutionLease) -> None:
-        while True:
-            await asyncio.sleep(self._heartbeat_seconds)
-            await self.renew_execution(lease)
+        await self._renew_until_lost(
+            lambda: self.renew_execution(lease), lease.execution_id
+        )
 
     async def run_cancellation(self, lease: CancellationLease) -> None:
+        await self._renew_until_lost(
+            lambda: self.renew_cancellation(lease), lease.execution_id
+        )
+
+    async def _renew_until_lost(
+        self, renew: Callable[[], Awaitable[None]], execution_id: UUID
+    ) -> None:
+        # Only a lost fence ends the heartbeat. A database blip is retried
+        # next interval; the lease outlasts several missed renewals.
         while True:
             await asyncio.sleep(self._heartbeat_seconds)
-            await self.renew_cancellation(lease)
+            try:
+                await renew()
+            except ExecutionLeaseLostError:
+                raise
+            except Exception:
+                logger.warning(
+                    "Lease heartbeat failed; retrying next interval",
+                    exc_info=True,
+                    extra={"execution_id": str(execution_id)},
+                )
 
     async def renew_cancellation(self, lease: CancellationLease) -> None:
         now = utc_now()

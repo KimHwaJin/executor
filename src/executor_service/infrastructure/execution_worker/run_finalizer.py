@@ -1,7 +1,7 @@
 """Durable completion and abort policy for Runtime execution."""
 
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from uuid import UUID
 
 from sqlalchemy import select, update
@@ -528,8 +528,3 @@ class ExecutionRunFinalizer:
                     session, lease.execution_id, completed_operation_id
                 )
             await add_execution_completed_event(session, lease.execution_id)
-
-
-def _as_utc(value: datetime) -> datetime:
-    """SQLite tests may return timezone-naive values for aware columns."""
-    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)

@@ -25,8 +25,10 @@ def test_setup_uses_explicit_pythons_and_nexus_index(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    python_312 = tmp_path / "python312.exe"
     python_311 = tmp_path / "python311.exe"
     python_310 = tmp_path / "python310.exe"
+    python_312.touch()
     python_311.touch()
     python_310.touch()
     calls: list[tuple[list[str], dict[str, str] | None]] = []
@@ -50,6 +52,7 @@ def test_setup_uses_explicit_pythons_and_nexus_index(
     native.setup(
         Namespace(
             install_root=str(install_root),
+            python_312=str(python_312),
             python_311=str(python_311),
             python_310=str(python_310),
             index_url="https://nexus.example/repository/pypi-group/simple",
@@ -65,10 +68,16 @@ def test_setup_uses_explicit_pythons_and_nexus_index(
     assert [
         command[command.index("--python") + 1] for command in venv_commands
     ] == [
-        str(python_311.resolve()),
+        str(python_312.resolve()),
         str(python_311.resolve()),
         str(python_310.resolve()),
     ]
+    exported = [
+        Path(command[command.index("--project") + 1]).name
+        for command, _ in calls
+        if command[:2] == ["uv", "export"]
+    ]
+    assert exported == ["server", "default", "3102311"]
     uv_environments = [
         environment for command, environment in calls if command[0] == "uv"
     ]
@@ -106,6 +115,7 @@ def test_setup_downloads_only_python_without_explicit_path(
     native.setup(
         Namespace(
             install_root=str(tmp_path / "install"),
+            python_312=str(python_311),
             python_311=str(python_311),
             python_310=None,
             index_url=None,

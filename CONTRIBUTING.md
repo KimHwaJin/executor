@@ -29,6 +29,14 @@ uv run pytest
 uv run alembic check
 ```
 
+## Migrations
+
+Production deploys with `RollingUpdate`, so old and new Pods share the schema during a rollout.
+A migration may add tables, nullable columns and indexes freely. Dropping or renaming a column or
+constraint, or adding one old code would violate, ships in the release **after** the code stopped
+using it (expand, then contract). If a release cannot avoid it, say so in the PR and deploy that
+release with drain and `Recreate` (see `deploy/kubernetes/README.md`).
+
 Changes that affect Jupyter execution, scheduling, retry, or tracing must also run the relevant
 smoke script against the local Docker services.
 

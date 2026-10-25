@@ -1,6 +1,6 @@
 """Shared durable reservation and observed Runtime admission calculations."""
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import func, select, union
@@ -71,8 +71,6 @@ def session_count_is_fresh(
         or target.last_health_error is not None
     ):
         return False
-    if observed_at.tzinfo is None:
-        observed_at = observed_at.replace(tzinfo=UTC)
     return observed_at >= now - timedelta(seconds=max_age_seconds)
 
 

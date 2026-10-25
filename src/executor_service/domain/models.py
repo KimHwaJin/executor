@@ -186,7 +186,7 @@ class Execution:
             or self.runtime_session_id is None
             or self.runtime_target_id is None
             or self.retained_runtime_session_until is None
-            or _with_utc(self.retained_runtime_session_until) <= now
+            or self.retained_runtime_session_until <= now
         ):
             raise InvalidStateTransitionError(
                 f"Execution {self.id} has no resumable retained Runtime session."
@@ -287,11 +287,6 @@ class Execution:
         self.operation_wait_expires_at = None
         self.updated_at = utc_now()
         self.version += 1
-
-
-def _with_utc(value: datetime) -> datetime:
-    """SQLite test adapters may return timezone-naive values for aware columns."""
-    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
 
 @dataclass(slots=True)

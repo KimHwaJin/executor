@@ -9,7 +9,6 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
-    DateTime,
     ForeignKey,
     Index,
     Integer,
@@ -43,6 +42,7 @@ from executor_service.domain.models import (
 )
 from executor_service.infrastructure.db.base import Base
 from executor_service.infrastructure.db.models.common import (
+    UTCDateTime,
     audit_actor_constraints,
     enum_type,
 )
@@ -205,7 +205,7 @@ class ExecutionORM(Base):
         String(255), nullable=True
     )
     cancellation_lease_expires_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        UTCDateTime(), nullable=True
     )
     # Historical UUID: resolves to an active target or its purge tombstone.
     runtime_target_id: Mapped[UUID | None] = mapped_column(
@@ -226,19 +226,15 @@ class ExecutionORM(Base):
     )
     notebook_projection_error: Mapped[str | None] = mapped_column(Text)
     notebook_projected_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True)
+        UTCDateTime()
     )
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     failure_type: Mapped[FailureType | None] = mapped_column(
         enum_type(FailureType, "failure_type"), nullable=True
     )
     lease_owner: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    lease_expires_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True)
-    )
-    heartbeat_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True)
-    )
+    lease_expires_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    heartbeat_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
     fencing_token: Mapped[int] = mapped_column(
         BigInteger, nullable=False, default=0
     )
@@ -249,7 +245,7 @@ class ExecutionORM(Base):
     )
     retry_from_sequence: Mapped[int | None] = mapped_column(Integer)
     retained_runtime_session_until: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True)
+        UTCDateTime()
     )
     retry_count: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0
@@ -278,10 +274,10 @@ class ExecutionORM(Base):
         Uuid(as_uuid=True), nullable=True, index=True
     )
     operation_wait_expires_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True, index=True
+        UTCDateTime(), nullable=True, index=True
     )
     execution_expires_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True, index=True
+        UTCDateTime(), nullable=True, index=True
     )
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_by_type: Mapped[ActorType | None] = mapped_column(
@@ -294,19 +290,19 @@ class ExecutionORM(Base):
     updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utc_now
+        UTCDateTime(), nullable=False, default=utc_now
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
+        UTCDateTime(),
         nullable=False,
         default=utc_now,
         onupdate=utc_now,
     )
     started_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        UTCDateTime(), nullable=True
     )
     finished_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        UTCDateTime(), nullable=True
     )
 
     steps: Mapped[list["ExecutionStepORM"]] = relationship(
@@ -528,20 +524,16 @@ class ExecutionStepORM(Base):
     )
     updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utc_now
+        UTCDateTime(), nullable=False, default=utc_now
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
+        UTCDateTime(),
         nullable=False,
         default=utc_now,
         onupdate=utc_now,
     )
-    started_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True)
-    )
-    finished_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True)
-    )
+    started_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
 
     execution: Mapped[ExecutionORM] = relationship(back_populates="steps")
 

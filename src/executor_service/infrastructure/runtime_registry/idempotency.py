@@ -1,8 +1,6 @@
 """Runtime Target command fingerprints and durable receipts."""
 
 import hashlib
-import json
-from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select
@@ -52,11 +50,6 @@ class RuntimeCommandReceipts:
                 result={"target_id": str(target_id)},
             )
         )
-
-
-def fingerprint(payload: dict[str, Any]) -> str:
-    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(canonical.encode()).hexdigest()
 
 
 def secret_hash(secret: str | None) -> str | None:

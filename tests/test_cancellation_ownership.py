@@ -41,6 +41,12 @@ from executor_service.infrastructure.execution_leases import (
     require_active_lease,
 )
 from executor_service.infrastructure.execution_worker import ExecutionWorker
+from executor_service.infrastructure.result_storage import (
+    FilesystemExecutionResultStore,
+)
+from executor_service.infrastructure.runtime_adapters import (
+    RuntimeAdapterRegistry,
+)
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
 )
@@ -93,6 +99,10 @@ def _worker(
         settings=settings,
         registry=RuntimeTargetRegistry(session_factory, settings),
         artifact_manager=ExecutionArtifactManager(session_factory),
+        result_store=FilesystemExecutionResultStore(
+            settings.shared_storage_root
+        ),
+        driver_factory=RuntimeAdapterRegistry(settings),
     )
 
 

@@ -9,7 +9,7 @@
 | `DB_MIGRATION_LOCK_TIMEOUT_SECONDS` | `60` | 마이그레이션/DDL 잠금 대기 제한 |
 | `DB_MIGRATION_STATEMENT_TIMEOUT_SECONDS` | `300` | SQL 문 하나의 실행시간 제한. 전체 기동 제한이 아님 |
 
-`config.yml`(이미지에 포함되는 공통 설정), `.env.example`, Compose 예시는 자동 적용을 켠다.
+환경별 `config.{dev,stg,prd}.yml`, `.env.example`, Compose 예시는 자동 적용을 켠다.
 기존 `.env`에 false가 있으면 Compose 기본값보다 우선하므로 true로 변경해야 한다.
 false일 때는 기존처럼 앱 실행 전에 `uv run alembic upgrade head`를 수행한다.
 이미 최신 head이면 스키마 변경 없이 진행한다. DB와 사용자를 생성하는 기능은 아니다.
@@ -42,13 +42,14 @@ revision을 추가하지 않았으며, 현재 head는 Execution의 `task_id`/`wo
 
 ## Deployment만 사용할 수 있는 환경
 
-`deploy/kubernetes/deployment.yaml`의 `env[].value`에 모든 값을 직접 지정한다.
-ConfigMap/Secret/별도 migration Job 의존 파일은 제거했다. 실제 값은 CI 또는 Git 제외
-`deployment.local.yaml`에 작성하고 저장소/빌드 로그에 남기지 않는다.
-Deployment/Pod 조회 권한자는 평문 비밀값을 볼 수 있다는 보안상 제한이 있다.
+ConfigMap/Secret을 쓸 수 없으므로 설정은 이미지에 들어가는 `config.{APP_ENV}.yml`(환경별 값)에
+두고, Deployment는 `APP_ENV`만 지정한다. 기본값은 `settings.py`에 있다. 환경 파일에는 DB/Redis
+자격 증명과 Fernet 키가 들어가므로 이미지 접근 권한자는 이 값을 볼 수 있다.
 
 기본 전략은 RollingUpdate(maxSurge 1, maxUnavailable 0)다. 새 Pod가 기동하며 마이그레이션하고
-구버전 Pod는 그동안 계속 동작하므로, 마이그레이션은 구버전 코드와 호환되는 추가 변경만 한다.
+구버전 Pod는 그동안 계속 동작하므로, 한 릴리스의 마이그레이션은 구버전 코드와 호환되는 추가
+변경만 한다. 컬럼·제약 삭제는 그 컬럼을 쓰지 않는 코드가 배포된 다음 릴리스에 넣는다
+(expand/contract). 부득이하게 한 릴리스에 넣으면(`0011`처럼) 그 배포는 drain 후 Recreate로 한다.
 `/readyz`는 스키마가 기대 리비전 이상이면 준비 상태로 본다.
 긴 실행은 사전 drain 및 완료 확인 후 배포한다. 강제 취소나 자동 재개는 하지 않는다.
 

@@ -48,6 +48,12 @@ from executor_service.infrastructure.execution_leases import (
     ExecutionLeaseLostError,
 )
 from executor_service.infrastructure.execution_worker import ExecutionWorker
+from executor_service.infrastructure.result_storage import (
+    FilesystemExecutionResultStore,
+)
+from executor_service.infrastructure.runtime_adapters import (
+    RuntimeAdapterRegistry,
+)
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
 )
@@ -206,6 +212,10 @@ async def test_expired_lease_is_failed_once_and_can_restart_from_zero(
         settings=settings,
         registry=registry,
         artifact_manager=ExecutionArtifactManager(session_factory),
+        result_store=FilesystemExecutionResultStore(
+            settings.shared_storage_root
+        ),
+        driver_factory=RuntimeAdapterRegistry(settings),
     )
     stale_lease = ExecutionLease(
         execution_id=execution.id,
@@ -450,6 +460,10 @@ async def test_orphan_running_execution_without_attempt_is_fenced_and_cleaned(
         settings=settings,
         registry=RuntimeTargetRegistry(session_factory, settings),
         artifact_manager=ExecutionArtifactManager(session_factory),
+        result_store=FilesystemExecutionResultStore(
+            settings.shared_storage_root
+        ),
+        driver_factory=RuntimeAdapterRegistry(settings),
     )
     try:
         recovered_count = await worker._lease_recovery.recover()
@@ -577,6 +591,10 @@ async def test_expired_lease_resolves_pending_runtime_abort(
         settings=settings,
         registry=RuntimeTargetRegistry(session_factory, settings),
         artifact_manager=ExecutionArtifactManager(session_factory),
+        result_store=FilesystemExecutionResultStore(
+            settings.shared_storage_root
+        ),
+        driver_factory=RuntimeAdapterRegistry(settings),
     )
     try:
         await worker._lease_recovery.recover()

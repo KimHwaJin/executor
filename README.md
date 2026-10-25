@@ -75,9 +75,9 @@ This branch supports Redis server **6.0.8 and newer**, using `redis-py` 5.3.x
 (`uv.lock` pins the tested client). Both Redis 6.0.8 and 7.4 use the same bounded
 `XRANGE`/`XDEL` retention implementation.
 Redis must permit `EVAL` and the Stream commands used inside its Lua scripts.
-Startup checks server version, command availability, and basic scripting access
-before starting background work. `/readyz` reports `redis_reachable` but does not fail on a
-Redis outage.
+Executor starts and stays ready without Redis: the event retention pass checks server
+version, command availability, and basic scripting access before its first Redis trim, and
+skips Redis work until the check passes. `/workerz` reports `redis_reachable`.
 Local Docker Compose now defaults to the exact **`redis:6.0.8`** image and
 the dedicated `executor-redis-608` volume. The integration quality gate also
 expects 6.0.8 by default; set `EXECUTOR_EXPECT_REDIS_VERSION` explicitly when
@@ -294,8 +294,8 @@ Operational endpoints:
 - Swagger UI: `http://127.0.0.1:8000/docs`
 - OpenAPI: `http://127.0.0.1:8000/openapi.json`
 - liveness: `http://127.0.0.1:8000/healthz`
-- readiness (PostgreSQL schema, Worker admission; Redis reported, not required): `http://127.0.0.1:8000/readyz`
-- Worker lifecycle, active execution count, and startup reconciliation summary:
+- readiness (PostgreSQL schema, Worker admission; Redis not required): `http://127.0.0.1:8000/readyz`
+- Worker lifecycle, active execution count, Redis reachability, and startup reconciliation summary:
   `http://127.0.0.1:8000/workerz`
 
 ### Operational diagnostics
@@ -619,8 +619,7 @@ remain valid. `runtime_target_list` reports capacity, active executions, observe
 supported profiles, and the latest health result. The scheduler selects within the requested
 `INTERACTIVE` or `BATCH` pool and skips full, disabled, unhealthy, or incompatible targets.
 Only profiles listed in `RUNTIME_ALLOWED_PROFILES` are advertised and schedulable, even if a
-Runtime Driver reports additional environments. The code default is `default` and `3102311`, and
-`config.yml` lists the same set.
+Runtime Driver reports additional environments. The code default is `default` and `3102311`.
 
 Capacity admission uses `max(active_execution_count, active_session_count)` while the persisted
 session observation is fresh. The DB count includes running/waiting Attempts, retained retries,
@@ -734,8 +733,9 @@ the working directory. `config.yml` is read whenever it exists. Deployments set 
 `dev`, `stg` or `prd`, which requires the matching file and fails startup without it. Local runs
 leave `APP_ENV` unset or empty and read only `config.yml`, `.env` and environment variables, so
 local values go in `config.yml` or `.env`. `APP_ENV` is read from the process environment only,
-never from `.env`. `config.yml`
-holds tuning shared by every environment; `config.dev.yml`, `config.stg.yml` and `config.prd.yml`
+never from `.env`. Defaults live
+only in `src/executor_service/settings.py`. `config.yml` ships empty and holds a key only when every
+environment should change its default; `config.dev.yml`, `config.stg.yml` and `config.prd.yml`
 hold credentials, MCP host/origin allowlists, storage roots and other deployment-only values. Keys
 are the setting names in any case. The
 platform offers no ConfigMaps or Secrets, so these files, credentials included, ship in the

@@ -1,7 +1,5 @@
 """Transactional creation of Executor Maintenance Runs."""
 
-import hashlib
-import json
 from uuid import uuid4
 
 from sqlalchemy import or_, select
@@ -20,6 +18,7 @@ from executor_service.domain.errors import (
     IdempotencyConflictError,
     MaintenanceRunConflictError,
 )
+from executor_service.domain.fingerprints import canonical_sha256
 from executor_service.domain.models import utc_now
 from executor_service.infrastructure.db.models import (
     ExecutionORM,
@@ -49,7 +48,7 @@ class MaintenanceRunCommands:
     async def create(
         self, command: CreateMaintenanceRunCommand
     ) -> MaintenanceRunView:
-        request_fingerprint = fingerprint(
+        request_fingerprint = canonical_sha256(
             {
                 "action": command.action.value,
                 "actor_type": command.actor_type.value,
@@ -150,8 +149,3 @@ class MaintenanceRunCommands:
             )
             await session.flush()
             return await self._queries.view(session, run)
-
-
-def fingerprint(payload: dict[str, str]) -> str:
-    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(canonical.encode()).hexdigest()

@@ -1,6 +1,6 @@
 """Durable state transitions for MULTI Execution Operations."""
 
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from uuid import UUID
 
 from sqlalchemy import select, update
@@ -87,7 +87,7 @@ class MultiOperationState:
             execution.operation_wait_expires_at = min(
                 wait_deadline,
                 (
-                    _as_utc(execution.execution_expires_at)
+                    execution.execution_expires_at
                     if execution.execution_expires_at is not None
                     else wait_deadline
                 ),
@@ -129,8 +129,3 @@ class MultiOperationState:
                     updated_at=now,
                 )
             )
-
-
-def _as_utc(value: datetime) -> datetime:
-    """SQLite tests may return timezone-naive values for aware columns."""
-    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)

@@ -69,9 +69,9 @@ Migration `0004` dropped the `traceparent`/`tracestate` columns of `executions`,
 - Recorded on: 2026-10-21
 
 Workers find work only by polling PostgreSQL; Redis carries outbound events and nothing else.
-Every second each Worker dispatches all `CANCEL_REQUESTED` Executions and released Steps (they
-need no new Runtime capacity), then claims `QUEUED`/`FINALIZING` work only up to its free slots
-(`EXECUTION_WORKER_MAX_ACTIVE`). A rotating `(created_at, id)` cursor keeps one blocked Execution
+Every second each Worker dispatches the `CANCEL_REQUESTED` Executions it may claim (not those
+under another Worker's live lease), then released Steps and `QUEUED`/`FINALIZING` work only up to
+its free slots (`EXECUTION_WORKER_MAX_ACTIVE`). A rotating `(created_at, id)` cursor keeps one blocked Execution
 from starving the rest, and the bounded claim spreads a backlog across replicas. Claims use
 `FOR UPDATE SKIP LOCKED` and fencing tokens, so overlapping polls are safe.
 

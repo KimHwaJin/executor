@@ -55,13 +55,14 @@ is applied. Normal contiguous delivery performs no recovery query.
 
 Every Worker polls PostgreSQL once a second:
 
-1. Every `CANCEL_REQUESTED` Execution and every running Step released for handover is dispatched.
-   These need no new Runtime capacity.
-2. `QUEUED` and `FINALIZING` Executions are dispatched only up to the Worker's free slots
-   (`EXECUTION_WORKER_MAX_ACTIVE` minus its active jobs), oldest first. A cursor rotates through
-   the backlog so Executions that cannot be placed do not starve later ones.
+1. Every `CANCEL_REQUESTED` Execution this Worker may claim is dispatched: one still running under
+   another Worker's live lease is left to that Worker. Cancellations need no Runtime capacity.
+2. Running Steps released for handover, then `QUEUED` and `FINALIZING` Executions, are dispatched
+   only up to the Worker's free slots (`EXECUTION_WORKER_MAX_ACTIVE` minus its active jobs),
+   oldest first. A cursor rotates through the backlog so Executions that cannot be placed do not
+   starve later ones.
 
-The claim locks the Execution row with `FOR UPDATE SKIP LOCKED`, so Workers never queue behind each
+Claims lock the Execution row with `FOR UPDATE SKIP LOCKED`, so Workers never queue behind each
 other on one row; the in-process job map suppresses a duplicate in one Worker, and the row and
 state guards allow only one Worker to create the active Attempt. A backlog therefore costs each Pod
 at most its free slots in claims per second, and new work spreads across replicas.
@@ -72,8 +73,11 @@ Outbox rows they queued and reduced the Outbox to public events only. The old `e
 
 ## Retention boundary
 
-Event retention runs on one Pod per `EVENT_RETENTION_INTERVAL_SECONDS`, claimed through the
-PostgreSQL `event_retention_lease` table. Every pass is bounded by `EVENT_RETENTION_BATCH_SIZE`.
+Event retention runs on one Pod per `EVENT_RETENTION_INTERVAL_SECONDS` (default 600), claimed
+through the PostgreSQL `event_retention_lease` table. A pass deletes in batches of
+`EVENT_RETENTION_BATCH_SIZE`, each in its own transaction, until a batch comes back short or the
+pass has run 60 seconds; the rest waits for the next pass. Redis trimming starts once the Redis
+compatibility check passes.
 
 - `executor.events` and every tenant Stream are time-trimmed after
   `REDIS_EVENT_RETENTION_SECONDS`. An Agent offline beyond

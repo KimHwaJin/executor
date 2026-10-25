@@ -1,7 +1,7 @@
 """Runtime persistence-to-view mappings and resource value conversion."""
 
 from collections.abc import Sequence
-from datetime import UTC, timedelta
+from datetime import timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -152,12 +152,6 @@ def pool_summary(
 
 
 def purge_view(tombstone: RuntimeTargetPurgeORM) -> RuntimeTargetPurgeView:
-    created_at = tombstone.created_at
-    updated_at = tombstone.updated_at
-    if created_at.tzinfo is None:
-        created_at = created_at.replace(tzinfo=UTC)
-    if updated_at.tzinfo is None:
-        updated_at = updated_at.replace(tzinfo=UTC)
     return RuntimeTargetPurgeView(
         target_id=tombstone.target_id,
         name=tombstone.target_name,
@@ -168,8 +162,8 @@ def purge_view(tombstone: RuntimeTargetPurgeORM) -> RuntimeTargetPurgeView:
         created_by=tombstone.created_by,
         updated_by_type=tombstone.updated_by_type,
         updated_by=tombstone.updated_by,
-        created_at=created_at,
-        updated_at=updated_at,
+        created_at=tombstone.created_at,
+        updated_at=tombstone.updated_at,
     )
 
 
@@ -196,8 +190,6 @@ def _resource_is_fresh(target: RuntimeTargetORM, settings: Settings) -> bool:
         return False
     if target.cpu_utilization is None and target.memory_utilization is None:
         return False
-    if observed_at.tzinfo is None:
-        observed_at = observed_at.replace(tzinfo=UTC)
     return observed_at >= utc_now() - timedelta(
         seconds=settings.runtime_resource_max_age_seconds
     )

@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
@@ -296,7 +296,7 @@ class ExecutionStepExecutor:
                 lease.attempt_id,
                 step,
                 paused_seconds=(
-                    utc_now() - _as_utc(handover.paused_since)
+                    utc_now() - handover.paused_since
                 ).total_seconds(),
                 finished_during_handover=finished,
             )
@@ -499,9 +499,7 @@ class ExecutionStepExecutor:
         ):
             if limit is None:
                 continue
-            remaining = (
-                limit - (now - _as_utc(started_at or now)).total_seconds()
-            )
+            remaining = limit - (now - (started_at or now)).total_seconds()
             if remaining <= 0 and not run.submitted:
                 raise RuntimeExecutionTimeoutError(scope, float(limit))
             timeouts.append((max(remaining, 0.0), float(limit), scope))
@@ -842,8 +840,3 @@ def _assign_step_result(
     step.result_complete = stored_result.complete
     step.result_representation_count = stored_result.representation_count
     step.result_total_size_bytes = stored_result.total_size_bytes
-
-
-def _as_utc(value: datetime) -> datetime:
-    """SQLite tests may return timezone-naive values for aware columns."""
-    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)

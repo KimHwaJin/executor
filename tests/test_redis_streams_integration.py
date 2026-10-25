@@ -1,6 +1,7 @@
 """Run unchanged against Redis 6.0.8 and 7.4; never flush a database."""
 
 import os
+import time
 from collections.abc import AsyncIterator
 from uuid import uuid4
 
@@ -88,7 +89,7 @@ async def test_retention_missing_stream_is_a_no_op(
     assert await trim_before(redis, stream, "200-0", count=10) == 0
 
 
-async def test_retention_manager_caps_total_work_per_pass(
+async def test_retention_manager_trims_a_backlog_in_one_pass(
     redis: Redis, stream: str, engine: AsyncEngine
 ) -> None:
     async with redis.pipeline(transaction=False) as pipe:
@@ -104,6 +105,10 @@ async def test_retention_manager_caps_total_work_per_pass(
             redis_event_retention_seconds=3600,
         ),
     )
-    assert await manager._trim_event_stream(stream) == 1500
-    assert await redis.xlen(stream) == 700
-    assert await manager._trim_event_stream(stream) == 700
+    deadline = time.monotonic() + 60
+    assert await manager._trim_event_stream(stream, deadline) == 2200
+    assert await redis.xlen(stream) == 0
+    # A spent budget stops after one batch.
+    for index in range(1, 2201):
+        await redis.xadd(stream, {"x": "1"}, id=f"200-{index}")
+    assert await manager._trim_event_stream(stream, time.monotonic()) == 1000

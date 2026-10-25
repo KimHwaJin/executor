@@ -54,6 +54,9 @@ from executor_service.infrastructure.execution_worker import ExecutionWorker
 from executor_service.infrastructure.result_storage import (
     FilesystemExecutionResultStore,
 )
+from executor_service.infrastructure.runtime_adapters import (
+    RuntimeAdapterRegistry,
+)
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
 )
@@ -213,6 +216,7 @@ async def test_failures_preserve_state_reason_partial_refs_and_operator_logs(
         settings=settings,
         registry=RuntimeTargetRegistry(factory, settings),
         artifact_manager=ExecutionArtifactManager(factory),
+        driver_factory=RuntimeAdapterRegistry(settings),
         result_store=store,
     )
     try:

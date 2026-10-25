@@ -1,5 +1,7 @@
 """Validation and startup contracts, without external Redis."""
 
+import asyncio
+import time
 from pathlib import Path
 from typing import cast
 from unittest.mock import AsyncMock
@@ -64,24 +66,43 @@ async def test_batch_limits_apply_before_any_redis_call(count: int) -> None:
     redis.execute_command.assert_not_awaited()
 
 
-async def test_unsupported_redis_prevents_background_work(
+async def test_startup_does_not_need_redis(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     container = ApplicationContainer(
         Settings(
-            _env_file=None, shared_storage_root=tmp_path, db_auto_migrate=False
+            _env_file=None,
+            shared_storage_root=tmp_path,
+            db_auto_migrate=False,
+            runtime_enabled=False,
+            redis_url="redis://127.0.0.1:1/0",
         )
     )
-    check = AsyncMock(side_effect=RuntimeError("unsupported Redis"))
     init = AsyncMock()
-    monkeypatch.setattr(
-        "executor_service.container.check_redis_compatibility", check
-    )
     monkeypatch.setattr(container.maintenance, "initialize", init)
     try:
-        with pytest.raises(RuntimeError, match="unsupported Redis"):
-            await container.start()
-        init.assert_not_awaited()
-        assert container.event_retention._task is None
+        await container.start()
+        init.assert_awaited_once()
+        assert container.event_retention._task is not None
+        assert await container.redis_reachable() is False
     finally:
         await container.stop()
+
+
+async def test_silent_redis_does_not_hold_the_reachability_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    container = ApplicationContainer(
+        Settings(_env_file=None, shared_storage_root=tmp_path)
+    )
+    monkeypatch.setattr(
+        "executor_service.container.REDIS_PING_TIMEOUT_SECONDS", 0.05
+    )
+    monkeypatch.setattr(container.redis, "ping", lambda: asyncio.sleep(5))
+    try:
+        started = time.monotonic()
+        assert await container.redis_reachable() is False
+        assert time.monotonic() - started < 1
+    finally:
+        await container.redis.aclose()
+        await container.engine.dispose()

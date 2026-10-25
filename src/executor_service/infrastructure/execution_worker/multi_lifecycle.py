@@ -1,6 +1,6 @@
 """Audit and timeout handling for retained MULTI executions."""
 
-from datetime import UTC, datetime
+from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import select
@@ -101,7 +101,7 @@ class MultiLifecycleAuditor:
     ) -> None:
         if (
             execution.execution_expires_at is not None
-            and _as_utc(execution.execution_expires_at) <= now
+            and execution.execution_expires_at <= now
         ):
             await self._fail_waiting_execution(
                 observation,
@@ -111,7 +111,7 @@ class MultiLifecycleAuditor:
             return
         if (
             execution.operation_wait_expires_at is not None
-            and _as_utc(execution.operation_wait_expires_at) <= now
+            and execution.operation_wait_expires_at <= now
         ):
             await self._fail_waiting_execution(
                 observation,
@@ -270,8 +270,3 @@ class MultiLifecycleAuditor:
             await add_execution_completed_event(session, execution.id)
         if cleanup_target is not None:
             await self._session_recovery.cleanup(cleanup_target)
-
-
-def _as_utc(value: datetime) -> datetime:
-    """SQLite tests may return timezone-naive values for aware columns."""
-    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)

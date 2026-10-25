@@ -7,7 +7,6 @@ from uuid import UUID, uuid4
 from sqlalchemy import (
     JSON,
     CheckConstraint,
-    DateTime,
     ForeignKey,
     Index,
     Integer,
@@ -22,6 +21,7 @@ from executor_service.domain.enums import ActorType, OperationStatus
 from executor_service.domain.models import ExecutionOperation, utc_now
 from executor_service.infrastructure.db.base import Base
 from executor_service.infrastructure.db.models.common import (
+    UTCDateTime,
     audit_actor_constraints,
     enum_type,
 )
@@ -108,20 +108,16 @@ class ExecutionOperationORM(Base):
     )
     updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utc_now
+        UTCDateTime(), nullable=False, default=utc_now
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
+        UTCDateTime(),
         nullable=False,
         default=utc_now,
         onupdate=utc_now,
     )
-    started_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True)
-    )
-    finished_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True)
-    )
+    started_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
 
     @classmethod
     def from_domain(

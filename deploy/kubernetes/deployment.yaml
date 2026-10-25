@@ -9,7 +9,8 @@ spec:
   replicas: 1
   revisionHistoryLimit: 3
   strategy:
-    # Migrations are backward compatible and running Steps hand over between Pods.
+    # Running Steps hand over between Pods. A release whose migration drops a
+    # column or constraint deploys with Recreate (CONTRIBUTING.md).
     type: RollingUpdate
     rollingUpdate:
       maxSurge: 1
