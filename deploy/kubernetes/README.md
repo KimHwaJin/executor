@@ -6,8 +6,9 @@ resources in the target environment.
 
 ## Resources
 
-- `deployment.yaml`: one Executor API/Worker Pod, inline environment settings,
-  automatic startup migration, graceful shutdown and health probes
+- `deployment.yaml`: one Executor API/Worker Pod; settings come from the `config*.yml` files in
+  the image (only `APP_ENV` is set here), automatic startup migration, graceful shutdown and
+  health probes
 - `service.yaml`: optional reference for the platform's internal REST/MCP Service
 
 No ConfigMap, Secret, or migration Job is required. If only Deployment creation is
@@ -105,6 +106,19 @@ servers need the journal extension. Drain through the maintenance API, check saf
 deploy the Jupyter extension and Executor, then activate admission. A schema change that is not
 backward compatible still needs this drain, or `Recreate` for that release. `0011` is one: it drops
 `executions.task_id` and `workflow_id`, which `0010` Pods still write.
+
+Rolling out `0011` from `0010`:
+
+1. Drain admission through `POST /api/v1/maintenance/drain` and wait until
+   `GET /api/v1/maintenance` reports it is safe to shut down.
+2. In `deployment.local.yaml`, set `strategy.type: Recreate` and remove the `rollingUpdate` block,
+   or scale the Deployment to 0 replicas before switching the image.
+3. Deploy the new image; the first Pod migrates on startup.
+4. Restore `RollingUpdate` (or the replica count) and activate admission through
+   `POST /api/v1/maintenance/activate`.
+
+New migrations follow expand/contract instead: a column is dropped only in the release after the
+code stopped using it, so ordinary releases keep `RollingUpdate`.
 
 Current head is `0011`. Runtime purge preserves
 historical IDs after deletion.
