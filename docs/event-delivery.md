@@ -72,8 +72,11 @@ Outbox rows they queued and reduced the Outbox to public events only. The old `e
 
 ## Retention boundary
 
-Event retention runs on one Pod per `EVENT_RETENTION_INTERVAL_SECONDS`, claimed through the
-PostgreSQL `event_retention_lease` table. Every pass is bounded by `EVENT_RETENTION_BATCH_SIZE`.
+Event retention runs on one Pod per `EVENT_RETENTION_INTERVAL_SECONDS` (default 600), claimed
+through the PostgreSQL `event_retention_lease` table. A pass deletes in batches of
+`EVENT_RETENTION_BATCH_SIZE`, each in its own transaction, until a batch comes back short or the
+pass has run 60 seconds; the rest waits for the next pass. Redis trimming starts once the Redis
+compatibility check passes.
 
 - `executor.events` and every tenant Stream are time-trimmed after
   `REDIS_EVENT_RETENTION_SECONDS`. An Agent offline beyond
