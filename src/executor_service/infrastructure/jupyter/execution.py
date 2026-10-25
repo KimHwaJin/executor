@@ -3,6 +3,7 @@
 import asyncio
 import json
 import time
+from typing import Any
 from uuid import UUID
 
 import httpx
@@ -33,6 +34,9 @@ from executor_service.infrastructure.jupyter.transport import (
 )
 
 _RECONNECT_DELAY_SECONDS = 1.0
+# Larger journal frames are parsed off the event loop so one big output does
+# not stall heartbeats and the other Steps on this Pod.
+_LARGE_MESSAGE_BYTES = 1024 * 1024
 
 
 class _OutputDeliveryFailure(Exception):
@@ -113,7 +117,7 @@ class JupyterKernelExecutor:
                     disconnected_at = None
                     async for raw in websocket:
                         result = await state.apply(
-                            json.loads(raw), output_handler, on_caught_up
+                            await _decode(raw), output_handler, on_caught_up
                         )
                         if result is not None:
                             return result
@@ -224,3 +228,9 @@ class _JournalState:
         if self.error_message is not None:
             raise RuntimeExecutionError(self.error_message)
         return RuntimeExecutionResult(execution_count=self.execution_count)
+
+
+async def _decode(raw: str | bytes) -> Any:
+    if len(raw) > _LARGE_MESSAGE_BYTES:
+        return await asyncio.to_thread(json.loads, raw)
+    return json.loads(raw)
