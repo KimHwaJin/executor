@@ -1,0 +1,5 @@
+PHOENIX_ENDPOINT: http://phoenix.frodo.com/v1/traces
+PHOENIX_API_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJBcGlLZXk6MiJ9.jCoUJvCzZ9Vspjh8CYOHK9_t9QteiT-VGogNcWjLL2Q
+
+# PHOENIX_ENDPOINT: http://localhost:6006/v1/traces
+# PHOENIX_API_KEY:

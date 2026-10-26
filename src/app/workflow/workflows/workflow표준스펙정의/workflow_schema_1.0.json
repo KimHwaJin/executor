@@ -1,0 +1,263 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Workflow 1.0",
+  "description": "저장·추천·재사용할 Workflow의 작성 규격.",
+  "$comment": "구조 및 실행 모드를 검증한다. Skill/Tool 등록 여부, 파라미터 타입·필수값, 출력 참조의 존재·선행 여부, 조건 규칙은 별도 의미 검증이 필요하다. default는 주석이며 검증기가 값을 자동 삽입하지 않는다.",
+  "type": "object",
+  "properties": {
+    "workflow_version": {
+      "const": "1.0"
+    },
+    "workflow": {
+      "$ref": "#/$defs/workflow"
+    }
+  },
+  "required": [
+    "workflow_version",
+    "workflow"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "workflow": {
+      "type": "object",
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/actor"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "user_request": {
+          "type": "string",
+          "minLength": 1
+        },
+        "execution_mode": {
+          "enum": [
+            "static",
+            "adaptive"
+          ]
+        },
+        "allow_immediate_execution": {
+          "type": "boolean"
+        },
+        "steps": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/step"
+          }
+        }
+      },
+      "required": [
+        "actor",
+        "name",
+        "user_request",
+        "execution_mode",
+        "allow_immediate_execution",
+        "steps"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "execution_mode": {
+                "const": "static"
+              }
+            },
+            "required": [
+              "execution_mode"
+            ]
+          },
+          "then": {
+            "properties": {
+              "steps": {
+                "items": {
+                  "properties": {
+                    "tools": {
+                      "items": {
+                        "properties": {
+                          "execution": {
+                            "const": "always"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "steps": {
+                "contains": {
+                  "properties": {
+                    "tools": {
+                      "contains": {
+                        "properties": {
+                          "execution": {
+                            "const": "conditional"
+                          }
+                        },
+                        "required": [
+                          "execution"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "tools"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "actor": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "enum": [
+            "USER",
+            "AGENT"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "type",
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "step": {
+      "type": "object",
+      "properties": {
+        "skill": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tools": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/tool"
+          }
+        }
+      },
+      "required": [
+        "skill",
+        "tools"
+      ],
+      "additionalProperties": false
+    },
+    "tool": {
+      "type": "object",
+      "properties": {
+        "tool": {
+          "type": "string",
+          "minLength": 1
+        },
+        "execution": {
+          "enum": [
+            "always",
+            "conditional"
+          ]
+        },
+        "arguments": {
+          "type": "object",
+          "default": {},
+          "propertyNames": {
+            "type": "string",
+            "minLength": 1
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/argument"
+          }
+        }
+      },
+      "required": [
+        "tool",
+        "execution"
+      ],
+      "additionalProperties": false
+    },
+    "argument": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/literalArgument"
+        },
+        {
+          "$ref": "#/$defs/inputArgument"
+        },
+        {
+          "$ref": "#/$defs/toolOutputArgument"
+        }
+      ]
+    },
+    "literalArgument": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "const": "literal"
+        },
+        "value": {
+          "description": "Tool 파라미터 타입에 맞는 JSON 값. null도 명시적 값이다."
+        }
+      },
+      "required": [
+        "source",
+        "value"
+      ],
+      "additionalProperties": false
+    },
+    "inputArgument": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "const": "input"
+        }
+      },
+      "required": [
+        "source"
+      ],
+      "additionalProperties": false
+    },
+    "toolOutputArgument": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "const": "tool_output"
+        },
+        "step_index": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "steps 배열의 0-based 위치"
+        },
+        "tool_index": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "해당 Step의 tools 배열의 0-based 위치"
+        },
+        "output": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "source",
+        "step_index",
+        "tool_index",
+        "output"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

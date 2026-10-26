@@ -1,0 +1,2 @@
+# Preserve the verified tokenizer hash on Windows and Linux checkouts.
+src/app/context/tokenizers/*.tiktoken -text

@@ -1,0 +1,10 @@
+numpy
+pandas
+scipy
+scikit-learn
+matplotlib
+seaborn
+xgboost
+
+# pandas.read_parquet() requires a parquet engine.
+pyarrow

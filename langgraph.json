@@ -1,0 +1,13 @@
+{
+  "dependencies": ["."],
+  "graphs": {
+    "agent": "./langgraph_dev.py:graph"
+  },
+  "env": ".env",
+  "checkpointer": {
+    "path": "./src/app/graphs/checkpointer_factory.py:create_checkpointer"
+  },
+  "http": {
+    "app": "./src/app/agent_worker/api_lifespan.py:app"
+  }
+}

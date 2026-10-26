@@ -1,0 +1,283 @@
+schema_version: '2.0'
+index_type: skill_index
+description: Skill Markdown에서 규칙 기반으로 생성한 Workflow 탐색용 색인이다.
+skills:
+  data_load:
+    source: data_io/data_load.md
+    description: 사용자 데이터 선택 조건으로 원천 데이터를 추출하고 데이터 유형별 wide 분석 형식으로 변환하는 workflow step을 설계할 때 사용하는 skill.
+    capabilities:
+    - 사용자 선택 조건을 `extract_data`에 전달
+    - transform_data`의 data_type 분기로 NCE/WT wide 데이터 생성 (현업 구현 전 테스트용)
+    - 변환한 데이터를 다음 Skill에 전달
+    limitations:
+    - 현재 로컬 환경에서는 mock wide Parquet을 사용
+    - 결합, 표본 추출, 품질 진단과 정제를 수행하지 않음
+    when_to_use:
+    - 분석할 NCE 또는 WT 데이터가 선택된 경우
+    not_for:
+    - 이미 메모리에 준비된 DataFrame만 사용하는 경우
+    typical_previous_skills: []
+    typical_next_skills:
+    - dataset_preparation
+    - data_quality_check
+    tools:
+    - tool: extract_data
+      execution: always
+      condition: 데이터 선택 조건이 확정된 경우
+      condition_tool: 없음
+      role: 원천 데이터 추출
+    - tool: transform_data
+      execution: always
+      condition: 통합 변환 경로를 사용하는 경우
+      condition_tool: 없음
+      role: data_type에 따른 NCE/WT wide 데이터 생성 (테스트용)
+  data_quality_check:
+    source: eda/data_quality_check.md
+    description: 데이터 구조, 결측률, 기술 통계와 이상치 후보를 진단하는 workflow step을 설계할 때 사용하는 skill. profile_data, compute_statistics,
+      detect_outliers의 실행 여부와 진단 결과의 후속 전달을 결정한다.
+    capabilities:
+    - 데이터 행·열과 결측 상태 확인
+    - 컬럼별 기술 통계 계산
+    - 수치형 컬럼의 이상치 후보 진단
+    limitations:
+    - 원본 데이터를 변경하지 않음
+    - 이상치 후보를 자동 제거하지 않음
+    when_to_use:
+    - 데이터 로드 또는 준비 후 품질 상태를 진단할 때
+    - 정제 Tool 실행 여부의 근거가 필요할 때
+    not_for:
+    - 결측치 대체, 이상치 제거 또는 모델 학습
+    typical_previous_skills:
+    - data_load
+    - dataset_preparation
+    typical_next_skills:
+    - eda_analysis
+    - data_cleaning_pipeline
+    tools:
+    - tool: profile_data
+      execution: always
+      condition: 입력 데이터가 준비된 경우
+      condition_tool: 없음
+      role: 기본 구조와 결측 상태 확인
+    - tool: compute_statistics
+      execution: always
+      condition: 입력 데이터가 준비된 경우
+      condition_tool: 없음
+      role: 기술 통계 계산
+    - tool: detect_outliers
+      execution: always
+      condition: 수치형 컬럼의 이상치 진단이 필요한 경우
+      condition_tool: 없음
+      role: 제거 전 이상치 후보 생성
+  eda_analysis:
+    source: eda/eda_analysis.md
+    description: 데이터 분포와 변수 관계를 탐색하는 workflow step을 설계할 때 사용하는 skill. compute_statistics를 먼저 실행해 컬럼 특성을
+      파악하고 histogram_eda, boxplot_eda, correlation_analysis의 조건부 실행을 결정한다.
+    capabilities:
+    - 수치형 분포와 범주형 빈도 시각화
+    - 수치형 컬럼의 boxplot 생성
+    - 변수 간 및 target과의 상관관계 분석
+    - 기술 통계 결과를 근거로 조건부 EDA Tool 선택
+    limitations:
+    - 품질 진단이나 데이터 정제를 수행하지 않음
+    - plot 저장에는 실행 context의 output directory가 필요
+    when_to_use:
+    - 데이터 품질 확인 후 분포나 변수 관계를 탐색할 때
+    not_for:
+    - 결측치 대체, 이상치 제거 또는 모델 학습
+    typical_previous_skills:
+    - data_quality_check
+    typical_next_skills:
+    - data_cleaning_pipeline
+    - predictive_modeling
+    tools:
+    - tool: compute_statistics
+      execution: always
+      condition: 입력 데이터가 준비된 경우
+      condition_tool: 없음
+      role: 컬럼별 기술 통계를 계산하고 후속 Tool 선택 근거 생성
+    - tool: histogram_eda
+      execution: always
+      condition: 입력 데이터가 준비된 경우
+      condition_tool: 없음
+      role: 컬럼별 분포 이미지 생성
+    - tool: boxplot_eda
+      execution: conditional
+      condition: 수치형 산포와 이상치 형태를 볼 경우
+      condition_tool: compute_statistics
+      role: 수치형 boxplot 생성
+    - tool: correlation_analysis
+      execution: conditional
+      condition: 수치형 변수 2개 이상이 확인된 경우
+      condition_tool: compute_statistics
+      role: 상관관계와 유의성 분석
+  failure_analysis:
+    source: eda/failure_analysis.md
+    description: 불량/정상 클래스 분포를 시각화하는 workflow step을 설계할 때 사용되는 skill. plot_failure_distribution의 실행 순서,
+      target과 positive_label 전달, plot artifact 수집을 결정한다.
+    capabilities:
+    - 불량/정상 클래스 분포 시각화 (막대그래프, 파이차트)
+    limitations:
+    - target은 이진 분류(positive_label vs others)로 변환하여 처리함
+    - 결측치 대체, 이상치 제거, feature 변환 또는 모델 학습을 수행하지 않음
+    - plot 저장에는 실행 context의 output directory가 필요
+    - 시각화 Tool은 output_dir이 없으면 에러를 발생시킴
+    when_to_use:
+    - 불량/정상 클래스 불균형 정도를 확인할 때
+    not_for:
+    - 불량/정상 그룹 간 feature 분포 통계 비교 (`failure_group_comparison` Skill 사용)
+    - target-feature 연관도 분석 (`failure_group_comparison` Skill 사용)
+    - 결측치 대체, 이상치 제거 또는 모델 학습
+    typical_previous_skills:
+    - data_quality_check
+    - dataset_preparation
+    - data_cleaning_pipeline
+    typical_next_skills:
+    - failure_group_comparison
+    - data_cleaning_pipeline
+    - predictive_modeling
+    tools:
+    - tool: plot_failure_distribution
+      execution: always
+      condition: target_column이 확정된 경우
+      condition_tool: 없음
+      role: 불량/정상 클래스 분포 시각화
+  failure_group_comparison:
+    source: eda/failure_group_comparison.md
+    description: 불량/정상 그룹 간 feature 분포를 통계적으로 비교하고 target-feature 연관도를 분석하는 workflow step을 설계할 때 사용하는
+      skill. compare_failure_normal, target_correlation의 실행 순서와 target 및 positive_label 전달을 결정한다.
+    capabilities:
+    - 불량/정상 그룹 간 수치형 feature 분포 통계 비교 (Mann-Whitney U 검정, Cohen's d 효과 크기)
+    - target-feature 비선형 연관도 분석 (mutual_info, chi2, anova)
+    limitations:
+    - target을 이진 분류(positive_label vs others)로 변환하여 처리함
+    - 선형 상관분석은 `correlation_analysis` Tool(eda_analysis Skill)을 사용해야 함
+    - 결측치 대체, 이상치 제거, feature 변환 또는 모델 학습을 수행하지 않음
+    - plot 저장에는 실행 context의 output directory가 필요
+    - 시각화 Tool은 output_dir이 없으면 에러를 발생시킴
+    when_to_use:
+    - 불량/정상 그룹 간 유의미한 차이를 보이는 feature를 식별할 때
+    - target과 각 feature 간 비선형 연관도를 평가할 때
+    not_for:
+    - 전체 불량률 현황이나 시간/구간별 추이 분석 (`failure_analysis` Skill 사용)
+    - 선형 상관분석 (`eda_analysis` Skill의 `correlation_analysis` Tool 사용)
+    - 결측치 대체, 이상치 제거 또는 모델 학습
+    typical_previous_skills:
+    - failure_analysis
+    - data_quality_check
+    - dataset_preparation
+    typical_next_skills:
+    - data_cleaning_pipeline
+    - predictive_modeling
+    tools:
+    - tool: compare_failure_normal
+      execution: always
+      condition: target_column과 수치형 feature가 준비된 경우
+      condition_tool: 없음
+      role: 불량/정상 그룹 간 feature 통계 비교
+    - tool: target_correlation
+      execution: always
+      condition: target_column과 feature가 준비된 경우
+      condition_tool: 없음
+      role: target-feature 비선형 연관도 분석
+  predictive_modeling:
+    source: modeling/predictive_modeling.md
+    description: 지도학습 데이터를 분할하고 예측 모델을 학습·평가하는 workflow step을 설계할 때 사용하는 skill. split_dataset과 사용 가능한
+      학습 Tool의 선택, 실행 순서, target 전달과 모델 결과 수집을 결정한다.
+    capabilities:
+    - 학습·평가 데이터 분할
+    - 사용 가능한 분류 또는 회귀 학습 Tool 선택
+    - 모델과 평가 결과를 Workflow output으로 전달
+    limitations:
+    - Registry에 등록되지 않은 학습 Tool은 사용할 수 없음
+    - 지도학습 target과 모델 입력 전처리가 완료되어 있어야 함
+    when_to_use:
+    - 확정된 target을 예측하는 지도학습 모델을 만들고 평가할 때
+    not_for:
+    - target이 없는 비지도학습
+    - 데이터 진단이나 시각화만 필요한 경우
+    typical_previous_skills:
+    - data_cleaning_pipeline
+    typical_next_skills: []
+    tools:
+    - tool: split_dataset
+      execution: always
+      condition: 지도학습 데이터와 target이 준비된 경우
+      condition_tool: 없음
+      role: 학습·평가 데이터 생성
+    - tool: train_xgboost
+      execution: always
+      condition: 분류 문제이고 xgboost 사용하려고 하는 경우
+      condition_tool: 없음
+      role: 분류 모델 학습과 평가
+  data_cleaning_pipeline:
+    source: preprocessing/data_cleaning_pipeline.md
+    description: 이상치 제거, 결측치 대체와 feature 선택을 조합하는 workflow step을 설계할 때 사용하는 skill. remove_outliers, impute_missing,
+      select_features의 실행 조건, 순서와 모델링 데이터 흐름을 결정한다.
+    capabilities:
+    - 진단 단계에서 확인된 이상치 행 제거
+    - 결측값 대체
+    - 모델링용 feature 선택
+    - 다음 Skill에 전달할 단일 준비 데이터 구성
+    limitations:
+    - 이상치를 직접 탐지하지 않음
+    - 범주형 feature 인코딩이나 스케일링을 수행하지 않음
+    - 현재 feature 선택 Tool이 지원하는 데이터 타입 범위를 따른다.
+    when_to_use:
+    - 품질 진단 후 데이터를 실제로 정제할 때
+    - 지도학습용 feature subset을 만들 때
+    not_for:
+    - 원본 데이터 품질 진단이나 plot 생성
+    typical_previous_skills:
+    - data_quality_check
+    - eda_analysis
+    typical_next_skills:
+    - predictive_modeling
+    tools:
+    - tool: remove_outliers
+      execution: conditional
+      condition: 이상치 index가 있는 경우
+      condition_tool: data_quality_check.detect_outliers
+      role: 이상치 제거
+    - tool: impute_missing
+      execution: conditional
+      condition: 결측값이 있는 경우
+      condition_tool: data_quality_check.profile_data
+      role: 결측값 대체
+    - tool: select_features
+      execution: conditional
+      condition: 지도학습용 feature 선택이 필요한 경우
+      condition_tool: 없음
+      role: feature와 target으로 모델 데이터 구성
+  dataset_preparation:
+    source: preprocessing/dataset_preparation.md
+    description: 여러 데이터셋을 결합하거나 분석용 표본을 만드는 workflow step을 설계할 때 사용하는 skill. merge_data와 sample_data의
+      선택, 실행 순서, 결합 키 확인과 다음 step으로 전달할 데이터 흐름을 결정한다.
+    capabilities:
+    - 공통 키를 사용한 데이터셋 결합
+    - 대용량 데이터의 분석용 표본 추출
+    - 다음 Skill에 전달할 단일 준비 데이터 구성
+    limitations:
+    - 결측치 대체, 이상치 제거와 feature 변환을 수행하지 않음
+    - 서로 연결된 X/Y 데이터를 독립적으로 표본 추출하면 정합성이 깨질 수 있음
+    when_to_use:
+    - 둘 이상의 입력 데이터를 하나로 결합해야 하는 경우
+    - 전체 데이터 대신 대표 표본으로 분석할 경우
+    not_for:
+    - 데이터 품질 진단, 정제 또는 모델 학습
+    typical_previous_skills:
+    - data_load
+    typical_next_skills:
+    - data_quality_check
+    - data_cleaning_pipeline
+    tools:
+    - tool: merge_data
+      execution: conditional
+      condition: 둘 이상의 데이터셋을 공통 키로 결합해야 할 때
+      condition_tool: 없음
+      role: 단일 분석 데이터 생성
+    - tool: sample_data
+      execution: conditional
+      condition: 표본 분석이 필요하거나 데이터가 큰 경우
+      condition_tool: 없음
+      role: 분석 비용을 줄일 표본 생성

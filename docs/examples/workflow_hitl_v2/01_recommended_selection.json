@@ -1,0 +1,2595 @@
+{
+  "example_notice": "문서용 v2 계약 예시 묶음이며 API body 자체가 아닙니다. 추천 메타데이터·누적 재추천·추가 후보 없음은 현재 구현을 반영합니다. demo 도구는 설명용이며 실제 등록 도구가 아닙니다.",
+  "rest_response": {
+    "method": "GET",
+    "path": "/api/v1/tasks/11111111-1111-4111-8111-111111111111",
+    "status_code": 200,
+    "body": {
+      "schema_version": 1,
+      "task_id": "11111111-1111-4111-8111-111111111111",
+      "session_id": "22222222-2222-4222-8222-222222222222",
+      "current_run_id": "44444444-4444-4444-8444-00000000000a",
+      "submission_run_id": null,
+      "status": "waiting_input",
+      "phase": "workflow_candidate_selection",
+      "last_event_sequence": 11,
+      "input_required": true,
+      "task_finished": false,
+      "current_run": {
+        "id": "44444444-4444-4444-8444-00000000000a",
+        "checkpoint_run_id": "44444444-4444-4444-8444-00000000000a",
+        "task_id": "11111111-1111-4111-8111-111111111111",
+        "session_id": "22222222-2222-4222-8222-222222222222",
+        "status": "interrupted",
+        "interrupt": [
+          {
+            "action_requests": [
+              {
+                "name": "workflow_candidate_selection",
+                "args": {
+                  "candidates": [
+                    {
+                      "candidate_id": "recommended_1",
+                      "origin": "recommended",
+                      "name": "추천 컬럼 분석 1",
+                      "description": "선택한 컬럼을 지정한 방법으로 분석하는 설명용 후보입니다.",
+                      "reason": "컬럼 분석 요청에 대응하는 후보입니다.",
+                      "workflow": {
+                        "workflow_version": "1.0",
+                        "workflow": {
+                          "actor": {
+                            "type": "AGENT",
+                            "id": "demo-agent"
+                          },
+                          "name": "추천 컬럼 분석 1",
+                          "user_request": "선택한 데이터의 yield 컬럼을 zscore 방법으로 확인해줘.",
+                          "execution_mode": "static",
+                          "allow_immediate_execution": false,
+                          "steps": [
+                            {
+                              "skill": "demo_data",
+                              "tools": [
+                                {
+                                  "tool": "demo_load",
+                                  "execution": "always",
+                                  "arguments": {
+                                    "dataset": {
+                                      "source": "input"
+                                    }
+                                  }
+                                }
+                              ]
+                            },
+                            {
+                              "skill": "demo_analysis",
+                              "tools": [
+                                {
+                                  "tool": "demo_analyze",
+                                  "execution": "always",
+                                  "arguments": {
+                                    "data": {
+                                      "source": "tool_output",
+                                      "step_index": 0,
+                                      "tool_index": 0,
+                                      "output": "data"
+                                    },
+                                    "column": {
+                                      "source": "input"
+                                    },
+                                    "method": {
+                                      "source": "input"
+                                    },
+                                    "threshold": {
+                                      "source": "input"
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      },
+                      "workflow_id": "55555555-5555-4555-8555-000000000001",
+                      "version_id": "66666666-6666-4666-8666-000000000001",
+                      "revision": 2,
+                      "similarity_score": 0.942
+                    },
+                    {
+                      "candidate_id": "recommended_2",
+                      "origin": "recommended",
+                      "name": "추천 컬럼 분석 2",
+                      "description": "선택한 컬럼을 지정한 방법으로 분석하는 설명용 후보입니다.",
+                      "reason": "컬럼 분석 요청에 대응하는 후보입니다.",
+                      "workflow": {
+                        "workflow_version": "1.0",
+                        "workflow": {
+                          "actor": {
+                            "type": "AGENT",
+                            "id": "demo-agent"
+                          },
+                          "name": "추천 컬럼 분석 2",
+                          "user_request": "선택한 데이터의 yield 컬럼을 zscore 방법으로 확인해줘.",
+                          "execution_mode": "static",
+                          "allow_immediate_execution": false,
+                          "steps": [
+                            {
+                              "skill": "demo_data",
+                              "tools": [
+                                {
+                                  "tool": "demo_load",
+                                  "execution": "always",
+                                  "arguments": {
+                                    "dataset": {
+                                      "source": "input"
+                                    }
+                                  }
+                                }
+                              ]
+                            },
+                            {
+                              "skill": "demo_analysis",
+                              "tools": [
+                                {
+                                  "tool": "demo_analyze",
+                                  "execution": "always",
+                                  "arguments": {
+                                    "data": {
+                                      "source": "tool_output",
+                                      "step_index": 0,
+                                      "tool_index": 0,
+                                      "output": "data"
+                                    },
+                                    "column": {
+                                      "source": "input"
+                                    },
+                                    "method": {
+                                      "source": "literal",
+                                      "value": "iqr"
+                                    },
+                                    "threshold": {
+                                      "source": "input"
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      },
+                      "workflow_id": "55555555-5555-4555-8555-000000000002",
+                      "version_id": "66666666-6666-4666-8666-000000000002",
+                      "revision": 3,
+                      "similarity_score": 0.88
+                    },
+                    {
+                      "candidate_id": "recommended_3",
+                      "origin": "recommended",
+                      "name": "추천 컬럼 분석 3",
+                      "description": "선택한 컬럼을 지정한 방법으로 분석하는 설명용 후보입니다.",
+                      "reason": "컬럼 분석 요청에 대응하는 후보입니다.",
+                      "workflow": {
+                        "workflow_version": "1.0",
+                        "workflow": {
+                          "actor": {
+                            "type": "AGENT",
+                            "id": "demo-agent"
+                          },
+                          "name": "추천 컬럼 분석 3",
+                          "user_request": "선택한 데이터의 yield 컬럼을 zscore 방법으로 확인해줘.",
+                          "execution_mode": "static",
+                          "allow_immediate_execution": false,
+                          "steps": [
+                            {
+                              "skill": "demo_data",
+                              "tools": [
+                                {
+                                  "tool": "demo_load",
+                                  "execution": "always",
+                                  "arguments": {
+                                    "dataset": {
+                                      "source": "input"
+                                    }
+                                  }
+                                }
+                              ]
+                            },
+                            {
+                              "skill": "demo_analysis",
+                              "tools": [
+                                {
+                                  "tool": "demo_analyze",
+                                  "execution": "always",
+                                  "arguments": {
+                                    "data": {
+                                      "source": "tool_output",
+                                      "step_index": 0,
+                                      "tool_index": 0,
+                                      "output": "data"
+                                    },
+                                    "column": {
+                                      "source": "input"
+                                    },
+                                    "method": {
+                                      "source": "input"
+                                    },
+                                    "threshold": {
+                                      "source": "input"
+                                    }
+                                  }
+                                },
+                                {
+                                  "tool": "demo_analyze",
+                                  "execution": "always",
+                                  "arguments": {
+                                    "data": {
+                                      "source": "tool_output",
+                                      "step_index": 0,
+                                      "tool_index": 0,
+                                      "output": "data"
+                                    },
+                                    "column": {
+                                      "source": "input"
+                                    },
+                                    "method": {
+                                      "source": "literal",
+                                      "value": "iqr"
+                                    },
+                                    "threshold": {
+                                      "source": "input"
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      },
+                      "workflow_id": "55555555-5555-4555-8555-000000000003",
+                      "version_id": "66666666-6666-4666-8666-000000000003",
+                      "revision": 1,
+                      "similarity_score": 0.85
+                    }
+                  ],
+                  "available_actions": [
+                    {
+                      "intent": "select",
+                      "label": "선택"
+                    },
+                    {
+                      "intent": "recommend_again",
+                      "label": "다시 추천"
+                    },
+                    {
+                      "intent": "generate",
+                      "label": "워크플로우 생성하기"
+                    },
+                    {
+                      "intent": "reject",
+                      "label": "이유와 함께 거절"
+                    }
+                  ],
+                  "recommendation_search": {
+                    "status": "matched",
+                    "added_candidate_ids": [
+                      "recommended_1",
+                      "recommended_2",
+                      "recommended_3"
+                    ],
+                    "message": null
+                  }
+                },
+                "description": "워크플로우 후보를 확인하고 선택해 주세요."
+              }
+            ],
+            "review_configs": [
+              {
+                "action_name": "workflow_candidate_selection",
+                "allowed_decisions": [
+                  "edit"
+                ],
+                "args_schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "intent": {
+                          "const": "select"
+                        },
+                        "candidate_id": {
+                          "type": "string",
+                          "enum": [
+                            "recommended_1",
+                            "recommended_2",
+                            "recommended_3"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "intent",
+                        "candidate_id"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "intent": {
+                          "const": "recommend_again"
+                        },
+                        "feedback": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "intent"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "intent": {
+                          "type": "string",
+                          "const": "generate"
+                        }
+                      },
+                      "required": [
+                        "intent"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "intent": {
+                          "const": "reject"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "minLength": 1,
+                          "pattern": "\\S"
+                        }
+                      },
+                      "required": [
+                        "intent",
+                        "reason"
+                      ]
+                    }
+                  ]
+                }
+              }
+            ],
+            "payload_version": 2
+          }
+        ],
+        "failure": null,
+        "attempt_count": 1,
+        "next_attempt_at": null,
+        "cancel_reason": null,
+        "cancel_requested_at": null,
+        "created_at": "2026-10-06T00:01:00Z",
+        "updated_at": "2026-10-06T00:01:00Z",
+        "started_at": "2026-10-06T00:01:00Z",
+        "completed_at": null,
+        "mock_llm_sleep_seconds": null,
+        "node_timings": null,
+        "queue_wait_seconds": 0.0
+      },
+      "interactions": [
+        {
+          "interaction_id": "44444444-4444-4444-8444-00000000000b",
+          "revision": 1,
+          "run_id": "44444444-4444-4444-8444-00000000000a",
+          "status": "open",
+          "kind": "workflow_candidate_selection",
+          "payload_version": 2,
+          "summary": "워크플로우 후보를 확인하고 선택해 주세요.",
+          "payload": {
+            "action_name": "workflow_candidate_selection",
+            "arguments": {
+              "candidates": [
+                {
+                  "candidate_id": "recommended_1",
+                  "origin": "recommended",
+                  "name": "추천 컬럼 분석 1",
+                  "description": "선택한 컬럼을 지정한 방법으로 분석하는 설명용 후보입니다.",
+                  "reason": "컬럼 분석 요청에 대응하는 후보입니다.",
+                  "workflow": {
+                    "workflow_version": "1.0",
+                    "workflow": {
+                      "actor": {
+                        "type": "AGENT",
+                        "id": "demo-agent"
+                      },
+                      "name": "추천 컬럼 분석 1",
+                      "user_request": "선택한 데이터의 yield 컬럼을 zscore 방법으로 확인해줘.",
+                      "execution_mode": "static",
+                      "allow_immediate_execution": false,
+                      "steps": [
+                        {
+                          "skill": "demo_data",
+                          "tools": [
+                            {
+                              "tool": "demo_load",
+                              "execution": "always",
+                              "arguments": {
+                                "dataset": {
+                                  "source": "input"
+                                }
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "skill": "demo_analysis",
+                          "tools": [
+                            {
+                              "tool": "demo_analyze",
+                              "execution": "always",
+                              "arguments": {
+                                "data": {
+                                  "source": "tool_output",
+                                  "step_index": 0,
+                                  "tool_index": 0,
+                                  "output": "data"
+                                },
+                                "column": {
+                                  "source": "input"
+                                },
+                                "method": {
+                                  "source": "input"
+                                },
+                                "threshold": {
+                                  "source": "input"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "workflow_id": "55555555-5555-4555-8555-000000000001",
+                  "version_id": "66666666-6666-4666-8666-000000000001",
+                  "revision": 2,
+                  "similarity_score": 0.942
+                },
+                {
+                  "candidate_id": "recommended_2",
+                  "origin": "recommended",
+                  "name": "추천 컬럼 분석 2",
+                  "description": "선택한 컬럼을 지정한 방법으로 분석하는 설명용 후보입니다.",
+                  "reason": "컬럼 분석 요청에 대응하는 후보입니다.",
+                  "workflow": {
+                    "workflow_version": "1.0",
+                    "workflow": {
+                      "actor": {
+                        "type": "AGENT",
+                        "id": "demo-agent"
+                      },
+                      "name": "추천 컬럼 분석 2",
+                      "user_request": "선택한 데이터의 yield 컬럼을 zscore 방법으로 확인해줘.",
+                      "execution_mode": "static",
+                      "allow_immediate_execution": false,
+                      "steps": [
+                        {
+                          "skill": "demo_data",
+                          "tools": [
+                            {
+                              "tool": "demo_load",
+                              "execution": "always",
+                              "arguments": {
+                                "dataset": {
+                                  "source": "input"
+                                }
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "skill": "demo_analysis",
+                          "tools": [
+                            {
+                              "tool": "demo_analyze",
+                              "execution": "always",
+                              "arguments": {
+                                "data": {
+                                  "source": "tool_output",
+                                  "step_index": 0,
+                                  "tool_index": 0,
+                                  "output": "data"
+                                },
+                                "column": {
+                                  "source": "input"
+                                },
+                                "method": {
+                                  "source": "literal",
+                                  "value": "iqr"
+                                },
+                                "threshold": {
+                                  "source": "input"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "workflow_id": "55555555-5555-4555-8555-000000000002",
+                  "version_id": "66666666-6666-4666-8666-000000000002",
+                  "revision": 3,
+                  "similarity_score": 0.88
+                },
+                {
+                  "candidate_id": "recommended_3",
+                  "origin": "recommended",
+                  "name": "추천 컬럼 분석 3",
+                  "description": "선택한 컬럼을 지정한 방법으로 분석하는 설명용 후보입니다.",
+                  "reason": "컬럼 분석 요청에 대응하는 후보입니다.",
+                  "workflow": {
+                    "workflow_version": "1.0",
+                    "workflow": {
+                      "actor": {
+                        "type": "AGENT",
+                        "id": "demo-agent"
+                      },
+                      "name": "추천 컬럼 분석 3",
+                      "user_request": "선택한 데이터의 yield 컬럼을 zscore 방법으로 확인해줘.",
+                      "execution_mode": "static",
+                      "allow_immediate_execution": false,
+                      "steps": [
+                        {
+                          "skill": "demo_data",
+                          "tools": [
+                            {
+                              "tool": "demo_load",
+                              "execution": "always",
+                              "arguments": {
+                                "dataset": {
+                                  "source": "input"
+                                }
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "skill": "demo_analysis",
+                          "tools": [
+                            {
+                              "tool": "demo_analyze",
+                              "execution": "always",
+                              "arguments": {
+                                "data": {
+                                  "source": "tool_output",
+                                  "step_index": 0,
+                                  "tool_index": 0,
+                                  "output": "data"
+                                },
+                                "column": {
+                                  "source": "input"
+                                },
+                                "method": {
+                                  "source": "input"
+                                },
+                                "threshold": {
+                                  "source": "input"
+                                }
+                              }
+                            },
+                            {
+                              "tool": "demo_analyze",
+                              "execution": "always",
+                              "arguments": {
+                                "data": {
+                                  "source": "tool_output",
+                                  "step_index": 0,
+                                  "tool_index": 0,
+                                  "output": "data"
+                                },
+                                "column": {
+                                  "source": "input"
+                                },
+                                "method": {
+                                  "source": "literal",
+                                  "value": "iqr"
+                                },
+                                "threshold": {
+                                  "source": "input"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "workflow_id": "55555555-5555-4555-8555-000000000003",
+                  "version_id": "66666666-6666-4666-8666-000000000003",
+                  "revision": 1,
+                  "similarity_score": 0.85
+                }
+              ],
+              "available_actions": [
+                {
+                  "intent": "select",
+                  "label": "선택"
+                },
+                {
+                  "intent": "recommend_again",
+                  "label": "다시 추천"
+                },
+                {
+                  "intent": "generate",
+                  "label": "워크플로우 생성하기"
+                },
+                {
+                  "intent": "reject",
+                  "label": "이유와 함께 거절"
+                }
+              ],
+              "recommendation_search": {
+                "status": "matched",
+                "added_candidate_ids": [
+                  "recommended_1",
+                  "recommended_2",
+                  "recommended_3"
+                ],
+                "message": null
+              }
+            },
+            "input_schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "oneOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "intent": {
+                      "const": "select"
+                    },
+                    "candidate_id": {
+                      "type": "string",
+                      "enum": [
+                        "recommended_1",
+                        "recommended_2",
+                        "recommended_3"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "intent",
+                    "candidate_id"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "intent": {
+                      "const": "recommend_again"
+                    },
+                    "feedback": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "intent"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "intent": {
+                      "type": "string",
+                      "const": "generate"
+                    }
+                  },
+                  "required": [
+                    "intent"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "intent": {
+                      "const": "reject"
+                    },
+                    "reason": {
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "\\S"
+                    }
+                  },
+                  "required": [
+                    "intent",
+                    "reason"
+                  ]
+                }
+              ]
+            }
+          },
+          "actions": [
+            {
+              "name": "edit",
+              "label": "입력 제출",
+              "input_schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "intent": {
+                        "const": "select"
+                      },
+                      "candidate_id": {
+                        "type": "string",
+                        "enum": [
+                          "recommended_1",
+                          "recommended_2",
+                          "recommended_3"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "intent",
+                      "candidate_id"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "intent": {
+                        "const": "recommend_again"
+                      },
+                      "feedback": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "intent"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "intent": {
+                        "type": "string",
+                        "const": "generate"
+                      }
+                    },
+                    "required": [
+                      "intent"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "intent": {
+                        "const": "reject"
+                      },
+                      "reason": {
+                        "type": "string",
+                        "minLength": 1,
+                        "pattern": "\\S"
+                      }
+                    },
+                    "required": [
+                      "intent",
+                      "reason"
+                    ]
+                  }
+                ]
+              }
+            }
+          ],
+          "resume_target": {
+            "task_id": "11111111-1111-4111-8111-111111111111",
+            "run_id": "44444444-4444-4444-8444-00000000000a",
+            "interaction_id": "44444444-4444-4444-8444-00000000000b",
+            "revision": 1
+          }
+        }
+      ],
+      "capabilities": {
+        "can_cancel": true,
+        "can_resume": true
+      },
+      "result": null,
+      "failure": null,
+      "recovery": {
+        "status": "none",
+        "next_attempt_at": null,
+        "user_action_required": false
+      },
+      "created_at": "2026-10-06T00:00:00Z",
+      "updated_at": "2026-10-06T00:01:00Z",
+      "started_at": "2026-10-06T00:00:01Z",
+      "completed_at": null
+    }
+  },
+  "sse_response": {
+    "event": "interaction.opened",
+    "id": "10",
+    "data": {
+      "schema_version": 1,
+      "event_id": "44444444-4444-4444-8444-00000000000c",
+      "type": "interaction.opened",
+      "sequence": 10,
+      "session_id": "22222222-2222-4222-8222-222222222222",
+      "task_id": "11111111-1111-4111-8111-111111111111",
+      "run_id": "44444444-4444-4444-8444-00000000000a",
+      "occurred_at": "2026-10-06T00:01:00Z",
+      "data": {
+        "interaction_id": "44444444-4444-4444-8444-00000000000b",
+        "revision": 1,
+        "run_id": "44444444-4444-4444-8444-00000000000a",
+        "status": "open",
+        "kind": "workflow_candidate_selection",
+        "payload_version": 2,
+        "summary": "워크플로우 후보를 확인하고 선택해 주세요.",
+        "payload": {
+          "action_name": "workflow_candidate_selection",
+          "arguments": {
+            "candidates": [
+              {
+                "candidate_id": "recommended_1",
+                "origin": "recommended",
+                "name": "추천 컬럼 분석 1",
+                "description": "선택한 컬럼을 지정한 방법으로 분석하는 설명용 후보입니다.",
+                "reason": "컬럼 분석 요청에 대응하는 후보입니다.",
+                "workflow": {
+                  "workflow_version": "1.0",
+                  "workflow": {
+                    "actor": {
+                      "type": "AGENT",
+                      "id": "demo-agent"
+                    },
+                    "name": "추천 컬럼 분석 1",
+                    "user_request": "선택한 데이터의 yield 컬럼을 zscore 방법으로 확인해줘.",
+                    "execution_mode": "static",
+                    "allow_immediate_execution": false,
+                    "steps": [
+                      {
+                        "skill": "demo_data",
+                        "tools": [
+                          {
+                            "tool": "demo_load",
+                            "execution": "always",
+                            "arguments": {
+                              "dataset": {
+                                "source": "input"
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "skill": "demo_analysis",
+                        "tools": [
+                          {
+                            "tool": "demo_analyze",
+                            "execution": "always",
+                            "arguments": {
+                              "data": {
+                                "source": "tool_output",
+                                "step_index": 0,
+                                "tool_index": 0,
+                                "output": "data"
+                              },
+                              "column": {
+                                "source": "input"
+                              },
+                              "method": {
+                                "source": "input"
+                              },
+                              "threshold": {
+                                "source": "input"
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "workflow_id": "55555555-5555-4555-8555-000000000001",
+                "version_id": "66666666-6666-4666-8666-000000000001",
+                "revision": 2,
+                "similarity_score": 0.942
+              },
+              {
+                "candidate_id": "recommended_2",
+                "origin": "recommended",
+                "name": "추천 컬럼 분석 2",
+                "description": "선택한 컬럼을 지정한 방법으로 분석하는 설명용 후보입니다.",
+                "reason": "컬럼 분석 요청에 대응하는 후보입니다.",
+                "workflow": {
+                  "workflow_version": "1.0",
+                  "workflow": {
+                    "actor": {
+                      "type": "AGENT",
+                      "id": "demo-agent"
+                    },
+                    "name": "추천 컬럼 분석 2",
+                    "user_request": "선택한 데이터의 yield 컬럼을 zscore 방법으로 확인해줘.",
+                    "execution_mode": "static",
+                    "allow_immediate_execution": false,
+                    "steps": [
+                      {
+                        "skill": "demo_data",
+                        "tools": [
+                          {
+                            "tool": "demo_load",
+                            "execution": "always",
+                            "arguments": {
+                              "dataset": {
+                                "source": "input"
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "skill": "demo_analysis",
+                        "tools": [
+                          {
+                            "tool": "demo_analyze",
+                            "execution": "always",
+                            "arguments": {
+                              "data": {
+                                "source": "tool_output",
+                                "step_index": 0,
+                                "tool_index": 0,
+                                "output": "data"
+                              },
+                              "column": {
+                                "source": "input"
+                              },
+                              "method": {
+                                "source": "literal",
+                                "value": "iqr"
+                              },
+                              "threshold": {
+                                "source": "input"
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "workflow_id": "55555555-5555-4555-8555-000000000002",
+                "version_id": "66666666-6666-4666-8666-000000000002",
+                "revision": 3,
+                "similarity_score": 0.88
+              },
+              {
+                "candidate_id": "recommended_3",
+                "origin": "recommended",
+                "name": "추천 컬럼 분석 3",
+                "description": "선택한 컬럼을 지정한 방법으로 분석하는 설명용 후보입니다.",
+                "reason": "컬럼 분석 요청에 대응하는 후보입니다.",
+                "workflow": {
+                  "workflow_version": "1.0",
+                  "workflow": {
+                    "actor": {
+                      "type": "AGENT",
+                      "id": "demo-agent"
+                    },
+                    "name": "추천 컬럼 분석 3",
+                    "user_request": "선택한 데이터의 yield 컬럼을 zscore 방법으로 확인해줘.",
+                    "execution_mode": "static",
+                    "allow_immediate_execution": false,
+                    "steps": [
+                      {
+                        "skill": "demo_data",
+                        "tools": [
+                          {
+                            "tool": "demo_load",
+                            "execution": "always",
+                            "arguments": {
+                              "dataset": {
+                                "source": "input"
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "skill": "demo_analysis",
+                        "tools": [
+                          {
+                            "tool": "demo_analyze",
+                            "execution": "always",
+                            "arguments": {
+                              "data": {
+                                "source": "tool_output",
+                                "step_index": 0,
+                                "tool_index": 0,
+                                "output": "data"
+                              },
+                              "column": {
+                                "source": "input"
+                              },
+                              "method": {
+                                "source": "input"
+                              },
+                              "threshold": {
+                                "source": "input"
+                              }
+                            }
+                          },
+                          {
+                            "tool": "demo_analyze",
+                            "execution": "always",
+                            "arguments": {
+                              "data": {
+                                "source": "tool_output",
+                                "step_index": 0,
+                                "tool_index": 0,
+                                "output": "data"
+                              },
+                              "column": {
+                                "source": "input"
+                              },
+                              "method": {
+                                "source": "literal",
+                                "value": "iqr"
+                              },
+                              "threshold": {
+                                "source": "input"
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "workflow_id": "55555555-5555-4555-8555-000000000003",
+                "version_id": "66666666-6666-4666-8666-000000000003",
+                "revision": 1,
+                "similarity_score": 0.85
+              }
+            ],
+            "available_actions": [
+              {
+                "intent": "select",
+                "label": "선택"
+              },
+              {
+                "intent": "recommend_again",
+                "label": "다시 추천"
+              },
+              {
+                "intent": "generate",
+                "label": "워크플로우 생성하기"
+              },
+              {
+                "intent": "reject",
+                "label": "이유와 함께 거절"
+              }
+            ],
+            "recommendation_search": {
+              "status": "matched",
+              "added_candidate_ids": [
+                "recommended_1",
+                "recommended_2",
+                "recommended_3"
+              ],
+              "message": null
+            }
+          },
+          "input_schema": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "intent": {
+                    "const": "select"
+                  },
+                  "candidate_id": {
+                    "type": "string",
+                    "enum": [
+                      "recommended_1",
+                      "recommended_2",
+                      "recommended_3"
+                    ]
+                  }
+                },
+                "required": [
+                  "intent",
+                  "candidate_id"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "intent": {
+                    "const": "recommend_again"
+                  },
+                  "feedback": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "intent"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "intent": {
+                    "type": "string",
+                    "const": "generate"
+                  }
+                },
+                "required": [
+                  "intent"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "intent": {
+                    "const": "reject"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "\\S"
+                  }
+                },
+                "required": [
+                  "intent",
+                  "reason"
+                ]
+              }
+            ]
+          }
+        },
+        "actions": [
+          {
+            "name": "edit",
+            "label": "입력 제출",
+            "input_schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "oneOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "intent": {
+                      "const": "select"
+                    },
+                    "candidate_id": {
+                      "type": "string",
+                      "enum": [
+                        "recommended_1",
+                        "recommended_2",
+                        "recommended_3"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "intent",
+                    "candidate_id"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "intent": {
+                      "const": "recommend_again"
+                    },
+                    "feedback": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "intent"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "intent": {
+                      "type": "string",
+                      "const": "generate"
+                    }
+                  },
+                  "required": [
+                    "intent"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "intent": {
+                      "const": "reject"
+                    },
+                    "reason": {
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "\\S"
+                    }
+                  },
+                  "required": [
+                    "intent",
+                    "reason"
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "resume_target": {
+          "task_id": "11111111-1111-4111-8111-111111111111",
+          "run_id": "44444444-4444-4444-8444-00000000000a",
+          "interaction_id": "44444444-4444-4444-8444-00000000000b",
+          "revision": 1
+        }
+      }
+    }
+  },
+  "resume_requests": {
+    "select": {
+      "method": "POST",
+      "path": "/api/v1/workflow_run",
+      "headers": {
+        "X-User-ID": "33333333-3333-4333-8333-333333333333",
+        "Idempotency-Key": "hitl-v2-1-select",
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "task_id": "11111111-1111-4111-8111-111111111111",
+        "run_id": "44444444-4444-4444-8444-00000000000a",
+        "command": {
+          "resume": {
+            "action": "edit",
+            "interaction_id": "44444444-4444-4444-8444-00000000000b",
+            "revision": 1,
+            "payload": {
+              "intent": "select",
+              "candidate_id": "recommended_1"
+            }
+          }
+        }
+      }
+    },
+    "recommend_again": {
+      "method": "POST",
+      "path": "/api/v1/workflow_run",
+      "headers": {
+        "X-User-ID": "33333333-3333-4333-8333-333333333333",
+        "Idempotency-Key": "hitl-v2-1-recommend_again",
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "task_id": "11111111-1111-4111-8111-111111111111",
+        "run_id": "44444444-4444-4444-8444-00000000000a",
+        "command": {
+          "resume": {
+            "action": "edit",
+            "interaction_id": "44444444-4444-4444-8444-00000000000b",
+            "revision": 1,
+            "payload": {
+              "intent": "recommend_again"
+            }
+          }
+        }
+      }
+    },
+    "reject_new_workflow": {
+      "method": "POST",
+      "path": "/api/v1/workflow_run",
+      "headers": {
+        "X-User-ID": "33333333-3333-4333-8333-333333333333",
+        "Idempotency-Key": "hitl-v2-1-reject_new_workflow",
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "task_id": "11111111-1111-4111-8111-111111111111",
+        "run_id": "44444444-4444-4444-8444-00000000000a",
+        "command": {
+          "resume": {
+            "action": "edit",
+            "interaction_id": "44444444-4444-4444-8444-00000000000b",
+            "revision": 1,
+            "payload": {
+              "intent": "reject",
+              "reason": "이 후보 대신 새 워크플로우를 만들어 주세요."
+            }
+          }
+        }
+      }
+    },
+    "reject_stop_analysis": {
+      "method": "POST",
+      "path": "/api/v1/workflow_run",
+      "headers": {
+        "X-User-ID": "33333333-3333-4333-8333-333333333333",
+        "Idempotency-Key": "hitl-v2-1-reject_stop_analysis",
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "task_id": "11111111-1111-4111-8111-111111111111",
+        "run_id": "44444444-4444-4444-8444-00000000000a",
+        "command": {
+          "resume": {
+            "action": "edit",
+            "interaction_id": "44444444-4444-4444-8444-00000000000b",
+            "revision": 1,
+            "payload": {
+              "intent": "reject",
+              "reason": "분석 자체를 진행하지 않겠습니다."
+            }
+          }
+        }
+      }
+    },
+    "generate": {
+      "method": "POST",
+      "path": "/api/v1/workflow_run",
+      "headers": {
+        "X-User-ID": "33333333-3333-4333-8333-333333333333",
+        "Idempotency-Key": "hitl-v2-1-generate",
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "task_id": "11111111-1111-4111-8111-111111111111",
+        "run_id": "44444444-4444-4444-8444-00000000000a",
+        "command": {
+          "resume": {
+            "action": "edit",
+            "interaction_id": "44444444-4444-4444-8444-00000000000b",
+            "revision": 1,
+            "payload": {
+              "intent": "generate"
+            }
+          }
+        }
+      }
+    }
+  },
+  "resume_accepted_response": {
+    "status_code": 202,
+    "headers": {
+      "Location": "/api/v1/tasks/11111111-1111-4111-8111-111111111111"
+    },
+    "body": {
+      "schema_version": 1,
+      "task_id": "11111111-1111-4111-8111-111111111111",
+      "session_id": "22222222-2222-4222-8222-222222222222",
+      "current_run_id": "44444444-4444-4444-8444-000000000014",
+      "submission_run_id": "44444444-4444-4444-8444-000000000014",
+      "status": "pending",
+      "phase": "pending",
+      "last_event_sequence": 13,
+      "input_required": false,
+      "task_finished": false,
+      "current_run": {
+        "id": "44444444-4444-4444-8444-000000000014",
+        "checkpoint_run_id": "44444444-4444-4444-8444-00000000000a",
+        "task_id": "11111111-1111-4111-8111-111111111111",
+        "session_id": "22222222-2222-4222-8222-222222222222",
+        "status": "pending",
+        "interrupt": null,
+        "failure": null,
+        "attempt_count": 0,
+        "next_attempt_at": null,
+        "cancel_reason": null,
+        "cancel_requested_at": null,
+        "created_at": "2026-10-06T00:01:00Z",
+        "updated_at": "2026-10-06T00:01:00Z",
+        "started_at": null,
+        "completed_at": null,
+        "mock_llm_sleep_seconds": null,
+        "node_timings": null,
+        "queue_wait_seconds": null
+      },
+      "interactions": [],
+      "capabilities": {
+        "can_cancel": true,
+        "can_resume": false
+      },
+      "result": null,
+      "failure": null,
+      "recovery": {
+        "status": "none",
+        "next_attempt_at": null,
+        "user_action_required": false
+      },
+      "created_at": "2026-10-06T00:00:00Z",
+      "updated_at": "2026-10-06T00:01:00Z",
+      "started_at": "2026-10-06T00:00:01Z",
+      "completed_at": null
+    }
+  },
+  "rerecommendation_examples": {
+    "additional_matches": {
+      "description": "첫 재추천: 기존 후보 3개 + 신규 후보 1개. 신규 후보만 배지 표시.",
+      "placement": "interaction은 REST interactions[] 또는 SSE data.data 객체입니다. 이 묶음 키는 API 필드가 아닙니다.",
+      "interaction": {
+        "interaction_id": "44444444-4444-4444-8444-000000000022",
+        "revision": 1,
+        "run_id": "44444444-4444-4444-8444-000000000012",
+        "status": "open",
+        "kind": "workflow_candidate_selection",
+        "payload_version": 2,
+        "summary": "워크플로우 후보를 확인하고 선택해 주세요.",
+        "payload": {
+          "action_name": "workflow_candidate_selection",
+          "arguments": {
+            "candidates": [
+              {
+                "candidate_id": "recommended_1",
+                "origin": "recommended",
+                "name": "추천 컬럼 분석 1",
+                "description": "선택한 컬럼을 지정한 방법으로 분석하는 설명용 후보입니다.",
+                "reason": "컬럼 분석 요청에 대응하는 후보입니다.",
+                "workflow": {
+                  "workflow_version": "1.0",
+                  "workflow": {
+                    "actor": {
+                      "type": "AGENT",
+                      "id": "demo-agent"
+                    },
+                    "name": "추천 컬럼 분석 1",
+                    "user_request": "선택한 데이터의 yield 컬럼을 zscore 방법으로 확인해줘.",
+                    "execution_mode": "static",
+                    "allow_immediate_execution": false,
+                    "steps": [
+                      {
+                        "skill": "demo_data",
+                        "tools": [
+                          {
+                            "tool": "demo_load",
+                            "execution": "always",
+                            "arguments": {
+                              "dataset": {
+                                "source": "input"
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "skill": "demo_analysis",
+                        "tools": [
+                          {
+                            "tool": "demo_analyze",
+                            "execution": "always",
+                            "arguments": {
+                              "data": {
+                                "source": "tool_output",
+                                "step_index": 0,
+                                "tool_index": 0,
+                                "output": "data"
+                              },
+                              "column": {
+                                "source": "input"
+                              },
+                              "method": {
+                                "source": "input"
+                              },
+                              "threshold": {
+                                "source": "input"
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "workflow_id": "55555555-5555-4555-8555-000000000001",
+                "version_id": "66666666-6666-4666-8666-000000000001",
+                "revision": 2,
+                "similarity_score": 0.942
+              },
+              {
+                "candidate_id": "recommended_2",
+                "origin": "recommended",
+                "name": "추천 컬럼 분석 2",
+                "description": "선택한 컬럼을 지정한 방법으로 분석하는 설명용 후보입니다.",
+                "reason": "컬럼 분석 요청에 대응하는 후보입니다.",
+                "workflow": {
+                  "workflow_version": "1.0",
+                  "workflow": {
+                    "actor": {
+                      "type": "AGENT",
+                      "id": "demo-agent"
+                    },
+                    "name": "추천 컬럼 분석 2",
+                    "user_request": "선택한 데이터의 yield 컬럼을 zscore 방법으로 확인해줘.",
+                    "execution_mode": "static",
+                    "allow_immediate_execution": false,
+                    "steps": [
+                      {
+                        "skill": "demo_data",
+                        "tools": [
+                          {
+                            "tool": "demo_load",
+                            "execution": "always",
+                            "arguments": {
+                              "dataset": {
+                                "source": "input"
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "skill": "demo_analysis",
+                        "tools": [
+                          {
+                            "tool": "demo_analyze",
+                            "execution": "always",
+                            "arguments": {
+                              "data": {
+                                "source": "tool_output",
+                                "step_index": 0,
+                                "tool_index": 0,
+                                "output": "data"
+                              },
+                              "column": {
+                                "source": "input"
+                              },
+                              "method": {
+                                "source": "literal",
+                                "value": "iqr"
+                              },
+                              "threshold": {
+                                "source": "input"
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "workflow_id": "55555555-5555-4555-8555-000000000002",
+                "version_id": "66666666-6666-4666-8666-000000000002",
+                "revision": 3,
+                "similarity_score": 0.88
+              },
+              {
+                "candidate_id": "recommended_3",
+                "origin": "recommended",
+                "name": "추천 컬럼 분석 3",
+                "description": "선택한 컬럼을 지정한 방법으로 분석하는 설명용 후보입니다.",
+                "reason": "컬럼 분석 요청에 대응하는 후보입니다.",
+                "workflow": {
+                  "workflow_version": "1.0",
+                  "workflow": {
+                    "actor": {
+                      "type": "AGENT",
+                      "id": "demo-agent"
+                    },
+                    "name": "추천 컬럼 분석 3",
+                    "user_request": "선택한 데이터의 yield 컬럼을 zscore 방법으로 확인해줘.",
+                    "execution_mode": "static",
+                    "allow_immediate_execution": false,
+                    "steps": [
+                      {
+                        "skill": "demo_data",
+                        "tools": [
+                          {
+                            "tool": "demo_load",
+                            "execution": "always",
+                            "arguments": {
+                              "dataset": {
+                                "source": "input"
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "skill": "demo_analysis",
+                        "tools": [
+                          {
+                            "tool": "demo_analyze",
+                            "execution": "always",
+                            "arguments": {
+                              "data": {
+                                "source": "tool_output",
+                                "step_index": 0,
+                                "tool_index": 0,
+                                "output": "data"
+                              },
+                              "column": {
+                                "source": "input"
+                              },
+                              "method": {
+                                "source": "input"
+                              },
+                              "threshold": {
+                                "source": "input"
+                              }
+                            }
+                          },
+                          {
+                            "tool": "demo_analyze",
+                            "execution": "always",
+                            "arguments": {
+                              "data": {
+                                "source": "tool_output",
+                                "step_index": 0,
+                                "tool_index": 0,
+                                "output": "data"
+                              },
+                              "column": {
+                                "source": "input"
+                              },
+                              "method": {
+                                "source": "literal",
+                                "value": "iqr"
+                              },
+                              "threshold": {
+                                "source": "input"
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "workflow_id": "55555555-5555-4555-8555-000000000003",
+                "version_id": "66666666-6666-4666-8666-000000000003",
+                "revision": 1,
+                "similarity_score": 0.85
+              },
+              {
+                "candidate_id": "recommended_4",
+                "origin": "recommended",
+                "name": "추가 컬럼 분석 4",
+                "description": "선택한 컬럼을 지정한 방법으로 분석하는 설명용 후보입니다.",
+                "reason": "컬럼 분석 요청에 대응하는 후보입니다.",
+                "workflow": {
+                  "workflow_version": "1.0",
+                  "workflow": {
+                    "actor": {
+                      "type": "AGENT",
+                      "id": "demo-agent"
+                    },
+                    "name": "추가 컬럼 분석 4",
+                    "user_request": "선택한 데이터의 yield 컬럼을 zscore 방법으로 확인해줘.",
+                    "execution_mode": "static",
+                    "allow_immediate_execution": false,
+                    "steps": [
+                      {
+                        "skill": "demo_data",
+                        "tools": [
+                          {
+                            "tool": "demo_load",
+                            "execution": "always",
+                            "arguments": {
+                              "dataset": {
+                                "source": "input"
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "skill": "demo_analysis",
+                        "tools": [
+                          {
+                            "tool": "demo_analyze",
+                            "execution": "always",
+                            "arguments": {
+                              "data": {
+                                "source": "tool_output",
+                                "step_index": 0,
+                                "tool_index": 0,
+                                "output": "data"
+                              },
+                              "column": {
+                                "source": "input"
+                              },
+                              "method": {
+                                "source": "input"
+                              },
+                              "threshold": {
+                                "source": "input"
+                              }
+                            }
+                          },
+                          {
+                            "tool": "demo_analyze",
+                            "execution": "always",
+                            "arguments": {
+                              "data": {
+                                "source": "tool_output",
+                                "step_index": 0,
+                                "tool_index": 0,
+                                "output": "data"
+                              },
+                              "column": {
+                                "source": "input"
+                              },
+                              "method": {
+                                "source": "literal",
+                                "value": "iqr"
+                              },
+                              "threshold": {
+                                "source": "input"
+                              }
+                            }
+                          },
+                          {
+                            "tool": "demo_analyze",
+                            "execution": "always",
+                            "arguments": {
+                              "data": {
+                                "source": "tool_output",
+                                "step_index": 0,
+                                "tool_index": 0,
+                                "output": "data"
+                              },
+                              "column": {
+                                "source": "input"
+                              },
+                              "method": {
+                                "source": "literal",
+                                "value": "iqr"
+                              },
+                              "threshold": {
+                                "source": "input"
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "workflow_id": "55555555-5555-4555-8555-000000000004",
+                "version_id": "66666666-6666-4666-8666-000000000004",
+                "revision": 1,
+                "similarity_score": 0.825
+              }
+            ],
+            "available_actions": [
+              {
+                "intent": "select",
+                "label": "선택"
+              },
+              {
+                "intent": "recommend_again",
+                "label": "다시 추천"
+              },
+              {
+                "intent": "generate",
+                "label": "워크플로우 생성하기"
+              },
+              {
+                "intent": "reject",
+                "label": "이유와 함께 거절"
+              }
+            ],
+            "recommendation_search": {
+              "status": "matched",
+              "added_candidate_ids": [
+                "recommended_4"
+              ],
+              "message": null
+            }
+          },
+          "input_schema": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "intent": {
+                    "type": "string",
+                    "const": "select"
+                  },
+                  "candidate_id": {
+                    "minLength": 1,
+                    "pattern": "\\S",
+                    "title": "Candidate Id",
+                    "type": "string",
+                    "enum": [
+                      "recommended_1",
+                      "recommended_2",
+                      "recommended_3",
+                      "recommended_4"
+                    ]
+                  }
+                },
+                "required": [
+                  "intent",
+                  "candidate_id"
+                ],
+                "title": "CandidateSelection",
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "intent": {
+                    "type": "string",
+                    "const": "recommend_again"
+                  },
+                  "feedback": {
+                    "default": "",
+                    "title": "Feedback",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "intent"
+                ],
+                "title": "CandidateRetry",
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "intent": {
+                    "type": "string",
+                    "const": "generate"
+                  }
+                },
+                "required": [
+                  "intent"
+                ],
+                "title": "CandidateGeneration",
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "intent": {
+                    "type": "string",
+                    "const": "reject"
+                  },
+                  "reason": {
+                    "minLength": 1,
+                    "pattern": "\\S",
+                    "title": "Reason",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "intent",
+                  "reason"
+                ],
+                "title": "ReasonRejection",
+                "type": "object"
+              }
+            ]
+          }
+        },
+        "actions": [
+          {
+            "name": "edit",
+            "label": "입력 제출",
+            "input_schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "intent": {
+                      "type": "string",
+                      "const": "select"
+                    },
+                    "candidate_id": {
+                      "minLength": 1,
+                      "pattern": "\\S",
+                      "title": "Candidate Id",
+                      "type": "string",
+                      "enum": [
+                        "recommended_1",
+                        "recommended_2",
+                        "recommended_3",
+                        "recommended_4"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "intent",
+                    "candidate_id"
+                  ],
+                  "title": "CandidateSelection",
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "intent": {
+                      "type": "string",
+                      "const": "recommend_again"
+                    },
+                    "feedback": {
+                      "default": "",
+                      "title": "Feedback",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "intent"
+                  ],
+                  "title": "CandidateRetry",
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "intent": {
+                      "type": "string",
+                      "const": "generate"
+                    }
+                  },
+                  "required": [
+                    "intent"
+                  ],
+                  "title": "CandidateGeneration",
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "intent": {
+                      "type": "string",
+                      "const": "reject"
+                    },
+                    "reason": {
+                      "minLength": 1,
+                      "pattern": "\\S",
+                      "title": "Reason",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "intent",
+                    "reason"
+                  ],
+                  "title": "ReasonRejection",
+                  "type": "object"
+                }
+              ]
+            }
+          }
+        ],
+        "resume_target": {
+          "task_id": "11111111-1111-4111-8111-111111111111",
+          "run_id": "44444444-4444-4444-8444-000000000012",
+          "interaction_id": "44444444-4444-4444-8444-000000000022",
+          "revision": 1
+        }
+      },
+      "select_request": {
+        "method": "POST",
+        "path": "/api/v1/workflow_run",
+        "headers": {
+          "X-User-ID": "33333333-3333-4333-8333-333333333333",
+          "Idempotency-Key": "hitl-v2-additional_matches-select",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "task_id": "11111111-1111-4111-8111-111111111111",
+          "run_id": "44444444-4444-4444-8444-000000000012",
+          "command": {
+            "resume": {
+              "action": "edit",
+              "interaction_id": "44444444-4444-4444-8444-000000000022",
+              "revision": 1,
+              "payload": {
+                "intent": "select",
+                "candidate_id": "recommended_4"
+              }
+            }
+          }
+        }
+      }
+    },
+    "no_additional_matches": {
+      "description": "다음 재추천: threshold 이상 추가 후보 없음. 기존 후보 4개 유지, 배지 해제 및 안내. 자동 생성 전환 없음.",
+      "placement": "interaction은 REST interactions[] 또는 SSE data.data 객체입니다. 이 묶음 키는 API 필드가 아닙니다.",
+      "interaction": {
+        "interaction_id": "44444444-4444-4444-8444-000000000023",
+        "revision": 1,
+        "run_id": "44444444-4444-4444-8444-000000000013",
+        "status": "open",
+        "kind": "workflow_candidate_selection",
+        "payload_version": 2,
+        "summary": "워크플로우 후보를 확인하고 선택해 주세요.",
+        "payload": {
+          "action_name": "workflow_candidate_selection",
+          "arguments": {
+            "candidates": [
+              {
+                "candidate_id": "recommended_1",
+                "origin": "recommended",
+                "name": "추천 컬럼 분석 1",
+                "description": "선택한 컬럼을 지정한 방법으로 분석하는 설명용 후보입니다.",
+                "reason": "컬럼 분석 요청에 대응하는 후보입니다.",
+                "workflow": {
+                  "workflow_version": "1.0",
+                  "workflow": {
+                    "actor": {
+                      "type": "AGENT",
+                      "id": "demo-agent"
+                    },
+                    "name": "추천 컬럼 분석 1",
+                    "user_request": "선택한 데이터의 yield 컬럼을 zscore 방법으로 확인해줘.",
+                    "execution_mode": "static",
+                    "allow_immediate_execution": false,
+                    "steps": [
+                      {
+                        "skill": "demo_data",
+                        "tools": [
+                          {
+                            "tool": "demo_load",
+                            "execution": "always",
+                            "arguments": {
+                              "dataset": {
+                                "source": "input"
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "skill": "demo_analysis",
+                        "tools": [
+                          {
+                            "tool": "demo_analyze",
+                            "execution": "always",
+                            "arguments": {
+                              "data": {
+                                "source": "tool_output",
+                                "step_index": 0,
+                                "tool_index": 0,
+                                "output": "data"
+                              },
+                              "column": {
+                                "source": "input"
+                              },
+                              "method": {
+                                "source": "input"
+                              },
+                              "threshold": {
+                                "source": "input"
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "workflow_id": "55555555-5555-4555-8555-000000000001",
+                "version_id": "66666666-6666-4666-8666-000000000001",
+                "revision": 2,
+                "similarity_score": 0.942
+              },
+              {
+                "candidate_id": "recommended_2",
+                "origin": "recommended",
+                "name": "추천 컬럼 분석 2",
+                "description": "선택한 컬럼을 지정한 방법으로 분석하는 설명용 후보입니다.",
+                "reason": "컬럼 분석 요청에 대응하는 후보입니다.",
+                "workflow": {
+                  "workflow_version": "1.0",
+                  "workflow": {
+                    "actor": {
+                      "type": "AGENT",
+                      "id": "demo-agent"
+                    },
+                    "name": "추천 컬럼 분석 2",
+                    "user_request": "선택한 데이터의 yield 컬럼을 zscore 방법으로 확인해줘.",
+                    "execution_mode": "static",
+                    "allow_immediate_execution": false,
+                    "steps": [
+                      {
+                        "skill": "demo_data",
+                        "tools": [
+                          {
+                            "tool": "demo_load",
+                            "execution": "always",
+                            "arguments": {
+                              "dataset": {
+                                "source": "input"
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "skill": "demo_analysis",
+                        "tools": [
+                          {
+                            "tool": "demo_analyze",
+                            "execution": "always",
+                            "arguments": {
+                              "data": {
+                                "source": "tool_output",
+                                "step_index": 0,
+                                "tool_index": 0,
+                                "output": "data"
+                              },
+                              "column": {
+                                "source": "input"
+                              },
+                              "method": {
+                                "source": "literal",
+                                "value": "iqr"
+                              },
+                              "threshold": {
+                                "source": "input"
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "workflow_id": "55555555-5555-4555-8555-000000000002",
+                "version_id": "66666666-6666-4666-8666-000000000002",
+                "revision": 3,
+                "similarity_score": 0.88
+              },
+              {
+                "candidate_id": "recommended_3",
+                "origin": "recommended",
+                "name": "추천 컬럼 분석 3",
+                "description": "선택한 컬럼을 지정한 방법으로 분석하는 설명용 후보입니다.",
+                "reason": "컬럼 분석 요청에 대응하는 후보입니다.",
+                "workflow": {
+                  "workflow_version": "1.0",
+                  "workflow": {
+                    "actor": {
+                      "type": "AGENT",
+                      "id": "demo-agent"
+                    },
+                    "name": "추천 컬럼 분석 3",
+                    "user_request": "선택한 데이터의 yield 컬럼을 zscore 방법으로 확인해줘.",
+                    "execution_mode": "static",
+                    "allow_immediate_execution": false,
+                    "steps": [
+                      {
+                        "skill": "demo_data",
+                        "tools": [
+                          {
+                            "tool": "demo_load",
+                            "execution": "always",
+                            "arguments": {
+                              "dataset": {
+                                "source": "input"
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "skill": "demo_analysis",
+                        "tools": [
+                          {
+                            "tool": "demo_analyze",
+                            "execution": "always",
+                            "arguments": {
+                              "data": {
+                                "source": "tool_output",
+                                "step_index": 0,
+                                "tool_index": 0,
+                                "output": "data"
+                              },
+                              "column": {
+                                "source": "input"
+                              },
+                              "method": {
+                                "source": "input"
+                              },
+                              "threshold": {
+                                "source": "input"
+                              }
+                            }
+                          },
+                          {
+                            "tool": "demo_analyze",
+                            "execution": "always",
+                            "arguments": {
+                              "data": {
+                                "source": "tool_output",
+                                "step_index": 0,
+                                "tool_index": 0,
+                                "output": "data"
+                              },
+                              "column": {
+                                "source": "input"
+                              },
+                              "method": {
+                                "source": "literal",
+                                "value": "iqr"
+                              },
+                              "threshold": {
+                                "source": "input"
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "workflow_id": "55555555-5555-4555-8555-000000000003",
+                "version_id": "66666666-6666-4666-8666-000000000003",
+                "revision": 1,
+                "similarity_score": 0.85
+              },
+              {
+                "candidate_id": "recommended_4",
+                "origin": "recommended",
+                "name": "추가 컬럼 분석 4",
+                "description": "선택한 컬럼을 지정한 방법으로 분석하는 설명용 후보입니다.",
+                "reason": "컬럼 분석 요청에 대응하는 후보입니다.",
+                "workflow": {
+                  "workflow_version": "1.0",
+                  "workflow": {
+                    "actor": {
+                      "type": "AGENT",
+                      "id": "demo-agent"
+                    },
+                    "name": "추가 컬럼 분석 4",
+                    "user_request": "선택한 데이터의 yield 컬럼을 zscore 방법으로 확인해줘.",
+                    "execution_mode": "static",
+                    "allow_immediate_execution": false,
+                    "steps": [
+                      {
+                        "skill": "demo_data",
+                        "tools": [
+                          {
+                            "tool": "demo_load",
+                            "execution": "always",
+                            "arguments": {
+                              "dataset": {
+                                "source": "input"
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "skill": "demo_analysis",
+                        "tools": [
+                          {
+                            "tool": "demo_analyze",
+                            "execution": "always",
+                            "arguments": {
+                              "data": {
+                                "source": "tool_output",
+                                "step_index": 0,
+                                "tool_index": 0,
+                                "output": "data"
+                              },
+                              "column": {
+                                "source": "input"
+                              },
+                              "method": {
+                                "source": "input"
+                              },
+                              "threshold": {
+                                "source": "input"
+                              }
+                            }
+                          },
+                          {
+                            "tool": "demo_analyze",
+                            "execution": "always",
+                            "arguments": {
+                              "data": {
+                                "source": "tool_output",
+                                "step_index": 0,
+                                "tool_index": 0,
+                                "output": "data"
+                              },
+                              "column": {
+                                "source": "input"
+                              },
+                              "method": {
+                                "source": "literal",
+                                "value": "iqr"
+                              },
+                              "threshold": {
+                                "source": "input"
+                              }
+                            }
+                          },
+                          {
+                            "tool": "demo_analyze",
+                            "execution": "always",
+                            "arguments": {
+                              "data": {
+                                "source": "tool_output",
+                                "step_index": 0,
+                                "tool_index": 0,
+                                "output": "data"
+                              },
+                              "column": {
+                                "source": "input"
+                              },
+                              "method": {
+                                "source": "literal",
+                                "value": "iqr"
+                              },
+                              "threshold": {
+                                "source": "input"
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "workflow_id": "55555555-5555-4555-8555-000000000004",
+                "version_id": "66666666-6666-4666-8666-000000000004",
+                "revision": 1,
+                "similarity_score": 0.825
+              }
+            ],
+            "available_actions": [
+              {
+                "intent": "select",
+                "label": "선택"
+              },
+              {
+                "intent": "recommend_again",
+                "label": "다시 추천"
+              },
+              {
+                "intent": "generate",
+                "label": "워크플로우 생성하기"
+              },
+              {
+                "intent": "reject",
+                "label": "이유와 함께 거절"
+              }
+            ],
+            "recommendation_search": {
+              "status": "no_additional_matches",
+              "added_candidate_ids": [],
+              "message": "기준을 충족하는 추가 후보가 없습니다. 기존 후보를 선택하거나 새 워크플로우를 생성할 수 있습니다."
+            }
+          },
+          "input_schema": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "intent": {
+                    "type": "string",
+                    "const": "select"
+                  },
+                  "candidate_id": {
+                    "minLength": 1,
+                    "pattern": "\\S",
+                    "title": "Candidate Id",
+                    "type": "string",
+                    "enum": [
+                      "recommended_1",
+                      "recommended_2",
+                      "recommended_3",
+                      "recommended_4"
+                    ]
+                  }
+                },
+                "required": [
+                  "intent",
+                  "candidate_id"
+                ],
+                "title": "CandidateSelection",
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "intent": {
+                    "type": "string",
+                    "const": "recommend_again"
+                  },
+                  "feedback": {
+                    "default": "",
+                    "title": "Feedback",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "intent"
+                ],
+                "title": "CandidateRetry",
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "intent": {
+                    "type": "string",
+                    "const": "generate"
+                  }
+                },
+                "required": [
+                  "intent"
+                ],
+                "title": "CandidateGeneration",
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "intent": {
+                    "type": "string",
+                    "const": "reject"
+                  },
+                  "reason": {
+                    "minLength": 1,
+                    "pattern": "\\S",
+                    "title": "Reason",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "intent",
+                  "reason"
+                ],
+                "title": "ReasonRejection",
+                "type": "object"
+              }
+            ]
+          }
+        },
+        "actions": [
+          {
+            "name": "edit",
+            "label": "입력 제출",
+            "input_schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "intent": {
+                      "type": "string",
+                      "const": "select"
+                    },
+                    "candidate_id": {
+                      "minLength": 1,
+                      "pattern": "\\S",
+                      "title": "Candidate Id",
+                      "type": "string",
+                      "enum": [
+                        "recommended_1",
+                        "recommended_2",
+                        "recommended_3",
+                        "recommended_4"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "intent",
+                    "candidate_id"
+                  ],
+                  "title": "CandidateSelection",
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "intent": {
+                      "type": "string",
+                      "const": "recommend_again"
+                    },
+                    "feedback": {
+                      "default": "",
+                      "title": "Feedback",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "intent"
+                  ],
+                  "title": "CandidateRetry",
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "intent": {
+                      "type": "string",
+                      "const": "generate"
+                    }
+                  },
+                  "required": [
+                    "intent"
+                  ],
+                  "title": "CandidateGeneration",
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "intent": {
+                      "type": "string",
+                      "const": "reject"
+                    },
+                    "reason": {
+                      "minLength": 1,
+                      "pattern": "\\S",
+                      "title": "Reason",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "intent",
+                    "reason"
+                  ],
+                  "title": "ReasonRejection",
+                  "type": "object"
+                }
+              ]
+            }
+          }
+        ],
+        "resume_target": {
+          "task_id": "11111111-1111-4111-8111-111111111111",
+          "run_id": "44444444-4444-4444-8444-000000000013",
+          "interaction_id": "44444444-4444-4444-8444-000000000023",
+          "revision": 1
+        }
+      },
+      "select_request": {
+        "method": "POST",
+        "path": "/api/v1/workflow_run",
+        "headers": {
+          "X-User-ID": "33333333-3333-4333-8333-333333333333",
+          "Idempotency-Key": "hitl-v2-no_additional_matches-select",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "task_id": "11111111-1111-4111-8111-111111111111",
+          "run_id": "44444444-4444-4444-8444-000000000013",
+          "command": {
+            "resume": {
+              "action": "edit",
+              "interaction_id": "44444444-4444-4444-8444-000000000023",
+              "revision": 1,
+              "payload": {
+                "intent": "select",
+                "candidate_id": "recommended_4"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

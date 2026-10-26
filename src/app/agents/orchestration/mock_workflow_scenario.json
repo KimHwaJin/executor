@@ -1,0 +1,407 @@
+{
+  "scenario_id": "nce-quality-v1",
+  "prompt": "NCE 데이터 품질을 확인해줘",
+  "workflow": {
+    "workflow_version": "1.0",
+    "workflow": {
+      "actor": {
+        "type": "AGENT",
+        "id": "workflow_generator"
+      },
+      "name": "Mock data quality",
+      "user_request": "데이터 품질을 확인해주세요",
+      "execution_mode": "static",
+      "allow_immediate_execution": false,
+      "steps": [
+        {
+          "skill": "data_load",
+          "tools": [
+            {
+              "tool": "extract_data",
+              "execution": "always",
+              "arguments": {
+                "data_type": {
+                  "source": "input"
+                },
+                "lot_cd": {
+                  "source": "input"
+                },
+                "process": {
+                  "source": "input"
+                },
+                "start_dt": {
+                  "source": "input"
+                },
+                "end_dt": {
+                  "source": "input"
+                },
+                "query_mode": {
+                  "source": "literal",
+                  "value": "period"
+                },
+                "wafer_list": {
+                  "source": "literal",
+                  "value": null
+                }
+              }
+            },
+            {
+              "tool": "transform_data",
+              "execution": "always",
+              "arguments": {
+                "data": {
+                  "source": "tool_output",
+                  "step_index": 0,
+                  "tool_index": 0,
+                  "output": "data"
+                },
+                "data_type": {
+                  "source": "tool_output",
+                  "step_index": 0,
+                  "tool_index": 0,
+                  "output": "data_type"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "skill": "data_quality_check",
+          "tools": [
+            {
+              "tool": "profile_data",
+              "execution": "always",
+              "arguments": {
+                "data": {
+                  "source": "tool_output",
+                  "step_index": 0,
+                  "tool_index": 1,
+                  "output": "data"
+                }
+              }
+            },
+            {
+              "tool": "compute_statistics",
+              "execution": "always",
+              "arguments": {
+                "data": {
+                  "source": "tool_output",
+                  "step_index": 0,
+                  "tool_index": 1,
+                  "output": "data"
+                }
+              }
+            },
+            {
+              "tool": "detect_outliers",
+              "execution": "always",
+              "arguments": {
+                "data": {
+                  "source": "tool_output",
+                  "step_index": 0,
+                  "tool_index": 1,
+                  "output": "data"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "fields": [
+    {
+      "step_index": 0,
+      "tool_index": 0,
+      "tool": "extract_data",
+      "parameter": "data_type",
+      "argument": {
+        "source": "input"
+      },
+      "value": "nce"
+    },
+    {
+      "step_index": 0,
+      "tool_index": 0,
+      "tool": "extract_data",
+      "parameter": "lot_cd",
+      "argument": {
+        "source": "input"
+      },
+      "value": "LOT1"
+    },
+    {
+      "step_index": 0,
+      "tool_index": 0,
+      "tool": "extract_data",
+      "parameter": "process",
+      "argument": {
+        "source": "input"
+      },
+      "value": [
+        "P01"
+      ]
+    },
+    {
+      "step_index": 0,
+      "tool_index": 0,
+      "tool": "extract_data",
+      "parameter": "query_mode",
+      "argument": {
+        "source": "literal",
+        "value": "period"
+      },
+      "value": "period"
+    },
+    {
+      "step_index": 0,
+      "tool_index": 0,
+      "tool": "extract_data",
+      "parameter": "start_dt",
+      "argument": {
+        "source": "input"
+      },
+      "value": "2026-01-01"
+    },
+    {
+      "step_index": 0,
+      "tool_index": 0,
+      "tool": "extract_data",
+      "parameter": "end_dt",
+      "argument": {
+        "source": "input"
+      },
+      "value": "2026-02-01"
+    },
+    {
+      "step_index": 0,
+      "tool_index": 0,
+      "tool": "extract_data",
+      "parameter": "wafer_list",
+      "argument": {
+        "source": "literal",
+        "value": null
+      },
+      "value": null
+    },
+    {
+      "step_index": 0,
+      "tool_index": 0,
+      "tool": "extract_data",
+      "parameter": "title",
+      "argument": {
+        "source": "literal",
+        "value": null
+      },
+      "value": null
+    },
+    {
+      "step_index": 0,
+      "tool_index": 0,
+      "tool": "extract_data",
+      "parameter": "symbol",
+      "argument": {
+        "source": "literal",
+        "value": null
+      },
+      "value": null
+    },
+    {
+      "step_index": 0,
+      "tool_index": 0,
+      "tool": "extract_data",
+      "parameter": "bin",
+      "argument": {
+        "source": "literal",
+        "value": null
+      },
+      "value": null
+    },
+    {
+      "step_index": 0,
+      "tool_index": 0,
+      "tool": "extract_data",
+      "parameter": "device",
+      "argument": {
+        "source": "literal",
+        "value": null
+      },
+      "value": null
+    },
+    {
+      "step_index": 0,
+      "tool_index": 0,
+      "tool": "extract_data",
+      "parameter": "owner",
+      "argument": {
+        "source": "literal",
+        "value": null
+      },
+      "value": null
+    },
+    {
+      "step_index": 0,
+      "tool_index": 0,
+      "tool": "extract_data",
+      "parameter": "program",
+      "argument": {
+        "source": "literal",
+        "value": null
+      },
+      "value": null
+    },
+    {
+      "step_index": 0,
+      "tool_index": 0,
+      "tool": "extract_data",
+      "parameter": "equip",
+      "argument": {
+        "source": "literal",
+        "value": null
+      },
+      "value": null
+    },
+    {
+      "step_index": 0,
+      "tool_index": 0,
+      "tool": "extract_data",
+      "parameter": "limit",
+      "argument": {
+        "source": "literal",
+        "value": null
+      },
+      "value": null
+    },
+    {
+      "step_index": 0,
+      "tool_index": 1,
+      "tool": "transform_data",
+      "parameter": "data_type",
+      "argument": {
+        "source": "tool_output",
+        "step_index": 0,
+        "tool_index": 0,
+        "output": "data_type"
+      },
+      "value": null
+    },
+    {
+      "step_index": 0,
+      "tool_index": 1,
+      "tool": "transform_data",
+      "parameter": "data",
+      "argument": {
+        "source": "tool_output",
+        "step_index": 0,
+        "tool_index": 0,
+        "output": "data"
+      },
+      "value": null
+    },
+    {
+      "step_index": 0,
+      "tool_index": 1,
+      "tool": "transform_data",
+      "parameter": "transform_op",
+      "argument": {
+        "source": "literal",
+        "value": null
+      },
+      "value": null
+    },
+    {
+      "step_index": 0,
+      "tool_index": 1,
+      "tool": "transform_data",
+      "parameter": "mock_data_dir",
+      "argument": {
+        "source": "literal",
+        "value": "/workspace/pv/data"
+      },
+      "value": "/workspace/pv/data"
+    },
+    {
+      "step_index": 1,
+      "tool_index": 0,
+      "tool": "profile_data",
+      "parameter": "data",
+      "argument": {
+        "source": "tool_output",
+        "step_index": 0,
+        "tool_index": 1,
+        "output": "data"
+      },
+      "value": null
+    },
+    {
+      "step_index": 1,
+      "tool_index": 1,
+      "tool": "compute_statistics",
+      "parameter": "data",
+      "argument": {
+        "source": "tool_output",
+        "step_index": 0,
+        "tool_index": 1,
+        "output": "data"
+      },
+      "value": null
+    },
+    {
+      "step_index": 1,
+      "tool_index": 1,
+      "tool": "compute_statistics",
+      "parameter": "columns",
+      "argument": {
+        "source": "literal",
+        "value": null
+      },
+      "value": null
+    },
+    {
+      "step_index": 1,
+      "tool_index": 1,
+      "tool": "compute_statistics",
+      "parameter": "output_dir",
+      "argument": {
+        "source": "literal",
+        "value": null
+      },
+      "value": null
+    },
+    {
+      "step_index": 1,
+      "tool_index": 2,
+      "tool": "detect_outliers",
+      "parameter": "data",
+      "argument": {
+        "source": "tool_output",
+        "step_index": 0,
+        "tool_index": 1,
+        "output": "data"
+      },
+      "value": null
+    },
+    {
+      "step_index": 1,
+      "tool_index": 2,
+      "tool": "detect_outliers",
+      "parameter": "method",
+      "argument": {
+        "source": "literal",
+        "value": "iqr"
+      },
+      "value": "iqr"
+    },
+    {
+      "step_index": 1,
+      "tool_index": 2,
+      "tool": "detect_outliers",
+      "parameter": "columns",
+      "argument": {
+        "source": "literal",
+        "value": null
+      },
+      "value": null
+    }
+  ]
+}

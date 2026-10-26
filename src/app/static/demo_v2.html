@@ -1,0 +1,2098 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>DTest HITL v2</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0d0e10;
+        --side: #17181b;
+        --main: #212121;
+        --panel: #1d1e21;
+        --line: #38393e;
+        --text: #ececf1;
+        --muted: #9b9ca1;
+        --green: #10a37f;
+        --purple: #ab68ff;
+        --red: #ef6262;
+        --amber: #f1a33c;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        height: 100%;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font:
+          14px/1.5 Inter,
+          system-ui,
+          sans-serif;
+        overflow: hidden;
+      }
+      button,
+      input,
+      textarea {
+        font: inherit;
+      }
+      button {
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.45;
+        cursor: wait;
+      }
+      .hidden {
+        display: none !important;
+      }
+      .app {
+        height: 100%;
+        display: grid;
+        grid-template-columns: 250px minmax(430px, 1fr) 390px;
+      }
+      .sidebar {
+        background: var(--side);
+        border-right: 1px solid var(--line);
+        padding: 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        min-height: 0;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: 800;
+        padding: 5px;
+      }
+      .logo {
+        width: 32px;
+        height: 32px;
+        border-radius: 9px;
+        background: var(--green);
+        display: grid;
+        place-items: center;
+      }
+      .sidebtn {
+        width: 100%;
+        padding: 10px;
+        border: 1px solid #4b4c51;
+        background: transparent;
+        color: var(--text);
+        border-radius: 8px;
+        text-align: left;
+        margin-bottom: 7px;
+      }
+      .sidebtn:hover {
+        background: #25262a;
+      }
+      .label {
+        margin: 12px 6px 6px;
+        color: var(--muted);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+      .session {
+        padding: 10px;
+        background: #25262a;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+      }
+      .session small {
+        display: block;
+        color: var(--muted);
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .footer {
+        margin-top: auto;
+        border-top: 1px solid var(--line);
+        padding-top: 10px;
+        color: var(--muted);
+        font-size: 11px;
+        overflow-wrap: anywhere;
+      }
+      .main {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        background: var(--main);
+      }
+      .topbar {
+        height: 56px;
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 0 17px;
+        border-bottom: 1px solid var(--line);
+      }
+      .topbar strong {
+        font-size: 15px;
+      }
+      .spacer {
+        flex: 1;
+      }
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        border: 1px solid #484a4f;
+        border-radius: 999px;
+        padding: 5px 9px;
+        color: #c9c9ce;
+        font-size: 12px;
+      }
+      .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #777;
+      }
+      .badge.free {
+        color: #9de5cd;
+        border-color: #356859;
+      }
+      .badge.free .dot {
+        background: var(--green);
+      }
+      .badge.locked {
+        color: #ffb4b4;
+        border-color: #754545;
+      }
+      .badge.locked .dot {
+        background: var(--red);
+        box-shadow: 0 0 0 3px #ef626225;
+      }
+      .chat {
+        flex: 1;
+        overflow: auto;
+        padding: 22px max(18px, calc((100% - 820px) / 2));
+        scroll-behavior: smooth;
+      }
+      .empty {
+        height: 100%;
+        display: grid;
+        place-items: center;
+        text-align: center;
+        color: var(--muted);
+      }
+      .empty b {
+        display: block;
+        color: var(--text);
+        font-size: 27px;
+        margin-bottom: 7px;
+      }
+      .row {
+        display: flex;
+        gap: 12px;
+        margin: 19px 0;
+        align-items: flex-start;
+      }
+      .row.user {
+        justify-content: flex-end;
+      }
+      .row.system {
+        justify-content: center;
+      }
+      .avatar {
+        flex: 0 0 32px;
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+        display: grid;
+        place-items: center;
+        font-size: 11px;
+        font-weight: 900;
+      }
+      .avatar.assistant {
+        background: var(--green);
+      }
+      .avatar.agent {
+        background: var(--purple);
+      }
+      .avatar.tool {
+        background: var(--amber);
+        color: #271900;
+      }
+      .msg {
+        max-width: min(720px, 82%);
+      }
+      .head {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        color: var(--muted);
+        font-size: 11px;
+        margin-bottom: 5px;
+      }
+      .head strong {
+        color: var(--text);
+      }
+      .bubble {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      .user .bubble {
+        padding: 11px 14px;
+        background: #303134;
+        border-radius: 16px 16px 5px 16px;
+      }
+      .system-note {
+        padding: 6px 13px;
+        border: 1px solid #48494d;
+        background: #292a2d;
+        border-radius: 999px;
+        color: #c8c9ce;
+        font-size: 12px;
+      }
+      .typing {
+        display: flex;
+        gap: 5px;
+        padding: 10px;
+      }
+      .typing i {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #aaa;
+        animation: pulse 1.2s infinite;
+      }
+      .typing i:nth-child(2) {
+        animation-delay: 0.15s;
+      }
+      .typing i:nth-child(3) {
+        animation-delay: 0.3s;
+      }
+      @keyframes pulse {
+        0%,
+        70%,
+        100% {
+          opacity: 0.25;
+        }
+        35% {
+          opacity: 1;
+          transform: translateY(-4px);
+        }
+      }
+      details.json {
+        margin-top: 8px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #151619;
+        overflow: hidden;
+      }
+      details.json summary {
+        padding: 8px 10px;
+        color: #d0b8ff;
+        cursor: pointer;
+        font-size: 12px;
+      }
+      pre {
+        margin: 0;
+        padding: 11px;
+        max-height: 420px;
+        overflow: auto;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        background: #111214;
+        color: #d4d6dc;
+        font:
+          12px/1.5 ui-monospace,
+          monospace;
+      }
+      .hitl {
+        max-width: 820px;
+        margin: 12px auto;
+        border: 1px solid #665534;
+        background: #2b251d;
+        border-radius: 12px;
+        padding: 14px;
+      }
+      .hitl h3 {
+        margin: 0 0 5px;
+        color: #ffd591;
+      }
+      .actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-top: 10px;
+      }
+      .hitl textarea,
+      .hitl input {
+        width: 100%;
+        background: #17181a;
+        border: 1px solid #4b4c50;
+        color: var(--text);
+        padding: 10px;
+        border-radius: 8px;
+      }
+      .primary,
+      .secondary,
+      .danger {
+        border: 0;
+        border-radius: 8px;
+        padding: 8px 11px;
+        font-weight: 750;
+      }
+      .primary {
+        background: var(--text);
+        color: #111;
+      }
+      .secondary {
+        background: #393a3f;
+        color: var(--text);
+      }
+      .danger {
+        background: #62383a;
+        color: #ffd2d2;
+      }
+      .composer-wrap {
+        padding: 10px max(16px, calc((100% - 820px) / 2)) 17px;
+      }
+      .composer {
+        padding: 10px 12px 9px;
+        border: 1px solid #4a4b4f;
+        background: #303030;
+        border-radius: 17px;
+        box-shadow: 0 10px 30px #0005;
+      }
+      .composer textarea {
+        width: 100%;
+        min-height: 52px;
+        max-height: 170px;
+        resize: none;
+        border: 0;
+        outline: 0;
+        background: transparent;
+        color: var(--text);
+      }
+      .composer-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .send {
+        margin-left: auto;
+        width: 34px;
+        height: 34px;
+        border: 0;
+        border-radius: 50%;
+        background: var(--text);
+        color: #111;
+        font-size: 18px;
+        font-weight: 900;
+      }
+      .hint {
+        text-align: center;
+        color: #777;
+        font-size: 11px;
+        margin-top: 7px;
+      }
+      .inspector {
+        background: #151619;
+        border-left: 1px solid var(--line);
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+      }
+      .tabs {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        border-bottom: 1px solid var(--line);
+      }
+      .tab {
+        border: 0;
+        border-bottom: 2px solid transparent;
+        background: transparent;
+        color: var(--muted);
+        padding: 13px 3px;
+        font-size: 12px;
+      }
+      .tab.active {
+        color: var(--text);
+        border-color: var(--green);
+      }
+      .panel {
+        display: none;
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        padding: 13px;
+      }
+      .panel.active {
+        display: block;
+      }
+      .card {
+        padding: 11px;
+        margin-bottom: 10px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: var(--panel);
+      }
+      .card-title {
+        font-weight: 750;
+        margin-bottom: 7px;
+      }
+      .kv {
+        display: grid;
+        grid-template-columns: 100px 1fr;
+        gap: 5px 8px;
+        font-size: 12px;
+      }
+      .kv span:nth-child(odd) {
+        color: var(--muted);
+      }
+      .mono {
+        font-family: ui-monospace, monospace;
+        overflow-wrap: anywhere;
+      }
+      .status {
+        padding: 8px 10px;
+        margin-bottom: 10px;
+        border-left: 3px solid #4d9fff;
+        background: #1c252d;
+        border-radius: 4px;
+        white-space: pre-wrap;
+      }
+      .status.good {
+        border-color: var(--green);
+      }
+      .status.bad {
+        border-color: var(--red);
+      }
+      .event {
+        padding: 7px 9px;
+        margin: 7px 0;
+        border-left: 2px solid #555;
+        font-size: 12px;
+      }
+      .event strong {
+        color: #d0b8ff;
+      }
+      .event .mono {
+        white-space: pre-wrap;
+      }
+      @media (max-width: 1150px) {
+        .app {
+          grid-template-columns: 220px 1fr;
+        }
+        .inspector {
+          position: fixed;
+          right: 0;
+          top: 0;
+          bottom: 0;
+          width: 390px;
+          z-index: 5;
+          box-shadow: -15px 0 40px #0009;
+        }
+        .inspector.closed {
+          display: none;
+        }
+      }
+      @media (max-width: 720px) {
+        body {
+          overflow: auto;
+        }
+        .app {
+          display: block;
+          height: auto;
+        }
+        .sidebar {
+          display: none;
+        }
+        .main {
+          min-height: 100vh;
+        }
+        .inspector {
+          position: static;
+          width: auto;
+          min-height: 500px;
+        }
+        .chat {
+          min-height: 55vh;
+        }
+        .msg {
+          max-width: 88%;
+        }
+      }
+    </style>
+    <style>
+      /* 개발 검증용 로그인: 실제 인증 대신 DB에 존재하는 User UUID를 X-User-ID로 사용합니다. */
+      .login-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 50;
+        background: #0d0e10;
+        display: grid;
+        place-items: center;
+        padding: 20px;
+      }
+      .login-box {
+        width: min(460px, 100%);
+        padding: 28px;
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        background: #191a1d;
+        box-shadow: 0 25px 80px #0009;
+      }
+      .login-box h1 {
+        margin: 0 0 8px;
+      }
+      .login-box p {
+        color: var(--muted);
+        margin: 0 0 20px;
+      }
+      .login-box input {
+        width: 100%;
+        padding: 12px;
+        background: #111214;
+        color: var(--text);
+        border: 1px solid #4b4c51;
+        border-radius: 8px;
+      }
+      .login-actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 9px;
+        margin-top: 10px;
+      }
+      .login-box .login-actions button {
+        width: 100%;
+        margin: 0;
+        padding: 11px;
+      }
+      .login-error {
+        min-height: 22px;
+        margin-top: 9px;
+        color: #ff9b9b;
+      }
+      .project-select {
+        width: 100%;
+        padding: 9px;
+        background: #25262a;
+        color: var(--text);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        flex: 0 0 auto;
+      }
+      .session-list {
+        flex: 1 1 0;
+        overflow-y: scroll;
+        overflow-x: hidden;
+        min-height: 80px;
+        overscroll-behavior: contain;
+        padding-right: 6px;
+      }
+      .session-item {
+        display: block;
+        width: 100%;
+        padding: 10px;
+        margin: 5px 0;
+        border: 1px solid transparent;
+        background: transparent;
+        color: var(--text);
+        border-radius: 8px;
+        text-align: left;
+      }
+      .session-item:hover {
+        background: #25262a;
+      }
+      .session-item.active {
+        background: #303136;
+        border-color: #4b4c51;
+      }
+      .session-item b,
+      .session-item small {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .session-item small {
+        color: var(--muted);
+      }
+      .logout {
+        border: 0;
+        background: transparent;
+        color: var(--muted);
+        padding: 4px;
+      }
+      .login-user {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        align-items: center;
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .app {
+        height: 100dvh;
+        min-height: 0;
+      }
+      .sidebar,
+      .main,
+      .inspector {
+        height: 100dvh;
+        min-height: 0;
+        overflow: hidden;
+      }
+      .topbar,
+      .composer-wrap,
+      .tabs {
+        flex: 0 0 auto;
+      }
+      .chat,
+      .panel {
+        min-height: 0;
+        overflow-y: scroll;
+        overflow-x: hidden;
+        overscroll-behavior: contain;
+      }
+      .chat,
+      .panel,
+      .session-list {
+        scrollbar-width: auto;
+        scrollbar-color: #666 #202124;
+      }
+      .chat::-webkit-scrollbar,
+      .panel::-webkit-scrollbar,
+      .session-list::-webkit-scrollbar {
+        width: 11px;
+      }
+      .chat::-webkit-scrollbar-track,
+      .panel::-webkit-scrollbar-track,
+      .session-list::-webkit-scrollbar-track {
+        background: #202124;
+      }
+      .chat::-webkit-scrollbar-thumb,
+      .panel::-webkit-scrollbar-thumb,
+      .session-list::-webkit-scrollbar-thumb {
+        background: #666;
+        border: 2px solid #202124;
+        border-radius: 999px;
+      }
+      .kv > * {
+        min-width: 0;
+        overflow-wrap: anywhere;
+      }
+      .panel pre {
+        max-width: 100%;
+      }
+      .hitl-error {
+        margin-top: 8px;
+        color: #ffb4b4;
+        white-space: pre-wrap;
+      }
+      .candidate,
+      .tool,
+      .field {
+        margin-top: 10px;
+        padding: 10px;
+        border: 1px solid #4b4336;
+        border-radius: 10px;
+        background: #211c16;
+      }
+      .meta {
+        color: #c8bba6;
+        font-size: 12px;
+      }
+      .origin {
+        display: inline-block;
+        margin-left: 6px;
+        padding: 1px 7px;
+        border-radius: 999px;
+        background: #3a3126;
+        color: #ffd591;
+        font-size: 11px;
+      }
+      .recommendation-notice {
+        margin-top: 12px;
+        padding: 10px 12px;
+        border: 1px solid #766640;
+        border-radius: 8px;
+        background: #352d1e;
+        color: #ffe0a3;
+        line-height: 1.5;
+      }
+      .candidate.is-new {
+        border-color: #5b9b87;
+      }
+      .candidate-new {
+        display: inline-block;
+        margin-left: 8px;
+        padding: 2px 7px;
+        border-radius: 6px;
+        background: #24483c;
+        color: #bcebd5;
+        font-size: 12px;
+        font-weight: 600;
+      }
+      .field label,
+      .tool h4,
+      .candidate h4 {
+        display: block;
+        margin: 0 0 4px;
+      }
+      .readonly {
+        padding: 8px;
+        border-radius: 8px;
+        background: #141516;
+        color: #c8c9ce;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      select.mode,
+      .field select,
+      .field input,
+      .field textarea {
+        width: 100%;
+        margin-top: 6px;
+        background: #17181a;
+        border: 1px solid #4b4c50;
+        color: var(--text);
+        padding: 8px;
+        border-radius: 8px;
+      }
+      table.plan {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+      }
+      table.plan th,
+      table.plan td {
+        border-bottom: 1px solid #4b4336;
+        padding: 6px 4px;
+        text-align: left;
+        vertical-align: top;
+        overflow-wrap: anywhere;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="loginOverlay" class="login-overlay">
+      <form id="loginForm" class="login-box">
+        <h1>DTest HITL v2</h1>
+        <p>DB에 등록된 username으로 로그인하거나 새 계정을 만드세요.</p>
+        <input
+          id="loginUserId"
+          autocomplete="username"
+          placeholder="username"
+          maxlength="100"
+          required
+        />
+        <div class="login-actions">
+          <button class="primary" type="submit">로그인</button
+          ><button id="signup" class="secondary" type="button">계정 만들기</button>
+        </div>
+        <div id="loginError" class="login-error"></div>
+      </form>
+    </div>
+    <div class="app">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="logo">D</div>
+          DTest HITL v2
+        </div>
+        <div class="login-user">
+          <span id="userLabel">user: -</span><button id="logout" class="logout">로그아웃</button>
+        </div>
+        <div class="label">Projects</div>
+        <select id="projectSelect" class="project-select"></select
+        ><button id="newChat" class="sidebtn">＋ 새 대화</button>
+        <div class="label">Sessions</div>
+        <div id="sessionList" class="session-list"></div>
+        <div class="label">Current session</div>
+        <div id="sessionCard" class="session">
+          <b>준비되지 않음</b><small>세션을 선택하세요</small>
+        </div>
+        <div class="label">Workflow Run · 테스트</div>
+        <label>전송 방식<select id="transport"><option value="rest">POST REST + GET SSE</option><option value="sse">POST SSE</option></select></label><div id="streamState" class="session">SSE 연결 없음</div><button id="disconnectSse" class="sidebtn">SSE 연결 끊기</button><label><input id="leaseWatch" type="checkbox" checked> Lease 상태 1초마다 조회</label><button id="lockTest" class="sidebtn" disabled>⚡ 원자적 잠금 경쟁 테스트</button
+        ><button id="refreshAll" class="sidebtn" disabled>↻ DB 상태 새로고침</button
+        ><button id="reconnectSse" class="sidebtn" disabled>⌁ SSE 재연결</button>
+        <div class="footer">DB history · Mock data · configured LLM</div>
+      </aside>
+      <main class="main">
+        <header class="topbar">
+          <strong>분석 대화</strong
+          ><span id="runBadge" class="badge"><span class="dot"></span>Run 없음</span
+          ><span id="lockBadge" class="badge free"><span class="dot"></span>Session 잠금 없음</span>
+          <div class="spacer"></div>
+          <button id="toggleInspector" class="secondary">검증 패널</button>
+        </header>
+        <section id="chat" class="chat">
+          <div id="empty" class="empty">
+            <div>
+              <b>무엇을 분석할까요?</b>사용자와 System · Assistant · Agent 메시지를 DB 기준으로
+              구분합니다.
+            </div>
+          </div>
+          <div id="messages"></div>
+          <div id="typing" class="row hidden">
+            <div class="avatar agent">AG</div>
+            <div class="msg">
+              <div class="head"><strong>Agent 실행 중</strong></div>
+              <div class="typing"><i></i><i></i><i></i></div>
+            </div>
+          </div>
+          <div id="hitl" class="hitl hidden"></div>
+          <details id="resumeDraft" class="card hidden"><summary>충돌 전 제출값 · 새 화면 확인 후 다시 입력하세요</summary><pre></pre></details>
+        </section>
+        <div class="composer-wrap">
+          <div class="composer">
+            <textarea id="query" placeholder="분석 요청이나 일반 질문을 입력하세요">
+공정 데이터와 불량 데이터를 이용해서 불량 예측 분석 계획을 세워줘.</textarea>
+            <div class="composer-actions">
+              <button id="example" class="secondary">예시 질의</button
+              ><span id="composerState" class="badge">준비됨</span
+              ><button id="send" class="send">↑</button>
+            </div>
+          </div>
+          <div class="hint">
+            입력 대기 중에는 채팅 대신 아래 폼으로 재개합니다. 승인은 payload 없이, 수정은 input_schema 객체로 제출합니다.
+          </div>
+        </div>
+      </main>
+      <aside id="inspector" class="inspector">
+        <div class="tabs">
+          <button class="tab active" data-tab="state">Run/Lock</button
+          ><button class="tab" data-tab="workflow">Workflow</button
+          ><button class="tab" data-tab="agents">Agents</button
+          ><button class="tab" data-tab="events">SSE</button>
+        </div>
+        <section id="panel-state" class="panel active">
+          <div id="status" class="status">새 대화를 시작하면 상태를 표시합니다.</div>
+          <div id="identity" class="card"></div>
+          <div class="card">
+            <div class="card-title">Session Task lifecycle</div>
+            <div id="tasks">Task 없음</div>
+          </div>
+          <div class="card">
+            <div class="card-title">Lock competition result</div>
+            <div id="lockResult">테스트 전</div>
+          </div>
+        </section>
+        <section id="panel-workflow" class="panel">
+          <div id="workflow" class="card">Workflow/Plan JSON이 아직 없습니다.</div>
+        </section>
+        <section id="panel-agents" class="panel"><div id="logs">Agent log 없음</div></section>
+        <section id="panel-events" class="panel"><div id="events">SSE event 없음</div></section>
+      </aside>
+    </div>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const state = {
+        interaction: null, hitlKey: null,
+        userId: null,
+        projectId: null,
+        sessionId: null,
+        currentTaskId: null,
+        checkpointRunId: null,
+        lastRunId: null,
+        busy: false,
+        // Enter keydown/click이 같은 tick에 겹쳐도 Message/Run을 한 번만 생성한다.
+        sending: false,
+        projects: [],
+        sessions: [],
+        backgroundRuns: {},
+        runs: [],
+        messages: [],
+        tasks: [],
+        logs: [],
+        workflow: null,
+        events: [],
+        lastEventIds: {},
+        sseConnections: {},
+        sseControllers: {},
+        timer: null,
+      };
+      state.messageChannels = {};
+      state.snapshotSequences = {};
+      state.submittedInteractions = new Set();
+      function offeredActions(i) {
+        const transport = new Set((i.actions || []).map(a => a.name));
+        return (i.payload?.arguments?.available_actions || []).filter(a =>
+          transport.has(i.kind === "plan_review" && a.intent === "approve" ? "approve" : "edit"));
+      }
+      function syncHitlControls() {
+        document.querySelectorAll("#hitl [data-output-selectors]").forEach(fillOutputChoices);
+        const locked = state.sending || state.submittedInteractions.has(state.interaction?.interaction_id);
+        document.querySelectorAll("#hitl button, #hitl input, #hitl select, #hitl textarea").forEach(el => {
+          const field = el.closest("[data-param]");
+          el.disabled = !!locked || (el.dataset.role === "value" && field?.querySelector("[data-role=mode]")?.value !== "value")
+            || (el.dataset.role?.startsWith("ref-") && field?.querySelector("[data-role=mode]")?.value !== "tool_output");
+        });
+      }
+      const defaults = {
+        join_columns: ["alias_lot_id", "wf_id", "x", "y"],
+        target_column: "fail",
+        test_size: 0.2,
+      };
+      function esc(v) {
+        return String(v ?? "").replace(
+          /[&<>"']/g,
+          (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c],
+        );
+      }
+      function newRequestId() {
+        if (crypto.randomUUID) return crypto.randomUUID();
+        const bytes = crypto.getRandomValues(new Uint8Array(16));
+        bytes[6] = (bytes[6] & 15) | 64; bytes[8] = (bytes[8] & 63) | 128;
+        const hex = [...bytes].map(v => v.toString(16).padStart(2, "0")).join("");
+        return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
+      }
+      function headers(x = {}) {
+        return { "X-User-ID": state.userId, ...x };
+      }
+      function responseError(status, body) {
+        const detail = body?.detail ?? body?.message ?? body;
+        const lines = [`HTTP ${status}`];
+        if (typeof detail === "string") lines.push(detail);
+        else if (detail) lines.push(JSON.stringify(detail, null, 2));
+        for (const error of body?.errors || []) {
+          lines.push(`${error.field || (error.loc || []).join(".")}: ${error.message || error.msg || error.reason}`);
+        }
+        if (body?.request_id) lines.push(`request_id: ${body.request_id}`);
+        const error = new Error(lines.join("\n"));
+        error.status = status; error.body = body;
+        return error;
+      }
+      async function api(path, opt = {}) {
+        const r = await fetch(path, opt),
+          t = await r.text();
+        let b;
+        try {
+          b = t ? JSON.parse(t) : null;
+        } catch {
+          b = t;
+        }
+        if (!r.ok) {
+          const e = responseError(r.status, b);
+          e.status = r.status;
+          e.body = b;
+          throw e;
+        }
+        return b;
+      }
+      async function result(path, opt) {
+        try {
+          return { ok: true, status: 200, body: await api(path, opt) };
+        } catch (e) {
+          return { ok: false, status: e.status || 0, body: e.body || e.message };
+        }
+      }
+      function setStatus(text, kind = "") {
+        $("status").textContent = text;
+        $("status").className = `status ${kind}`;
+        $("composerState").textContent = text.split("\n")[0];
+      }
+      function setBusy(v) {
+        state.busy = v;
+        $("send").disabled = v || !state.sessionId || !!state.interaction;
+        $("newChat").disabled = v || !state.projectId;
+        $("lockTest").disabled = !state.sessionId;
+        $("refreshAll").disabled = !state.sessionId;
+        $("reconnectSse").disabled = !state.lastRunId;
+        $("typing").classList.toggle("hidden", !v);
+      }
+      function currentSession() {
+        return state.sessions.find((x) => x.id === state.sessionId);
+      }
+      function context() {
+        $("userLabel").textContent = `user: ${state.userId || "-"}`;
+        const s = currentSession();
+        $("sessionCard").innerHTML =
+          `<b>${esc(s?.name || "세션을 선택하세요")}</b><small>${esc(state.sessionId || "-")}</small>`;
+        $("identity").innerHTML =
+          `<div class="card-title">Context IDs</div><div class="kv"><span>User</span><span class="mono">${esc(state.userId || "-")}</span><span>Project</span><span class="mono">${esc(state.projectId || "-")}</span><span>Session</span><span class="mono">${esc(state.sessionId || "-")}</span><span>Task</span><span class="mono">${esc(state.currentTaskId || "-")}</span><span>Run</span><span class="mono">${esc(state.lastRunId || "-")}</span></div>`;
+      }
+      function role(m) {
+        const x = m.metadata || {},
+          r = x.graph_role,
+          n = x.graph_name;
+        if (m.message_type === "user" || r === "user") return ["user", "You"];
+        if (m.message_type === "system" || r === "system") return ["system", "System"];
+        if (m.message_type === "assistant" || r === "assistant") return ["assistant", n || "Assistant"];
+        if (m.message_type === "agent" || r === "agent") return ["agent", n || "Agent"];
+        if (m.message_type === "tool" || r === "tool") return ["tool", n || "Tool"];
+        return ["assistant", "Assistant"];
+      }
+      function messageChannel(m) {
+        return state.messageChannels[m.id || m.message_id] || m.channel ||
+          (["assistant", "user"].includes(m.message_type) ? "final" : "commentary");
+      }
+      function applyMessageEvent(data, occurredAt) {
+        state.messageChannels[data.message_id] = data.channel;
+        const saved = state.messages.find(m => (m.id || m.message_id) === data.message_id);
+        const message = {id: data.message_id, message_type: data.role === "user" ? "user" :
+          data.channel === "final" ? "assistant" : "agent", channel: data.channel,
+          content_text: (data.content || []).filter(p => p.type === "text").map(p => p.text).join("\n"),
+          created_at: occurredAt, metadata: {}};
+        if (saved) Object.assign(saved, {channel: data.channel});
+        else state.messages.push(message);
+        renderMessages();
+      }
+      function asJson(v) {
+        try {
+          return JSON.parse(v);
+        } catch {
+          return null;
+        }
+      }
+      function visibleMessages(messages) {
+        const ids = new Set();
+        return messages.filter((m) => {
+          const metadata = m.metadata || {},
+            id = m.id || m.message_id;
+          // API가 저장한 canonical User Message와 과거 graph projection User
+          // Message가 함께 남아 있는 Session에서도 화면에는 canonical 행만 표시합니다.
+          if (
+            m.message_type === "user" &&
+            metadata.source === "dtest-agent" &&
+            metadata.graph_role === "user"
+          )
+            return false;
+          if (id && ids.has(id)) return false;
+          if (id) ids.add(id);
+          return true;
+        });
+      }
+      function renderMessages() {
+        const messages = visibleMessages(state.messages);
+        $("empty").classList.toggle("hidden", messages.length > 0);
+        $("messages").innerHTML = messages
+          .map((m) => {
+            const [type, label] = role(m),
+              time = new Date(m.created_at).toLocaleTimeString("ko-KR", {
+                hour: "2-digit",
+                minute: "2-digit",
+              }),
+              json = asJson(m.content_text);
+            if (type === "system")
+              return `<div class="row system"><div class="system-note">System · ${esc(m.content_text)}</div></div>`;
+            if (type === "user")
+              return `<div class="row user"><div class="msg"><div class="head"><span>${time}</span><strong>You</strong></div><div class="bubble">${esc(m.content_text)}</div></div></div>`;
+            return `<div class="row"><div class="avatar ${type}">${type === "agent" ? "AG" : type === "tool" ? "TL" : "AI"}</div><div class="msg"><div class="head"><strong>${esc(label)}</strong><span>${esc(messageChannel(m))} · ${time}</span></div><div class="bubble">${esc(m.content_text)}</div>${json && typeof json === "object" ? `<details class="json"><summary>JSON payload 보기</summary><pre>${esc(JSON.stringify(json, null, 2))}</pre></details>` : ""}</div></div>`;
+          })
+          .join("");
+        $("chat").scrollTop = $("chat").scrollHeight;
+      }
+      function syncSessionBusy() {
+        const v = state.backgroundRuns[state.sessionId]?.status === "running";
+        state.busy = v;
+        $("send").disabled = v || !state.sessionId || !!state.interaction;
+        $("newChat").disabled = v || !state.projectId;
+        $("lockTest").disabled = !state.sessionId;
+        $("refreshAll").disabled = !state.sessionId;
+        $("reconnectSse").disabled = !state.lastRunId;
+        $("typing").classList.toggle("hidden", !v);
+      }
+      function renderTasks() {
+        const active = state.tasks.find((t) => t.is_active);
+        $("lockBadge").className = `badge ${active ? "locked" : "free"}`;
+        $("lockBadge").innerHTML =
+          `<span class="dot"></span>${active ? "Session 잠금 활성" : "Session 잠금 없음"}`;
+        $("tasks").innerHTML = state.tasks.length
+          ? state.tasks
+              .map(
+                (t) =>
+                  `<div class="card"><div class="card-title">${esc(t.status)} ${t.is_active ? "· ACTIVE LOCK" : ""}</div><div class="kv"><span>DB Task</span><span class="mono">${esc(t.task_id)}</span><span>Graph Task / Executor path</span><span class="mono">${esc(t.graph_task_id || "-")}</span><span>Root Run</span><span class="mono">${esc(t.root_run_id || "-")}</span><span>Checkpoint</span><span class="mono">${esc(t.checkpoint_run_id || "-")}</span><span>Trigger</span><span>${esc(t.trigger_type)}</span><span>Owner</span><span>${esc(t.lock_owner || "-")}</span><span>Heartbeat</span><span>${esc(t.heartbeat_at || "-")}</span><span>Lease</span><span>${esc(t.lease_expires_at || "-")}</span><span>Cancel req.</span><span>${esc(t.cancel_requested_at || "-")}</span><span>Failure</span><span>${esc(t.failure_reason || "-")}</span></div>${!["success", "error", "timeout", "canceled"].includes(t.status) ? `<div class="actions"><button class="danger" data-cancel-task="${t.task_id}">전체 분석 Task 취소</button></div>` : ""}</div>`,
+              )
+              .join("")
+          : "Task 없음";
+      }
+      function renderLogs() {
+        $("logs").innerHTML = state.logs.length
+          ? state.logs
+              .map(
+                (l) =>
+                  `<details class="json"><summary>${esc(l.agent_name || l.node)} · ${esc(l.kind)} · ${esc(l.event)}</summary><pre>${esc(JSON.stringify(l.payload, null, 2))}</pre></details>`,
+              )
+              .join("")
+          : "Agent log 없음";
+      }
+      function renderWorkflow() {
+        $("workflow").innerHTML = state.workflow
+          ? `<div class="card-title">Workflow / Plan JSON</div><pre>${esc(JSON.stringify(state.workflow, null, 2))}</pre>`
+          : "Workflow/Plan JSON이 아직 없습니다.";
+      }
+      function renderEvents() {
+        $("events").innerHTML = state.events.length
+          ? state.events
+              .slice(-100)
+              .reverse()
+              .map(
+                (e) =>
+                  `<div class="event"><strong>#${esc(e.id)} ${esc(e.event)}</strong><div class="mono">${esc(typeof e.data === "string" ? e.data : JSON.stringify(e.data, null, 2))}</div></div>`,
+              )
+              .join("")
+          : "SSE event 없음";
+      }
+      function runBadge(v = "없음") {
+        $("runBadge").innerHTML = `<span class="dot"></span>Run ${esc(v)}`;
+      }
+      function renderProjects() {
+        $("projectSelect").innerHTML = state.projects
+          .map(
+            (p) =>
+              `<option value="${p.id}" ${p.id === state.projectId ? "selected" : ""}>${esc(p.name)}${p.is_default ? " · 기본" : ""}</option>`,
+          )
+          .join("");
+      }
+      function renderSessions() {
+        $("sessionList").innerHTML = state.sessions.length
+          ? state.sessions
+              .map((s) => {
+                const bg = state.backgroundRuns[s.id];
+                return `<button class="session-item ${s.id === state.sessionId ? "active" : ""}" data-session-id="${s.id}"><b>${esc(s.name)}${bg?.status === "running" ? " · 실행 중" : ""}</b><small>${bg?.status === "done" ? "새 응답 도착 · " : ""}${new Date(s.updated_at).toLocaleString("ko-KR")}</small></button>`;
+              })
+              .join("")
+          : "<small>저장된 세션이 없습니다.</small>";
+        context();
+      }
+      async function login(userName) {
+        const normalized = userName.trim();
+        if (!normalized) throw new Error("username을 입력하세요.");
+        const user = await api(`/api/v1/users/by-name/${encodeURIComponent(normalized)}`);
+        state.userId = user.user_id;
+        const p = await api("/api/v1/projects?limit=200", { headers: headers() });
+        state.projects = p.items;
+        localStorage.setItem("dtest-demo-temp-user-name", user.user_name);
+        $("loginOverlay").classList.add("hidden");
+        renderProjects();
+        if (!state.projects.length) {
+          state.projectId = null;
+          state.sessions = [];
+          renderSessions();
+          setStatus("해당 사용자에게 할당된 Project가 없습니다.", "bad");
+          setBusy(false);
+          return;
+        }
+        state.projectId = (state.projects.find((x) => x.is_default) || state.projects[0]).id;
+        renderProjects();
+        await loadSessions(true);
+        setBusy(false);
+      }
+      async function createAccount() {
+        const userName = $("loginUserId").value.trim();
+        $("loginError").textContent = "";
+        if (!userName) {
+          $("loginError").textContent = "생성할 username을 입력하세요.";
+          return;
+        }
+        try {
+          $("signup").disabled = true;
+          await api("/api/v1/users", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ user_name: userName }),
+          });
+          await login(userName);
+          setStatus("계정과 기본 Project가 생성되었습니다. 새 대화를 시작하세요.", "good");
+        } catch (x) {
+          $("loginError").textContent =
+            x.status === 409 ? "이미 사용 중인 username입니다." : x.message;
+        } finally {
+          $("signup").disabled = false;
+          setBusy(false);
+        }
+      }
+      async function loadSessions(selectLatest = false) {
+        if (!state.projectId) return;
+        const x = await api(`/api/v1/projects/${state.projectId}/sessions?limit=200`, {
+          headers: headers(),
+        });
+        state.sessions = x.items;
+        if (selectLatest && state.sessions.length) await selectSession(state.sessions[0].id);
+        else {
+          state.sessionId = null;
+          clearConversation();
+          renderSessions();
+          setStatus(
+            state.sessions.length ? "왼쪽에서 세션을 선택하세요." : "새 대화를 만들어 시작하세요.",
+            "good",
+          );
+        }
+      }
+      async function refreshSessionList() {
+        if (!state.projectId) return;
+        const x = await api(`/api/v1/projects/${state.projectId}/sessions?limit=200`, {
+          headers: headers(),
+        });
+        state.sessions = x.items;
+        renderSessions();
+      }
+      function clearConversation() {
+        $("resumeDraft").classList.add("hidden");
+        Object.values(state.sseControllers).forEach((controller) => controller.abort());
+        state.sessionId = null;
+        state.currentTaskId = null;
+        state.interaction = null; state.hitlKey = null; state.pending = null;
+        state.lastRunId = null;
+        state.checkpointRunId = null;
+        state.runs = [];
+        state.messages = [];
+        state.tasks = [];
+        state.logs = [];
+        state.workflow = null;
+        state.events = [];
+        state.sseConnections = {};
+        state.sseControllers = {};
+        $("hitl").classList.add("hidden");
+        $("hitl").innerHTML = "";
+        renderMessages();
+        renderTasks();
+        renderLogs();
+        renderWorkflow();
+        renderEvents();
+        runBadge();
+        context();
+      }
+      async function selectSession(sessionId) {
+        $("resumeDraft").classList.add("hidden");
+        pollStop();
+        Object.values(state.sseControllers).forEach((controller) => controller.abort());
+        state.sseControllers = {};
+        state.sseConnections = {};
+        state.currentTaskId = null; state.interaction = null; state.hitlKey = null;
+        state.sessionId = sessionId;
+        state.lastRunId = null;
+        state.checkpointRunId = null;
+        state.runs = [];
+        state.messages = [];
+        state.tasks = [];
+        state.logs = [];
+        state.workflow = null;
+        state.events = [];
+        $("hitl").classList.add("hidden");
+        $("hitl").innerHTML = "";
+        renderSessions();
+        setStatus("DB 대화 기록을 불러오는 중");
+        await refreshRuns();
+        const latest = state.runs[0];
+        if (latest) {
+          state.lastRunId = latest.id;
+          state.checkpointRunId = latest.checkpoint_run_id || latest.id;
+          runBadge(latest.status);
+        } else runBadge();
+        await refreshAll();
+        pollStart();
+        if (state.currentTaskId) connectSse().catch(e => setStatus(e.message, "bad"));
+        if (state.interaction) interrupt(state.interaction);
+        else
+          setStatus(
+            state.backgroundRuns[sessionId]?.status === "running"
+              ? "이 세션의 Agent가 백그라운드에서 실행 중입니다."
+              : "DB 대화 기록 복원 완료",
+            "good",
+          );
+        syncSessionBusy();
+      }
+      async function createSession() {
+        if (!state.projectId) throw new Error("먼저 Project를 선택하세요.");
+        setBusy(true);
+        const s = await api(`/api/v1/projects/${state.projectId}/sessions`, {
+          method: "POST",
+          headers: headers({ "Content-Type": "application/json" }),
+          body: JSON.stringify({}),
+        });
+        await loadSessions(false);
+        await selectSession(s.id);
+      }
+      async function ensure() {
+        if (!state.userId) throw new Error("로그인이 필요합니다.");
+        if (!state.sessionId) await createSession();
+      }
+      function options(payload, key) {
+        return {
+          method: "POST",
+          headers: headers({ "Content-Type": "application/json", "Idempotency-Key": key }),
+          body: JSON.stringify(payload),
+        };
+      }
+      function optimistic(text) {
+        state.messages.push({
+          message_type: "user",
+          content_text: text,
+          metadata: {},
+          created_at: new Date().toISOString(),
+          sequence_no: Number.MAX_SAFE_INTEGER,
+        });
+        renderMessages();
+      }
+      function applySnapshot(snapshot) {
+        if (snapshot.session_id !== state.sessionId) return;
+        const sequence = snapshot.last_event_sequence;
+        if (sequence < (state.snapshotSequences[snapshot.task_id] ?? -1)) return;
+        state.snapshotSequences[snapshot.task_id] = sequence;
+        state.currentTaskId = snapshot.task_id;
+        state.lastRunId = snapshot.current_run_id;
+        state.backgroundRuns[state.sessionId] = {
+          status: ["pending", "running"].includes(snapshot.status) ? "running" : "done",
+          runId: snapshot.current_run_id, runStatus: snapshot.status,
+        };
+        runBadge(snapshot.status);
+        interrupt((snapshot.interactions || []).find(i => i.status === "open"));
+        syncSessionBusy(); context(); renderSessions();
+      }
+      async function execute(payload, text = null, idempotencyKey = null) {
+        await ensure();
+        const sessionId = state.sessionId;
+        const submissionKey = idempotencyKey || newRequestId();
+        setBusy(true);
+        try {
+          const body = text !== null ? {session_id: sessionId,
+            input: {content: [{type: "text", text}]}} : payload;
+          if ($("transport").value === "sse") {
+            const response = await fetch("/api/v1/workflow_run/stream", options(body, submissionKey));
+            if (!response.ok) {
+              const text = await response.text();
+              throw responseError(response.status, parseJsonOrText(text));
+            }
+            const taskId = response.headers.get("X-Task-ID");
+            if (!taskId) { await response.body?.cancel(); throw new Error("X-Task-ID 응답 헤더가 없습니다."); }
+            if (state.sessionId !== sessionId) { await response.body?.cancel(); return; }
+            state.currentTaskId = taskId;
+            state.lastRunId = response.headers.get("X-Run-ID");
+            state.backgroundRuns[sessionId] = {status: "running", runId: state.lastRunId};
+            if (body.command) {
+              state.submittedInteractions.add(body.command.resume.interaction_id);
+              syncHitlControls();
+            }
+            connectTaskSse(taskId, sessionId, response).catch(e => setStatus(e.message, "bad"));
+            pollStart(); return;
+          }
+          const snapshot = await api("/api/v1/workflow_run", options(body, submissionKey));
+          if (state.sessionId !== sessionId) return snapshot;
+          if (body.command) state.submittedInteractions.add(body.command.resume.interaction_id);
+          applySnapshot(snapshot);
+          await refreshAll();
+          connectTaskSse(snapshot.task_id, sessionId).catch(e => setStatus(e.message, "bad"));
+          pollStart();
+          return snapshot;
+        } catch (e) {
+          setStatus(`요청 실패: ${e.message}`, "bad");
+          throw e;
+        } finally { syncSessionBusy(); }
+      }
+            async function send() {
+        const text = $("query").value.trim();
+        if (state.interaction) {
+          setStatus("입력 대기 중에는 새 메시지를 보내지 않습니다. waiting_input은 세션 락 밖이라 새 Task가 생기면 graph_task_id가 충돌합니다.", "bad");
+          return;
+        }
+        if (!text || state.busy || state.sending) return;
+        state.sending = true;
+        syncHitlControls();
+        $("query").value = "";
+        try {
+          await execute({}, text);
+        } catch (_) {
+          // execute가 사용자에게 API 오류를 표시한다.
+        } finally {
+          state.sending = false;
+        }
+      }
+      const origins = {
+        user_request: "사용자 발화", default: "기본값", user_answer: "이전 입력",
+        unset: "미입력", workflow_literal: "워크플로우 값", tool_output: "이전 도구 출력",
+      };
+      function localSchema(schema, root = schema, seen = new Set()) {
+        if (!schema || typeof schema !== "object" || !schema.$ref?.startsWith("#/")) return schema || {};
+        if (seen.has(schema.$ref)) return schema;
+        seen.add(schema.$ref);
+        const target = schema.$ref.slice(2).split("/").reduce((v, k) =>
+          v?.[k.replace(/~1/g, "/").replace(/~0/g, "~")], root);
+        return target ? {...localSchema(target, root, seen), ...Object.fromEntries(Object.entries(schema).filter(([k]) => k !== "$ref"))} : schema;
+      }
+      function schemaTypes(schema, root = schema, depth = 0) {
+        if (depth > 20) return [];
+        schema = localSchema(schema, root);
+        if (Array.isArray(schema.type)) return schema.type;
+        if (schema.type) return [schema.type];
+        const alternatives = schema.anyOf || schema.oneOf || schema.allOf || [];
+        return [...new Set(alternatives.flatMap(s => schemaTypes(s, root, depth + 1)))];
+      }
+      function allowsNull(schema) {
+        return schemaTypes(schema).includes("null") || (localSchema(schema).enum || []).includes(null);
+      }
+      function showHitlError(message, retry = false) {
+        const el = $("hitlError");
+        if (!el) { setStatus(message, "bad"); return; }
+        el.replaceChildren();
+        el.append(document.createTextNode(message));
+        if (retry) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "secondary";
+          button.dataset.retry = "1";
+          button.textContent = "같은 요청으로 다시 확인";
+          el.append(" ", button);
+        }
+      }
+      function shell(i, body) {
+        return `<h3>${esc(i.kind)} · v${esc(i.payload_version)}</h3>
+          <div>${esc(i.summary || "입력을 확인하고 계속 진행하세요.")}</div>
+          ${body}<div id="hitlError" class="hitl-error"></div>`;
+      }
+      function renderCandidates(i) {
+        const args = i.payload?.arguments || {};
+        const actions = offeredActions(i);
+        const search = args.recommendation_search;
+        const addedIds = new Set(search?.status === "matched" ? search.added_candidate_ids || [] : []);
+        const notice = search?.status === "no_additional_matches"
+          ? `<div class="recommendation-notice" role="status" aria-live="polite">${esc(search.message || "기준을 충족하는 추가 후보가 없습니다. 기존 후보를 선택하거나 새 워크플로우를 생성할 수 있습니다.")}</div>` : "";
+        const cards = (args.candidates || []).map((candidate) => {
+          const isNew = candidate.origin === "recommended" && addedIds.has(candidate.candidate_id);
+          const metadata = [];
+          if (typeof candidate.similarity_score === "number" && Number.isFinite(candidate.similarity_score)) {
+            metadata.push(`유사도 ${candidate.similarity_score.toFixed(3)}`);
+          }
+          if (Number.isInteger(candidate.revision) && candidate.revision > 0) {
+            metadata.push(`워크플로우 버전 ${candidate.revision}`);
+          }
+          return `<article class="candidate${isNew ? " is-new" : ""}">
+            <h4>${esc(candidate.name || candidate.candidate_id)}<span class="origin">${esc(candidate.origin || "")}</span>${isNew ? '<span class="candidate-new">새 후보</span>' : ""}</h4>
+            <div>${esc(candidate.description || "")}</div>
+            <div class="meta">${esc(candidate.reason || "")}</div>
+            ${metadata.length ? `<div class="meta">${esc(metadata.join(" · "))}</div>` : ""}
+            <div class="meta">candidate_id ${esc(candidate.candidate_id)}</div>
+            ${actions.some((action) => action.intent === "select") ? `<div class="actions"><button class="primary" data-intent="select" data-candidate-id="${esc(candidate.candidate_id)}">${esc(actions.find(a => a.intent === "select").label)}</button></div>` : ""}
+            <details><summary>워크플로우 문서</summary><pre>${esc(JSON.stringify(candidate.workflow || {}, null, 2))}</pre></details>
+          </article>`;
+        }).join("") || `<div class="meta">선택 가능한 후보가 없습니다.</div>`;
+        const buttons = actions.filter((action) => action.intent !== "select").map((action) =>
+          `<button class="${action.intent === "reject" ? "danger" : "secondary"}" data-intent="${esc(action.intent)}">${esc(action.label || action.intent)}</button>`).join("");
+        const reason = actions.some((action) => action.intent === "reject")
+          ? `<textarea id="rejectReason" placeholder="거절 이유를 입력하세요. 제출값은 API에서 검증합니다."></textarea>` : "";
+        return shell(i, `${notice}${cards}${reason}<div class="actions">${buttons}</div>`);
+      }
+      let currentOutputCatalog = null;
+      function renderToolInputs(i) {
+        const args = i.payload?.arguments || {};
+        currentOutputCatalog = args.output_catalog ?? null;
+        const tools = (args.tool_inputs || []).map((tool) => {
+          const fields = (tool.parameters || []).map((param) => fieldControl(tool, param)).join("");
+          return `<section class="tool"><h4>step ${esc(tool.step_index)} · ${esc(tool.skill || "")} / tool ${esc(tool.tool_index)} · ${esc(tool.tool || "")}</h4>${fields}</section>`;
+        }).join("");
+        const submit = offeredActions(i).find((action) => action.intent === "submit_inputs");
+        return shell(i, `<div class="meta">workflow ${esc(args.workflow_id)} · revision ${esc(args.workflow_revision)}</div>
+          ${tools}<div class="actions">${submit ? `<button class="primary" data-intent="submit_inputs">${esc(submit.label || "입력 제출")}</button>` : ""}</div>
+          <details><summary>워크플로우 문서</summary><pre>${esc(JSON.stringify(args.workflow || {}, null, 2))}</pre></details>`);
+      }
+      function fieldControl(tool, param) {
+        const address = `data-step="${esc(tool.step_index)}" data-tool="${esc(tool.tool_index)}" data-parameter="${esc(param.name)}"`;
+        const origin = origins[param.value_origin] || param.value_origin || "";
+        const head = `<label>${esc(param.title || param.name)} · ${param.required ? "필수" : "선택"} · ${esc(origin)}${param.editable ? "" : " · 읽기 전용"}</label>
+          <div class="meta">${esc(param.description || "")}${param.has_default ? ` · 기본값 ${esc(JSON.stringify(param.default_value))}` : ""} · 현재 값 ${param.has_value ? esc(JSON.stringify(param.value)) : "미입력"}</div>`;
+        if (!param.editable) {
+          const shown = param.binding ? JSON.stringify(param.binding, null, 2) : (param.has_value ? JSON.stringify(param.value) : "값 없음");
+          return `<div class="field">${head}<div class="readonly">${esc(shown)}</div></div>`;
+        }
+        const nullable = allowsNull(param.value_schema);
+        const mode = param.binding ? "tool_output" : param.has_value && param.value === "" ? "empty"
+          : param.has_value && param.value === null && nullable ? "null"
+          : param.has_value || param.required ? "value" : "omit";
+        const modes = [`<option value="value" ${mode === "value" ? "selected" : ""}>값 제출</option>`];
+        if (param.has_default) modes.push(`<option value="omit" ${mode === "omit" ? "selected" : ""}>생략하고 기본값 사용</option>`);
+        if (schemaTypes(param.value_schema).includes("string")) modes.push(`<option value="empty" ${mode === "empty" ? "selected" : ""}>빈 문자열 제출</option>`);
+        if (nullable) modes.push(`<option value="null" ${mode === "null" ? "selected" : ""}>null 제출</option>`);
+        if (availableOutputs(tool, param.output_options).length) modes.push(`<option value="tool_output" ${mode === "tool_output" ? "selected" : ""}>선행 Tool의 반환값으로 채우기</option>`);
+        return `<div class="field" data-param="1" ${address}>${head}
+          <select class="mode" data-role="mode">${modes.join("")}</select>
+          ${valueWidget(param)}${outputControls(tool, param)}</div>`;
+      }
+      function availableOutputs(target, legacy = []) {
+        if (currentOutputCatalog === null) return legacy || [];
+        return currentOutputCatalog.flatMap(step => step.tools.flatMap(tool => {
+          if (!(step.step_index < target.step_index ||
+                (step.step_index === target.step_index && tool.tool_index < target.tool_index))) return [];
+          return tool.outputs.filter(output => output.selectable).map(output => ({
+            step_index: step.step_index, skill: step.skill, tool_index: tool.tool_index,
+            tool: tool.tool, output: output.name, type: output.type, description: output.description,
+          }));
+        }));
+      }
+      function outputControls(tool, param) {
+        if (!availableOutputs(tool, param.output_options).length) return "";
+        const ref = param.binding || {};
+        return `<div data-output-selectors="1" ${currentOutputCatalog === null ? `data-output-options="${esc(JSON.stringify(param.output_options || []))}"` : ""}>
+          <label>스킬</label><select data-role="ref-step" data-initial="${esc(ref.step_index ?? "")}"></select>
+          <label>Tool</label><select data-role="ref-tool" data-initial="${esc(ref.tool_index ?? "")}"></select>
+          <label>반환값</label><select data-role="ref-output" data-initial="${esc(ref.output ?? "")}"></select></div>`;
+      }
+      function fillOutputChoices(container) {
+        const field = container.closest("[data-param]");
+        const choices = availableOutputs({step_index: Number(field.dataset.step), tool_index: Number(field.dataset.tool)},
+          JSON.parse(container.dataset.outputOptions || "[]"));
+        const fill = (role, pairs) => {
+          const select = container.querySelector(`[data-role=${role}]`);
+          const previous = select.value || select.dataset.initial || "";
+          delete select.dataset.initial;
+          const unique = [...new Map(pairs.map(([value, label]) => [String(value), label])).entries()];
+          select.innerHTML = unique.map(([value, label]) => `<option value="${esc(value)}">${esc(label)}</option>`).join("");
+          if (unique.some(([value]) => value === previous)) select.value = previous;
+          return select.value;
+        };
+        const step = fill("ref-step", choices.map(o => [o.step_index, `${o.step_index} — ${o.skill}`]));
+        const tools = choices.filter(o => String(o.step_index) === step);
+        const tool = fill("ref-tool", tools.map(o => [o.tool_index, `${o.tool_index} — ${o.tool}`]));
+        fill("ref-output", tools.filter(o => String(o.tool_index) === tool).map(o =>
+          [o.output, o.output + (o.type ? ` (${o.type})` : "") + (o.description ? ` — ${o.description}` : "")]));
+      }
+      function valueWidget(param) {
+        const schema = localSchema(param.value_schema || {});
+        const types = schemaTypes(param.value_schema || {}).filter(type => type !== "null");
+        const type = types.length === 1 ? types[0] : "json";
+        const current = param.has_value && param.value !== null ? param.value : "";
+        const enums = (schema.enum || []).filter(item => item !== null);
+        if (enums.length) {
+          const options = [`<option value="">선택</option>`].concat(enums.map(item =>
+            `<option value="${esc(JSON.stringify(item))}" ${JSON.stringify(item) === JSON.stringify(current) ? "selected" : ""}>${esc(typeof item === "string" ? item : JSON.stringify(item))}</option>`));
+          return `<select data-role="value" data-json="1">${options.join("")}</select>`;
+        }
+        if (type === "boolean") {
+          return `<select data-role="value"><option value="">선택</option><option value="true" ${current === true ? "selected" : ""}>true</option><option value="false" ${current === false ? "selected" : ""}>false</option></select>`;
+        }
+        if (["object", "array", "json"].includes(type)) {
+          return `<textarea data-role="value" placeholder="JSON 형식으로 입력">${esc(param.has_value && param.value !== null ? JSON.stringify(current, null, 2) : "")}</textarea>`;
+        }
+        return `<input data-role="value" value="${esc(current)}">`;
+      }
+      function renderPlan(i) {
+        const args = i.payload?.arguments || {};
+        const rows = (args.execution_inputs || []).map((item) => `<tr><td>${esc(item.step_index)}</td><td>${esc(item.tool_index)}</td><td>${esc(item.parameter)}</td><td>${esc(JSON.stringify(item.value))}</td></tr>`).join("");
+        const buttons = offeredActions(i).map((action) =>
+          `<button class="${action.intent === "reject" ? "danger" : "primary"}" data-intent="${esc(action.intent)}">${esc(action.label || action.intent)}</button>`).join("");
+        const reason = offeredActions(i).some((action) => action.intent === "reject")
+          ? `<textarea id="rejectReason" placeholder="거절 이유를 입력하세요. 제출값은 API에서 검증합니다."></textarea>` : "";
+        return shell(i, `<div class="meta">workflow ${esc(args.workflow_id)} · revision ${esc(args.workflow_revision)} · 읽기 전용</div>
+          <table class="plan"><thead><tr><th>step</th><th>tool</th><th>parameter</th><th>value</th></tr></thead><tbody>${rows}</tbody></table>
+          ${reason}<div class="actions">${buttons}</div>
+          <details open><summary>확정된 워크플로우 · 읽기 전용</summary><pre>${esc(JSON.stringify(args.workflow || {}, null, 2))}</pre></details>`);
+      }
+      // Serialize form text for transport only. Invalid values remain strings so
+      // the API, not this page, decides whether the submitted value is valid.
+      function parseJsonOrText(raw) {
+        try { return JSON.parse(raw); } catch { return raw; }
+      }
+      function parseFieldValue(raw, schema) {
+        const types = schemaTypes(schema).filter(item => item !== "null");
+        if (types.length === 1 && types[0] === "string") return raw;
+        const value = parseJsonOrText(raw);
+        if (typeof value === "number" && (!Number.isFinite(value) ||
+            (Number.isInteger(value) && !Number.isSafeInteger(value)))) return raw;
+        return value;
+      }
+      function collectToolInputs(args) {
+        const inputs = [];
+        for (const field of document.querySelectorAll("#hitl [data-param]")) {
+          const step = Number(field.dataset.step);
+          const tool = Number(field.dataset.tool);
+          const parameter = field.dataset.parameter;
+          const spec = (args.tool_inputs || []).find((item) => item.step_index === step && item.tool_index === tool);
+          const definition = spec?.parameters?.find((item) => item.name === parameter);
+          if (!definition?.editable) continue;
+          const mode = field.querySelector("[data-role=mode]").value;
+          if (mode === "omit") {
+            inputs.push({step_index: step, tool_index: tool, parameter, source: "default"});
+            continue;
+          }
+          if (mode === "tool_output") {
+            inputs.push({step_index: step, tool_index: tool, parameter, source: "tool_output", reference: {
+              step_index: Number(field.querySelector("[data-role=ref-step]").value),
+              tool_index: Number(field.querySelector("[data-role=ref-tool]").value),
+              output: field.querySelector("[data-role=ref-output]").value,
+            }});
+            continue;
+          }
+          if (mode === "null" || mode === "empty") {
+            const value = mode === "null" ? null : "";
+            inputs.push({step_index: step, tool_index: tool, parameter, source: "value", value});
+            continue;
+          }
+          const widget = field.querySelector("[data-role=value]");
+          const raw = widget.value;
+          if (raw.trim() === "") {
+            continue;
+          }
+          const value = widget.dataset.json ? parseJsonOrText(raw) : parseFieldValue(raw, definition.value_schema);
+          inputs.push({step_index: step, tool_index: tool, parameter, source: "value", value});
+        }
+        return inputs;
+      }
+      function resolveSchema(schema, root) {
+        if (schema?.$ref) {
+          const name = schema.$ref.split("/").pop();
+          return (root.$defs || root.definitions || {})[name] || schema;
+        }
+        return schema || {};
+      }
+      function formatValue(value) {
+        return value != null && typeof value === "object" ? JSON.stringify(value, null, 2) : String(value ?? "");
+      }
+      function liveField(name, definition, value, required) {
+        const title = definition.title || name;
+        const readOnly = definition.readOnly === true;
+        const head = `<label>${esc(title)}${required ? " · 필수" : ""}${readOnly ? " · 읽기 전용" : ""}</label>
+          <div class="meta">${esc(definition.description || name)}</div>`;
+        if (readOnly) return `<div class="field">${head}<pre>${esc(formatValue(value))}</pre></div>`;
+        const type = schemaTypes(definition).find((item) => item !== "null")
+          || (Array.isArray(value) ? "array" : value && typeof value === "object" ? "object" : "string");
+        if (type === "object" || type === "array") {
+          return `<div class="field" data-live="1" data-name="${esc(name)}" data-type="${type}">${head}<textarea data-role="value">${esc(value == null ? "" : JSON.stringify(value, null, 2))}</textarea></div>`;
+        }
+        if (type === "boolean") {
+          return `<div class="field" data-live="1" data-name="${esc(name)}" data-type="boolean">${head}<select data-role="value"><option value="true" ${value === true ? "selected" : ""}>true</option><option value="false" ${value === false ? "selected" : ""}>false</option></select></div>`;
+        }
+        const text = value == null ? "" : String(value);
+        const widget = type === "integer" || type === "number"
+          ? `<input data-role="value" value="${esc(text)}">`
+          : (text.length > 80 ? `<textarea data-role="value">${esc(text)}</textarea>` : `<input data-role="value" value="${esc(text)}">`);
+        return `<div class="field" data-live="1" data-name="${esc(name)}" data-type="${esc(type)}">${head}${widget}</div>`;
+      }
+      function renderLive(i) {
+        const args = i.payload?.arguments || {};
+        const schema = i.payload?.input_schema || {};
+        const required = new Set(schema.required || []);
+        const fields = Object.entries(schema.properties || {}).map(([name, raw]) =>
+          liveField(name, resolveSchema(raw, schema), args[name], required.has(name))).join("");
+        const needsFeedback = (i.actions || []).some((action) => action.name === "reject" || action.name === "respond");
+        const buttons = (i.actions || []).map((action) =>
+          `<button class="${action.name === "reject" ? "danger" : action.name === "approve" ? "primary" : "secondary"}" data-action="${esc(action.name)}">${esc(action.label || action.name)}</button>`).join("");
+        return shell(i, `<div class="meta">action_name ${esc(i.payload?.action_name || i.kind)} · 승인 payload 없음 · 입력 제출은 schema 객체 · 거절은 feedback 문자열</div>
+          ${fields}
+          ${needsFeedback ? `<textarea id="hitlFeedback" placeholder="거절 또는 답변. 이 값이 resume.feedback으로 전달됩니다."></textarea>` : ""}
+          <div class="actions">${buttons}</div>`);
+      }
+      function collectLivePayload(i) {
+        const schema = i.payload?.input_schema || {};
+        const args = i.payload?.arguments || {};
+        const required = new Set(schema.required || []);
+        const payload = {};
+        for (const [name, raw] of Object.entries(schema.properties || {})) {
+          const definition = resolveSchema(raw, schema);
+          if (definition.readOnly) {
+            if (Object.hasOwn(args, name)) payload[name] = args[name];
+            continue;
+          }
+          const field = document.querySelector(`#hitl [data-live][data-name="${CSS.escape(name)}"]`);
+          const rawValue = field?.querySelector("[data-role=value]")?.value ?? "";
+          if (rawValue.trim() === "") {
+            continue;
+          }
+          payload[name] = parseFieldValue(rawValue, definition.type ? definition : {...definition, type: field.dataset.type});
+        }
+        return payload;
+      }
+      function resumeLive(action) {
+        const i = state.interaction;
+        const command = {action, interaction_id: i.interaction_id, revision: i.revision};
+        if (action === "edit") command.payload = collectLivePayload(i);
+        else if (action === "reject" || action === "respond") {
+          const feedback = ($("hitlFeedback")?.value || "").trim();
+          command.feedback = feedback;
+        }
+        return {task_id: i.resume_target.task_id, run_id: i.resume_target.run_id, command: {resume: command}};
+      }
+      function resumeBody(intent, source) {
+        const i = state.interaction;
+        if ((i.payload_version ?? 1) !== 2) return resumeLive(source?.dataset?.action || intent);
+        const args = i.payload?.arguments || {};
+        const kind = i.kind;
+        let action = "edit";
+        let payload;
+        if (kind === "workflow_candidate_selection") {
+          if (intent === "select") payload = {intent: "select", candidate_id: source.dataset.candidateId};
+          else if (intent === "reject") payload = {intent: "reject", reason: $("rejectReason").value};
+          else payload = {intent};
+        } else if (kind === "additional_information") {
+          payload = {intent: "submit_inputs", workflow_id: args.workflow_id,
+            workflow_revision: args.workflow_revision, inputs: collectToolInputs(args)};
+        } else if (kind === "plan_review") {
+          if (intent === "approve") action = "approve";
+          else payload = {intent: "reject", reason: $("rejectReason").value};
+        } else {
+          throw new Error("이 화면이 제출할 수 없는 v2 interaction입니다.");
+        }
+        const command = {action, interaction_id: i.interaction_id, revision: i.revision};
+        if (action !== "approve") {
+          command.payload = payload;
+        }
+        return {task_id: i.resume_target.task_id, run_id: i.resume_target.run_id, command: {resume: command}};
+      }
+      async function resume(intent, source, reuse = null) {
+        if (state.sending || !state.interaction) return;
+        state.sending = true;
+        syncHitlControls();
+        if (!reuse) state.pending = null;
+        showHitlError("");
+        try {
+          const body = reuse?.body || resumeBody(intent, source);
+          const key = reuse?.key || newRequestId();
+          state.pending = {key, body};
+          await execute(body, null, key);
+          state.pending = null;
+        } catch (e) {
+          if (state.pending && !e.status) {
+            showHitlError("응답을 확인하지 못했습니다. 같은 요청으로 다시 확인하세요.", true);
+          } else {
+            const attempted = state.pending?.body;
+            state.pending = null;
+            if (e.status === 409 && state.currentTaskId) {
+              const snapshot = await api(`/api/v1/tasks/${state.currentTaskId}`, {headers: headers()}).catch(() => null);
+              if (snapshot) applySnapshot(snapshot);
+              if (attempted && state.interaction?.interaction_id !== attempted.command.resume.interaction_id) {
+                $("resumeDraft").classList.remove("hidden");
+                $("resumeDraft").querySelector("pre").textContent = JSON.stringify(attempted.command.resume, null, 2);
+              }
+            }
+            showHitlError(e.message);
+          }
+          setStatus(e.message, "bad");
+        } finally { state.sending = false; syncHitlControls(); }
+      }
+      function interrupt(i) {
+        if (i && state.submittedInteractions.has(i.interaction_id)) i = null;
+        state.interaction = i || null;
+        const box = $("hitl");
+        if (!i) { state.hitlKey = null; box.classList.add("hidden"); return; }
+        const key = `${i.interaction_id}:${i.revision}`;
+        if (state.hitlKey === key) return;
+        state.hitlKey = key;
+        state.pending = null;
+        box.classList.remove("hidden");
+        const version = i.payload_version ?? 1;
+        const args = i.payload?.arguments || {};
+        if (args.workflow) { state.workflow = args.workflow; renderWorkflow(); }
+        if (version !== 1 && version !== 2) {
+          box.innerHTML = shell(i, "지원하지 않는 interaction 버전입니다. 화면을 갱신하세요.");
+          return;
+        }
+        if (version === 1) {
+          box.innerHTML = renderLive(i);
+          setStatus(`입력 대기 · ${i.kind} · 채팅 전송은 막아 두었습니다.`);
+          syncSessionBusy();
+          box.scrollIntoView({block: "nearest"});
+          return;
+        }
+        if (i.kind === "workflow_candidate_selection") box.innerHTML = renderCandidates(i);
+        else if (i.kind === "additional_information") box.innerHTML = renderToolInputs(i);
+        else if (i.kind === "plan_review") box.innerHTML = renderPlan(i);
+        else box.innerHTML = shell(i, `<pre>${esc(JSON.stringify(i, null, 2))}</pre>`);
+        syncHitlControls();
+        setStatus(`v2 입력 대기 · ${i.kind}`);
+        syncSessionBusy();
+        box.scrollIntoView({block: "nearest"});
+      }
+            async function refreshRuns() {
+        if (!state.sessionId) return;
+        const x = await api(`/api/v1/sessions/${state.sessionId}/runs?limit=50`, {
+          headers: headers(),
+        });
+        state.runs = x.items;
+      }
+      async function refreshMessages() {
+        if (!state.sessionId) return;
+        const x = await api(`/api/v1/sessions/${state.sessionId}/messages?limit=200`, {
+          headers: headers(),
+        });
+        state.messages = x.items.sort((a, b) => a.sequence_no - b.sequence_no);
+        renderMessages();
+      }
+      async function refreshTasks() {
+        if (!state.sessionId) return;
+        const sessionId = state.sessionId;
+        const tasks = await api(`/api/v1/sessions/${sessionId}/tasks?limit=50`, {
+          headers: headers(),
+        });
+        if (state.sessionId !== sessionId) return;
+        state.tasks = tasks;
+        renderTasks();
+      }
+      async function refreshLogs() {
+        if (!state.sessionId) return;
+        const groups = await Promise.all(
+          (state.runs || []).map((r) =>
+            api(`/api/v1/sessions/${state.sessionId}/runs/${r.id}/logs`, {
+              headers: headers(),
+            }).catch(() => []),
+          ),
+        );
+        state.logs = groups.flat().sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+        renderLogs();
+        state.workflow = null;
+        for (const l of state.logs) {
+          const p = l.payload || {};
+          if (p.workflow) state.workflow = p.workflow;
+          if (p.result?.workflow) state.workflow = p.result.workflow;
+        }
+        if (state.interaction?.payload?.arguments?.workflow) state.workflow = state.interaction.payload.arguments.workflow;
+        renderWorkflow();
+      }
+      async function refreshAll() {
+        await refreshRuns();
+        await Promise.all([refreshMessages(), refreshTasks(), refreshLogs()]);
+        if (state.currentTaskId) applySnapshot(await api(`/api/v1/tasks/${state.currentTaskId}`, {headers: headers()}));
+        context(); renderSessions(); syncSessionBusy();
+      }
+      function pollStart() {
+        pollStop();
+        let polling = false;
+        state.timer = setInterval(async () => {
+          if (polling || !state.sessionId || !$("leaseWatch").checked) return;
+          polling = true;
+          try { await refreshTasks(); } catch(e) { setStatus(`Lease 조회: ${e.message}`, "bad"); }
+          finally { polling = false; }
+        }, 1000);
+      }
+      function pollStop() { clearInterval(state.timer); state.timer = null; }
+      async function connectTaskSse(id, sessionId = state.sessionId, suppliedResponse = null) {
+        if (!id) return;
+        state.sseControllers[id]?.abort();
+        const controller = new AbortController();
+        state.sseControllers[id] = controller;
+        const current = () => state.sessionId === sessionId && state.sseControllers[id] === controller;
+        const h = headers({Accept: "text/event-stream"});
+        if (state.lastEventIds[id] != null) h["Last-Event-ID"] = String(state.lastEventIds[id]);
+        let reader;
+        let ended = false;
+        try {
+          $("streamState").textContent = "SSE 연결 중";
+          const response = suppliedResponse || await fetch(`/api/v1/tasks/${id}/stream`, {headers: h, signal: controller.signal});
+          if (!response.ok) throw new Error(`${response.status}: ${await response.text()}`);
+          if (!response.headers.get("content-type")?.includes("text/event-stream")) throw new Error("SSE 응답이 아닙니다.");
+          reader = response.body.getReader();
+          controller.signal.addEventListener("abort", () => reader.cancel().catch(() => {}), {once: true});
+          $("streamState").textContent = "SSE 연결됨 · Task 이벤트 수신";
+          const decoder = new TextDecoder(); let buffer = "";
+          async function frame(raw) {
+            if (!current()) return;
+            const lines = raw.split("\n");
+            const data = lines.filter(l => l.startsWith("data:")).map(l => l.slice(5).trimStart()).join("\n");
+            if (!data) return;
+            const e = JSON.parse(data);
+            const type = lines.find(l => l.startsWith("event:"))?.slice(6).trim() || e.type;
+            const cursor = lines.find(l => l.startsWith("id:"))?.slice(3).trim();
+            if (type !== "task.snapshot" && cursor && Number(cursor) <= (state.lastEventIds[id] ?? -1)) return;
+            if (cursor) state.lastEventIds[id] = Math.max(Number(cursor), state.lastEventIds[id] ?? 0);
+            state.events.push({id: cursor || "", event: type, data: e});
+            state.events = state.events.slice(-200); renderEvents();
+            if (type === "interaction.opened" && e.data && e.sequence > (state.snapshotSequences[id] ?? -1)) interrupt(e.data);
+            if (type === "interaction.submitted") {
+              state.submittedInteractions.add(e.data.interaction_id);
+              if (state.interaction?.interaction_id === e.data.interaction_id) interrupt(null);
+            }
+            if (type === "task.snapshot") { applySnapshot(e.data); await refreshMessages(); await refreshTasks(); }
+            if (type === "message.completed") applyMessageEvent(e.data, e.occurred_at);
+            if (type === "stream.closed") {
+              ended = true;
+              $("streamState").textContent = `SSE 종료 · ${e.data.reason}`;
+              if (e.data.reason === "resync_required") {
+                delete state.lastEventIds[id]; await refreshAll();
+                if (current()) setTimeout(() => { if (current()) connectTaskSse(id, sessionId); }, 0);
+              }
+            }
+            if (type === "error") throw new Error(JSON.stringify(e));
+          }
+          while (current()) {
+            const {value, done} = await reader.read();
+            buffer += decoder.decode(value, {stream: !done});
+            let match;
+            while ((match = /\r?\n\r?\n/.exec(buffer))) {
+              const raw = buffer.slice(0, match.index).replace(/\r\n/g, "\n");
+              buffer = buffer.slice(match.index + match[0].length);
+              await frame(raw);
+            }
+            if (done) break;
+          }
+          if (current() && !ended && !controller.signal.aborted) $("streamState").textContent = "SSE 연결 종료 · 재연결 가능";
+        } catch (e) {
+          if (current()) $("streamState").textContent = controller.signal.aborted ? "SSE 연결 끊음 · 실행은 계속됨" : `SSE 오류: ${e.message}`;
+        } finally { if (reader) { await reader.cancel().catch(() => {}); reader.releaseLock(); } }
+      }
+            async function connectSse() {
+        return connectTaskSse(state.currentTaskId);
+      }
+      const refreshTasksBase = refreshTasks;
+      refreshTasks = async function () {
+        await refreshTasksBase();
+        const current =
+          state.tasks.find((t) => t.task_id === state.currentTaskId) ||
+          state.tasks[0];
+        state.currentTaskId = current?.task_id || null;
+        state.checkpointRunId = current?.checkpoint_run_id || state.checkpointRunId;
+      };
+      async function lockTest() {
+        await ensure();
+        const body = {session_id: state.sessionId,
+          input: {content: [{type: "text", text: "공정 데이터로 불량 예측 분석 계획을 세워줘"}]}};
+        setBusy(true);
+        try {
+          const both = await Promise.all(["a", "b"].map(label => result("/api/v1/workflow_run",
+            options(body, `race-${label}-${newRequestId()}`))));
+          $("lockResult").innerHTML = `<p>동일 Session 동시 요청: ${both.map((r,i) => `${i+1}: ${r.ok ? "접수" : r.status}`).join(" / ")}</p><pre>${esc(JSON.stringify(both,null,2))}</pre>`;
+          const accepted = both.find(r => r.ok)?.body;
+          if (accepted) { applySnapshot(accepted); connectTaskSse(accepted.task_id).catch(e => setStatus(e.message,"bad")); }
+          await refreshAll(); pollStart();
+          setStatus(both.filter(r => r.ok).length === 1 && both.some(r => r.status === 409)
+            ? "SessionLock 확인: 1개 접수 / 1개 409. 우측에서 Heartbeat·Lease를 확인하세요."
+            : "경쟁 결과를 확인하세요. 기존 활성 Task 또는 실행 종료 시점에 따라 결과가 달라집니다.");
+        } finally { syncSessionBusy(); }
+      }
+            async function cancelTask(taskId) {
+        setStatus("전체 분석 Task 취소 요청 중");
+        const task = await api(`/api/v1/tasks/${taskId}/cancel`, {
+          method: "POST",
+          headers: headers({ "Content-Type": "application/json" }),
+          body: JSON.stringify({ reason: "UI task cancellation verification" }),
+        });
+        runBadge(task.status);
+        await refreshAll();
+        setStatus("Task 취소 처리 및 Session 잠금 상태를 갱신했습니다.", "good");
+      }
+      function logout() {
+        $("resumeDraft").classList.add("hidden");
+        Object.values(state.sseControllers).forEach(c => c.abort());
+        state.interaction = null; state.hitlKey = null; state.pending = null;
+        state.messageChannels = {}; state.snapshotSequences = {}; state.submittedInteractions.clear();
+        pollStop();
+        localStorage.removeItem("dtest-demo-temp-user-name");
+        Object.assign(state, {
+          userId: null,
+          projectId: null,
+          sessionId: null,
+          currentTaskId: null,
+          checkpointRunId: null,
+          lastRunId: null,
+          busy: false,
+          sending: false,
+          projects: [],
+          sessions: [],
+          backgroundRuns: {},
+          runs: [],
+          messages: [],
+          tasks: [],
+          logs: [],
+          workflow: null,
+          events: [],
+          lastEventIds: {},
+          sseConnections: {},
+          sseControllers: {},
+          timer: null,
+        });
+        renderProjects();
+        renderSessions();
+        renderMessages();
+        renderTasks();
+        renderLogs();
+        renderWorkflow();
+        renderEvents();
+        context();
+        runBadge();
+        $("hitl").classList.add("hidden");
+        $("loginUserId").value = "";
+        $("loginError").textContent = "";
+        $("loginOverlay").classList.remove("hidden");
+        setStatus("로그인이 필요합니다.");
+      }
+      $("loginForm").onsubmit = async (e) => {
+        e.preventDefault();
+        $("loginError").textContent = "";
+        try {
+          setBusy(true);
+          await login($("loginUserId").value.trim());
+        } catch (x) {
+          logout();
+          $("loginUserId").value = e.target.elements.loginUserId?.value || "";
+          $("loginError").textContent =
+            x.status === 404 ? "DB에 존재하지 않거나 접근할 수 없는 사용자입니다." : x.message;
+          setBusy(false);
+        }
+      };
+      $("logout").onclick = logout;
+      $("projectSelect").onchange = async (e) => {
+        state.projectId = e.target.value;
+        clearConversation();
+        await loadSessions(true).catch((x) => setStatus(x.message, "bad"));
+        setBusy(false);
+      };
+      $("sessionList").onclick = (e) => {
+        const b = e.target.closest("[data-session-id]");
+        if (b) selectSession(b.dataset.sessionId).catch((x) => setStatus(x.message, "bad"));
+      };
+      $("send").onclick = send;
+      let queryIsComposing = false;
+      $("query").addEventListener("compositionstart", () => {
+        queryIsComposing = true;
+      });
+      $("query").addEventListener("compositionend", () => {
+        queryIsComposing = false;
+      });
+      $("query").onkeydown = (e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+          // macOS/Windows 한글 IME가 조합을 확정하는 Enter는 전송 Enter가 아니다.
+          if (e.isComposing || queryIsComposing || e.keyCode === 229) return;
+          e.preventDefault();
+          send();
+        }
+      };
+      $("newChat").onclick = () =>
+        createSession().catch((e) => {
+          setBusy(false);
+          setStatus(e.message, "bad");
+        });
+      $("example").onclick = () =>
+        ($("query").value = "공정 데이터와 불량 데이터를 이용해서 불량 예측 분석 계획을 세워줘.");
+      $("refreshAll").onclick = () => refreshAll().catch((e) => setStatus(e.message, "bad"));
+      $("reconnectSse").onclick = () =>
+        state.currentTaskId && connectSse().catch((e) => setStatus(e.message, "bad"));
+      $("lockTest").onclick = () =>
+        lockTest().catch((e) => {
+          pollStop();
+          setBusy(false);
+          setStatus(e.message, "bad");
+        });
+      $("toggleInspector").onclick = () => $("inspector").classList.toggle("closed");
+      document.querySelectorAll(".tab").forEach(
+        (b) =>
+          (b.onclick = () => {
+            document.querySelectorAll(".tab,.panel").forEach((x) => x.classList.remove("active"));
+            b.classList.add("active");
+            $(`panel-${b.dataset.tab}`).classList.add("active");
+          }),
+      );
+      $("hitl").onchange = syncHitlControls;
+      $("hitl").onclick = (e) => {
+        if (e.target.closest("[data-retry]")) {
+          resume(null, null, state.pending).catch((error) => setStatus(error.message, "bad"));
+          return;
+        }
+        const source = e.target.closest("[data-intent], [data-action]");
+        if (source) resume(source.dataset.intent || source.dataset.action, source).catch((error) => setStatus(error.message, "bad"));
+      };
+      $("disconnectSse").onclick = () => {
+        Object.values(state.sseControllers).forEach(c => c.abort());
+        $("streamState").textContent = "SSE 연결 끊음 · 실행은 계속됨";
+      };
+            logout();
+    </script>
+    <script>
+      // Sprint 2 E03-T05 검증: Active Task 취소 API 호출 후 Task/Session lock을 다시 조회합니다.
+      $("tasks").addEventListener("click", (e) => {
+        const b = e.target.closest("[data-cancel-task]");
+        if (b) cancelTask(b.dataset.cancelTask).catch((x) => setStatus(x.message, "bad"));
+      });
+      $("signup").addEventListener("click", createAccount);
+    </script>
+  </body>
+</html>

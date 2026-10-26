@@ -1,0 +1,67 @@
+services:
+  api:
+    build:
+      context: .
+    image: dtest-agent:local
+    command: ["python", "-m", "uvicorn", "main:app", "--app-dir", "/app/src", "--host", "0.0.0.0", "--port", "8000"]
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      SERVER_HOST: 0.0.0.0
+      SERVER_PORT: 8000
+      SERVER_RELOAD: "false"
+      AGENT_WORKER_ENABLED: "false"
+      TASK_RECONCILER_ENABLED: "false"
+      CHECKPOINT_SETUP_ON_START: "false"
+      EXECUTOR_SHARED_INPUT_ROOT: /workspace/pv
+    ports:
+      - "8000:8000"
+    volumes:
+      - ${EXECUTOR_SHARED_INPUT_ROOT_HOST:-./var/executor-inputs}:/workspace/pv
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+    image: dtest-agent:local
+    depends_on:
+      - api
+    command: ["python", "-m", "app.agent_worker.worker_main"]
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      EW_HEALTH_PORT: 8011
+      CHECKPOINT_SETUP_ON_START: "false"
+      EXECUTOR_SHARED_INPUT_ROOT: /workspace/pv
+    ports:
+      - "8011:8011"
+    volumes:
+      - ${EXECUTOR_SHARED_INPUT_ROOT_HOST:-./var/executor-inputs}:/workspace/pv
+    restart: unless-stopped
+
+  run-worker:
+    build:
+      context: .
+    image: dtest-agent:local
+    command: ["python", "-c", "import asyncio; from app.agent_run_worker_parallel import run_forever; asyncio.run(run_forever())"]
+    env_file:
+      - path: .env
+        required: true
+    environment:
+      CHECKPOINT_SETUP_ON_START: "false"
+      EXECUTOR_SHARED_INPUT_ROOT: /workspace/pv
+    volumes:
+      - ${EXECUTOR_SHARED_INPUT_ROOT_HOST:-./var/executor-inputs}:/workspace/pv
+    restart: unless-stopped
+
+  lock-reconciler:
+    build:
+      context: .
+    image: dtest-agent:local
+    command: ["python", "-c", "import asyncio; from app.task_lock_reconciler_parallel import run_forever; asyncio.run(run_forever())"]
+    env_file:
+      - path: .env
+        required: true
+    restart: unless-stopped

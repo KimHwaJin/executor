@@ -1,0 +1,1387 @@
+openapi: 3.1.0
+info:
+  title: Workflow Catalog API
+  version: 1.1.0
+  description: 'WorkflowCatalogService API 계약서. 공통 서비스·DB 모델·마이그레이션 ew_0006은 구현되어 있으며 HTTP 라우터·요청/응답 변환·오류 매핑은 연결 대상이다. 기존 파일 기반 WorkflowService는 사용하지 않는다.
+
+
+    경로는 공통 API prefix를 제외한 상대 경로다. 배포 서버 및 /api/v1 등의 prefix는 API 연결 시 결정한다. 기존 /workflows 라우터와 새 라우터를 같은 prefix에
+    동시에 등록하지 않도록 통합 시 조정한다.
+
+
+    Workflow 1.0 구조를 포함한다. API 요청 workflow는 문서 전체이므로 request.workflow.workflow.name 구조다. 등록·수정 시 JSON 구조뿐 아니라 Skill/Tool
+    등록·소속·인자 타입/필수값·출력 참조·조건 계약을 의미 검증한다. 실행 input 미확정은 등록 오류가 아니다.
+
+
+    공통 인증·권한 검사와 401/403은 이번 계약에서 제외한다. created_by/updated_by/deleted_by는 요청 메타데이터이며 인증 증빙이 아니다. chatapp users/projects/sessions/tasks는
+    UUID 논리 참조, DB FK 없음. cross-DB 존재 검증 방식은 구현 연계 사항이며 권한 검증을 암묵적으로 가정하지 않는다.
+
+
+    세 도메인 테이블: workflow_catalog(대표/추천/삭제), workflow_version(불변 Workflow 1.0/출처/등록 유형), workflow_embeddings(버전별 검색
+    텍스트/모델/벡터). registration_type USER/AGENT, JSON actor 작성 주체, created_by 요청 사용자를 구분한다. 최초 등록 추천 N, 내용 수정 시 기존
+    추천 유지. 현재 버전만 추천하며 이전 버전 이력 보존.
+
+
+    초기 embedding_model=bge-m3, embedding_dimension=1024. 벡터 타입은 차원 미지정 VECTOR, dimension은 실제 길이와 일치. 검색용 텍스트의 세부
+    구성은 Workflow name/user_request/execution_mode와 Skill 설명·Tool docstring이며 text_recipe_version=1이다. 예시 문자열은 설명용이다. Qwen 모델 전환은 재임베딩 및 검색 설정 변경 필요.
+
+
+    등록·수정은 선택 Idempotency-Key를 공통 서비스의 idempotency_key로 전달한다. 요청 사용자 UUID와 키가 같고 정규화된 요청 본문이 같으면 최초 성공 결과를 재전달한다.
+    같은 사용자·키에 다른 본문·작업·대상이면 409 IDEMPOTENCY_KEY_CONFLICT. 키가 없으면 기존 처리이며 수정 재요청은 expected_revision 충돌 검사를 따른다.
+    성공 결과는 workflow_catalog_requests에 영구 보관하며 자동 만료하지 않는다. 실패는 키를 소비하지 않는다. 동시 요청도 한 번만 저장한다.
+
+
+    API 라우터와 에이전트는 WorkflowCatalogService의 같은 메서드를 호출한다. 에이전트의 HTTP 호출은 필수가 아니며 내부 호출에도 같은 검증/트랜잭션/수정 버전 검사 규칙을
+    적용한다. 추천 후 생성 전환·즉시 실행 등 시나리오 정책은 별도다.
+
+
+    업데이트 경쟁은 expected_revision 검사와 저장을 같은 트랜잭션에서 처리한다. 임베딩 호출 동안 DB 트랜잭션을 유지하지 않으며 저장 직전에 다시 검사한다. 추천 허용 변경이나 삭제와
+    경쟁할 때도 포인터/플래그/삭제 상태를 잃지 않도록 카탈로그 행 단위 동시성 제어가 필요하다.
+
+    '
+jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
+servers:
+- url: /
+  description: 배포 시 실제 API base URL/prefix로 설정.
+security: []
+tags:
+- name: Workflow catalog
+  description: 새 WorkflowCatalogService 기반 DB 저장 및 검색 계약.
+paths:
+  /workflows:
+    post:
+      tags:
+      - Workflow catalog
+      operationId: registerWorkflow
+      summary: 워크플로우 최초 등록
+      description: 사람·에이전트 공통 등록. Workflow 문서 검증 및 검색용 텍스트 구성 → bge-m3 임베딩(1024차원) → 한 DB 트랜잭션으로 세 테이블 저장. revision/current_revision=1,
+        recommend_yn=N. input 실행값은 받지 않음. created_by를 카탈로그 created_by/updated_by와 버전 created_by에 저장. compiled 1.3은
+        저장하지 않음.
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+            examples:
+              register.request:
+                value:
+                  workflow: &id002
+                    workflow_version: '1.0'
+                    workflow:
+                      actor:
+                        type: USER
+                        id: e4c7918e-a6f3-49ac-826b-ef456c11ae55
+                      name: NCE 데이터 조회 및 변환
+                      user_request: NCE 데이터를 조회하고 분석할 수 있는 형태로 변환해줘.
+                      execution_mode: static
+                      allow_immediate_execution: false
+                      steps:
+                      - skill: data_load
+                        tools:
+                        - tool: extract_data
+                          execution: always
+                          arguments:
+                            data_type:
+                              source: input
+                            lot_cd:
+                              source: input
+                            process:
+                              source: input
+                            query_mode:
+                              source: input
+                            start_dt:
+                              source: input
+                            end_dt:
+                              source: input
+                            wafer_list:
+                              source: input
+                        - tool: transform_data
+                          execution: always
+                          arguments:
+                            data_type:
+                              source: input
+                            data:
+                              source: tool_output
+                              step_index: 0
+                              tool_index: 0
+                              output: data
+                            transform_op:
+                              source: input
+                  registration_type: USER
+                  created_by: e4c7918e-a6f3-49ac-826b-ef456c11ae55
+                  project_id: 58a269da-fd6b-4921-bda0-47845cd2b491
+                  session_id: null
+                  task_id: null
+              register_agent.request:
+                value:
+                  workflow:
+                    workflow_version: '1.0'
+                    workflow:
+                      actor:
+                        type: AGENT
+                        id: workflow_generator
+                      name: NCE 데이터 조회 및 변환
+                      user_request: NCE 데이터를 조회하고 분석할 수 있는 형태로 변환해줘.
+                      execution_mode: static
+                      allow_immediate_execution: false
+                      steps:
+                      - skill: data_load
+                        tools:
+                        - tool: extract_data
+                          execution: always
+                          arguments:
+                            data_type:
+                              source: input
+                            lot_cd:
+                              source: input
+                            process:
+                              source: input
+                            query_mode:
+                              source: input
+                            start_dt:
+                              source: input
+                            end_dt:
+                              source: input
+                            wafer_list:
+                              source: input
+                        - tool: transform_data
+                          execution: always
+                          arguments:
+                            data_type:
+                              source: input
+                            data:
+                              source: tool_output
+                              step_index: 0
+                              tool_index: 0
+                              output: data
+                            transform_op:
+                              source: input
+                  registration_type: AGENT
+                  created_by: e4c7918e-a6f3-49ac-826b-ef456c11ae55
+                  project_id: 58a269da-fd6b-4921-bda0-47845cd2b491
+                  session_id: 8f946013-9304-4f4d-9572-cfb62420df68
+                  task_id: be8f3251-da81-46be-a56c-faa6739601de
+      responses:
+        '201':
+          description: 등록 완료.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WriteResponse'
+              examples:
+                register.response:
+                  value:
+                    workflow_id: d3cebc56-cf67-4b56-a1e8-2398e90c68f7
+                    version_id: 539d4171-77f9-436a-a314-5c8c0608b836
+                    revision: 1
+                    registration_type: USER
+                    recommend_yn: N
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '409':
+          $ref: '#/components/responses/IdempotencyConflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '502':
+          $ref: '#/components/responses/EmbeddingError'
+        '504':
+          $ref: '#/components/responses/Timeout'
+    get:
+      tags:
+      - Workflow catalog
+      operationId: listWorkflows
+      summary: 현재 버전 기준 관리용 목록
+      description: 논리 삭제 제외, 추천 Y/N 모두 조회 가능. 현재 버전당 한 건. 필터 AND, 동점은 workflow_id 오름차순. q는 임베딩 없는 문자열 검색이며 SQL 와일드카드가
+        아니라 문자 그대로 취급. 사용자·프로젝트 권한 필터 없음. 페이지 초과는 빈 items와 실제 total_count. 목록에는 JSON 본문·search_text·벡터 없음.
+      parameters:
+      - name: q
+        in: query
+        required: false
+        schema:
+          type: string
+        description: 현재 버전 name/user_request의 대소문자 무시 부분 문자열 검색. 공백 제거 후 빈 문자열은 필터 없음.
+      - name: recommend_yn
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/RecommendYN'
+        description: ''
+      - name: execution_mode
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - static
+          - adaptive
+        description: ''
+      - name: registration_type
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/RegistrationType'
+        description: ''
+      - name: created_by
+        in: query
+        required: false
+        schema:
+          type: string
+          format: uuid
+          description: ''
+        description: 카탈로그 최초 등록 사용자 필터.
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          description: ''
+          minimum: 1
+          default: 1
+        description: ''
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          type: integer
+          description: ''
+          minimum: 1
+          maximum: 100
+          default: 20
+        description: ''
+      - name: sort_by
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - created_at
+          - updated_at
+          - name
+          default: updated_at
+        description: ''
+      - name: sort_order
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - asc
+          - desc
+          default: desc
+        description: ''
+      responses:
+        '200':
+          description: 목록 반환.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListResponse'
+              examples:
+                list.response:
+                  value:
+                    items:
+                    - workflow_id: d3cebc56-cf67-4b56-a1e8-2398e90c68f7
+                      current_revision: 2
+                      recommend_yn: Y
+                      created_by: e4c7918e-a6f3-49ac-826b-ef456c11ae55
+                      updated_by: e4c7918e-a6f3-49ac-826b-ef456c11ae55
+                      created_at: '2026-10-12T06:00:00Z'
+                      updated_at: '2026-10-12T07:00:00Z'
+                      version_id: 7417c468-3e69-4415-aa22-c6788d72367b
+                      name: NCE 데이터 조회 및 변환 (수정)
+                      user_request: NCE 데이터를 조회하고 분석할 수 있는 형태로 변환해줘.
+                      execution_mode: static
+                      allow_immediate_execution: false
+                      registration_type: USER
+                    page: 1
+                    page_size: 20
+                    total_count: 1
+                list_empty.response:
+                  value:
+                    items: []
+                    page: 1
+                    page_size: 20
+                    total_count: 0
+        '422':
+          $ref: '#/components/responses/SearchValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /workflows/search:
+    post:
+      tags:
+      - Workflow catalog
+      operationId: searchWorkflows
+      summary: 추천용 의미 기반 검색
+      description: 미삭제 AND recommend_yn=Y AND current_revision AND 동일 모델·차원 임베딩만 검색. 초기 bge-m3/1024. similarity=1-cosine_distance,
+        점수는 확률 아님. threshold 이상 필터 후 similarity 내림차순 및 workflow_id 오름차순으로 limit개. 결과 부족 시 기준 완화하지 않음. API 실패를 빈
+        결과로 대체하지 않음. 프로젝트는 출처라 검색 제한에 사용하지 않음. 페이지네이션·전체 건수 없음. 생성 전환·사용자 거절·즉시 실행은 에이전트 정책으로 별도.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchRequest'
+            examples:
+              search.request:
+                value:
+                  query: NCE 데이터를 조회하고 변환해줘
+                  limit: 3
+                  threshold: 0.7
+                  execution_mode: static
+      responses:
+        '200':
+          description: 검색 결과 또는 빈 목록. 예시 similarity는 설명용이며 실측값 아님.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResponse'
+              examples:
+                search.response:
+                  value:
+                    items:
+                    - workflow_id: d3cebc56-cf67-4b56-a1e8-2398e90c68f7
+                      version_id: 7417c468-3e69-4415-aa22-c6788d72367b
+                      revision: 2
+                      similarity: 0.84
+                      search_text: '이름: NCE 데이터 조회 및 변환 (수정)
+
+                        사용자 요청: NCE 데이터를 조회하고 분석할 수 있는 형태로 변환해줘.
+
+                        Skill: data_load
+
+                        Tool: extract_data, transform_data'
+                      workflow: &id001
+                        workflow_version: '1.0'
+                        workflow:
+                          actor:
+                            type: USER
+                            id: e4c7918e-a6f3-49ac-826b-ef456c11ae55
+                          name: NCE 데이터 조회 및 변환 (수정)
+                          user_request: NCE 데이터를 조회하고 분석할 수 있는 형태로 변환해줘.
+                          execution_mode: static
+                          allow_immediate_execution: false
+                          steps:
+                          - skill: data_load
+                            tools:
+                            - tool: extract_data
+                              execution: always
+                              arguments:
+                                data_type:
+                                  source: input
+                                lot_cd:
+                                  source: input
+                                process:
+                                  source: input
+                                query_mode:
+                                  source: input
+                                start_dt:
+                                  source: input
+                                end_dt:
+                                  source: input
+                                wafer_list:
+                                  source: input
+                            - tool: transform_data
+                              execution: always
+                              arguments:
+                                data_type:
+                                  source: input
+                                data:
+                                  source: tool_output
+                                  step_index: 0
+                                  tool_index: 0
+                                  output: data
+                                transform_op:
+                                  source: literal
+                                  value: pivot
+                    returned_count: 1
+                    limit: 3
+                    threshold: 0.7
+                    embedding_model: bge-m3
+                search_empty.response:
+                  value:
+                    items: []
+                    returned_count: 0
+                    limit: 3
+                    threshold: 0.7
+                    embedding_model: bge-m3
+        '422':
+          $ref: '#/components/responses/SearchValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '502':
+          $ref: '#/components/responses/EmbeddingError'
+        '504':
+          $ref: '#/components/responses/Timeout'
+  /workflows/{workflow_id}:
+    parameters:
+    - &id003
+      name: workflow_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+        description: ''
+      description: 워크플로우 식별자.
+    get:
+      tags:
+      - Workflow catalog
+      operationId: getWorkflow
+      summary: 현재 또는 지정 버전 상세 조회
+      description: revision 생략 시 current_revision 조회. version.workflow는 문서 전체. 최상위 등록자·시각·recommend_yn은 현재 카탈로그
+        정보, version 내부는 조회 버전 정보. 과거 버전 조회에서 recommend_yn=Y라도 과거 버전이 추천 대상은 아님. search_text는 현재 검색 모델의 해당 버전 텍스트이며
+        없으면 null. 임베딩 벡터 제외.
+      parameters:
+      - name: revision
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/Revision'
+        description: ''
+      responses:
+        '200':
+          description: 상세 조회 완료.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+              examples:
+                detail_current.response:
+                  value:
+                    version:
+                      version_id: 7417c468-3e69-4415-aa22-c6788d72367b
+                      revision: 2
+                      workflow: *id001
+                      registration_type: USER
+                      created_by: e4c7918e-a6f3-49ac-826b-ef456c11ae55
+                      project_id: 58a269da-fd6b-4921-bda0-47845cd2b491
+                      session_id: null
+                      task_id: null
+                      created_at: '2026-10-12T07:00:00Z'
+                      search_text: '이름: NCE 데이터 조회 및 변환 (수정)
+
+                        사용자 요청: NCE 데이터를 조회하고 분석할 수 있는 형태로 변환해줘.
+
+                        Skill: data_load
+
+                        Tool: extract_data, transform_data'
+                    workflow_id: d3cebc56-cf67-4b56-a1e8-2398e90c68f7
+                    current_revision: 2
+                    recommend_yn: Y
+                    created_by: e4c7918e-a6f3-49ac-826b-ef456c11ae55
+                    updated_by: e4c7918e-a6f3-49ac-826b-ef456c11ae55
+                    created_at: '2026-10-12T06:00:00Z'
+                    updated_at: '2026-10-12T07:00:00Z'
+                detail_revision.response:
+                  value:
+                    version:
+                      version_id: 539d4171-77f9-436a-a314-5c8c0608b836
+                      revision: 1
+                      workflow: *id002
+                      registration_type: USER
+                      created_by: e4c7918e-a6f3-49ac-826b-ef456c11ae55
+                      project_id: 58a269da-fd6b-4921-bda0-47845cd2b491
+                      session_id: null
+                      task_id: null
+                      created_at: '2026-10-12T06:00:00Z'
+                      search_text: '이름: NCE 데이터 조회 및 변환
+
+                        사용자 요청: NCE 데이터를 조회하고 분석할 수 있는 형태로 변환해줘.
+
+                        Skill: data_load
+
+                        Tool: extract_data, transform_data'
+                    workflow_id: d3cebc56-cf67-4b56-a1e8-2398e90c68f7
+                    current_revision: 2
+                    recommend_yn: Y
+                    created_by: e4c7918e-a6f3-49ac-826b-ef456c11ae55
+                    updated_by: e4c7918e-a6f3-49ac-826b-ef456c11ae55
+                    created_at: '2026-10-12T06:00:00Z'
+                    updated_at: '2026-10-12T07:00:00Z'
+        '422':
+          $ref: '#/components/responses/SearchValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '404':
+          $ref: '#/components/responses/DetailNotFound'
+    put:
+      tags:
+      - Workflow catalog
+      operationId: updateWorkflow
+      summary: 내용 수정 및 새 버전 생성
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      description: Workflow 1.0 전체 교체. expected_revision 불일치 409. 검증·임베딩 생성 후 트랜잭션에서 다시 비교하고 current_revision+1
+        저장 및 포인터 갱신. concurrent update/delete와 원자적으로 처리. 새 버전 created_by=요청 updated_by. 최초 등록자·시각과 recommend_yn
+        유지; 추천 변경과 동시 처리 시 최신 값을 덮어쓰지 않음. 선택 출처는 생략/null 시 NULL(이전값 상속 없음). 실패 시 버전·임베딩·포인터 모두 미반영.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRequest'
+            examples:
+              update.request:
+                value:
+                  workflow: *id001
+                  expected_revision: 1
+                  updated_by: e4c7918e-a6f3-49ac-826b-ef456c11ae55
+                  registration_type: USER
+                  project_id: 58a269da-fd6b-4921-bda0-47845cd2b491
+                  session_id: null
+                  task_id: null
+      responses:
+        '200':
+          description: 수정 완료. recommend_yn은 수정 직전 카탈로그 값을 유지.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WriteResponse'
+              examples:
+                update.response:
+                  value:
+                    workflow_id: d3cebc56-cf67-4b56-a1e8-2398e90c68f7
+                    version_id: 7417c468-3e69-4415-aa22-c6788d72367b
+                    revision: 2
+                    registration_type: USER
+                    recommend_yn: Y
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '502':
+          $ref: '#/components/responses/EmbeddingError'
+        '504':
+          $ref: '#/components/responses/Timeout'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/UpdateConflict'
+    delete:
+      tags:
+      - Workflow catalog
+      operationId: deleteWorkflow
+      summary: 논리 삭제
+      description: 본문 없음. 최초 삭제 시 deleted_at/deleted_by/updated_at/updated_by 갱신, 버전·임베딩·실행 이력 보존. 이미 삭제됨은 최초 삭제
+        정보를 유지하고 204. 존재하지 않는 ID만 404. 삭제 후 목록·상세·검색 제외.
+      parameters:
+      - name: deleted_by
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          description: ''
+        description: 삭제 요청 사용자 UUID.
+      responses:
+        '204':
+          description: 삭제 완료 또는 이미 삭제됨. 응답 본문 없음.
+        '422':
+          $ref: '#/components/responses/SearchValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /workflows/{workflow_id}/recommendation:
+    parameters:
+    - *id003
+    patch:
+      tags:
+      - Workflow catalog
+      operationId: updateWorkflowRecommendation
+      summary: 추천 허용 여부 변경
+      description: 관리 용도이나 현재 인증·권한 검사 미구현 범위. 요청 updated_by 사용. recommend_yn/updated_by/updated_at만 변경. 같은 값은 시각·사용자도
+        변경하지 않고 성공. 새 버전·임베딩 없음. 삭제 대상 404.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecommendationRequest'
+            examples:
+              recommendation.request:
+                value:
+                  recommend_yn: Y
+                  updated_by: e4c7918e-a6f3-49ac-826b-ef456c11ae55
+      responses:
+        '200':
+          description: 변경 완료 또는 기존 값과 동일.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecommendationResponse'
+              examples:
+                recommendation.response:
+                  value:
+                    workflow_id: d3cebc56-cf67-4b56-a1e8-2398e90c68f7
+                    current_revision: 2
+                    recommend_yn: Y
+        '422':
+          $ref: '#/components/responses/SearchValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+components:
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: 등록·수정 재요청 식별자. 같은 요청의 재시도에는 같은 키와 본문을 사용하고 다른 요청에는 새 키를 사용한다. created_by/updated_by UUID와 함께 범위를 정하며 사용자별로 등록·수정이 같은 키 공간을 공유한다. 앞뒤 공백·빈 값은 422. 자동 만료하지 않는다.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 255
+      example: 706e6903-628b-4b44-bb7e-68612725dd1c
+  schemas:
+    WorkflowDocument:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      title: Workflow 1.0
+      description: Workflow 1.0 문서 전체. API workflow 필드 안에 workflow_version 및 workflow를 모두 넣는다. 실행용 1.3 및 실행별 입력값은
+        포함하지 않는다.
+      $comment: 구조 및 실행 모드를 검증한다. Skill/Tool 등록 여부, 파라미터 타입·필수값, 출력 참조의 존재·선행 여부, 조건 규칙은 별도 의미 검증이 필요하다. default는
+        주석이며 검증기가 값을 자동 삽입하지 않는다.
+      type: object
+      properties:
+        workflow_version:
+          const: '1.0'
+        workflow:
+          $ref: '#/components/schemas/WorkflowDocument/$defs/workflow'
+      required:
+      - workflow_version
+      - workflow
+      additionalProperties: false
+      $defs:
+        workflow:
+          type: object
+          properties:
+            actor:
+              $ref: '#/components/schemas/WorkflowDocument/$defs/actor'
+            name:
+              type: string
+              minLength: 1
+            user_request:
+              type: string
+              minLength: 1
+            execution_mode:
+              enum:
+              - static
+              - adaptive
+            allow_immediate_execution:
+              type: boolean
+            steps:
+              type: array
+              minItems: 1
+              items:
+                $ref: '#/components/schemas/WorkflowDocument/$defs/step'
+          required:
+          - actor
+          - name
+          - user_request
+          - execution_mode
+          - allow_immediate_execution
+          - steps
+          additionalProperties: false
+          allOf:
+          - if:
+              properties:
+                execution_mode:
+                  const: static
+              required:
+              - execution_mode
+            then:
+              properties:
+                steps:
+                  items:
+                    properties:
+                      tools:
+                        items:
+                          properties:
+                            execution:
+                              const: always
+            else:
+              properties:
+                steps:
+                  contains:
+                    properties:
+                      tools:
+                        contains:
+                          properties:
+                            execution:
+                              const: conditional
+                          required:
+                          - execution
+                    required:
+                    - tools
+        actor:
+          type: object
+          properties:
+            type:
+              enum:
+              - USER
+              - AGENT
+            id:
+              type: string
+              minLength: 1
+          required:
+          - type
+          - id
+          additionalProperties: false
+        step:
+          type: object
+          properties:
+            skill:
+              type: string
+              minLength: 1
+            tools:
+              type: array
+              minItems: 1
+              items:
+                $ref: '#/components/schemas/WorkflowDocument/$defs/tool'
+          required:
+          - skill
+          - tools
+          additionalProperties: false
+        tool:
+          type: object
+          properties:
+            tool:
+              type: string
+              minLength: 1
+            execution:
+              enum:
+              - always
+              - conditional
+            arguments:
+              type: object
+              default: {}
+              propertyNames:
+                type: string
+                minLength: 1
+              additionalProperties:
+                $ref: '#/components/schemas/WorkflowDocument/$defs/argument'
+          required:
+          - tool
+          - execution
+          additionalProperties: false
+        argument:
+          oneOf:
+          - $ref: '#/components/schemas/WorkflowDocument/$defs/literalArgument'
+          - $ref: '#/components/schemas/WorkflowDocument/$defs/inputArgument'
+          - $ref: '#/components/schemas/WorkflowDocument/$defs/toolOutputArgument'
+        literalArgument:
+          type: object
+          properties:
+            source:
+              const: literal
+            value:
+              description: Tool 파라미터 타입에 맞는 JSON 값. null도 명시적 값이다.
+          required:
+          - source
+          - value
+          additionalProperties: false
+        inputArgument:
+          type: object
+          properties:
+            source:
+              const: input
+          required:
+          - source
+          additionalProperties: false
+        toolOutputArgument:
+          type: object
+          properties:
+            source:
+              const: tool_output
+            step_index:
+              type: integer
+              minimum: 0
+              description: steps 배열의 0-based 위치
+            tool_index:
+              type: integer
+              minimum: 0
+              description: 해당 Step의 tools 배열의 0-based 위치
+            output:
+              type: string
+              minLength: 1
+          required:
+          - source
+          - step_index
+          - tool_index
+          - output
+          additionalProperties: false
+    RegistrationType:
+      type: string
+      description: 해당 버전의 등록 주체 유형. JSON actor는 작성 주체로 별도 관리.
+      enum:
+      - USER
+      - AGENT
+    RecommendYN:
+      type: string
+      description: 카탈로그 단위 추천 허용 여부. 현재 버전에만 적용.
+      enum:
+      - Y
+      - N
+    Timestamp:
+      type: string
+      description: UTC ISO 8601 시각.
+      format: date-time
+    Revision:
+      type: integer
+      description: 내용 버전. Workflow JSON 규격 버전 1.0과 구분.
+      minimum: 1
+    RegisterRequest:
+      type: object
+      properties:
+        workflow:
+          $ref: '#/components/schemas/WorkflowDocument'
+        registration_type:
+          $ref: '#/components/schemas/RegistrationType'
+        created_by:
+          type: string
+          format: uuid
+          description: 등록 요청 사용자 UUID. 에이전트 등록도 요청 사용자 값을 전달.
+        project_id: &id004
+          type:
+          - string
+          - 'null'
+          format: uuid
+          description: chatapp DB 논리 참조. FK 없음. 생략 또는 null이면 이번 버전에 NULL 저장.
+        session_id: &id005
+          type:
+          - string
+          - 'null'
+          format: uuid
+          description: chatapp DB 논리 참조. FK 없음. 생략 또는 null이면 이번 버전에 NULL 저장.
+        task_id: &id006
+          type:
+          - string
+          - 'null'
+          format: uuid
+          description: chatapp DB 논리 참조. FK 없음. 생략 또는 null이면 이번 버전에 NULL 저장.
+      required:
+      - workflow
+      - registration_type
+      - created_by
+      additionalProperties: false
+    UpdateRequest:
+      type: object
+      properties:
+        workflow:
+          $ref: '#/components/schemas/WorkflowDocument'
+        expected_revision:
+          $ref: '#/components/schemas/Revision'
+        updated_by:
+          type: string
+          format: uuid
+          description: 수정 요청 사용자. 새 버전 created_by 및 카탈로그 updated_by에 저장.
+        registration_type:
+          $ref: '#/components/schemas/RegistrationType'
+        project_id: *id004
+        session_id: *id005
+        task_id: *id006
+      required:
+      - workflow
+      - expected_revision
+      - updated_by
+      - registration_type
+      additionalProperties: false
+    WriteResponse:
+      type: object
+      properties:
+        workflow_id:
+          type: string
+          format: uuid
+          description: ''
+        version_id:
+          type: string
+          format: uuid
+          description: ''
+        revision:
+          $ref: '#/components/schemas/Revision'
+        registration_type:
+          $ref: '#/components/schemas/RegistrationType'
+        recommend_yn:
+          $ref: '#/components/schemas/RecommendYN'
+      required:
+      - workflow_id
+      - version_id
+      - revision
+      - registration_type
+      - recommend_yn
+      additionalProperties: false
+    RecommendationRequest:
+      type: object
+      properties:
+        recommend_yn:
+          $ref: '#/components/schemas/RecommendYN'
+        updated_by:
+          type: string
+          format: uuid
+          description: 요청으로 전달받는 변경 사용자 UUID. 인증을 의미하지 않음.
+      required:
+      - recommend_yn
+      - updated_by
+      additionalProperties: false
+    RecommendationResponse:
+      type: object
+      properties:
+        workflow_id:
+          type: string
+          format: uuid
+          description: ''
+        current_revision:
+          $ref: '#/components/schemas/Revision'
+        recommend_yn:
+          $ref: '#/components/schemas/RecommendYN'
+      required:
+      - workflow_id
+      - current_revision
+      - recommend_yn
+      additionalProperties: false
+    SearchRequest:
+      type: object
+      properties:
+        query:
+          type: string
+          description: 검색할 사용자 질문. 앞뒤 공백 제거 후 비어 있으면 422.
+          minLength: 1
+          pattern: \S
+        limit:
+          type: integer
+          description: 최대 결과 수.
+          minimum: 1
+          maximum: 20
+          default: 3
+        threshold:
+          type:
+          - number
+          - 'null'
+          minimum: -1
+          maximum: 1
+          default: null
+          description: 최소 코사인 유사도. null/생략은 하한 없음. 확률이 아님.
+        execution_mode:
+          type:
+          - string
+          - 'null'
+          enum:
+          - static
+          - adaptive
+          - null
+          default: null
+          description: null/생략은 전체 실행 모드.
+      required:
+      - query
+      additionalProperties: false
+    SearchItem:
+      type: object
+      properties:
+        workflow_id:
+          type: string
+          format: uuid
+          description: ''
+        version_id:
+          type: string
+          format: uuid
+          description: ''
+        revision:
+          $ref: '#/components/schemas/Revision'
+        similarity:
+          type: number
+          minimum: -1
+          maximum: 1
+        search_text:
+          type: string
+          description: 검색에 사용된 해당 버전·모델의 실제 임베딩 입력 텍스트.
+        workflow:
+          $ref: '#/components/schemas/WorkflowDocument'
+      required:
+      - workflow_id
+      - version_id
+      - revision
+      - similarity
+      - search_text
+      - workflow
+      additionalProperties: false
+    SearchResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SearchItem'
+          maxItems: 20
+        returned_count:
+          type: integer
+          description: ''
+          minimum: 0
+          maximum: 20
+        limit:
+          type: integer
+          description: ''
+          minimum: 1
+          maximum: 20
+        threshold:
+          type:
+          - number
+          - 'null'
+          minimum: -1
+          maximum: 1
+        embedding_model:
+          type: string
+          description: 초기 모델 bge-m3. 질문과 저장 벡터에 동일 모델·차원 사용.
+      required:
+      - items
+      - returned_count
+      - limit
+      - threshold
+      - embedding_model
+      additionalProperties: false
+    ListItem:
+      type: object
+      properties:
+        workflow_id: &id007
+          type: string
+          format: uuid
+          description: ''
+        current_revision: &id008
+          $ref: '#/components/schemas/Revision'
+        recommend_yn: &id009
+          $ref: '#/components/schemas/RecommendYN'
+        created_by: &id010
+          type: string
+          format: uuid
+          description: 카탈로그 최초 등록 사용자.
+        updated_by: &id011
+          type: string
+          format: uuid
+          description: 카탈로그 마지막 변경 사용자.
+        created_at: &id012
+          $ref: '#/components/schemas/Timestamp'
+        updated_at: &id013
+          $ref: '#/components/schemas/Timestamp'
+        version_id:
+          type: string
+          format: uuid
+          description: ''
+        name:
+          type: string
+        user_request:
+          type: string
+        execution_mode:
+          type: string
+          enum:
+          - static
+          - adaptive
+        allow_immediate_execution:
+          type: boolean
+        registration_type:
+          $ref: '#/components/schemas/RegistrationType'
+      required:
+      - workflow_id
+      - current_revision
+      - recommend_yn
+      - created_by
+      - updated_by
+      - created_at
+      - updated_at
+      - version_id
+      - name
+      - user_request
+      - execution_mode
+      - allow_immediate_execution
+      - registration_type
+      additionalProperties: false
+    ListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ListItem'
+          maxItems: 100
+        page:
+          type: integer
+          description: ''
+          minimum: 1
+        page_size:
+          type: integer
+          description: ''
+          minimum: 1
+          maximum: 100
+        total_count:
+          type: integer
+          description: 필터에 맞는 전체 워크플로우 수. 페이지 범위를 넘어도 실제 전체 수 반환.
+          minimum: 0
+      required:
+      - items
+      - page
+      - page_size
+      - total_count
+      additionalProperties: false
+    VersionDetail:
+      type: object
+      properties:
+        version_id:
+          type: string
+          format: uuid
+          description: ''
+        revision:
+          $ref: '#/components/schemas/Revision'
+        workflow:
+          $ref: '#/components/schemas/WorkflowDocument'
+        registration_type:
+          $ref: '#/components/schemas/RegistrationType'
+        created_by:
+          type: string
+          format: uuid
+          description: 해당 버전 등록 요청 사용자.
+        project_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+          description: 생성 출처. chatapp DB 논리 참조.
+        session_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+          description: 생성 출처. chatapp DB 논리 참조.
+        task_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+          description: 생성 출처. chatapp DB 논리 참조.
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        search_text:
+          type:
+          - string
+          - 'null'
+          description: 해당 버전의 현재 검색 모델(bge-m3) 텍스트. 없으면 null.
+      required:
+      - version_id
+      - revision
+      - workflow
+      - registration_type
+      - created_by
+      - project_id
+      - session_id
+      - task_id
+      - created_at
+      - search_text
+      additionalProperties: false
+    DetailResponse:
+      type: object
+      properties:
+        workflow_id: *id007
+        current_revision: *id008
+        recommend_yn: *id009
+        created_by: *id010
+        updated_by: *id011
+        created_at: *id012
+        updated_at: *id013
+        version:
+          $ref: '#/components/schemas/VersionDetail'
+      required:
+      - workflow_id
+      - current_revision
+      - recommend_yn
+      - created_by
+      - updated_by
+      - created_at
+      - updated_at
+      - version
+      additionalProperties: false
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              enum:
+              - REQUEST_VALIDATION_ERROR
+              - WORKFLOW_VALIDATION_ERROR
+              - WORKFLOW_NOT_FOUND
+              - WORKFLOW_VERSION_NOT_FOUND
+              - WORKFLOW_REVISION_CONFLICT
+              - IDEMPOTENCY_KEY_CONFLICT
+              - EMBEDDING_SERVICE_ERROR
+              - EMBEDDING_TIMEOUT
+              - INTERNAL_ERROR
+            message:
+              type: string
+            details:
+              type: array
+              items:
+                type: object
+                properties:
+                  field:
+                    type:
+                    - string
+                    - 'null'
+                    description: 요청 필드 경로 또는 null.
+                  reason:
+                    type: string
+                  expected_revision:
+                    $ref: '#/components/schemas/Revision'
+                  current_revision:
+                    $ref: '#/components/schemas/Revision'
+                required:
+                - field
+                - reason
+                additionalProperties: true
+              description: 추가 정보가 없으면 빈 배열.
+          required:
+          - code
+          - message
+          - details
+          additionalProperties: false
+      required:
+      - error
+      additionalProperties: false
+  responses:
+    IdempotencyConflict:
+      description: 같은 요청 사용자·Idempotency-Key를 다른 본문·작업·대상에 재사용함. 기존 요청은 변경하지 않는다.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            error_idempotency_conflict:
+              value:
+                error:
+                  code: IDEMPOTENCY_KEY_CONFLICT
+                  message: 같은 요청 키가 다른 요청에 사용되었습니다. 새 요청에는 새 키를 사용해주세요.
+                  details: []
+    ValidationError:
+      description: 요청값·형식 또는 Workflow 구조·의미 검증 실패.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            error_request_validation:
+              value: &id014
+                error:
+                  code: REQUEST_VALIDATION_ERROR
+                  message: 요청값이 올바르지 않습니다.
+                  details:
+                  - field: limit
+                    reason: 1 이상 20 이하의 정수여야 합니다.
+            error_workflow_validation:
+              value:
+                error:
+                  code: WORKFLOW_VALIDATION_ERROR
+                  message: 워크플로우 참조가 유효하지 않습니다.
+                  details:
+                  - field: workflow.workflow.steps[0].tools[1].arguments.data.output
+                    reason: 선행 Tool에 등록된 출력 이름이어야 합니다.
+    SearchValidationError:
+      description: 검색어·필터·페이지 등 요청값 검증 실패.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            error_request_validation:
+              value: *id014
+    NotFound:
+      description: 워크플로우가 없거나 삭제됨. 삭제 API에서 이미 삭제된 대상은 204.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            error_workflow_not_found:
+              value: &id015
+                error:
+                  code: WORKFLOW_NOT_FOUND
+                  message: 워크플로우를 찾을 수 없습니다.
+                  details: []
+    DetailNotFound:
+      description: 워크플로우가 없거나 삭제됨, 또는 지정 버전이 없음.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            error_workflow_not_found:
+              value: *id015
+            error_version_not_found:
+              value:
+                error:
+                  code: WORKFLOW_VERSION_NOT_FOUND
+                  message: 해당 버전을 찾을 수 없습니다.
+                  details: []
+    EmbeddingError:
+      description: 임베딩 호출 실패 또는 반환 벡터·차원 오류. 초기 기대 차원 1024.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            error_embedding_service:
+              value:
+                error:
+                  code: EMBEDDING_SERVICE_ERROR
+                  message: 임베딩 서비스가 올바른 벡터를 반환하지 못했습니다.
+                  details: []
+    Timeout:
+      description: 임베딩 응답 시간 초과.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            error_embedding_timeout:
+              value:
+                error:
+                  code: EMBEDDING_TIMEOUT
+                  message: 임베딩 서비스 응답 시간이 초과되었습니다.
+                  details: []
+    InternalError:
+      description: DB 등 내부 오류. 내부 예외·SQL·비밀정보는 노출하지 않음.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            error_internal:
+              value:
+                error:
+                  code: INTERNAL_ERROR
+                  message: 요청 처리 중 오류가 발생했습니다.
+                  details: []
+    UpdateConflict:
+      description: expected_revision 불일치 또는 Idempotency-Key 재사용 충돌. 같은 키·본문의 성공한 재요청은 버전 검사보다 먼저 기존 결과를 반환한다.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            error_idempotency_conflict:
+              value:
+                error:
+                  code: IDEMPOTENCY_KEY_CONFLICT
+                  message: 같은 요청 키가 다른 요청에 사용되었습니다. 새 요청에는 새 키를 사용해주세요.
+                  details: []
+            error_revision_conflict:
+              value:
+                error:
+                  code: WORKFLOW_REVISION_CONFLICT
+                  message: 워크플로우가 수정되었습니다. 최신 버전을 조회한 뒤 다시 요청해주세요.
+                  details:
+                  - field: expected_revision
+                    reason: 현재 버전과 일치하지 않습니다.
+                    expected_revision: 1
+                    current_revision: 2

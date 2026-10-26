@@ -1,0 +1,139 @@
+{
+  "workflow_version": "1.0",
+  "workflow": {
+    "actor": {
+      "type": "USER",
+      "id": "user-example-001"
+    },
+    "name": "NCE 표본 데이터 통계 및 분포 분석",
+    "user_request": "NCE 데이터를 로드하고 표본을 추출하여 기술 통계와 지정한 컬럼의 히스토그램을 확인해주세요.",
+    "execution_mode": "static",
+    "allow_immediate_execution": false,
+    "steps": [
+      {
+        "skill": "data_load",
+        "tools": [
+          {
+            "tool": "extract_data",
+            "execution": "always",
+            "arguments": {
+              "data_type": {
+                "source": "input"
+              },
+              "lot_cd": {
+                "source": "input"
+              },
+              "process": {
+                "source": "input"
+              },
+              "start_dt": {
+                "source": "input"
+              },
+              "end_dt": {
+                "source": "input"
+              }
+            }
+          },
+          {
+            "tool": "transform_nce",
+            "execution": "always",
+            "arguments": {
+              "data": {
+                "source": "tool_output",
+                "step_index": 0,
+                "tool_index": 0,
+                "output": "data"
+              },
+              "transform_op": {
+                "source": "input"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "skill": "dataset_preparation",
+        "tools": [
+          {
+            "tool": "sample_data",
+            "execution": "always",
+            "arguments": {
+              "data": {
+                "source": "tool_output",
+                "step_index": 0,
+                "tool_index": 1,
+                "output": "data"
+              },
+              "sample_size": {
+                "source": "input"
+              },
+              "method": {
+                "source": "literal",
+                "value": "random"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "skill": "eda_analysis",
+        "tools": [
+          {
+            "tool": "compute_statistics",
+            "execution": "always",
+            "arguments": {
+              "data": {
+                "source": "tool_output",
+                "step_index": 1,
+                "tool_index": 0,
+                "output": "sampled_data"
+              },
+              "columns": {
+                "source": "literal",
+                "value": null
+              },
+              "output_dir": {
+                "source": "literal",
+                "value": "artifacts/metrics"
+              }
+            }
+          },
+          {
+            "tool": "histogram_eda",
+            "execution": "always",
+            "arguments": {
+              "data": {
+                "source": "tool_output",
+                "step_index": 1,
+                "tool_index": 0,
+                "output": "sampled_data"
+              },
+              "columns": {
+                "source": "input"
+              },
+              "bins": {
+                "source": "literal",
+                "value": 30
+              },
+              "output_dir": {
+                "source": "literal",
+                "value": "artifacts/metrics"
+              },
+              "figsize": {
+                "source": "literal",
+                "value": [
+                  8,
+                  5
+                ]
+              },
+              "dpi": {
+                "source": "literal",
+                "value": 150
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

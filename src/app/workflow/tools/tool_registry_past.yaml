@@ -1,0 +1,598 @@
+schema_version: "1.1"
+registry_type: tool_registry
+description: >-
+  Workflow와 Jupyter 실행 계획 생성에 사용하는 tool의 단일 호출 명세이다.
+  이 Registry에 등록된 implemented tool은 모두 새 workflow에서 사용할 수 있다.
+skill_index: ../skills/skill_index.yaml
+
+conventions:
+  workflow_input_reference: "${workflow.inputs.<input_name>}"
+  context_reference: "${workflow.context.<context_name>}"
+  step_output_reference: "${steps.<step_id>.outputs.<output_name>}"
+  result_binding: "<result_variable> = <function_name>(...)"
+  output_binding: "<output_variable> = <result_variable><selector>"
+  null_value: null
+  argument_source_types:
+    workflow_input: 사용자 질의·질의응답 또는 신뢰 가능한 외부 입력으로 확정된 값
+    step_output: 선행 step 또는 tool의 output 참조
+    context: 실행 시스템이 제공하는 값
+    default: tool_registry에 선언된 기본값
+    planner: LLM이 허용된 enum·제약조건 안에서 선택한 값
+  source_policy:
+    - 모든 구현 tool은 각 인자에 input_resolution을 선언한다.
+    - allow_llm_inference가 false이면 planner source를 사용할 수 없다.
+    - ask_user_if_missing이 true인 값이 없으면 workflow를 needs_input 상태로 만든다.
+    - workflow_input은 workflow input_provenance에서 출처와 확정 여부를 검증한다.
+    - step_output과 context는 반드시 전체 ${...} 참조로 기록한다.
+    - literal 인자는 argument_sources에서 default 또는 planner로 구분한다.
+
+tools:
+  data_load:
+    status: implemented
+    category: data_io
+    function_name: data_load
+    source: data_io/data_load.py
+    description: Parquet 파일을 DataFrame으로 로드하고 shape을 출력한다.
+    inputs:
+      parquet_path: {type: str, required: true, default: null}
+    input_resolution:
+      parquet_path:
+        allowed_sources: [workflow_input]
+        allow_llm_inference: false
+        ask_user_if_missing: true
+    returns:
+      container_type: pandas.DataFrame
+      return_count: 1
+      outputs:
+        data: {selector: "$", type: pandas.DataFrame}
+    side_effects: [prints_dataframe_shape]
+    artifacts: {creates_files: false}
+    packages: [pandas, pyarrow_or_fastparquet]
+
+  profile_data:
+    status: implemented
+    category: eda
+    function_name: profile_data
+    source: eda/profile_data.py
+    description: 행·열 개수와 전체 결측률을 요약한다.
+    inputs:
+      data:
+        type: object
+        accepted_types: [pandas.DataFrame, "dict[str, list]"]
+        required: true
+        default: null
+    input_resolution:
+      data:
+        allowed_sources: [step_output, workflow_input]
+        preferred_source: step_output
+        allow_llm_inference: false
+    returns:
+      container_type: dict
+      return_count: 1
+      outputs:
+        profile:
+          selector: '["profile"]'
+          type: dict
+          fields: {row_count: int, column_count: int, missing_rate: float}
+    data_behavior: {mutates_input: false}
+    artifacts: {creates_files: false}
+    packages: [pandas]
+
+  compute_statistics:
+    status: implemented
+    category: eda
+    function_name: compute_statistics
+    source: eda/compute_statistics.py
+    description: 선택한 수치형 컬럼의 기술 통계를 계산한다.
+    inputs:
+      data:
+        type: object
+        accepted_types: [pandas.DataFrame, "dict[str, list]"]
+        required: true
+        default: null
+      columns:
+        type: list[str]
+        required: false
+        default: null
+        description: null이면 전체 수치형 컬럼
+    input_resolution:
+      data: {allowed_sources: [step_output, workflow_input], preferred_source: step_output, allow_llm_inference: false}
+      columns: {allowed_sources: [workflow_input, default], preferred_source: default, allow_llm_inference: false}
+    returns:
+      container_type: dict
+      return_count: 1
+      outputs:
+        statistics: {selector: '["statistics"]', type: dict}
+    data_behavior: {mutates_input: false}
+    artifacts: {creates_files: false}
+    packages: [pandas]
+
+  detect_outliers:
+    status: implemented
+    category: eda
+    function_name: detect_outliers
+    source: eda/detect_outliers.py
+    description: 이상치 후보 인덱스와 컬럼별 진단 결과를 반환한다.
+    inputs:
+      data:
+        type: object
+        accepted_types: [pandas.DataFrame, "dict[str, list]"]
+        required: true
+        default: null
+      method: {type: str, required: false, default: iqr, enum: [iqr, zscore, isolation_forest]}
+      columns: {type: "list[str] | null", required: false, default: null}
+    input_resolution:
+      data: {allowed_sources: [step_output, workflow_input], preferred_source: step_output, allow_llm_inference: false}
+      method: {allowed_sources: [workflow_input, planner, default], preferred_source: default, allow_llm_inference: true}
+      columns: {allowed_sources: [workflow_input, default], preferred_source: default, allow_llm_inference: false}
+    returns:
+      container_type: dict
+      return_count: 2
+      outputs:
+        outlier_indices: {selector: '["outlier_indices"]', type: list}
+        outlier_report: {selector: '["outlier_report"]', type: dict}
+    data_behavior: {mutates_input: false}
+    artifacts: {creates_files: false}
+    packages: [pandas, numpy, scipy, scikit-learn]
+
+  histogram_eda:
+    status: implemented
+    category: eda
+    function_name: histogram_eda
+    source: eda/histogram_eda.py
+    description: 수치형 histogram 또는 범주형 count plot을 이미지로 저장한다.
+    inputs:
+      data:
+        type: object
+        accepted_types: [pandas.DataFrame, "dict[str, list]"]
+        required: true
+        default: null
+      columns: {type: "list[str] | null", required: false, default: null}
+      bins: {type: int, required: false, default: 30, constraints: "bins > 0"}
+      output_dir:
+        type: "str | pathlib.Path"
+        required: true
+        default: null
+        description: 사용자·프로젝트·세션·작업 단위 artifact 루트
+      figsize: {type: "tuple | list", required: false, default: [8, 5]}
+      dpi: {type: int, required: false, default: 150, constraints: "dpi > 0"}
+    input_resolution:
+      data: {allowed_sources: [step_output, workflow_input], preferred_source: step_output, allow_llm_inference: false}
+      columns: {allowed_sources: [workflow_input, default], preferred_source: default, allow_llm_inference: false}
+      bins: {allowed_sources: [workflow_input, planner, default], preferred_source: default, allow_llm_inference: true}
+      output_dir: {allowed_sources: [context], allow_llm_inference: false}
+      figsize: {allowed_sources: [workflow_input, planner, default], preferred_source: default, allow_llm_inference: true}
+      dpi: {allowed_sources: [workflow_input, planner, default], preferred_source: default, allow_llm_inference: true}
+    returns:
+      container_type: dict
+      return_count: 1
+      outputs:
+        histogram_paths: {selector: '["histogram_paths"]', type: "list[str]"}
+    artifacts:
+      creates_files: true
+      path_pattern: "<output_dir>/plots/histogram_eda__<column>__<artifact_id>.png"
+    packages: [pandas, matplotlib, seaborn]
+
+  boxplot_eda:
+    status: implemented
+    category: eda
+    function_name: boxplot_eda
+    source: eda/boxplot_eda.py
+    description: 수치형 컬럼별 boxplot 이미지를 저장한다.
+    inputs:
+      data:
+        type: object
+        accepted_types: [pandas.DataFrame, "dict[str, list]"]
+        required: true
+        default: null
+      output_dir:
+        type: "str | pathlib.Path"
+        required: true
+        default: null
+        description: 사용자·프로젝트·세션·작업 단위 artifact 루트
+      figsize: {type: "tuple | list", required: false, default: [6, 5]}
+      dpi: {type: int, required: false, default: 150, constraints: "dpi > 0"}
+    input_resolution:
+      data: {allowed_sources: [step_output, workflow_input], preferred_source: step_output, allow_llm_inference: false}
+      output_dir: {allowed_sources: [context], allow_llm_inference: false}
+      figsize: {allowed_sources: [workflow_input, planner, default], preferred_source: default, allow_llm_inference: true}
+      dpi: {allowed_sources: [workflow_input, planner, default], preferred_source: default, allow_llm_inference: true}
+    returns:
+      container_type: dict
+      return_count: 1
+      outputs:
+        boxplot_paths: {selector: '["boxplot_paths"]', type: "list[str]"}
+    artifacts:
+      creates_files: true
+      path_pattern: "<output_dir>/plots/boxplot_eda__<column>__<artifact_id>.png"
+    packages: [pandas, matplotlib, seaborn]
+
+  correlation_analysis:
+    status: implemented
+    category: eda
+    function_name: correlation_analysis
+    source: eda/correlation_analysis.py
+    description: 수치형 변수 간 상관계수와 유의성 및 target 연관성을 계산한다.
+    inputs:
+      data:
+        type: object
+        accepted_types: [pandas.DataFrame, "dict[str, list]"]
+        required: true
+        default: null
+      target_col: {type: "str | null", required: false, default: null}
+      method: {type: str, required: false, default: pearson, enum: [pearson, spearman, kendall]}
+      top_n: {type: int, required: false, default: 10, constraints: "top_n > 0"}
+      significance_level:
+        type: float
+        required: false
+        default: 0.05
+        constraints: "0 < significance_level < 1"
+    input_resolution:
+      data: {allowed_sources: [step_output, workflow_input], preferred_source: step_output, allow_llm_inference: false}
+      target_col:
+        allowed_sources: [workflow_input, default]
+        workflow_input_key: target_column
+        allow_llm_inference: false
+        ask_user_if_missing_when: target 기반 상관분석을 요청한 경우
+      method: {allowed_sources: [workflow_input, planner, default], preferred_source: default, allow_llm_inference: true}
+      top_n: {allowed_sources: [workflow_input, planner, default], preferred_source: default, allow_llm_inference: true}
+      significance_level: {allowed_sources: [workflow_input, planner, default], preferred_source: default, allow_llm_inference: true}
+    returns:
+      container_type: dict
+      return_count: 6
+      outputs:
+        correlation_matrix: {selector: '["correlation_matrix"]', type: dict}
+        top_correlations: {selector: '["top_correlations"]', type: "dict[str, list]"}
+        significant_pairs: {selector: '["significant_pairs"]', type: "dict[str, list]"}
+        target_correlations: {selector: '["target_correlations"]', type: "dict[str, list]"}
+        shape: {selector: '["shape"]', type: "list[int]"}
+        columns: {selector: '["columns"]', type: "list[str]"}
+    preconditions:
+      - 수치형 컬럼이 2개 이상이어야 한다.
+      - target_col 지정 시 해당 컬럼이 data에 존재해야 한다.
+    data_behavior: {mutates_input: false}
+    artifacts: {creates_files: false}
+    packages: [pandas, numpy, scipy]
+
+  merge_data:
+    status: implemented
+    category: preprocessing
+    function_name: merge_data
+    source: preprocessing/merge_data.py
+    description: 두 DataFrame을 지정한 공통 키로 병합한다.
+    inputs:
+      left_data:
+        type: object
+        accepted_types: [pandas.DataFrame, "dict[str, list]"]
+        required: true
+        default: null
+      right_data:
+        type: object
+        accepted_types: [pandas.DataFrame, "dict[str, list]"]
+        required: true
+        default: null
+      join_columns: {type: "list[str]", required: true, default: null}
+      how: {type: str, required: false, default: inner, enum: [inner, left, right, outer]}
+      suffixes: {type: tuple, required: false, default: ["_left", "_right"]}
+      validate:
+        type: "str | null"
+        required: false
+        default: null
+        enum: [null, one_to_one, one_to_many, many_to_one, many_to_many]
+    input_resolution:
+      left_data: {allowed_sources: [step_output, workflow_input], preferred_source: step_output, allow_llm_inference: false}
+      right_data: {allowed_sources: [step_output, workflow_input], preferred_source: step_output, allow_llm_inference: false}
+      join_columns:
+        allowed_sources: [workflow_input]
+        workflow_input_key: join_columns
+        allow_llm_inference: false
+        ask_user_if_missing: true
+      how: {allowed_sources: [workflow_input, planner, default], preferred_source: default, allow_llm_inference: true}
+      suffixes: {allowed_sources: [workflow_input, default], preferred_source: default, allow_llm_inference: false}
+      validate: {allowed_sources: [workflow_input, planner, default], preferred_source: default, allow_llm_inference: true}
+    returns:
+      container_type: dict
+      return_count: 2
+      outputs:
+        merged_data: {selector: '["merged_data"]', type: pandas.DataFrame}
+        merge_summary: {selector: '["merge_summary"]', type: dict}
+    preconditions:
+      - join_columns가 양쪽 데이터에 모두 존재해야 한다.
+    data_behavior: {mutates_input: false}
+    artifacts: {creates_files: false}
+    packages: [pandas]
+
+  sample_data:
+    status: implemented
+    category: preprocessing
+    function_name: sample_data
+    source: preprocessing/sample_data.py
+    description: random, stratified 또는 systematic 방식으로 표본을 추출한다.
+    inputs:
+      data:
+        type: object
+        accepted_types: [pandas.DataFrame, "dict[str, list]"]
+        required: true
+        default: null
+      sample_size:
+        type: "int | float"
+        required: true
+        default: null
+        description: int는 행 수, 0~1의 float는 비율
+      method: {type: str, required: false, default: random, enum: [random, stratified, systematic]}
+      stratify_column:
+        type: "str | null"
+        required: false
+        default: null
+        required_when: "method == stratified"
+      random_state: {type: int, required: false, default: 42}
+    input_resolution:
+      data: {allowed_sources: [step_output, workflow_input], preferred_source: step_output, allow_llm_inference: false}
+      sample_size:
+        allowed_sources: [workflow_input, planner]
+        allow_llm_inference: true
+        planner_constraints: 데이터 행 수와 분석 목적을 근거로 선택하고 rationale을 기록한다.
+      method: {allowed_sources: [workflow_input, planner, default], preferred_source: default, allow_llm_inference: true}
+      stratify_column:
+        allowed_sources: [workflow_input, default]
+        preferred_source: default
+        allow_llm_inference: false
+        ask_user_if_missing_when: "method == stratified"
+      random_state: {allowed_sources: [workflow_input, planner, default], preferred_source: default, allow_llm_inference: true}
+    returns:
+      container_type: dict
+      return_count: 2
+      outputs:
+        sampled_data: {selector: '["sampled_data"]', type: pandas.DataFrame}
+        sample_info: {selector: '["sample_info"]', type: dict}
+    data_behavior: {mutates_input: false}
+    artifacts: {creates_files: false}
+    packages: [pandas, numpy]
+
+  remove_outliers:
+    status: implemented
+    category: preprocessing
+    function_name: remove_outliers
+    source: preprocessing/remove_outliers.py
+    description: 전달받은 이상치 인덱스에 해당하는 행을 제거한다.
+    inputs:
+      data:
+        type: object
+        accepted_types: [pandas.DataFrame, "dict[str, list]"]
+        required: true
+        default: null
+      outlier_indices:
+        type: list
+        required: true
+        default: null
+        recommended_binding: "steps.<detect_step>.outputs.outlier_indices"
+    input_resolution:
+      data: {allowed_sources: [step_output, workflow_input], preferred_source: step_output, allow_llm_inference: false}
+      outlier_indices: {allowed_sources: [step_output, workflow_input], preferred_source: step_output, allow_llm_inference: false}
+    returns:
+      container_type: dict
+      return_count: 4
+      outputs:
+        data_without_outliers: {selector: '["data_without_outliers"]', type: pandas.DataFrame}
+        removed_indices: {selector: '["removed_indices"]', type: list}
+        shape: {selector: '["shape"]', type: "list[int]"}
+        columns: {selector: '["columns"]', type: "list[str]"}
+    preconditions:
+      - data 인덱스는 고유해야 한다.
+      - 모든 outlier_indices가 data 인덱스에 존재해야 한다.
+    data_behavior: {mutates_input: false}
+    artifacts: {creates_files: false}
+    packages: [pandas]
+
+  impute_missing:
+    status: implemented
+    category: preprocessing
+    function_name: impute_missing
+    source: preprocessing/impute_missing.py
+    description: 결측값을 대체하며 auto는 수치형 중앙값, 그 외 최빈값을 사용한다.
+    inputs:
+      data:
+        type: object
+        accepted_types: [pandas.DataFrame, "dict[str, list]"]
+        required: true
+        default: null
+      strategy:
+        type: str
+        required: false
+        default: auto
+        enum: [auto, mean, median, mode, constant, ffill, bfill, knn]
+      columns: {type: "list[str] | null", required: false, default: null}
+      fill_value:
+        type: object
+        required: false
+        default: null
+        required_when: "strategy == constant"
+      n_neighbors:
+        type: int
+        required: false
+        default: 5
+        used_when: "strategy == knn"
+        constraints: "n_neighbors > 0"
+    input_resolution:
+      data: {allowed_sources: [step_output, workflow_input], preferred_source: step_output, allow_llm_inference: false}
+      strategy: {allowed_sources: [workflow_input, planner, default], preferred_source: default, allow_llm_inference: true}
+      columns: {allowed_sources: [workflow_input, default], preferred_source: default, allow_llm_inference: false}
+      fill_value:
+        allowed_sources: [workflow_input]
+        allow_llm_inference: false
+        ask_user_if_missing_when: "strategy == constant"
+      n_neighbors: {allowed_sources: [workflow_input, planner, default], preferred_source: default, allow_llm_inference: true}
+    returns:
+      container_type: dict
+      return_count: 4
+      outputs:
+        imputed_data: {selector: '["imputed_data"]', type: "dict[str, list]"}
+        shape: {selector: '["shape"]', type: "list[int]"}
+        columns: {selector: '["columns"]', type: "list[str]"}
+        imputation_summary: {selector: '["imputation_summary"]', type: dict}
+    data_behavior: {mutates_input: false}
+    artifacts: {creates_files: false}
+    packages: [pandas, numpy, scikit-learn]
+
+  select_features:
+    status: implemented
+    category: preprocessing
+    function_name: select_features
+    source: preprocessing/select_features.py
+    description: 수치형·불리언 변수 중 target 예측에 사용할 상위 k개를 선택한다.
+    inputs:
+      data:
+        type: object
+        accepted_types: [pandas.DataFrame, "dict[str, list]"]
+        required: true
+        default: null
+      target_column: {type: str, required: true, default: null}
+      method: {type: str, required: false, default: correlation, enum: [correlation, mutual_info, rfe]}
+      k: {type: int, required: false, default: 10, constraints: "k > 0"}
+    input_resolution:
+      data: {allowed_sources: [step_output, workflow_input], preferred_source: step_output, allow_llm_inference: false}
+      target_column:
+        allowed_sources: [workflow_input]
+        workflow_input_key: target_column
+        allow_llm_inference: false
+        ask_user_if_missing: true
+      method: {allowed_sources: [workflow_input, planner, default], preferred_source: default, allow_llm_inference: true}
+      k: {allowed_sources: [workflow_input, planner, default], preferred_source: default, allow_llm_inference: true}
+    returns:
+      container_type: dict
+      return_count: 5
+      outputs:
+        selected_data: {selector: '["selected_data"]', type: pandas.DataFrame}
+        shape: {selector: '["shape"]', type: "list[int]"}
+        columns: {selector: '["columns"]', type: "list[str]"}
+        selected_features: {selector: '["selected_features"]', type: "list[str]"}
+        feature_scores: {selector: '["feature_scores"]', type: dict}
+    preconditions:
+      - target_column이 data에 존재해야 한다.
+      - feature는 수치형 또는 불리언이어야 한다.
+      - feature에 결측값이나 무한값이 없어야 한다.
+    data_behavior: {mutates_input: false}
+    artifacts: {creates_files: false}
+    packages: [pandas, numpy, scikit-learn]
+
+  split_dataset:
+    status: implemented
+    category: preprocessing
+    function_name: split_dataset
+    source: preprocessing/split_dataset.py
+    description: random, stratified, kfold 또는 timeseries 방식으로 데이터를 분할한다.
+    inputs:
+      data:
+        type: object
+        accepted_types: [pandas.DataFrame, "dict[str, list]"]
+        required: true
+        default: null
+      target_column:
+        type: "str | null"
+        required: false
+        default: null
+        required_when: "method == stratified 또는 stratified kfold"
+      test_size: {type: float, required: false, default: 0.2, constraints: "0 < test_size < 1"}
+      val_size:
+        type: float
+        required: false
+        default: 0.0
+        constraints: "0 <= val_size < 1 and test_size + val_size < 1"
+      method: {type: str, required: false, default: random, enum: [random, stratified, kfold, timeseries]}
+      n_splits: {type: int, required: false, default: 5, used_when: "method == kfold"}
+      random_state: {type: int, required: false, default: 42}
+      shuffle: {type: bool, required: false, default: true}
+    input_resolution:
+      data: {allowed_sources: [step_output, workflow_input], preferred_source: step_output, allow_llm_inference: false}
+      target_column:
+        allowed_sources: [workflow_input]
+        workflow_input_key: target_column
+        allow_llm_inference: false
+        ask_user_if_missing_when: "target 기반 분할 또는 후속 지도학습에 사용"
+      test_size: {allowed_sources: [workflow_input, planner, default], preferred_source: default, allow_llm_inference: true}
+      val_size: {allowed_sources: [workflow_input, planner, default], preferred_source: default, allow_llm_inference: true}
+      method: {allowed_sources: [workflow_input, planner, default], preferred_source: default, allow_llm_inference: true}
+      n_splits: {allowed_sources: [workflow_input, planner, default], preferred_source: default, allow_llm_inference: true}
+      random_state: {allowed_sources: [workflow_input, planner, default], preferred_source: default, allow_llm_inference: true}
+      shuffle: {allowed_sources: [workflow_input, planner, default], preferred_source: default, allow_llm_inference: true}
+    returns:
+      container_type: dict
+      return_count: conditional
+      outputs:
+        train_data: {selector: '["train_data"]', type: "dict[str, list]", always: true}
+        test_data: {selector: '["test_data"]', type: "dict[str, list]", always: true}
+        split_summary: {selector: '["split_summary"]', type: dict, always: true}
+        val_data:
+          selector: '["val_data"]'
+          type: "dict[str, list]"
+          condition: "val_size > 0 and method != kfold"
+        folds:
+          selector: '["folds"]'
+          type: list[dict]
+          condition: "method == kfold"
+    data_behavior: {mutates_input: false}
+    artifacts: {creates_files: false}
+    packages: [pandas, scikit-learn]
+
+  train_xgboost:
+    status: implemented
+    category: modeling
+    function_name: train_xgboost
+    source: modeling/train_xgboost.py
+    description: 분할된 학습·평가 데이터로 XGBoost 분류기를 학습하고 평가한다.
+    inputs:
+      train_data:
+        type: object
+        accepted_types: [pandas.DataFrame, "dict[str, list]"]
+        required: true
+        default: null
+        recommended_binding: "steps.<split_step>.outputs.train_data"
+      test_data:
+        type: object
+        accepted_types: [pandas.DataFrame, "dict[str, list]"]
+        required: true
+        default: null
+        recommended_binding: "steps.<split_step>.outputs.test_data"
+      target_column: {type: str, required: true, default: null}
+      output_dir:
+        type: "str | pathlib.Path"
+        required: true
+        default: null
+        description: 사용자·프로젝트·세션·작업 단위 artifact 루트
+    input_resolution:
+      train_data: {allowed_sources: [step_output], allow_llm_inference: false}
+      test_data: {allowed_sources: [step_output], allow_llm_inference: false}
+      target_column:
+        allowed_sources: [workflow_input]
+        workflow_input_key: target_column
+        allow_llm_inference: false
+        ask_user_if_missing: true
+      output_dir: {allowed_sources: [context], allow_llm_inference: false}
+    returns:
+      container_type: dict
+      return_count: 3
+      outputs:
+        model: {selector: '["model"]', type: xgboost.XGBClassifier}
+        metrics:
+          selector: '["metrics"]'
+          type: dict
+          fields:
+            accuracy: float
+            f1_score: float
+            f1_average: str
+            train_rows: int
+            test_rows: int
+            target_column: str
+            feature_columns: list[str]
+            label_mapping: dict
+        model_path: {selector: '["model_path"]', type: str}
+    preconditions:
+      - train_data와 test_data에 target_column이 존재해야 한다.
+      - 양쪽 feature 컬럼 구성이 같아야 한다.
+      - feature는 수치형 또는 불리언이고 결측값·무한값이 없어야 한다.
+      - target에는 최소 두 클래스가 있어야 한다.
+    data_behavior: {mutates_input: false}
+    artifacts:
+      creates_files: true
+      path_pattern: "<output_dir>/models/train_xgboost__model__<artifact_id>.json"
+    packages: [pandas, numpy, scikit-learn, xgboost]

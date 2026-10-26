@@ -1,0 +1,210 @@
+{
+  "workflow_version": "1.0",
+  "workflow": {
+    "actor": {
+      "type": "USER",
+      "id": "user-example-001"
+    },
+    "name": "NCE·WT 결합 데이터 적응형 탐색 분석",
+    "user_request": "NCE와 WT 데이터를 각각 로드하여 공통 키로 결합하고, 표본 통계를 확인한 뒤 조건에 맞으면 박스플롯과 상관분석을 수행해주세요.",
+    "execution_mode": "adaptive",
+    "allow_immediate_execution": false,
+    "steps": [
+      {
+        "skill": "data_load",
+        "tools": [
+          {
+            "tool": "extract_data",
+            "execution": "always",
+            "arguments": {
+              "data_type": {
+                "source": "input"
+              },
+              "lot_cd": {
+                "source": "input"
+              },
+              "process": {
+                "source": "input"
+              },
+              "start_dt": {
+                "source": "input"
+              },
+              "end_dt": {
+                "source": "input"
+              }
+            }
+          },
+          {
+            "tool": "transform_nce",
+            "execution": "always",
+            "arguments": {
+              "data": {
+                "source": "tool_output",
+                "step_index": 0,
+                "tool_index": 0,
+                "output": "data"
+              },
+              "transform_op": {
+                "source": "input"
+              }
+            }
+          },
+          {
+            "tool": "extract_data",
+            "execution": "always",
+            "arguments": {
+              "data_type": {
+                "source": "input"
+              },
+              "lot_cd": {
+                "source": "input"
+              },
+              "process": {
+                "source": "input"
+              },
+              "start_dt": {
+                "source": "input"
+              },
+              "end_dt": {
+                "source": "input"
+              }
+            }
+          },
+          {
+            "tool": "transform_wt",
+            "execution": "always",
+            "arguments": {
+              "data": {
+                "source": "tool_output",
+                "step_index": 0,
+                "tool_index": 2,
+                "output": "data"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "skill": "dataset_preparation",
+        "tools": [
+          {
+            "tool": "merge_data",
+            "execution": "always",
+            "arguments": {
+              "left_data": {
+                "source": "tool_output",
+                "step_index": 0,
+                "tool_index": 1,
+                "output": "data"
+              },
+              "right_data": {
+                "source": "tool_output",
+                "step_index": 0,
+                "tool_index": 3,
+                "output": "data"
+              },
+              "join_columns": {
+                "source": "input"
+              },
+              "how": {
+                "source": "literal",
+                "value": "inner"
+              }
+            }
+          },
+          {
+            "tool": "sample_data",
+            "execution": "always",
+            "arguments": {
+              "data": {
+                "source": "tool_output",
+                "step_index": 1,
+                "tool_index": 0,
+                "output": "merged_data"
+              },
+              "sample_size": {
+                "source": "input"
+              },
+              "method": {
+                "source": "literal",
+                "value": "random"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "skill": "eda_analysis",
+        "tools": [
+          {
+            "tool": "compute_statistics",
+            "execution": "always",
+            "arguments": {
+              "data": {
+                "source": "tool_output",
+                "step_index": 1,
+                "tool_index": 1,
+                "output": "sampled_data"
+              },
+              "columns": {
+                "source": "literal",
+                "value": null
+              },
+              "output_dir": {
+                "source": "literal",
+                "value": "artifacts/metrics"
+              }
+            }
+          },
+          {
+            "tool": "boxplot_eda",
+            "execution": "conditional",
+            "arguments": {
+              "data": {
+                "source": "tool_output",
+                "step_index": 1,
+                "tool_index": 1,
+                "output": "sampled_data"
+              },
+              "output_dir": {
+                "source": "literal",
+                "value": "artifacts/plots"
+              },
+              "figsize": {
+                "source": "literal",
+                "value": [
+                  6,
+                  5
+                ]
+              },
+              "dpi": {
+                "source": "literal",
+                "value": 150
+              }
+            }
+          },
+          {
+            "tool": "correlation_analysis",
+            "execution": "conditional",
+            "arguments": {
+              "data": {
+                "source": "tool_output",
+                "step_index": 1,
+                "tool_index": 1,
+                "output": "sampled_data"
+              },
+              "method": {
+                "source": "literal",
+                "value": "pearson"
+              },
+              "top_n": {
+                "source": "literal",
+                "value": 10
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

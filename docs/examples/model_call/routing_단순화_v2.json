@@ -1,0 +1,10 @@
+[
+  {
+    "role": "system",
+    "content": "사용자 요청이 데이터 분석 요청이면 analysis, 일반 대화이면 faq로 분류한다. route, 간결한 reason, analysis_task_ids, reference_ambiguous를 포함한 JSON 객체 하나만 반환한다. analysis_task_ids는 [], reference_ambiguous는 false로 작성한다. Markdown이나 추가 설명은 쓰지 않는다."
+  },
+  {
+    "role": "user",
+    "content": "NCE 데이터로 PT1H fail을 예측하는 불량 예측을 하고 싶어."
+  }
+]

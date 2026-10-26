@@ -1,0 +1,81 @@
+workflow needs input 상태에서
+사용자 input 받아서 채우고 나서
+workflow ready 상태를 거절 한 후 
+워크플로우 일부 수정을 하게 되면 
+워크플로우 후보를 다시 뽑아오게 되어 있는데, 이 부분 수정 필요.
+어쨌든 워크플로우 수정 일때는 후보를 다 만드는것이 아니라 수정만 하도록 변경 필요함.
+====
+workflow_catalog: 최초 생성된 needs_input Workflow 전체 JSON 저장
+workflow_executions: Executor에 실제 제출된 원본과 최종 Workflow 저장
+workflow_adaptive_history: round별 변경분과 effective_workflow 저장
+workflow_adaptive_history_view: 원본·변경분·변경 후 Workflow 통합 조회
+==
+pyarrow, pandas 호환 조합 맞추기
+/Users/a11222/Desktop/workspace/hypj/.venv311/bin/python -m pip install --force-reinstall "pandas==2.2.3" "pyarrow==20.0.0"
+====
+{
+  "user_request": "공정 데이터로 불량 원인을 분석해줘",
+  "user_id": "mock-user-003",
+  "project_id": "mock-project-003",
+  "session_id": "mock-session-003"
+}
+
+===
+- [ ] 프론트에서 데이터 선택하고 나서 받을 response 형식 정의
+- [ ] agent가 이걸 받아서 workflow앞부분 만드는거 구현 (지금 되어있는거에서 수정. 함수 이름은 일단 load_data_test 이정도로 하기. 인풋은 response받은거 넣도록..)
+==========
+[Workflow 후보]
+
+  1. 불량예측 공정데이터 EDA 및 품질진단 [needs_input, generated, adaptive]
+     id: generated_1
+     목표: 불량예측용 공정데이터와 불량데이터를 결합하여 결측치 및 이상치 진단, 분포/관계 탐색, 결측치/이상치 제거 근거를 확보한다.
+     필요 입력: join_columns, target_col
+     Steps:
+       1. data_load (load_data_1)
+          - data_load [always]
+       2. data_load (load_data_2)
+          - data_load [always]
+       3. dataset_preparation (merge)
+          - merge_data [always]
+       4. data_quality_check (quality)
+          - profile_data [always]
+          - compute_statistics [always]
+          - detect_outliers [always]
+       5. eda_analysis (eda)
+          - compute_statistics [always]
+          - histogram_eda [always]
+          - boxplot_eda [conditional]
+          - correlation_analysis [conditional]
+       6. data_cleaning_pipeline (cleaning)
+          - remove_outliers [conditional]
+          - impute_missing [conditional]
+선택할 후보 번호 또는 id: 1
+=======
+adaptive일때 agent한테 실행결과 주는 스키마 확인
+=============
+Human in the loop 기능 사용에 대한 공지
+현재 GaiA Chat을 통해서 사용은 어렵고 runtime에서도 해당 기능은 사용이 어렵습니다.
+HITL기능 사용을 위해서는 langflow IDE를 runtime환경으로 활용하실 필요가 있고 첨부와 같이 샘플 코드 공유해 드립니다.
+해당 기능 사용을 위해서는 별도 UI 및 app service를 구현하신 다음 langflow IDE를 샘플코드를 활용하여 호출하시면 HITL기능 활용이 가능합니다.
+=================
+하이닉스 내부망 테스트때 피닉스 에러메시지
+Error in OpenInferenceTracer.on_resume callback: AttributeError("'OpenInferenceTracer' object has no attribute 'on_resume'")
+Error in OpenInferenceTracer.on_interrupt callback: AttributeError("'OpenInferenceTracer' object has no attribute 'on_intterupt'")
+================
+하이닉스 내부망 테스트때 workflow 에러메시지 provider_json_schema를 썼음. (qwen3.6, gpt oss)
+RuntimeError: workflow generation failed validation after retries. Last validation error: Plan references unknown Tool output: load_data_1.data_load.result
+RuntimeError: workflow generation failed validation after retries. Last validation error: plan references unknown Step output: load_data_1.result
+==============
+prompt_json을 썼음. qwen3.6, thinking false. 에러메시지
+RuntimeError: workflow generation failed validation after retries. Last validation error: Skill 'failure_Group_comparison'에 속하지 않는 Tool입니다: compute_statisticcs
+Plan references unknown Tool output: load_data_1.data_load.result
+glm5.2, thinking false, prompt_json 동작함
+gpt oss, prompt_json 동작함
+==========
+x_data (nce)
+alias_lot_id, wf_id, x, y, BLC(CELL) OPEN MASK MACRO.max_val, DNW MASK MACRO.max_val, ISO(PERI) + CUT MASK MACRO.max_val, M4C MASK MACRO.max_val, MBO MASK MACRO.max_val, P + ADD MASK MACRO.max_val, PMX MASK MACRO.max_val, REP MASK MACRO.max_val, SN OPEN MASK MACRO.max_val, SNC PARTITION MASK MACRO.max_val
+
+y_data (wt_symbol)
+alias_lot_id, wf_id, x, y, PT1H.symbol, PT1H.end_tm, PT1H.profile_data
+
+mock data

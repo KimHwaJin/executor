@@ -1,0 +1,500 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gaia-prj-03-0042-v2-api-basic-dev
+  labels:
+    app: gaia-prj-03-0042-v2-api-basic-dev
+    prjId: gaia-prj-03-0042-v2
+    rscId: gaia-prj-03-0042-v2-api
+    target: basic
+    env: dev
+    locId: hy-ic-k8s-app-d01
+spec:
+  replicas: "[설정 값 변경 불가]"
+  selector:
+    matchLabels:
+      app: gaia-prj-03-0042-v2-api-basic-dev
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: gaia-prj-03-0042-v2-api-basic-dev
+        ## 필수
+        prjId: gaia-prj-03-0042-v2
+        rscId: gaia-prj-03-0042-v2-api
+        target: basic
+        env: dev
+        locId: hy-ic-k8s-app-d01
+        ## 추가
+        prjCat: GaiA
+        svcType: app
+        appType: GAIA-FRAMEWORK
+        logging: project
+      ### prometheus
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "5000"
+    spec:
+      containers:
+      - name: gaia-prj-03-0042-v2-api-basic-dev
+        image: "[설정 값 변경 불가]"
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 5000
+          protocol: TCP
+        env:
+        - name: spring.profiles.active
+          value: dev
+        - name: user.timezone
+          value: Asia/Seoul
+        - name: DATABASE_URL
+          value: "[설정 값 변경 불가]"
+        - name: REDIS_URL
+          value: "[설정 값 변경 불가]"
+        - name: RESET_DB_ON_START
+          value: "true"
+        - name: RUN_MIGRATIONS_ON_START
+          value: "true"
+        - name: DB_WAIT_SECODNS
+          value: "60"
+        - name: SERVER_HOST
+          value: "0.0.0.0"
+        - name: SERVER_PORT
+          value: "5000"
+        - name: SERVER_RELOAD
+          value: "false"
+        - name: AGENT_WORKER_ENABLED
+          value: "true"
+        - name: TASK_RECONCILER_ENABLED
+          value: "true"
+        - name: MODEL_PROVIDER
+          value: "openai_compatible"
+        - name: MODEL_API_KEY
+          value: "[설정 값 변경 불가]"
+        - name: LLM_MODEL_NAME
+          value: "gpt-oss-120b"
+        - name: API_BASE_URL
+          value: "http://hcp.llm.skhynix.com/v1"
+        - name: MODEL_TIMEOUT_SECONDS
+          value: "60"
+        - name: MODEL_MAX_RETRIES
+          value: "0"
+        - name: MODEL_STRUCTURED_OUTPUT_MODE
+          value: "prompt_json"
+        - name: CHECKPOINT_DB_URI
+          value: "[설정 값 변경 불가]"
+        - name: CHECKPOINT_SETUP_ON_START
+          value: "false"
+        - name: LANGGRAPH_STRICT_MSGPACK
+          value: "true"
+        - name: EXECUTOR_BASE_URL
+          value: "http://detest-ai-agent-executor-basic-dev.api.hcpnd01.skhynix.com"
+        - name: EXECUTOR_TLS_VERIFY
+          value: "false"
+        - name: EXECUTOR_RUNTIME_PROFILE
+          value: "default"
+        - name: EXECUTOR_TENANT_ID
+          value: "dtest"
+        - name: EXECUTOR_EXECUTIONS_PATH
+          value: "/api/v1/executions"
+        - name: EXECUTOR_OPERATIONS_PATH
+          value: "/api/v1/executions/{execution_id}/operations"
+        - name: EXECUTOR_EXECUTION_PATH
+          value: "/api/v1/executions/{execution_id}"
+        - name: EXECUTOR_RESULT_PATH
+          value: "/api/v1/executions/{execution_id}/result"
+        - name: EXECUTOR_NOTEBOOK_PATH
+          value: "/api/v1/executions/{execution_id}/notebook"
+        - name: EXECUTOR_FINALIZE_PATH
+          value: "/api/v1/executions/{execution_id}/finalize"
+        - name: EXECUTOR_CANCEL_PATH
+          value: "/api/v1/executions/{execution_id}/cancel"
+        - name: EXECUTOR_ARTIFACTS_PATH
+          value: "/api/v1/executions/{execution_id}/artifacts"
+        - name: EXECUTOR_SHARED_INPUT_ROOT
+          value: "/workspace/shared"
+        - name: EXECUTOR_RESULT_READ_MODE
+          value: "MANIFEST"
+        - name: EXECUTOR_SHARED_RESULT_ROOT
+          value: "/workspace/shared"
+        - name: DATA_MOCK
+          value: "false"
+        - name: MOCK_DATA_ROOT
+          value: "/workspace/pv"
+        - name: EXECUTOR_SOURCE_TYPE
+          value: "PATH"
+        - name: EXECUTOR_REPORT_SOURCE_TYPE
+          value: "PATH"
+        - name: EXECUTOR_REPORT_APPEND_TO_NOTEBOOK
+          value: "true"
+        - name: EXECUTOR_OPERATION_TIMEOUT_SECONDS
+          value: "300"
+        - name: EXECUTOR_OPERATION_WAIT_TIMEOUT_SECONDS
+          value: "300"
+        - name: EXECUTOR_TIMEOUT_SECONDS
+          value: "30"
+        - name: EXECUTOR_SUBMIT_ENABLED
+          value: "true"
+        - name: DEMO_ARTIFACTS_ENABLED
+          value: "false"
+        - name: DEMO_ARTIFACTS_ROOT
+          value: "demo_artifacts"
+        - name: PHOENIX_CONFIG_PATH
+          value: "config.dev.yml"
+        - name: PHOENIX_PROJECT_NAME
+          value: "dtest"
+        - name: WORKFLOW_RECOMMENDATION_ENABLED
+          value: "true"
+        - name: WORKFLOW_SIMILARITY_SCORE
+          value: "0.93"
+        - name: PYTHONUTF8
+          value: "1"
+        - name: PYTHONIOENCODING
+          value: "utf-8"
+        - name: PYTHONPATH
+          value: "/app/src:/app"
+        - name: EW_DATABASE_URL
+          value: "[설정 값 변경 불가]"
+        - name: EW_REDIS_URL
+          value: "[설정 값 변경 불가]"
+        - name: EW_NAMESPACE
+          value: "dtest-agent"
+        - name: EW_EXECUTOR_BASE_URL
+          value: "http://detest-ai-agent-executor-basic-dev.api.hcpnd01.skhynix.com"
+        - name: EW_EXECUTOR_EVENT_STREAM
+          value: "executor.events"
+        - name: EW_EVENT_GROUP_NAME
+          value: "dtest-agent:ingress"
+        - name: EW_COMMAND_STREAM_NAME
+          value: "dtest-agent:commands"
+        - name: EW_COMMAND_GROUP_NAME
+          value: "dtest-agent:dispatch"
+        - name: EW_INSTANCE_ID
+          value: "dtest-agent-uid"
+        - name: EW_INGRESS_CONCURRENCY
+          value: "4"
+        - name: EW_DISPATCH_CONCURRENCY
+          value: "4"
+        - name: EW_LEASE_RENEW_SECONDS
+          value: "10"
+        - name: EW_POOL_SIZE
+          value: "8"
+        - name: EW_BATCH_SIZE
+          value: "100"
+        - name: EW_HEALTH_PORT
+          value: "8011"
+        - name: AGENT_CHECKPOINT_DATABASE_URL
+          value: "[설정 값 변경 불가]"
+        - name: CHECKPOINT_POOL_MIN_SIZE
+          value: "1"
+        - name: CHECKPOINT_POOL_MAX_SIZE
+          value: "8"
+        - name: DATABASE_MAX_OVERFLOW
+          value: "4"
+        - name: AGENT_RUN_WORKER_CONCURRENCY
+          value: "8"
+        - name: TASK_RECONCILER_CONCURRENCY
+          value: "8"
+        lifecycle:
+          preStop:
+            exec:
+              command:
+              - sh
+              - -c
+              - sleep 30
+        livenessProbe:
+          httpGet:
+            path: /api/admin/appReady
+            port: 5000
+          initialDelaySeconds: 60
+          periodSeconds: 60
+          successThreshod: 1
+          timeoutSeconds: 3
+        redinessProbe:
+          httpGet:
+            path: /api/admin/appReady
+            port: 5000
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          successThreshold: 1
+          timeoutSeconds: 3
+          failureThreshold: 10
+        resources:
+          limits:
+            cpu: "[설정 값 변경 불가]"
+            memory: "[설정 값 변경 불가]"
+          requests:
+            cpu: "[설정 값 변경 불가]"
+            memory: "[설정 값 변경 불가]"
+        volumnMounts:
+        - name: timezone-config
+          mountPath: /etc/localtime
+      - name: gaia-prj-03-0042-v2-agent-worker-basic-dev
+        image: "[설정 값 변경 불가]"
+        imagePullPolicy: IfNotPresent
+        command:
+        - python
+        - -m
+        - app.agent_worker.worker_main
+        ports:
+        - containerPort: 8011
+          protocol: TCP
+        env:
+        - name: spring.profiles.active
+          value: dev
+        - name: user.timezone
+          value: Asia/Seoul
+        - name: DATABASE_URL
+          value: "[설정 값 변경 불가]"
+        - name: REDIS_URL
+          value: "[설정 값 변경 불가]"
+        - name: RESET_DB_ON_START
+          value: "true"
+        - name: RUN_MIGRATIONS_ON_START
+          value: "true"
+        - name: DB_WAIT_SECODNS
+          value: "60"
+        - name: SERVER_HOST
+          value: "0.0.0.0"
+        - name: SERVER_PORT
+          value: "5000"
+        - name: SERVER_RELOAD
+          value: "false"
+        - name: AGENT_WORKER_ENABLED
+          value: "true"
+        - name: TASK_RECONCILER_ENABLED
+          value: "true"
+        - name: MODEL_PROVIDER
+          value: "openai_compatible"
+        - name: MODEL_API_KEY
+          value: "[설정 값 변경 불가]"
+        - name: LLM_MODEL_NAME
+          value: "gpt-oss-120b"
+        - name: API_BASE_URL
+          value: "http://hcp.llm.skhynix.com/v1"
+        - name: MODEL_TIMEOUT_SECONDS
+          value: "60"
+        - name: MODEL_MAX_RETRIES
+          value: "0"
+        - name: MODEL_STRUCTURED_OUTPUT_MODE
+          value: "prompt_json"
+        - name: CHECKPOINT_DB_URI
+          value: "[설정 값 변경 불가]"
+        - name: CHECKPOINT_SETUP_ON_START
+          value: "false"
+        - name: LANGGRAPH_STRICT_MSGPACK
+          value: "true"
+        - name: EXECUTOR_BASE_URL
+          value: "http://detest-ai-agent-executor-basic-dev.api.hcpnd01.skhynix.com"
+        - name: EXECUTOR_TLS_VERIFY
+          value: "false"
+        - name: EXECUTOR_RUNTIME_PROFILE
+          value: "default"
+        - name: EXECUTOR_TENANT_ID
+          value: "dtest"
+        - name: EXECUTOR_EXECUTIONS_PATH
+          value: "/api/v1/executions"
+        - name: EXECUTOR_OPERATIONS_PATH
+          value: "/api/v1/executions/{execution_id}/operations"
+        - name: EXECUTOR_EXECUTION_PATH
+          value: "/api/v1/executions/{execution_id}"
+        - name: EXECUTOR_RESULT_PATH
+          value: "/api/v1/executions/{execution_id}/result"
+        - name: EXECUTOR_NOTEBOOK_PATH
+          value: "/api/v1/executions/{execution_id}/notebook"
+        - name: EXECUTOR_FINALIZE_PATH
+          value: "/api/v1/executions/{execution_id}/finalize"
+        - name: EXECUTOR_CANCEL_PATH
+          value: "/api/v1/executions/{execution_id}/cancel"
+        - name: EXECUTOR_ARTIFACTS_PATH
+          value: "/api/v1/executions/{execution_id}/artifacts"
+        - name: EXECUTOR_SHARED_INPUT_ROOT
+          value: "/workspace/shared"
+        - name: EXECUTOR_RESULT_READ_MODE
+          value: "MANIFEST"
+        - name: EXECUTOR_SHARED_RESULT_ROOT
+          value: "/workspace/shared"
+        - name: DATA_MOCK
+          value: "false"
+        - name: MOCK_DATA_ROOT
+          value: "/workspace/pv"
+        - name: EXECUTOR_SOURCE_TYPE
+          value: "PATH"
+        - name: EXECUTOR_REPORT_SOURCE_TYPE
+          value: "PATH"
+        - name: EXECUTOR_REPORT_APPEND_TO_NOTEBOOK
+          value: "true"
+        - name: EXECUTOR_OPERATION_TIMEOUT_SECONDS
+          value: "300"
+        - name: EXECUTOR_OPERATION_WAIT_TIMEOUT_SECONDS
+          value: "300"
+        - name: EXECUTOR_TIMEOUT_SECONDS
+          value: "30"
+        - name: EXECUTOR_SUBMIT_ENABLED
+          value: "true"
+        - name: DEMO_ARTIFACTS_ENABLED
+          value: "false"
+        - name: DEMO_ARTIFACTS_ROOT
+          value: "demo_artifacts"
+        - name: PHOENIX_CONFIG_PATH
+          value: "config.dev.yml"
+        - name: PHOENIX_PROJECT_NAME
+          value: "dtest"
+        - name: WORKFLOW_RECOMMENDATION_ENABLED
+          value: "true"
+        - name: WORKFLOW_SIMILARITY_SCORE
+          value: "0.93"
+        - name: PYTHONUTF8
+          value: "1"
+        - name: PYTHONIOENCODING
+          value: "utf-8"
+        - name: PYTHONPATH
+          value: "/app/src:/app"
+        - name: EW_DATABASE_URL
+          value: "[설정 값 변경 불가]"
+        - name: EW_REDIS_URL
+          value: "[설정 값 변경 불가]"
+        - name: EW_NAMESPACE
+          value: "dtest-agent"
+        - name: EW_EXECUTOR_BASE_URL
+          value: "http://dtest-ai-agent-executor-basic-dev.api.hcpnd01.skhynix.com"
+        - name: EW_EXECUTOR_EVENT_STREAM
+          value: "executor.events"
+        - name: EW_EVENT_GROUP_NAME
+          value: "dtest-agent:ingress"
+        - name: EW_COMMAND_STREAM_NAME
+          value: "dtest-agent:commands"
+        - name: EW_COMMAND_GROUP_NAME
+          value: "dtest-agent:dispatch"
+        - name: EW_INSTANCE_ID
+          value: "dtest-agent-uid"
+        - name: EW_INGRESS_CONCURRENCY
+          value: "4"
+        - name: EW_DISPATCH_CONCURRENCY
+          value: "4"
+        - name: EW_LEASE_RENEW_SECONDS
+          value: "10"
+        - name: EW_POOL_SIZE
+          value: "8"
+        - name: EW_BATCH_SIZE
+          value: "100"
+        - name: EW_HEALTH_PORT
+          value: "8011"
+        - name: EW_RETENTION_DAYS
+          value: "14"
+        - name: AGENT_REPORT_ENABLED
+          value: "false"
+        - name: AGENT_CHECKPOINT_DATABASE_URL
+          value: "[설정 값 변경 불가]"
+        lifecycle:
+          preStop:
+            exec:
+              command:
+              - sh
+              - -c
+              - sleep 30
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: 8011
+          initialDelaySeconds: 60
+          periodSeconds: 60
+          successThreshold: 1
+          timeoutSeconds: 3
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: 8011
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          successThreshold: 1
+          timeoutSeconds: 3
+          failureThreshold: 10
+        resources:
+          limits:
+            cpu: "[설정 값 변경 불가]"
+            memory: "[설정 값 변경 불가]"
+          requests:
+            cpu: "[설정 값 변경 불가]"
+            memory: "[설정 값 변경 불가]"
+        volumnMounts:
+        - name: timezone-config
+          mountPath: /etc/localtime
+      volumes:
+      - name: timezone-config
+        hostPath:
+          path: /usr/share/zoneinfo/Asia/Seoul
+      serviceAccountName: default
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 60
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gaia-prj-03-0042-v2-api-basic-dev-svc
+  labels:
+    app: gaia-prj-03-0042-v2-api-basic-dev
+    prjId: gaia-prj-03-0042-v2
+    rscId: gaia-prj-03-0042-v2-api
+    target: basic
+    env: dev
+    locId: hy-koic-k8s-app-d01
+spec:
+  selector:
+    app: gaia-prj-03-0042-v2-api-basic-dev
+  ports:
+  - name: tcp
+    port: 5000
+    targetPort: 5000
+    protocol: TCP
+  type: ClusterIP
+---
+apiVersion: extensions/v1beta1
+kind: ingress
+metadata:
+  name: gaia-prj-03-0042-v2-api-basic-dev-ingress
+  labels:
+    app: gaia-prj-03-0042-v2-api-basic-dev
+    prjId: gaia-prj-03-0042-v2
+    rscId: gaia-prj-03-0042-v2-api
+    target: basic
+    env: dev
+    locId: hy-koic-k8s-app-d01
+#  annotations:
+#    ingress.kubernetes.io/rewrite-target: /gaia-prj-03-0042-v2-api/
+spec:
+  rules:
+  - host: gaia-prj-03-0042-v2-api-basic-dev.api.hcpnd01.skhynix.com
+    http:
+      paths:
+      # - path: /gaia-prj-03-0042-v2-api/
+      - path: /
+        backend:
+          serviceName: gaia-prj-03-0042-v2-api-basic-dev-svc
+          servicePort: 5000
+---
+apiVersion: autoscaling/v1
+kind: HorizontalPodAutoscaler
+metadata:
+  name: gaia-prj-03-0042-v2-api-basic-dev-hpa
+  lables:
+    app: gaia-prj-03-0042-v2-api-basic-dev
+    prjId: gaia-prj-03-0042-v2
+    rscId: gaia-prj-03-0042-v2-api
+    target: basic
+    env: dev
+    locId: hy-koic-k8s-app-d01
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: gaia-prj-03-0042-v2-api-basic-dev
+  minReplicas: "[설정 값 변경 불가]"
+  maxReplicas: "[설정 값 변경 불가]"
+  targetCPUUtilizationPercentage: "[설정 값 변경 불가]"

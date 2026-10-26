@@ -1,0 +1,1279 @@
+schema_version: '2.0'
+registry_type: tool_registry
+description: Python Tool 파일에서 AST로 추출한 함수 호출 정보다. Registry에 등록된 Tool은 모두 Workflow에서 사용할 수 있다.
+generation:
+  method: python_ast
+  llm_used: false
+  source_root: app/workflow/tools
+tools:
+  data_load:
+    category: data_io
+    function_name: data_load
+    source: data_io/data_load.py
+    signature: 'data_load(parquet_path: str=None)'
+    docstring: |-
+      Parquet 파일을 pandas DataFrame으로 불러옵니다.
+
+      Args:
+          parquet_path: 불러올 Parquet 파일의 경로입니다.
+
+      Returns:
+          불러온 pandas DataFrame입니다.
+    inputs:
+      parquet_path:
+        type: str
+        kind: positional_or_keyword
+        has_default: true
+        default: null
+    returns:
+      type: null
+      outputs:
+        result:
+          selector: $
+    packages:
+    - pandas
+  extract_data:
+    category: data_io
+    function_name: extract_data
+    source: data_io/extract_data.py
+    signature: 'extract_data(data_type: str, lot_cd: str, process: list | str, query_mode: str, start_dt:
+      str | None, end_dt: str | None, wafer_list: list | None, title: list | str | None=None, symbol:
+      list | str | None=None, bin: list | str | int | None=None, device: list | str | None=None, owner:
+      list | str | None=None, program: list | str | None=None, equip: list | str | None=None, limit: int
+      | None=None, **kwargs: object) -> dict[str, object]'
+    docstring: |-
+      Accept the customer extraction arguments and return a placeholder result.
+
+      This function deliberately performs no file or DataLake access. It only
+      preserves the planned call/return contract until the customer implementation
+      replaces it. The following transform Tool supplies local wide mock data.
+
+      Args:
+          data_type: 데이터 종류 (KGSD, NCE, PKT, TDBI, WIS, WT_BIN_PARA,
+              WT_ITEM_PARA, WT_SYMBOL). 필수.
+          lot_cd: Lot 코드. 필수.
+          process: 공정 목록 또는 공정명. 필수.
+          query_mode: 조회 방식 (period 또는 wafer_list). 필수.
+          start_dt: 조회 시작일. 필수 인자이며 wafer_list 조회에서는 None 전달.
+          end_dt: 조회 종료일. 필수 인자이며 wafer_list 조회에서는 None 전달.
+          wafer_list: Wafer ID 목록. 필수 인자이며 period 조회에서는 None 전달.
+          title: Title 필터. 선택.
+          symbol: Symbol 필터. 선택.
+          bin: Bin 필터. 선택.
+          device: Device 필터. 선택.
+          owner: Owner 필터. 선택.
+          program: Program 필터. 선택.
+          equip: 설비 필터. 선택.
+          limit: 조회 행 제한. 선택.
+          kwargs: 고객 구현에서 사용하는 추가 조회 조건. 선택.
+
+      Returns:
+          추출 결과 placeholder와 전달된 query_params.
+    inputs:
+      data_type:
+        type: str
+        kind: positional_or_keyword
+        has_default: false
+        default: null
+      lot_cd:
+        type: str
+        kind: positional_or_keyword
+        has_default: false
+        default: null
+      process:
+        type: list | str
+        kind: positional_or_keyword
+        has_default: false
+        default: null
+      query_mode:
+        type: str
+        kind: positional_or_keyword
+        has_default: false
+        default: null
+      start_dt:
+        type: str | None
+        kind: positional_or_keyword
+        has_default: false
+        default: null
+      end_dt:
+        type: str | None
+        kind: positional_or_keyword
+        has_default: false
+        default: null
+      wafer_list:
+        type: list | None
+        kind: positional_or_keyword
+        has_default: false
+        default: null
+      title:
+        type: list | str | None
+        kind: positional_or_keyword
+        has_default: true
+        default: null
+      symbol:
+        type: list | str | None
+        kind: positional_or_keyword
+        has_default: true
+        default: null
+      bin:
+        type: list | str | int | None
+        kind: positional_or_keyword
+        has_default: true
+        default: null
+      device:
+        type: list | str | None
+        kind: positional_or_keyword
+        has_default: true
+        default: null
+      owner:
+        type: list | str | None
+        kind: positional_or_keyword
+        has_default: true
+        default: null
+      program:
+        type: list | str | None
+        kind: positional_or_keyword
+        has_default: true
+        default: null
+      equip:
+        type: list | str | None
+        kind: positional_or_keyword
+        has_default: true
+        default: null
+      limit:
+        type: int | None
+        kind: positional_or_keyword
+        has_default: true
+        default: null
+      kwargs:
+        type: object
+        kind: var_keyword
+        has_default: false
+        default: null
+    returns:
+      type: dict[str, object]
+      outputs:
+        data:
+          selector: '["data"]'
+        metadata:
+          selector: '["metadata"]'
+        preview_data:
+          selector: '["preview_data"]'
+        shape:
+          selector: '["shape"]'
+        columns:
+          selector: '["columns"]'
+        cache_status:
+          selector: '["cache_status"]'
+        file_path:
+          selector: '["file_path"]'
+        data_type:
+          selector: '["data_type"]'
+        query_params:
+          selector: '["query_params"]'
+        cache_key:
+          selector: '["cache_key"]'
+    packages: []
+  transform_data:
+    category: data_io
+    function_name: transform_data
+    source: data_io/transform_data.py
+    signature: 'transform_data(data_type: str, data: dict, transform_op: str | None=None, mock_data_dir:
+      str=''/workspace/pv/data'') -> dict[str, object]'
+    docstring: |-
+      Return NCE or WT symbol data in the existing wide output contract.
+
+      Args:
+          data_type: Supported types are nce and wt_symbol.
+          data: Input from extract_data.data; accepted for compatibility but ignored.
+          transform_op: Operation label for testing; defaults to pivot for NCE
+              and wt_fail_pivot for WT. No production pivot is performed.
+          mock_data_dir: Directory containing the existing wide mock Parquet files.
+
+      Returns:
+          {"data": dict, "shape": list, "columns": list, "transform_info": dict}
+    inputs:
+      data_type:
+        type: str
+        kind: positional_or_keyword
+        has_default: false
+        default: null
+      data:
+        type: dict
+        kind: positional_or_keyword
+        has_default: false
+        default: null
+      transform_op:
+        type: str | None
+        kind: positional_or_keyword
+        has_default: true
+        default: null
+      mock_data_dir:
+        type: str
+        kind: positional_or_keyword
+        has_default: true
+        default: /workspace/pv/data
+    returns:
+      type: dict[str, object]
+      outputs:
+        data:
+          selector: '["data"]'
+        shape:
+          selector: '["shape"]'
+        columns:
+          selector: '["columns"]'
+        transform_info:
+          selector: '["transform_info"]'
+    packages:
+    - pandas
+  boxplot_eda:
+    category: eda
+    function_name: boxplot_eda
+    source: eda/boxplot_eda.py
+    signature: 'boxplot_eda(data: object, output_dir: str=''artifacts/plots'', figsize: tuple | list=(6,
+      5), dpi: int=150) -> dict[str, object]'
+    docstring: |-
+      데이터프레임의 각 수치형 컬럼에 대해 Boxplot을 생성합니다.
+      Args:
+          data: pandas DataFrame (또는 dict 컬럼-배열 형식)
+          output_dir: Boxplot 이미지를 저장할 디렉터리 (예: artifacts/plots)
+          figsize: 그래프 크기. 기본 (6, 5)
+          dpi: 저장 이미지 해상도. 기본 150
+
+      Returns:
+          {"boxplot_paths": list} - 생성된 Boxplot 이미지 파일 경로 리스트
+    inputs:
+      data:
+        type: object
+        kind: positional_or_keyword
+        has_default: false
+        default: null
+      output_dir:
+        type: str
+        kind: positional_or_keyword
+        has_default: true
+        default: artifacts/plots
+      figsize:
+        type: tuple | list
+        kind: positional_or_keyword
+        has_default: true
+        default:
+        - 6
+        - 5
+      dpi:
+        type: int
+        kind: positional_or_keyword
+        has_default: true
+        default: 150
+    returns:
+      type: dict[str, object]
+      outputs:
+        boxplot_paths:
+          selector: '["boxplot_paths"]'
+    packages:
+    - matplotlib
+    - pandas
+  compare_failure_normal:
+    category: eda
+    function_name: compare_failure_normal
+    source: eda/compare_failure_normal.py
+    signature: 'compare_failure_normal(data: object, target_column: str=None, feature_columns: list=None,
+      positive_label: int=1, output_dir: str=''artifacts/metrics'') -> dict[str, object]'
+    docstring: |-
+      불량/정상 그룹 간 수치 feature 분포를 통계적으로 비교합니다.
+      Args:
+          data: pnadas DataFrame 또는 dict 컬럼-배열 형식
+          target_column: 불량 여부 컬럼명
+          feature_columns: 비교할 수치형 컬럼 리스트 (None이면 전체 수치형)
+          positive_label: 불량(양성) 값 (기본 1)
+          output_dir: 통계 JSON을 저장할 디렉터리 (예: artifacts/metrics)
+      Returns:
+          {"feature_stats": dict, "mannwhitney_pvalues": dict, "effect_sizes": dict,
+           "artifact_path": str}
+    inputs:
+      data:
+        type: object
+        kind: positional_or_keyword
+        has_default: false
+        default: null
+      target_column:
+        type: str
+        kind: positional_or_keyword
+        has_default: true
+        default: null
+      feature_columns:
+        type: list
+        kind: positional_or_keyword
+        has_default: true
+        default: null
+      positive_label:
+        type: int
+        kind: positional_or_keyword
+        has_default: true
+        default: 1
+      output_dir:
+        type: str
+        kind: positional_or_keyword
+        has_default: true
+        default: artifacts/metrics
+    returns:
+      type: dict[str, object]
+      outputs:
+        feature_stats:
+          selector: '["feature_stats"]'
+        mannwhitney_pvalues:
+          selector: '["mannwhitney_pvalues"]'
+        effect_sizes:
+          selector: '["effect_sizes"]'
+        artifact_path:
+          selector: '["artifact_path"]'
+    packages:
+    - numpy
+    - pandas
+    - scipy
+  compute_statistics:
+    category: eda
+    function_name: compute_statistics
+    source: eda/compute_statistics.py
+    signature: 'compute_statistics(data: object, columns: list=None, output_dir: str | None=None) -> dict[str,
+      object]'
+    docstring: "데이터프레임의 각 컬럼에 대해 기본 통계량을 계산\nArgs: \n    data: pandas DataFrame 객체 또는 dict 컬럼-배열 형식\n\
+      \    columns: 통계량을 계산할 컬럼 목록. None이면 모든 수치형/범주형 컬럼.\n    output_dir: 통계 JSON 저장 경로. None이면 파일을 저장하지\
+      \ 않습니다.\nReturns:\n    {\"statistics\": dict} - 컬럼별 통계량 (수치형: describe, 범주형: count/unique/top/freq)"
+    inputs:
+      data:
+        type: object
+        kind: positional_or_keyword
+        has_default: false
+        default: null
+      columns:
+        type: list
+        kind: positional_or_keyword
+        has_default: true
+        default: null
+      output_dir:
+        type: str | None
+        kind: positional_or_keyword
+        has_default: true
+        default: null
+    returns:
+      type: dict[str, object]
+      outputs:
+        statistics:
+          selector: '["statistics"]'
+    packages:
+    - pandas
+  correlation_analysis:
+    category: eda
+    function_name: correlation_analysis
+    source: eda/correlation_analysis.py
+    signature: 'correlation_analysis(data: object, target_col: str=None, method: str=''pearson'', top_n:
+      int=10, significance_level: float=0.05) -> dict[str, object]'
+    docstring: |-
+      공정 파라미터 간 상관관계 및 target과의 상관분석을 수행합니다.
+      Args:
+          data: pandas DataFrame (또는 dict 컬럼-배열 형식)
+          target_col: 타겟 컬럼명 (불량 여부 등). None이면 파라미터 간 상관만 계산
+          method: 상관계수 방법 ("pearson","spearman", "kendall")
+          top_n: 상위 N개 상관관계 반환
+          significance_level: 유의수준 (기본 0.05)
+      Returns:
+          {
+              "correlation_matrix": dict - 상관행렬 (컬럼-배열 형식),
+              "top_correlations": dict - 상위 상관관계 쌍 (컬럼-배열 형식),
+              "significant_pairs": dict - 통계적으로 유의한 상관 쌍 (컬럼-배열 형식),
+              "target_correlations": didct - target과의 상관관계 (컬럼-배열 형식, target_col 있을 때),
+              "shape": list,
+              "columns": list,
+          }
+    inputs:
+      data:
+        type: object
+        kind: positional_or_keyword
+        has_default: false
+        default: null
+      target_col:
+        type: str
+        kind: positional_or_keyword
+        has_default: true
+        default: null
+      method:
+        type: str
+        kind: positional_or_keyword
+        has_default: true
+        default: pearson
+      top_n:
+        type: int
+        kind: positional_or_keyword
+        has_default: true
+        default: 10
+      significance_level:
+        type: float
+        kind: positional_or_keyword
+        has_default: true
+        default: 0.05
+    returns:
+      type: dict[str, object]
+      outputs:
+        correlation_matrix:
+          selector: '["correlation_matrix"]'
+        top_correlations:
+          selector: '["top_correlations"]'
+        significant_pairs:
+          selector: '["significant_pairs"]'
+        target_correlations:
+          selector: '["target_correlations"]'
+        shape:
+          selector: '["shape"]'
+        columns:
+          selector: '["columns"]'
+    packages:
+    - numpy
+    - pandas
+    - scipy
+  detect_outliers:
+    category: eda
+    function_name: detect_outliers
+    source: eda/detect_outliers.py
+    signature: 'detect_outliers(data: object, method: str=''iqr'', columns: list=None) -> dict[str, object]'
+    docstring: |-
+      다양한 방법으로 이상치를 탐지합니다.
+      Args:
+          data: pandas DataFrame (또는 dict 컬럼-배열 형식)
+          method: 탐지 방법 ("iqr", "zscore", "isolation_forest")
+          columns: 탐지할 컬럼 (선택사항)
+      Returns:
+          {"outlier_indices": list, "outlier_report": dict}
+    inputs:
+      data:
+        type: object
+        kind: positional_or_keyword
+        has_default: false
+        default: null
+      method:
+        type: str
+        kind: positional_or_keyword
+        has_default: true
+        default: iqr
+      columns:
+        type: list
+        kind: positional_or_keyword
+        has_default: true
+        default: null
+    returns:
+      type: dict[str, object]
+      outputs:
+        outlier_indices:
+          selector: '["outlier_indices"]'
+        outlier_report:
+          selector: '["outlier_report"]'
+    packages:
+    - numpy
+    - pandas
+    - scikit-learn
+  histogram_eda:
+    category: eda
+    function_name: histogram_eda
+    source: eda/histogram_eda.py
+    signature: 'histogram_eda(data: object, columns: list=None, bins: int=30, output_dir: str=''artifacts/plots'',
+      figsize: tuple | list=(8, 5), dpi: int=150) -> dict[str, object]'
+    docstring: |-
+      데이터프레임의 각 컬럼에 대해 히스토그램/카운트플롯을 생성합니다.
+      Args:
+          data: pandas DataFrame (또는 dict 컬럼-배열 형식)
+          columns: 플롯을 생성할 컬럼 목록. None이면 모든 수치형/범주형 컬럼.
+          bins: 히스토그램 bin 수 (수치형 컬럼에만 적용)
+          output_dir: 히스토그램 이미지를 저장할 디렉터리 (예: artifacts/plots)
+          figsize: 그래프 크기. 기본 (8, 5)
+          dpi: 저장 이미지 해상도. 기본 150
+
+      Returns:
+          {"histogram_paths": list} - 생성된 히스토그램 이미지 파일 경로 리스트
+    inputs:
+      data:
+        type: object
+        kind: positional_or_keyword
+        has_default: false
+        default: null
+      columns:
+        type: list
+        kind: positional_or_keyword
+        has_default: true
+        default: null
+      bins:
+        type: int
+        kind: positional_or_keyword
+        has_default: true
+        default: 30
+      output_dir:
+        type: str
+        kind: positional_or_keyword
+        has_default: true
+        default: artifacts/plots
+      figsize:
+        type: tuple | list
+        kind: positional_or_keyword
+        has_default: true
+        default:
+        - 8
+        - 5
+      dpi:
+        type: int
+        kind: positional_or_keyword
+        has_default: true
+        default: 150
+    returns:
+      type: dict[str, object]
+      outputs:
+        histogram_paths:
+          selector: '["histogram_paths"]'
+    packages:
+    - matplotlib
+    - pandas
+    - seaborn
+  plot_failure_distribution:
+    category: eda
+    function_name: plot_failure_distribution
+    source: eda/plot_failure_distribution.py
+    signature: 'plot_failure_distribution(data: object, target_column: str=None, positive_label: int=1,
+      output_dir: str=''artifacts/plots'', figsize: tuple=(8, 6), dpi: int=150) -> dict[str, object]'
+    docstring: |-
+      불량/정상 클래스 분포를 시각화합니다.
+      Args:
+          data: pandas DataFrame 또는 dict 컬럼-배열 형식
+          positive_label: 불량(양성) 값 (기본 1)
+          output_dir: 플롯 이미지를 저장할 디렉터리 (예: artifacts/plots)
+          figsize: 그래프 크기. 기본 (8, 6)
+          dpi: 저장 이미지 해상도. 기본 150
+      Returns:
+          {"plot_path": str, "class_counts": dict, "class_ratio": dict}
+    inputs:
+      data:
+        type: object
+        kind: positional_or_keyword
+        has_default: false
+        default: null
+      target_column:
+        type: str
+        kind: positional_or_keyword
+        has_default: true
+        default: null
+      positive_label:
+        type: int
+        kind: positional_or_keyword
+        has_default: true
+        default: 1
+      output_dir:
+        type: str
+        kind: positional_or_keyword
+        has_default: true
+        default: artifacts/plots
+      figsize:
+        type: tuple
+        kind: positional_or_keyword
+        has_default: true
+        default:
+        - 8
+        - 6
+      dpi:
+        type: int
+        kind: positional_or_keyword
+        has_default: true
+        default: 150
+    returns:
+      type: dict[str, object]
+      outputs:
+        plot_path:
+          selector: '["plot_path"]'
+        class_counts:
+          selector: '["class_counts"]'
+        class_ratio:
+          selector: '["class_ratio"]'
+    packages:
+    - matplotlib
+    - numpy
+    - pandas
+  profile_data:
+    category: eda
+    function_name: profile_data
+    source: eda/profile_data.py
+    signature: 'profile_data(data: object) -> dict[str, object]'
+    docstring: |-
+      데이터셋의 기본 통계 및 품질을 분석합니다.
+      Args:
+          data: pandas DataFrame (또는 dict 컬럼-배열 형식)
+      Returns:
+          {"profile": dict} - row_count, missing_rate 등
+    inputs:
+      data:
+        type: object
+        kind: positional_or_keyword
+        has_default: false
+        default: null
+    returns:
+      type: dict[str, object]
+      outputs:
+        profile:
+          selector: '["profile"]'
+    packages:
+    - pandas
+  target_correlation:
+    category: eda
+    function_name: target_correlation
+    source: eda/target_correlation.py
+    signature: 'target_correlation(data: object, target_column: str=None, method: str=''mutual_info'',
+      positive_label: int=1, top_n: int=20, columns: list=None, output_dir: str=''artifacts/metrics'')
+      -> dict[str, object]'
+    docstring: |-
+      target과 각 feature 간의 비선형 연관도를 계산합니다.
+      (선형 상관은 correlation_analysis.py 사용)
+      Args:
+          data: pandas DataFrame 또는 dict 컬럼-배열 형식
+          target_column: target 컬럼명
+          method: 연관도 방법 ("mutual_info", "chi2", "anova")
+          positive_label: 양성 값 (기본 1)
+          top_n: 상위 N개 feature 반환
+          columns: 분석할 feature 컬럼 리스트 (None이면 전체 수치형)
+          output_dir: 통계 JSON을 저장할 디렉터리 (예: artifacts/metrics)
+      Returns:
+          {"scores": dict, "top_features": list, "ranked_features": list,
+           "artifact_path": str}
+    inputs:
+      data:
+        type: object
+        kind: positional_or_keyword
+        has_default: false
+        default: null
+      target_column:
+        type: str
+        kind: positional_or_keyword
+        has_default: true
+        default: null
+      method:
+        type: str
+        kind: positional_or_keyword
+        has_default: true
+        default: mutual_info
+      positive_label:
+        type: int
+        kind: positional_or_keyword
+        has_default: true
+        default: 1
+      top_n:
+        type: int
+        kind: positional_or_keyword
+        has_default: true
+        default: 20
+      columns:
+        type: list
+        kind: positional_or_keyword
+        has_default: true
+        default: null
+      output_dir:
+        type: str
+        kind: positional_or_keyword
+        has_default: true
+        default: artifacts/metrics
+    returns:
+      type: dict[str, object]
+      outputs:
+        scores:
+          selector: '["scores"]'
+        top_features:
+          selector: '["top_features"]'
+        ranked_features:
+          selector: '["ranked_features"]'
+        artifact_path:
+          selector: '["artifact_path"]'
+    packages:
+    - numpy
+    - pandas
+    - scikit-learn
+    - scipy
+  evaluate_model:
+    category: modeling
+    function_name: evaluate_model
+    source: modeling/evaluate_model.py
+    signature: 'evaluate_model(model: object=None, test_data: object=None, target_column: str=None, threshold:
+      float=0.5, positive_label: int=1) -> dict[str, object]'
+    docstring: "학습된 분류 모델을 평가합니다.\n\nArgs:\n    model: 학습된 분류 모델 객체\n    test_data: 평가용 pandas DataFrame\
+      \ 또는 dict 컬럼-배열 형식\n    target_column: target 컬럼명\n    threshold: 분류 임계값 (기본 0.5)\n    positive_label:\
+      \ 양성 값 (기본 1)\n    \nReturns:\n    {\"accuracy\": float, \"precision\": float, \"recall\": float,\
+      \ \"f1\": float, \"roc_auc\": float, \"pr_auc\": float, \"confusion_matrix\": list, \"classification_report\"\
+      : dict}"
+    inputs:
+      model:
+        type: object
+        kind: positional_or_keyword
+        has_default: true
+        default: null
+      test_data:
+        type: object
+        kind: positional_or_keyword
+        has_default: true
+        default: null
+      target_column:
+        type: str
+        kind: positional_or_keyword
+        has_default: true
+        default: null
+      threshold:
+        type: float
+        kind: positional_or_keyword
+        has_default: true
+        default: 0.5
+      positive_label:
+        type: int
+        kind: positional_or_keyword
+        has_default: true
+        default: 1
+    returns:
+      type: dict[str, object]
+      outputs:
+        accuracy:
+          selector: '["accuracy"]'
+        precision:
+          selector: '["precision"]'
+        recall:
+          selector: '["recall"]'
+        f1:
+          selector: '["f1"]'
+        roc_auc:
+          selector: '["roc_auc"]'
+        pr_auc:
+          selector: '["pr_auc"]'
+        confusion_matrix:
+          selector: '["confusion_matrix"]'
+        classification_report:
+          selector: '["classification_report"]'
+    packages: []
+  train_classifier:
+    category: modeling
+    function_name: train_classifier
+    source: modeling/train_classifier.py
+    signature: 'train_classifier(train_data: object=None, test_data: object=None, target_column: str=None,
+      model_type: str=''xgboost'', positive_label: int=1) -> dict[str, object]'
+    docstring: "이진 분류 모델을 학습합니다.\n\nArgs:\n    train_data: 학습용 pandas DataRame 또는 dict 컬럼-배열 형식\n    test_data:\
+      \ 평가용 pandas DataFrame 또는 dict 컬럼-배열 형식\n    target_column: target 컬럼명\n    model_type: 모델 종류 (logistic,\
+      \ random_forest, xgboost, lightgbm)\n    positive_label: 양성 값 (기본 1)\n    \nReturns:\n    {\"model\"\
+      :object, \"metrics\":dict, \"feature_importance\":dict, \"predictions\":dict}"
+    inputs:
+      train_data:
+        type: object
+        kind: positional_or_keyword
+        has_default: true
+        default: null
+      test_data:
+        type: object
+        kind: positional_or_keyword
+        has_default: true
+        default: null
+      target_column:
+        type: str
+        kind: positional_or_keyword
+        has_default: true
+        default: null
+      model_type:
+        type: str
+        kind: positional_or_keyword
+        has_default: true
+        default: xgboost
+      positive_label:
+        type: int
+        kind: positional_or_keyword
+        has_default: true
+        default: 1
+    returns:
+      type: dict[str, object]
+      outputs:
+        model:
+          selector: '["model"]'
+        metrics:
+          selector: '["metrics"]'
+        feature_importance:
+          selector: '["feature_importance"]'
+        predictions:
+          selector: '["predictions"]'
+    packages: []
+  train_xgboost:
+    category: modeling
+    function_name: train_xgboost
+    source: modeling/train_xgboost.py
+    signature: 'train_xgboost(train_data: object=None, test_data: object=None, target_column: str=None,
+      output_dir: str=''artifacts/models'') -> dict[str, object]'
+    docstring: |-
+      분할된 학습·테스트 데이터로 XGBoost 분류 모델을 학습합니다.
+
+      Args:
+          train_data: target 컬럼을 포함한 학습용 pandas DataFrame 또는 dict.
+          test_data: target 컬럼을 포함한 테스트용 pandas DataFrame 또는 dict.
+          target_column: 예측 대상 컬럼명.
+          output_dir: 모델 파일을 저장할 디렉터리 (예: artifacts/models).
+
+      Returns:
+          {"model": model, "metrics": dict, "model_path": str}
+    inputs:
+      train_data:
+        type: object
+        kind: positional_or_keyword
+        has_default: true
+        default: null
+      test_data:
+        type: object
+        kind: positional_or_keyword
+        has_default: true
+        default: null
+      target_column:
+        type: str
+        kind: positional_or_keyword
+        has_default: true
+        default: null
+      output_dir:
+        type: str
+        kind: positional_or_keyword
+        has_default: true
+        default: artifacts/models
+    returns:
+      type: dict[str, object]
+      outputs:
+        model:
+          selector: '["model"]'
+        metrics:
+          selector: '["metrics"]'
+        model_path:
+          selector: '["model_path"]'
+    packages:
+    - numpy
+    - pandas
+    - scikit-learn
+    - xgboost
+  tune_model:
+    category: modeling
+    function_name: tune_model
+    source: modeling/tune_model.py
+    signature: 'tune_model(train_data: object=None, target_column: object=None, model_type: str=''xgboost'',
+      param_grid: dict=None, search_method: str=''grid'', scoring: str=''f1'', n_splits: int=3, positive_label:
+      int=1) -> dict[str, object]'
+    docstring: "분류 모델의 하이퍼파라미터를 튜닝합니다.\n\nArgs:\n    train_data: 학습용 pandas DataRame 또는 dict 컬럼-배열 형식\n\
+      \    target_column: target 컬럼명\n    model_typeL 모델 종류 (logistic, random_forest, xgboost, lightgbm)\n\
+      \    param_grid: 탐색할  파라미터 그리드 (dict)\n    search_method: 탐색 방식 (grid, random, bayesian)\n    scoring:\
+      \ 최적화 지표 (f1, roc_auc, precision, recall)\n    n_splits: 교차검증 fold 수\n    positive_label: 양성 값 (기본\
+      \ 1)\n    \nReturns:\n    {\"best_params\": dict, \"best_score\": float, \"best_model\": object,\
+      \ \"cv_results\": dict}"
+    inputs:
+      train_data:
+        type: object
+        kind: positional_or_keyword
+        has_default: true
+        default: null
+      target_column:
+        type: object
+        kind: positional_or_keyword
+        has_default: true
+        default: null
+      model_type:
+        type: str
+        kind: positional_or_keyword
+        has_default: true
+        default: xgboost
+      param_grid:
+        type: dict
+        kind: positional_or_keyword
+        has_default: true
+        default: null
+      search_method:
+        type: str
+        kind: positional_or_keyword
+        has_default: true
+        default: grid
+      scoring:
+        type: str
+        kind: positional_or_keyword
+        has_default: true
+        default: f1
+      n_splits:
+        type: int
+        kind: positional_or_keyword
+        has_default: true
+        default: 3
+      positive_label:
+        type: int
+        kind: positional_or_keyword
+        has_default: true
+        default: 1
+    returns:
+      type: dict[str, object]
+      outputs:
+        best_params:
+          selector: '["best_params"]'
+        best_score:
+          selector: '["best_score"]'
+        best_model:
+          selector: '["best_model"]'
+        cv_results:
+          selector: '["cv_results"]'
+    packages: []
+  impute_missing:
+    category: preprocessing
+    function_name: impute_missing
+    source: preprocessing/impute_missing.py
+    signature: 'impute_missing(data: object, strategy: str=''auto'', columns: list=None, fill_value: object=None,
+      n_neighbors: int=5) -> dict[str, object]'
+    docstring: |-
+      결측치를 지정된 전략으로 대체합니다.
+      Args:
+          data: pandas DataFrame 또는 dict 컬럼-배열 형식
+          strategy: 대체 전략 ("auto", "mean", "median", "mode", "constant", "ffill", "bfill", "knn")
+          columns: 대상 컬럼 목록 (None이면 결측치가 있는 모든 컬럼)
+          fill_value: strategy="constant"일 때 사용할 값
+          n_neighbors: strategy="knn"일 때 이웃 수
+      Returns:
+          {"imputed_data": dict, "shape": list, "columns": list,
+           "imputation_summary": dict}
+    inputs:
+      data:
+        type: object
+        kind: positional_or_keyword
+        has_default: false
+        default: null
+      strategy:
+        type: str
+        kind: positional_or_keyword
+        has_default: true
+        default: auto
+      columns:
+        type: list
+        kind: positional_or_keyword
+        has_default: true
+        default: null
+      fill_value:
+        type: object
+        kind: positional_or_keyword
+        has_default: true
+        default: null
+      n_neighbors:
+        type: int
+        kind: positional_or_keyword
+        has_default: true
+        default: 5
+    returns:
+      type: dict[str, object]
+      outputs:
+        imputed_data:
+          selector: '["imputed_data"]'
+        shape:
+          selector: '["shape"]'
+        columns:
+          selector: '["columns"]'
+        imputation_summary:
+          selector: '["imputation_summary"]'
+    packages:
+    - numpy
+    - pandas
+    - scikit-learn
+  merge_data:
+    category: preprocessing
+    function_name: merge_data
+    source: preprocessing/merge_data.py
+    signature: 'merge_data(left_data: object, right_data: object, join_columns: list=None, how: str=''inner'',
+      suffixes: tuple=(''_left'', ''_right''), validate: str=None) -> dict[str, object]'
+    docstring: |-
+      두 DataFrame을 지정한 공통 컬럼을 기준으로 병합합니다.
+
+      Args:
+          left_data: 왼쪽 pandas DataFrame 또는 dict.
+          right_data: 오른쪽 pandas DataFrame 또는 dict.
+          join_columns: 양쪽 데이터에 공통으로 존재하는 병합 기준 컬럼 목록.
+          how: 병합 방식("inner", "left", "right", "outer").
+          suffixes: 이름이 겹치는 비기준 컬럼에 붙일 접미사 2개.
+          validate: 키 관계 검증 방식. None 또는 "one_to_one",
+              "one_to_many", "many_to_one", "many_to_many".
+
+      Returns:
+          {"merged_data": DataFrame, "merge_summary": dict}
+    inputs:
+      left_data:
+        type: object
+        kind: positional_or_keyword
+        has_default: false
+        default: null
+      right_data:
+        type: object
+        kind: positional_or_keyword
+        has_default: false
+        default: null
+      join_columns:
+        type: list
+        kind: positional_or_keyword
+        has_default: true
+        default: null
+      how:
+        type: str
+        kind: positional_or_keyword
+        has_default: true
+        default: inner
+      suffixes:
+        type: tuple
+        kind: positional_or_keyword
+        has_default: true
+        default:
+        - _left
+        - _right
+      validate:
+        type: str
+        kind: positional_or_keyword
+        has_default: true
+        default: null
+    returns:
+      type: dict[str, object]
+      outputs:
+        merged_data:
+          selector: '["merged_data"]'
+        merge_summary:
+          selector: '["merge_summary"]'
+    packages:
+    - pandas
+  remove_outliers:
+    category: preprocessing
+    function_name: remove_outliers
+    source: preprocessing/remove_outliers.py
+    signature: 'remove_outliers(data: object, outlier_indices: list=None) -> dict[str, object]'
+    docstring: |-
+      이상치 인덱스에 해당하는 행을 제거합니다.
+
+      Args:
+          data: pandas DataFrame 또는 dict 컬럼-배열 형식
+          outlier_indices: detect_outliers가 반환한 이상치 인덱스 목록
+
+      Returns:
+          {
+              "data_without_outliers": DataFrame,
+              "removed_indices": list,
+              "shape": list,
+              "columns": list,
+          }
+    inputs:
+      data:
+        type: object
+        kind: positional_or_keyword
+        has_default: false
+        default: null
+      outlier_indices:
+        type: list
+        kind: positional_or_keyword
+        has_default: true
+        default: null
+    returns:
+      type: dict[str, object]
+      outputs:
+        data_without_outliers:
+          selector: '["data_without_outliers"]'
+        removed_indices:
+          selector: '["removed_indices"]'
+        shape:
+          selector: '["shape"]'
+        columns:
+          selector: '["columns"]'
+    packages:
+    - pandas
+  sample_data:
+    category: preprocessing
+    function_name: sample_data
+    source: preprocessing/sample_data.py
+    signature: 'sample_data(data: object, sample_size: int | float=None, method: str=''random'', stratify_column:
+      str=None, random_state: int=42) -> dict[str, object]'
+    docstring: |-
+      대용량 데이터셋에서 샘플을 추출합니다.
+      Args:
+          data: pandas DataFrame (또는 dict 컬럼-배열 형식)
+          sample_size: 샘플 크기 또는 비율
+          method: 샘플링 방법 ("random", "stratified", "systematic")
+          stratify_column: 층화 샘플링 기준 컬럼
+          random_state: 재현성을 위한 시드
+
+      Returns:
+          {"sampled_data": DataFrame, "sample_info": dict}
+    inputs:
+      data:
+        type: object
+        kind: positional_or_keyword
+        has_default: false
+        default: null
+      sample_size:
+        type: int | float
+        kind: positional_or_keyword
+        has_default: true
+        default: null
+      method:
+        type: str
+        kind: positional_or_keyword
+        has_default: true
+        default: random
+      stratify_column:
+        type: str
+        kind: positional_or_keyword
+        has_default: true
+        default: null
+      random_state:
+        type: int
+        kind: positional_or_keyword
+        has_default: true
+        default: 42
+    returns:
+      type: dict[str, object]
+      outputs:
+        sampled_data:
+          selector: '["sampled_data"]'
+        sample_info:
+          selector: '["sample_info"]'
+    packages:
+    - numpy
+    - pandas
+    - scikit-learn
+  select_features:
+    category: preprocessing
+    function_name: select_features
+    source: preprocessing/select_features.py
+    signature: 'select_features(data: object, target_column: str=None, method: str=''correlation'', k:
+      int=10) -> dict[str, object]'
+    docstring: |-
+      target과 관련성이 높은 수치형 feature를 선택합니다.
+
+      Args:
+          data: target 컬럼을 포함한 pandas DataFrame 또는 dict.
+          target_column: 예측 대상 컬럼명.
+          method: 선택 방법("correlation", "mutual_info", "rfe").
+          k: 선택할 feature 개수.
+
+      Returns:
+          {
+              "selected_data": DataFrame,
+              "shape": list,
+              "columns": list,
+              "selected_features": list,
+              "feature_scores": dict,
+              "requested_k": int,
+              "effective_k": int,
+          }
+    inputs:
+      data:
+        type: object
+        kind: positional_or_keyword
+        has_default: false
+        default: null
+      target_column:
+        type: str
+        kind: positional_or_keyword
+        has_default: true
+        default: null
+      method:
+        type: str
+        kind: positional_or_keyword
+        has_default: true
+        default: correlation
+      k:
+        type: int
+        kind: positional_or_keyword
+        has_default: true
+        default: 10
+    returns:
+      type: dict[str, object]
+      outputs:
+        selected_data:
+          selector: '["selected_data"]'
+        shape:
+          selector: '["shape"]'
+        columns:
+          selector: '["columns"]'
+        selected_features:
+          selector: '["selected_features"]'
+        feature_scores:
+          selector: '["feature_scores"]'
+        requested_k:
+          selector: '["requested_k"]'
+        effective_k:
+          selector: '["effective_k"]'
+    packages:
+    - numpy
+    - pandas
+    - scikit-learn
+  split_dataset:
+    category: preprocessing
+    function_name: split_dataset
+    source: preprocessing/split_dataset.py
+    signature: 'split_dataset(data: object, target_column: str=None, test_size: float=0.2, val_size: float=0.0,
+      method: str=''random'', n_splits: int=5, random_state: int=42, shuffle: bool=True) -> dict[str,
+      object]'
+    docstring: |-
+      데이터셋을 학습/검증/테스트 셋으로 분할합니다.
+      Args:
+          data: pandas DataFrame 또는 dict 컬럼-배열 형식
+          target_column: 타겟 컬럼명 (stratified 분할 시 필수)
+          test_size: 테스트 셋 비율(0~1)
+          val_size: 검증 셋 비율 (0~1, 0이면 검증 셋 생성 안 함)
+          method: 분할 방식 ("random", "stratified", "kfold", "timeseries")
+          n_splits: kfold 방식 시 fold 수
+          random_state: 재현성을 위한 시드
+          shuffle: 셔플 여부 (tiemseries에서는 무시)
+      Returns:
+          모든 분할 방식에서 동일한 키를 갖는 결과 dict.
+          ``val_data``는 검증 셋이 없으면 ``None``, ``folds``는 kfold 방식이
+          아니면 빈 list입니다.
+    inputs:
+      data:
+        type: object
+        kind: positional_or_keyword
+        has_default: false
+        default: null
+      target_column:
+        type: str
+        kind: positional_or_keyword
+        has_default: true
+        default: null
+      test_size:
+        type: float
+        kind: positional_or_keyword
+        has_default: true
+        default: 0.2
+      val_size:
+        type: float
+        kind: positional_or_keyword
+        has_default: true
+        default: 0.0
+      method:
+        type: str
+        kind: positional_or_keyword
+        has_default: true
+        default: random
+      n_splits:
+        type: int
+        kind: positional_or_keyword
+        has_default: true
+        default: 5
+      random_state:
+        type: int
+        kind: positional_or_keyword
+        has_default: true
+        default: 42
+      shuffle:
+        type: bool
+        kind: positional_or_keyword
+        has_default: true
+        default: true
+    returns:
+      type: dict[str, object]
+      outputs:
+        train_data:
+          selector: '["train_data"]'
+        test_data:
+          selector: '["test_data"]'
+        val_data:
+          selector: '["val_data"]'
+        split_summary:
+          selector: '["split_summary"]'
+        folds:
+          selector: '["folds"]'
+    packages:
+    - numpy
+    - pandas
+    - scikit-learn
