@@ -78,8 +78,8 @@ Jupyter 서버는 베이스 이미지의 **3.12.x**를 사용한다. 셸에서 `
 kernelspec ID와 가상환경 경로(`/opt/venvs/<이름>`)가 된다. Dockerfile과
 `jupyter_server_config.py`는 수정하지 않는다.
 
-- **추가:** `environments/<커널ID>/`에 `ipykernel`을 포함한 `pyproject.toml`, 아래 3번 절차로
-  만든 `uv.lock`, 그리고 `kernel.env`를 둔다.
+- **추가:** `environments/<커널ID>/`에 `ipykernel`을 포함한 `pyproject.toml`과 `kernel.env`를
+  둔다. 아래 3번 절차로 만든 `uv.lock`은 선택이다. 없으면 빌드할 때 의존성을 해석한다.
 
   ```shell
   KERNEL_PYTHON=/opt/python/3.11/bin/python3.11
@@ -104,8 +104,10 @@ kernelspec ID와 가상환경 경로(`/opt/venvs/<이름>`)가 된다. Dockerfil
    최종 이미지에 복사하지 않는다. Python 모듈에 필요한 OS 런타임 라이브러리,
    폰트, OpenMP, 헬스체크용 `curl`, 종료 신호 처리를 위한 `tini`를 설치한다.
 3. `install-environments.sh`가 `environments/`의 모든 환경을 각 디렉토리의 `pyproject.toml`과
-   `uv.lock`으로부터 `uv sync --locked --no-install-project`로 설치한다. lock이 없거나 의존성
-   정의와 일치하지 않으면 이미지 빌드가 실패한다. 설치 전에 lock의 패키지마다 인덱스
+   `uv.lock`으로부터 `uv sync --locked --no-install-project`로 설치한다. lock이 의존성 정의와
+   일치하지 않으면 이미지 빌드가 실패한다. `uv.lock`이 없는 환경은 `uv pip install`로
+   `pyproject.toml`의 의존성을 빌드 시점에 이미지 플랫폼 기준으로만 해석해 설치한다. 이때는
+   빌드마다 간접 의존성 버전이 달라질 수 있으므로 주요 패키지는 `==`로 고정한다. lock 설치 전에는 lock의 패키지마다 인덱스
    페이지를 한 번 조회한다. `uv sync`는 인덱스를 거치지 않고 lock의 파일 URL로 바로 받으므로,
    조회 이력이 없는 패키지는 Nexus PyPI proxy가 404를 내기 때문이다.
    `default`는 Python 3.11.16, `3102311`은 Python 3.10.11이며 서로의 패키지 설치
