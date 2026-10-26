@@ -1,5 +1,5 @@
 #!/bin/sh
-# Installs the Jupyter server and every kernel environment from its uv.lock.
+# Installs the Jupyter server and every kernel environment under environments/.
 # environments/server is the server. Every other directory is a kernel: its
 # name is the kernelspec ID and its kernel.env sets KERNEL_PYTHON and
 # KERNEL_DISPLAY_NAME.
@@ -21,10 +21,18 @@ warm_index() {
         done
 }
 
+# With a uv.lock the environment matches it exactly. Without one, the
+# dependencies are resolved at build time for this image's platform only, which
+# also goes through the index.
 sync_env() {
-    warm_index "$1"
-    UV_PROJECT_ENVIRONMENT="$2" uv sync --project "$1" \
-        --locked --no-dev --no-install-project --python "$3"
+    if [ -f "$1/uv.lock" ]; then
+        warm_index "$1"
+        UV_PROJECT_ENVIRONMENT="$2" uv sync --project "$1" \
+            --locked --no-dev --no-install-project --python "$3"
+    else
+        uv venv --python "$3" "$2"
+        uv pip install --python "$2/bin/python" --requirements "$1/pyproject.toml"
+    fi
 }
 
 sync_env "${ENV_ROOT}/server" "${SERVER_VENV}" /usr/local/bin/python3.12

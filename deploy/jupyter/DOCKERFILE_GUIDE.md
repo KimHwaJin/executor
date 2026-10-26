@@ -111,7 +111,12 @@ gdbm, Expat, uuid의 **런타임 라이브러리**를 설치한다. 컴파일러
 `--no-dev`는 개발 의존성 제외, `--no-install-project`는 환경 정의 자체를 패키지로
 설치하지 않는 옵션이다. 서버와 커널의 site-packages는 공유하지 않는다.
 
-각 `uv sync` 전에 lock의 패키지마다 `${UV_DEFAULT_INDEX}/<패키지>/`를 한 번 조회한다.
+`uv.lock`이 없는 환경은 `uv venv`로 가상환경을 만들고 `uv pip install --requirements
+pyproject.toml`로 설치한다. 이미지 플랫폼 하나만 해석하므로 다른 OS용 휠이 없는 패키지도
+막히지 않고, 인덱스를 거치므로 아래 워밍도 필요 없다. 대신 결과 버전은 빌드 시점 인덱스에
+따른다.
+
+lock이 있는 환경은 `uv sync` 전에 lock의 패키지마다 `${UV_DEFAULT_INDEX}/<패키지>/`를 한 번 조회한다.
 `uv sync`는 인덱스 없이 lock의 파일 URL로 바로 받으므로, 인덱스를 조회한 적 없는 패키지는
 Nexus PyPI proxy가 원격 위치를 몰라 404를 낸다. 조회 실패는 로그만 남기고, 실제 설치
 실패는 이어지는 `uv sync`가 판정한다.
