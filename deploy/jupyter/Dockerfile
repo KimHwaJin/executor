@@ -90,38 +90,16 @@ RUN apt-get update \
 
 COPY --from=python-build /opt/python /opt/python
 
-COPY environments/server /opt/jupyter-env/server
-COPY environments/default /opt/jupyter-env/default
-COPY environments/3102311 /opt/jupyter-env/3102311
-
-RUN UV_PROJECT_ENVIRONMENT=/opt/venvs/jupyter \
-        uv sync --project /opt/jupyter-env/server \
-            --locked --no-dev --no-install-project \
-            --python /usr/local/bin/python3.12 \
-    && UV_PROJECT_ENVIRONMENT=/opt/venvs/default \
-        uv sync --project /opt/jupyter-env/default \
-            --locked --no-dev --no-install-project \
-            --python /opt/python/3.11/bin/python3.11 \
-    && UV_PROJECT_ENVIRONMENT=/opt/venvs/3102311 \
-        uv sync --project /opt/jupyter-env/3102311 \
-            --locked --no-dev --no-install-project \
-            --python /opt/python/3.10/bin/python3.10
+COPY environments /opt/jupyter-env
+COPY install-environments.sh /tmp/install-environments.sh
+RUN sh /tmp/install-environments.sh && rm /tmp/install-environments.sh
 
 COPY extension /opt/jupyter-resource-extension
 COPY executor_resource_extension.json \
     /opt/venvs/jupyter/etc/jupyter/jupyter_server_config.d/executor_resource_extension.json
 
 RUN uv pip install --strict --python /opt/venvs/jupyter/bin/python \
-        --no-deps /opt/jupyter-resource-extension \
-    && /opt/venvs/default/bin/python -m ipykernel install \
-        --prefix=/opt/venvs/jupyter \
-        --name=default \
-        --display-name="Default (Python 3.11)" \
-    && /opt/venvs/3102311/bin/python -m ipykernel install \
-        --prefix=/opt/venvs/jupyter \
-        --name=3102311 \
-        --display-name="3102311 (Python 3.10.11)" \
-    && rm -rf /opt/venvs/jupyter/share/jupyter/kernels/python3
+        --no-deps /opt/jupyter-resource-extension
 
 RUN rm -rf /home/jovyan \
     && groupadd --gid 1000 jovyan \

@@ -39,12 +39,13 @@ Dockerfile의 각 구문, 권한 설정, PVC 적용 시 주의사항은
 
 | 파일 | 역할 | 수정이 필요한 경우 |
 |---|---|---|
-| `Dockerfile` | Python 3.12·uv 베이스, 두 Python 소스 컴파일, lock 기반 환경 설치, 커널 등록 | 베이스 이미지, 패키지 인덱스, apt 미러, OS 패키지, Python 버전, UID/GID 변경 |
+| `Dockerfile` | Python 3.12·uv 베이스, 두 Python 소스 컴파일, 환경 설치 스크립트 실행 | 베이스 이미지, 패키지 인덱스, apt 미러, OS 패키지, Python 버전, UID/GID 변경 |
 | `python-sources/Python-*.tar.xz` | 사전 반입한 Python 공식 소스 압축파일 | 빌드 전 필수 준비. Git에는 포함하지 않음 |
 | `environments/server/pyproject.toml`, `uv.lock` | Jupyter 서버 의존성과 확정 버전 | JupyterLab·Jupyter Server 버전 변경 후 lock 갱신 |
-| `environments/default/pyproject.toml`, `uv.lock` | `default` 커널 의존성과 확정 버전 | 분석 라이브러리 변경 후 lock 갱신 |
-| `environments/3102311/pyproject.toml`, `uv.lock` | `3102311` 커널 의존성과 확정 버전 | 승인된 Python 3.10 패키지 추가 후 lock 갱신 |
-| `jupyter_server_config.py` | 루트·토큰 적용, 포트, 허용 커널, 기본 커널 설정 | 포트나 커널 정책 변경. 루트·토큰은 파일 수정 없이 환경변수로 지정 |
+| `environments/default/pyproject.toml`, `uv.lock`, `kernel.env` | `default` 커널 의존성, 확정 버전, 인터프리터와 표시 이름 | 분석 라이브러리 변경 후 lock 갱신 |
+| `environments/3102311/pyproject.toml`, `uv.lock`, `kernel.env` | `3102311` 커널 의존성, 확정 버전, 인터프리터와 표시 이름 | 승인된 Python 3.10 패키지 추가 후 lock 갱신 |
+| `install-environments.sh` | `environments/` 아래 모든 환경을 lock으로 설치하고 커널로 등록 | 일반적으로 수정하지 않음. 커널 추가·삭제는 아래 "커널 환경 추가와 삭제" 참고 |
+| `jupyter_server_config.py` | 루트·토큰 적용, 포트, 허용 커널(빌드 때 등록된 커널), 기본 커널 설정 | 포트나 기본 커널 변경. 루트·토큰은 파일 수정 없이 환경변수로 지정 |
 | `start-jupyter.sh` | 필수 환경변수 확인 후 JupyterLab 실행 | 일반적으로 수정하지 않음 |
 | `executor_resource_extension.json` | Executor 연동 확장 활성화 | 그대로 유지 |
 | `extension/pyproject.toml`, `extension/src/` | 자원 조회, 작업공간 준비, 노트북 작성, 파일 다운로드 기능 | Executor 연동 코드이므로 일반 배포 시 수정하지 않음 |
@@ -60,6 +61,7 @@ Jupyter 서버는 베이스 이미지의 **3.12.x**를 사용한다. 셸에서 `
 서버 환경의 3.12를 표시하며, 노트북 셀은 선택한 kernelspec의 Python으로 실행된다.
 
 **3.10.11은 이후 보안 수정을 포함하지 않는 과거 버전이다. 운영 반입 승인을 확인한다.**
+
 3.11.16은 2026-09-08 기준 확인한 최신 3.11 릴리스이며, 매 빌드마다 최신 버전으로
 자동 변경하지 않는다.
 
@@ -69,6 +71,27 @@ Jupyter 서버는 베이스 이미지의 **3.12.x**를 사용한다. 셸에서 `
 
 `extension/pyproject.toml`은 커스텀 확장을 uv로 빌드·설치하기 위한 필수 파일이다.
 별도의 패키징 명령은 필요하지 않으며 Dockerfile의 `uv pip install`이 처리한다.
+
+### 커널 환경 추가와 삭제
+
+`environments/` 아래에서 `server`를 뺀 모든 디렉토리가 커널 하나다. 디렉토리 이름이 그대로
+kernelspec ID와 가상환경 경로(`/opt/venvs/<이름>`)가 된다. Dockerfile과
+`jupyter_server_config.py`는 수정하지 않는다.
+
+- **추가:** `environments/<커널ID>/`에 `ipykernel`을 포함한 `pyproject.toml`, 아래 3번 절차로
+  만든 `uv.lock`, 그리고 `kernel.env`를 둔다.
+
+  ```shell
+  KERNEL_PYTHON=/opt/python/3.11/bin/python3.11
+  KERNEL_DISPLAY_NAME="Analysis (Python 3.11)"
+  ```
+
+  `KERNEL_PYTHON`은 이미지에 있는 인터프리터여야 한다. 3.10, 3.11이 아닌 버전이 필요하면
+  Dockerfile의 Python 컴파일 단계도 추가한다.
+- **삭제:** 해당 디렉토리를 지운다. 기본 커널인 `default`를 지우거나 이름을 바꾸면
+  `jupyter_server_config.py`의 `default_kernel_name`도 바꾼다.
+- Executor가 받는 커널 목록은 Executor 설정 `RUNTIME_ALLOWED_PROFILES`(기본값 `default`,
+  `3102311`)이므로 함께 맞춘다.
 
 ## 2. Dockerfile 동작
 
@@ -80,9 +103,11 @@ Jupyter 서버는 베이스 이미지의 **3.12.x**를 사용한다. 셸에서 `
 2. 같은 3.12 베이스의 최종 스테이지에 `/opt/python`만 복사한다. 컴파일러와 소스는
    최종 이미지에 복사하지 않는다. Python 모듈에 필요한 OS 런타임 라이브러리,
    폰트, OpenMP, 헬스체크용 `curl`, 종료 신호 처리를 위한 `tini`를 설치한다.
-3. 아래 세 환경을 각 디렉토리의 `pyproject.toml`과 `uv.lock`으로부터
-   `uv sync --locked --no-install-project`로 설치한다. lock이 없거나 의존성 정의와
-   일치하지 않으면 이미지 빌드가 실패한다.
+3. `install-environments.sh`가 `environments/`의 모든 환경을 각 디렉토리의 `pyproject.toml`과
+   `uv.lock`으로부터 `uv sync --locked --no-install-project`로 설치한다. lock이 없거나 의존성
+   정의와 일치하지 않으면 이미지 빌드가 실패한다. 설치 전에 lock의 패키지마다 인덱스
+   페이지를 한 번 조회한다. `uv sync`는 인덱스를 거치지 않고 lock의 파일 URL로 바로 받으므로,
+   조회 이력이 없는 패키지는 Nexus PyPI proxy가 404를 내기 때문이다.
    `default`는 Python 3.11.16, `3102311`은 Python 3.10.11이며 서로의 패키지 설치
    경로를 공유하지 않는다.
 
@@ -92,11 +117,11 @@ Jupyter 서버는 베이스 이미지의 **3.12.x**를 사용한다. 셸에서 `
    | `default` 커널 | 3.11.16 | `/opt/venvs/default` |
    | `3102311` 커널 | 3.10.11 | `/opt/venvs/3102311` |
 
+   같은 스크립트가 각 커널을 서버에 kernelspec으로 등록하고 불필요한 기본 `python3`
+   kernelspec을 제거한다. 허용 커널은 이렇게 등록된 커널뿐이며 기본 선택은 `default`다.
 4. 서버 가상환경에 `extension/`을 uv로 설치하고 확장을 활성화한다.
-5. `default`, `3102311` kernelspec을 서버에 등록하고 불필요한 기본 `python3` kernelspec을
-   제거한다. 허용 커널은 두 개뿐이며 기본 선택은 `default`다.
-6. UID/GID `1000:1000` 사용자를 만들고 설정 파일과 시작 스크립트를 복사한다.
-7. `${JUPYTER_ROOT_DIR}` 디렉토리를 생성하고 해당 사용자에게 권한을 부여한다.
+5. UID/GID `1000:1000` 사용자를 만들고 설정 파일과 시작 스크립트를 복사한다.
+6. `${JUPYTER_ROOT_DIR}` 디렉토리를 생성하고 해당 사용자에게 권한을 부여한다.
    이미지의 기본 작업 디렉토리(`WORKDIR`)도 빌드 시 이 값을 사용한다.
 
 컨테이너 시작 시 `tini`가 `start-jupyter.sh`를 실행한다. 스크립트는 토큰과 루트 경로가
@@ -194,6 +219,7 @@ docker push ${image.tag}
 - 위 값은 이미지 실행 설정이 아니라 빌드 인자다. 계정·비밀번호·토큰을 URL이나
   Dockerfile에 넣지 않는다.
 - lock을 만들 때 사용한 패키지 인덱스와 이미지 빌드의 `UV_DEFAULT_INDEX`가 같아야 한다.
+  끝의 `/` 유무까지 같은 문자열이어야 하며, 다르면 `--locked`가 lock 갱신 필요로 실패한다.
   사내 Nexus로 전환하는 최초 1회에는 세 lock을 Nexus 기준으로 다시 생성하고 커밋한다.
 
 ## 5. 배포할 때 지정할 값

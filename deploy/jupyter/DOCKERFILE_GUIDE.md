@@ -98,29 +98,35 @@ gdbm, Expat, uuid의 **런타임 라이브러리**를 설치한다. 컴파일러
 
 ## 4. uv 프로젝트 동기화
 
-`COPY environments/...`는 환경마다 독립적인 pyproject.toml과 uv.lock을 가져온다.
+`COPY environments /opt/jupyter-env`는 환경마다 독립적인 pyproject.toml과 uv.lock을
+가져오고, `install-environments.sh`가 그 아래 디렉토리를 모두 설치한다. `server`는 서버
+환경이고 나머지 디렉토리는 각자의 `kernel.env`가 인터프리터를 정한다.
 
 | 환경 | `--python` 인터프리터 | `UV_PROJECT_ENVIRONMENT` 설치 경로 |
 |---|---|---|
 | 서버 | `/usr/local/bin/python3.12` | `/opt/venvs/jupyter` |
-| default | `/opt/python/3.11/bin/python3.11` | `/opt/venvs/default` |
-| 3102311 | `/opt/python/3.10/bin/python3.10` | `/opt/venvs/3102311` |
+| 커널 | `kernel.env`의 `KERNEL_PYTHON` | `/opt/venvs/<디렉토리 이름>` |
 
 `--project`는 환경 정의 위치다. `--locked`는 lock이 없거나 갱신이 필요하면 실패시킨다.
 `--no-dev`는 개발 의존성 제외, `--no-install-project`는 환경 정의 자체를 패키지로
 설치하지 않는 옵션이다. 서버와 커널의 site-packages는 공유하지 않는다.
 
-## 5. 커스텀 확장과 kernelspec
+각 `uv sync` 전에 lock의 패키지마다 `${UV_DEFAULT_INDEX}/<패키지>/`를 한 번 조회한다.
+`uv sync`는 인덱스 없이 lock의 파일 URL로 바로 받으므로, 인덱스를 조회한 적 없는 패키지는
+Nexus PyPI proxy가 원격 위치를 몰라 404를 낸다. 조회 실패는 로그만 남기고, 실제 설치
+실패는 이어지는 `uv sync`가 판정한다.
+
+이어서 각 커널의 Python으로 `-m ipykernel install`을 실행한다. `--prefix`는 등록 위치,
+`--name`은 API에서 쓰는 커널 ID(디렉토리 이름), `--display-name`은 `kernel.env`의
+`KERNEL_DISPLAY_NAME`이다. kernelspec의 argv가 각 가상환경 Python을 가리키므로 서버가
+3.12여도 셀은 선택한 커널의 Python으로 실행된다. 자동 생성된 python3 kernelspec만 삭제한다.
+jupyter_server_config.py는 이렇게 등록된 kernelspec만 허용하고 기본 커널은 default다.
+
+## 5. 커스텀 확장
 
 확장 코드와 활성화 JSON을 서버 환경에 복사한다. `uv pip install --strict --no-deps`로
 확장을 설치하며 서버 lock 밖에서 의존성 버전을 바꾸지 않는다. 확장 빌드용 setuptools
 등 build-system 의존성도 Nexus에서 제공해야 한다.
-
-각 커널의 Python으로 `-m ipykernel install`을 실행한다. `--prefix`는 등록 위치,
-`--name`은 API에서 쓰는 커널 ID, `--display-name`은 UI 표시 이름이다.
-kernelspec의 argv가 각 가상환경 Python을 가리키므로 서버가 3.12여도 셀은 선택한
-커널의 3.11.16 또는 3.10.11로 실행된다. 자동 생성된 python3 kernelspec만 삭제한다.
-기본 커널 및 허용 목록은 jupyter_server_config.py의 default, 3102311을 유지한다.
 커스텀 자원·스토리지 API는 커널이 아닌 서버 3.12 프로세스에서 실행한다.
 
 ## 6. 비-root 사용자와 권한
