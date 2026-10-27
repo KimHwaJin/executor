@@ -69,7 +69,10 @@ def run_migrations_online() -> None:
     if connection is not None:
         do_run_migrations(connection)
     else:
-        asyncio.run(run_async_migrations())
+        # psycopg's async mode cannot use Windows' default ProactorEventLoop.
+        asyncio.run(
+            run_async_migrations(), loop_factory=asyncio.SelectorEventLoop
+        )
 
 
 if context.is_offline_mode():

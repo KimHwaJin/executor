@@ -1,5 +1,8 @@
 """Process entry point."""
 
+import asyncio
+import sys
+
 import uvicorn
 from fastapi import FastAPI
 
@@ -38,4 +41,10 @@ def run() -> None:
         # Keep configure_logging's setup (HCP or logger.yml) for Uvicorn too.
         log_config=None,
     )
-    uvicorn.Server(config).run()
+    server = uvicorn.Server(config)
+    if sys.platform == "win32":
+        # psycopg's async mode cannot use Uvicorn's Windows default, the
+        # ProactorEventLoop, so local Windows runs use the selector loop.
+        asyncio.run(server.serve(), loop_factory=asyncio.SelectorEventLoop)
+    else:
+        server.run()
