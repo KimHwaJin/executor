@@ -733,9 +733,9 @@ the working directory. `config.yml` is read whenever it exists. Deployments set 
 `dev`, `stg` or `prd`, which requires the matching file and fails startup without it. Local runs
 leave `APP_ENV` unset or empty and read only `config.yml`, `.env` and environment variables, so
 local values go in `config.yml` or `.env`. `APP_ENV` is read from the process environment only,
-never from `.env`. Defaults live
-only in `src/executor_service/settings.py`. `config.yml` ships empty and holds a key only when every
-environment should change its default; `config.dev.yml`, `config.stg.yml` and `config.prd.yml`
+never from `.env`. `config.yml` lists every shared tunable at its code default in
+`src/executor_service/settings.py` (a test keeps the two equal, so change both together);
+`config.dev.yml`, `config.stg.yml` and `config.prd.yml`
 hold credentials, MCP host/origin allowlists, storage roots and other deployment-only values. Keys
 are the setting names in any case. The
 platform offers no ConfigMaps or Secrets, so these files, credentials included, ship in the
