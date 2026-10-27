@@ -10,7 +10,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 # Cache third-party dependencies independently from application source changes.
-COPY pyproject.toml uv.lock README.md ./
+COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
 COPY alembic.ini ./
