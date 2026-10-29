@@ -35,8 +35,19 @@ from executor_service.domain.tenants import (
 )
 from executor_service.settings import AuthClient, Settings
 
-# Kubelet probes call these without a key.
-PUBLIC_PATHS = frozenset({"/healthz", "/readyz", "/workerz"})
+# Kubelet probes call these without a key, and the API docs must load before
+# a key can be entered in them. The docs expose the schema, never data.
+PUBLIC_PATHS = frozenset(
+    {
+        "/healthz",
+        "/readyz",
+        "/workerz",
+        "/docs",
+        "/docs/oauth2-redirect",
+        "/redoc",
+        "/openapi.json",
+    }
+)
 # Tenant-independent operations reserved for admin keys.
 ADMIN_PATH_PREFIXES = (
     "/api/v1/runtime-pools",

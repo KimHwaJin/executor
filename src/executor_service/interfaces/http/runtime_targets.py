@@ -3,7 +3,7 @@
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 
 from executor_service.container import ApplicationContainer
 from executor_service.domain.enums import (
@@ -18,6 +18,7 @@ from executor_service.interfaces.contracts import (
     RuntimeTargetResponse,
     RuntimeTargetUpsertRequest,
 )
+from executor_service.interfaces.http.identity import documented_admin_key
 from executor_service.interfaces.http.schemas import (
     ErrorResponse,
     RuntimeTargetMutationRequest,
@@ -44,7 +45,11 @@ FLEET_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
 
 
 def build_runtime_target_router(container: ApplicationContainer) -> APIRouter:
-    router = APIRouter(prefix="/api/v1", tags=["runtime-targets"])
+    router = APIRouter(
+        prefix="/api/v1",
+        tags=["runtime-targets"],
+        dependencies=[Depends(documented_admin_key)],
+    )
     registry = container.runtime_registry
 
     @router.post(
