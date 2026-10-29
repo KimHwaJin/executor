@@ -3,7 +3,7 @@
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Query, Response, status
+from fastapi import APIRouter, Depends, Query, Response, status
 
 from executor_service.application.maintenance import (
     SetExecutorAdmissionCommand,
@@ -15,6 +15,7 @@ from executor_service.interfaces.contracts import (
     MaintenanceRunResponse,
     MaintenanceRunTargetPageResponse,
 )
+from executor_service.interfaces.http.identity import documented_admin_key
 from executor_service.interfaces.http.schemas import (
     ErrorResponse,
     ExecutorMaintenanceMutationRequest,
@@ -40,7 +41,11 @@ MAINTENANCE_RUN_READ_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
 def build_maintenance_router(
     container: ApplicationContainer,
 ) -> APIRouter:
-    router = APIRouter(prefix="/api/v1", tags=["maintenance"])
+    router = APIRouter(
+        prefix="/api/v1",
+        tags=["maintenance"],
+        dependencies=[Depends(documented_admin_key)],
+    )
     maintenance = container.maintenance
     maintenance_runs = container.maintenance_runs
 

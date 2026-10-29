@@ -33,8 +33,10 @@ authoritative state store and execution happens asynchronously through the Worke
 
 ## Authentication and identity
 
-One ASGI middleware authenticates every request, REST and MCP alike. Only `/healthz`,
-`/readyz`, and `/workerz` skip it.
+One ASGI middleware authenticates every request, REST and MCP alike. Only the probes
+(`/healthz`, `/readyz`, `/workerz`) and the API docs (`/docs`, `/redoc`, `/openapi.json`) skip it.
+OpenAPI declares these headers on every route, so Swagger UI shows them as inputs and its
+**Authorize** button sets `X-Api-Key`.
 
 | Header | Rule |
 |---|---|

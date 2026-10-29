@@ -17,6 +17,7 @@ from executor_service.interfaces.auth import (
     require_tenant,
     require_user,
 )
+from executor_service.interfaces.http.identity import documented_identity
 from executor_service.interfaces.http.schemas import ErrorResponse
 
 ExecutionLimit = Annotated[int, Query(ge=1, le=200)]
@@ -84,5 +85,8 @@ def execution_router() -> APIRouter:
     return APIRouter(
         prefix="/api/v1",
         tags=["executions"],
-        dependencies=[Depends(authorized_caller)],
+        dependencies=[
+            Depends(documented_identity),
+            Depends(authorized_caller),
+        ],
     )

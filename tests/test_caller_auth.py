@@ -350,3 +350,31 @@ def test_relay_only_settings_and_unique_keys() -> None:
             auth_mode="api_key",
             auth_clients=(CLIENTS[0], CLIENTS[0]),
         )
+
+
+async def test_openapi_documents_the_identity_headers(api_key_app) -> None:
+    client, _ = api_key_app
+    schema = (await client.get("/openapi.json")).json()
+    assert schema["components"]["securitySchemes"]["APIKeyHeader"] == {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Api-Key",
+        "description": (
+            "Caller API key. Required when AUTH_MODE=api_key (stg, prd)."
+        ),
+    }
+    submit = schema["paths"]["/api/v1/executions"]["post"]
+    headers = {
+        parameter["name"]
+        for parameter in submit["parameters"]
+        if parameter["in"] == "header"
+    }
+    assert headers == {
+        "X-Tenant-Id",
+        "X-User-Id",
+        "X-Project-Id",
+        "X-Session-Id",
+    }
+    assert submit["security"] == [{"APIKeyHeader": []}]
+    targets = schema["paths"]["/api/v1/runtime-targets"]["get"]
+    assert targets["security"] == [{"APIKeyHeader": []}]
