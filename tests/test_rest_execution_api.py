@@ -17,6 +17,9 @@ from executor_service.application.artifact_content import (
 )
 from executor_service.container import ApplicationContainer
 from executor_service.domain.enums import (
+    ArtifactStatus,
+    ArtifactStorageType,
+    ArtifactType,
     AttemptStatus,
     ExecutionStatus,
     OperationStatus,
@@ -35,6 +38,7 @@ from executor_service.domain.runtime import (
 )
 from executor_service.infrastructure.db.base import Base
 from executor_service.infrastructure.db.models import (
+    ExecutionArtifactORM,
     ExecutionAttemptORM,
     ExecutionOperationORM,
     ExecutionORM,
@@ -45,6 +49,13 @@ from executor_service.infrastructure.db.models import (
 from executor_service.interfaces.http.app import create_app
 from executor_service.settings import Settings
 from tests.runtime_credentials import runtime_credential_fields
+
+IDENTITY_HEADERS = {
+    "X-Tenant-Id": "test-tenant",
+    "X-User-Id": "rest-user",
+    "X-Project-Id": "rest-project",
+    "X-Session-Id": "rest-session",
+}
 
 
 @pytest_asyncio.fixture
@@ -67,7 +78,9 @@ async def rest_client(
     app = create_app(container)
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(
-        transport=transport, base_url="http://testserver"
+        transport=transport,
+        base_url="http://testserver",
+        headers=IDENTITY_HEADERS,
     ) as client:
         yield client, container
     await container.redis.aclose()
@@ -135,11 +148,6 @@ def _submit_payload(
             },
             "metadata": {"phase": "initial"},
         },
-        "context": {
-            "user_id": "rest-user",
-            "project_id": "rest-project",
-            "session_id": "rest-session",
-        },
         "metadata": {"caller": "integration-test"},
     }
 
@@ -202,11 +210,36 @@ async def test_openapi_documents_all_execution_routes(
     assert "must-not-leak" not in invalid.text
 
 
+async def _owned_artifact(
+    client: httpx.AsyncClient, container: ApplicationContainer
+) -> UUID:
+    """Register an Artifact on an Execution the test client owns."""
+
+    submitted = await client.post(
+        "/api/v1/executions", json=_submit_payload(key=f"owned-{uuid4()}")
+    )
+    execution_id = UUID(submitted.json()["execution_id"])
+    async with container.session_factory() as session, session.begin():
+        artifact = ExecutionArtifactORM(
+            execution_id=execution_id,
+            artifact_type=ArtifactType.REPORT,
+            storage_type=ArtifactStorageType.PV,
+            status=ArtifactStatus.AVAILABLE,
+            name="report.md",
+            uri="pv://notebooks/report.md",
+            relative_path="notebooks/report.md",
+            identity_hash=uuid4().hex,
+        )
+        session.add(artifact)
+        await session.flush()
+        return artifact.id
+
+
 async def test_artifact_content_endpoint_streams_ranges_with_metadata(
     rest_client: tuple[httpx.AsyncClient, ApplicationContainer],
 ) -> None:
     client, container = rest_client
-    artifact_id = uuid4()
+    artifact_id = await _owned_artifact(client, container)
 
     class _ContentService:
         @asynccontextmanager
@@ -261,9 +294,10 @@ async def test_artifact_content_endpoint_returns_range_contract(
             raise ArtifactRangeNotSatisfiableError("invalid range", 10)
             yield  # pragma: no cover
 
+    artifact_id = await _owned_artifact(client, container)
     cast(Any, container).artifact_content = _RejectingContentService()
     response = await client.get(
-        f"/api/v1/artifacts/{uuid4()}/content",
+        f"/api/v1/artifacts/{artifact_id}/content",
         headers={"Range": "bytes=20-30"},
     )
 
@@ -292,25 +326,40 @@ async def test_submit_contract_validates_lifecycle_and_optional_scope(
     response = await client.post("/api/v1/executions", json=multi_without_wait)
     assert response.status_code == 422
 
-    unscoped = _submit_payload(key="optional-scope")
-    unscoped["context"].pop("project_id")
-    unscoped["context"].pop("session_id")
-    response = await client.post("/api/v1/executions", json=unscoped)
-    assert response.status_code == 202
-    fetched = await client.get(response.headers["location"])
+    unscoped_headers = {"X-Tenant-Id": "test-tenant", "X-User-Id": "rest-user"}
+    unscoped_client = httpx.AsyncClient(
+        transport=client._transport,
+        base_url=client.base_url,
+        headers=unscoped_headers,
+    )
+    async with unscoped_client:
+        response = await unscoped_client.post(
+            "/api/v1/executions", json=_submit_payload(key="optional-scope")
+        )
+        assert response.status_code == 202
+        fetched = await unscoped_client.get(response.headers["location"])
     assert fetched.json()["context"]["project_id"] is None
     assert fetched.json()["context"]["session_id"] is None
 
-    session_without_project = _submit_payload(key="session-without-project")
-    session_without_project["context"].pop("project_id")
-    response = await client.post(
-        "/api/v1/executions", json=session_without_project
-    )
-    assert response.status_code == 422
+    for headers in (
+        {**unscoped_headers, "X-Session-Id": "rest-session"},
+        {**unscoped_headers, "X-Project-Id": "unscoped"},
+    ):
+        invalid_client = httpx.AsyncClient(
+            transport=client._transport,
+            base_url=client.base_url,
+            headers=headers,
+        )
+        async with invalid_client:
+            response = await invalid_client.post(
+                "/api/v1/executions",
+                json=_submit_payload(key="invalid-scope"),
+            )
+        assert response.status_code == 400
+        assert response.json()["error"]["code"] == "INVALID_IDENTITY"
 
-    reserved_scope = _submit_payload(key="reserved-scope")
-    reserved_scope["context"]["project_id"] = "unscoped"
-    response = await client.post("/api/v1/executions", json=reserved_scope)
+    with_context = {**_submit_payload(key="body-context"), "context": {}}
+    response = await client.post("/api/v1/executions", json=with_context)
     assert response.status_code == 422
 
 
@@ -353,7 +402,7 @@ async def test_rest_reads_runtime_owned_notebook_and_cell_outputs(
         == "EXECUTION_NOTEBOOK_NOT_AVAILABLE"
     )
 
-    relative = f"users/rest-user/{execution_id}/notebooks/execution.ipynb"
+    relative = f"tenants/test-tenant/users/rest-user/{execution_id}/notebooks/execution.ipynb"
     target_id = uuid4()
     notebook = {
         "metadata": {},
@@ -555,7 +604,7 @@ async def test_materializes_final_report_below_runtime_reports_directory(
         "/api/v1/executions", json=_submit_payload(key="rest-report-submit")
     )
     execution_id = UUID(submitted.json()["execution_id"])
-    workspace = f"users/rest-user/projects/rest-project/sessions/rest-session/executions/{execution_id}"
+    workspace = f"tenants/test-tenant/users/rest-user/projects/rest-project/sessions/rest-session/executions/{execution_id}"
     storage = _NotebookStorage(
         {"nbformat": 4, "nbformat_minor": 5, "metadata": {}, "cells": []}
     )
@@ -614,7 +663,8 @@ async def test_rejects_dataset_and_model_text_materialization(
     rest_client: tuple[httpx.AsyncClient, ApplicationContainer],
 ) -> None:
     client, _ = rest_client
-    execution_id = uuid4()
+    submitted = await client.post("/api/v1/executions", json=_submit_payload())
+    execution_id = submitted.json()["execution_id"]
 
     for artifact_type in ("DATASET", "MODEL"):
         response = await client.post(
@@ -661,9 +711,7 @@ async def test_single_execution_rest_lifecycle_and_queries(
     assert repeated.json()["execution_id"] == execution_id
 
     fetched = await client.get(f"/api/v1/executions/{execution_id}")
-    history = await client.get(
-        "/api/v1/executions", params={"user_id": "rest-user"}
-    )
+    history = await client.get("/api/v1/executions")
     steps = await client.get(f"/api/v1/executions/{execution_id}/steps")
     step_id = steps.json()["items"][0]["step_id"]
     step = await client.get(
@@ -1120,9 +1168,11 @@ async def test_split_input_root_rejects_output_files_and_escapes(
     }
     response = await client.post("/api/v1/executions", json=payload)
     assert response.status_code == 422
+    submitted = await client.post("/api/v1/executions", json=_submit_payload())
+    execution_id = submitted.json()["execution_id"]
     # Text artifact input uses the same boundary and does not fall back either.
     response = await client.post(
-        f"/api/v1/executions/{uuid4()}/artifacts",
+        f"/api/v1/executions/{execution_id}/artifacts",
         json={
             "idempotency_key": "bad-input",
             "type": "REPORT",

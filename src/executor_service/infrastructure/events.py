@@ -345,8 +345,8 @@ class ExecutionStreamEnvelope(ContractModel):
     event_sequence: int = Field(ge=1)
     payload: dict[str, Any]
     occurred_at: datetime
-    # Present only on a tenant's own Stream; the payload never carries it.
-    tenant_id: str | None = None
+    # Names the Stream's tenant; the payload never carries it.
+    tenant_id: str
 
     @model_validator(mode="after")
     def validate_payload_contract(self) -> Self:

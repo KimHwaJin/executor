@@ -15,6 +15,7 @@ from uuid import uuid4
 
 import psycopg
 from cryptography.fernet import Fernet
+from execution_spec_payload import executor_mcp
 from mcp import Client
 from psycopg import sql
 from redis.asyncio import Redis
@@ -126,7 +127,9 @@ async def main(
                 stderr=log,
             )
         await wait_ready(port)
-        async with Client(environment["EXECUTOR_MCP_URL"]) as client:
+        async with Client(
+            executor_mcp(environment["EXECUTOR_MCP_URL"])
+        ) as client:
             await upsert_runtime_target(
                 client,
                 unique=unique,

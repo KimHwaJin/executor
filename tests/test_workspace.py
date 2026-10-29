@@ -25,6 +25,7 @@ def execution(
         user_id=user_id,
         project_id="project-1",
         session_id="session-1",
+        tenant_id="test-tenant",
         steps=[
             ExecutionStep(
                 sequence=sequence,
@@ -42,7 +43,8 @@ def test_workspace_only_builds_runtime_paths_and_notebook_document() -> None:
     cells = [step.code for step in item.steps]
 
     assert workspace.runtime_relative_path.startswith(
-        "users/user-1/projects/project-1/sessions/session-1/executions/"
+        "tenants/test-tenant/users/user-1/projects/project-1/"
+        "sessions/session-1/executions/"
     )
     assert workspace.notebook_path.endswith("/notebooks/execution.ipynb")
     assert workspace.reports_path.endswith("/reports")

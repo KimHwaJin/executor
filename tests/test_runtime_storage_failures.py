@@ -178,6 +178,7 @@ async def test_runtime_storage_failure_finalizes_consistent_state_and_events(
             user_id="storage-user",
             project_id="storage-project",
             session_id="storage-session",
+            tenant_id="test-tenant",
             steps=(
                 StepSpec(
                     sequence=0,

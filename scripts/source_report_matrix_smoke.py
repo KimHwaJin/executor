@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from execution_spec_payload import execution_request
+from execution_spec_payload import execution_request, executor_mcp
 from local_test_support import executor_mcp_url, required_tool_result
 from mcp import Client
 
@@ -57,11 +57,6 @@ async def _submit(
                 actor={"type": "USER", "id": "source-report-user"},
                 runtime_profile="default",
                 spec={"schema_version": "1.0", "steps": [_step(source)]},
-                context={
-                    "user_id": "source-report-user",
-                    "project_id": "source-report-project",
-                    "session_id": f"source-report-{label}-session-{unique}",
-                },
             )
         },
     )
@@ -185,7 +180,7 @@ async def main() -> None:
     )
 
     try:
-        async with Client(executor_mcp_url()) as client:
+        async with Client(executor_mcp(executor_mcp_url())) as client:
             inline_execution_id = await _submit(
                 client,
                 unique=unique,

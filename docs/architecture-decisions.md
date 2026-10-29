@@ -165,7 +165,7 @@ Agent + Executor shared volume
         └── manifest.json
 
 Jupyter shared volume
-└── users/{user|unscoped}/projects/{project|unscoped}/sessions/{session|unscoped}/executions/{execution}/
+└── tenants/{tenant}/users/{user}/projects/{project|unscoped}/sessions/{session|unscoped}/executions/{execution}/
     ├── notebooks/execution.ipynb
     ├── reports/final-report.md
     ├── artifacts/{datasets,plots,models,metrics,reports,logs,other}/
@@ -197,8 +197,8 @@ PlanStep inside Executor.
 
 Both REST and MCP expose the same application commands. Submit and Operation creation return
 Executor-generated ID receipts immediately. PostgreSQL commits state and event Outbox records in
-one transaction. Workers find work by polling PostgreSQL; `executor.events` wakes Agent/frontend
-consumers.
+one transaction. Workers find work by polling PostgreSQL; each tenant's `executor.events.{tenant}`
+Stream wakes that tenant's Agent/frontend consumers.
 
 `execution.step_completed` carries only a bounded output summary and a structured shared-volume
 result reference. Full text and image payloads stay in immutable shared files and never enter
@@ -214,7 +214,7 @@ Agent -> Executor: submit Execution + initial Operation
 Executor -> Agent: execution_id + operation_id + step_id receipts
 Executor Worker -> Runtime: execute accepted Steps
 Executor -> PostgreSQL: persist Step/Operation result
-Executor -> executor.events: result references and Operation/Execution boundaries
+Executor -> executor.events.{tenant}: result references and Operation/Execution boundaries
 Agent consumer -> LangGraph: deduplicate, resume, fetch one consolidated result
 Agent -> Executor: append next Operation or finalize
 ```

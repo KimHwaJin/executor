@@ -68,6 +68,7 @@ def _command(
         user_id="cancellation-owner-user",
         project_id="cancellation-owner-project",
         session_id=f"cancellation-owner-{name}",
+        tenant_id="test-tenant",
         steps=steps,
     )
 

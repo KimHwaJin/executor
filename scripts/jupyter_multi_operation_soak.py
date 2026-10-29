@@ -6,7 +6,7 @@ from time import monotonic
 from typing import Any
 from uuid import uuid4
 
-from execution_spec_payload import execution_request
+from execution_spec_payload import execution_request, executor_mcp
 from jupyter_long_running_soak import (
     TERMINAL_STATUSES,
     _attempt_snapshot,
@@ -138,7 +138,7 @@ async def main() -> None:
     all_samples: list[dict[str, Any]] = []
     waiting_states: list[dict[str, Any]] = []
 
-    async with Client(executor_mcp_url()) as client:
+    async with Client(executor_mcp(executor_mcp_url())) as client:
         targets = await register_local_runtime_targets(
             client,
             run_id=run_id,
@@ -164,11 +164,6 @@ async def main() -> None:
                         output_interval_seconds=output_interval_seconds,
                         step_timeout_seconds=step_timeout_seconds,
                     ),
-                    context={
-                        "user_id": "multi-soak-user",
-                        "project_id": "local-resilience",
-                        "session_id": f"multi-soak-session-{run_id}",
-                    },
                     metadata={
                         "test_type": "LONG_RUNNING_MULTI_OPERATION_SOAK",
                         "test_run_id": run_id,

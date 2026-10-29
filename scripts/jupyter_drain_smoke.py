@@ -5,7 +5,7 @@ import os
 from typing import Any
 from uuid import uuid4
 
-from execution_spec_payload import execution_request, inline_spec
+from execution_spec_payload import execution_request, executor_mcp, inline_spec
 from mcp import Client
 
 
@@ -66,11 +66,6 @@ async def _submit(client: Client, unique: str, index: int, sleep: int) -> str:
                         }
                     ],
                 ),
-                context={
-                    "user_id": "drain-user",
-                    "project_id": "drain-project",
-                    "session_id": f"drain-session-{index}",
-                },
             )
         },
     )
@@ -80,7 +75,7 @@ async def _submit(client: Client, unique: str, index: int, sleep: int) -> str:
 async def main() -> None:
     unique = str(uuid4())
     secondary_token = os.environ.get("JUPYTER_SECONDARY_TOKEN", "default")
-    async with Client("http://127.0.0.1:8000/mcp") as client:
+    async with Client(executor_mcp("http://127.0.0.1:8000/mcp")) as client:
         listed = await client.call_tool("runtime_target_list", {})
         listed_payload = listed.structured_content
         listed_items = listed_payload.get("items", [])

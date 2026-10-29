@@ -295,11 +295,6 @@ async def run(config: Config) -> dict[str, Any]:
                     }
                 ]
             ),
-            context={
-                "user_id": "kube-failover-validator",
-                "project_id": "kube-failover-validation",
-                "session_id": f"kube-failover-{unique}",
-            },
             operation_timeout_seconds=config.step_duration_seconds + 360,
         )
         response = await client.post("/api/v1/executions", json=request)

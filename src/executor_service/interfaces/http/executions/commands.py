@@ -19,6 +19,7 @@ from executor_service.interfaces.contracts import (
 )
 from executor_service.interfaces.http.executions.common import (
     DOMAIN_ERROR_RESPONSES,
+    CurrentCaller,
     execution_router,
 )
 from executor_service.interfaces.http.schemas import (
@@ -42,7 +43,9 @@ def build_command_router(container: ApplicationContainer) -> APIRouter:
         summary="Submit an asynchronous execution",
     )
     async def submit_execution(
-        request: ExecutionSubmitRequest, response: Response
+        request: ExecutionSubmitRequest,
+        response: Response,
+        caller: CurrentCaller,
     ) -> ExecutionCommandResponse:
         resolved = await resolver.resolve(request.operation.spec)
         if resolved.spec.steps[0].sequence != 0:
@@ -51,7 +54,7 @@ def build_command_router(container: ApplicationContainer) -> APIRouter:
                 "sequence 0."
             )
         result = await execution_service.submit_result(
-            request.to_command(resolved)
+            request.to_command(resolved, caller)
         )
         execution = result.execution
         response.headers["Location"] = f"/api/v1/executions/{execution.id}"

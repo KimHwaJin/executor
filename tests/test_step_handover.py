@@ -187,6 +187,7 @@ async def _submit(
             user_id="handover-user",
             project_id=None,
             session_id=None,
+            tenant_id="test-tenant",
             steps=(
                 StepSpec(sequence=0, code="first"),
                 StepSpec(sequence=1, code="second"),

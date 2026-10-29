@@ -6,7 +6,7 @@ from time import monotonic
 from typing import Any
 from uuid import uuid4
 
-from execution_spec_payload import execution_request, inline_spec
+from execution_spec_payload import execution_request, executor_mcp, inline_spec
 from local_test_support import local_runtime_specs
 from mcp import Client
 
@@ -50,7 +50,7 @@ async def main() -> None:
     timeout_seconds = float(os.getenv("SINGLE_JUPYTER_TIMEOUT_SECONDS", "120"))
     unique = uuid4().hex
 
-    async with Client(mcp_url) as client:
+    async with Client(executor_mcp(mcp_url)) as client:
         server = await _required_tool_result(
             client,
             "runtime_target_upsert",
@@ -106,11 +106,6 @@ async def main() -> None:
                             },
                         ],
                     ),
-                    context={
-                        "user_id": "single-jupyter-user",
-                        "project_id": "single-jupyter-project",
-                        "session_id": f"single-jupyter-session-{unique}",
-                    },
                 )
             },
         )

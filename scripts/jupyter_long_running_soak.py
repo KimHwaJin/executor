@@ -6,7 +6,7 @@ from time import monotonic
 from typing import Any
 from uuid import uuid4
 
-from execution_spec_payload import execution_request, inline_spec
+from execution_spec_payload import execution_request, executor_mcp, inline_spec
 from local_test_support import (
     env_bool,
     env_float,
@@ -269,7 +269,7 @@ async def main() -> None:
             for step_index, step_duration in enumerate(step_durations)
         ]
 
-    async with Client(executor_mcp_url()) as client:
+    async with Client(executor_mcp(executor_mcp_url())) as client:
         targets = await register_local_runtime_targets(
             client,
             run_id=run_id,
@@ -288,11 +288,6 @@ async def main() -> None:
                     runtime_profile=profile,
                     operation_timeout_seconds=operation_timeout_seconds,
                     spec=inline_spec(steps),
-                    context={
-                        "user_id": "long-soak-user",
-                        "project_id": "local-resilience",
-                        "session_id": f"long-soak-session-{run_id}",
-                    },
                     metadata={
                         "test_type": "LONG_RUNNING_SOAK",
                         "test_run_id": run_id,

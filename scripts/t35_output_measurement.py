@@ -19,7 +19,11 @@ from urllib.parse import urlparse
 from uuid import uuid4
 
 import httpx
-from execution_spec_payload import execution_request, inline_spec
+from execution_spec_payload import (
+    SMOKE_HEADERS,
+    execution_request,
+    inline_spec,
+)
 from local_test_support import (
     executor_http_url,
     local_shared_storage_root,
@@ -421,11 +425,6 @@ async def _submit_execution(
                 }
             ]
         ),
-        context={
-            "user_id": "t35-user",
-            "project_id": "t35-output-measurement",
-            "session_id": f"t35-{run_id}-{scenario.name}-{index}",
-        },
         metadata={
             "test_type": "T35_OUTPUT_MEASUREMENT",
             "test_run_id": run_id,
@@ -1106,7 +1105,10 @@ async def main() -> None:
             max_keepalive_connections=max(20, max_concurrency * 2),
         )
         async with httpx.AsyncClient(
-            base_url=http_url, timeout=60, limits=limits
+            base_url=http_url,
+            timeout=60,
+            limits=limits,
+            headers=SMOKE_HEADERS,
         ) as http_client:
             targets, configured_capacity = await _eligible_targets(http_client)
             if (

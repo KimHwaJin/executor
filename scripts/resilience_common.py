@@ -258,11 +258,6 @@ async def submit_static(
                         }
                     ],
                 ),
-                context={
-                    "user_id": "resilience-user",
-                    "project_id": "resilience-project",
-                    "session_id": f"resilience-session-{unique}-{name}",
-                },
             )
         },
     )

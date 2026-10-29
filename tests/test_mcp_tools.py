@@ -1,10 +1,14 @@
 import hashlib
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from copy import deepcopy
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 from uuid import UUID
 
 from mcp import Client
+from mcp.server import MCPServer
 from mcp.types import TextContent
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -26,6 +30,7 @@ from executor_service.infrastructure.execution_queries import (
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
 )
+from executor_service.interfaces.auth import Caller, acting_as
 from executor_service.interfaces.execution_specs import ExecutionSpecResolver
 from executor_service.interfaces.mcp.server import build_mcp_server
 from executor_service.settings import Settings
@@ -61,35 +66,58 @@ SUBMIT_ARGUMENTS: dict[str, Any] = {
                 ],
             },
         },
-        "context": {
-            "user_id": "user-1",
-            "project_id": "project-1",
-            "session_id": "session-1",
-        },
     }
 }
+CALLER = Caller(
+    client=None,
+    admin=True,
+    tenant_id="test-tenant",
+    user_id="user-1",
+    project_id="project-1",
+    session_id="session-1",
+)
+
+
+@asynccontextmanager
+async def mcp_client(
+    target: MCPServer, caller: Caller = CALLER
+) -> AsyncIterator[Client]:
+    # The in-memory transport skips the HTTP middleware that sets the caller.
+    with acting_as(caller):
+        async with Client(target) as client:
+            yield client
+
+
+def _queries(engine: AsyncEngine) -> SQLAlchemyExecutionQueryService:
+    return SQLAlchemyExecutionQueryService(create_session_factory(engine))
 
 
 async def test_mcp_client_can_list_and_call_execution_tools(
     execution_service: ExecutionService,
+    engine: AsyncEngine,
     tmp_path: Path,
 ) -> None:
     target = build_mcp_server(
         execution_service,
+        _queries(engine),
         execution_spec_resolver=ExecutionSpecResolver(tmp_path),
     )
 
-    async with Client(target) as client:
+    async with mcp_client(target) as client:
         listed = await client.list_tools()
         tool_names = {tool.name for tool in listed.tools}
-        assert tool_names == {
+        assert {
             "execution_submit",
             "execution_get",
             "execution_cancel",
             "execution_retry",
             "execution_operation_create",
             "execution_finalize",
-        }
+            "execution_list",
+        }.issubset(tool_names)
+        assert not any(
+            name.startswith("runtime_target") for name in tool_names
+        )
 
         submitted = await client.call_tool(
             "execution_submit", SUBMIT_ARGUMENTS
@@ -144,11 +172,11 @@ async def test_mcp_client_can_query_execution_history_resources(
     queries = SQLAlchemyExecutionQueryService(create_session_factory(engine))
     target = build_mcp_server(
         execution_service,
-        execution_queries=queries,
+        queries,
         execution_spec_resolver=ExecutionSpecResolver(tmp_path),
     )
 
-    async with Client(target) as client:
+    async with mcp_client(target) as client:
         listed = await client.list_tools()
         tool_names = {tool.name for tool in listed.tools}
         assert {
@@ -210,22 +238,23 @@ async def test_mcp_execution_list_uses_opaque_next_cursor(
     queries = SQLAlchemyExecutionQueryService(create_session_factory(engine))
     target = build_mcp_server(
         execution_service,
-        execution_queries=queries,
+        queries,
         execution_spec_resolver=ExecutionSpecResolver(tmp_path),
     )
     arguments = deepcopy(SUBMIT_ARGUMENTS)
 
-    async with Client(target) as client:
-        submitted_ids: set[str] = set()
-        session_ids: dict[str, str] = {}
-        for index in range(2):
-            arguments["request"]["idempotency_key"] = f"mcp-page-{index}"
-            arguments["request"]["context"]["session_id"] = f"session-{index}"
+    submitted_ids: set[str] = set()
+    session_ids: dict[str, str] = {}
+    for index in range(2):
+        arguments["request"]["idempotency_key"] = f"mcp-page-{index}"
+        caller = replace(CALLER, session_id=f"session-{index}")
+        async with mcp_client(target, caller) as client:
             submitted = await client.call_tool("execution_submit", arguments)
-            submitted_id = submitted.structured_content["execution_id"]
-            submitted_ids.add(submitted_id)
-            session_ids[f"session-{index}"] = submitted_id
+        submitted_id = submitted.structured_content["execution_id"]
+        submitted_ids.add(submitted_id)
+        session_ids[f"session-{index}"] = submitted_id
 
+    async with mcp_client(target) as client:
         first = await client.call_tool("execution_list", {"limit": 1})
         assert not first.is_error
         assert len(first.structured_content["items"]) == 1
@@ -261,11 +290,11 @@ async def test_mcp_list_rejects_limit_outside_declared_contract(
     queries = SQLAlchemyExecutionQueryService(create_session_factory(engine))
     target = build_mcp_server(
         execution_service,
-        execution_queries=queries,
+        queries,
         execution_spec_resolver=ExecutionSpecResolver(tmp_path),
     )
 
-    async with Client(target) as client:
+    async with mcp_client(target) as client:
         too_small = await client.call_tool("execution_list", {"limit": 0})
         too_large = await client.call_tool(
             "execution_event_list", {"limit": 501}
@@ -277,14 +306,16 @@ async def test_mcp_list_rejects_limit_outside_declared_contract(
 
 async def test_mcp_domain_errors_expose_stable_public_code(
     execution_service: ExecutionService,
+    engine: AsyncEngine,
     tmp_path: Path,
 ) -> None:
     target = build_mcp_server(
         execution_service,
+        _queries(engine),
         execution_spec_resolver=ExecutionSpecResolver(tmp_path),
     )
 
-    async with Client(target) as client:
+    async with mcp_client(target) as client:
         missing = await client.call_tool(
             "execution_get",
             {"execution_id": "00000000-0000-0000-0000-000000000001"},
@@ -310,11 +341,12 @@ async def test_mcp_runtime_target_disable_uses_shared_contract(
     )
     target = build_mcp_server(
         execution_service,
+        _queries(engine),
         runtime_manager=registry,
         execution_spec_resolver=ExecutionSpecResolver(tmp_path),
     )
 
-    async with Client(target) as client:
+    async with mcp_client(target) as client:
         tool_names = {tool.name for tool in (await client.list_tools()).tools}
         assert "runtime_target_disable" in tool_names
         created = await client.call_tool(
@@ -367,6 +399,7 @@ async def test_mcp_runtime_target_disable_uses_shared_contract(
 
 async def test_execution_submit_reads_path_spec_and_derives_batch_pool(
     execution_service: ExecutionService,
+    engine: AsyncEngine,
     tmp_path: Path,
 ) -> None:
     content = b"print('hello from PATH')"
@@ -390,10 +423,11 @@ async def test_execution_submit_reads_path_spec_and_derives_batch_pool(
     }
     target = build_mcp_server(
         execution_service,
+        _queries(engine),
         execution_spec_resolver=ExecutionSpecResolver(tmp_path),
     )
 
-    async with Client(target) as client:
+    async with mcp_client(target) as client:
         submitted = await client.call_tool("execution_submit", arguments)
 
     assert not submitted.is_error
@@ -419,10 +453,11 @@ async def test_multi_continue_accepts_next_inline_execution_spec(
     }
     target = build_mcp_server(
         execution_service,
+        _queries(engine),
         execution_spec_resolver=ExecutionSpecResolver(tmp_path),
     )
 
-    async with Client(target) as client:
+    async with mcp_client(target) as client:
         submitted = await client.call_tool("execution_submit", arguments)
         execution_id = submitted.structured_content["execution_id"]
         session_factory = create_session_factory(engine)
@@ -484,10 +519,11 @@ async def test_mcp_retry_returns_the_requeued_operation_id(
     arguments["request"]["idempotency_key"] = "mcp-retry-operation-submit"
     target = build_mcp_server(
         execution_service,
+        _queries(engine),
         execution_spec_resolver=ExecutionSpecResolver(tmp_path),
     )
 
-    async with Client(target) as client:
+    async with mcp_client(target) as client:
         submitted = await client.call_tool("execution_submit", arguments)
         execution_id = UUID(submitted.structured_content["execution_id"])
         operation_id = UUID(

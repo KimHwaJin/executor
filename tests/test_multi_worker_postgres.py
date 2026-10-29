@@ -148,11 +148,29 @@ def _redis_test_url() -> str:
     return os.getenv("EXECUTOR_REDIS_TEST_URL", "redis://127.0.0.1:6379/15")
 
 
+def _upgrade_to_head(config: Config, database_url: str) -> None:
+    # 0012 requires a tenant; rows written below it have none, so backfill
+    # them as an operator would before upgrading a populated database.
+    command.upgrade(config, "0011")
+    engine = create_sync_engine(database_url)
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "UPDATE executions SET tenant_id = 'legacy' "
+                    "WHERE tenant_id IS NULL"
+                )
+            )
+    finally:
+        engine.dispose()
+    command.upgrade(config, "head")
+
+
 def _upgrade_and_check_baseline(database_url: str) -> None:
     config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
     config.attributes["database_url"] = database_url
     config.attributes["configure_logger"] = False
-    command.upgrade(config, "head")
+    _upgrade_to_head(config, database_url)
     command.check(config)
 
 
@@ -177,7 +195,7 @@ def _downgrade_past_task_drop(
         command.downgrade(config, revision)
     except Exception:
         # A rejected rollback leaves the schema where it started.
-        command.upgrade(config, "head")
+        _upgrade_to_head(config, database_url)
         raise
 
 
@@ -1363,6 +1381,7 @@ def _command(name: str) -> SubmitExecutionCommand:
         user_id="postgres-race-user",
         project_id="postgres-race-project",
         session_id=f"postgres-race-session-{name}",
+        tenant_id="test-tenant",
         steps=(
             StepSpec(
                 sequence=0,
@@ -1479,6 +1498,7 @@ async def test_followup_multi_operation_flushes_parent_before_steps(
             user_id="postgres-multi-user",
             project_id="postgres-multi-project",
             session_id="postgres-multi-session",
+            tenant_id="test-tenant",
             steps=(StepSpec(sequence=0, code="value = 40"),),
         )
     )
@@ -1822,7 +1842,7 @@ async def test_partial_result_outbox_redis_and_history_agree(
         )
         assert await publisher.publish_batch() > 0
         assert await publisher.publish_batch() == 0
-        messages = await redis.xrange(event_stream)
+        messages = await redis.xrange(f"{event_stream}.test-tenant")
         envelopes = [
             ExecutionStreamEnvelope.from_redis_fields(fields)
             for _, fields in messages
@@ -1848,7 +1868,7 @@ async def test_partial_result_outbox_redis_and_history_agree(
         assert step_event.payload["status"] == "FAILED"
         assert "partial evidence" not in step_event.model_dump_json()
     finally:
-        await redis.delete(event_stream)
+        await redis.delete(f"{event_stream}.test-tenant")
         await redis.aclose()
 
 
@@ -2199,9 +2219,11 @@ async def test_concurrent_outbox_publishers_emit_one_stream_message(
         second_round = await asyncio.gather(
             *(publisher.publish_batch() for publisher in publishers)
         )
-        event_messages = await redis_clients[0].xrange(event_stream)
+        event_messages = await redis_clients[0].xrange(
+            f"{event_stream}.test-tenant"
+        )
     finally:
-        await redis_clients[0].delete(event_stream)
+        await redis_clients[0].delete(f"{event_stream}.test-tenant")
         await _close_redis(redis_clients)
 
     async with session_factory() as session:
@@ -2314,9 +2336,11 @@ async def test_ordered_outbox_backlog_load(
                     "Ordered Outbox backlog required unexpected extra rounds."
                 )
         elapsed_seconds = perf_counter() - started_at
-        event_messages = await redis_clients[0].xrange(event_stream)
+        event_messages = await redis_clients[0].xrange(
+            f"{event_stream}.test-tenant"
+        )
     finally:
-        await redis_clients[0].delete(event_stream)
+        await redis_clients[0].delete(f"{event_stream}.test-tenant")
         await _close_redis(redis_clients)
 
     sequences_by_execution = {
@@ -2441,7 +2465,7 @@ async def test_current_baseline_repeated_upgrade_preserves_events(
             text("SELECT count(*) FROM event_retention_lease")
         )
 
-    assert revision == EXPECTED_SCHEMA_REVISION == "0011"
+    assert revision == EXPECTED_SCHEMA_REVISION == "0012"
     assert maintenance_count == retention_count == 1
     assert migrated_event is not None
     assert migrated_event.execution_id == execution.id
@@ -2482,7 +2506,7 @@ async def test_current_baseline_downgrade_and_recreate(
             text("SELECT singleton_key FROM event_retention_lease")
         )
     assert tables == set(Base.metadata.tables) | {"alembic_version"}
-    assert revision == EXPECTED_SCHEMA_REVISION == "0011"
+    assert revision == EXPECTED_SCHEMA_REVISION == "0012"
     assert admission == "ACTIVE"
     assert retention_key == "events"
 

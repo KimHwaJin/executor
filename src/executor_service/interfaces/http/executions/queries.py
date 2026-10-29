@@ -14,6 +14,7 @@ from executor_service.interfaces.contracts import (
 )
 from executor_service.interfaces.http.executions.common import (
     DOMAIN_ERROR_RESPONSES,
+    CurrentCaller,
     Cursor,
     ExecutionLimit,
     execution_router,
@@ -31,10 +32,9 @@ def build_query_router(container: ApplicationContainer) -> APIRouter:
         summary="List execution history",
     )
     async def list_executions(
-        user_id: str | None = None,
+        caller: CurrentCaller,
         project_id: str | None = None,
         session_id: str | None = None,
-        tenant_id: str | None = None,
         trigger_type: TriggerType | None = None,
         execution_status: Annotated[
             ExecutionStatus | None, Query(alias="status")
@@ -42,11 +42,12 @@ def build_query_router(container: ApplicationContainer) -> APIRouter:
         cursor: Cursor = None,
         limit: ExecutionLimit = 100,
     ) -> ExecutionPageResponse:
+        # Without X-User-Id a system caller sees its whole tenant.
         page = await execution_queries.executions(
-            user_id=user_id,
+            user_id=caller.user_id,
             project_id=project_id,
             session_id=session_id,
-            tenant_id=tenant_id,
+            tenant_id=caller.tenant_id,
             trigger_type=trigger_type,
             status=execution_status,
             cursor=cursor,

@@ -9,8 +9,7 @@
 파일의 크기·checksum·참조 대상을 보장하는 실행 fixture는 아니다.
 
 - 이벤트 스키마 버전: `1.0`
-- 대상 Stream 기본 이름: `executor.events` (tenant 없는 Execution),
-  `executor.events.{tenant_id}` (tenant로 제출한 Execution)
+- 대상 Stream 기본 이름: `executor.events.{tenant_id}` (Execution의 tenant별 하나)
 - 전달 방식: Redis Streams
 - 전달 보장: at-least-once
 - 상태 원본: PostgreSQL
@@ -25,31 +24,31 @@ Executor API와 PostgreSQL 상태를 기준으로 조회/복구한다.
 
 ## 2. Stream과 전달 원칙
 
-Executor가 Redis에 쓰는 Stream은 하나다. Worker는 Redis가 아니라 PostgreSQL을 조회해
+Executor가 Redis에 쓰는 Stream은 tenant마다 하나다. Worker는 Redis가 아니라 PostgreSQL을 조회해
 실행할 작업을 찾는다.
 
 | Stream | 기본 이름 | 생산자 | 소비자 | 용도 |
 |---|---|---|---|---|
-| Event Stream | `executor.events` | Outbox Publisher | Agent 등 외부 시스템 | tenant 없는 Execution의 상태와 결과 알림 |
-| Tenant Event Stream | `executor.events.{tenant_id}` | Outbox Publisher | 해당 tenant 시스템 | 그 tenant로 제출한 Execution의 상태와 결과 알림 |
+| Tenant Event Stream | `executor.events.{tenant_id}` | Outbox Publisher | 해당 tenant 시스템 | 그 tenant Execution의 상태와 결과 알림 |
+
+공용 `executor.events` Stream에는 더 이상 쓰지 않는다.
 
 외부 시스템은 Event Stream을 소비한다. 독립적으로 모든 이벤트를 받아야 하는
 시스템끼리는 consumer group을 공유하지 않는다.
 
 ### 2.1 Tenant별 Stream
 
-`POST /api/v1/executions`에 최상위 `tenant_id`를 넣으면 그 Execution의 모든 이벤트는
-`{REDIS_EVENT_STREAM}.{tenant_id}` 한 곳으로만 발행된다. 공용 `executor.events`에는
-복사하지 않는다. `tenant_id`가 없으면 지금처럼 공용 Stream으로 간다.
+모든 Execution에는 tenant가 있고(API key 또는 relay key의 `X-Tenant-Id`로 결정), 그
+Execution의 모든 이벤트는 `{REDIS_EVENT_STREAM}.{tenant_id}` 한 곳으로만 발행된다.
 
 - 한 Execution의 이벤트는 처음부터 끝까지 같은 Stream으로 간다. `tenant_id`는
   바뀌지 않고, 후속 Operation과 재시도도 제출 시 값을 따른다.
 - Stream 이름 접미사는 `tenant_id` 그대로다. 형식과 예약어 규칙은
-  [Execution 제출 API](post-executions.md#tenant_id)를 따른다.
+  [Execution 제출 API](post-executions.md#tenant)를 따른다.
 - Stream은 첫 이벤트를 발행할 때 생긴다. 구독자는 아래처럼 `MKSTREAM`으로 미리
   group을 만들어 둔다.
-- `REDIS_EVENT_RETENTION_SECONDS` 기준 시간 정리는 공용 Stream과 PostgreSQL에 기록된
-  모든 tenant Stream에 똑같이 적용된다.
+- `REDIS_EVENT_RETENTION_SECONDS` 기준 시간 정리는 PostgreSQL에 기록된 모든 tenant
+  Stream에 똑같이 적용된다.
 - `REDIS_EVENT_STREAM_MAXLEN`을 설정하면 모든 이벤트 `XADD`에
   `MAXLEN ~ {값}`이 붙는다. Stream마다 따로 적용되며 근사치라 실제 길이는 값보다 조금
   클 수 있다. 미설정이면 길이 제한 없이 시간 정리만 한다. Redis 6.0 호환을 위해
@@ -81,7 +80,7 @@ group이 이미 있으면 `BUSYGROUP` 오류가 나므로 무시한다. 이후 �
   `XCLAIM {stream} {group} {consumer} {min-idle-ms} {id...}`로 가져온다.
   `XCLAIM` 결과에 본문이 없는 ID는 이미 Stream에서 지워진 것이므로 `XACK`하고
   이벤트 이력 API로 채운다.
-- Stream 필드 `tenant_id`는 tenant Stream에만 있다. 공용 Stream에는 없다.
+- 모든 Stream 항목에 `tenant_id` 필드가 있다.
 
 Execution 상태 변경, 영구 ExecutionEvent, 전송용 OutboxEvent 생성은 하나의 PostgreSQL
 트랜잭션으로 처리한다.
@@ -174,7 +173,7 @@ Jupyter가 IOPub 데이터/메시지 전송량 제한으로 출력을 차단한 
 | `event_sequence` | integer | O | Execution별 논리 이벤트 순번, `1`부터 증가 |
 | `payload` | object | O | 이벤트별 데이터 |
 | `occurred_at` | RFC 3339 UTC datetime | O | 이벤트에 해당하는 상태 전환 시각 |
-| `tenant_id` | string | X | 제출 시 지정한 tenant. tenant Stream에만 있고 공용 Stream에는 없다. `payload`에는 넣지 않는다 |
+| `tenant_id` | string | O | Execution의 tenant이자 Stream 접미사. `payload`에는 넣지 않는다 |
 
 `payload`에는 `execution_id`와 `schema_version`을 반복하지 않는다. Redis Stream
 entry의 값은 문자열이므로 wire level에서는 `payload`가 JSON 문자열이다. 소비자는

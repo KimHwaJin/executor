@@ -5,11 +5,24 @@ DATABASE_URL: "postgresql+psycopg://REPLACE_USER:REPLACE_PASSWORD@postgresql.inf
 REDIS_URL: "redis://:REPLACE_PASSWORD@redis-master.infra.svc.cluster.local:6379/3"
 # Fernet key; keep it stable while encrypted Runtime credentials exist.
 RUNTIME_CREDENTIAL_KEY: REPLACE_WITH_FERNET_KEY
-MCP_ALLOWED_HOSTS:
-  - "executor:*"
-  - "executor.stg.example.internal:*"
-MCP_ALLOWED_ORIGINS:
-  - "https://agent.stg.example.internal"
+# Callers send X-Api-Key; only its SHA-256 is kept here. Replace each
+# placeholder hash; the placeholder matches no key. Executor and pr-batch
+# keep the same allowed_tenants.
+AUTH_MODE: api_key
+AUTH_CLIENTS:
+  - name: pr-agentic-service
+    key_sha256: ["0000000000000000000000000000000000000000000000000000000000000000"]
+    tenant: pr-agentic-service
+    relay: true
+    allowed_tenants: [pr-agentic-service]
+  - name: pr-batch
+    key_sha256: ["0000000000000000000000000000000000000000000000000000000000000001"]
+    relay: true
+    allowed_tenants: [pr-agentic-service]
+  - name: ops
+    key_sha256: ["0000000000000000000000000000000000000000000000000000000000000002"]
+    admin: true
+MCP_ENABLED: false
 # Project root layout: <root>/executor holds results; callers send
 # inputs relative to <root> (batch/inputs/..., agent/...).
 SHARED_STORAGE_ROOT: /mnt/data/dtest/executor

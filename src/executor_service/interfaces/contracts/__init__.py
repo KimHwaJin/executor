@@ -41,7 +41,6 @@ from executor_service.interfaces.contracts.events import (  # noqa: F401
     ExecutionEventResponse,
 )
 from executor_service.interfaces.contracts.execution_inputs import (  # noqa: F401
-    ExecutionContext,
     ExecutionLifecycleInput,
     ExecutionOperationInput,
     ExecutionRuntimeInput,

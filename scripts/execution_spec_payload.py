@@ -2,6 +2,11 @@
 
 from typing import Any
 
+from mcp.client.streamable_http import (
+    create_mcp_http_client,
+    streamable_http_client,
+)
+
 
 def inline_spec(
     steps: list[dict[str, Any]],
@@ -37,7 +42,6 @@ def execution_request(
     actor: dict[str, str],
     runtime_profile: str,
     spec: dict[str, Any],
-    context: dict[str, Any],
     operation_wait_timeout_seconds: int | None = None,
     operation_timeout_seconds: int | None = None,
     metadata: dict[str, Any] | None = None,
@@ -58,7 +62,35 @@ def execution_request(
         "lifecycle": lifecycle,
         "trigger": {"type": trigger_type, "actor": actor},
         "runtime": {"type": "JUPYTER", "profile": runtime_profile},
-        "context": context,
         "operation": operation,
         "metadata": metadata or {},
     }
+
+
+def identity_headers(
+    user_id: str,
+    project_id: str | None = None,
+    session_id: str | None = None,
+    tenant_id: str = "smoke",
+) -> dict[str, str]:
+    """Identity headers for a local AUTH_MODE=header Executor."""
+
+    headers = {"X-Tenant-Id": tenant_id, "X-User-Id": user_id}
+    if project_id is not None:
+        headers["X-Project-Id"] = project_id
+    if session_id is not None:
+        headers["X-Session-Id"] = session_id
+    return headers
+
+
+SMOKE_HEADERS = identity_headers("smoke-user")
+# No X-User-Id: reads see every Execution in the tenant.
+SYSTEM_HEADERS = {"X-Tenant-Id": "smoke"}
+
+
+def executor_mcp(url: str, headers: dict[str, str] = SMOKE_HEADERS) -> Any:
+    """An MCP transport that sends the identity headers on every request."""
+
+    return streamable_http_client(
+        url, http_client=create_mcp_http_client(headers=dict(headers))
+    )

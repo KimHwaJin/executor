@@ -52,9 +52,12 @@ Before deployment:
    also available there; files and DB references are not moved automatically.
 5. Ensure all Jupyter servers mount their own common Jupyter PV. Executor must not mount or inspect
    that Jupyter PV; notebook and artifact access goes through Jupyter APIs.
-6. After Executor is Ready, register every Jupyter server through the Runtime Target REST or MCP
-   API. Executor starts with an empty Runtime Fleet and never creates a target from environment
-   variables.
+6. Replace the placeholder `AUTH_CLIENTS` hashes in `config.prd.yml` with the SHA-256 of each
+   caller's real key (`printf %s "$KEY" | sha256sum`). Hand each key to its caller out of band;
+   only the hash ships in the image. During rotation list both hashes, then drop the old one.
+7. After Executor is Ready, register every Jupyter server through the Runtime Target REST API
+   with the `ops` admin key. Executor starts with an empty Runtime Fleet and never creates a
+   target from environment variables. MCP is disabled in stg and prd.
 
 The manifest intentionally contains no default Runtime Target endpoint or Jupyter token. Register
 targets after startup through the Runtime Target API. Generic fleet limits are explicit in the
@@ -73,6 +76,7 @@ Generate a Fernet key outside Git with:
 python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
+stg and prd run `AUTH_MODE: api_key` and `MCP_ENABLED: false`. If MCP is ever enabled,
 `MCP_ALLOWED_HOSTS` must contain every Host header that can reach `/mcp`, including the internal
 Service and Gateway/Ingress hostnames. `MCP_ALLOWED_ORIGINS` must contain the browser or Agent
 origins that send an Origin header. Keep both lists narrow; do not disable DNS-rebinding protection.
@@ -117,6 +121,12 @@ Rolling out `0011` from `0010`:
 3. Deploy the new image; the first Pod migrates on startup.
 4. Restore `RollingUpdate` (or the replica count) and activate admission through
    `POST /api/v1/maintenance/activate`.
+
+`0012` (caller authentication) is another exception. It makes `executions.tenant_id` NOT NULL,
+moves workspaces under `tenants/{tenant}/`, stops writing the shared `executor.events` Stream, and
+changes the API contract for every caller. It ships from an empty database and shared PV,
+together with pr-agentic-service and pr-batch: reset PostgreSQL and the Executor PV, deploy with
+`Recreate`, then register Runtime Targets with the `ops` key.
 
 New migrations follow expand/contract instead: a column is dropped only in the release after the
 code stopped using it, so ordinary releases keep `RollingUpdate`.

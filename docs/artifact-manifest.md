@@ -55,7 +55,7 @@ that Step and links them to the current Execution, Attempt, Step, Skill, and Too
 PV paths are interpreted and verified by the Jupyter Runtime storage extension. They may be:
 
 - absolute Jupyter paths under `/workspace/pv`;
-- root-relative paths beginning with `users/`;
+- root-relative paths beginning with `tenants/`;
 - paths relative to the current execution workspace.
 
 Symlinks and normalized paths are resolved before validation. Anything outside the configured PV

@@ -437,29 +437,32 @@ and request examples.
 - `operation.spec`: ExecutionSpec `1.0`; every Step independently supplies INLINE code or a
   `.py` input-storage PATH plus SHA-256
 - `operation.operation_timeout_seconds`: optional whole-Operation limit
-- `context`: Agent-owned user/project/session/Task IDs; Executor creates `execution_id`
+
+Identity is not part of the body. Every REST and MCP call names its user, project, session, and
+tenant through `X-User-Id`, `X-Project-Id`, `X-Session-Id`, and (relay keys only) `X-Tenant-Id`,
+authenticated by `X-Api-Key` in stg and prd. A body `context` or `tenant_id` is rejected. See
+[Authentication and identity](docs/rest-api.md#authentication-and-identity).
 
 Every public mutation records `created_by`/`updated_by` attribution on the affected Execution,
-Step, Attempt, Artifact, Outbox Event, or Runtime Target where applicable. `context.user_id` owns
+Step, Attempt, Artifact, Outbox Event, or Runtime Target where applicable. The `X-User-Id` user owns
 the Execution and its results. Interactive submits accept `AGENT` or `USER`; a USER actor ID must
-match `context.user_id`. Batch submits accept `USER` or `BATCH`: a USER actor is the user who
-registered the batch and must match `context.user_id`; a BATCH actor ID identifies a system schedule
+match that user. Batch submits accept `USER` or `BATCH`: a USER actor is the user who
+registered the batch and must match that user; a BATCH actor ID identifies a system schedule
 or trigger and may differ from the owning user.
 
 `runtime_pool` is not accepted from callers. Executor derives `INTERACTIVE` or `BATCH` from
 `trigger.type`, then selects a healthy compatible Runtime Target with available capacity inside
 that pool.
-`context` holds the Executor scope: `user_id` (required), `project_id`, and `session_id`. Callers
+Responses expose that scope as `context` (`user_id`, `project_id`, `session_id`). Callers
 name their own hierarchy (batch, run, task) in the top-level `metadata`, which `execution.completed`
 echoes back.
 
-An optional top-level `tenant_id` routes one Execution's events to its own Redis Stream,
-`{REDIS_EVENT_STREAM}.{tenant_id}` (for example `executor.events.pr-batch`). Executions without it
-keep using `REDIS_EVENT_STREAM`. The value must match `^[a-z][a-z0-9-]{1,62}[a-z0-9]$`, must not be
-`dlq`, `work`, or the suffix of an internal Stream below `REDIS_EVENT_STREAM`, never changes, and
-is part of the submit idempotency fingerprint. Tenant Stream entries carry an extra `tenant_id`
-field; the payload is unchanged. Detail and list responses expose `tenant_id`, and lists filter on
-it. See [Redis execution events](dev_docs/redis-execution-events.md) for subscriber rules.
+Every Execution has a tenant, and its events go only to its own Redis Stream,
+`{REDIS_EVENT_STREAM}.{tenant_id}` (for example `executor.events.pr-agentic-service`). The tenant
+must match `^[a-z][a-z0-9-]{1,62}[a-z0-9]$`, must not be `dlq` or `work`, never changes, and is
+part of the submit idempotency fingerprint. Stream entries carry a `tenant_id` field; the payload
+is unchanged. Detail and list responses expose `tenant_id`, and lists only ever cover the
+caller's tenant. See [Redis execution events](dev_docs/redis-execution-events.md) for subscriber rules.
 
 ExecutionSpec stays at schema version `1.0` during pre-release development. Each ordered Step uses
 `PYTHON_EXECUTE` and independently embeds INLINE code or references one UTF-8 `.py` file below
@@ -665,7 +668,7 @@ at its configured contents root. Executor does not mount it. Execution files use
 Jupyter-relative hierarchy:
 
 ```text
-/workspace/pv/users/{user_id}/projects/{project_id}/sessions/{session_id}/executions/{execution_id}/
+/workspace/pv/tenants/{tenant_id}/users/{user_id}/projects/{project_id}/sessions/{session_id}/executions/{execution_id}/
     ├── notebooks/execution.ipynb
     ├── artifacts/
     │   ├── plots/
@@ -691,7 +694,7 @@ Submission and cancellation commit only PostgreSQL state; Workers find the work 
 PostgreSQL (see [Event Delivery](docs/event-delivery.md#work-admission)). Public events begin when
 Runtime execution actually starts and are written to the Outbox in the same transaction as the
 state change. A background publisher claims pending rows with `FOR UPDATE SKIP LOCKED`, publishes
-them to `executor.events`, and then marks them published. A crash between Redis `XADD` and the
+them to the Execution's `executor.events.{tenant_id}` Stream, and then marks them published. A crash between Redis `XADD` and the
 database update can create a duplicate, so consumers must deduplicate on `event_id`. Executor
 Workers never consume Agent integration events.
 
@@ -744,7 +747,12 @@ intentionally logged. `.env.example` contains local-only credentials.
 
 `MCP_ALLOWED_HOSTS` and `MCP_ALLOWED_ORIGINS` are fail-closed allowlists for the SDK's DNS-rebinding
 protection. Add the Kubernetes gateway hostname and origin before deployment; do not disable the
-protection to make a proxy work.
+protection to make a proxy work. stg and prd set `MCP_ENABLED: false`, so `/mcp` is not mounted.
+
+`AUTH_MODE` is `header` locally and in dev (identity headers trusted, tenant `dev`) and `api_key`
+in stg and prd, where `AUTH_CLIENTS` lists each caller's key SHA-256, default tenant, relay
+permission, and admin flag. Startup refuses `header` outside local and dev. The shipped
+placeholder hashes match no key: replace them with `printf %s "$KEY" | sha256sum` output.
 
 Redis carries only the Agent-facing `REDIS_EVENT_STREAM`. Workers find work by polling PostgreSQL
 every second; `EXECUTION_WORKER_MAX_ACTIVE` caps the Executions one Pod runs at once so a backlog
@@ -754,8 +762,7 @@ costs a bounded number of claims and spreads across replicas.
 `REDIS_EVENT_RETENTION_SECONDS` controls the event Stream window;
 `PUBLISHED_OUTBOX_RETENTION_SECONDS` and `EXECUTION_EVENT_RETENTION_SECONDS` independently bound
 transport rows and durable terminal-event history. Executor never trims the Agent-owned Event DLQ.
-The event window applies to the shared event Stream and to every tenant Stream recorded in
-PostgreSQL. Set `REDIS_EVENT_STREAM_MAXLEN` to also add `MAXLEN ~ <value>` to every event `XADD`
+The event window applies to every tenant Stream recorded in PostgreSQL. Set `REDIS_EVENT_STREAM_MAXLEN` to also add `MAXLEN ~ <value>` to every event `XADD`
 (per Stream, approximate). It is unset by default; `MINID` is not used because Redis 6.0 lacks it.
 
 Each Worker names itself `<hostname>-<pid>-<suffix>` as its lease owner (shown on `/workerz`). See

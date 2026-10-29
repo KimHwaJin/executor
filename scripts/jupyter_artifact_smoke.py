@@ -4,7 +4,7 @@ import asyncio
 from typing import Any
 from uuid import uuid4
 
-from execution_spec_payload import execution_request, inline_spec
+from execution_spec_payload import execution_request, executor_mcp, inline_spec
 from mcp import Client
 
 
@@ -23,9 +23,7 @@ async def _wait(client: Client, execution_id: str) -> dict[str, Any]:
 async def main() -> None:
     unique = str(uuid4())
     user_id = "artifact-smoke-user"
-    processed_relative = (
-        f"users/{user_id}/datasets/processed/{unique}/processed.csv"
-    )
+    processed_relative = f"tenants/smoke/users/{user_id}/datasets/processed/{unique}/processed.csv"
     write_files_code = (
         "from pathlib import Path\n"
         "Path('artifacts/plots/plot.png').write_bytes(b'fake-png')\n"
@@ -60,7 +58,7 @@ async def main() -> None:
         "        handle.write(json.dumps(entry) + '\\n')\n"
     )
 
-    async with Client("http://127.0.0.1:8000/mcp") as client:
+    async with Client(executor_mcp("http://127.0.0.1:8000/mcp")) as client:
         submitted = await client.call_tool(
             "execution_submit",
             {
@@ -84,11 +82,6 @@ async def main() -> None:
                             },
                         ],
                     ),
-                    context={
-                        "user_id": user_id,
-                        "project_id": "artifact-smoke-project",
-                        "session_id": "artifact-smoke-session",
-                    },
                 )
             },
         )

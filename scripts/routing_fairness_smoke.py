@@ -5,7 +5,13 @@ from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
-from execution_spec_payload import execution_request, inline_spec
+from execution_spec_payload import (
+    SYSTEM_HEADERS,
+    execution_request,
+    executor_mcp,
+    identity_headers,
+    inline_spec,
+)
 from local_test_support import (
     execution_stream_text,
     executor_mcp_url,
@@ -19,7 +25,6 @@ TERMINAL_STATUSES = {"SUCCEEDED", "FAILED", "CANCELLED"}
 
 
 async def _submit(
-    client: Client,
     *,
     run_id: str,
     index: int,
@@ -27,7 +32,33 @@ async def _submit(
     sleep_seconds: float,
 ) -> str:
     marker = f"ROUTING_FAIRNESS:{run_id}:{index}:{user_id}"
-    submitted = await required_tool_result(
+    headers = identity_headers(
+        user_id,
+        f"routing-project-{user_id}",
+        f"routing-session-{run_id}-{index}",
+    )
+    async with Client(executor_mcp(executor_mcp_url(), headers)) as client:
+        submitted = await _submit_as(
+            client,
+            run_id=run_id,
+            index=index,
+            user_id=user_id,
+            marker=marker,
+            sleep_seconds=sleep_seconds,
+        )
+    return str(submitted["execution_id"])
+
+
+async def _submit_as(
+    client: Client,
+    *,
+    run_id: str,
+    index: int,
+    user_id: str,
+    marker: str,
+    sleep_seconds: float,
+) -> dict[str, Any]:
+    return await required_tool_result(
         client,
         "execution_submit",
         {
@@ -50,15 +81,9 @@ async def _submit(
                         }
                     ]
                 ),
-                context={
-                    "user_id": user_id,
-                    "project_id": f"routing-project-{user_id}",
-                    "session_id": f"routing-session-{run_id}-{index}",
-                },
             )
         },
     )
-    return str(submitted["execution_id"])
 
 
 async def _states(
@@ -123,23 +148,22 @@ async def _attempt_started_at(client: Client, execution_id: str) -> datetime:
     return datetime.fromisoformat(started_at.replace("Z", "+00:00"))
 
 
-async def _assert_unsupported_profile(client: Client, run_id: str) -> str:
-    response = await client.call_tool(
-        "execution_submit",
-        {
-            "request": execution_request(
-                idempotency_key=f"unsupported-profile-{run_id}",
-                operation_mode="SINGLE",
-                trigger_type="INTERACTIVE",
-                actor={"type": "USER", "id": "routing-user"},
-                runtime_profile="not-a-runtime-profile",
-                spec=inline_spec([{"code": "print('must not execute')"}]),
-                context={
-                    "user_id": "routing-user",
-                },
-            )
-        },
-    )
+async def _assert_unsupported_profile(run_id: str) -> str:
+    headers = identity_headers("routing-user")
+    async with Client(executor_mcp(executor_mcp_url(), headers)) as client:
+        response = await client.call_tool(
+            "execution_submit",
+            {
+                "request": execution_request(
+                    idempotency_key=f"unsupported-profile-{run_id}",
+                    operation_mode="SINGLE",
+                    trigger_type="INTERACTIVE",
+                    actor={"type": "USER", "id": "routing-user"},
+                    runtime_profile="not-a-runtime-profile",
+                    spec=inline_spec([{"code": "print('must not execute')"}]),
+                )
+            },
+        )
     text = " ".join(str(block) for block in response.content)
     if not response.is_error or "not supported" not in text:
         raise RuntimeError(
@@ -156,39 +180,40 @@ async def _assert_profile_routing(
         (("default", "3.11"), ("3102311", "3.10.11")), start=100
     ):
         marker = f"PROFILE_VERSION:{profile}:"
-        submitted = await required_tool_result(
-            client,
-            "execution_submit",
-            {
-                "request": execution_request(
-                    idempotency_key=f"profile-routing-{run_id}-{profile}",
-                    operation_mode="SINGLE",
-                    trigger_type="INTERACTIVE",
-                    actor={"type": "USER", "id": "profile-routing-user"},
-                    runtime_profile=profile,
-                    spec=inline_spec(
-                        [
-                            {
-                                "skill_name": "evaluation",
-                                "tool_name": "profile_routing",
-                                "code": (
-                                    "import sys\n"
-                                    f"print({marker!r} + "
-                                    "f'{sys.version_info.major}."
-                                    "{sys.version_info.minor}."
-                                    "{sys.version_info.micro}')"
-                                ),
-                            }
-                        ]
-                    ),
-                    context={
-                        "user_id": "profile-routing-user",
-                        "project_id": "profile-routing-project",
-                        "session_id": f"profile-routing-session-{run_id}-{index}",
-                    },
-                )
-            },
+        headers = identity_headers(
+            "profile-routing-user",
+            "profile-routing-project",
+            f"profile-routing-session-{run_id}-{index}",
         )
+        async with Client(executor_mcp(executor_mcp_url(), headers)) as user:
+            submitted = await required_tool_result(
+                user,
+                "execution_submit",
+                {
+                    "request": execution_request(
+                        idempotency_key=f"profile-routing-{run_id}-{profile}",
+                        operation_mode="SINGLE",
+                        trigger_type="INTERACTIVE",
+                        actor={"type": "USER", "id": "profile-routing-user"},
+                        runtime_profile=profile,
+                        spec=inline_spec(
+                            [
+                                {
+                                    "skill_name": "evaluation",
+                                    "tool_name": "profile_routing",
+                                    "code": (
+                                        "import sys\n"
+                                        f"print({marker!r} + "
+                                        "f'{sys.version_info.major}."
+                                        "{sys.version_info.minor}."
+                                        "{sys.version_info.micro}')"
+                                    ),
+                                }
+                            ]
+                        ),
+                    )
+                },
+            )
         execution_id = str(submitted["execution_id"])
         terminal = (await _wait_terminal(client, [execution_id]))[0]
         if terminal["state"]["status"] != "SUCCEEDED":
@@ -214,7 +239,9 @@ async def _assert_profile_routing(
 
 async def main() -> None:
     run_id = uuid4().hex
-    async with Client(executor_mcp_url()) as client:
+    async with Client(
+        executor_mcp(executor_mcp_url(), SYSTEM_HEADERS)
+    ) as client:
         targets = await register_local_runtime_targets(
             client,
             run_id=run_id,
@@ -223,11 +250,10 @@ async def main() -> None:
         )
         target_ids = {str(target["target_id"]) for target in targets}
         profile_results = await _assert_profile_routing(client, run_id)
-        unsupported_error = await _assert_unsupported_profile(client, run_id)
+        unsupported_error = await _assert_unsupported_profile(run_id)
 
         blocker_ids = [
             await _submit(
-                client,
                 run_id=run_id,
                 index=index,
                 user_id=f"routing-user-{index}",
@@ -250,7 +276,6 @@ async def main() -> None:
         for index in range(2, 5):
             queued_ids.append(
                 await _submit(
-                    client,
                     run_id=run_id,
                     index=index,
                     user_id=f"routing-user-{index}",

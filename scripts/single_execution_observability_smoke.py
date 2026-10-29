@@ -12,7 +12,12 @@ from typing import Any, Literal
 from uuid import UUID, uuid4
 
 import httpx
-from execution_spec_payload import execution_request, inline_spec
+from execution_spec_payload import (
+    SMOKE_HEADERS,
+    execution_request,
+    executor_mcp,
+    inline_spec,
+)
 from mcp import Client
 from redis.asyncio import Redis
 from sqlalchemy import select
@@ -123,11 +128,6 @@ def _submission_payload(
                 },
             ],
         ),
-        context={
-            "user_id": user_id,
-            "project_id": "single-observability-project",
-            "session_id": f"single-observability-{label}-session-{unique}",
-        },
         actor={"type": "USER", "id": user_id},
     )
 
@@ -585,9 +585,11 @@ async def main() -> None:
     redis = Redis.from_url(settings.redis_dsn, decode_responses=True)
     try:
         async with (
-            Client(mcp_url) as mcp,
+            Client(executor_mcp(mcp_url)) as mcp,
             httpx.AsyncClient(
-                base_url=f"{rest_url.rstrip('/')}/", timeout=30
+                base_url=f"{rest_url.rstrip('/')}/",
+                timeout=30,
+                headers=SMOKE_HEADERS,
             ) as rest,
         ):
             results = []

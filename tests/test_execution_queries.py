@@ -48,6 +48,7 @@ def _submit_command() -> SubmitExecutionCommand:
         user_id="trace-user",
         project_id="trace-project",
         session_id="trace-session",
+        tenant_id="test-tenant",
         steps=(
             StepSpec(
                 sequence=0,

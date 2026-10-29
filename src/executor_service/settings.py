@@ -11,9 +11,16 @@ files ship in the image.
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Annotated, Self
+from typing import Annotated, Literal, Self
 
-from pydantic import Field, SecretStr, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SecretStr,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import (
     BaseSettings,
     NoDecode,
@@ -22,7 +29,17 @@ from pydantic_settings import (
     YamlConfigSettingsSource,
 )
 
+from executor_service.domain.tenants import (
+    RESERVED_TENANT_IDS,
+    TENANT_ID_PATTERN,
+)
+
 APP_ENVS = ("dev", "stg", "prd")
+# AUTH_MODE=header trusts identity headers without a key.
+HEADER_AUTH_ENVS = ("", "dev")
+
+TenantId = Annotated[str, Field(pattern=TENANT_ID_PATTERN)]
+KeySha256 = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
 
 
 def config_files() -> list[Path]:
@@ -42,6 +59,32 @@ def config_files() -> list[Path]:
     if common.is_file():
         files.append(common)
     return files
+
+
+class AuthClient(BaseModel):
+    """One caller allowed to use Executor with its own API key."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    name: str = Field(min_length=1, max_length=64)
+    # SHA-256 hex of each accepted key; several while a key is rotated.
+    key_sha256: tuple[KeySha256, ...] = Field(min_length=1)
+    tenant: TenantId | None = None
+    # A relay may name another tenant from allowed_tenants in X-Tenant-Id.
+    relay: bool = False
+    allowed_tenants: tuple[TenantId, ...] = ()
+    admin: bool = False
+
+    @model_validator(mode="after")
+    def validate_tenants(self) -> Self:
+        reserved = RESERVED_TENANT_IDS.intersection(
+            (self.tenant, *self.allowed_tenants)
+        )
+        if reserved:
+            raise ValueError(f"tenant {sorted(reserved)} is reserved.")
+        if self.allowed_tenants and not self.relay:
+            raise ValueError("allowed_tenants requires relay: true.")
+        return self
 
 
 class Settings(BaseSettings):
@@ -92,6 +135,9 @@ class Settings(BaseSettings):
     published_outbox_retention_seconds: int = Field(default=604800, ge=3600)
     execution_event_retention_seconds: int = Field(default=7776000, ge=3600)
 
+    auth_mode: Literal["api_key", "header"] = "header"
+    auth_clients: tuple[AuthClient, ...] = ()
+    mcp_enabled: bool = True
     mcp_allowed_hosts: Annotated[tuple[str, ...], NoDecode] = (
         "localhost:*",
         "127.0.0.1:*",
@@ -230,6 +276,21 @@ class Settings(BaseSettings):
             raise ValueError(
                 "RUNTIME_CREDENTIAL_KEY must be replaced outside local environments."
             )
+        if (
+            self.auth_mode == "header"
+            and os.environ.get("APP_ENV", "") not in HEADER_AUTH_ENVS
+        ):
+            raise ValueError(
+                "AUTH_MODE=header is allowed only locally and in dev."
+            )
+        names = [client.name for client in self.auth_clients]
+        if len(names) != len(set(names)):
+            raise ValueError("AUTH_CLIENTS names must be unique.")
+        hashes = [
+            key for client in self.auth_clients for key in client.key_sha256
+        ]
+        if len(hashes) != len(set(hashes)):
+            raise ValueError("AUTH_CLIENTS key_sha256 values must be unique.")
         return self
 
     @property

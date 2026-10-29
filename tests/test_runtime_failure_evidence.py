@@ -184,6 +184,7 @@ async def test_failures_preserve_state_reason_partial_refs_and_operator_logs(
             user_id="evidence-user",
             project_id=None,
             session_id=None,
+            tenant_id="test-tenant",
             steps=(
                 StepSpec(
                     sequence=0,

@@ -194,7 +194,7 @@ class ExecutionORM(Base):
     user_id: Mapped[str] = mapped_column(String(255), nullable=False)
     project_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     session_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    tenant_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
     execution_metadata: Mapped[dict[str, Any]] = mapped_column(
         "metadata", JSON, nullable=False, default=dict
     )

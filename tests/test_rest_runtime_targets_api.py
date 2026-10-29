@@ -94,7 +94,13 @@ async def fleet_client(
     app = create_app(container)
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(
-        transport=transport, base_url="http://testserver"
+        transport=transport,
+        base_url="http://testserver",
+        headers={
+            "X-User-Id": "fleet-admin",
+            "X-Project-Id": "fleet-project",
+            "X-Session-Id": "fleet-session",
+        },
     ) as client:
         yield client, container
     await container.redis.aclose()
@@ -151,11 +157,6 @@ def _execution_payload() -> dict[str, Any]:
                     }
                 ],
             },
-        },
-        "context": {
-            "user_id": "fleet-admin",
-            "project_id": "fleet-project",
-            "session_id": "fleet-session",
         },
     }
 

@@ -70,6 +70,7 @@ def _command(pool: RuntimePool, name: str) -> SubmitExecutionCommand:
         user_id="pool-user",
         project_id="pool-project",
         session_id=f"pool-session-{name}",
+        tenant_id="test-tenant",
         steps=(
             StepSpec(
                 sequence=0,

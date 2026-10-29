@@ -43,6 +43,8 @@ from executor_service.infrastructure.execution_worker.event_writer.payloads impo
 )
 from executor_service.infrastructure.outbox import OutboxPublisher
 
+TENANT_STREAM = "event-contract-v1.test-tenant"
+
 
 class RecordingRedis:
     def __init__(self, *, fail_event_writes: int = 0) -> None:
@@ -50,7 +52,7 @@ class RecordingRedis:
         self.fail_event_writes = fail_event_writes
 
     async def xadd(self, stream: str, fields: dict[FieldT, EncodableT]) -> str:
-        if stream == "event-contract-v1" and self.fail_event_writes > 0:
+        if stream == TENANT_STREAM and self.fail_event_writes > 0:
             self.fail_event_writes -= 1
             raise ConnectionError("expected transient Redis failure")
         self.messages.setdefault(stream, []).append(
@@ -68,6 +70,7 @@ def _submit_command() -> SubmitExecutionCommand:
         user_id="event-user",
         project_id="event-project",
         session_id="event-session",
+        tenant_id="test-tenant",
         steps=(StepSpec(sequence=0, code="print('event contract')"),),
     )
 
@@ -153,7 +156,7 @@ async def test_event_stream_serializes_the_ordered_public_envelope(
     )
 
     assert await publisher.publish_batch() == 1
-    raw_fields = recording_redis.messages["event-contract-v1"][0]
+    raw_fields = recording_redis.messages[TENANT_STREAM][0]
     fields = {key: str(value) for key, value in raw_fields.items()}
     envelope = ExecutionStreamEnvelope.from_redis_fields(fields)
 
@@ -165,7 +168,9 @@ async def test_event_stream_serializes_the_ordered_public_envelope(
         "event_sequence",
         "payload",
         "occurred_at",
+        "tenant_id",
     }
+    assert envelope.tenant_id == "test-tenant"
     assert envelope.event_id == event.id
     assert envelope.execution_id == execution.id
     assert envelope.event_sequence == 1
@@ -283,7 +288,7 @@ async def test_failed_event_blocks_later_sequence_until_retry(
     )
 
     assert await publisher.publish_batch() == 0
-    assert recording_redis.messages.get("event-contract-v1") is None
+    assert recording_redis.messages.get(TENANT_STREAM) is None
 
     async with session_factory() as session, session.begin():
         stored = await session.scalar(
@@ -295,7 +300,7 @@ async def test_failed_event_blocks_later_sequence_until_retry(
     assert await publisher.publish_batch() == 2
     sequences = [
         int(fields["event_sequence"])
-        for fields in recording_redis.messages["event-contract-v1"]
+        for fields in recording_redis.messages[TENANT_STREAM]
     ]
     assert sequences == [1, 2]
 
@@ -335,7 +340,7 @@ async def test_delayed_event_blocks_later_sequence_in_same_batch(
     assert await publisher.publish_batch() == 1
     assert [
         int(fields["event_sequence"])
-        for fields in recording_redis.messages["event-contract-v1"]
+        for fields in recording_redis.messages[TENANT_STREAM]
     ] == [1]
 
     async with session_factory() as session, session.begin():
@@ -346,7 +351,7 @@ async def test_delayed_event_blocks_later_sequence_in_same_batch(
     assert await publisher.publish_batch() == 2
     assert [
         int(fields["event_sequence"])
-        for fields in recording_redis.messages["event-contract-v1"]
+        for fields in recording_redis.messages[TENANT_STREAM]
     ] == [1, 2, 3]
 
 

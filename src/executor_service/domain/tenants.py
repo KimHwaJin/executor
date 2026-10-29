@@ -12,7 +12,7 @@ def is_valid_tenant_id(value: str) -> bool:
     return _TENANT_ID.fullmatch(value) is not None
 
 
-def tenant_event_stream(event_stream: str, tenant_id: str | None) -> str:
+def tenant_event_stream(event_stream: str, tenant_id: str) -> str:
     """The Redis Stream carrying one tenant's Execution events."""
 
-    return event_stream if tenant_id is None else f"{event_stream}.{tenant_id}"
+    return f"{event_stream}.{tenant_id}"

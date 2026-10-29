@@ -15,9 +15,10 @@ from executor_service.domain.enums import (
     RuntimeType,
     TriggerType,
 )
-from executor_service.domain.tenants import (
-    RESERVED_TENANT_IDS,
-    TENANT_ID_PATTERN,
+from executor_service.interfaces.auth import (
+    Caller,
+    require_tenant,
+    require_user,
 )
 from executor_service.interfaces.contracts.common import (
     ActorInput,
@@ -32,22 +33,6 @@ from executor_service.interfaces.execution_specs import (
 METADATA_MAX_KEYS = 32
 METADATA_MAX_BYTES = 4096
 METADATA_KEY_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
-
-
-class ExecutionContext(ContractModel):
-    user_id: str = Field(min_length=1, max_length=255)
-    project_id: str | None = Field(default=None, min_length=1, max_length=255)
-    session_id: str | None = Field(default=None, min_length=1, max_length=255)
-
-    @model_validator(mode="after")
-    def validate_scope(self) -> "ExecutionContext":
-        if self.session_id is not None and self.project_id is None:
-            raise ValueError("context.session_id requires context.project_id.")
-        if self.project_id == "unscoped" or self.session_id == "unscoped":
-            raise ValueError(
-                "'unscoped' is reserved for Executor workspace paths."
-            )
-        return self
 
 
 class ExecutionLifecycleInput(ContractModel):
@@ -86,18 +71,9 @@ class ExecutionOperationInput(ContractModel):
 
 class ExecutionSubmitRequest(ContractModel):
     idempotency_key: str = Field(min_length=1, max_length=255)
-    tenant_id: str | None = Field(
-        default=None,
-        pattern=TENANT_ID_PATTERN,
-        description=(
-            "Immutable tenant. Its events go to the Redis Stream "
-            "'<event stream>.<tenant_id>' instead of the shared one."
-        ),
-    )
     lifecycle: ExecutionLifecycleInput
     trigger: ExecutionTriggerInput
     runtime: ExecutionRuntimeInput
-    context: ExecutionContext
     operation: ExecutionOperationInput
     metadata: dict[str, Any] = Field(
         default_factory=dict,
@@ -133,16 +109,11 @@ class ExecutionSubmitRequest(ContractModel):
             )
         return metadata
 
-    @field_validator("tenant_id")
-    @classmethod
-    def validate_tenant_id(cls, tenant_id: str | None) -> str | None:
-        if tenant_id in RESERVED_TENANT_IDS:
-            raise ValueError(f"tenant_id '{tenant_id}' is reserved.")
-        return tenant_id
-
     def to_command(
-        self, resolved: ResolvedExecutionSpec
+        self, resolved: ResolvedExecutionSpec, caller: Caller
     ) -> SubmitExecutionCommand:
+        """The caller's headers, never the body, name the tenant and context."""
+
         return SubmitExecutionCommand(
             idempotency_key=self.idempotency_key,
             operation_mode=self.lifecycle.operation_mode,
@@ -152,16 +123,16 @@ class ExecutionSubmitRequest(ContractModel):
             trigger_type=self.trigger.type,
             runtime_type=self.runtime.type,
             runtime_profile=self.runtime.profile,
-            user_id=self.context.user_id,
-            project_id=self.context.project_id,
-            session_id=self.context.session_id,
+            user_id=require_user(caller),
+            project_id=caller.project_id,
+            session_id=caller.session_id,
             spec_schema_version=resolved.spec.schema_version,
             operation_timeout_seconds=(
                 self.operation.operation_timeout_seconds
             ),
             actor_type=self.trigger.actor.type,
             actor_id=self.trigger.actor.id,
-            tenant_id=self.tenant_id,
+            tenant_id=require_tenant(caller),
             metadata=self.metadata,
             operation_metadata=self.operation.metadata,
             steps=tuple(

@@ -5,7 +5,7 @@ import os
 from typing import Any
 from uuid import uuid4
 
-from execution_spec_payload import execution_request, inline_spec
+from execution_spec_payload import execution_request, executor_mcp, inline_spec
 from mcp import Client
 
 
@@ -26,7 +26,7 @@ async def _wait_for_terminal(
 async def main() -> None:
     unique = str(uuid4())
     secondary_token = os.environ.get("JUPYTER_SECONDARY_TOKEN", "default")
-    async with Client("http://127.0.0.1:8000/mcp") as client:
+    async with Client(executor_mcp("http://127.0.0.1:8000/mcp")) as client:
         primary = await client.call_tool(
             "runtime_target_upsert",
             {
@@ -87,11 +87,6 @@ async def main() -> None:
                                 }
                             ],
                         ),
-                        context={
-                            "user_id": "fleet-user",
-                            "project_id": "fleet-project",
-                            "session_id": f"fleet-session-{index}",
-                        },
                     )
                 },
             )

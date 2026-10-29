@@ -5,7 +5,7 @@ import os
 from typing import Any
 from uuid import uuid4
 
-from execution_spec_payload import execution_request, inline_spec
+from execution_spec_payload import execution_request, executor_mcp, inline_spec
 from mcp import Client
 
 
@@ -77,7 +77,7 @@ async def main() -> None:
     token = os.getenv("RETRY_RECOVERY_JUPYTER_TOKEN", "default")
     server_was_redirected = False
 
-    async with Client(mcp_url) as client:
+    async with Client(executor_mcp(mcp_url)) as client:
         healthy_server = await _upsert_server(
             client,
             unique=unique,
@@ -122,11 +122,6 @@ async def main() -> None:
                             },
                         ],
                     ),
-                    context={
-                        "user_id": "retry-offline-user",
-                        "project_id": "retry-offline-project",
-                        "session_id": f"retry-offline-session-{unique}",
-                    },
                 )
             },
         )

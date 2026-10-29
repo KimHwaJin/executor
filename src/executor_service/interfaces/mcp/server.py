@@ -42,9 +42,20 @@ from executor_service.domain.enums import (
     RuntimeType,
     TriggerType,
 )
-from executor_service.domain.errors import DomainError, ErrorCode
+from executor_service.domain.errors import (
+    DomainError,
+    ErrorCode,
+    ExecutionArtifactNotFoundError,
+    ExecutionNotFoundError,
+)
 from executor_service.infrastructure.materialized_artifacts import (
     MaterializedArtifactService,
+)
+from executor_service.interfaces.auth import (
+    authorize_execution,
+    current_caller,
+    require_admin,
+    require_tenant,
 )
 from executor_service.interfaces.contracts import (
     ExecutionArtifactPageResponse,
@@ -99,8 +110,9 @@ def _public_tool_error(exc: Exception) -> ToolError:
 
 def build_mcp_server(
     execution_service: ExecutionService,
+    execution_queries: ExecutionQueryService,
+    *,
     runtime_manager: RuntimeTargetManager | None = None,
-    execution_queries: ExecutionQueryService | None = None,
     execution_spec_resolver: ExecutionSpecResolver | None = None,
     notebook_queries: ExecutionNotebookQueryService | None = None,
     execution_results: ExecutionResultQueryService | None = None,
@@ -114,6 +126,11 @@ def build_mcp_server(
             "Tool completion does not mean the submitted execution has finished."
         ),
     )
+
+    async def authorize(execution_id: UUID, *, write: bool = False) -> None:
+        await authorize_execution(
+            execution_queries, current_caller(), execution_id, write=write
+        )
 
     @server.tool(
         description=(
@@ -138,7 +155,7 @@ def build_mcp_server(
                     "ExecutionSpec starting at sequence 0."
                 )
             result = await execution_service.submit_result(
-                request.to_command(resolved)
+                request.to_command(resolved, current_caller())
             )
         except Exception as exc:
             raise _public_tool_error(exc) from exc
@@ -151,11 +168,8 @@ def build_mcp_server(
     )
     async def execution_get(execution_id: UUID) -> ExecutionResponse:
         try:
-            execution = await (
-                execution_queries.execution(execution_id)
-                if execution_queries is not None
-                else execution_service.get(execution_id)
-            )
+            await authorize(execution_id)
+            execution = await execution_queries.execution(execution_id)
         except Exception as exc:
             raise _public_tool_error(exc) from exc
         return ExecutionResponse.from_view(execution)
@@ -170,6 +184,7 @@ def build_mcp_server(
         request: ExecutionCancelRequest,
     ) -> ExecutionCommandResponse:
         try:
+            await authorize(request.execution_id, write=True)
             execution = await execution_service.cancel(
                 CancelExecutionCommand(
                     execution_id=request.execution_id,
@@ -193,6 +208,7 @@ def build_mcp_server(
         request: ExecutionRetryRequest,
     ) -> ExecutionCommandResponse:
         try:
+            await authorize(request.execution_id, write=True)
             result = await execution_service.retry_result(
                 RetryExecutionCommand(
                     execution_id=request.execution_id,
@@ -218,6 +234,7 @@ def build_mcp_server(
         request: ExecutionOperationCreateRequest,
     ) -> ExecutionCommandResponse:
         try:
+            await authorize(request.execution_id, write=True)
             if execution_spec_resolver is None:
                 raise ToolError(
                     f"[{ErrorCode.INTERNAL_ERROR}] ExecutionSpec resolver is not configured."
@@ -265,6 +282,7 @@ def build_mcp_server(
         request: ExecutionFinalizeRequest,
     ) -> ExecutionCommandResponse:
         try:
+            await authorize(request.execution_id, write=True)
             execution = await execution_service.finalize_execution(
                 FinalizeExecutionCommand(
                     execution_id=request.execution_id,
@@ -294,6 +312,7 @@ def build_mcp_server(
             limit: Annotated[int, Field(ge=1, le=200)] = 20,
         ) -> ExecutionNotebookResponse:
             try:
+                await authorize(execution_id)
                 notebook = await notebook_queries.read_notebook(
                     execution_id,
                     view=view,
@@ -316,6 +335,7 @@ def build_mcp_server(
             cell_index: Annotated[int, Field(ge=0)],
         ) -> list[TextContent | ImageContent]:
             try:
+                await authorize(execution_id)
                 view = await notebook_queries.read_cell(
                     execution_id, cell_index
                 )
@@ -323,282 +343,292 @@ def build_mcp_server(
                 raise _public_tool_error(exc) from exc
             return _notebook_cell_content(view)
 
-    if execution_queries is not None:
-        if materialized_artifacts is not None:
-
-            @server.tool(
-                description=(
-                    "Materialize Agent-authored UTF-8 text from INLINE content or an Executor "
-                    "input-PV PATH as a Runtime-owned Execution Artifact. DATASET and MODEL "
-                    "are Runtime/Manifest-produced and are not accepted by this command. "
-                    "REPORT files are written below reports/ and may also be appended to "
-                    "the notebook."
-                )
-            )
-            async def execution_artifact_create(
-                request: ExecutionArtifactMaterializeToolRequest,
-            ) -> ExecutionArtifactResponse:
-                try:
-                    artifact_id = await materialized_artifacts.materialize(
-                        request.to_command(request.execution_id)
-                    )
-                    view = await execution_queries.artifact(artifact_id)
-                except Exception as exc:
-                    raise _public_tool_error(exc) from exc
-                return ExecutionArtifactResponse.from_view(view)
-
-        if execution_results is not None:
-
-            @server.tool(
-                description=(
-                    "Get the compact authoritative Execution result after an Executor event "
-                    "signals availability. Includes current Operation and Step result "
-                    "references, Attempt summaries, and Artifact summaries."
-                )
-            )
-            async def execution_result_get(
-                execution_id: UUID,
-            ) -> ExecutionResultResponse:
-                try:
-                    bundle = await execution_results.execution(execution_id)
-                except Exception as exc:
-                    raise _public_tool_error(exc) from exc
-                return ExecutionResultResponse.from_bundle(bundle)
-
-            @server.tool(
-                description=(
-                    "Get one Operation together with all current Step results after an "
-                    "operation result event is received."
-                )
-            )
-            async def execution_operation_result_get(
-                execution_id: UUID,
-                operation_id: UUID,
-            ) -> ExecutionOperationResultResponse:
-                try:
-                    bundle = await execution_results.operation(
-                        execution_id, operation_id
-                    )
-                except Exception as exc:
-                    raise _public_tool_error(exc) from exc
-                return ExecutionOperationResultResponse.from_bundle(bundle)
+    if materialized_artifacts is not None:
 
         @server.tool(
             description=(
-                "List executions using an opaque cursor. Pass the returned "
-                "next_cursor unchanged as cursor to continue. Optional filters remain fixed "
-                "across pages."
+                "Materialize Agent-authored UTF-8 text from INLINE content or an Executor "
+                "input-PV PATH as a Runtime-owned Execution Artifact. DATASET and MODEL "
+                "are Runtime/Manifest-produced and are not accepted by this command. "
+                "REPORT files are written below reports/ and may also be appended to "
+                "the notebook."
             )
         )
-        async def execution_list(
-            user_id: str | None = None,
-            project_id: str | None = None,
-            session_id: str | None = None,
-            tenant_id: str | None = None,
-            trigger_type: TriggerType | None = None,
-            status: ExecutionStatus | None = None,
-            cursor: str | None = None,
-            limit: StandardLimit = 100,
-        ) -> ExecutionPageResponse:
-            try:
-                page = await execution_queries.executions(
-                    user_id=user_id,
-                    project_id=project_id,
-                    session_id=session_id,
-                    tenant_id=tenant_id,
-                    trigger_type=trigger_type,
-                    status=status,
-                    cursor=cursor,
-                    limit=limit,
-                )
-            except Exception as exc:
-                raise _public_tool_error(exc) from exc
-            return ExecutionPageResponse.from_page(page)
-
-        @server.tool(
-            description=(
-                "List current execution Steps using an opaque MCP-style cursor. Pass an exact "
-                "returned next_cursor as cursor to continue; never parse or modify it."
-            )
-        )
-        async def execution_step_list(
-            execution_id: UUID,
-            cursor: str | None = None,
-            limit: StandardLimit = 100,
-        ) -> ExecutionStepPageResponse:
-            try:
-                page = await execution_queries.steps(
-                    execution_id,
-                    cursor=cursor,
-                    limit=limit,
-                )
-            except Exception as exc:
-                raise _public_tool_error(exc) from exc
-            return ExecutionStepPageResponse.from_page(page, execution_id)
-
-        @server.tool(
-            description=(
-                "List Agent-submitted execution Operations using an opaque cursor. An Operation "
-                "is one accepted batch of consecutive Steps."
-            )
-        )
-        async def execution_operation_list(
-            execution_id: UUID,
-            cursor: str | None = None,
-            limit: StandardLimit = 100,
-        ) -> ExecutionOperationPageResponse:
-            try:
-                page = await execution_queries.operations(
-                    execution_id, cursor=cursor, limit=limit
-                )
-            except Exception as exc:
-                raise _public_tool_error(exc) from exc
-            return ExecutionOperationPageResponse.from_page(page)
-
-        @server.tool(
-            description="Get one accepted execution Operation detail."
-        )
-        async def execution_operation_get(
-            execution_id: UUID,
-            operation_id: UUID,
-        ) -> ExecutionOperationResponse:
-            try:
-                view = await execution_queries.operation(
-                    execution_id, operation_id
-                )
-            except Exception as exc:
-                raise _public_tool_error(exc) from exc
-            return ExecutionOperationResponse.from_view(view)
-
-        @server.tool(
-            description="List current Step results belonging to one Operation."
-        )
-        async def execution_operation_step_list(
-            execution_id: UUID,
-            operation_id: UUID,
-            cursor: str | None = None,
-            limit: StandardLimit = 100,
-        ) -> ExecutionStepPageResponse:
-            try:
-                page = await execution_queries.operation_steps(
-                    execution_id, operation_id, cursor=cursor, limit=limit
-                )
-            except Exception as exc:
-                raise _public_tool_error(exc) from exc
-            return ExecutionStepPageResponse.from_page(page, execution_id)
-
-        @server.tool(
-            description=(
-                "List immutable execution Attempt summaries with outcome and Step count."
-            )
-        )
-        async def execution_attempt_list(
-            execution_id: UUID,
-            cursor: str | None = None,
-            limit: StandardLimit = 100,
-        ) -> ExecutionAttemptPageResponse:
-            try:
-                page = await execution_queries.attempts(
-                    execution_id,
-                    cursor=cursor,
-                    limit=limit,
-                )
-            except Exception as exc:
-                raise _public_tool_error(exc) from exc
-            return ExecutionAttemptPageResponse.from_page(page)
-
-        @server.tool(
-            description="Get one immutable execution Attempt in detail."
-        )
-        async def execution_attempt_get(
-            execution_id: UUID,
-            attempt_id: UUID,
-        ) -> ExecutionAttemptDetailResponse:
-            try:
-                view = await execution_queries.attempt(
-                    execution_id, attempt_id
-                )
-            except Exception as exc:
-                raise _public_tool_error(exc) from exc
-            return ExecutionAttemptDetailResponse.from_view(view)
-
-        @server.tool(
-            description=(
-                "List immutable Step results for one Attempt using an opaque cursor."
-            )
-        )
-        async def execution_attempt_step_list(
-            execution_id: UUID,
-            attempt_id: UUID,
-            cursor: str | None = None,
-            limit: StandardLimit = 100,
-        ) -> ExecutionStepAttemptPageResponse:
-            try:
-                page = await execution_queries.attempt_steps(
-                    execution_id,
-                    attempt_id,
-                    cursor=cursor,
-                    limit=limit,
-                )
-            except Exception as exc:
-                raise _public_tool_error(exc) from exc
-            return ExecutionStepAttemptPageResponse.from_page(page)
-
-        @server.tool(
-            description=(
-                "List the durable PostgreSQL event timeline and current Redis publication "
-                "state for an execution."
-            )
-        )
-        async def execution_event_list(
-            execution_id: UUID,
-            after_sequence: Annotated[int, Field(ge=0)] = 0,
-            cursor: str | None = None,
-            limit: EventLimit = 200,
-        ) -> ExecutionEventPageResponse:
-            try:
-                page = await execution_queries.events(
-                    execution_id,
-                    after_sequence=after_sequence,
-                    cursor=cursor,
-                    limit=limit,
-                )
-            except Exception as exc:
-                raise _public_tool_error(exc) from exc
-            return ExecutionEventPageResponse.from_page(page)
-
-        @server.tool(
-            description=(
-                "List Artifacts produced by an execution with Attempt, Step, storage, checksum, "
-                "and lineage references."
-            )
-        )
-        async def execution_artifact_list(
-            execution_id: UUID,
-            cursor: str | None = None,
-            limit: ArtifactLimit = 100,
-        ) -> ExecutionArtifactPageResponse:
-            try:
-                page = await execution_queries.artifacts(
-                    execution_id,
-                    cursor=cursor,
-                    limit=limit,
-                )
-            except Exception as exc:
-                raise _public_tool_error(exc) from exc
-            return ExecutionArtifactPageResponse.from_page(page)
-
-        @server.tool(
-            description="Get one Execution Artifact and its direct lineage references."
-        )
-        async def execution_artifact_get(
-            artifact_id: UUID,
+        async def execution_artifact_create(
+            request: ExecutionArtifactMaterializeToolRequest,
         ) -> ExecutionArtifactResponse:
             try:
+                await authorize(request.execution_id, write=True)
+                artifact_id = await materialized_artifacts.materialize(
+                    request.to_command(request.execution_id)
+                )
                 view = await execution_queries.artifact(artifact_id)
             except Exception as exc:
                 raise _public_tool_error(exc) from exc
             return ExecutionArtifactResponse.from_view(view)
+
+    if execution_results is not None:
+
+        @server.tool(
+            description=(
+                "Get the compact authoritative Execution result after an Executor event "
+                "signals availability. Includes current Operation and Step result "
+                "references, Attempt summaries, and Artifact summaries."
+            )
+        )
+        async def execution_result_get(
+            execution_id: UUID,
+        ) -> ExecutionResultResponse:
+            try:
+                await authorize(execution_id)
+                bundle = await execution_results.execution(execution_id)
+            except Exception as exc:
+                raise _public_tool_error(exc) from exc
+            return ExecutionResultResponse.from_bundle(bundle)
+
+        @server.tool(
+            description=(
+                "Get one Operation together with all current Step results after an "
+                "operation result event is received."
+            )
+        )
+        async def execution_operation_result_get(
+            execution_id: UUID,
+            operation_id: UUID,
+        ) -> ExecutionOperationResultResponse:
+            try:
+                await authorize(execution_id)
+                bundle = await execution_results.operation(
+                    execution_id, operation_id
+                )
+            except Exception as exc:
+                raise _public_tool_error(exc) from exc
+            return ExecutionOperationResultResponse.from_bundle(bundle)
+
+    @server.tool(
+        description=(
+            "List executions using an opaque cursor. Pass the returned "
+            "next_cursor unchanged as cursor to continue. Optional filters remain fixed "
+            "across pages."
+        )
+    )
+    async def execution_list(
+        project_id: str | None = None,
+        session_id: str | None = None,
+        trigger_type: TriggerType | None = None,
+        status: ExecutionStatus | None = None,
+        cursor: str | None = None,
+        limit: StandardLimit = 100,
+    ) -> ExecutionPageResponse:
+        try:
+            caller = current_caller()
+            page = await execution_queries.executions(
+                user_id=caller.user_id,
+                project_id=project_id,
+                session_id=session_id,
+                tenant_id=require_tenant(caller),
+                trigger_type=trigger_type,
+                status=status,
+                cursor=cursor,
+                limit=limit,
+            )
+        except Exception as exc:
+            raise _public_tool_error(exc) from exc
+        return ExecutionPageResponse.from_page(page)
+
+    @server.tool(
+        description=(
+            "List current execution Steps using an opaque MCP-style cursor. Pass an exact "
+            "returned next_cursor as cursor to continue; never parse or modify it."
+        )
+    )
+    async def execution_step_list(
+        execution_id: UUID,
+        cursor: str | None = None,
+        limit: StandardLimit = 100,
+    ) -> ExecutionStepPageResponse:
+        try:
+            await authorize(execution_id)
+            page = await execution_queries.steps(
+                execution_id,
+                cursor=cursor,
+                limit=limit,
+            )
+        except Exception as exc:
+            raise _public_tool_error(exc) from exc
+        return ExecutionStepPageResponse.from_page(page, execution_id)
+
+    @server.tool(
+        description=(
+            "List Agent-submitted execution Operations using an opaque cursor. An Operation "
+            "is one accepted batch of consecutive Steps."
+        )
+    )
+    async def execution_operation_list(
+        execution_id: UUID,
+        cursor: str | None = None,
+        limit: StandardLimit = 100,
+    ) -> ExecutionOperationPageResponse:
+        try:
+            await authorize(execution_id)
+            page = await execution_queries.operations(
+                execution_id, cursor=cursor, limit=limit
+            )
+        except Exception as exc:
+            raise _public_tool_error(exc) from exc
+        return ExecutionOperationPageResponse.from_page(page)
+
+    @server.tool(description="Get one accepted execution Operation detail.")
+    async def execution_operation_get(
+        execution_id: UUID,
+        operation_id: UUID,
+    ) -> ExecutionOperationResponse:
+        try:
+            await authorize(execution_id)
+            view = await execution_queries.operation(
+                execution_id, operation_id
+            )
+        except Exception as exc:
+            raise _public_tool_error(exc) from exc
+        return ExecutionOperationResponse.from_view(view)
+
+    @server.tool(
+        description="List current Step results belonging to one Operation."
+    )
+    async def execution_operation_step_list(
+        execution_id: UUID,
+        operation_id: UUID,
+        cursor: str | None = None,
+        limit: StandardLimit = 100,
+    ) -> ExecutionStepPageResponse:
+        try:
+            await authorize(execution_id)
+            page = await execution_queries.operation_steps(
+                execution_id, operation_id, cursor=cursor, limit=limit
+            )
+        except Exception as exc:
+            raise _public_tool_error(exc) from exc
+        return ExecutionStepPageResponse.from_page(page, execution_id)
+
+    @server.tool(
+        description=(
+            "List immutable execution Attempt summaries with outcome and Step count."
+        )
+    )
+    async def execution_attempt_list(
+        execution_id: UUID,
+        cursor: str | None = None,
+        limit: StandardLimit = 100,
+    ) -> ExecutionAttemptPageResponse:
+        try:
+            await authorize(execution_id)
+            page = await execution_queries.attempts(
+                execution_id,
+                cursor=cursor,
+                limit=limit,
+            )
+        except Exception as exc:
+            raise _public_tool_error(exc) from exc
+        return ExecutionAttemptPageResponse.from_page(page)
+
+    @server.tool(description="Get one immutable execution Attempt in detail.")
+    async def execution_attempt_get(
+        execution_id: UUID,
+        attempt_id: UUID,
+    ) -> ExecutionAttemptDetailResponse:
+        try:
+            await authorize(execution_id)
+            view = await execution_queries.attempt(execution_id, attempt_id)
+        except Exception as exc:
+            raise _public_tool_error(exc) from exc
+        return ExecutionAttemptDetailResponse.from_view(view)
+
+    @server.tool(
+        description=(
+            "List immutable Step results for one Attempt using an opaque cursor."
+        )
+    )
+    async def execution_attempt_step_list(
+        execution_id: UUID,
+        attempt_id: UUID,
+        cursor: str | None = None,
+        limit: StandardLimit = 100,
+    ) -> ExecutionStepAttemptPageResponse:
+        try:
+            await authorize(execution_id)
+            page = await execution_queries.attempt_steps(
+                execution_id,
+                attempt_id,
+                cursor=cursor,
+                limit=limit,
+            )
+        except Exception as exc:
+            raise _public_tool_error(exc) from exc
+        return ExecutionStepAttemptPageResponse.from_page(page)
+
+    @server.tool(
+        description=(
+            "List the durable PostgreSQL event timeline and current Redis publication "
+            "state for an execution."
+        )
+    )
+    async def execution_event_list(
+        execution_id: UUID,
+        after_sequence: Annotated[int, Field(ge=0)] = 0,
+        cursor: str | None = None,
+        limit: EventLimit = 200,
+    ) -> ExecutionEventPageResponse:
+        try:
+            await authorize(execution_id)
+            page = await execution_queries.events(
+                execution_id,
+                after_sequence=after_sequence,
+                cursor=cursor,
+                limit=limit,
+            )
+        except Exception as exc:
+            raise _public_tool_error(exc) from exc
+        return ExecutionEventPageResponse.from_page(page)
+
+    @server.tool(
+        description=(
+            "List Artifacts produced by an execution with Attempt, Step, storage, checksum, "
+            "and lineage references."
+        )
+    )
+    async def execution_artifact_list(
+        execution_id: UUID,
+        cursor: str | None = None,
+        limit: ArtifactLimit = 100,
+    ) -> ExecutionArtifactPageResponse:
+        try:
+            await authorize(execution_id)
+            page = await execution_queries.artifacts(
+                execution_id,
+                cursor=cursor,
+                limit=limit,
+            )
+        except Exception as exc:
+            raise _public_tool_error(exc) from exc
+        return ExecutionArtifactPageResponse.from_page(page)
+
+    @server.tool(
+        description="Get one Execution Artifact and its direct lineage references."
+    )
+    async def execution_artifact_get(
+        artifact_id: UUID,
+    ) -> ExecutionArtifactResponse:
+        try:
+            view = await execution_queries.artifact(artifact_id)
+            try:
+                await authorize(view.execution_id)
+            except ExecutionNotFoundError:
+                raise ExecutionArtifactNotFoundError(
+                    f"Artifact {artifact_id} was not found."
+                ) from None
+        except Exception as exc:
+            raise _public_tool_error(exc) from exc
+        return ExecutionArtifactResponse.from_view(view)
 
     if runtime_manager is not None:
 
@@ -613,6 +643,7 @@ def build_mcp_server(
             request: RuntimeTargetUpsertRequest,
         ) -> RuntimeTargetResponse:
             try:
+                require_admin(current_caller())
                 view = await runtime_manager.upsert(
                     UpsertRuntimeTargetCommand(
                         idempotency_key=request.idempotency_key,
@@ -646,6 +677,7 @@ def build_mcp_server(
             limit: StandardLimit = 100,
         ) -> RuntimeTargetPageResponse:
             try:
+                require_admin(current_caller())
                 page = await runtime_manager.list(
                     pool,
                     runtime_type=runtime_type,
@@ -663,6 +695,7 @@ def build_mcp_server(
         )
         async def runtime_target_get(target_id: UUID) -> RuntimeTargetResponse:
             try:
+                require_admin(current_caller())
                 view = await runtime_manager.get(target_id)
             except Exception as exc:
                 raise _public_tool_error(exc) from exc
@@ -677,6 +710,7 @@ def build_mcp_server(
             request: RuntimeTargetProbeRequest,
         ) -> RuntimeTargetResponse:
             try:
+                require_admin(current_caller())
                 view = await runtime_manager.probe(
                     request.target_id,
                     actor_type=request.actor.type,
@@ -696,6 +730,7 @@ def build_mcp_server(
             request: RuntimeTargetDisableRequest,
         ) -> RuntimeTargetResponse:
             try:
+                require_admin(current_caller())
                 view = await runtime_manager.disable(
                     DisableRuntimeTargetCommand(
                         idempotency_key=request.idempotency_key,
@@ -718,6 +753,7 @@ def build_mcp_server(
             request: RuntimeTargetSetStateRequest,
         ) -> RuntimeTargetResponse:
             try:
+                require_admin(current_caller())
                 view = await runtime_manager.set_state(
                     SetRuntimeTargetStateCommand(
                         idempotency_key=request.idempotency_key,

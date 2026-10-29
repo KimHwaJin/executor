@@ -4,7 +4,7 @@ import asyncio
 from typing import Any
 from uuid import uuid4
 
-from execution_spec_payload import execution_request, inline_spec
+from execution_spec_payload import execution_request, executor_mcp, inline_spec
 from mcp import Client
 
 
@@ -24,7 +24,7 @@ async def _wait(
 
 async def main() -> None:
     unique = str(uuid4())
-    async with Client("http://127.0.0.1:8000/mcp") as client:
+    async with Client(executor_mcp("http://127.0.0.1:8000/mcp")) as client:
         submitted = await client.call_tool(
             "execution_submit",
             {
@@ -58,11 +58,6 @@ async def main() -> None:
                             },
                         ],
                     ),
-                    context={
-                        "user_id": "retry-user",
-                        "project_id": "retry-project",
-                        "session_id": "retry-session",
-                    },
                 )
             },
         )
