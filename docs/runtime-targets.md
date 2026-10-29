@@ -113,11 +113,11 @@ images expose the same two kernelspecs:
 
 | Profile | Python | Purpose |
 |---|---|---|
-| `default` | 3.11 | General data loading, tabular analysis, statistics, visualization, and EDA |
+| `default` | 3.11 | General data loading, tabular analysis, statistics, machine learning, visualization, and EDA |
 | `3102311` | 3.10.11 | Independent project-specific environment |
 
 The local `default` environment includes NumPy, pandas, SciPy, PyArrow, Polars, DuckDB, OpenPyXL,
-Matplotlib, Seaborn, Plotly, and statsmodels. The `3102311` environment is independent rather than
+Matplotlib, Seaborn, Plotly, statsmodels, and scikit-learn. The `3102311` environment is independent rather than
 `default` plus extra packages. Its approved package list is intentionally supplied separately.
 
 The deployment image runs `uv sync --locked` on each project. The harness installs the pins that
