@@ -28,7 +28,17 @@ def test_shipped_files_are_valid(workdir, monkeypatch, app_env):
     assert settings.db_auto_migrate is True
     assert settings.shared_storage_root == Path("/mnt/data/dtest/executor")
     assert settings.effective_input_storage_root == Path("/mnt/data/dtest")
-    assert settings.mcp_allowed_hosts[0] == "executor:*"
+    if app_env == "dev":
+        assert settings.auth_mode == "header"
+        assert settings.mcp_allowed_hosts[0] == "executor:*"
+    else:
+        assert settings.auth_mode == "api_key"
+        assert not settings.mcp_enabled
+        assert {client.name for client in settings.auth_clients} == {
+            "pr-agentic-service",
+            "pr-batch",
+            "ops",
+        }
 
 
 def test_local_values_match_settings_defaults(monkeypatch):

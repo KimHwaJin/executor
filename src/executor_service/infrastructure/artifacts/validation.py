@@ -46,7 +46,7 @@ def manifest_runtime_path(raw: str, workspace: ExecutionWorkspace) -> str:
             "PV manifest path contains an unsafe segment or character."
         )
     path = PurePosixPath(raw)
-    if path.is_absolute() or (path.parts and path.parts[0] == "users"):
+    if path.is_absolute() or (path.parts and path.parts[0] == "tenants"):
         return raw
     if not path.parts or any(part in {"", ".", ".."} for part in path.parts):
         raise ArtifactRegistrationError(

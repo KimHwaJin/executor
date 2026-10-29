@@ -16,6 +16,7 @@ from executor_service.domain.errors import (
     DomainError,
     ErrorCode,
 )
+from executor_service.interfaces.auth import CallerAuthenticationMiddleware
 from executor_service.interfaces.http.executions import build_execution_router
 from executor_service.interfaces.http.maintenance import (
     build_maintenance_router,
@@ -34,34 +35,30 @@ def create_app(
     *,
     openapi_tags: list[dict[str, Any]] | None = None,
 ) -> FastAPI:
-    mcp_server = build_mcp_server(
-        container.execution_service,
-        container.runtime_registry,
-        container.execution_queries,
-        container.execution_spec_resolver,
-        container.notebook_queries,
-        container.execution_results,
-        container.materialized_artifacts,
-    )
-    transport_security = TransportSecuritySettings(
-        enable_dns_rebinding_protection=True,
-        allowed_hosts=list(container.settings.mcp_allowed_hosts),
-        allowed_origins=list(container.settings.mcp_allowed_origins),
-    )
-    mcp_app = mcp_server.streamable_http_app(
-        streamable_http_path="/mcp",
-        json_response=True,
-        stateless_http=True,
-        transport_security=transport_security,
+    mcp_server = (
+        build_mcp_server(
+            container.execution_service,
+            container.execution_queries,
+            runtime_manager=container.runtime_registry,
+            execution_spec_resolver=container.execution_spec_resolver,
+            notebook_queries=container.notebook_queries,
+            execution_results=container.execution_results,
+            materialized_artifacts=container.materialized_artifacts,
+        )
+        if container.settings.mcp_enabled
+        else None
     )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         try:
             await container.start()
-            # A mounted ASGI sub-application does not run its own lifespan.
-            async with mcp_server.session_manager.run():
+            if mcp_server is None:
                 yield
+            else:
+                # A mounted ASGI sub-application does not run its own lifespan.
+                async with mcp_server.session_manager.run():
+                    yield
         finally:
             await container.stop()
 
@@ -69,8 +66,8 @@ def create_app(
         title="Executor Service",
         version="0.1.0",
         description=(
-            "Asynchronous Runtime execution REST facade. MCP Streamable HTTP remains available "
-            "at /mcp."
+            "Asynchronous Runtime execution REST facade. MCP Streamable HTTP is available "
+            "at /mcp when MCP_ENABLED is true."
         ),
         docs_url="/docs",
         redoc_url="/redoc",
@@ -79,11 +76,14 @@ def create_app(
         lifespan=lifespan,
     )
     app.state.container = container
-    app.state.mcp_server = mcp_server
     app.add_middleware(
         ExecutionRequestErrorLoggingMiddleware,
         enabled=container.settings.rest_error_body_logging_enabled,
         max_body_bytes=container.settings.rest_error_body_log_max_bytes,
+    )
+    # Added last so it wraps everything, the MCP mount included.
+    app.add_middleware(
+        CallerAuthenticationMiddleware, settings=container.settings
     )
 
     @app.exception_handler(RequestValidationError)
@@ -198,7 +198,21 @@ def create_app(
     app.include_router(build_runtime_target_router(container))
     app.include_router(build_maintenance_router(container))
 
-    # Mounted at the root because a "/mcp" mount answers POST /mcp with a
-    # 307 to "/mcp/". Registered last so every route above wins.
-    app.mount("/", mcp_app)
+    if mcp_server is not None:
+        transport_security = TransportSecuritySettings(
+            enable_dns_rebinding_protection=True,
+            allowed_hosts=list(container.settings.mcp_allowed_hosts),
+            allowed_origins=list(container.settings.mcp_allowed_origins),
+        )
+        # Mounted at the root because a "/mcp" mount answers POST /mcp with a
+        # 307 to "/mcp/". Registered last so every route above wins.
+        app.mount(
+            "/",
+            mcp_server.streamable_http_app(
+                streamable_http_path="/mcp",
+                json_response=True,
+                stateless_http=True,
+                transport_security=transport_security,
+            ),
+        )
     return app

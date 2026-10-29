@@ -20,7 +20,12 @@ from uuid import uuid4
 
 import httpx
 from docker_worker_failover_e2e import Compose, Config, _wait_ready
-from execution_spec_payload import execution_request, inline_spec
+from execution_spec_payload import (
+    SMOKE_HEADERS,
+    execution_request,
+    executor_mcp,
+    inline_spec,
+)
 from interrupted_result_assertions import validate_evidence
 from mcp import Client
 from resilience_common import upsert_runtime_target
@@ -109,7 +114,6 @@ def case_request(mode: str, profile: str, unique: str) -> dict[str, Any]:
         trigger_type="INTERACTIVE",
         actor=ACTOR,
         runtime_profile=profile,
-        context={"user_id": ACTOR["id"]},
         operation_wait_timeout_seconds=300 if mode == "MULTI" else None,
         operation_timeout_seconds=300,
         spec=inline_spec(
@@ -218,7 +222,7 @@ async def run_case(
     }
     assert await kernels(compose) == [], "Leaked kernel before case"
     async with httpx.AsyncClient(
-        base_url=urls[SERVICES[0]], timeout=10
+        base_url=urls[SERVICES[0]], timeout=10, headers=SMOKE_HEADERS
     ) as api:
         submitted = await request(
             api,
@@ -264,7 +268,9 @@ async def run_case(
         else:
             await interrupt_owner(compose, owner, action)
 
-    async with httpx.AsyncClient(base_url=urls[survivor], timeout=10) as api:
+    async with httpx.AsyncClient(
+        base_url=urls[survivor], timeout=10, headers=SMOKE_HEADERS
+    ) as api:
         async with asyncio.timeout(90):
             while True:
                 detail = await request(api, "GET", path)
@@ -494,7 +500,9 @@ async def run(
             "/opt/tests/notebook_shared_read.py",
         )
         report["notebook_644_identity_test"] = "PASSED"
-        async with Client(f"http://127.0.0.1:{first}/mcp") as client:
+        async with Client(
+            executor_mcp(f"http://127.0.0.1:{first}/mcp")
+        ) as client:
             await upsert_runtime_target(
                 client,
                 unique=uuid4().hex,

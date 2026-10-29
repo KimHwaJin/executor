@@ -54,6 +54,7 @@ def test_agent_example_applies_one_event_id_exactly_once(
             "event_sequence": "1",
             "occurred_at": event.created_at.isoformat(),
             "payload": json.dumps(event.payload),
+            "tenant_id": "test-tenant",
         }
     )
     database_path = tmp_path / "agent-events.db"
@@ -102,6 +103,7 @@ def test_agent_example_requires_history_recovery_for_a_gap(
             },
         },
         occurred_at=datetime.now(UTC),
+        tenant_id="test-tenant",
     )
     state = open_state_database(tmp_path / "agent-events.db")
     try:

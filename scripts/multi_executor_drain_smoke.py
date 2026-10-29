@@ -5,6 +5,7 @@ import os
 from typing import Any
 from uuid import uuid4
 
+from execution_spec_payload import executor_mcp
 from mcp import Client
 from redis.asyncio import Redis
 from resilience_common import (
@@ -50,7 +51,9 @@ async def main() -> None:
         )
         await wait_ready(primary_port)
         primary_id = await worker_id(primary_port)
-        async with Client(f"http://127.0.0.1:{primary_port}/mcp") as client:
+        async with Client(
+            executor_mcp(f"http://127.0.0.1:{primary_port}/mcp")
+        ) as client:
             await upsert_runtime_target(
                 client,
                 unique=unique,
@@ -110,7 +113,9 @@ async def main() -> None:
         async with asyncio.timeout(20):
             await primary.wait()
 
-        async with Client(f"http://127.0.0.1:{secondary_port}/mcp") as client:
+        async with Client(
+            executor_mcp(f"http://127.0.0.1:{secondary_port}/mcp")
+        ) as client:
             short = await wait_for_status(
                 client, short_id, {"SUCCEEDED", "FAILED"}
             )

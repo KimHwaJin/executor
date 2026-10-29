@@ -5,7 +5,7 @@ import os
 from typing import Any
 from uuid import uuid4
 
-from execution_spec_payload import execution_request, inline_spec
+from execution_spec_payload import execution_request, executor_mcp, inline_spec
 from mcp import Client
 
 
@@ -45,7 +45,7 @@ async def main() -> None:
     secondary_token = os.getenv("JUPYTER_SECONDARY_TOKEN", "default")
     operator = {"type": "USER", "id": "shared-storage-operator"}
 
-    async with Client(mcp_url) as client:
+    async with Client(executor_mcp(mcp_url)) as client:
         targets = []
         for name, endpoint, credential in (
             ("local-jupyter", primary_endpoint, None),
@@ -87,11 +87,6 @@ async def main() -> None:
                             }
                         ],
                     ),
-                    context={
-                        "user_id": "shared-storage-user",
-                        "project_id": "shared-storage-project",
-                        "session_id": f"shared-storage-session-{unique}",
-                    },
                     actor={"type": "USER", "id": "shared-storage-user"},
                 )
             },

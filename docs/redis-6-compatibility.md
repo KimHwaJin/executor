@@ -24,8 +24,7 @@ migration with writers and consumers stopped.
 
 Age-based deletion uses `XRANGE` and `XDEL`, not unsupported `XTRIM MINID`.
 Only IDs strictly below the age boundary are deleted. Executor writes only the
-shared `executor.events` Stream and the per-tenant `executor.events.{tenant_id}` Streams, and
-retention trims each of them; Workers find work through PostgreSQL. An Agent offline
+per-tenant `executor.events.{tenant_id}` Streams, and retention trims each of them; Workers find work through PostgreSQL. An Agent offline
 beyond the event retention window must recover from durable history. The Agent's
 own event DLQ remains Agent-owned.
 

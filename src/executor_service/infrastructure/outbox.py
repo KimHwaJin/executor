@@ -141,7 +141,7 @@ class OutboxPublisher:
                         public_event.event_type,
                         public_event.payload,
                     )
-                    tenant_id = tenants.get(public_event.execution_id)
+                    tenant_id = tenants[public_event.execution_id]
                     fields = cast(
                         dict[FieldT, EncodableT],
                         {
@@ -154,10 +154,9 @@ class OutboxPublisher:
                                 payload, separators=(",", ":")
                             ),
                             "occurred_at": public_event.created_at.isoformat(),
+                            "tenant_id": tenant_id,
                         },
                     )
-                    if tenant_id is not None:
-                        fields["tenant_id"] = tenant_id
                     stream = tenant_event_stream(self._stream_name, tenant_id)
                     async with asyncio.timeout(self._publish_timeout_seconds):
                         if self._event_stream_maxlen is None:
@@ -199,7 +198,7 @@ class OutboxPublisher:
 
     async def _execution_tenants(
         self, session: AsyncSession, events: list[OutboxEventORM]
-    ) -> dict[UUID, str | None]:
+    ) -> dict[UUID, str]:
         execution_ids = {
             event.execution_event.execution_id for event in events
         }

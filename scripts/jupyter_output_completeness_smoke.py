@@ -164,6 +164,7 @@ async def run_case(
                 user_id="diagnostics-smoke",
                 project_id="output-completeness",
                 session_id=str(uuid4()),
+                tenant_id="smoke",
                 steps=(
                     StepSpec(
                         sequence=0,

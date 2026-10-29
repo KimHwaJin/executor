@@ -89,9 +89,6 @@ def fingerprint(
 ) -> str:
     payload = asdict(command)
     payload.pop("idempotency_key")
-    if payload.get("tenant_id") is None:
-        # Keeps fingerprints recorded before this field existed valid.
-        payload.pop("tenant_id", None)
     return canonical_sha256(payload)
 
 

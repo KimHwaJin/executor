@@ -7,8 +7,8 @@ Redis 처리 세부사항은 LLM이나 LangGraph 업무 노드가 아니라 Agen
 
 ## 1. 책임 경계
 
-- 구독할 Stream은 제출 요청의 `tenant_id`로 정해진다. `tenant_id`로 제출했다면
-  `executor.events.{tenant_id}`, 없이 제출했다면 공용 `executor.events`다(기본 이름 기준).
+- 구독할 Stream은 Execution의 tenant로 정해진다: `executor.events.{tenant_id}`(기본 이름 기준).
+  tenant는 제출 시 API key 또는 relay key의 `X-Tenant-Id`로 결정된다.
   한 Execution의 이벤트는 처음부터 끝까지 한 Stream으로만 간다.
 - Executor는 Execution별 `event_sequence`를 PostgreSQL 트랜잭션에서 `1`부터 발급한다.
 - Executor Outbox Publisher는 같은 Execution의 앞 순번이 발행되기 전에는 뒤 순번을
@@ -32,8 +32,7 @@ Redis 처리 세부사항은 LLM이나 LangGraph 업무 노드가 아니라 Agen
 
 ## 2. Redis 이벤트 Envelope
 
-모든 공개 Execution 이벤트는 다음 일곱 필드를 최상위에 갖는다. tenant Stream의
-이벤트에는 `tenant_id`가 더해진다.
+모든 공개 Execution 이벤트는 다음 여덟 필드를 최상위에 갖는다.
 
 ```json
 {
@@ -43,7 +42,8 @@ Redis 처리 세부사항은 LLM이나 LangGraph 업무 노드가 아니라 Agen
   "execution_id": "7eab4cd7-e124-4ee2-a888-cfc69f7cb298",
   "event_sequence": 4,
   "payload": {},
-  "occurred_at": "2026-08-26T10:15:31.523Z"
+  "occurred_at": "2026-08-26T10:15:31.523Z",
+  "tenant_id": "pr-agentic-service"
 }
 ```
 
@@ -54,7 +54,7 @@ Redis 처리 세부사항은 LLM이나 LangGraph 업무 노드가 아니라 Agen
 - `event_sequence`: 해당 Execution 안에서만 증가하는 논리 순번
 - `payload`: 이벤트 타입별 데이터
 - `occurred_at`: 이벤트가 PostgreSQL `execution_events`에 기록된 시각
-- `tenant_id`: tenant Stream에만 있는 제출 tenant. 공용 Stream에는 없다
+- `tenant_id`: 이 Stream의 tenant
 
 `event_sequence`는 Redis Stream message ID, Step의 `sequence`, Attempt 번호,
 `occurred_at`과 서로 다른 값이다. 이벤트 순서 판단에는 오직

@@ -1,13 +1,14 @@
 # Event Delivery and Work Admission
 
 PostgreSQL is the Execution state source of truth. Redis carries only Agent-facing event
-Streams, populated through the Transactional Outbox: `executor.events`, and
-`executor.events.{tenant_id}` for Executions submitted with a `tenant_id`. Workers do not use Redis to find
-work; they poll PostgreSQL.
+Streams, populated through the Transactional Outbox: one `executor.events.{tenant_id}` Stream per
+tenant. Every Execution has a tenant, and nothing is written to a shared Stream. Workers do not use
+Redis to find work; they poll PostgreSQL.
 
 ## Stream boundary
 
-- `executor.events`: integration events consumed by an Agent-owned consumer group
+- `executor.events.{tenant_id}`: one tenant's integration events, consumed by that tenant's
+  consumer group
 - `executor.events.dlq`: reserved for the Agent consumer's invalid integration-event policy
 
 Redis is not used as an Execution cache.
@@ -23,10 +24,11 @@ Every Executor-produced Stream entry contains:
 - `event_sequence`: monotonic sequence scoped to one Execution
 - `occurred_at`: durable Execution Event creation timestamp
 - `payload`: compact event JSON for downstream consumers
+- `tenant_id`: the tenant whose Stream carries the entry
 
 The decoded `payload` is a JSON object and does not duplicate envelope fields. Executor validates
 this contract before durable event/Outbox persistence and again immediately before Redis publication to
-`executor.events`. See
+the tenant Stream. See
 [Redis Execution Event Contract 1.0](../dev_docs/redis-execution-events.md).
 
 The sequence is allocated in the same PostgreSQL transaction as the event. A Publisher does not
@@ -79,7 +81,7 @@ through the PostgreSQL `event_retention_lease` table. A pass deletes in batches 
 pass has run 60 seconds; the rest waits for the next pass. Redis trimming starts once the Redis
 compatibility check passes.
 
-- `executor.events` and every tenant Stream are time-trimmed after
+- Every tenant Stream is time-trimmed after
   `REDIS_EVENT_RETENTION_SECONDS`. An Agent offline beyond
   that window recovers from durable PostgreSQL history by `event_sequence`.
 - `executor.events.dlq` remains Agent-owned and is never modified by Executor.

@@ -31,9 +31,12 @@ from executor_service.interfaces.contracts.common import (
     Lifecycle,
     PageResponse,
 )
-from executor_service.interfaces.contracts.execution_inputs import (
-    ExecutionContext,
-)
+
+
+class ExecutionContext(ContractModel):
+    user_id: str
+    project_id: str | None
+    session_id: str | None
 
 
 class ExecutionActor(ContractModel):
@@ -246,7 +249,7 @@ class ExecutionResponse(AuditFields):
     execution_id: UUID
     trigger_type: TriggerType
     trigger: ExecutionTrigger
-    tenant_id: str | None
+    tenant_id: str
     context: ExecutionContext
     metadata: dict[str, Any]
     runtime: ExecutionRuntime
@@ -298,7 +301,7 @@ class ExecutionSummaryResponse(AuditFields):
     operation_mode: OperationMode
     trigger_type: TriggerType
     trigger: ExecutionTrigger
-    tenant_id: str | None
+    tenant_id: str
     context: ExecutionContext
     metadata: dict[str, Any]
     state: ExecutionCommandState

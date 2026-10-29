@@ -19,6 +19,7 @@ REDIS_CONNECT_TIMEOUT_SECONDS: 5
 REDIS_SOCKET_TIMEOUT_SECONDS: 5
 OUTBOX_PUBLISH_TIMEOUT_SECONDS: 5
 OUTBOX_SHUTDOWN_TIMEOUT_SECONDS: 10
+# Prefix of the per-tenant Streams executor.events.<tenant>.
 REDIS_EVENT_STREAM: executor.events
 # Approximate per-Stream cap on event XADD; unset keeps age-only retention.
 # REDIS_EVENT_STREAM_MAXLEN: 100000
@@ -30,6 +31,9 @@ EVENT_RETENTION_BATCH_SIZE: 1000
 REDIS_EVENT_RETENTION_SECONDS: 604800
 PUBLISHED_OUTBOX_RETENTION_SECONDS: 604800
 EXECUTION_EVENT_RETENTION_SECONDS: 7776000
+# header trusts identity headers without a key: local and dev only.
+AUTH_MODE: header
+MCP_ENABLED: true
 RUNTIME_ENABLED: true
 # Requires Jupyter's /executor/kernels/{id}/executions endpoints.
 JUPYTER_STREAM_RECONNECT_SECONDS: 30

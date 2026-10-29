@@ -7,7 +7,7 @@ from time import monotonic
 from typing import Any
 from uuid import uuid4
 
-from execution_spec_payload import execution_request, inline_spec
+from execution_spec_payload import execution_request, executor_mcp, inline_spec
 from local_test_support import (
     env_float,
     env_int,
@@ -213,7 +213,7 @@ async def main() -> None:
     queued_observed = False
     peak_active: dict[str, int] = {}
 
-    async with Client(executor_mcp_url()) as client:
+    async with Client(executor_mcp(executor_mcp_url())) as client:
         targets = await register_local_runtime_targets(
             client,
             run_id=run_id,
@@ -256,11 +256,6 @@ async def main() -> None:
                                 }
                             ]
                         ),
-                        context={
-                            "user_id": "mixed-load-user",
-                            "project_id": "local-resilience",
-                            "session_id": f"mixed-load-session-{run_id}-{index}",
-                        },
                         metadata={
                             "test_type": "MIXED_OUTPUT_LOAD",
                             "test_run_id": run_id,

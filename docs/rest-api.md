@@ -31,6 +31,44 @@ authoritative state store and execution happens asynchronously through the Worke
 | GET | `/executions/{execution_id}/notebook` | Paginated Runtime-owned notebook summary or full cells |
 | GET | `/executions/{execution_id}/notebook/cells/{cell_index}` | One complete Runtime-owned notebook cell |
 
+## Authentication and identity
+
+One ASGI middleware authenticates every request, REST and MCP alike. Only `/healthz`,
+`/readyz`, and `/workerz` skip it.
+
+| Header | Rule |
+|---|---|
+| `X-Api-Key` | Required when `AUTH_MODE=api_key` (stg, prd). Matched by SHA-256 against `AUTH_CLIENTS`; missing or unknown is `401 UNAUTHENTICATED`. |
+| `X-Tenant-Id` | Honored only for a `relay` key and only within its `allowed_tenants`, otherwise `403 FORBIDDEN`. Without it the key's `tenant` applies; a key with neither is `400 INVALID_IDENTITY`. |
+| `X-User-Id` | `^[a-z0-9][a-z0-9._-]{0,63}$`, lowercased first. Required for every write. |
+| `X-Project-Id`, `X-Session-Id` | `^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$`, never `unscoped`; a session requires a project. |
+
+An Execution is visible only when its tenant is the caller's tenant and, when `X-User-Id` is
+sent, its `user_id` is that user. Anything else is `404`, so callers cannot probe other tenants.
+A read without `X-User-Id` is a system call and sees the whole tenant. Artifact routes apply the
+same rule through the Artifact's Execution.
+
+`/runtime-pools`, `/runtime-targets*`, and `/maintenance*` need an `admin` key (`403` otherwise).
+The same rule guards the MCP `runtime_target_*` tools.
+
+`AUTH_MODE=header` (local and dev only; startup fails elsewhere) trusts the identity headers
+without a key, defaults the tenant to `dev`, and treats every caller as admin.
+
+```yaml
+AUTH_MODE: api_key
+AUTH_CLIENTS:
+  - name: pr-agentic-service
+    key_sha256: ["<sha256 hex of the key>"]   # two entries during rotation
+    tenant: pr-agentic-service
+    relay: true
+    allowed_tenants: [pr-agentic-service]
+  - name: ops
+    key_sha256: ["<sha256 hex>"]
+    admin: true
+```
+
+Write requests log `client`, `tenant_id`, and `user_id`; the key itself is never logged.
+
 ## Submit
 
 ```json
@@ -45,11 +83,6 @@ authoritative state store and execution happens asynchronously through the Worke
     "actor": {"type": "AGENT", "id": "analytics-agent"}
   },
   "runtime": {"type": "JUPYTER", "profile": "basic"},
-  "context": {
-    "user_id": "user-100",
-    "project_id": "project-100",
-    "session_id": "session-100"
-  },
   "operation": {
     "operation_timeout_seconds": 600,
     "spec": {
@@ -71,13 +104,13 @@ authoritative state store and execution happens asynchronously through the Worke
 }
 ```
 
-`user_id` is required. `project_id` and `session_id` are optional;
-`session_id` requires `project_id`. When project or session is absent, the Runtime workspace uses the
-reserved path segment `unscoped`. Clients cannot submit `unscoped` as an external ID.
+The Execution's user, project, session, and tenant come from the identity headers above; a body
+`context` or `tenant_id` is rejected with `422`. When project or session is absent, the Runtime
+workspace uses the reserved path segment `unscoped`. The workspace lives under
+`tenants/{tenant_id}/users/{user_id}/projects/{project}/sessions/{session}/executions/{id}`.
 
-The optional top-level `tenant_id` (`^[a-z][a-z0-9-]{1,62}[a-z0-9]$`, not `dlq`, `work`, or an
-internal Stream suffix) is immutable and part of the idempotency fingerprint. Its events go to
-`{REDIS_EVENT_STREAM}.{tenant_id}` instead of the shared event Stream.
+The tenant (`^[a-z][a-z0-9-]{1,62}[a-z0-9]$`, not `dlq` or `work`) is immutable and part of the
+idempotency fingerprint. Its events go only to `{REDIS_EVENT_STREAM}.{tenant_id}`.
 
 SINGLE rejects `operation_wait_timeout_seconds`. MULTI requires it and supports only INTERACTIVE
 triggering. `operation_timeout_seconds` limits all Steps in that Operation; each
@@ -132,9 +165,9 @@ session, and reaches a terminal state. The Jupyter driver writes the final noteb
 All list endpoints use opaque cursor pagination. Clients must return `next_cursor` unchanged.
 OpenAPI is available at `/openapi.json`, Swagger UI at `/docs`, and ReDoc at `/redoc`.
 
-Execution history can be filtered by `user_id`, `project_id`, `session_id`, `tenant_id`,
-`trigger_type`, and `status`. Detail and history items expose
-`tenant_id`. Detail and history items expose `trigger{type,
+Execution history is always limited to the caller's tenant and, with `X-User-Id`, that user. It
+can be further filtered by `project_id`, `session_id`, `trigger_type`, and `status`. Detail and
+history items expose `tenant_id`, the Execution `context`, and `trigger{type,
 actor}` (the immutable submit actor) and the submit `metadata` object, which `execution.completed`
 also carries. Submit `metadata` holds at most 32 keys matching `^[a-z][a-z0-9_]{0,63}$` and
 4096 serialized bytes. Executor accepts at most

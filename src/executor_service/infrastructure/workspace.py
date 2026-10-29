@@ -32,6 +32,8 @@ class WorkspaceManager:
     def plan(self, execution: Execution) -> ExecutionWorkspace:
         relative = "/".join(
             (
+                "tenants",
+                _segment(execution.tenant_id, "tenant_id"),
                 "users",
                 _segment(execution.user_id, "user_id"),
                 "projects",

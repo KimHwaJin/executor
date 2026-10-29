@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from execution_spec_payload import execution_request
+from execution_spec_payload import execution_request, executor_mcp
 from mcp import Client
 
 
@@ -75,7 +75,9 @@ async def main() -> None:
 
     try:
         async with Client(
-            os.getenv("EXECUTOR_MCP_URL", "http://127.0.0.1:8000/mcp")
+            executor_mcp(
+                os.getenv("EXECUTOR_MCP_URL", "http://127.0.0.1:8000/mcp")
+            ),
         ) as client:
             submitted = await _required(
                 client,
@@ -108,11 +110,6 @@ async def main() -> None:
                                     },
                                 }
                             ],
-                        },
-                        context={
-                            "user_id": "path-smoke-user",
-                            "project_id": "path-smoke-project",
-                            "session_id": f"path-smoke-session-{unique}",
                         },
                         actor={"type": "USER", "id": "path-smoke-user"},
                     )

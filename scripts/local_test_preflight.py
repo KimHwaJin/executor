@@ -8,6 +8,7 @@ from uuid import uuid4
 import httpx
 from alembic.config import Config
 from alembic.script import ScriptDirectory
+from execution_spec_payload import executor_mcp
 from local_test_support import (
     env_bool,
     executor_http_url,
@@ -117,7 +118,7 @@ async def _redis_check() -> dict[str, Any]:
 async def _mcp_and_runtime_checks(run_id: str) -> dict[str, Any]:
     include_batch = env_bool("LOCAL_TEST_INCLUDE_BATCH", True)
     include_secondary = env_bool("LOCAL_TEST_INCLUDE_SECONDARY", True)
-    async with Client(executor_mcp_url()) as client:
+    async with Client(executor_mcp(executor_mcp_url())) as client:
         discovered = await client.list_tools()
         tool_names = {tool.name for tool in discovered.tools}
         missing = sorted(REQUIRED_TOOLS - tool_names)

@@ -4,7 +4,7 @@ import asyncio
 from typing import Any
 from uuid import uuid4
 
-from execution_spec_payload import execution_request, inline_spec
+from execution_spec_payload import execution_request, executor_mcp, inline_spec
 from local_test_support import local_runtime_specs
 from mcp import Client
 
@@ -151,11 +151,6 @@ async def _submit(
                         }
                     ],
                 ),
-                context={
-                    "user_id": "batch-pool-user",
-                    "project_id": "batch-pool-project",
-                    "session_id": f"batch-pool-session-{unique}-{name}",
-                },
             )
         },
     )
@@ -166,7 +161,7 @@ async def _submit(
 
 async def main() -> None:
     unique = uuid4().hex
-    async with Client("http://127.0.0.1:8000/mcp") as client:
+    async with Client(executor_mcp("http://127.0.0.1:8000/mcp")) as client:
         interactive_server_ids, batch_server_ids = await _register_servers(
             client, unique
         )

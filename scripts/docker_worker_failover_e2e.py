@@ -14,7 +14,7 @@ from typing import Any
 from uuid import uuid4
 
 import httpx
-from execution_spec_payload import execution_request, inline_spec
+from execution_spec_payload import execution_request, executor_mcp, inline_spec
 from mcp import Client
 from resilience_common import (
     attempts,
@@ -201,11 +201,6 @@ async def _submit(client: Client, config: Config, unique: str) -> str:
                         }
                     ]
                 ),
-                context={
-                    "user_id": "docker-failover-validator",
-                    "project_id": "docker-failover-validation",
-                    "session_id": f"docker-failover-{unique}",
-                },
                 operation_timeout_seconds=(config.step_duration_seconds + 360),
             )
         },
@@ -245,7 +240,7 @@ async def run(config: Config) -> dict[str, Any]:
             _wait_ready(config.secondary_port),
         )
         primary_url = f"http://127.0.0.1:{config.primary_port}"
-        async with Client(f"{primary_url}/mcp") as client:
+        async with Client(executor_mcp(f"{primary_url}/mcp")) as client:
             await upsert_runtime_target(
                 client,
                 unique=unique,
@@ -286,7 +281,7 @@ async def run(config: Config) -> dict[str, Any]:
             else config.primary_port
         )
         await _wait_ready(survivor_port)
-        async with Client(f"{survivor_url}/mcp") as client:
+        async with Client(executor_mcp(f"{survivor_url}/mcp")) as client:
             failed = await _wait_for_execution(
                 client,
                 execution_id,

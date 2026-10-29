@@ -218,6 +218,7 @@ def _multi_command(key: str) -> SubmitExecutionCommand:
         user_id="lifecycle-user",
         project_id="lifecycle-project",
         session_id="lifecycle-session",
+        tenant_id="test-tenant",
         steps=(
             StepSpec(
                 sequence=0,

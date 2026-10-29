@@ -140,6 +140,7 @@ async def test_cancelled_cell_registers_partial_file_as_incomplete_artifact(
             user_id="cancel-artifact-user",
             project_id="cancel-artifact-project",
             session_id="cancel-artifact-session",
+            tenant_id="test-tenant",
             operation_wait_timeout_seconds=(
                 3600 if mode == OperationMode.MULTI else None
             ),

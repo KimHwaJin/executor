@@ -10,7 +10,12 @@ from typing import Any, Literal
 from uuid import UUID, uuid4
 
 import httpx
-from execution_spec_payload import execution_request, inline_spec
+from execution_spec_payload import (
+    SMOKE_HEADERS,
+    execution_request,
+    executor_mcp,
+    inline_spec,
+)
 from mcp import Client
 from redis.asyncio import Redis
 from sqlalchemy import select
@@ -501,11 +506,6 @@ async def _run_correction_and_finalization_case(
                         }
                     ],
                 ),
-                context={
-                    "user_id": user_id,
-                    "project_id": "multi-flow-project",
-                    "session_id": f"multi-flow-session-{unique}",
-                },
             )
         },
     )
@@ -897,8 +897,6 @@ async def _run_running_cancel_case(
     stream: str,
 ) -> CaseResult:
     user_id = f"multi-cancel-{unique}-user"
-    project_id = "multi-cancel-project"
-    session_id = f"multi-cancel-session-{unique}"
     actor = {"type": "USER", "id": user_id}
     submitted = await _rest_json(
         rest,
@@ -928,11 +926,6 @@ async def _run_running_cancel_case(
                     }
                 ],
             ),
-            context={
-                "user_id": user_id,
-                "project_id": project_id,
-                "session_id": session_id,
-            },
         ),
     )
     execution_id = str(submitted["execution_id"])
@@ -1136,9 +1129,11 @@ async def main() -> None:
     redis = Redis.from_url(settings.redis_dsn, decode_responses=True)
     try:
         async with (
-            Client(mcp_url) as mcp,
+            Client(executor_mcp(mcp_url)) as mcp,
             httpx.AsyncClient(
-                base_url=f"{rest_url.rstrip('/')}/", timeout=30
+                base_url=f"{rest_url.rstrip('/')}/",
+                timeout=30,
+                headers=SMOKE_HEADERS,
             ) as rest,
         ):
             results = [

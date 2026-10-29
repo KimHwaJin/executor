@@ -39,6 +39,9 @@ from executor_service.infrastructure.diagnostic_store import (
 from executor_service.infrastructure.execution_leases import (
     CancellationLease,
 )
+from executor_service.infrastructure.execution_queries import (
+    SQLAlchemyExecutionQueryService,
+)
 from executor_service.infrastructure.execution_worker.handover import StepRun
 from executor_service.infrastructure.execution_worker.step_executor import (
     ExecutionStepExecutor,
@@ -342,10 +345,12 @@ async def test_rest_diagnostic_history_contract(
         )
     )
     container.diagnostic_queries = SQLAlchemyDiagnosticQueryService(factory)
+    container.execution_queries = SQLAlchemyExecutionQueryService(factory)
     try:
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=create_app(container)),
             base_url="http://testserver",
+            headers={"X-Tenant-Id": execution.tenant_id},
         ) as client:
             path = f"/api/v1/executions/{execution.id}/diagnostics"
             result = await client.get(path)

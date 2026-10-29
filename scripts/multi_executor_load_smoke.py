@@ -5,6 +5,7 @@ import os
 from typing import Any
 from uuid import uuid4
 
+from execution_spec_payload import executor_mcp
 from mcp import Client
 from redis.asyncio import Redis
 from resilience_common import (
@@ -76,7 +77,9 @@ async def main() -> None:
         await wait_ready(secondary_port)
         secondary_id = await worker_id(secondary_port)
 
-        async with Client(f"http://127.0.0.1:{primary_port}/mcp") as client:
+        async with Client(
+            executor_mcp(f"http://127.0.0.1:{primary_port}/mcp")
+        ) as client:
             specs = (
                 (
                     "local-jupyter",

@@ -1,17 +1,12 @@
 """Tenant-scoped Execution submission, listing, and event Streams."""
 
-import hashlib
-import json
 import os
-from collections.abc import AsyncIterator
-from dataclasses import asdict, replace
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
 from uuid import uuid4
 
-import httpx
 import pytest
-import pytest_asyncio
 from redis.asyncio import Redis
 from redis.typing import EncodableT, FieldT
 from sqlalchemy import select, update
@@ -22,10 +17,6 @@ from executor_service.application.commands import (
     SubmitExecutionCommand,
 )
 from executor_service.application.services import ExecutionService
-from executor_service.application.services.support import (
-    fingerprint,
-)
-from executor_service.container import ApplicationContainer
 from executor_service.domain.enums import (
     ExecutionStatus,
     OperationMode,
@@ -38,7 +29,6 @@ from executor_service.domain.errors import (
 )
 from executor_service.domain.runtime import RuntimeOffering
 from executor_service.domain.tenants import tenant_event_stream
-from executor_service.infrastructure.db.base import Base
 from executor_service.infrastructure.db.models import (
     ExecutionEventORM,
     ExecutionORM,
@@ -69,7 +59,6 @@ from executor_service.infrastructure.result_storage import (
 from executor_service.infrastructure.runtime_adapters import (
     JupyterRuntimeAdapter,
 )
-from executor_service.interfaces.http.app import create_app
 from executor_service.settings import Settings
 
 EVENT_STREAM = "tenant-events"
@@ -98,7 +87,7 @@ class RecordingRedis:
 def _command(
     *,
     key: str | None = None,
-    tenant_id: str | None = None,
+    tenant_id: str = "acme-data",
 ) -> SubmitExecutionCommand:
     return SubmitExecutionCommand(
         idempotency_key=key or f"tenant-{uuid4().hex}",
@@ -186,19 +175,6 @@ async def test_tenant_events_use_their_own_stream_and_envelope(
     assert "tenant_id" not in envelope.payload
 
 
-async def test_events_without_tenant_keep_the_shared_stream(
-    engine: AsyncEngine, tmp_path: Path
-) -> None:
-    execution = await _service(engine, tmp_path).submit(_command())
-
-    redis = await _publish_started_event(engine, execution.id)
-
-    [(stream, fields, _)] = _event_calls(redis)
-    assert stream == EVENT_STREAM
-    assert "tenant_id" not in fields
-    assert ExecutionStreamEnvelope.from_redis_fields(fields).tenant_id is None
-
-
 async def test_event_maxlen_trims_approximately(
     engine: AsyncEngine, tmp_path: Path
 ) -> None:
@@ -246,7 +222,6 @@ async def test_invalid_or_reserved_tenant_is_rejected(
 
 
 def test_tenant_stream_is_below_the_event_stream() -> None:
-    assert tenant_event_stream("a.events", None) == "a.events"
     assert tenant_event_stream("a.events", "acme") == "a.events.acme"
 
 
@@ -260,23 +235,6 @@ async def test_tenant_is_part_of_the_idempotency_fingerprint(
     assert (await service.submit(command)).id == first.id
     with pytest.raises(IdempotencyConflictError):
         await service.submit(replace(command, tenant_id="other-team"))
-    with pytest.raises(IdempotencyConflictError):
-        await service.submit(replace(command, tenant_id=None))
-
-
-def test_fingerprint_without_tenant_matches_the_pre_tenant_encoding() -> None:
-    command = _command(key="legacy-fingerprint")
-    payload = asdict(command)
-    payload.pop("idempotency_key")
-    payload.pop("tenant_id")
-    legacy = hashlib.sha256(
-        json.dumps(
-            payload, sort_keys=True, separators=(",", ":"), default=str
-        ).encode()
-    ).hexdigest()
-
-    assert fingerprint(command) == legacy
-    assert fingerprint(replace(command, tenant_id="acme-data")) != legacy
 
 
 async def test_tenant_execution_completes_with_valid_event(
@@ -313,7 +271,7 @@ async def test_query_service_filters_by_tenant(
     service = _service(engine, tmp_path)
     acme = await service.submit(_command(tenant_id="acme-data"))
     await service.submit(_command(tenant_id="other-team"))
-    await service.submit(_command())
+    await service.submit(_command(tenant_id="third-team"))
     queries = SQLAlchemyExecutionQueryService(create_session_factory(engine))
 
     page = await queries.executions(tenant_id="acme-data")
@@ -324,116 +282,6 @@ async def test_query_service_filters_by_tenant(
     assert len((await queries.executions()).items) == 3
 
 
-@pytest_asyncio.fixture
-async def rest_client(
-    tmp_path: Path,
-) -> AsyncIterator[httpx.AsyncClient]:
-    settings = Settings(
-        _env_file=None,
-        database_url="sqlite+aiosqlite:///:memory:",
-        redis_url="redis://localhost:6399/15",
-        runtime_enabled=False,
-        shared_storage_root=tmp_path,
-    )
-    container = ApplicationContainer(settings)
-    async with container.engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
-    transport = httpx.ASGITransport(app=create_app(container))
-    async with httpx.AsyncClient(
-        transport=transport, base_url="http://testserver"
-    ) as client:
-        yield client
-    await container.redis.aclose()
-    await container.engine.dispose()
-
-
-def _submit_body(key: str, *, tenant_id: str | None = None) -> dict[str, Any]:
-    body: dict[str, Any] = {
-        "idempotency_key": key,
-        "lifecycle": {"operation_mode": "SINGLE"},
-        "trigger": {
-            "type": "INTERACTIVE",
-            "actor": {"type": "USER", "id": "rest-user"},
-        },
-        "runtime": {"type": "JUPYTER", "profile": "default"},
-        "operation": {
-            "spec": {
-                "schema_version": "1.0",
-                "steps": [
-                    {
-                        "sequence": 0,
-                        "payload": {
-                            "type": "PYTHON_EXECUTE",
-                            "source": {
-                                "type": "INLINE",
-                                "content": "print('tenant')",
-                            },
-                        },
-                    }
-                ],
-            }
-        },
-        "context": {"user_id": "rest-user"},
-    }
-    if tenant_id is not None:
-        body["tenant_id"] = tenant_id
-    return body
-
-
-async def test_rest_submit_detail_and_list_carry_tenant(
-    rest_client: httpx.AsyncClient,
-) -> None:
-    submitted = await rest_client.post(
-        "/api/v1/executions", json=_submit_body("rest-a", tenant_id="acme")
-    )
-    assert submitted.status_code == 202, submitted.text
-    await rest_client.post(
-        "/api/v1/executions",
-        json=_submit_body("rest-b"),
-    )
-
-    detail = await rest_client.get(submitted.headers["location"])
-    assert detail.json()["tenant_id"] == "acme"
-    assert detail.json()["context"] == {
-        "user_id": "rest-user",
-        "project_id": None,
-        "session_id": None,
-    }
-
-    listed = await rest_client.get(
-        "/api/v1/executions", params={"tenant_id": "acme"}
-    )
-    items = listed.json()["items"]
-    assert [item["execution_id"] for item in items] == [
-        submitted.json()["execution_id"]
-    ]
-    assert items[0]["tenant_id"] == "acme"
-    everything = await rest_client.get("/api/v1/executions")
-    assert {item["tenant_id"] for item in everything.json()["items"]} == {
-        "acme",
-        None,
-    }
-
-
-@pytest.mark.parametrize("tenant_id", ["Acme", "ab", "dlq", "work", ""])
-async def test_rest_rejects_invalid_tenant(
-    rest_client: httpx.AsyncClient, tenant_id: str
-) -> None:
-    body = _submit_body(f"rest-invalid-{uuid4().hex}")
-    body["tenant_id"] = tenant_id
-    response = await rest_client.post("/api/v1/executions", json=body)
-    assert response.status_code == 422
-
-
-async def test_rest_rejects_tenant_inside_context(
-    rest_client: httpx.AsyncClient,
-) -> None:
-    body = _submit_body("rest-context-tenant")
-    body["context"]["tenant_id"] = "acme"
-    response = await rest_client.post("/api/v1/executions", json=body)
-    assert response.status_code == 422
-
-
 async def test_retention_covers_every_tenant_stream(
     engine: AsyncEngine, tmp_path: Path
 ) -> None:
@@ -441,14 +289,12 @@ async def test_retention_covers_every_tenant_stream(
     await service.submit(_command(tenant_id="acme-data"))
     await service.submit(_command(tenant_id="acme-data"))
     await service.submit(_command(tenant_id="other-team"))
-    await service.submit(_command())
     settings = Settings(_env_file=None, redis_event_stream=EVENT_STREAM)
     manager = EventRetentionManager(
         create_session_factory(engine), cast(Redis, None), settings
     )
 
     assert await manager._event_streams() == [
-        EVENT_STREAM,
         f"{EVENT_STREAM}.acme-data",
         f"{EVENT_STREAM}.other-team",
     ]

@@ -40,7 +40,7 @@ class ExecutionSummaryView:
     user_id: str
     project_id: str | None
     session_id: str | None
-    tenant_id: str | None
+    tenant_id: str
     metadata: dict[str, Any]
     status: ExecutionStatus
     version: int
@@ -64,7 +64,7 @@ class ExecutionDetailView:
     user_id: str
     project_id: str | None
     session_id: str | None
-    tenant_id: str | None
+    tenant_id: str
     metadata: dict[str, Any]
     runtime_type: RuntimeType
     runtime_pool: RuntimePool

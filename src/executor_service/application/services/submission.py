@@ -183,9 +183,7 @@ class ExecutionSubmissionCommands:
                     operation_id=required_operation_id(operation_id),
                 )
 
-    def _validate_tenant(self, tenant_id: str | None) -> None:
-        if tenant_id is None:
-            return
+    def _validate_tenant(self, tenant_id: str) -> None:
         if not is_valid_tenant_id(tenant_id):
             raise InvalidExecutionSpecError(
                 "tenant_id must match ^[a-z][a-z0-9-]{1,62}[a-z0-9]$."

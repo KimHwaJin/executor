@@ -13,7 +13,11 @@ from uuid import uuid4
 
 import httpx
 import nbformat
-from execution_spec_payload import execution_request, inline_spec
+from execution_spec_payload import (
+    SMOKE_HEADERS,
+    execution_request,
+    inline_spec,
+)
 
 TERMINAL = {"SUCCEEDED", "FAILED", "CANCELLED"}
 
@@ -23,7 +27,9 @@ async def main() -> None:
     actor = {"type": "USER", "id": f"notebook-smoke-{uuid4().hex}"}
     profile = os.getenv("REDIS_COMPAT_RUNTIME_PROFILE", "default")
     checked_downloads = 0
-    async with httpx.AsyncClient(base_url=base_url, timeout=30) as client:
+    async with httpx.AsyncClient(
+        base_url=base_url, timeout=30, headers=SMOKE_HEADERS
+    ) as client:
 
         async def request(
             method: str, path: str, body: dict[str, Any] | None = None
@@ -112,7 +118,6 @@ async def main() -> None:
                     trigger_type="INTERACTIVE",
                     actor=actor,
                     runtime_profile=profile,
-                    context={"user_id": actor["id"]},
                     spec=inline_spec([{"code": slow}, {"code": code}]),
                 ),
             )

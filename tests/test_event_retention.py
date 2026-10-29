@@ -68,6 +68,7 @@ def _command(key: str) -> SubmitExecutionCommand:
         user_id="unscoped",
         project_id=None,
         session_id=None,
+        tenant_id="test-tenant",
         steps=(StepSpec(sequence=0, code="print('retention')"),),
     )
 
@@ -220,8 +221,10 @@ async def test_terminal_event_history_expires_only_without_outbox_reference(
 
 
 async def test_event_trim_is_bounded(
+    execution_service: ExecutionService,
     engine: AsyncEngine,
 ) -> None:
+    await execution_service.submit(_command("retention-trim"))
     session_factory = create_session_factory(engine)
     redis = RecordingRetentionRedis()
     manager = EventRetentionManager(
@@ -232,7 +235,7 @@ async def test_event_trim_is_bounded(
     assert result.published_outbox_deleted == 0
     assert len(redis.trim_calls) == 1
     assert redis.trim_calls[0][0] == "EVAL"
-    assert redis.trim_calls[0][3] == "executor.events"
+    assert redis.trim_calls[0][3] == "executor.events.test-tenant"
     assert redis.trim_calls[0][-1] == 1000
 
 
@@ -277,8 +280,11 @@ async def test_pass_drains_a_backlog_larger_than_one_batch(
 
 
 async def test_pass_stops_at_its_time_budget(
-    engine: AsyncEngine, monkeypatch: pytest.MonkeyPatch
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    await execution_service.submit(_command("retention-budget"))
     monkeypatch.setattr(
         "executor_service.infrastructure.event_retention."
         "RETENTION_PASS_BUDGET_SECONDS",

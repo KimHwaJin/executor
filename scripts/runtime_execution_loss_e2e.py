@@ -14,7 +14,11 @@ from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
 import httpx
-from execution_spec_payload import execution_request, inline_spec
+from execution_spec_payload import (
+    SMOKE_HEADERS,
+    execution_request,
+    inline_spec,
+)
 from redis.asyncio import Redis
 from sqlalchemy import select
 
@@ -65,7 +69,9 @@ async def main() -> None:
     actor = {"type": "USER", "id": "continuity-smoke"}
     try:
         async with (
-            httpx.AsyncClient(base_url=rest_url, timeout=30) as rest,
+            httpx.AsyncClient(
+                base_url=rest_url, timeout=30, headers=SMOKE_HEADERS
+            ) as rest,
             httpx.AsyncClient(
                 base_url=endpoint,
                 headers={
@@ -100,7 +106,6 @@ async def main() -> None:
                     trigger_type="INTERACTIVE",
                     actor=actor,
                     runtime_profile=profile,
-                    context={"user_id": actor["id"]},
                     operation_wait_timeout_seconds=60
                     if mode == "MULTI"
                     else None,

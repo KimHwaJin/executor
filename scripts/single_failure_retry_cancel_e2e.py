@@ -14,7 +14,12 @@ from typing import Any, Literal
 from uuid import UUID, uuid4
 
 import httpx
-from execution_spec_payload import execution_request, inline_spec
+from execution_spec_payload import (
+    SMOKE_HEADERS,
+    execution_request,
+    executor_mcp,
+    inline_spec,
+)
 from mcp import Client
 from redis.asyncio import Redis
 from sqlalchemy import func, select
@@ -506,11 +511,6 @@ async def _run_failure_retry_case(
                         },
                     ],
                 ),
-                context={
-                    "user_id": user_id,
-                    "project_id": "single-retry-project",
-                    "session_id": f"single-retry-session-{unique}",
-                },
             )
         },
     )
@@ -828,11 +828,6 @@ async def _run_cancel_case(
                 },
             ],
         ),
-        context={
-            "user_id": user_id,
-            "project_id": "single-cancel-project",
-            "session_id": f"single-cancel-session-{unique}",
-        },
     )
     submitted = await _rest_json(rest, "POST", "/executions", json=payload)
     execution_id = str(submitted["execution_id"])
@@ -1035,9 +1030,11 @@ async def main() -> None:
     redis = Redis.from_url(settings.redis_dsn, decode_responses=True)
     try:
         async with (
-            Client(mcp_url) as mcp,
+            Client(executor_mcp(mcp_url)) as mcp,
             httpx.AsyncClient(
-                base_url=f"{rest_url.rstrip('/')}/", timeout=30
+                base_url=f"{rest_url.rstrip('/')}/",
+                timeout=30,
+                headers=SMOKE_HEADERS,
             ) as rest,
         ):
             results = [

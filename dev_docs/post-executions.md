@@ -11,33 +11,45 @@ POST /api/v1/executions
 새 비동기 Execution과 첫 번째 Operation을 생성한다. 응답 코드 `202 Accepted`는 요청이
 저장되고 실행 대기열에 들어갔다는 뜻이며, 실행 완료를 의미하지 않는다.
 
+## Request Header
+
+사용자·프로젝트·세션·tenant는 Body가 아니라 헤더로 보낸다. Body에 `context`나 `tenant_id`가
+있으면 `422`다. 전체 규칙은 [REST API 인증](../docs/rest-api.md#authentication-and-identity)을 따른다.
+
+| 헤더 | 필수 | 의미 |
+|---|---:|---|
+| `X-Api-Key` | stg/prd O | 호출 서비스의 API key. 없거나 틀리면 `401` |
+| `X-User-Id` | O | 작업 소유 사용자 ID. `^[a-z0-9][a-z0-9._-]{0,63}$`, 소문자로 바꿔 저장. 없으면 `400 INVALID_IDENTITY` |
+| `X-Project-Id` | X | 프로젝트 ID. `^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$` |
+| `X-Session-Id` | X | 세션 ID. 형식은 프로젝트와 같고, 보내려면 `X-Project-Id`도 필요 |
+| `X-Tenant-Id` | X | relay key만 허용 목록 안에서 쓸 수 있다. 없으면 key의 기본 tenant. 허용되지 않으면 `403` |
+
+서비스마다 다른 하위 식별자(batch, run, task 등)는 최상위 `metadata`에 담는다.
+`X-Project-Id` 또는 `X-Session-Id`가 없으면 Executor는 workspace 경로의 해당 구간에
+예약값 `unscoped`를 사용한다. 헤더 값으로 `unscoped`를 보내는 것은 금지한다.
+
 ## Request Body
 
 | 필드 | 필수 | 의미 |
 |---|---:|---|
 | `idempotency_key` | O | 호출자가 생성하는 멱등성 키. 같은 키와 같은 요청은 같은 Execution을 반환하며, 같은 키로 다른 요청을 보내면 `409` |
-| `tenant_id` | X | 이벤트를 받을 시스템(tenant) ID. 지정하면 이 Execution의 Redis 이벤트가 전용 Stream으로 간다. 아래 [`tenant_id`](#tenant_id) 참고 |
 | `lifecycle` | O | SINGLE/MULTI 실행 생명주기 설정 |
 | `trigger` | O | 실행을 발생시킨 유형과 주체 |
 | `runtime` | O | 필요한 Runtime 종류와 프로파일 |
-| `context` | O | Agent 도메인 객체와의 추적 정보 |
 | `operation` | O | 최초 Operation과 실행 Step |
 | `metadata` | X | Execution 전체에 저장할 호출자 소유 metadata. 그대로 저장되고 상세 조회와 `execution.completed` 이벤트의 `execution.metadata`로 돌려받는다. 최상위 키 32개 이하, 키는 `^[a-z][a-z0-9_]{0,63}$`, JSON 직렬화 4096 bytes 이하. 이벤트로 공개되므로 비밀값을 넣지 않는다. 기본값 `{}` |
 
-### `tenant_id`
+### tenant
 
-`tenant_id`는 요청 최상위 선택 필드이며 `context` 안에 넣지 않는다.
+모든 Execution에는 tenant가 있다. tenant는 API key(또는 relay key의 `X-Tenant-Id`)로 정해진다.
 
-- 형식: `^[a-z][a-z0-9-]{1,62}[a-z0-9]$` (소문자로 시작, 소문자·숫자·`-`, 3~64자, `-`로 끝나지 않음)
-- 예약어: `dlq`, `work`. Executor와 Agent가 쓰는 Stream 이름(`executor.events.dlq` 등)과
-  겹치지 않게 한다.
-- 형식 위반·예약어는 `422` `REQUEST_VALIDATION_ERROR`다.
-- 값은 바뀌지 않는다. 후속 Operation 추가, 재시도, 취소, finalize는 받은 값이 아니라
-  Execution에 저장된 `tenant_id`를 따른다. 해당 요청에는 `tenant_id` 필드가 없다.
-- 멱등성 fingerprint에 포함된다. 같은 `idempotency_key`로 `tenant_id`만 바꿔 보내면 `409`다.
-- 이벤트 Stream: `tenant_id`가 있으면 `{REDIS_EVENT_STREAM}.{tenant_id}`
-  (기본 `executor.events.{tenant_id}`), 없으면 기존 공용 `REDIS_EVENT_STREAM`이다.
-  구독 방법은 [Redis Execution 이벤트](redis-execution-events.md)를 따른다.
+- 형식: `^[a-z][a-z0-9-]{1,62}[a-z0-9]$`. 예약어 `dlq`, `work`는 쓸 수 없다.
+- 값은 바뀌지 않는다. 후속 Operation 추가, 재시도, 취소, finalize는 Execution에 저장된
+  tenant를 따르며, 다른 tenant로는 그 Execution이 보이지 않는다(`404`).
+- 멱등성 fingerprint에 포함된다.
+- 이벤트 Stream: `{REDIS_EVENT_STREAM}.{tenant_id}` (기본 `executor.events.{tenant_id}`).
+  공용 `executor.events`에는 쓰지 않는다. 구독 방법은
+  [Redis Execution 이벤트](redis-execution-events.md)를 따른다.
 
 ### `lifecycle`
 
@@ -63,7 +75,7 @@ POST /api/v1/executions
 - `BATCH` trigger는 `USER` 또는 `BATCH` actor를 허용한다. 사용자가 등록한 배치는
   `USER` actor(등록 사용자 ID)로, 사용자와 무관한 시스템 배치는 `BATCH` actor로 제출한다.
 - `INTERACTIVE` trigger는 `AGENT` 또는 `USER` actor를 허용한다.
-- actor가 `USER`이면 trigger와 관계없이 `actor.id`와 `context.user_id`가 같아야 한다.
+- actor가 `USER`이면 trigger와 관계없이 `actor.id`와 `X-User-Id`가 같아야 한다.
 - Runtime Pool은 요청으로 직접 받지 않고 `INTERACTIVE`/`BATCH`에서 내부 결정한다.
 
 ### `runtime`
@@ -75,20 +87,6 @@ POST /api/v1/executions
 
 실제 Runtime target과 session은 Worker가 실행을 할당할 때 결정되므로 제출 요청에는 넣지
 않는다.
-
-### `context`
-
-| 필드 | 필수 | 의미 |
-|---|---:|---|
-| `user_id` | O | 작업 소유 사용자 ID |
-| `project_id` | X | 프로젝트 ID |
-| `session_id` | X | 세션 ID. 지정하려면 `project_id`도 함께 필요 |
-
-`context`에는 Executor가 경로와 검증에 쓰는 값만 둔다. 서비스마다 다른 하위 식별자(batch, run,
-task 등)는 최상위 `metadata`에 담는다.
-
-`project_id` 또는 `session_id`가 없으면 Executor는 실제 workspace 경로를 만들 때 해당 구간에
-예약값 `unscoped`를 사용한다. 요청 값으로 직접 `unscoped`를 보내는 것은 금지한다.
 
 ### `operation`
 
@@ -143,6 +141,14 @@ INLINE/PATH 최대 크기와 Operation/Execution 최대 Step 수는 Executor 설
 
 ## Request 예시 — INLINE
 
+```http
+POST /api/v1/executions
+X-Api-Key: <pr-agentic-service key>
+X-User-Id: user-100
+X-Project-Id: project-100
+X-Session-Id: session-100
+```
+
 ```json
 {
   "idempotency_key": "submit-task-100-attempt-1",
@@ -155,12 +161,6 @@ INLINE/PATH 최대 크기와 Operation/Execution 최대 Step 수는 Executor 설
     "actor": {"type": "AGENT", "id": "analytics-agent"}
   },
   "runtime": {"type": "JUPYTER", "profile": "default"},
-  "tenant_id": "analytics-agent",
-  "context": {
-    "user_id": "user-100",
-    "project_id": "project-100",
-    "session_id": "session-100"
-  },
   "operation": {
     "operation_timeout_seconds": 600,
     "spec": {
@@ -187,21 +187,27 @@ INLINE/PATH 최대 크기와 Operation/Execution 최대 Step 수는 Executor 설
 }
 ```
 
-위 요청의 이벤트는 `executor.events.analytics-agent` Stream으로 발행된다.
+key의 기본 tenant가 `pr-agentic-service`라면 위 요청의 이벤트는
+`executor.events.pr-agentic-service` Stream으로 발행된다.
 
 ## Request 예시 — BATCH
+
+```http
+POST /api/v1/executions
+X-Api-Key: <pr-batch key>
+X-Tenant-Id: pr-agentic-service
+X-User-Id: user-100
+```
 
 ```json
 {
   "idempotency_key": "batch-daily-report-2026-10-21",
-  "tenant_id": "pr-batch",
   "lifecycle": {"operation_mode": "SINGLE"},
   "trigger": {
     "type": "BATCH",
     "actor": {"type": "USER", "id": "user-100"}
   },
   "runtime": {"type": "JUPYTER", "profile": "default"},
-  "context": {"user_id": "user-100"},
   "operation": {
     "spec": {
       "schema_version": "1.0",
@@ -266,11 +272,6 @@ print(total)
     "actor": {"type": "AGENT", "id": "analytics-agent"}
   },
   "runtime": {"type": "JUPYTER", "profile": "default"},
-  "context": {
-    "user_id": "user-100",
-    "project_id": "project-100",
-    "session_id": "session-100"
-  },
   "operation": {
     "operation_timeout_seconds": 600,
     "spec": {

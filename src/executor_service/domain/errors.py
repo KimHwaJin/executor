@@ -5,6 +5,9 @@ from enum import StrEnum
 
 class ErrorCode(StrEnum):
     REQUEST_VALIDATION_ERROR = "REQUEST_VALIDATION_ERROR"
+    UNAUTHENTICATED = "UNAUTHENTICATED"
+    INVALID_IDENTITY = "INVALID_IDENTITY"
+    FORBIDDEN = "FORBIDDEN"
     EXECUTION_NOT_FOUND = "EXECUTION_NOT_FOUND"
     EXECUTION_ATTEMPT_NOT_FOUND = "EXECUTION_ATTEMPT_NOT_FOUND"
     EXECUTION_OPERATION_NOT_FOUND = "EXECUTION_OPERATION_NOT_FOUND"
@@ -38,6 +41,21 @@ class DomainError(Exception):
     code = ErrorCode.INTERNAL_ERROR
     # The REST status for this error; transports without HTTP ignore it.
     http_status = 400
+
+
+class UnauthenticatedError(DomainError):
+    code = ErrorCode.UNAUTHENTICATED
+    http_status = 401
+
+
+class InvalidIdentityError(DomainError):
+    code = ErrorCode.INVALID_IDENTITY
+    http_status = 400
+
+
+class ForbiddenError(DomainError):
+    code = ErrorCode.FORBIDDEN
+    http_status = 403
 
 
 class ExecutionNotFoundError(DomainError):

@@ -65,6 +65,7 @@ def submit_command(
         user_id="user-1",
         project_id="project-1",
         session_id="session-1",
+        tenant_id="test-tenant",
         steps=(
             StepSpec(
                 sequence=0,

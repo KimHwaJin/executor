@@ -51,12 +51,16 @@ async def assert_result_evidence_surfaces(
     events = ExecutionEventPageResponse.from_page(
         await queries.events(execution_id)
     )
+    tenant_id = (await queries.execution(execution_id)).tenant_id
     for event in events.items:
         envelope = ExecutionStreamEnvelope.model_validate(
-            event.model_dump(
-                mode="json",
-                include=set(ExecutionStreamEnvelope.model_fields),
-            )
+            {
+                **event.model_dump(
+                    mode="json",
+                    include=set(ExecutionStreamEnvelope.model_fields),
+                ),
+                "tenant_id": tenant_id,
+            }
         )
         assert envelope.payload == event.payload
         if event.event_type == "execution.step_completed":

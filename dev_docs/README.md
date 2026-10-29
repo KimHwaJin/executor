@@ -27,7 +27,7 @@ Operation·Step·Attempt·Event·Notebook 조회의 전체 필드도 이 문서�
 
 ## 이벤트와 파일
 
-- [Redis 이벤트 1.0](redis-execution-events.md): 7개 envelope 필드(tenant Stream은 `tenant_id`까지 8개)와
+- [Redis 이벤트 1.0](redis-execution-events.md): `tenant_id`를 포함한 8개 envelope 필드와
   8개 이벤트 유형.
 - [Agent 소비 가이드](agent-execution-event-consumer-guide.md): 순서·중복·누락 복구,
   SINGLE/MULTI wake-up 경계와 실패 처리.

@@ -8,7 +8,7 @@ from typing import Any
 from uuid import uuid4
 
 import httpx
-from execution_spec_payload import execution_request, inline_spec
+from execution_spec_payload import execution_request, executor_mcp, inline_spec
 from mcp import Client
 from redis.asyncio import Redis
 from resilience_common import (
@@ -163,7 +163,9 @@ async def main() -> None:
         )
         await _wait_ready(primary_port)
         primary_id = await worker_id(primary_port)
-        async with Client(f"http://127.0.0.1:{primary_port}/mcp") as client:
+        async with Client(
+            executor_mcp(f"http://127.0.0.1:{primary_port}/mcp")
+        ) as client:
             submitted = await client.call_tool(
                 "execution_submit",
                 {
@@ -181,11 +183,6 @@ async def main() -> None:
                                 }
                             ],
                         ),
-                        context={
-                            "user_id": "multi-executor-user",
-                            "project_id": "multi-executor-project",
-                            "session_id": f"multi-executor-session-{unique}",
-                        },
                     )
                 },
             )
@@ -217,7 +214,9 @@ async def main() -> None:
         primary.kill()
         await primary.wait()
 
-        async with Client(f"http://127.0.0.1:{secondary_port}/mcp") as client:
+        async with Client(
+            executor_mcp(f"http://127.0.0.1:{secondary_port}/mcp")
+        ) as client:
             failed = await _wait_for_recovered_failure(client, execution_id)
             if (
                 failed["failure"]["type"] != "LEASE_EXPIRED"

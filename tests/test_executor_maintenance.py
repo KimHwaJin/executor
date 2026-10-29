@@ -45,7 +45,9 @@ async def maintenance_client(
     app = create_app(container)
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(
-        transport=transport, base_url="http://testserver"
+        transport=transport,
+        base_url="http://testserver",
+        headers={"X-User-Id": "user-1"},
     ) as client:
         yield client, container
     await container.redis.aclose()
@@ -85,7 +87,6 @@ def _execution(key: str) -> dict[str, Any]:
                 ],
             }
         },
-        "context": {"user_id": "user-1"},
     }
 
 

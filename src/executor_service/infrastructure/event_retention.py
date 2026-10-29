@@ -205,20 +205,19 @@ class EventRetentionManager:
         return len(ids)
 
     async def _event_streams(self) -> list[str]:
-        """The shared event Stream and every tenant Stream ever written."""
+        """Every tenant Stream ever written."""
 
         async with self._session_factory() as session:
             tenant_ids = list(
                 await session.scalars(
                     select(ExecutionORM.tenant_id)
-                    .where(ExecutionORM.tenant_id.is_not(None))
                     .distinct()
                     .order_by(ExecutionORM.tenant_id)
                 )
             )
-        base = self._settings.redis_event_stream
-        return [base] + [
-            tenant_event_stream(base, tenant_id) for tenant_id in tenant_ids
+        return [
+            tenant_event_stream(self._settings.redis_event_stream, tenant_id)
+            for tenant_id in tenant_ids
         ]
 
     async def _trim_event_stream(self, stream: str, deadline: float) -> int:

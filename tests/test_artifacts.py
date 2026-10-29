@@ -60,6 +60,7 @@ def _command() -> SubmitExecutionCommand:
         user_id="artifact-user",
         project_id="artifact-project",
         session_id="artifact-session",
+        tenant_id="test-tenant",
         steps=(
             StepSpec(
                 sequence=0,
@@ -162,7 +163,8 @@ async def test_artifact_discovery_manifest_lineage_and_idempotency(
         f"{workspace.artifacts_path}/reports/summary.md", b"# Result\n"
     )
     processed_path = (
-        "users/artifact-user/datasets/processed/asset-1/data.parquet"
+        "tenants/test-tenant/users/artifact-user/"
+        "datasets/processed/asset-1/data.parquet"
     )
     driver.put_runtime_file(processed_path, b"processed-data")
     entries = [
