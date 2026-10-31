@@ -1,4 +1,9 @@
-FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim@sha256:e5b65587bce7de595f299855d7385fe7fca39b8a74baa261ba1b7147afa78e58
+# Docker Hub's official Python image; the digest pins the exact build.
+FROM python:3.12-slim-bookworm@sha256:e697c81897302a4c4333bade000d98038fbb21eb064f8ee1fd42d02ebcd9d337
+
+# uv comes from PyPI, pinned to the version the project's build backend uses.
+ARG UV_VERSION=0.11.32
+RUN pip install --no-cache-dir "uv==${UV_VERSION}"
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
