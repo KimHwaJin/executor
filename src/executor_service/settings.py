@@ -108,6 +108,9 @@ class Settings(BaseSettings):
     # Seconds open HTTP requests get to finish on SIGTERM before Uvicorn
     # closes them; Worker drain runs after this inside the Pod grace period.
     http_graceful_shutdown_seconds: int = Field(default=20, ge=0)
+    # /docs, /redoc and /openapi.json. Off by default: internal-network rules
+    # forbid exposing them in any deployed environment, dev included.
+    docs_enabled: bool = False
 
     database_url: SecretStr = SecretStr(
         "postgresql+psycopg://executor:executor@localhost:5432/executor"

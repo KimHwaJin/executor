@@ -71,6 +71,7 @@ async def rest_client(
         runtime_enabled=False,
         shared_storage_root=tmp_path / "executor" if split else tmp_path,
         input_storage_root=tmp_path / "agent" if split else None,
+        docs_enabled=True,
     )
     container = ApplicationContainer(settings)
     async with container.engine.begin() as connection:
@@ -1374,3 +1375,26 @@ async def test_request_validation_details_carry_the_limit(
     assert issue["location"] == ["body", "idempotency_key"]
     assert issue["type"] == "string_too_long"
     assert issue["context"] == {"max_length": 255}
+
+
+async def test_docs_and_openapi_are_off_unless_enabled(tmp_path: Path) -> None:
+    container = ApplicationContainer(
+        Settings(
+            _env_file=None,
+            database_url="sqlite+aiosqlite:///:memory:",
+            redis_url="redis://localhost:6399/15",
+            runtime_enabled=False,
+            shared_storage_root=tmp_path,
+        )
+    )
+    assert container.settings.docs_enabled is False
+    transport = httpx.ASGITransport(app=create_app(container))
+    try:
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://testserver"
+        ) as client:
+            for path in ("/docs", "/redoc", "/openapi.json"):
+                assert (await client.get(path)).status_code == 404, path
+    finally:
+        await container.redis.aclose()
+        await container.engine.dispose()

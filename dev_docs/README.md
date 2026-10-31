@@ -22,8 +22,9 @@
 22개 경로와 112개 component schema를 포함한다. Artifact 작성/목록/상세,
 Operation·Step·Attempt·Event·Notebook 조회의 전체 필드도 이 문서에서 확인한다.
 제출 API만 볼 때는 [`POST /api/v1/executions` ReDoc HTML](post-executions-redoc.html)을
-사용한다. Runtime 관리와 maintenance 전체 계약은 서비스 `/docs`, `/redoc` 또는
-[전체 REST 가이드](../docs/rest-api.md)를 사용한다.
+사용한다. Runtime 관리와 maintenance 전체 계약은 [전체 REST 가이드](../docs/rest-api.md)를 사용한다.
+서비스의 `/docs`, `/redoc`, `/openapi.json`은 내부망 규정에 따라 개발계를 포함한 모든 환경에서
+꺼져 있다(`DOCS_ENABLED=false`, 404).
 
 [오류 응답](errors.md): 모든 API가 쓰는 `error.code`·`details` 형식, 409와 422의 구분,
 `details[].type`별 위치와 근거 값.

@@ -66,6 +66,7 @@ def create_app(
         finally:
             await container.stop()
 
+    docs_enabled = container.settings.docs_enabled
     app = FastAPI(
         title="Executor Service",
         version="0.1.0",
@@ -73,9 +74,10 @@ def create_app(
             "Asynchronous Runtime execution REST facade. MCP Streamable HTTP is available "
             "at /mcp when MCP_ENABLED is true."
         ),
-        docs_url="/docs",
-        redoc_url="/redoc",
-        openapi_url="/openapi.json",
+        # None removes the route, so a disabled page answers 404.
+        docs_url="/docs" if docs_enabled else None,
+        redoc_url="/redoc" if docs_enabled else None,
+        openapi_url="/openapi.json" if docs_enabled else None,
         openapi_tags=openapi_tags,
         lifespan=lifespan,
     )
