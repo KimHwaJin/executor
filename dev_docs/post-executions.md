@@ -357,6 +357,7 @@ print(hashlib.sha256(path.read_bytes()).hexdigest())
 Worker 실행 시작부터 계산한다. 넘으면 `FAILED / EXECUTION_TIMEOUT`이다.
 최초 큐 대기 제한 `EXECUTION_QUEUE_TIMEOUT_SECONDS`는 기본 24시간이며 넘으면
 `FAILED / QUEUE_TIMEOUT`이다. Step·Operation 제한이 전체 제한을 넘으면 422로 거절한다.
+거절 응답의 `details`가 어느 값이 얼마를 넘었는지 알려 준다([오류 응답](errors.md)).
 MULTI 후속 요청 대기시간은 Operation 완료 후 시작하므로 코드 실행시간과 다르다.
 Agent 생존 heartbeat나 Agent 장애만을 이유로 한 자동 취소는 제공하지 않는다.
 상세한 현재 동작과 재시도 규칙은 [시간 제한 가이드](execution-timeouts.md)를 따른다.

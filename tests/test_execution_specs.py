@@ -98,7 +98,7 @@ async def test_source_size_limits_are_enforced(tmp_path: Path) -> None:
             "sha256": hashlib.sha256(code.encode()).hexdigest(),
         }
     )
-    with pytest.raises(InvalidExecutionSpecError, match="file size"):
+    with pytest.raises(InvalidExecutionSpecError, match="1-byte limit"):
         await ExecutionSpecResolver(tmp_path, file_max_bytes=1).resolve(path)
 
 

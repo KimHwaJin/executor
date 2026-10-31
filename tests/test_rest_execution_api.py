@@ -1300,3 +1300,77 @@ async def test_retry_and_domain_error_mapping(
     assert missing_execution.json()["error"]["code"] == "EXECUTION_NOT_FOUND"
     assert missing_artifact.status_code == 404
     assert missing_artifact.json()["error"]["code"] == "ARTIFACT_NOT_FOUND"
+
+
+async def test_spec_limits_answer_422_with_field_level_details(
+    rest_client: tuple[httpx.AsyncClient, ApplicationContainer],
+) -> None:
+    client, _ = rest_client
+    payload = _submit_payload(key="too-many-steps")
+    step = payload["operation"]["spec"]["steps"][0]
+    payload["operation"]["spec"]["steps"] = [
+        {**deepcopy(step), "sequence": index} for index in range(101)
+    ]
+
+    response = await client.post("/api/v1/executions", json=payload)
+
+    assert response.status_code == 422
+    assert response.json() == {
+        "error": {
+            "code": "INVALID_EXECUTION_SPEC",
+            "message": "An Operation may carry at most 100 Steps; "
+            "this one has 101.",
+            "details": [
+                {
+                    "location": ["body", "operation", "spec", "steps"],
+                    "message": "An Operation may carry at most 100 Steps; "
+                    "this one has 101.",
+                    "type": "too_many_steps",
+                    "context": {"limit": 100, "actual": 101},
+                }
+            ],
+        }
+    }
+
+
+async def test_timeout_over_max_runtime_points_at_the_step(
+    rest_client: tuple[httpx.AsyncClient, ApplicationContainer],
+) -> None:
+    client, _ = rest_client
+    payload = _submit_payload(key="step-timeout-too-long")
+    payload["operation"]["spec"]["steps"][0]["step_timeout_seconds"] = 604801
+
+    response = await client.post("/api/v1/executions", json=payload)
+
+    assert response.status_code == 422
+    [issue] = response.json()["error"]["details"]
+    assert issue["location"] == [
+        "body",
+        "operation",
+        "spec",
+        "steps",
+        0,
+        "step_timeout_seconds",
+    ]
+    assert issue["type"] == "exceeds_max_runtime"
+    assert issue["context"] == {
+        "limit_seconds": 604800,
+        "actual_seconds": 604801,
+    }
+
+
+async def test_request_validation_details_carry_the_limit(
+    rest_client: tuple[httpx.AsyncClient, ApplicationContainer],
+) -> None:
+    client, _ = rest_client
+    payload = _submit_payload(key="k" * 256)
+
+    response = await client.post("/api/v1/executions", json=payload)
+
+    assert response.status_code == 422
+    error = response.json()["error"]
+    assert error["code"] == "REQUEST_VALIDATION_ERROR"
+    [issue] = error["details"]
+    assert issue["location"] == ["body", "idempotency_key"]
+    assert issue["type"] == "string_too_long"
+    assert issue["context"] == {"max_length": 255}

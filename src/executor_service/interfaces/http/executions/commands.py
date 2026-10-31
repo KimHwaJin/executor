@@ -12,10 +12,13 @@ from executor_service.application.commands import (
     StepSpec,
 )
 from executor_service.container import ApplicationContainer
-from executor_service.domain.errors import InvalidExecutionSpecError
 from executor_service.interfaces.contracts import (
     ExecutionCommandResponse,
     ExecutionSubmitRequest,
+)
+from executor_service.interfaces.execution_specs import (
+    SUBMIT_SPEC_LOCATION,
+    require_submit_starts_at_zero,
 )
 from executor_service.interfaces.http.executions.common import (
     DOMAIN_ERROR_RESPONSES,
@@ -47,12 +50,10 @@ def build_command_router(container: ApplicationContainer) -> APIRouter:
         response: Response,
         caller: CurrentCaller,
     ) -> ExecutionCommandResponse:
-        resolved = await resolver.resolve(request.operation.spec)
-        if resolved.spec.steps[0].sequence != 0:
-            raise InvalidExecutionSpecError(
-                "Execution submit requires an ExecutionSpec starting at "
-                "sequence 0."
-            )
+        resolved = await resolver.resolve(
+            request.operation.spec, location=SUBMIT_SPEC_LOCATION
+        )
+        require_submit_starts_at_zero(resolved)
         result = await execution_service.submit_result(
             request.to_command(resolved, caller)
         )

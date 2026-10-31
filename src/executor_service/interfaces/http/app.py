@@ -17,6 +17,7 @@ from executor_service.domain.errors import (
     ErrorCode,
 )
 from executor_service.interfaces.auth import CallerAuthenticationMiddleware
+from executor_service.interfaces.error_body import domain_error_content
 from executor_service.interfaces.http.body_limit import (
     RequestBodyLimitMiddleware,
 )
@@ -103,6 +104,12 @@ def create_app(
                 "location": list(error["loc"]),
                 "message": error["msg"],
                 "type": error["type"],
+                # The limit or pattern behind the error, e.g. max_length.
+                **(
+                    {"context": _json_context(error["ctx"])}
+                    if error.get("ctx")
+                    else {}
+                ),
             }
             for error in exc.errors()
         ]
@@ -137,12 +144,7 @@ def create_app(
             )
         return JSONResponse(
             status_code=exc.http_status,
-            content={
-                "error": {
-                    "code": exc.code,
-                    "message": str(exc),
-                }
-            },
+            content=domain_error_content(exc),
         )
 
     @app.exception_handler(Exception)
@@ -224,3 +226,13 @@ def create_app(
             ),
         )
     return app
+
+
+def _json_context(ctx: dict[str, Any]) -> dict[str, Any]:
+    """Pydantic's ctx can hold exceptions or patterns; keep JSON scalars."""
+    return {
+        key: value
+        if isinstance(value, str | int | float | bool) or value is None
+        else str(value)
+        for key, value in ctx.items()
+    }

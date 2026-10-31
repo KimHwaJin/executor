@@ -2,6 +2,7 @@
 
 from executor_service.application.commands import CreateOperationCommand
 from executor_service.application.services.support import (
+    OPERATION_CREATE_LOCATION,
     ExecutionCommandSupport,
     apply_actor,
     code_hash,
@@ -9,6 +10,8 @@ from executor_service.application.services.support import (
     fingerprint,
     operation_id_from_receipt,
     required_execution,
+    validate_operation_steps,
+    validate_schema_version,
 )
 from executor_service.application.services.types import (
     ExecutionCommandResult,
@@ -16,7 +19,6 @@ from executor_service.application.services.types import (
 from executor_service.domain.errors import (
     ExecutionNotFoundError,
     IdempotencyConflictError,
-    InvalidStateTransitionError,
     PersistenceConflictError,
 )
 from executor_service.domain.models import ExecutionOperation, ExecutionStep
@@ -29,10 +31,9 @@ class ExecutionOperationCommands:
     async def create(
         self, command: CreateOperationCommand
     ) -> ExecutionCommandResult:
-        if command.spec_schema_version != "1.0":
-            raise InvalidStateTransitionError(
-                "Only ExecutionSpec schema_version 1.0 is supported."
-            )
+        validate_schema_version(
+            command.spec_schema_version, (*OPERATION_CREATE_LOCATION, "spec")
+        )
         request_fingerprint = fingerprint(command)
         command_type = "execution_operation_create"
         try:
@@ -59,35 +60,25 @@ class ExecutionOperationCommands:
                     raise ExecutionNotFoundError(
                         f"Execution {command.execution_id} was not found."
                     )
-                if not command.steps:
-                    raise InvalidStateTransitionError(
-                        "An Operation requires at least one Step."
-                    )
+                # State and version first: a caller with a stale view gets
+                # the 409 that says so, not a 422 about the sequence it
+                # computed from that view. A later error rolls this back.
+                execution.request_operation(command.expected_version)
                 self._support.validate_step_limits(
-                    len(execution.steps), len(command.steps)
+                    len(execution.steps),
+                    len(command.steps),
+                    location=OPERATION_CREATE_LOCATION,
                 )
                 self._support.validate_timeouts(
                     command.operation_timeout_seconds,
                     (step.step_timeout_seconds for step in command.steps),
+                    location=OPERATION_CREATE_LOCATION,
                 )
-                expected_sequence = len(execution.steps)
-                sequences = [step.sequence for step in command.steps]
-                expected_sequences = list(
-                    range(
-                        expected_sequence,
-                        expected_sequence + len(command.steps),
-                    )
+                validate_operation_steps(
+                    command.steps,
+                    expected_start=len(execution.steps),
+                    location=(*OPERATION_CREATE_LOCATION, "spec"),
                 )
-                if sequences != expected_sequences:
-                    raise InvalidStateTransitionError(
-                        "MULTI Operation Step sequences must be contiguous "
-                        f"and start at {expected_sequence}."
-                    )
-                if any(not step.code.strip() for step in command.steps):
-                    raise InvalidStateTransitionError(
-                        "Operation Step code must not be empty."
-                    )
-                execution.request_operation(command.expected_version)
                 apply_actor(execution, command.actor_type, command.actor_id)
                 operation = ExecutionOperation(
                     execution_id=execution.id,

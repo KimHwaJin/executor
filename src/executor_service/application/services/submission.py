@@ -5,6 +5,7 @@ from uuid import UUID
 
 from executor_service.application.commands import SubmitExecutionCommand
 from executor_service.application.services.support import (
+    SUBMIT_OPERATION_LOCATION,
     ExecutionCommandSupport,
     code_hash,
     ensure_same_fingerprint,
@@ -59,10 +60,13 @@ class ExecutionSubmissionCommands:
     ) -> ExecutionCommandResult:
         validate_submit(command)
         self._validate_tenant(command.tenant_id)
-        self._support.validate_step_limits(0, len(command.steps))
+        self._support.validate_step_limits(
+            0, len(command.steps), location=SUBMIT_OPERATION_LOCATION
+        )
         self._support.validate_timeouts(
             command.operation_timeout_seconds,
             (step.step_timeout_seconds for step in command.steps),
+            location=SUBMIT_OPERATION_LOCATION,
         )
         offering = self._runtime_offerings.get(command.runtime_type)
         if (
@@ -189,10 +193,16 @@ class ExecutionSubmissionCommands:
 
     def _validate_tenant(self, tenant_id: str) -> None:
         if not is_valid_tenant_id(tenant_id):
-            raise InvalidExecutionSpecError(
-                "tenant_id must match ^[a-z][a-z0-9-]{1,62}[a-z0-9]$."
+            raise InvalidExecutionSpecError.at(
+                ("header", "X-Tenant-Id"),
+                "tenant_id must match ^[a-z][a-z0-9-]{1,62}[a-z0-9]$.",
+                "invalid_tenant",
+                actual=tenant_id,
             )
         if tenant_id in RESERVED_TENANT_IDS:
-            raise InvalidExecutionSpecError(
-                f"tenant_id '{tenant_id}' is reserved."
+            raise InvalidExecutionSpecError.at(
+                ("header", "X-Tenant-Id"),
+                f"tenant_id '{tenant_id}' is reserved.",
+                "reserved_tenant",
+                actual=tenant_id,
             )

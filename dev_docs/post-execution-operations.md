@@ -156,6 +156,9 @@ Operation마다 `0`으로 되돌리지 않고 Execution 전체의 다음 번호�
 
 동시에 같은 `expected_version`으로 두 요청이 들어오면 하나만 성공하고 나머지는 `409`가
 된다. `409` 발생 시 최신 Execution 상태를 다시 조회해서 이미 처리된 명령인지 판단해야 한다.
+상태·version을 Step 검사보다 먼저 확인하므로, 오래된 version으로 보낸 요청은 Step 번호 오류보다
+`409`가 먼저 나온다. Step 개수(한 Operation 100개, Execution 누적 1000개), 크기, 시간 한도를
+넘으면 `422 INVALID_EXECUTION_SPEC`이며 `details`에 한도와 실제 값이 들어간다([오류 응답](errors.md)).
 
 후속 Operation은 자신의 새 시간 예산을 사용하지만 Execution 전체 만료 시각을
 연장하지 않는다. 이 요청 접수 시 기존 Agent 대기 만료값은 해제하고,

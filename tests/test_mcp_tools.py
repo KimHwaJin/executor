@@ -1,4 +1,5 @@
 import hashlib
+import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from copy import deepcopy
@@ -324,6 +325,44 @@ async def test_mcp_domain_errors_expose_stable_public_code(
     assert missing.is_error
     assert isinstance(missing.content[0], TextContent)
     assert "[EXECUTION_NOT_FOUND]" in missing.content[0].text
+
+
+async def test_mcp_spec_errors_carry_the_rest_details(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+    tmp_path: Path,
+) -> None:
+    target = build_mcp_server(
+        execution_service,
+        _queries(engine),
+        execution_spec_resolver=ExecutionSpecResolver(tmp_path, max_steps=1),
+    )
+    request = deepcopy(SUBMIT_ARGUMENTS["request"])
+    step = request["operation"]["spec"]["steps"][0]
+    request["operation"]["spec"]["steps"] = [
+        step,
+        {**step, "sequence": 1},
+    ]
+
+    async with mcp_client(target) as client:
+        result = await client.call_tool(
+            "execution_submit", {"request": request}
+        )
+
+    assert result.is_error
+    assert isinstance(result.content[0], TextContent)
+    text = result.content[0].text
+    assert "[INVALID_EXECUTION_SPEC] An Operation may carry" in text
+    details = json.loads(text.split(" details=", 1)[1])
+    assert details == [
+        {
+            "location": ["body", "operation", "spec", "steps"],
+            "message": "An Operation may carry at most 1 Steps; "
+            "this one has 2.",
+            "type": "too_many_steps",
+            "context": {"limit": 1, "actual": 2},
+        }
+    ]
 
 
 async def test_mcp_runtime_target_disable_uses_shared_contract(

@@ -78,7 +78,12 @@ from executor_service.interfaces.contracts import (
     RuntimeTargetResponse,
     RuntimeTargetUpsertRequest,
 )
-from executor_service.interfaces.execution_specs import ExecutionSpecResolver
+from executor_service.interfaces.error_body import domain_error_content
+from executor_service.interfaces.execution_specs import (
+    SUBMIT_SPEC_LOCATION,
+    ExecutionSpecResolver,
+    require_submit_starts_at_zero,
+)
 from executor_service.interfaces.mcp.schemas import (
     ExecutionArtifactMaterializeToolRequest,
     ExecutionCancelRequest,
@@ -99,7 +104,11 @@ def _public_tool_error(exc: Exception) -> ToolError:
     if isinstance(exc, ToolError):
         return exc
     if isinstance(exc, DomainError):
-        return ToolError(f"[{exc.code}] {exc}")
+        if not exc.details:
+            return ToolError(f"[{exc.code}] {exc}")
+        # The same details a REST caller gets, as JSON after the message.
+        details = json.dumps(domain_error_content(exc)["error"]["details"])
+        return ToolError(f"[{exc.code}] {exc} details={details}")
     logging.getLogger(__name__).exception(
         "Unhandled MCP Tool error", exc_info=exc
     )
@@ -147,13 +156,9 @@ def build_mcp_server(
                     f"[{ErrorCode.INTERNAL_ERROR}] ExecutionSpec resolver is not configured."
                 )
             resolved = await execution_spec_resolver.resolve(
-                request.operation.spec
+                request.operation.spec, location=SUBMIT_SPEC_LOCATION
             )
-            if resolved.spec.steps[0].sequence != 0:
-                raise ToolError(
-                    f"[{ErrorCode.INVALID_EXECUTION_SPEC}] Execution submit requires an "
-                    "ExecutionSpec starting at sequence 0."
-                )
+            require_submit_starts_at_zero(resolved)
             result = await execution_service.submit_result(
                 request.to_command(resolved, current_caller())
             )

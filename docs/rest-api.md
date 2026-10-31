@@ -175,7 +175,18 @@ also carries. Submit `metadata` holds at most 32 keys matching `^[a-z][a-z0-9_]{
 4096 serialized bytes. Executor accepts at most
 `EXECUTION_MAX_STEPS_PER_OPERATION` Steps in one Operation and
 `EXECUTION_MAX_STEPS_PER_EXECUTION` Steps across one Execution. The configured defaults are 100
-and 1000.
+and 1000. Going over either answers `422 INVALID_EXECUTION_SPEC`.
+
+## Errors
+
+Every error body is `{"error": {"code", "message", "details?"}}`. `details` appears when a
+request value is at fault: each entry has `location` (`body` or `header`, then the field path),
+`message`, a stable snake_case `type`, and `context` with the numbers behind it (for example
+`limit` and `actual`). Request-shape failures (`REQUEST_VALIDATION_ERROR`) and rule failures
+(`INVALID_EXECUTION_SPEC`) both use 422 and this shape; 409 is kept for requests that are valid
+but conflict with the current state or version. MCP Tool errors read `[CODE] message
+details=[...]` with the same JSON. The full list of types is in
+[dev_docs/errors.md](../dev_docs/errors.md).
 
 Execution detail exposes notebook projection separately under `workspace.notebook_projection`.
 The state begins as `NOT_STARTED`, becomes `PENDING` only while a projection is attempted, and

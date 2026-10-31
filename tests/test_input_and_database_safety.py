@@ -31,7 +31,7 @@ from tests.test_execution_specs import _spec
 async def test_step_limit_precedes_reading_any_source(tmp_path: Path) -> None:
     spec = _spec({"type": "PATH", "path": "missing.py", "sha256": "0" * 64})
     spec.steps.append(spec.steps[0].model_copy(update={"sequence": 1}))
-    with pytest.raises(InvalidExecutionSpecError, match="maximum Step"):
+    with pytest.raises(InvalidExecutionSpecError, match="at most 1 Steps"):
         await ExecutionSpecResolver(tmp_path, max_steps=1).resolve(spec)
 
 

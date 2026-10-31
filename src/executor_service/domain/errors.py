@@ -1,6 +1,9 @@
 """Errors understood by the application and interface layers."""
 
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from enum import StrEnum
+from typing import Self
 
 
 class ErrorCode(StrEnum):
@@ -36,12 +39,54 @@ class ErrorCode(StrEnum):
     INTERNAL_ERROR = "INTERNAL_ERROR"
 
 
+ContextValue = str | int | float | bool | None
+
+
+@dataclass(frozen=True, slots=True)
+class ErrorIssue:
+    """One field-level problem, in the shape request validation also uses.
+
+    ``location`` starts with where the value came from (``body`` or
+    ``header``) and follows the request's own field names, so a caller can
+    point at the exact value. ``type`` is a stable snake_case reason and
+    ``context`` carries the numbers behind it, such as a limit and the
+    value that broke it.
+    """
+
+    location: tuple[str | int, ...]
+    message: str
+    type: str
+    context: Mapping[str, ContextValue] | None = field(default=None)
+
+
 class DomainError(Exception):
     """Base class for expected business errors."""
 
     code = ErrorCode.INTERNAL_ERROR
     # The REST status for this error; transports without HTTP ignore it.
     http_status = 400
+
+    def __init__(
+        self, message: str = "", *, details: Sequence[ErrorIssue] = ()
+    ) -> None:
+        super().__init__(message)
+        self.details: tuple[ErrorIssue, ...] = tuple(details)
+
+    @classmethod
+    def at(
+        cls,
+        location: Sequence[str | int],
+        message: str,
+        type: str,
+        **context: ContextValue,
+    ) -> Self:
+        """This error with one ErrorIssue whose message is also the error's."""
+        return cls(
+            message,
+            details=(
+                ErrorIssue(tuple(location), message, type, context or None),
+            ),
+        )
 
 
 class UnauthenticatedError(DomainError):

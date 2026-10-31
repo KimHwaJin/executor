@@ -25,6 +25,9 @@ Operation·Step·Attempt·Event·Notebook 조회의 전체 필드도 이 문서�
 사용한다. Runtime 관리와 maintenance 전체 계약은 서비스 `/docs`, `/redoc` 또는
 [전체 REST 가이드](../docs/rest-api.md)를 사용한다.
 
+[오류 응답](errors.md): 모든 API가 쓰는 `error.code`·`details` 형식, 409와 422의 구분,
+`details[].type`별 위치와 근거 값.
+
 ## 이벤트와 파일
 
 - [Redis 이벤트 1.0](redis-execution-events.md): `tenant_id`를 포함한 8개 envelope 필드와
