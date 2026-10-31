@@ -508,7 +508,7 @@ of already executed Steps is intentionally not supported.
   Execution's persisted pool. This boundary applies to downloads and notebook/text reads and
   writes; no storage operation falls back across pools.
 
-`EXECUTION_MAX_RUNTIME_SECONDS` defaults to five days and starts when a worker first claims the
+`EXECUTION_MAX_RUNTIME_SECONDS` defaults to seven days and starts when a worker first claims the
 Execution. Each MULTI request supplies `lifecycle.operation_wait_timeout_seconds`; its deadline is
 reset after every Operation and never exceeds the total Execution deadline. A missed Agent deadline
 produces `OPERATION_WAIT_TIMEOUT`; a missing retained session produces `RUNTIME_SESSION_LOST`.

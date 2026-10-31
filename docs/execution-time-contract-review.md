@@ -50,7 +50,7 @@
   준비·마지막 후처리 전체에 독립적인 Operation 타이머가 적용된 것은 아니다.
 - MULTI 대기는 WAITING_FOR_OPERATION 전환 시 시작하고 각 Operation 완료 후
   새로 계산한다. 전체 Execution 만료를 넘지 않으며 조회만으로 연장되지 않는다.
-- `EXECUTION_MAX_RUNTIME_SECONDS` 기본값은 432000초(5일)이다.
+- `EXECUTION_MAX_RUNTIME_SECONDS` 기본값은 604800초(7일)이다.
   최초 Worker 실행 시작부터 계산하고 retry/후속 Operation으로 연장하지 않는다.
   최초 큐 대기에는 별도 만료가 없다. 요청의 Execution 전체 제한 필드는 없다.
 - retry 시 Operation 시작 시각은 재설정되지만 Execution 시작·만료는 유지된다.
