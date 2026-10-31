@@ -85,13 +85,13 @@ class ExecutionSubmissionCommands:
         try:
             async with self._support.uow_factory() as uow:
                 existing = await uow.executions.get_by_submit_key(
-                    command.idempotency_key
+                    command.tenant_id, command.idempotency_key
                 )
                 if existing is not None:
                     ensure_same_fingerprint(existing, request_fingerprint)
                     operation_id = (
                         await uow.executions.get_operation_id_by_key(
-                            command.idempotency_key
+                            existing.id, command.idempotency_key
                         )
                     )
                     return ExecutionCommandResult(
@@ -174,13 +174,13 @@ class ExecutionSubmissionCommands:
             # first lookup.
             async with self._support.uow_factory() as uow:
                 existing = await uow.executions.get_by_submit_key(
-                    command.idempotency_key
+                    command.tenant_id, command.idempotency_key
                 )
                 if existing is None:
                     raise
                 ensure_same_fingerprint(existing, request_fingerprint)
                 operation_id = await uow.executions.get_operation_id_by_key(
-                    command.idempotency_key
+                    existing.id, command.idempotency_key
                 )
                 return ExecutionCommandResult(
                     execution=existing,

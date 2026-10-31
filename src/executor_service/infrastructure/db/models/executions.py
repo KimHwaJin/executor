@@ -53,8 +53,13 @@ class ExecutionORM(Base):
     __tablename__ = "executions"
     __table_args__ = (
         *audit_actor_constraints(),
+        UniqueConstraint(
+            "tenant_id",
+            "idempotency_key",
+            name="uq_executions_tenant_idempotency_key",
+        ),
         CheckConstraint(
-            "status IN ('QUEUED', 'DISPATCHED', 'RUNNING', 'WAITING_FOR_OPERATION', "
+            "status IN ('QUEUED', 'RUNNING', 'WAITING_FOR_OPERATION', "
             "'FINALIZING', 'CANCEL_REQUESTED', 'CANCELLED', 'SUCCEEDED', 'FAILED')",
             name="valid_execution_status",
         ),
@@ -168,14 +173,14 @@ class ExecutionORM(Base):
     id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True), primary_key=True, default=uuid4
     )
-    idempotency_key: Mapped[str] = mapped_column(
-        String(255), unique=True, nullable=False
-    )
+    # Unique per tenant (uq_executions_tenant_idempotency_key).
+    idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False)
     request_fingerprint: Mapped[str] = mapped_column(
         String(64), nullable=False
     )
+    # Scoped to this Execution; it is stored on the row itself.
     cancel_idempotency_key: Mapped[str | None] = mapped_column(
-        String(255), unique=True, nullable=True
+        String(255), nullable=True
     )
 
     status: Mapped[ExecutionStatus] = mapped_column(

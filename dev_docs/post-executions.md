@@ -32,7 +32,7 @@ POST /api/v1/executions
 
 | 필드 | 필수 | 의미 |
 |---|---:|---|
-| `idempotency_key` | O | 호출자가 생성하는 멱등성 키. 같은 키와 같은 요청은 같은 Execution을 반환하며, 같은 키로 다른 요청을 보내면 `409` |
+| `idempotency_key` | O | 호출자가 생성하는 멱등성 키. 테넌트 단위로 구분한다. 같은 테넌트에서 같은 키와 같은 요청은 같은 Execution을 반환하며, 같은 키로 다른 요청을 보내면 `409`. 다른 테넌트의 같은 키는 서로 영향이 없다 |
 | `lifecycle` | O | SINGLE/MULTI 실행 생명주기 설정 |
 | `trigger` | O | 실행을 발생시킨 유형과 주체 |
 | `runtime` | O | 필요한 Runtime 종류와 프로파일 |

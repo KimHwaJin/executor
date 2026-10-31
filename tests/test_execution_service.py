@@ -260,6 +260,23 @@ async def test_submit_get_cancel_and_idempotency(
     assert repeated_cancel.version == 1
 
 
+async def test_command_keys_are_scoped_to_the_execution(
+    execution_service: ExecutionService,
+) -> None:
+    first = await execution_service.submit(submit_command("scope-first"))
+    second = await execution_service.submit(submit_command("scope-second"))
+    for execution in (first, second):
+        cancelled = await execution_service.cancel(
+            CancelExecutionCommand(
+                execution_id=execution.id,
+                idempotency_key="shared-cancel-key",
+                reason="user requested",
+            )
+        )
+        assert cancelled.id == execution.id
+        assert cancelled.status == ExecutionStatus.CANCEL_REQUESTED
+
+
 async def test_submit_key_rejects_different_request(
     execution_service: ExecutionService,
 ) -> None:

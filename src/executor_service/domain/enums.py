@@ -5,7 +5,6 @@ from enum import StrEnum
 
 class ExecutionStatus(StrEnum):
     QUEUED = "QUEUED"
-    DISPATCHED = "DISPATCHED"
     RUNNING = "RUNNING"
     WAITING_FOR_OPERATION = "WAITING_FOR_OPERATION"
     FINALIZING = "FINALIZING"

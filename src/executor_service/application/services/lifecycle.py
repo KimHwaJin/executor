@@ -47,7 +47,7 @@ class ExecutionLifecycleCommands:
         try:
             async with self._support.uow_factory() as uow:
                 repeated = await uow.executions.get_command_receipt(
-                    command.idempotency_key
+                    command.execution_id, command.idempotency_key
                 )
                 if repeated is not None:
                     ensure_same_receipt(
@@ -65,6 +65,7 @@ class ExecutionLifecycleCommands:
                 apply_actor(execution, command.actor_type, command.actor_id)
                 await uow.executions.save(execution)
                 await uow.executions.add_command_receipt(
+                    execution.id,
                     command.idempotency_key,
                     command_type,
                     request_fingerprint,
@@ -85,14 +86,9 @@ class ExecutionLifecycleCommands:
         try:
             async with self._support.uow_factory() as uow:
                 key_owner = await uow.executions.get_by_cancel_key(
-                    command.idempotency_key
+                    command.execution_id, command.idempotency_key
                 )
                 if key_owner is not None:
-                    if key_owner.id != command.execution_id:
-                        raise IdempotencyConflictError(
-                            "The cancel idempotency_key was already used for "
-                            "another execution."
-                        )
                     return key_owner
 
                 execution = await uow.executions.get(
@@ -115,12 +111,9 @@ class ExecutionLifecycleCommands:
         except PersistenceConflictError as exc:
             async with self._support.uow_factory() as uow:
                 key_owner = await uow.executions.get_by_cancel_key(
-                    command.idempotency_key
+                    command.execution_id, command.idempotency_key
                 )
-                if (
-                    key_owner is not None
-                    and key_owner.id == command.execution_id
-                ):
+                if key_owner is not None:
                     return key_owner
             raise IdempotencyConflictError(
                 "The cancel request conflicted with another state change."
@@ -132,14 +125,9 @@ class ExecutionLifecycleCommands:
         try:
             async with self._support.uow_factory() as uow:
                 key_owner = await uow.executions.get_by_retry_key(
-                    command.idempotency_key
+                    command.execution_id, command.idempotency_key
                 )
                 if key_owner is not None:
-                    if key_owner.id != command.execution_id:
-                        raise IdempotencyConflictError(
-                            "The retry idempotency_key was already used for "
-                            "another execution."
-                        )
                     return ExecutionCommandResult(
                         execution=key_owner,
                         operation_id=required_operation_id(
@@ -188,12 +176,9 @@ class ExecutionLifecycleCommands:
         except PersistenceConflictError as exc:
             async with self._support.uow_factory() as uow:
                 key_owner = await uow.executions.get_by_retry_key(
-                    command.idempotency_key
+                    command.execution_id, command.idempotency_key
                 )
-                if (
-                    key_owner is not None
-                    and key_owner.id == command.execution_id
-                ):
+                if key_owner is not None:
                     return ExecutionCommandResult(
                         execution=key_owner,
                         operation_id=required_operation_id(
@@ -214,7 +199,7 @@ class ExecutionLifecycleCommands:
     ) -> Execution:
         async with self._support.uow_factory() as uow:
             repeated = await uow.executions.get_command_receipt(
-                idempotency_key
+                execution_id, idempotency_key
             )
             if repeated is not None:
                 ensure_same_receipt(

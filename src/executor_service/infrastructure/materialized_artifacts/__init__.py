@@ -50,7 +50,7 @@ class MaterializedArtifactService:
     async def materialize(self, command: MaterializeArtifactCommand) -> UUID:
         fingerprint = command_fingerprint(command)
         existing = await self._persistence.receipt(
-            command.idempotency_key, fingerprint
+            command.execution_id, command.idempotency_key, fingerprint
         )
         if existing is not None:
             return existing
@@ -72,7 +72,10 @@ class MaterializedArtifactService:
             execution,
         ):
             completed = await self._persistence.completed(
-                session, command.idempotency_key, fingerprint
+                session,
+                command.execution_id,
+                command.idempotency_key,
+                fingerprint,
             )
             if completed is not None:
                 return completed

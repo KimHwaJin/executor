@@ -13,7 +13,6 @@ RUNNABLE_STATUSES = (
     MaintenanceRunStatus.RUNNING,
 )
 ACTIVE_EXECUTION_STATUSES = (
-    ExecutionStatus.DISPATCHED,
     ExecutionStatus.RUNNING,
     ExecutionStatus.WAITING_FOR_OPERATION,
     ExecutionStatus.FINALIZING,

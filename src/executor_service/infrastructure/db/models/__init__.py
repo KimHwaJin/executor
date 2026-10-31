@@ -38,7 +38,9 @@ from executor_service.infrastructure.db.models.operations import (
     ExecutionOperationORM,
 )
 from executor_service.infrastructure.db.models.receipts import (
+    GLOBAL_RECEIPT_SCOPE,
     CommandReceiptORM,
+    execution_receipt_scope,
 )
 from executor_service.infrastructure.db.models.runtime import (
     RuntimeTargetORM,
@@ -46,6 +48,7 @@ from executor_service.infrastructure.db.models.runtime import (
 )
 
 __all__ = [
+    "GLOBAL_RECEIPT_SCOPE",
     "BackgroundPassLeaseORM",
     "CommandReceiptORM",
     "ExecutionArtifactORM",
@@ -68,4 +71,5 @@ __all__ = [
     "RuntimeTargetPurgeORM",
     "audit_actor_constraints",
     "enum_type",
+    "execution_receipt_scope",
 ]

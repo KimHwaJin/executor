@@ -30,7 +30,7 @@ diagnostics로 실패 단계를 확인한다. 참조가 아직 없을 수도 있
 
 | 필드 | 필수 | 의미 |
 |---|---:|---|
-| `idempotency_key` | O | 재시도 호출 멱등성 키. 다른 Execution 또는 다른 명령에 재사용하면 `409` |
+| `idempotency_key` | O | 재시도 호출 멱등성 키. Execution 단위로 구분하며 다른 Execution에서는 별개 요청이다 |
 | `actor.type` | O | 재시도 요청 주체: `AGENT`, `USER`, `BATCH` |
 | `actor.id` | O | 재시도 요청 주체 식별자 |
 

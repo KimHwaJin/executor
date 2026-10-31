@@ -63,7 +63,7 @@ from executor_service.infrastructure.runtime_storage import (
 from executor_service.interfaces.execution_specs import ExecutionSpecResolver
 from executor_service.settings import Settings
 
-EXPECTED_SCHEMA_REVISION = "0013"
+EXPECTED_SCHEMA_REVISION = "0014"
 READINESS_DATABASE_TIMEOUT_SECONDS = 2
 REDIS_PING_TIMEOUT_SECONDS = 1
 

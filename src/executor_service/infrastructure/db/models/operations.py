@@ -42,6 +42,11 @@ class ExecutionOperationORM(Base):
             "operation_number",
             name="uq_operations_execution_number",
         ),
+        UniqueConstraint(
+            "execution_id",
+            "idempotency_key",
+            name="uq_execution_operations_execution_idempotency_key",
+        ),
         CheckConstraint(
             "operation_number > 0", name="positive_operation_number"
         ),
@@ -97,9 +102,7 @@ class ExecutionOperationORM(Base):
     operation_metadata: Mapped[dict[str, Any]] = mapped_column(
         "metadata", JSON, nullable=False, default=dict
     )
-    idempotency_key: Mapped[str] = mapped_column(
-        String(255), nullable=False, unique=True
-    )
+    idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False)
     request_fingerprint: Mapped[str] = mapped_column(
         String(64), nullable=False
     )

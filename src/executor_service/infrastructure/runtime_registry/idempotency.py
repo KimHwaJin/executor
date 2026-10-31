@@ -7,7 +7,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from executor_service.domain.errors import IdempotencyConflictError
-from executor_service.infrastructure.db.models import CommandReceiptORM
+from executor_service.infrastructure.db.models import (
+    GLOBAL_RECEIPT_SCOPE,
+    CommandReceiptORM,
+)
 
 
 class RuntimeCommandReceipts:
@@ -20,7 +23,8 @@ class RuntimeCommandReceipts:
     ) -> UUID | None:
         receipt = await session.scalar(
             select(CommandReceiptORM).where(
-                CommandReceiptORM.idempotency_key == idempotency_key
+                CommandReceiptORM.scope == GLOBAL_RECEIPT_SCOPE,
+                CommandReceiptORM.idempotency_key == idempotency_key,
             )
         )
         if receipt is None:

@@ -23,6 +23,7 @@ from executor_service.infrastructure.db.models import (
     ExecutionORM,
     ExecutionRetryORM,
     ExecutionStepORM,
+    execution_receipt_scope,
 )
 
 
@@ -47,33 +48,44 @@ class SQLAlchemyExecutionRepository:
         return row.to_domain() if row else None
 
     async def get_by_submit_key(
-        self, idempotency_key: str
+        self, tenant_id: str, idempotency_key: str
     ) -> Execution | None:
         row = await self._session.scalar(
             select(ExecutionORM)
-            .where(ExecutionORM.idempotency_key == idempotency_key)
+            .where(
+                ExecutionORM.tenant_id == tenant_id,
+                ExecutionORM.idempotency_key == idempotency_key,
+            )
             .options(selectinload(ExecutionORM.steps))
         )
         return row.to_domain() if row else None
 
     async def get_by_cancel_key(
-        self, idempotency_key: str
+        self, execution_id: UUID, idempotency_key: str
     ) -> Execution | None:
         row = await self._session.scalar(
             select(ExecutionORM)
-            .where(ExecutionORM.cancel_idempotency_key == idempotency_key)
+            .where(
+                ExecutionORM.id == execution_id,
+                ExecutionORM.cancel_idempotency_key == idempotency_key,
+            )
             .options(selectinload(ExecutionORM.steps))
         )
         return row.to_domain() if row else None
 
-    async def get_by_retry_key(self, idempotency_key: str) -> Execution | None:
+    async def get_by_retry_key(
+        self, execution_id: UUID, idempotency_key: str
+    ) -> Execution | None:
         row = await self._session.scalar(
             select(ExecutionORM)
             .join(
                 ExecutionRetryORM,
                 ExecutionRetryORM.execution_id == ExecutionORM.id,
             )
-            .where(ExecutionRetryORM.idempotency_key == idempotency_key)
+            .where(
+                ExecutionRetryORM.execution_id == execution_id,
+                ExecutionRetryORM.idempotency_key == idempotency_key,
+            )
             .options(selectinload(ExecutionORM.steps))
         )
         return row.to_domain() if row else None
@@ -90,11 +102,13 @@ class SQLAlchemyExecutionRepository:
         )
 
     async def get_command_receipt(
-        self, idempotency_key: str
+        self, execution_id: UUID, idempotency_key: str
     ) -> tuple[str, str, dict[str, object]] | None:
         receipt = await self._session.scalar(
             select(CommandReceiptORM).where(
-                CommandReceiptORM.idempotency_key == idempotency_key
+                CommandReceiptORM.scope
+                == execution_receipt_scope(execution_id),
+                CommandReceiptORM.idempotency_key == idempotency_key,
             )
         )
         if receipt is None:
@@ -107,6 +121,7 @@ class SQLAlchemyExecutionRepository:
 
     async def add_command_receipt(
         self,
+        execution_id: UUID,
         idempotency_key: str,
         command_type: str,
         request_fingerprint: str,
@@ -114,6 +129,7 @@ class SQLAlchemyExecutionRepository:
     ) -> None:
         self._session.add(
             CommandReceiptORM(
+                scope=execution_receipt_scope(execution_id),
                 idempotency_key=idempotency_key,
                 command_type=command_type,
                 request_fingerprint=request_fingerprint,
@@ -143,11 +159,12 @@ class SQLAlchemyExecutionRepository:
         return (current or 0) + 1
 
     async def get_operation_id_by_key(
-        self, idempotency_key: str
+        self, execution_id: UUID, idempotency_key: str
     ) -> UUID | None:
         return await self._session.scalar(
             select(ExecutionOperationORM.id).where(
-                ExecutionOperationORM.idempotency_key == idempotency_key
+                ExecutionOperationORM.execution_id == execution_id,
+                ExecutionOperationORM.idempotency_key == idempotency_key,
             )
         )
 

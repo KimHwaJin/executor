@@ -445,14 +445,15 @@ async def test_runtime_purge_serializes_with_target_mutations(
 # add these for the writes only, so the rows match what old code wrote. The
 # current ORM also no longer sets the Outbox destination dropped by 0010, nor
 # the task_id that is required before 0007 and dropped by 0011.
-COLUMNS_FROM_0013 = (
+COLUMNS_FROM_0013_ON = (
     ("executions", "finalized_by", "VARCHAR(32)"),
     ("execution_operations", "failure_type", "VARCHAR(32)"),
+    ("command_receipts", "scope", "VARCHAR(64) NOT NULL DEFAULT ''"),
 )
 LATER_COLUMNS = (
     ("executions", "tenant_id", "VARCHAR(64)"),
     ("runtime_targets", "connection_key", "VARCHAR(2048)"),
-    *COLUMNS_FROM_0013,
+    *COLUMNS_FROM_0013_ON,
 )
 
 
@@ -514,7 +515,7 @@ async def _current_columns(engine: AsyncEngine) -> AsyncIterator[None]:
 
 
 # Columns that differ between an older revision and head: added by 0007,
-# 0008 and 0013, dropped by 0009, 0010 and 0011. Compare rows across an upgrade
+# 0008, 0013 and 0014, dropped by 0009, 0010 and 0011. Compare rows across an upgrade
 # without them.
 CHANGED_COLUMNS = {column for _, column, _ in LATER_COLUMNS} | {
     "cancellation_heartbeat_at",
@@ -543,7 +544,7 @@ async def test_task_drop_upgrade_strips_stored_completion_context(
 ) -> None:
     url = postgres_engine.url.render_as_string(hide_password=False)
     await asyncio.to_thread(_downgrade_to_before_task_drop, url)
-    async with _columns(postgres_engine, COLUMNS_FROM_0013):
+    async with _columns(postgres_engine, COLUMNS_FROM_0013_ON):
         execution = await _service(postgres_engine, tmp_path).submit(
             _command("before-task-drop")
         )
@@ -2516,7 +2517,7 @@ async def test_current_baseline_repeated_upgrade_preserves_events(
             text("SELECT count(*) FROM event_retention_lease")
         )
 
-    assert revision == EXPECTED_SCHEMA_REVISION == "0013"
+    assert revision == EXPECTED_SCHEMA_REVISION == "0014"
     assert maintenance_count == retention_count == 1
     assert migrated_event is not None
     assert migrated_event.execution_id == execution.id
@@ -2557,7 +2558,7 @@ async def test_current_baseline_downgrade_and_recreate(
             text("SELECT singleton_key FROM event_retention_lease")
         )
     assert tables == set(Base.metadata.tables) | {"alembic_version"}
-    assert revision == EXPECTED_SCHEMA_REVISION == "0013"
+    assert revision == EXPECTED_SCHEMA_REVISION == "0014"
     assert admission == "ACTIVE"
     assert retention_key == "events"
 
