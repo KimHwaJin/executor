@@ -2050,6 +2050,31 @@ async def test_concurrent_workers_never_oversubscribe_jupyter_capacity(
     assert queued_count == 10
 
 
+async def test_concurrent_claims_fill_free_capacity_in_one_pass(
+    postgres_engine: AsyncEngine,
+    tmp_path: Path,
+) -> None:
+    service = _service(postgres_engine, tmp_path)
+    session_factory = create_session_factory(postgres_engine)
+    async with session_factory() as session, session.begin():
+        session.add(_server(capacity=20))
+    executions = [
+        await service.submit(_command(f"burst-{index}")) for index in range(25)
+    ]
+    workers, redis_clients = _workers(postgres_engine, tmp_path, count=3)
+    try:
+        claims = await asyncio.gather(
+            *(
+                workers[index % len(workers)]._claimer.claim(execution.id)
+                for index, execution in enumerate(executions)
+            )
+        )
+    finally:
+        await _close_redis(redis_clients)
+
+    assert sum(claim is not None for claim in claims) == 20
+
+
 async def test_concurrent_workers_respect_fresh_observed_session_capacity(
     postgres_engine: AsyncEngine,
     tmp_path: Path,

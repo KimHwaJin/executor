@@ -2,7 +2,7 @@
 
 from datetime import datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from executor_service.domain.enums import RuntimeTargetStatus
@@ -27,19 +27,42 @@ class RuntimeTargetSelector:
     async def select(
         self, session: AsyncSession, execution: ExecutionORM
     ) -> RuntimeTargetORM | None:
+        # Choose from an unlocked read, then lock only the chosen Target and
+        # check it again. Locking every candidate made concurrent claims skip
+        # the whole pool, so a burst started about one Execution per pass.
         targets = list(
             await session.scalars(
-                select(RuntimeTargetORM)
-                .where(
-                    RuntimeTargetORM.pool == execution.runtime_pool,
-                    RuntimeTargetORM.runtime_type == execution.runtime_type,
-                    RuntimeTargetORM.enabled.is_(True),
-                    RuntimeTargetORM.status == RuntimeTargetStatus.ACTIVE,
-                )
-                .order_by(RuntimeTargetORM.name)
-                .with_for_update(skip_locked=True)
+                self._eligible(execution).order_by(RuntimeTargetORM.name)
             )
         )
+        chosen = await self._best(session, execution, targets)
+        if chosen is None:
+            return None
+        target = await session.scalar(
+            self._eligible(execution)
+            .where(RuntimeTargetORM.id == chosen.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if target is None:
+            return None
+        return await self._best(session, execution, [target])
+
+    @staticmethod
+    def _eligible(execution: ExecutionORM) -> Select[tuple[RuntimeTargetORM]]:
+        return select(RuntimeTargetORM).where(
+            RuntimeTargetORM.pool == execution.runtime_pool,
+            RuntimeTargetORM.runtime_type == execution.runtime_type,
+            RuntimeTargetORM.enabled.is_(True),
+            RuntimeTargetORM.status == RuntimeTargetStatus.ACTIVE,
+        )
+
+    async def _best(
+        self,
+        session: AsyncSession,
+        execution: ExecutionORM,
+        targets: list[RuntimeTargetORM],
+    ) -> RuntimeTargetORM | None:
         candidates: list[tuple[RuntimeTargetORM, int]] = []
         now = utc_now()
         for target in targets:
