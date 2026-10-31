@@ -113,6 +113,8 @@ class Settings(BaseSettings):
     database_pool_timeout_seconds: float = Field(default=30, gt=0)
     database_pool_recycle_seconds: int = Field(default=1800, ge=1)
     database_connect_timeout_seconds: int = Field(default=10, ge=1)
+    database_statement_timeout_seconds: int = Field(default=60, ge=1)
+    database_idle_in_transaction_timeout_seconds: int = Field(default=60, ge=1)
     db_auto_migrate: bool = False
     db_migrations_path: Path = Path("migrations")
     db_migration_lock_timeout_seconds: int = Field(default=60, ge=1)
