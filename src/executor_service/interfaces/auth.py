@@ -33,6 +33,7 @@ from executor_service.domain.tenants import (
     RESERVED_TENANT_IDS,
     is_valid_tenant_id,
 )
+from executor_service.interfaces.error_body import domain_error_content
 from executor_service.settings import AuthClient, Settings
 
 # Kubelet probes call these without a key, and the API docs must load before
@@ -146,7 +147,7 @@ class CallerAuthenticationMiddleware:
         except DomainError as exc:
             response = JSONResponse(
                 status_code=exc.http_status,
-                content={"error": {"code": exc.code, "message": str(exc)}},
+                content=domain_error_content(exc),
             )
             await response(scope, receive, send)
             return

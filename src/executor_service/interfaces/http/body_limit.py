@@ -4,7 +4,8 @@ import json
 
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from executor_service.domain.errors import ErrorCode
+from executor_service.domain.errors import ErrorCode, ErrorIssue
+from executor_service.interfaces.error_body import error_content
 
 
 class _BodyTooLarge(Exception):
@@ -63,15 +64,20 @@ class RequestBodyLimitMiddleware:
             await self._reject(send)
 
     async def _reject(self, send: Send) -> None:
+        message = f"Request body exceeds {self.max_bytes} bytes."
         body = json.dumps(
-            {
-                "error": {
-                    "code": ErrorCode.REQUEST_BODY_TOO_LARGE,
-                    "message": (
-                        f"Request body exceeds {self.max_bytes} bytes."
+            error_content(
+                ErrorCode.REQUEST_BODY_TOO_LARGE,
+                message,
+                (
+                    ErrorIssue(
+                        ("body",),
+                        message,
+                        "body_too_large",
+                        {"limit_bytes": self.max_bytes},
                     ),
-                }
-            }
+                ),
+            )
         ).encode()
         await send(
             {

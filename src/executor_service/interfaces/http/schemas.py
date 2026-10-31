@@ -159,9 +159,15 @@ class ExecutionFinalizeRequest(HTTPModel):
 
 
 class ValidationIssue(HTTPModel):
-    location: list[str | int]
+    location: list[str | int] = Field(
+        description="Where the value came from (body or header), then its field path."
+    )
     message: str
-    type: str
+    type: str = Field(description="Stable snake_case reason.")
+    context: dict[str, str | int | float | bool | None] | None = Field(
+        default=None,
+        description="The values behind the reason, such as limit and actual.",
+    )
 
 
 class ErrorDetail(HTTPModel):

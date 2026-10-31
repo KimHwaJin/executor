@@ -134,10 +134,13 @@ async def test_step_limits_apply_to_submit_and_appended_operations(
         ),
     )
     with pytest.raises(
-        InvalidStateTransitionError,
-        match="Operation Step count exceeds",
-    ):
+        InvalidExecutionSpecError, match="at most 2 Steps; this one has 3"
+    ) as per_operation:
         await service.submit(too_many_initial_steps)
+    [issue] = per_operation.value.details
+    assert issue.location == ("body", "operation", "spec", "steps")
+    assert issue.type == "too_many_steps"
+    assert issue.context == {"limit": 2, "actual": 3}
 
     execution = await service.submit(multi_submit_command("bounded-multi"))
     async with session_factory() as session, session.begin():
@@ -147,10 +150,10 @@ async def test_step_limits_apply_to_submit_and_appended_operations(
             .values(status=ExecutionStatus.WAITING_FOR_OPERATION, version=2)
         )
 
+    # The same 422 as the per-Operation limit, with the counts behind it.
     with pytest.raises(
-        InvalidStateTransitionError,
-        match="Execution Step count exceeds",
-    ):
+        InvalidExecutionSpecError, match="at most 2 Steps; it has 1"
+    ) as per_execution:
         await service.create_operation(
             CreateOperationCommand(
                 execution_id=execution.id,
@@ -162,6 +165,15 @@ async def test_step_limits_apply_to_submit_and_appended_operations(
                 ),
             )
         )
+    [issue] = per_execution.value.details
+    assert issue.location == ("body", "spec", "steps")
+    assert issue.type == "execution_step_limit_exceeded"
+    assert issue.context == {
+        "limit": 2,
+        "existing": 1,
+        "requested": 2,
+        "actual": 3,
+    }
 
 
 async def test_timeouts_over_the_execution_maximum_runtime_are_rejected(
@@ -300,8 +312,8 @@ async def test_interactive_submit_requires_actor_to_match_user(
     )
 
     with pytest.raises(
-        InvalidStateTransitionError,
-        match=r"actor\.id must match context\.user_id",
+        InvalidExecutionSpecError,
+        match=r"USER actor\.id \(another-user\) must equal X-User-Id",
     ):
         await execution_service.submit(command)
 
@@ -352,8 +364,8 @@ async def test_batch_submit_requires_user_actor_to_match_user(
     )
 
     with pytest.raises(
-        InvalidStateTransitionError,
-        match=r"actor\.id must match context\.user_id",
+        InvalidExecutionSpecError,
+        match=r"USER actor\.id \(another-user\) must equal X-User-Id",
     ):
         await execution_service.submit(command)
 
@@ -369,7 +381,8 @@ async def test_batch_submit_rejects_agent_actor(
     )
 
     with pytest.raises(
-        InvalidStateTransitionError, match="USER or BATCH actor"
+        InvalidExecutionSpecError,
+        match="BATCH submit requires a USER or BATCH actor, not AGENT",
     ):
         await execution_service.submit(command)
 

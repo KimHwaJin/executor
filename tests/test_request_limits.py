@@ -42,7 +42,20 @@ def test_oversized_body_is_refused_with_413(tmp_path: Path) -> None:
         headers={"content-type": "application/json"},
     )
     assert response.status_code == 413
-    assert response.json()["error"]["code"] == "REQUEST_BODY_TOO_LARGE"
+    assert response.json() == {
+        "error": {
+            "code": "REQUEST_BODY_TOO_LARGE",
+            "message": "Request body exceeds 2048 bytes.",
+            "details": [
+                {
+                    "location": ["body"],
+                    "message": "Request body exceeds 2048 bytes.",
+                    "type": "body_too_large",
+                    "context": {"limit_bytes": 2048},
+                }
+            ],
+        }
+    }
 
 
 def test_body_without_length_is_counted_while_read() -> None:
