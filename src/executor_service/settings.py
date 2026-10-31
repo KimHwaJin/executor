@@ -101,6 +101,7 @@ class Settings(BaseSettings):
     log_config_file: Path = Path("logger.yml")
     rest_error_body_logging_enabled: bool = False
     rest_error_body_log_max_bytes: int = Field(default=65536, ge=1)
+    request_body_max_bytes: int = Field(default=31457280, ge=1024)
 
     host: str = "0.0.0.0"
     port: int = Field(default=8000, ge=1, le=65535)

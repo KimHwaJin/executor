@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from executor_service.domain.enums import ActorType
 
@@ -22,7 +22,19 @@ class AuditFields(ContractModel):
 
 class ActorInput(ContractModel):
     type: ActorType
-    id: str = Field(min_length=1, max_length=255)
+    id: str = Field(
+        min_length=1,
+        max_length=255,
+        description="Stored lowercase, like the X-User-Id header.",
+    )
+
+    @field_validator("id")
+    @classmethod
+    def normalize_id(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if not normalized:
+            raise ValueError("actor.id must not be blank.")
+        return normalized
 
 
 class PageResponse(ContractModel):

@@ -8,6 +8,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from executor_service.interfaces.bounded_mappings import CallerMetadata
 from executor_service.interfaces.contracts import (
     ActorInput,
     ExecutionArtifactMaterializeRequest,
@@ -59,7 +60,7 @@ class ExecutionOperationCreateRequest(MCPModel):
     expected_version: int = Field(ge=0)
     operation_timeout_seconds: int | None = Field(default=None, ge=1)
     spec: ExecutionSpec
-    metadata: dict[str, object] = Field(default_factory=dict)
+    metadata: CallerMetadata = Field(default_factory=dict)
     actor: ActorInput
 
 

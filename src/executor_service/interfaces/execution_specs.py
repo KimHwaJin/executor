@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from executor_service.domain.enums import CodeSourceType, StepPayloadType
 from executor_service.domain.errors import InvalidExecutionSpecError
+from executor_service.interfaces.bounded_mappings import BoundedParameters
 
 
 class ExecutionSpecModel(BaseModel):
@@ -20,7 +21,7 @@ class ExecutionSpecModel(BaseModel):
 class StepLineage(ExecutionSpecModel):
     skill_name: str | None = Field(default=None, max_length=255)
     tool_name: str | None = Field(default=None, max_length=255)
-    input_parameters: dict[str, Any] = Field(default_factory=dict)
+    input_parameters: BoundedParameters = Field(default_factory=dict)
 
 
 class InlineStepSource(ExecutionSpecModel):

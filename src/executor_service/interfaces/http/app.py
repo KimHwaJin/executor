@@ -17,6 +17,9 @@ from executor_service.domain.errors import (
     ErrorCode,
 )
 from executor_service.interfaces.auth import CallerAuthenticationMiddleware
+from executor_service.interfaces.http.body_limit import (
+    RequestBodyLimitMiddleware,
+)
 from executor_service.interfaces.http.executions import build_execution_router
 from executor_service.interfaces.http.maintenance import (
     build_maintenance_router,
@@ -81,9 +84,14 @@ def create_app(
         enabled=container.settings.rest_error_body_logging_enabled,
         max_body_bytes=container.settings.rest_error_body_log_max_bytes,
     )
-    # Added last so it wraps everything, the MCP mount included.
     app.add_middleware(
         CallerAuthenticationMiddleware, settings=container.settings
+    )
+    # Added last so it wraps everything, the MCP mount and the caller
+    # check included: an oversized body is refused before it is read.
+    app.add_middleware(
+        RequestBodyLimitMiddleware,
+        max_bytes=container.settings.request_body_max_bytes,
     )
 
     @app.exception_handler(RequestValidationError)

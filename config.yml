@@ -7,6 +7,7 @@
 # Unmasked bodies: opt in only after approving log access/retention.
 REST_ERROR_BODY_LOGGING_ENABLED: false
 REST_ERROR_BODY_LOG_MAX_BYTES: 65536
+REQUEST_BODY_MAX_BYTES: 31457280
 HOST: 0.0.0.0
 # Listen port; keep deployment containerPort in step.
 PORT: 8000

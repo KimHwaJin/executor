@@ -1,10 +1,6 @@
 """Execution submission transport contracts."""
 
-import json
-import re
-from typing import Any
-
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, model_validator
 
 from executor_service.application.commands import (
     StepSpec,
@@ -20,6 +16,7 @@ from executor_service.interfaces.auth import (
     require_tenant,
     require_user,
 )
+from executor_service.interfaces.bounded_mappings import CallerMetadata
 from executor_service.interfaces.contracts.common import (
     ActorInput,
     ContractModel,
@@ -28,11 +25,6 @@ from executor_service.interfaces.execution_specs import (
     ExecutionSpec,
     ResolvedExecutionSpec,
 )
-
-# Execution metadata is echoed in execution.completed, so it stays small.
-METADATA_MAX_KEYS = 32
-METADATA_MAX_BYTES = 4096
-METADATA_KEY_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 
 
 class ExecutionLifecycleInput(ContractModel):
@@ -66,7 +58,7 @@ class ExecutionRuntimeInput(ContractModel):
 class ExecutionOperationInput(ContractModel):
     operation_timeout_seconds: int | None = Field(default=None, ge=1)
     spec: ExecutionSpec
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: CallerMetadata = Field(default_factory=dict)
 
 
 class ExecutionSubmitRequest(ContractModel):
@@ -75,7 +67,7 @@ class ExecutionSubmitRequest(ContractModel):
     trigger: ExecutionTriggerInput
     runtime: ExecutionRuntimeInput
     operation: ExecutionOperationInput
-    metadata: dict[str, Any] = Field(
+    metadata: CallerMetadata = Field(
         default_factory=dict,
         description=(
             "Caller-owned identifiers such as batch or run IDs, stored as "
@@ -83,31 +75,6 @@ class ExecutionSubmitRequest(ContractModel):
             "matching ^[a-z][a-z0-9_]{0,63}$, 4096 serialized bytes."
         ),
     )
-
-    @field_validator("metadata")
-    @classmethod
-    def validate_metadata(cls, metadata: dict[str, Any]) -> dict[str, Any]:
-        if len(metadata) > METADATA_MAX_KEYS:
-            raise ValueError(
-                f"metadata allows at most {METADATA_MAX_KEYS} keys."
-            )
-        invalid = [k for k in metadata if not METADATA_KEY_PATTERN.match(k)]
-        if invalid:
-            raise ValueError(
-                f"metadata keys must match {METADATA_KEY_PATTERN.pattern}: "
-                f"{invalid}"
-            )
-        size = len(
-            json.dumps(
-                metadata, ensure_ascii=False, separators=(",", ":")
-            ).encode()
-        )
-        if size > METADATA_MAX_BYTES:
-            raise ValueError(
-                f"metadata must serialize to at most {METADATA_MAX_BYTES} "
-                "bytes."
-            )
-        return metadata
 
     def to_command(
         self, resolved: ResolvedExecutionSpec, caller: Caller
