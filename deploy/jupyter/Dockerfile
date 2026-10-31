@@ -1,4 +1,6 @@
-ARG PYTHON312_IMAGE=astral/uv:python3.12-bookworm-slim
+# Docker Hub's official Python image; the digest pins the exact build.
+ARG PYTHON312_IMAGE=python:3.12-slim-bookworm@sha256:e697c81897302a4c4333bade000d98038fbb21eb064f8ee1fd42d02ebcd9d337
+ARG UV_VERSION=0.11.32
 ARG UV_DEFAULT_INDEX=https://pypi.org/simple
 ARG PYTHON310_VERSION=3.10.11
 ARG PYTHON311_VERSION=3.11.16
@@ -49,6 +51,10 @@ RUN mkdir -p /tmp/python311-src \
 FROM ${PYTHON312_IMAGE}
 
 ARG UV_DEFAULT_INDEX
+ARG UV_VERSION
+
+# The base image has no uv: install the pinned version from the same index.
+RUN pip install --no-cache-dir --index-url "${UV_DEFAULT_INDEX}" "uv==${UV_VERSION}"
 
 # Deployment settings: override these with container environment variables.
 # ROOT_DIR must match the shared PVC mount path and be writable by UID 1000.

@@ -198,7 +198,7 @@ Git clone에는 tar가 포함되지 않는다. 압축 전달 시에는 두 tar�
 
 ```shell
 docker build \
-  --build-arg PYTHON312_IMAGE=harbor.example.com/library/uv:python3.12-bookworm-slim \
+  --build-arg PYTHON312_IMAGE=harbor.example.com/library/python:3.12-slim-bookworm \
   --build-arg UV_DEFAULT_INDEX=https://nexus.example.com/repository/pypi-group/simple/ \
   -t ${image.tag} .
 
@@ -206,11 +206,13 @@ docker push ${image.tag}
 ```
 
 빌드에는 베이스 이미지, apt 저장소, Python 패키지 인덱스 접근이 필요하다.
-폐쇄망에서는 Python 3.12와 uv가 함께 든 이미지 하나 및 Python 소스 tar 두 개를 반입하고,
+폐쇄망에서는 Python 3.12 이미지 하나와 Python 소스 tar 두 개를 반입하고 Nexus에 uv 휠을 준비하며,
 컴파일용 개발 패키지까지 제공하는 apt 미러와 Nexus PyPI 저장소를 준비해야 한다.
 소스 컴파일 때문에 첫 빌드는 이전보다 오래 걸리며, 소스가 동일하면 Docker 캐시를 쓴다.
 
-- `PYTHON312_IMAGE`는 빌드와 최종 이미지에 공통으로 사용하는 Python 3.12·uv 이미지다.
+- `PYTHON312_IMAGE`는 빌드와 최종 이미지에 공통으로 사용하는 Python 3.12 이미지다. 기본값은
+  Docker Hub `python:3.12-slim-bookworm`(digest 고정)이다.
+- `UV_VERSION=0.11.32`는 최종 스테이지에서 `UV_DEFAULT_INDEX`로 설치하는 uv 버전이다.
 - `PYTHON310_VERSION=3.10.11`, `PYTHON311_VERSION=3.11.16`은 반입 tar의 파일명과
   맞춘다. 다른 버전으로 바꾸면 프로젝트의 Python 범위 및 lock도 함께 확인한다.
 - `PYTHON_BUILD_JOBS=2`는 컴파일 병렬도다. Jenkins 빌드 노드의 CPU·메모리에 맞춰 조정한다.

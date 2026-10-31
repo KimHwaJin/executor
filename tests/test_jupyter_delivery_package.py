@@ -46,7 +46,13 @@ def test_standalone_package_does_not_reference_test_harness() -> None:
 def test_uv_base_images_and_build_only_default_index() -> None:
     dockerfile = (PACKAGE / "Dockerfile").read_text()
     assert (
-        "ARG PYTHON312_IMAGE=astral/uv:python3.12-bookworm-slim" in dockerfile
+        "ARG PYTHON312_IMAGE=python:3.12-slim-bookworm@sha256:" in dockerfile
+    )
+    # The official image has no uv: install the pinned version from the
+    # build's own index, so a closed network can serve it from Nexus.
+    assert (
+        'pip install --no-cache-dir --index-url "${UV_DEFAULT_INDEX}" '
+        '"uv==${UV_VERSION}"' in dockerfile
     )
     harness_dockerfile = (HARNESS / "Dockerfile").read_text()
     for version in ("3.10", "3.11"):
