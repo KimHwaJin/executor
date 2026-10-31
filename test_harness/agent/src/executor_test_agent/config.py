@@ -20,6 +20,8 @@ class AgentSettings:
     natural_language_execution_enabled: bool
     default_user_id: str
     default_project_id: str
+    # Sent as X-Api-Key when Executor checks keys (stg, prd).
+    executor_api_key: str | None = None
 
 
 @lru_cache(maxsize=1)
@@ -31,7 +33,13 @@ def get_settings() -> AgentSettings:
         llm_api_key=os.getenv("TEST_AGENT_LLM_API_KEY", "local-development-only"),
         executor_mcp_url=os.getenv("EXECUTOR_MCP_URL", "http://127.0.0.1:8000/mcp"),
         executor_redis_url=os.getenv("EXECUTOR_REDIS_URL", "redis://127.0.0.1:6379/0"),
-        executor_event_stream=os.getenv("EXECUTOR_EVENT_STREAM", "executor.events"),
+        # Executor writes each tenant's events to executor.events.{tenant};
+        # local and dev header mode use tenant "dev".
+        executor_event_stream=os.getenv(
+            "EXECUTOR_EVENT_STREAM",
+            f"executor.events.{os.getenv('EXECUTOR_TENANT_ID', 'dev')}",
+        ),
+        executor_api_key=os.getenv("EXECUTOR_API_KEY") or None,
         executor_consumer_group_prefix=os.getenv(
             "EXECUTOR_AGENT_CONSUMER_GROUP", "executor-test-agent"
         ),

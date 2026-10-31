@@ -140,3 +140,42 @@ def test_event_envelope_rejects_legacy_envelope_fields() -> None:
                 ),
             }
         )
+
+
+def test_identity_travels_in_headers_not_the_body() -> None:
+    from pathlib import Path
+
+    from executor_test_agent.config import AgentSettings
+    from executor_test_agent.integrations.executor_client import (
+        executor_headers,
+    )
+
+    settings = AgentSettings(
+        llm_base_url="http://llm/v1",
+        llm_model=None,
+        llm_api_key="secret",
+        executor_mcp_url="http://executor/mcp",
+        executor_redis_url="redis://redis/0",
+        executor_event_stream="executor.events.dev",
+        executor_consumer_group_prefix="agent",
+        executor_shared_storage_root=Path("/shared"),
+        execution_timeout_seconds=120,
+        natural_language_execution_enabled=True,
+        default_user_id="user-1",
+        default_project_id="project-1",
+        executor_api_key="key-1",
+    )
+    assert executor_headers(settings, user_id="u-2", project_id="p-2", session_id="s-2") == {
+        "X-User-Id": "u-2",
+        "X-Project-Id": "p-2",
+        "X-Session-Id": "s-2",
+        "X-Api-Key": "key-1",
+    }
+    request = AgentExecutionRequest(
+        user_id="u-2",
+        project_id="p-2",
+        session_id="s-2",
+        task_id="t-1",
+        steps=[{"skill_name": "eda", "tool_name": "sum", "code": "x = 1"}],
+    )
+    assert "context" not in request.executor_payload("key")

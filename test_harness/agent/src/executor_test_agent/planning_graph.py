@@ -22,6 +22,7 @@ from executor_test_agent.integrations.events import (
     TERMINAL_EVENT_TYPES,
     ExecutionEventWaiter,
 )
+from executor_test_agent.integrations.executor_client import executor_headers
 from executor_test_agent.integrations.workflow import (
     create_execution_operation,
     finalize_execution,
@@ -246,6 +247,7 @@ async def wait_for_stream_event(state: PlanningAgentState) -> dict[str, Any]:
             settings.executor_event_stream,
             f"{settings.executor_consumer_group_prefix}-planning",
             executor_mcp_url=settings.executor_mcp_url,
+            executor_headers=executor_headers(settings),
             start_id=state.event_stream_start_id,
         )
         await waiter.open()

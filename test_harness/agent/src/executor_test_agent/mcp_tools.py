@@ -7,7 +7,6 @@ from typing import Any, Literal
 from uuid import uuid4
 
 from langchain_core.tools import BaseTool, StructuredTool, ToolException
-from mcp import Client
 from mcp.types import CallToolResult, ImageContent, TextContent
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -19,6 +18,7 @@ from executor_test_agent.integrations.events import (
     TERMINAL_EVENT_TYPES,
     event_stream_watermark,
 )
+from executor_test_agent.integrations.executor_client import executor_client
 
 READ_TOOL_NAMES = frozenset(
     {
@@ -122,7 +122,7 @@ async def load_executor_tools(
 
 async def load_executor_read_tools(settings: AgentSettings) -> list[BaseTool]:
     """Discover and expose read-only Executor Tools to the guarded planning Agent."""
-    async with Client(settings.executor_mcp_url) as client:
+    async with executor_client(settings) as client:
         discovered = await client.list_tools()
     by_name = {tool.name: tool for tool in discovered.tools}
     missing = READ_TOOL_NAMES - by_name.keys()
@@ -232,7 +232,14 @@ async def _submit(
     watermark = await event_stream_watermark(
         settings.executor_redis_url, settings.executor_event_stream
     )
-    result = await _call_mcp_structured(settings, "execution_submit", {"request": payload})
+    result = await _call_mcp_structured(
+        settings,
+        "execution_submit",
+        {"request": payload},
+        user_id=request.user_id,
+        project_id=request.project_id,
+        session_id=request.session_id,
+    )
     event_types = (
         sorted(MULTI_OPERATION_WAKE_EVENT_TYPES)
         if parsed.operation_mode == "MULTI"
@@ -423,15 +430,23 @@ async def _enforce_read_scope(
 
 
 async def _call_mcp(settings: AgentSettings, name: str, arguments: dict[str, Any]) -> str:
-    async with Client(settings.executor_mcp_url) as client:
+    async with executor_client(settings) as client:
         result = await client.call_tool(name, arguments)
     return render_tool_result(result)
 
 
 async def _call_mcp_structured(
-    settings: AgentSettings, name: str, arguments: dict[str, Any]
+    settings: AgentSettings,
+    name: str,
+    arguments: dict[str, Any],
+    *,
+    user_id: str | None = None,
+    project_id: str | None = None,
+    session_id: str | None = None,
 ) -> dict[str, Any]:
-    async with Client(settings.executor_mcp_url) as client:
+    async with executor_client(
+        settings, user_id=user_id, project_id=project_id, session_id=session_id
+    ) as client:
         result = await client.call_tool(name, arguments)
     if result.is_error or not isinstance(result.structured_content, dict):
         raise RuntimeError(_content_text(result) or f"Executor MCP Tool {name} failed.")
