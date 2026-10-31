@@ -4,6 +4,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        # The image holds config.yml plus only this environment's file, so
+        # build and run with the same APP_ENV.
+        APP_ENV: ${APP_ENV:-}
     # Settings default in code; .env (optional) overrides any of them, and
     # the container-specific values below override .env.
     env_file:
