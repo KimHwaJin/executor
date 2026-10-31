@@ -172,3 +172,8 @@ def test_image_ships_logging_and_environment_config() -> None:
     container = deployment["spec"]["template"]["spec"]["containers"][0]
     env = {item["name"]: item.get("value") for item in container["env"]}
     assert env["APP_ENV"] == "prd"
+    # Endpoint removal lags SIGTERM; keep serving briefly before draining.
+    assert container["lifecycle"]["preStop"]["exec"]["command"] == [
+        "sleep",
+        "5",
+    ]

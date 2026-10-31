@@ -46,10 +46,10 @@ class Config:
     request_timeout_seconds: float
     report_path: Path
     bearer_token: str | None
-    # /workerz needs an admin key when the Executor checks keys.
-    admin_api_key: str | None = None
     ca_file: str | None
     allow_pod_delete: bool
+    # /workerz needs an admin key when the Executor checks keys.
+    admin_api_key: str | None = None
 
 
 class Kubectl:

@@ -172,9 +172,12 @@ The manifest uses one replica by default. Executor supports multiple replicas, b
 share PostgreSQL, Redis, credential key, input PVC, and Runtime Target registry. Each Worker names
 itself `<hostname>-<pid>-<suffix>`, so replicas never share a lease owner identity.
 
-The 90-second Pod grace period is greater than the default 30-second execution drain plus 20-second
-shutdown cleanup and buffer. If those settings increase, increase `terminationGracePeriodSeconds`
-as well. A Step that outlives the drain period is handed over to another Pod; a Step with nothing
+The 90-second Pod grace period covers, in order, the 5-second `preStop` sleep (the Service and
+gateway stop routing to the Pod while it still serves), up to 20 seconds for open HTTP requests
+(`HTTP_GRACEFUL_SHUTDOWN_SECONDS`), the default 30-second execution drain and 20-second shutdown
+cleanup: 75 seconds plus buffer. If those settings increase, increase `terminationGracePeriodSeconds`
+as well. The platform must allow `lifecycle.preStop`; without it, drop the block and expect a few
+connection errors at the gateway during a rollout. A Step that outlives the drain period is handed over to another Pod; a Step with nothing
 to hand over (for example one still preparing its Runtime) follows the documented `WORKER_SHUTDOWN`
 failure and explicit retry flow. Scale-in under HPA uses the same path.
 
