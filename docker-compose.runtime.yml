@@ -11,6 +11,9 @@ services:
       dockerfile: Dockerfile
     environment:
       JUPYTER_TOKEN: ${JUPYTER_TOKEN:-default}
+      # The delivered image defaults to /workspace/jupyter; the local
+      # workspace is mounted at /workspace/pv.
+      JUPYTER_ROOT_DIR: /workspace/pv
       EXECUTOR_RESOURCE_CPU_CORES: ${JUPYTER_RESOURCE_CPU_CORES:-2}
       EXECUTOR_RESOURCE_MEMORY_BYTES: ${JUPYTER_RESOURCE_MEMORY_BYTES:-4294967296}
     ports:
@@ -33,6 +36,9 @@ services:
     image: executor-jupyter:local
     environment:
       JUPYTER_TOKEN: ${JUPYTER_SECONDARY_TOKEN:-default}
+      # The delivered image defaults to /workspace/jupyter; the local
+      # workspace is mounted at /workspace/pv.
+      JUPYTER_ROOT_DIR: /workspace/pv
       EXECUTOR_RESOURCE_CPU_CORES: ${JUPYTER_RESOURCE_CPU_CORES:-2}
       EXECUTOR_RESOURCE_MEMORY_BYTES: ${JUPYTER_RESOURCE_MEMORY_BYTES:-4294967296}
     ports:
@@ -55,6 +61,9 @@ services:
     image: executor-jupyter:local
     environment:
       JUPYTER_TOKEN: ${JUPYTER_BATCH_PRIMARY_TOKEN:-default}
+      # The delivered image defaults to /workspace/jupyter; the local
+      # workspace is mounted at /workspace/pv.
+      JUPYTER_ROOT_DIR: /workspace/pv
       EXECUTOR_RESOURCE_CPU_CORES: ${JUPYTER_RESOURCE_CPU_CORES:-2}
       EXECUTOR_RESOURCE_MEMORY_BYTES: ${JUPYTER_RESOURCE_MEMORY_BYTES:-4294967296}
     ports:
@@ -77,6 +86,9 @@ services:
     image: executor-jupyter:local
     environment:
       JUPYTER_TOKEN: ${JUPYTER_BATCH_SECONDARY_TOKEN:-default}
+      # The delivered image defaults to /workspace/jupyter; the local
+      # workspace is mounted at /workspace/pv.
+      JUPYTER_ROOT_DIR: /workspace/pv
       EXECUTOR_RESOURCE_CPU_CORES: ${JUPYTER_RESOURCE_CPU_CORES:-2}
       EXECUTOR_RESOURCE_MEMORY_BYTES: ${JUPYTER_RESOURCE_MEMORY_BYTES:-4294967296}
     ports:

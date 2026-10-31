@@ -201,6 +201,8 @@ def test_runtime_compose_preserves_fleet_and_storage() -> None:
         assert definition["volumes"] == [
             "./test_harness/jupyter/workspace:/workspace/pv"
         ]
+        # Jupyter must serve the mounted workspace, not the image default.
+        assert definition["environment"]["JUPYTER_ROOT_DIR"] == "/workspace/pv"
         assert "profiles" not in definition
     app_overlay = yaml.safe_load(
         (ROOT / "docker-compose.test.yml").read_text()
