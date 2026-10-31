@@ -52,7 +52,8 @@ tenant 안의 모든 Execution을 볼 수 있다.
 |---|---|
 | `status` | `QUEUED`, `RUNNING`, `WAITING_FOR_OPERATION`, `FINALIZING`, `CANCEL_REQUESTED`, `CANCELLED`, `SUCCEEDED`, `FAILED` |
 | `version` | 상태 갱신 버전. MULTI의 operations/finalize 요청에는 이 값을 `expected_version`으로 전달 |
-| `cancellation_reason` | 취소 요청 사유. 취소하지 않았다면 `null` |
+| `cancellation_reason` | 취소 요청 사유. 취소하지 않았다면 `null`. 전체 수명 초과로 멈춘 실행에도 사유가 남지만 최종 상태는 `FAILED`다 |
+| `finalized_by` | 무엇이 실행을 끝냈는지. `AGENT`(finalize 호출), `WAIT_TIMEOUT`(MULTI 대기 기한), `MAX_RUNTIME`(전체 수명). 진행 중, SINGLE 정상 종료, 취소는 `null` |
 
 ### `workspace`
 
@@ -70,7 +71,7 @@ tenant 안의 모든 Execution을 볼 수 있다.
 | 필드 | 의미 |
 |---|---|
 | `failure` | 실패하지 않았거나 아직 실패가 확정되지 않으면 `null` |
-| `failure.type` | 실패 분류: `TOOL_ERROR`, `INFRASTRUCTURE_ERROR`, `WORKER_SHUTDOWN`, `RUNTIME_UNAVAILABLE`, `LEASE_EXPIRED`, `INTERNAL_ERROR`, `OPERATION_WAIT_TIMEOUT`, `OPERATION_TIMEOUT`, `STEP_TIMEOUT`, `EXECUTION_TIMEOUT`, `OUTPUT_LIMIT_EXCEEDED`, `RUNTIME_SESSION_LOST`, `COMPLETION_FAILED` |
+| `failure.type` | 실패 분류: `TOOL_ERROR`, `INFRASTRUCTURE_ERROR`, `WORKER_SHUTDOWN`, `RUNTIME_UNAVAILABLE`, `LEASE_EXPIRED`, `INTERNAL_ERROR`, `OPERATION_WAIT_TIMEOUT`, `OPERATION_TIMEOUT`, `STEP_TIMEOUT`, `EXECUTION_TIMEOUT`, `QUEUE_TIMEOUT`, `OUTPUT_LIMIT_EXCEEDED`, `RUNTIME_SESSION_LOST`, `COMPLETION_FAILED` |
 | `failure.message` | 실패 상세 메시지 |
 
 ### `retry`

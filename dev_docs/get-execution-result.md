@@ -282,10 +282,11 @@ Execution의 실행 시도 이력이다. 최초 실행과 재시도가 각각 �
 | `RUNTIME_UNAVAILABLE` | 사용 가능한 Runtime 없음 |
 | `LEASE_EXPIRED` | 실행 lease 만료 |
 | `INTERNAL_ERROR` | Executor 내부 오류 |
-| `OPERATION_WAIT_TIMEOUT` | 다음 Operation 대기시간 초과 |
+| `OPERATION_WAIT_TIMEOUT` | 다음 Operation 대기시간 초과. 완료된 Operation이 없을 때만. 마지막 Operation이 있으면 그 결과로 판정 |
 | `OPERATION_TIMEOUT` | Operation 전체 실행시간 초과 |
 | `STEP_TIMEOUT` | 개별 Step 실행시간 초과 |
-| `EXECUTION_TIMEOUT` | Execution 최대 실행시간 초과 |
+| `EXECUTION_TIMEOUT` | Execution 최대 실행시간 초과(`finalized_by: MAX_RUNTIME`) |
+| `QUEUE_TIMEOUT` | 첫 실행을 `EXECUTION_QUEUE_TIMEOUT_SECONDS` 안에 시작하지 못함 |
 | `OUTPUT_LIMIT_EXCEEDED` | 허용 출력 크기 초과 |
 | `RUNTIME_SESSION_LOST` | Runtime 세션 유실 |
 | `COMPLETION_FAILED` | 필수 노트북/Artifact 처리 또는 최종 Runtime 정리 실패. 최초 노트북 등록 시에도 발생 가능하며 모든 코드가 성공했다는 뜻은 아님 |
