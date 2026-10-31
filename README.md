@@ -194,7 +194,9 @@ Local Executor startup applies migrations when `DB_AUTO_MIGRATE=true`.
 Shared PostgreSQL uses the PG17 pgvector image so existing databases with the `vector` extension
 remain usable. Enable it per new database with `CREATE EXTENSION IF NOT EXISTS vector` when needed.
 Agent and Executor share `./shared_dir`; the Jupyter fleet separately mounts
-`./test_harness/jupyter/workspace` at `/workspace/pv`.
+`./test_harness/jupyter/workspace` at `/workspace/pv`. The fleet runs the delivered image from
+`deploy/jupyter`; building it (`--build` below) needs the two Python source tarballs in
+`deploy/jupyter/python-sources/`.
 
 ```bash
 cp .env.example .env

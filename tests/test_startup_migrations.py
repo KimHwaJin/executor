@@ -191,6 +191,12 @@ def test_runtime_compose_preserves_fleet_and_storage() -> None:
     for service, port in expected_ports.items():
         definition = runtime["services"][service]
         assert definition["image"] == "executor-jupyter:local"
+        if "build" in definition:
+            # Local runtimes run the delivered image, not a harness copy.
+            assert definition["build"] == {
+                "context": "deploy/jupyter",
+                "dockerfile": "Dockerfile",
+            }
         assert definition["ports"] == [port]
         assert definition["volumes"] == [
             "./test_harness/jupyter/workspace:/workspace/pv"
