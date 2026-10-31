@@ -7,7 +7,8 @@
 
 | ARG | 목적 |
 |---|---|
-| `PYTHON312_IMAGE` | Python 3.12와 uv가 설치된 Debian Bookworm Slim 이미지. 빌드·최종 스테이지 공통 |
+| `PYTHON312_IMAGE` | Python 3.12 Debian Bookworm Slim 이미지. 기본값은 Docker Hub `python:3.12-slim-bookworm`(digest 고정). 빌드·최종 스테이지 공통 |
+| `UV_VERSION=0.11.32` | 최종 스테이지에서 `UV_DEFAULT_INDEX`로 설치하는 uv 버전 |
 | `UV_DEFAULT_INDEX` | Python 패키지 인덱스. 폐쇄망에서는 lock 생성 시 쓴 Nexus 주소 |
 | `PYTHON310_VERSION=3.10.11` | 반입한 3.10 공식 소스 파일명 |
 | `PYTHON311_VERSION=3.11.16` | 반입한 3.11 공식 소스 파일명 |
@@ -66,6 +67,8 @@ PGO/LTO 최적화나 별도 테스트 실행은 추가하지 않는다. CPython 
 
 `FROM ${PYTHON312_IMAGE}`로 동일 베이스의 새 스테이지를 시작한다. 빌드 도구와 소스는
 자동 승계되지 않으며, 뒤에서 설치 결과 `/opt/python`만 복사한다.
+베이스 이미지에는 uv가 없으므로 첫 단계에서 `pip install --index-url "${UV_DEFAULT_INDEX}" "uv==${UV_VERSION}"`로
+고정 버전을 설치한다. 폐쇄망에서는 Nexus에 해당 uv 휠이 있어야 한다.
 
 ### 환경변수
 
