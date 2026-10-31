@@ -4,9 +4,11 @@ services:
   # INTERACTIVE primary; registered in Executor as local-jupyter.
   jupyter:
     image: executor-jupyter:local
+    # The delivered image. Building it needs the two Python source tarballs
+    # in deploy/jupyter/python-sources/ (see the README there).
     build:
-      context: .
-      dockerfile: test_harness/jupyter/Dockerfile
+      context: deploy/jupyter
+      dockerfile: Dockerfile
     environment:
       JUPYTER_TOKEN: ${JUPYTER_TOKEN:-default}
       EXECUTOR_RESOURCE_CPU_CORES: ${JUPYTER_RESOURCE_CPU_CORES:-2}
