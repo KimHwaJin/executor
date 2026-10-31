@@ -19,16 +19,18 @@ class ExecutionRepository(Protocol):
         self, execution_id: UUID, *, for_update: bool = False
     ) -> Execution | None: ...
 
+    # Submit keys are unique per tenant; keys of commands on an existing
+    # Execution are unique per Execution.
     async def get_by_submit_key(
-        self, idempotency_key: str
+        self, tenant_id: str, idempotency_key: str
     ) -> Execution | None: ...
 
     async def get_by_cancel_key(
-        self, idempotency_key: str
+        self, execution_id: UUID, idempotency_key: str
     ) -> Execution | None: ...
 
     async def get_by_retry_key(
-        self, idempotency_key: str
+        self, execution_id: UUID, idempotency_key: str
     ) -> Execution | None: ...
 
     async def add_retry_receipt(
@@ -36,11 +38,12 @@ class ExecutionRepository(Protocol):
     ) -> None: ...
 
     async def get_command_receipt(
-        self, idempotency_key: str
+        self, execution_id: UUID, idempotency_key: str
     ) -> tuple[str, str, dict[str, object]] | None: ...
 
     async def add_command_receipt(
         self,
+        execution_id: UUID,
         idempotency_key: str,
         command_type: str,
         request_fingerprint: str,
@@ -56,7 +59,7 @@ class ExecutionRepository(Protocol):
     async def next_operation_number(self, execution_id: UUID) -> int: ...
 
     async def get_operation_id_by_key(
-        self, idempotency_key: str
+        self, execution_id: UUID, idempotency_key: str
     ) -> UUID | None: ...
 
     async def requeue_operation_for_retry(

@@ -72,7 +72,7 @@ PGO/LTO 최적화나 별도 테스트 실행은 추가하지 않는다. CPython 
 | ENV | 목적 |
 |---|---|
 | `JUPYTER_ROOT_DIR=/workspace/jupyter` | 노트북·아티팩트 작업공간 기본값. 배포 환경변수로 변경 가능 |
-| `JUPYTER_TOKEN=default` | 테스트 기본값. 운영에서는 반드시 별도 토큰 주입 |
+| (없음) `JUPYTER_TOKEN` | 이미지 기본값 없음. 서버마다 다른 토큰을 배포 환경에서 주입. 서버가 읽은 뒤 커널 환경에서 지움 |
 | `DEBIAN_FRONTEND=noninteractive` | apt 설치 시 대화형 입력 방지 |
 | `PATH=/opt/venvs/jupyter/bin:...` | 셸의 기본 Python은 서버 3.12 환경 |
 | `HOME=/home/jovyan` | 사용자 설정·캐시 위치. 작업공간 루트와 별개 |

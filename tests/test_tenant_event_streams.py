@@ -225,7 +225,7 @@ def test_tenant_stream_is_below_the_event_stream() -> None:
     assert tenant_event_stream("a.events", "acme") == "a.events.acme"
 
 
-async def test_tenant_is_part_of_the_idempotency_fingerprint(
+async def test_submit_idempotency_keys_are_scoped_to_the_tenant(
     engine: AsyncEngine, tmp_path: Path
 ) -> None:
     service = _service(engine, tmp_path)
@@ -233,8 +233,14 @@ async def test_tenant_is_part_of_the_idempotency_fingerprint(
     first = await service.submit(command)
 
     assert (await service.submit(command)).id == first.id
-    with pytest.raises(IdempotencyConflictError):
+    # Another tenant using the same key gets its own Execution.
+    other = await service.submit(replace(command, tenant_id="other-team"))
+    assert other.id != first.id
+    assert (
         await service.submit(replace(command, tenant_id="other-team"))
+    ).id == other.id
+    with pytest.raises(IdempotencyConflictError):
+        await service.submit(replace(command, user_id="someone-else"))
 
 
 async def test_tenant_execution_completes_with_valid_event(

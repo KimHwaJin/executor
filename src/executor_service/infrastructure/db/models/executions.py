@@ -24,6 +24,7 @@ from executor_service.domain.enums import (
     CodeSourceType,
     ExecutionStatus,
     FailureType,
+    FinalizedBy,
     OperationMode,
     RetryStrategy,
     RuntimeAbortStatus,
@@ -52,8 +53,13 @@ class ExecutionORM(Base):
     __tablename__ = "executions"
     __table_args__ = (
         *audit_actor_constraints(),
+        UniqueConstraint(
+            "tenant_id",
+            "idempotency_key",
+            name="uq_executions_tenant_idempotency_key",
+        ),
         CheckConstraint(
-            "status IN ('QUEUED', 'DISPATCHED', 'RUNNING', 'WAITING_FOR_OPERATION', "
+            "status IN ('QUEUED', 'RUNNING', 'WAITING_FOR_OPERATION', "
             "'FINALIZING', 'CANCEL_REQUESTED', 'CANCELLED', 'SUCCEEDED', 'FAILED')",
             name="valid_execution_status",
         ),
@@ -86,9 +92,14 @@ class ExecutionORM(Base):
             "'INFRASTRUCTURE_ERROR', 'WORKER_SHUTDOWN', 'RUNTIME_UNAVAILABLE', "
             "'LEASE_EXPIRED', 'INTERNAL_ERROR', 'OPERATION_WAIT_TIMEOUT', "
             "'OPERATION_TIMEOUT', 'STEP_TIMEOUT', 'EXECUTION_TIMEOUT', "
-            "'OUTPUT_LIMIT_EXCEEDED', "
+            "'QUEUE_TIMEOUT', 'OUTPUT_LIMIT_EXCEEDED', "
             "'RUNTIME_SESSION_LOST', 'COMPLETION_FAILED')",
             name="valid_failure_type",
+        ),
+        CheckConstraint(
+            "finalized_by IS NULL OR finalized_by IN "
+            "('AGENT', 'WAIT_TIMEOUT', 'MAX_RUNTIME')",
+            name="valid_finalized_by",
         ),
         CheckConstraint(
             "retry_strategy IN ('NOT_RETRYABLE', 'FROM_FAILED_STEP', 'FROM_START')",
@@ -162,14 +173,14 @@ class ExecutionORM(Base):
     id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True), primary_key=True, default=uuid4
     )
-    idempotency_key: Mapped[str] = mapped_column(
-        String(255), unique=True, nullable=False
-    )
+    # Unique per tenant (uq_executions_tenant_idempotency_key).
+    idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False)
     request_fingerprint: Mapped[str] = mapped_column(
         String(64), nullable=False
     )
+    # Scoped to this Execution; it is stored on the row itself.
     cancel_idempotency_key: Mapped[str | None] = mapped_column(
-        String(255), unique=True, nullable=True
+        String(255), nullable=True
     )
 
     status: Mapped[ExecutionStatus] = mapped_column(
@@ -270,6 +281,9 @@ class ExecutionORM(Base):
     finalization_requested: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False
     )
+    finalized_by: Mapped[FinalizedBy | None] = mapped_column(
+        enum_type(FinalizedBy, "finalized_by"), nullable=True
+    )
     active_operation_id: Mapped[UUID | None] = mapped_column(
         Uuid(as_uuid=True), nullable=True, index=True
     )
@@ -359,6 +373,7 @@ class ExecutionORM(Base):
             runtime_session_cleanup_status=execution.runtime_session_cleanup_status,
             runtime_abort_status=execution.runtime_abort_status,
             finalization_requested=execution.finalization_requested,
+            finalized_by=execution.finalized_by,
             active_operation_id=execution.active_operation_id,
             operation_wait_expires_at=execution.operation_wait_expires_at,
             execution_expires_at=execution.execution_expires_at,
@@ -418,6 +433,7 @@ class ExecutionORM(Base):
             runtime_session_cleanup_status=self.runtime_session_cleanup_status,
             runtime_abort_status=self.runtime_abort_status,
             finalization_requested=self.finalization_requested,
+            finalized_by=self.finalized_by,
             active_operation_id=self.active_operation_id,
             operation_wait_expires_at=self.operation_wait_expires_at,
             execution_expires_at=self.execution_expires_at,

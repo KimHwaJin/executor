@@ -22,7 +22,7 @@ POST /api/v1/executions/{execution_id}/finalize
 
 | 필드 | 필수 | 의미 |
 |---|---:|---|
-| `idempotency_key` | O | finalize 명령의 멱등성 키 |
+| `idempotency_key` | O | finalize 명령의 멱등성 키. Execution 단위로 구분한다 |
 | `expected_version` | O | 상태조회 또는 이벤트에서 확인한 현재 Execution version. 0 이상 |
 | `actor.type` | O | 종료 요청 주체: `AGENT`, `USER`, `BATCH` |
 | `actor.id` | O | 종료 요청 주체 식별자 |

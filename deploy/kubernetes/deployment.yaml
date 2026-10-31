@@ -26,6 +26,8 @@ spec:
         app.kubernetes.io/component: application
     spec:
       automountServiceAccountToken: false
+      # preStop 5s + open HTTP requests 20s (HTTP_GRACEFUL_SHUTDOWN_SECONDS)
+      # + Worker drain and Step handover in the rest.
       terminationGracePeriodSeconds: 90
       securityContext:
         runAsNonRoot: true
@@ -51,6 +53,13 @@ spec:
           env:
             - name: APP_ENV
               value: "prd"
+          lifecycle:
+            preStop:
+              # Endpoints removal reaches the Service and gateway a moment
+              # after SIGTERM; keep serving until then so no request is
+              # routed to a closed socket.
+              exec:
+                command: ["sleep", "5"]
           ports:
             - name: http
               containerPort: 8000

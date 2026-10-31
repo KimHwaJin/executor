@@ -159,7 +159,12 @@ main.run()
 
 def test_image_ships_logging_and_environment_config() -> None:
     dockerfile = (ROOT / "Dockerfile").read_text()
-    assert "COPY logger.yml config*.yml ./" in dockerfile
+    # Each image carries only its own environment's credentials.
+    assert "ARG APP_ENV=" in dockerfile
+    assert (
+        "COPY logger.yml config.yml config.${APP_ENV}.ym[l] ./" in dockerfile
+    )
+    assert "config*.yml" not in dockerfile
     assert "LOG_CONFIG_FILE=/app/logger.yml" in dockerfile
     deployment = yaml.safe_load(
         (ROOT / "deploy/kubernetes/deployment.yaml").read_text()
@@ -167,3 +172,8 @@ def test_image_ships_logging_and_environment_config() -> None:
     container = deployment["spec"]["template"]["spec"]["containers"][0]
     env = {item["name"]: item.get("value") for item in container["env"]}
     assert env["APP_ENV"] == "prd"
+    # Endpoint removal lags SIGTERM; keep serving briefly before draining.
+    assert container["lifecycle"]["preStop"]["exec"]["command"] == [
+        "sleep",
+        "5",
+    ]

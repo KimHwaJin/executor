@@ -20,8 +20,16 @@ from executor_service.infrastructure.db.models import (
     CommandReceiptORM,
     ExecutionArtifactORM,
     ExecutionORM,
+    execution_receipt_scope,
 )
 from executor_service.infrastructure.runtime_adapters import artifact_uri
+
+
+def _receipt(execution_id: UUID, idempotency_key: str):
+    return select(CommandReceiptORM).where(
+        CommandReceiptORM.scope == execution_receipt_scope(execution_id),
+        CommandReceiptORM.idempotency_key == idempotency_key,
+    )
 
 
 class MaterializedArtifactPersistence:
@@ -31,13 +39,11 @@ class MaterializedArtifactPersistence:
         self._session_factory = session_factory
 
     async def receipt(
-        self, idempotency_key: str, fingerprint: str
+        self, execution_id: UUID, idempotency_key: str, fingerprint: str
     ) -> UUID | None:
         async with self._session_factory() as session:
             receipt = await session.scalar(
-                select(CommandReceiptORM).where(
-                    CommandReceiptORM.idempotency_key == idempotency_key
-                )
+                _receipt(execution_id, idempotency_key)
             )
             return (
                 validate_receipt(receipt, fingerprint)
@@ -67,6 +73,7 @@ class MaterializedArtifactPersistence:
             async with self._session_factory() as session, session.begin():
                 session.add(
                     CommandReceiptORM(
+                        scope=execution_receipt_scope(command.execution_id),
                         idempotency_key=command.idempotency_key,
                         command_type="execution_artifact_materialize",
                         request_fingerprint=fingerprint,
@@ -74,14 +81,11 @@ class MaterializedArtifactPersistence:
                     )
                 )
         except IntegrityError:
-            # The unique key also arbitrates between different Executions
-            # and other command types, across independent API processes.
+            # The unique key also arbitrates between other command types on
+            # this Execution, across independent API processes.
             async with self._session_factory() as session:
                 receipt = await session.scalar(
-                    select(CommandReceiptORM).where(
-                        CommandReceiptORM.idempotency_key
-                        == command.idempotency_key
-                    )
+                    _receipt(command.execution_id, command.idempotency_key)
                 )
                 if receipt is None:
                     raise
@@ -109,13 +113,13 @@ class MaterializedArtifactPersistence:
             yield session, execution
 
     async def completed(
-        self, session: AsyncSession, key: str, fingerprint: str
+        self,
+        session: AsyncSession,
+        execution_id: UUID,
+        key: str,
+        fingerprint: str,
     ) -> UUID | None:
-        receipt = await session.scalar(
-            select(CommandReceiptORM).where(
-                CommandReceiptORM.idempotency_key == key
-            )
-        )
+        receipt = await session.scalar(_receipt(execution_id, key))
         if receipt is None:
             raise ArtifactRegistrationError("Artifact reservation is missing.")
         return validate_receipt(receipt, fingerprint)
@@ -134,10 +138,7 @@ class MaterializedArtifactPersistence:
     ) -> UUID:
         async with session.begin_nested():
             repeated = await session.scalar(
-                select(CommandReceiptORM).where(
-                    CommandReceiptORM.idempotency_key
-                    == command.idempotency_key
-                )
+                _receipt(command.execution_id, command.idempotency_key)
             )
             if repeated is None:
                 raise ArtifactRegistrationError(

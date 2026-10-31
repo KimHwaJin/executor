@@ -116,7 +116,15 @@ async def test_missing_or_unknown_key_is_unauthenticated(api_key_app) -> None:
 async def test_probes_need_no_key(api_key_app) -> None:
     client, _ = api_key_app
     assert (await client.get("/healthz")).status_code == 200
-    assert (await client.get("/workerz")).status_code == 200
+
+
+async def test_worker_status_requires_an_admin_key(api_key_app) -> None:
+    client, _ = api_key_app
+    assert (await client.get("/workerz")).status_code == 401
+    plain = await client.get("/workerz", headers=_headers(PLAIN_KEY))
+    assert plain.status_code == 403
+    ops = await client.get("/workerz", headers=_headers(OPS_KEY))
+    assert ops.status_code == 200
 
 
 async def test_runtime_and_maintenance_routes_require_admin(

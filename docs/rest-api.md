@@ -34,7 +34,7 @@ authoritative state store and execution happens asynchronously through the Worke
 ## Authentication and identity
 
 One ASGI middleware authenticates every request, REST and MCP alike. Only the probes
-(`/healthz`, `/readyz`, `/workerz`) and the API docs (`/docs`, `/redoc`, `/openapi.json`) skip it.
+(`/healthz`, `/readyz`) and the API docs (`/docs`, `/redoc`, `/openapi.json`) skip it.
 OpenAPI declares these headers on every route, so Swagger UI shows them as inputs and its
 **Authorize** button sets `X-Api-Key`.
 
@@ -50,7 +50,7 @@ sent, its `user_id` is that user. Anything else is `404`, so callers cannot prob
 A read without `X-User-Id` is a system call and sees the whole tenant. Artifact routes apply the
 same rule through the Artifact's Execution.
 
-`/runtime-pools`, `/runtime-targets*`, and `/maintenance*` need an `admin` key (`403` otherwise).
+`/workerz`, `/runtime-pools`, `/runtime-targets*`, and `/maintenance*` need an `admin` key (`403` otherwise).
 The same rule guards the MCP `runtime_target_*` tools.
 
 `AUTH_MODE=header` (local and dev only; startup fails elsewhere) trusts the identity headers

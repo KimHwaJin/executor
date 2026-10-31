@@ -445,16 +445,42 @@ async def test_runtime_purge_serializes_with_target_mutations(
 # add these for the writes only, so the rows match what old code wrote. The
 # current ORM also no longer sets the Outbox destination dropped by 0010, nor
 # the task_id that is required before 0007 and dropped by 0011.
-LATER_COLUMNS = {
-    "executions": ("tenant_id", "VARCHAR(64)"),
-    "runtime_targets": ("connection_key", "VARCHAR(2048)"),
-}
+COLUMNS_FROM_0013_ON = (
+    ("executions", "finalized_by", "VARCHAR(32)"),
+    ("execution_operations", "failure_type", "VARCHAR(32)"),
+    ("command_receipts", "scope", "VARCHAR(64) NOT NULL DEFAULT ''"),
+)
+LATER_COLUMNS = (
+    ("executions", "tenant_id", "VARCHAR(64)"),
+    ("runtime_targets", "connection_key", "VARCHAR(2048)"),
+    *COLUMNS_FROM_0013_ON,
+)
+
+
+@asynccontextmanager
+async def _columns(
+    engine: AsyncEngine, columns: tuple[tuple[str, str, str], ...]
+) -> AsyncIterator[None]:
+    """Let today's ORM write to an older schema that lacks ``columns``."""
+    async with engine.begin() as connection:
+        for table, column, column_type in columns:
+            await connection.execute(
+                text(f"ALTER TABLE {table} ADD COLUMN {column} {column_type}")
+            )
+    try:
+        yield
+    finally:
+        async with engine.begin() as connection:
+            for table, column, _ in columns:
+                await connection.execute(
+                    text(f"ALTER TABLE {table} DROP COLUMN {column}")
+                )
 
 
 @asynccontextmanager
 async def _current_columns(engine: AsyncEngine) -> AsyncIterator[None]:
     async with engine.begin() as connection:
-        for table, (column, column_type) in LATER_COLUMNS.items():
+        for table, column, column_type in LATER_COLUMNS:
             await connection.execute(
                 text(f"ALTER TABLE {table} ADD COLUMN {column} {column_type}")
             )
@@ -471,7 +497,7 @@ async def _current_columns(engine: AsyncEngine) -> AsyncIterator[None]:
         yield
     finally:
         async with engine.begin() as connection:
-            for table, (column, _) in LATER_COLUMNS.items():
+            for table, column, _ in LATER_COLUMNS:
                 await connection.execute(
                     text(f"ALTER TABLE {table} DROP COLUMN {column}")
                 )
@@ -488,10 +514,10 @@ async def _current_columns(engine: AsyncEngine) -> AsyncIterator[None]:
             )
 
 
-# Columns that differ between an older revision and head: added by 0007 and
-# 0008, dropped by 0009, 0010 and 0011. Compare rows across an upgrade
+# Columns that differ between an older revision and head: added by 0007,
+# 0008, 0013 and 0014, dropped by 0009, 0010 and 0011. Compare rows across an upgrade
 # without them.
-CHANGED_COLUMNS = {column for column, _ in LATER_COLUMNS.values()} | {
+CHANGED_COLUMNS = {column for _, column, _ in LATER_COLUMNS} | {
     "cancellation_heartbeat_at",
     "task_id",
     "workflow_id",
@@ -518,9 +544,10 @@ async def test_task_drop_upgrade_strips_stored_completion_context(
 ) -> None:
     url = postgres_engine.url.render_as_string(hide_password=False)
     await asyncio.to_thread(_downgrade_to_before_task_drop, url)
-    execution = await _service(postgres_engine, tmp_path).submit(
-        _command("before-task-drop")
-    )
+    async with _columns(postgres_engine, COLUMNS_FROM_0013_ON):
+        execution = await _service(postgres_engine, tmp_path).submit(
+            _command("before-task-drop")
+        )
     context = {
         "user_id": execution.user_id,
         "task_id": "run-1",
@@ -2050,6 +2077,31 @@ async def test_concurrent_workers_never_oversubscribe_jupyter_capacity(
     assert queued_count == 10
 
 
+async def test_concurrent_claims_fill_free_capacity_in_one_pass(
+    postgres_engine: AsyncEngine,
+    tmp_path: Path,
+) -> None:
+    service = _service(postgres_engine, tmp_path)
+    session_factory = create_session_factory(postgres_engine)
+    async with session_factory() as session, session.begin():
+        session.add(_server(capacity=20))
+    executions = [
+        await service.submit(_command(f"burst-{index}")) for index in range(25)
+    ]
+    workers, redis_clients = _workers(postgres_engine, tmp_path, count=3)
+    try:
+        claims = await asyncio.gather(
+            *(
+                workers[index % len(workers)]._claimer.claim(execution.id)
+                for index, execution in enumerate(executions)
+            )
+        )
+    finally:
+        await _close_redis(redis_clients)
+
+    assert sum(claim is not None for claim in claims) == 20
+
+
 async def test_concurrent_workers_respect_fresh_observed_session_capacity(
     postgres_engine: AsyncEngine,
     tmp_path: Path,
@@ -2465,7 +2517,7 @@ async def test_current_baseline_repeated_upgrade_preserves_events(
             text("SELECT count(*) FROM event_retention_lease")
         )
 
-    assert revision == EXPECTED_SCHEMA_REVISION == "0012"
+    assert revision == EXPECTED_SCHEMA_REVISION == "0014"
     assert maintenance_count == retention_count == 1
     assert migrated_event is not None
     assert migrated_event.execution_id == execution.id
@@ -2506,7 +2558,7 @@ async def test_current_baseline_downgrade_and_recreate(
             text("SELECT singleton_key FROM event_retention_lease")
         )
     assert tables == set(Base.metadata.tables) | {"alembic_version"}
-    assert revision == EXPECTED_SCHEMA_REVISION == "0012"
+    assert revision == EXPECTED_SCHEMA_REVISION == "0014"
     assert admission == "ACTIVE"
     assert retention_key == "events"
 

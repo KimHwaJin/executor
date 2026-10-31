@@ -131,6 +131,9 @@ async def add_operation_completed_event(
                 if operation.status == OperationStatus.CANCELLED
                 else "OPERATION_COMPLETION_FAILED"
                 if execution.failure_type == FailureType.COMPLETION_FAILED
+                else "OPERATION_" + operation.failure_type.value
+                if operation.failure_type
+                in {FailureType.EXECUTION_TIMEOUT, FailureType.QUEUE_TIMEOUT}
                 else "OPERATION_STEP_FAILED"
             ),
             "message": operation.error_message
@@ -246,6 +249,11 @@ async def add_execution_completed_event(
         "execution.completed",
         {
             "status": execution.status.value,
+            "finalized_by": (
+                execution.finalized_by.value
+                if execution.finalized_by is not None
+                else None
+            ),
             "operation_summary": {
                 "total": len(operations),
                 "succeeded": operation_counts[OperationStatus.SUCCEEDED],

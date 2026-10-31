@@ -39,6 +39,9 @@ Before deployment:
    such as Runtime profiles or pool size for one environment, add the key to `config.prd.yml`; for
    every environment, change it in `config.yml` and `src/executor_service/settings.py` together.
    An environment variable with the same name still overrides a file value.
+   Build one image per environment with `docker build --build-arg APP_ENV=prd .`: the image then
+   carries `config.yml` and `config.prd.yml` only, never another environment's credentials, and
+   its `APP_ENV` must match the Deployment's.
 3. Replace `REPLACE_USER`, `REPLACE_PASSWORD`, and `REPLACE_WITH_FERNET_KEY` in that file.
    `RUNTIME_CREDENTIAL_KEY` must be a Fernet key and must remain stable while encrypted
    Runtime credentials exist in PostgreSQL. URL-encode special characters in URL credentials.
@@ -169,9 +172,12 @@ The manifest uses one replica by default. Executor supports multiple replicas, b
 share PostgreSQL, Redis, credential key, input PVC, and Runtime Target registry. Each Worker names
 itself `<hostname>-<pid>-<suffix>`, so replicas never share a lease owner identity.
 
-The 90-second Pod grace period is greater than the default 30-second execution drain plus 20-second
-shutdown cleanup and buffer. If those settings increase, increase `terminationGracePeriodSeconds`
-as well. A Step that outlives the drain period is handed over to another Pod; a Step with nothing
+The 90-second Pod grace period covers, in order, the 5-second `preStop` sleep (the Service and
+gateway stop routing to the Pod while it still serves), up to 20 seconds for open HTTP requests
+(`HTTP_GRACEFUL_SHUTDOWN_SECONDS`), the default 30-second execution drain and 20-second shutdown
+cleanup: 75 seconds plus buffer. If those settings increase, increase `terminationGracePeriodSeconds`
+as well. The platform must allow `lifecycle.preStop`; without it, drop the block and expect a few
+connection errors at the gateway during a rollout. A Step that outlives the drain period is handed over to another Pod; a Step with nothing
 to hand over (for example one still preparing its Runtime) follows the documented `WORKER_SHUTDOWN`
 failure and explicit retry flow. Scale-in under HPA uses the same path.
 

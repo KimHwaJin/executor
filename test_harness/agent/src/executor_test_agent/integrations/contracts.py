@@ -145,10 +145,5 @@ class AgentExecutionRequest(BaseModel):
             "operation": {
                 "spec": {"schema_version": "1.0", "steps": normalized_steps},
             },
-            "context": {
-                "user_id": self.user_id,
-                "project_id": self.project_id,
-                "session_id": self.session_id,
-            },
             "metadata": {"task_id": self.task_id},
         }

@@ -13,7 +13,7 @@ POST /api/v1/executions/{execution_id}/cancel
 
 | 필드 | 필수 | 의미 |
 |---|---:|---|
-| `idempotency_key` | O | 취소 호출 멱등성 키. 동일 Execution에 같은 키를 재사용하면 같은 결과를 반환하며 다른 Execution에 재사용하면 `409` |
+| `idempotency_key` | O | 취소 호출 멱등성 키. Execution 단위로 구분한다. 같은 Execution에 같은 키를 재사용하면 같은 결과를 반환한다. 다른 Execution에서는 같은 키를 써도 별개 요청이다 |
 | `reason` | X | 취소 사유. 최대 2,000자. 생략 시 `null` |
 | `actor.type` | O | 취소 요청 주체: `AGENT`, `USER`, `BATCH` |
 | `actor.id` | O | 취소 요청 주체 식별자 |

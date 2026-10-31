@@ -20,13 +20,13 @@ Operation의 결과를 확인하고 후속 코드 또는 오류 수정 코드를
 
 | 필드 | 필수 | 의미 |
 |---|---:|---|
-| `idempotency_key` | O | Operation 추가 명령의 멱등성 키 |
+| `idempotency_key` | O | Operation 추가 명령의 멱등성 키. Execution 단위로 구분한다 |
 | `expected_version` | O | 상태조회 또는 이벤트에서 확인한 현재 Execution version. 0 이상 |
 | `operation_timeout_seconds` | X | 새 Operation의 RUNNING 전환부터 계산하는 시간 예산. 정수 1초 이상. 생략/null이면 이 제한 없음 |
 | `spec` | O | ExecutionSpec 1.0과 후속 Step 목록 |
-| `metadata` | X | 새 Operation에 저장할 자유 형식 metadata. 기본값 `{}` |
+| `metadata` | X | 새 Operation에 저장할 metadata. 키 32개 이하, 키는 `^[a-z][a-z0-9_]{0,63}$`, JSON 직렬화 4096 bytes 이하. 기본값 `{}` |
 | `actor.type` | O | 요청 주체: `AGENT`, `USER`, `BATCH` |
-| `actor.id` | O | 요청 주체 식별자 |
+| `actor.id` | O | 요청 주체 식별자. 소문자로 저장한다 |
 
 ### `spec`
 

@@ -17,7 +17,11 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
-from executor_service.domain.enums import ActorType, OperationStatus
+from executor_service.domain.enums import (
+    ActorType,
+    FailureType,
+    OperationStatus,
+)
 from executor_service.domain.models import ExecutionOperation, utc_now
 from executor_service.infrastructure.db.base import Base
 from executor_service.infrastructure.db.models.common import (
@@ -37,6 +41,11 @@ class ExecutionOperationORM(Base):
             "execution_id",
             "operation_number",
             name="uq_operations_execution_number",
+        ),
+        UniqueConstraint(
+            "execution_id",
+            "idempotency_key",
+            name="uq_execution_operations_execution_idempotency_key",
         ),
         CheckConstraint(
             "operation_number > 0", name="positive_operation_number"
@@ -58,6 +67,15 @@ class ExecutionOperationORM(Base):
         CheckConstraint(
             "status IN ('QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED', 'CANCELLED')",
             name="valid_operation_status",
+        ),
+        CheckConstraint(
+            "failure_type IS NULL OR failure_type IN ('TOOL_ERROR', "
+            "'INFRASTRUCTURE_ERROR', 'WORKER_SHUTDOWN', 'RUNTIME_UNAVAILABLE', "
+            "'LEASE_EXPIRED', 'INTERNAL_ERROR', 'OPERATION_WAIT_TIMEOUT', "
+            "'OPERATION_TIMEOUT', 'STEP_TIMEOUT', 'EXECUTION_TIMEOUT', "
+            "'QUEUE_TIMEOUT', 'OUTPUT_LIMIT_EXCEEDED', "
+            "'RUNTIME_SESSION_LOST', 'COMPLETION_FAILED')",
+            name="valid_operation_failure_type",
         ),
         Index(
             "ix_execution_operations_execution_number",
@@ -84,9 +102,7 @@ class ExecutionOperationORM(Base):
     operation_metadata: Mapped[dict[str, Any]] = mapped_column(
         "metadata", JSON, nullable=False, default=dict
     )
-    idempotency_key: Mapped[str] = mapped_column(
-        String(255), nullable=False, unique=True
-    )
+    idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False)
     request_fingerprint: Mapped[str] = mapped_column(
         String(64), nullable=False
     )
@@ -99,6 +115,11 @@ class ExecutionOperationORM(Base):
         nullable=True,
     )
     error_message: Mapped[str | None] = mapped_column(Text)
+    # Why a MULTI Operation failed while its Runtime session was kept; the
+    # Execution takes this type if the Agent never sends another Operation.
+    failure_type: Mapped[FailureType | None] = mapped_column(
+        enum_type(FailureType, "operation_failure_type"), nullable=True
+    )
     created_by_type: Mapped[ActorType | None] = mapped_column(
         enum_type(ActorType, "actor_type"), nullable=True
     )

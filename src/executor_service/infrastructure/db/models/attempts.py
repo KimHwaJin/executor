@@ -41,6 +41,11 @@ from executor_service.infrastructure.db.models.common import (
 class ExecutionRetryORM(Base):
     __tablename__ = "execution_retries"
     __table_args__ = (
+        UniqueConstraint(
+            "execution_id",
+            "idempotency_key",
+            name="uq_execution_retries_execution_idempotency_key",
+        ),
         CheckConstraint(
             "from_sequence >= 0", name="non_negative_from_sequence"
         ),
@@ -55,9 +60,7 @@ class ExecutionRetryORM(Base):
         nullable=False,
         index=True,
     )
-    idempotency_key: Mapped[str] = mapped_column(
-        String(255), nullable=False, unique=True
-    )
+    idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False)
     from_sequence: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         UTCDateTime(), nullable=False, default=utc_now

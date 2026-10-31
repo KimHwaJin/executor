@@ -60,6 +60,10 @@ class ExecutionSubmissionCommands:
         validate_submit(command)
         self._validate_tenant(command.tenant_id)
         self._support.validate_step_limits(0, len(command.steps))
+        self._support.validate_timeouts(
+            command.operation_timeout_seconds,
+            (step.step_timeout_seconds for step in command.steps),
+        )
         offering = self._runtime_offerings.get(command.runtime_type)
         if (
             offering is None
@@ -81,13 +85,13 @@ class ExecutionSubmissionCommands:
         try:
             async with self._support.uow_factory() as uow:
                 existing = await uow.executions.get_by_submit_key(
-                    command.idempotency_key
+                    command.tenant_id, command.idempotency_key
                 )
                 if existing is not None:
                     ensure_same_fingerprint(existing, request_fingerprint)
                     operation_id = (
                         await uow.executions.get_operation_id_by_key(
-                            command.idempotency_key
+                            existing.id, command.idempotency_key
                         )
                     )
                     return ExecutionCommandResult(
@@ -170,13 +174,13 @@ class ExecutionSubmissionCommands:
             # first lookup.
             async with self._support.uow_factory() as uow:
                 existing = await uow.executions.get_by_submit_key(
-                    command.idempotency_key
+                    command.tenant_id, command.idempotency_key
                 )
                 if existing is None:
                     raise
                 ensure_same_fingerprint(existing, request_fingerprint)
                 operation_id = await uow.executions.get_operation_id_by_key(
-                    command.idempotency_key
+                    existing.id, command.idempotency_key
                 )
                 return ExecutionCommandResult(
                     execution=existing,

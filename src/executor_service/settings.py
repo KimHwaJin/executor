@@ -101,9 +101,13 @@ class Settings(BaseSettings):
     log_config_file: Path = Path("logger.yml")
     rest_error_body_logging_enabled: bool = False
     rest_error_body_log_max_bytes: int = Field(default=65536, ge=1)
+    request_body_max_bytes: int = Field(default=31457280, ge=1024)
 
     host: str = "0.0.0.0"
     port: int = Field(default=8000, ge=1, le=65535)
+    # Seconds open HTTP requests get to finish on SIGTERM before Uvicorn
+    # closes them; Worker drain runs after this inside the Pod grace period.
+    http_graceful_shutdown_seconds: int = Field(default=20, ge=0)
 
     database_url: SecretStr = SecretStr(
         "postgresql+psycopg://executor:executor@localhost:5432/executor"
@@ -113,6 +117,8 @@ class Settings(BaseSettings):
     database_pool_timeout_seconds: float = Field(default=30, gt=0)
     database_pool_recycle_seconds: int = Field(default=1800, ge=1)
     database_connect_timeout_seconds: int = Field(default=10, ge=1)
+    database_statement_timeout_seconds: int = Field(default=60, ge=1)
+    database_idle_in_transaction_timeout_seconds: int = Field(default=60, ge=1)
     db_auto_migrate: bool = False
     db_migrations_path: Path = Path("migrations")
     db_migration_lock_timeout_seconds: int = Field(default=60, ge=1)
@@ -187,6 +193,7 @@ class Settings(BaseSettings):
     runtime_cleanup_retry_interval_seconds: float = Field(default=60, gt=0)
     failed_session_retention_seconds: int = Field(default=3600, ge=60)
     execution_max_runtime_seconds: int = Field(default=604800, ge=60)
+    execution_queue_timeout_seconds: int = Field(default=86400, ge=60)
 
     @classmethod
     def settings_customise_sources(

@@ -69,12 +69,12 @@ def test_uv_base_images_and_build_only_default_index() -> None:
 def test_deployment_defaults_are_visible() -> None:
     dockerfile = (PACKAGE / "Dockerfile").read_text()
     runtime_stage = dockerfile.split("FROM ${PYTHON312_IMAGE}\n")[1]
-    assert (
-        "ENV JUPYTER_ROOT_DIR=/workspace/jupyter \\\n    JUPYTER_TOKEN=default"
-        in runtime_stage
-    )
+    assert "ENV JUPYTER_ROOT_DIR=/workspace/jupyter\n" in runtime_stage
     assert dockerfile.count("JUPYTER_ROOT_DIR=") == 1
-    assert dockerfile.count("JUPYTER_TOKEN=") == 1
+    # No baked-in token: each server gets its own at runtime.
+    assert "JUPYTER_TOKEN=" not in dockerfile
+    server_config = (PACKAGE / "jupyter_server_config.py").read_text()
+    assert 'os.environ.pop("JUPYTER_TOKEN", None)' in server_config
     assert 'mkdir -p "${JUPYTER_ROOT_DIR}"' in dockerfile
     assert 'chown -R 1000:1000 "${JUPYTER_ROOT_DIR}"' in dockerfile
     assert 'WORKDIR "${JUPYTER_ROOT_DIR}"' in dockerfile
@@ -109,11 +109,15 @@ def test_kernel_environments_are_independent() -> None:
     assert "FROM ${PYTHON312_IMAGE}\n" in dockerfile
     assert "python310-compat" not in dockerfile
     assert "LD_LIBRARY_PATH" not in dockerfile
-    assert dockerfile.count("uv sync --project") == 3
-    assert dockerfile.count("--locked --no-dev --no-install-project") == 3
-    assert dockerfile.count("UV_PROJECT_ENVIRONMENT=/opt/venvs/") == 3
-    assert dockerfile.count("uv pip install --strict") == 1
-    assert "--system-site-packages" not in dockerfile
+    assert "COPY environments /opt/jupyter-env" in dockerfile
+    assert "RUN sh /tmp/install-environments.sh" in dockerfile
+    install = (PACKAGE / "install-environments.sh").read_text()
+    # One locked sync per environment, each into its own virtualenv.
+    assert 'UV_PROJECT_ENVIRONMENT="$2" uv sync --project "$1"' in install
+    assert "--locked --no-dev --no-install-project" in install
+    assert 'sync_env "${ENV_ROOT}/server" "${SERVER_VENV}"' in install
+    assert '"/opt/venvs/${name}"' in install
+    assert "--system-site-packages" not in install
 
 
 def test_source_build_keeps_versions_and_build_tools_separate() -> None:
@@ -121,14 +125,22 @@ def test_source_build_keeps_versions_and_build_tools_separate() -> None:
     builder, runtime = dockerfile.split("FROM ${PYTHON312_IMAGE}\n")
     assert "ARG PYTHON310_VERSION=3.10.11" in builder
     assert "ARG PYTHON311_VERSION=3.11.16" in builder
-    for minor in ("3.10", "3.11"):
+    kernels = {"3.10": "3102311", "3.11": "default"}
+    for minor, kernel in kernels.items():
         assert f"--prefix=/opt/python/{minor}" in builder
-        assert f"--python /opt/python/{minor}/bin/python{minor}" in runtime
+        kernel_env = (
+            PACKAGE / "environments" / kernel / "kernel.env"
+        ).read_text()
+        assert (
+            f"KERNEL_PYTHON=/opt/python/{minor}/bin/python{minor}"
+            in kernel_env
+        )
     assert builder.count("make altinstall") == 2
     assert "build-essential" in builder
     assert "build-essential" not in runtime
     assert "COPY --from=python-build /opt/python /opt/python" in runtime
-    assert "--python /usr/local/bin/python3.12" in runtime
+    install = (PACKAGE / "install-environments.sh").read_text()
+    assert "/usr/local/bin/python3.12" in install
     assert "UV_PYTHON_DOWNLOADS=never" in runtime
     assert "curl http" not in dockerfile
     assert "uv python install" not in dockerfile

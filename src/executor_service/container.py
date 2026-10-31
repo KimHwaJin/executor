@@ -1,6 +1,7 @@
 """Application dependency container and process lifecycle."""
 
 import asyncio
+from functools import partial
 
 from redis.asyncio import Redis
 from sqlalchemy import text
@@ -62,7 +63,7 @@ from executor_service.infrastructure.runtime_storage import (
 from executor_service.interfaces.execution_specs import ExecutionSpecResolver
 from executor_service.settings import Settings
 
-EXPECTED_SCHEMA_REVISION = "0012"
+EXPECTED_SCHEMA_REVISION = "0014"
 READINESS_DATABASE_TIMEOUT_SECONDS = 2
 REDIS_PING_TIMEOUT_SECONDS = 1
 
@@ -70,13 +71,31 @@ REDIS_PING_TIMEOUT_SECONDS = 1
 class ApplicationContainer:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
-        self.engine: AsyncEngine = create_engine(
+        engine = partial(
+            create_engine,
             settings.database_dsn,
+            connect_timeout_seconds=settings.database_connect_timeout_seconds,
+            statement_timeout_seconds=(
+                settings.database_statement_timeout_seconds
+            ),
+            idle_in_transaction_timeout_seconds=(
+                settings.database_idle_in_transaction_timeout_seconds
+            ),
+        )
+        self.engine: AsyncEngine = engine(
             pool_size=settings.database_pool_size,
             max_overflow=settings.database_max_overflow,
             pool_timeout_seconds=settings.database_pool_timeout_seconds,
             pool_recycle_seconds=settings.database_pool_recycle_seconds,
-            connect_timeout_seconds=settings.database_connect_timeout_seconds,
+        )
+        # Readiness gets its own connection: a pool busy with Executions is
+        # load, not an outage, and must not pull the Pod out of the Service.
+        # SQLite (local and tests) has no server to load; an unpooled
+        # in-memory engine would even open a different, empty database.
+        self.readiness_engine: AsyncEngine = (
+            self.engine
+            if settings.database_dsn.startswith("sqlite")
+            else engine(pooled=False)
         )
         self.session_factory = create_session_factory(self.engine)
         self.redis: Redis = create_redis_client(settings)
@@ -94,6 +113,7 @@ class ApplicationContainer:
             max_steps_per_execution=(
                 settings.execution_max_steps_per_execution
             ),
+            max_runtime_seconds=settings.execution_max_runtime_seconds,
         )
         self.execution_queries = SQLAlchemyExecutionQueryService(
             self.session_factory
@@ -179,13 +199,15 @@ class ApplicationContainer:
         await self.outbox_publisher.stop()
         await self.redis.aclose()
         await self.engine.dispose()
+        if self.readiness_engine is not self.engine:
+            await self.readiness_engine.dispose()
 
     async def readiness(self) -> dict[str, bool]:
         database_ready = False
         try:
-            # Stay inside the probe timeout even when the pool is busy.
+            # Stay inside the probe timeout when PostgreSQL is slow.
             async with asyncio.timeout(READINESS_DATABASE_TIMEOUT_SECONDS):
-                async with self.engine.connect() as connection:
+                async with self.readiness_engine.connect() as connection:
                     revision = await connection.scalar(
                         text("SELECT version_num FROM alembic_version")
                     )

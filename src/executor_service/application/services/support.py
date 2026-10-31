@@ -1,6 +1,7 @@
 """Shared validation and persistence support for Execution commands."""
 
 import hashlib
+from collections.abc import Iterable
 from dataclasses import asdict
 from uuid import UUID
 
@@ -20,6 +21,7 @@ from executor_service.domain.enums import (
 from executor_service.domain.errors import (
     ExecutionNotFoundError,
     IdempotencyConflictError,
+    InvalidExecutionSpecError,
     InvalidStateTransitionError,
     PersistenceConflictError,
 )
@@ -37,6 +39,7 @@ class ExecutionCommandSupport:
         *,
         max_steps_per_operation: int,
         max_steps_per_execution: int,
+        max_runtime_seconds: int = 604800,
     ) -> None:
         if max_steps_per_operation < 1:
             raise ValueError("max_steps_per_operation must be positive.")
@@ -49,6 +52,28 @@ class ExecutionCommandSupport:
         self._result_store = result_store
         self._max_steps_per_operation = max_steps_per_operation
         self._max_steps_per_execution = max_steps_per_execution
+        self._max_runtime_seconds = max_runtime_seconds
+
+    def validate_timeouts(
+        self,
+        operation_timeout_seconds: int | None,
+        step_timeout_seconds: Iterable[int | None],
+    ) -> None:
+        """Reject limits the Execution's maximum runtime would cut first."""
+        limit = self._max_runtime_seconds
+        if operation_timeout_seconds is not None and (
+            operation_timeout_seconds > limit
+        ):
+            raise InvalidExecutionSpecError(
+                f"operation_timeout_seconds ({operation_timeout_seconds}) "
+                f"exceeds the Execution maximum runtime of {limit} seconds."
+            )
+        for index, value in enumerate(step_timeout_seconds):
+            if value is not None and value > limit:
+                raise InvalidExecutionSpecError(
+                    f"steps[{index}].step_timeout_seconds ({value}) exceeds "
+                    f"the Execution maximum runtime of {limit} seconds."
+                )
 
     def validate_step_limits(
         self, current_step_count: int, new_step_count: int

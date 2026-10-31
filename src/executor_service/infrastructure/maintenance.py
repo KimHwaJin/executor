@@ -17,6 +17,7 @@ from executor_service.domain.errors import IdempotencyConflictError
 from executor_service.domain.fingerprints import canonical_sha256
 from executor_service.domain.models import utc_now
 from executor_service.infrastructure.db.models import (
+    GLOBAL_RECEIPT_SCOPE,
     CommandReceiptORM,
     ExecutionORM,
     ExecutorMaintenanceORM,
@@ -25,7 +26,6 @@ from executor_service.infrastructure.db.models import (
 
 MAINTENANCE_KEY = "executor"
 ACTIVE_EXECUTION_STATUSES = (
-    ExecutionStatus.DISPATCHED,
     ExecutionStatus.RUNNING,
     ExecutionStatus.WAITING_FOR_OPERATION,
     ExecutionStatus.FINALIZING,
@@ -68,8 +68,9 @@ class ExecutorMaintenanceService:
         async with self._session_factory() as session, session.begin():
             receipt = await session.scalar(
                 select(CommandReceiptORM).where(
+                    CommandReceiptORM.scope == GLOBAL_RECEIPT_SCOPE,
                     CommandReceiptORM.idempotency_key
-                    == command.idempotency_key
+                    == command.idempotency_key,
                 )
             )
             if receipt is not None:

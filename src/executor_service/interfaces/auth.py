@@ -37,11 +37,11 @@ from executor_service.settings import AuthClient, Settings
 
 # Kubelet probes call these without a key, and the API docs must load before
 # a key can be entered in them. The docs expose the schema, never data.
+# /workerz reports Worker internals and is for operators (admin keys).
 PUBLIC_PATHS = frozenset(
     {
         "/healthz",
         "/readyz",
-        "/workerz",
         "/docs",
         "/docs/oauth2-redirect",
         "/redoc",
@@ -50,6 +50,7 @@ PUBLIC_PATHS = frozenset(
 )
 # Tenant-independent operations reserved for admin keys.
 ADMIN_PATH_PREFIXES = (
+    "/workerz",
     "/api/v1/runtime-pools",
     "/api/v1/runtime-targets",
     "/api/v1/maintenance",

@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from executor_service.domain.enums import (
     AttemptStatus,
     ExecutionStatus,
+    FailureType,
     OperationStatus,
     StepStatus,
 )
@@ -45,6 +46,7 @@ class MultiOperationState:
         operation_status: OperationStatus,
         *,
         error_message: str | None = None,
+        failure_type: FailureType | None = None,
     ) -> None:
         now = utc_now()
         async with self._session_factory() as session, session.begin():
@@ -96,6 +98,11 @@ class MultiOperationState:
             operation.status = operation_status
             operation.error_message = (
                 error_message[:2000] if error_message else None
+            )
+            operation.failure_type = (
+                None
+                if operation_status == OperationStatus.SUCCEEDED
+                else failure_type or FailureType.TOOL_ERROR
             )
             operation.finished_at = now
             operation.updated_at = now

@@ -6,12 +6,12 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 from uuid import uuid4
 
-from mcp import Client
 from redis.asyncio import Redis
 from redis.exceptions import ResponseError
 
 from executor_test_agent.integrations.contracts import ExecutionEventBatch, ExecutionEventEnvelope
 from executor_test_agent.integrations.executor import required_tool_result
+from executor_test_agent.integrations.executor_client import executor_client_for
 
 type EventHistoryLoader = Callable[[str, int, int], Awaitable[list[dict[str, Any]]]]
 
@@ -35,6 +35,7 @@ class ExecutionEventWaiter:
         group_prefix: str,
         *,
         executor_mcp_url: str | None = None,
+        executor_headers: dict[str, str] | None = None,
         history_loader: EventHistoryLoader | None = None,
         start_id: str = "$",
     ) -> None:
@@ -45,6 +46,7 @@ class ExecutionEventWaiter:
         self._consumer = f"{socket.gethostname()}-{suffix}"
         self._start_id = start_id
         self._executor_mcp_url = executor_mcp_url
+        self._executor_headers = dict(executor_headers or {})
         self._history_loader = history_loader
         self._seen_event_ids: set[str] = set()
 
@@ -161,7 +163,7 @@ class ExecutionEventWaiter:
             return await self._history_loader(execution_id, after_sequence, limit)
         if self._executor_mcp_url is None:
             raise ValueError("executor_mcp_url is required for event gap recovery.")
-        async with Client(self._executor_mcp_url) as client:
+        async with executor_client_for(self._executor_mcp_url, self._executor_headers) as client:
             page = await required_tool_result(
                 client,
                 "execution_event_list",

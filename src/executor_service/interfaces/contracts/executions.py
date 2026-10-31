@@ -4,6 +4,8 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from pydantic import Field
+
 from executor_service.application.execution_queries import (
     ExecutionDetailView,
     ExecutionSummaryView,
@@ -13,6 +15,7 @@ from executor_service.domain.enums import (
     ActorType,
     ExecutionStatus,
     FailureType,
+    FinalizedBy,
     OperationMode,
     RetryStrategy,
     RuntimeAbortStatus,
@@ -78,6 +81,16 @@ class ExecutionState(ContractModel):
     status: ExecutionStatus
     version: int
     cancellation_reason: str | None
+    finalized_by: FinalizedBy | None = Field(
+        default=None,
+        description=(
+            "What ended the Execution: AGENT (finalize call), WAIT_TIMEOUT "
+            "(no next MULTI Operation before the wait deadline) or "
+            "MAX_RUNTIME (EXECUTION_MAX_RUNTIME_SECONDS reached). Null "
+            "while open, for a SINGLE Execution that ended normally, and "
+            "for cancellation."
+        ),
+    )
 
 
 class ExecutionCommandState(ContractModel):
@@ -174,6 +187,7 @@ def _execution_common(
             status=execution.status,
             version=execution.version,
             cancellation_reason=execution.cancellation_reason,
+            finalized_by=execution.finalized_by,
         ),
         "failure": failure,
         "retry": RetryResponse(

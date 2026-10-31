@@ -5,8 +5,6 @@ import hashlib
 import json
 from typing import Any
 
-from mcp import Client
-
 from executor_test_agent.code_policy import PlannedStep
 from executor_test_agent.config import AgentSettings
 from executor_test_agent.integrations.contracts import (
@@ -20,6 +18,7 @@ from executor_test_agent.integrations.executor import (
     required_tool_result,
     resolve_execution_result,
 )
+from executor_test_agent.integrations.executor_client import executor_client
 
 RESULT_RECONCILIATION_ATTEMPTS = 3
 RESULT_RECONCILIATION_RETRY_SECONDS = 0.2
@@ -33,7 +32,12 @@ async def submit_execution(
     watermark = await event_stream_watermark(
         settings.executor_redis_url, settings.executor_event_stream
     )
-    async with Client(settings.executor_mcp_url) as client:
+    async with executor_client(
+        settings,
+        user_id=request.user_id,
+        project_id=request.project_id,
+        session_id=request.session_id,
+    ) as client:
         result = await required_tool_result(
             client,
             "execution_submit",
@@ -57,7 +61,7 @@ async def create_execution_operation(
     watermark = await event_stream_watermark(
         settings.executor_redis_url, settings.executor_event_stream
     )
-    async with Client(settings.executor_mcp_url) as client:
+    async with executor_client(settings) as client:
         source_steps = [
             {
                 "sequence": first_sequence + offset,
@@ -103,7 +107,7 @@ async def finalize_execution(
     watermark = await event_stream_watermark(
         settings.executor_redis_url, settings.executor_event_stream
     )
-    async with Client(settings.executor_mcp_url) as client:
+    async with executor_client(settings) as client:
         result = await required_tool_result(
             client,
             "execution_finalize",
@@ -175,7 +179,7 @@ async def _reconciled_result(
 
     for attempt in range(1, RESULT_RECONCILIATION_ATTEMPTS + 1):
         try:
-            async with Client(settings.executor_mcp_url) as client:
+            async with executor_client(settings) as client:
                 result = await fetch_execution_result(client, execution_id)
                 detail = await fetch_execution_detail(client, execution_id)
             resolved = await asyncio.to_thread(

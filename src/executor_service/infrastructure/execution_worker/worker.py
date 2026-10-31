@@ -173,6 +173,7 @@ class ExecutionWorker:
             self._dispatcher,
             self._cancellation,
             self._session_recovery,
+            queue_timeout_seconds=settings.execution_queue_timeout_seconds,
         )
         self._stop_event = asyncio.Event()
         self._admission_loops: list[asyncio.Task[None]] = []

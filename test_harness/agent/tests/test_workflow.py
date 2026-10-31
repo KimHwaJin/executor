@@ -14,7 +14,7 @@ async def test_reconciliation_retries_after_mcp_task_group_failure(
     offloaded_calls: list[tuple[object, ...]] = []
 
     class FakeClient:
-        def __init__(self, _url: str) -> None:
+        def __init__(self, _settings: object, **_identity: str) -> None:
             self.active = False
             self.fail_on_close = not clients
             clients.append(self)
@@ -54,7 +54,7 @@ async def test_reconciliation_retries_after_mcp_task_group_failure(
         offloaded_calls.append((function, *args))
         return function(*args)
 
-    monkeypatch.setattr(workflow, "Client", FakeClient)
+    monkeypatch.setattr(workflow, "executor_client", FakeClient)
     monkeypatch.setattr(workflow, "fetch_execution_result", fake_fetch)
     monkeypatch.setattr(workflow, "fetch_execution_detail", fake_fetch_detail)
     monkeypatch.setattr(workflow, "resolve_execution_result", fake_resolve)

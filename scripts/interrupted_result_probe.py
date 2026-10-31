@@ -48,7 +48,9 @@ def progress(root: Path, execution_id: UUID) -> bool:
             if state["identity"]["sequence"] != 1:
                 continue
             kinds = set()
-            for output in state["outputs"]:
+            log = (path.parent / "outputs.jsonl").read_bytes()
+            entries = [json.loads(line) for line in log.splitlines()]
+            for output in (o for entry in entries for o in entry["outputs"]):
                 for representation in output["representations"]:
                     body = checked_file(path.parent, representation)
                     media = representation["media_type"]

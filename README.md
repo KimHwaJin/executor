@@ -509,9 +509,14 @@ of already executed Steps is intentionally not supported.
   writes; no storage operation falls back across pools.
 
 `EXECUTION_MAX_RUNTIME_SECONDS` defaults to seven days and starts when a worker first claims the
-Execution. Each MULTI request supplies `lifecycle.operation_wait_timeout_seconds`; its deadline is
-reset after every Operation and never exceeds the total Execution deadline. A missed Agent deadline
-produces `OPERATION_WAIT_TIMEOUT`; a missing retained session produces `RUNTIME_SESSION_LOST`.
+Execution; running past it ends `FAILED`/`EXECUTION_TIMEOUT` with `finalized_by: MAX_RUNTIME`.
+An Execution no worker claims within `EXECUTION_QUEUE_TIMEOUT_SECONDS` (default 24 hours) ends
+`FAILED`/`QUEUE_TIMEOUT`. Step and Operation timeouts above the maximum runtime are rejected with
+422. Each MULTI request supplies `lifecycle.operation_wait_timeout_seconds`; its deadline is
+reset after every Operation and never exceeds the total Execution deadline. When it passes, the
+Executor ends the Execution from the last Operation: a success is finalized to `SUCCEEDED`, a
+failure ends `FAILED` with that Operation's failure type (`finalized_by: WAIT_TIMEOUT`, or
+`MAX_RUNTIME` at the total deadline). A missing retained session produces `RUNTIME_SESSION_LOST`.
 A disabled Runtime Target produces `RUNTIME_UNAVAILABLE`. These terminal MULTI failures are
 non-retryable and their sessions are deleted when still reachable. Temporary health-probe
 `OFFLINE` state alone does not immediately fail waiting work; the persisted deadline remains the
@@ -742,7 +747,8 @@ never from `.env`. `config.yml` lists every shared tunable at its code default i
 hold credentials, MCP host/origin allowlists, storage roots and other deployment-only values. Keys
 are the setting names in any case. The
 platform offers no ConfigMaps or Secrets, so these files, credentials included, ship in the
-image (`COPY config*.yml`). `DATABASE_URL` and `REDIS_URL` are secret settings and are never
+image. Build one image per environment with `--build-arg APP_ENV=<env>`; it then carries
+`config.yml` and that environment's file only. `DATABASE_URL` and `REDIS_URL` are secret settings and are never
 intentionally logged. `.env.example` contains local-only credentials.
 
 `MCP_ALLOWED_HOSTS` and `MCP_ALLOWED_ORIGINS` are fail-closed allowlists for the SDK's DNS-rebinding

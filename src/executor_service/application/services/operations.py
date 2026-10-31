@@ -38,7 +38,7 @@ class ExecutionOperationCommands:
         try:
             async with self._support.uow_factory() as uow:
                 repeated = await uow.executions.get_command_receipt(
-                    command.idempotency_key
+                    command.execution_id, command.idempotency_key
                 )
                 if repeated is not None:
                     ensure_same_receipt(
@@ -65,6 +65,10 @@ class ExecutionOperationCommands:
                     )
                 self._support.validate_step_limits(
                     len(execution.steps), len(command.steps)
+                )
+                self._support.validate_timeouts(
+                    command.operation_timeout_seconds,
+                    (step.step_timeout_seconds for step in command.steps),
                 )
                 expected_sequence = len(execution.steps)
                 sequences = [step.sequence for step in command.steps]
@@ -134,6 +138,7 @@ class ExecutionOperationCommands:
                 for step in steps:
                     await uow.executions.add_step(execution.id, step)
                 await uow.executions.add_command_receipt(
+                    execution.id,
                     command.idempotency_key,
                     command_type,
                     request_fingerprint,
@@ -150,7 +155,7 @@ class ExecutionOperationCommands:
         except PersistenceConflictError as exc:
             async with self._support.uow_factory() as uow:
                 repeated = await uow.executions.get_command_receipt(
-                    command.idempotency_key
+                    command.execution_id, command.idempotency_key
                 )
                 if repeated is not None:
                     ensure_same_receipt(

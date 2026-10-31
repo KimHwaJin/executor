@@ -40,7 +40,6 @@ Execution 전체의 현재 상태다.
 | 값 | 의미 |
 |---|---|
 | `QUEUED` | 실행 대기 중 |
-| `DISPATCHED` | Worker가 작업을 할당받음 |
 | `RUNNING` | Runtime에서 실행 중 |
 | `WAITING_FOR_OPERATION` | MULTI 모드에서 다음 Operation 입력 대기 중 |
 | `FINALIZING` | 최종 종료 처리 중 |

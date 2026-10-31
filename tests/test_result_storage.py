@@ -228,6 +228,7 @@ async def test_result_disk_layout_is_a_stable_contract(tmp_path: Path) -> None:
         "print('contract')"
     )
     assert not (manifest_path.parent / ".state.json").exists()
+    assert not (manifest_path.parent / "outputs.jsonl").exists()
 
 
 @pytest.mark.asyncio
@@ -403,3 +404,52 @@ async def test_source_reference_cannot_escape_shared_root(
     )
     with pytest.raises(ResultStorageError, match="unsafe segment"):
         await store.read_source(invalid)
+
+
+@pytest.mark.asyncio
+async def test_new_writer_resumes_an_open_result_after_a_torn_append(
+    tmp_path: Path,
+) -> None:
+    identity = _identity()
+    first = FilesystemExecutionResultStore(tmp_path)
+    source = await first.snapshot_source(
+        identity.execution_id, identity.step_id, "print(1)"
+    )
+    await first.begin_step_result(identity, source)
+    for offset in range(3):
+        await first.append_step_outputs(
+            identity,
+            expected_offset=offset,
+            batch_id=uuid4(),
+            records=(_text_record(f"line {offset}\n"),),
+        )
+    _tear_output_log(tmp_path)
+
+    second = FilesystemExecutionResultStore(tmp_path)
+    appended = await second.append_step_outputs(
+        identity,
+        expected_offset=3,
+        batch_id=uuid4(),
+        records=(_text_record("line 3\n"),),
+    )
+    result = await second.finalize_step_result(identity, execution_count=1)
+
+    assert appended.committed_offset == 4
+    manifest = json.loads(
+        (tmp_path / result.reference.relative_path).read_bytes()
+    )
+    assert manifest["output_count"] == 4
+    assert [output["ordinal"] for output in manifest["outputs"]] == [
+        0,
+        1,
+        2,
+        3,
+    ]
+    assert "batches" not in manifest
+
+
+def _tear_output_log(root: Path) -> None:
+    log = next(root.rglob("outputs.jsonl"))
+    with log.open("ab") as handle:
+        # A crash mid-write leaves an unacknowledged partial line.
+        handle.write(b'{"batch_id":"torn"')

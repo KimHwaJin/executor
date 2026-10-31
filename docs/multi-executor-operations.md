@@ -83,8 +83,9 @@ lease duration plus one heartbeat polling interval after the last successful hea
 - All Pods must use the same PostgreSQL database, Redis Stream/group, credential encryption key,
   workspace PV, and Runtime Target registry.
 - Do not reuse an explicit consumer name across concurrently running Pods.
-- Set `terminationGracePeriodSeconds` greater than
-  `EXECUTION_DRAIN_TIMEOUT_SECONDS + EXECUTION_SHUTDOWN_CLEANUP_SECONDS` plus a shutdown buffer.
+- Set `terminationGracePeriodSeconds` greater than the `preStop` sleep +
+  `HTTP_GRACEFUL_SHUTDOWN_SECONDS + EXECUTION_DRAIN_TIMEOUT_SECONDS +
+  EXECUTION_SHUTDOWN_CLEANUP_SECONDS` plus a shutdown buffer.
 - A rolling restart allows in-flight work to finish within the drain window, but it does not
   transparently migrate a live Jupyter WebSocket between Pods. Work exceeding the drain window can
   still fail with `WORKER_SHUTDOWN` and requires an explicit retry where supported.

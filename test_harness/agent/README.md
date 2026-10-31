@@ -154,7 +154,10 @@ The Executor integration settings default to the repository Compose topology:
 ```dotenv
 EXECUTOR_MCP_URL=http://127.0.0.1:8000/mcp
 EXECUTOR_REDIS_URL=redis://127.0.0.1:6379/0
-EXECUTOR_EVENT_STREAM=executor.events
+# Executor writes executor.events.{tenant}; local and dev header mode use tenant "dev".
+EXECUTOR_EVENT_STREAM=executor.events.dev
+# Required when Executor runs with AUTH_MODE=api_key (stg, prd).
+EXECUTOR_API_KEY=
 EXECUTOR_AGENT_CONSUMER_GROUP=executor-test-agent
 EXECUTOR_EXECUTION_TIMEOUT_SECONDS=120
 ```

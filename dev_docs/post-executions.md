@@ -30,9 +30,12 @@ POST /api/v1/executions
 
 ## Request Body
 
+요청 본문은 `REQUEST_BODY_MAX_BYTES`(기본 30MB) 이하여야 한다. 넘으면
+`413 REQUEST_BODY_TOO_LARGE`다. 큰 코드는 `PATH` source로 보낸다.
+
 | 필드 | 필수 | 의미 |
 |---|---:|---|
-| `idempotency_key` | O | 호출자가 생성하는 멱등성 키. 같은 키와 같은 요청은 같은 Execution을 반환하며, 같은 키로 다른 요청을 보내면 `409` |
+| `idempotency_key` | O | 호출자가 생성하는 멱등성 키. 테넌트 단위로 구분한다. 같은 테넌트에서 같은 키와 같은 요청은 같은 Execution을 반환하며, 같은 키로 다른 요청을 보내면 `409`. 다른 테넌트의 같은 키는 서로 영향이 없다 |
 | `lifecycle` | O | SINGLE/MULTI 실행 생명주기 설정 |
 | `trigger` | O | 실행을 발생시킨 유형과 주체 |
 | `runtime` | O | 필요한 Runtime 종류와 프로파일 |
@@ -68,7 +71,7 @@ POST /api/v1/executions
 |---|---:|---|
 | `type` | O | `INTERACTIVE` 또는 `BATCH`. Executor가 사용할 Runtime Pool도 이 값으로 결정 |
 | `actor.type` | O | 호출 주체 유형: `AGENT`, `USER`, `BATCH` |
-| `actor.id` | O | 호출 주체 식별자. 1~255자 |
+| `actor.id` | O | 호출 주체 식별자. 1~255자. `X-User-Id`처럼 앞뒤 공백을 지우고 소문자로 저장한다 |
 
 규칙:
 
@@ -94,7 +97,7 @@ POST /api/v1/executions
 |---|---:|---|
 | `operation_timeout_seconds` | X | Worker가 Operation을 RUNNING으로 전환한 시각부터 계산하는 시간 예산. 정수 1초 이상. 생략/null이면 이 제한 없음 |
 | `spec` | O | ExecutionSpec 1.0과 Step 목록 |
-| `metadata` | X | 이 Operation에만 적용되는 자유 형식 metadata. 기본값 `{}` |
+| `metadata` | X | 이 Operation에만 적용되는 metadata. 최상위 metadata와 같은 규칙: 키 32개 이하, 키는 `^[a-z][a-z0-9_]{0,63}$`, JSON 직렬화 4096 bytes 이하. 기본값 `{}` |
 
 ### `operation.spec`
 
@@ -137,7 +140,7 @@ INLINE/PATH 최대 크기와 Operation/Execution 최대 Step 수는 Executor 설
 |---|---:|---|
 | `skill_name` | X | 해당 Tool이 속한 Skill 이름 |
 | `tool_name` | X | 실행 Tool 이름 |
-| `input_parameters` | X | Tool 입력 파라미터. 기본값 `{}` |
+| `input_parameters` | X | Tool 입력 파라미터. 키 32개 이하, JSON 직렬화 4096 bytes 이하(키 이름 규칙은 없음). 기본값 `{}` |
 
 ## Request 예시 — INLINE
 
@@ -351,7 +354,9 @@ print(hashlib.sha256(path.read_bytes()).hexdigest())
 독립적인 타이머로 감싸지는 않는다. 제한시간에 중단·정리 완료까지 보장하지 않는다.
 
 별도 서비스 전체 제한 `EXECUTION_MAX_RUNTIME_SECONDS`는 기본 7일이며 최초
-Worker 실행 시작부터 계산한다. 최초 큐 대기에는 별도 시간 제한이 없다.
+Worker 실행 시작부터 계산한다. 넘으면 `FAILED / EXECUTION_TIMEOUT`이다.
+최초 큐 대기 제한 `EXECUTION_QUEUE_TIMEOUT_SECONDS`는 기본 24시간이며 넘으면
+`FAILED / QUEUE_TIMEOUT`이다. Step·Operation 제한이 전체 제한을 넘으면 422로 거절한다.
 MULTI 후속 요청 대기시간은 Operation 완료 후 시작하므로 코드 실행시간과 다르다.
 Agent 생존 heartbeat나 Agent 장애만을 이유로 한 자동 취소는 제공하지 않는다.
 상세한 현재 동작과 재시도 규칙은 [시간 제한 가이드](execution-timeouts.md)를 따른다.

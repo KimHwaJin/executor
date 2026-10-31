@@ -38,6 +38,9 @@ def run() -> None:
         factory=True,
         host=settings.host,
         port=settings.port,
+        # A request still streaming an Artifact must not hold shutdown
+        # past the Pod's grace period and cut the Worker drain short.
+        timeout_graceful_shutdown=settings.http_graceful_shutdown_seconds,
         # Keep configure_logging's setup (HCP or logger.yml) for Uvicorn too.
         log_config=None,
     )

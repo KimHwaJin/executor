@@ -43,12 +43,14 @@ class ExecutionService:
         *,
         max_steps_per_operation: int = 100,
         max_steps_per_execution: int = 1000,
+        max_runtime_seconds: int = 604800,
     ) -> None:
         support = ExecutionCommandSupport(
             uow_factory,
             result_store,
             max_steps_per_operation=max_steps_per_operation,
             max_steps_per_execution=max_steps_per_execution,
+            max_runtime_seconds=max_runtime_seconds,
         )
         self._submission = ExecutionSubmissionCommands(
             support, runtime_offerings
