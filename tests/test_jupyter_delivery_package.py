@@ -55,12 +55,16 @@ def test_uv_base_images_and_build_only_default_index() -> None:
         '"uv==${UV_VERSION}"' in dockerfile
     )
     harness_dockerfile = (HARNESS / "Dockerfile").read_text()
-    for version in ("3.10", "3.11"):
+    for version in ("3.10", "3.11", "3.12"):
         argument = "PYTHON" + version.replace(".", "") + "_IMAGE"
         assert (
-            f"ARG {argument}=astral/uv:python{version}-bookworm-slim"
+            f"ARG {argument}=python:{version}-slim-bookworm@sha256:"
             in harness_dockerfile
         )
+    # Every harness stage installs the same pinned uv as the delivery image.
+    assert harness_dockerfile.count('"uv==${UV_VERSION}"') == 3
+    assert "ARG UV_VERSION=0.11.32" in harness_dockerfile
+    assert "ARG UV_VERSION=0.11.32" in dockerfile
     for image_definition in (dockerfile, harness_dockerfile):
         assert "COPY --from=uv " not in image_definition
         assert "        curl \\" in image_definition

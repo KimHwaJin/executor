@@ -1,6 +1,9 @@
-ARG PYTHON310_IMAGE=astral/uv:python3.10-bookworm-slim
-ARG PYTHON311_IMAGE=astral/uv:python3.11-bookworm-slim
-ARG PYTHON312_IMAGE=astral/uv:python3.12-bookworm-slim
+# Docker Hub's official Python images, pinned by digest like the delivered
+# images. They carry no uv, so each stage installs the pinned version.
+ARG PYTHON310_IMAGE=python:3.10-slim-bookworm@sha256:5be5aaecb962a41567bc8041f1e9e3432cb085b037fe057f9a562630b2e4b370
+ARG PYTHON311_IMAGE=python:3.11-slim-bookworm@sha256:94a8fee35252d06ab75856f15f12c7bae67b10e8a6da93c7fded82b2610926cd
+ARG PYTHON312_IMAGE=python:3.12-slim-bookworm@sha256:e697c81897302a4c4333bade000d98038fbb21eb064f8ee1fd42d02ebcd9d337
+ARG UV_VERSION=0.11.32
 ARG UV_DEFAULT_INDEX=https://pypi.org/simple
 
 # Each environment installs the pins exported from the deployment lock, so the
@@ -9,6 +12,9 @@ ARG UV_DEFAULT_INDEX=https://pypi.org/simple
 FROM ${PYTHON310_IMAGE} AS python310
 
 ARG UV_DEFAULT_INDEX
+ARG UV_VERSION
+
+RUN pip install --no-cache-dir --index-url "${UV_DEFAULT_INDEX}" "uv==${UV_VERSION}"
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
@@ -27,6 +33,9 @@ RUN uv export --project /opt/jupyter-env/3102311 --frozen --no-dev \
 FROM ${PYTHON311_IMAGE} AS python311
 
 ARG UV_DEFAULT_INDEX
+ARG UV_VERSION
+
+RUN pip install --no-cache-dir --index-url "${UV_DEFAULT_INDEX}" "uv==${UV_VERSION}"
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
@@ -45,6 +54,9 @@ RUN uv export --project /opt/jupyter-env/default --frozen --no-dev \
 FROM ${PYTHON312_IMAGE}
 
 ARG UV_DEFAULT_INDEX
+ARG UV_VERSION
+
+RUN pip install --no-cache-dir --index-url "${UV_DEFAULT_INDEX}" "uv==${UV_VERSION}"
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PATH="/opt/venvs/jupyter/bin:${PATH}" \
