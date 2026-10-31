@@ -5,7 +5,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from executor_service.domain.enums import OperationStatus
+from executor_service.domain.enums import FailureType, OperationStatus
 from executor_service.infrastructure.db.models import (
     ExecutionOperationORM,
     ExecutionORM,
@@ -20,6 +20,7 @@ async def fail_active_operation_without_attempt(
     execution: ExecutionORM,
     now: datetime,
     error_message: str,
+    failure_type: FailureType | None = None,
 ) -> None:
     """Fail a queued/running Operation when no live Attempt can own it."""
     if execution.active_operation_id is None:
@@ -39,6 +40,7 @@ async def fail_active_operation_without_attempt(
     operation.status = OperationStatus.FAILED
     operation.execution_attempt_id = None
     operation.error_message = error_message[:2000]
+    operation.failure_type = failure_type
     operation.finished_at = now
     operation.updated_at = now
     await add_operation_completed_event(session, execution.id, operation.id)

@@ -21,6 +21,7 @@ from executor_service.domain.enums import (
     AttemptStatus,
     ExecutionStatus,
     FailureType,
+    FinalizedBy,
     OperationMode,
     OperationStatus,
     RetryStrategy,
@@ -237,6 +238,8 @@ async def _make_waiting(
     wait_expired: bool = False,
     execution_expired: bool = False,
     server_enabled: bool = True,
+    operation_status: OperationStatus = OperationStatus.SUCCEEDED,
+    operation_failure_type: FailureType | None = None,
 ) -> tuple[Execution, ExecutionAttemptORM]:
     execution = await execution_service.submit(_multi_command(key))
     now = utc_now()
@@ -308,7 +311,28 @@ async def _make_waiting(
         await session.execute(
             update(ExecutionStepORM)
             .where(ExecutionStepORM.id == execution.steps[0].id)
-            .values(status=StepStatus.SUCCEEDED, finished_at=now)
+            .values(
+                status=(
+                    StepStatus.SUCCEEDED
+                    if operation_status == OperationStatus.SUCCEEDED
+                    else StepStatus.FAILED
+                ),
+                finished_at=now,
+            )
+        )
+        await session.execute(
+            update(ExecutionOperationORM)
+            .where(ExecutionOperationORM.execution_id == execution.id)
+            .values(
+                status=operation_status,
+                failure_type=operation_failure_type,
+                error_message=(
+                    None
+                    if operation_status == OperationStatus.SUCCEEDED
+                    else "Step exceeded its timeout."
+                ),
+                finished_at=now,
+            )
         )
     return execution, attempt
 
@@ -957,6 +981,36 @@ async def test_multi_correction_resets_resolved_abort_state(
     assert attempt.runtime_abort_status == RuntimeAbortStatus.NOT_REQUIRED
 
 
+async def test_expired_multi_wait_after_success_finalizes_execution(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    execution, _ = await _make_waiting(
+        execution_service, engine, "wait-finalize", wait_expired=True
+    )
+    _patch_runtime_driver(monkeypatch, FakeJupyterGateway)
+    worker, redis = _worker(engine, tmp_path)
+    try:
+        await worker._multi_lifecycle.audit()
+        await worker._multi_lifecycle.audit()
+    finally:
+        await redis.aclose()
+
+    async with create_session_factory(engine)() as session:
+        row = await session.get(ExecutionORM, execution.id)
+    assert row is not None
+    # The state a finalize call leaves; a Worker completes it SUCCEEDED.
+    assert row.status == ExecutionStatus.FINALIZING
+    assert row.finalization_requested is True
+    assert row.finalized_by == FinalizedBy.WAIT_TIMEOUT
+    assert row.operation_wait_expires_at is None
+    assert row.failure_type is None
+    assert row.runtime_session_id == "kernel-wait-finalize"
+    assert FakeJupyterGateway.deleted == []
+
+
 async def test_expired_multi_wait_fails_and_cleans_kernel_once(
     execution_service: ExecutionService,
     engine: AsyncEngine,
@@ -964,7 +1018,12 @@ async def test_expired_multi_wait_fails_and_cleans_kernel_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     execution, _ = await _make_waiting(
-        execution_service, engine, "wait-timeout", wait_expired=True
+        execution_service,
+        engine,
+        "wait-timeout",
+        wait_expired=True,
+        operation_status=OperationStatus.FAILED,
+        operation_failure_type=FailureType.STEP_TIMEOUT,
     )
     _patch_runtime_driver(monkeypatch, FakeJupyterGateway)
     worker, redis = _worker(engine, tmp_path)
@@ -987,11 +1046,17 @@ async def test_expired_multi_wait_fails_and_cleans_kernel_once(
                 ExecutionEventORM.execution_id == execution.id,
                 ExecutionEventORM.event_type == "execution.completed",
                 ExecutionEventORM.payload["status"].as_string() == "FAILED",
+                ExecutionEventORM.payload["finalized_by"].as_string()
+                == "WAIT_TIMEOUT",
             )
         )
     assert row is not None and attempt is not None
     assert row.status == ExecutionStatus.FAILED
-    assert row.failure_type == FailureType.OPERATION_WAIT_TIMEOUT
+    # The last Operation's failure, not the wait, is why it failed.
+    assert row.failure_type == FailureType.STEP_TIMEOUT
+    assert row.finalized_by == FinalizedBy.WAIT_TIMEOUT
+    assert row.error_message is not None
+    assert "Step exceeded its timeout." in row.error_message
     assert row.runtime_session_id is None
     assert (
         row.runtime_session_cleanup_status
@@ -1096,8 +1161,102 @@ async def test_execution_deadline_precedes_step_wait_deadline(
     async with create_session_factory(engine)() as session:
         row = await session.get(ExecutionORM, execution.id)
     assert row is not None
+    # A successful last Operation is finalized even at the maximum runtime,
+    # and the expiry scan leaves that finalization alone.
+    assert row.status == ExecutionStatus.FINALIZING
+    assert row.finalized_by == FinalizedBy.MAX_RUNTIME
+
+
+async def test_stuck_max_runtime_finalization_fails_after_grace(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    execution, _ = await _make_waiting(
+        execution_service, engine, "finalize-stuck"
+    )
+    now = utc_now()
+    session_factory = create_session_factory(engine)
+    async with session_factory() as session, session.begin():
+        await session.execute(
+            update(ExecutionORM)
+            .where(ExecutionORM.id == execution.id)
+            .values(
+                status=ExecutionStatus.FINALIZING,
+                finalization_requested=True,
+                finalized_by=FinalizedBy.MAX_RUNTIME,
+                operation_wait_expires_at=None,
+                execution_expires_at=now - timedelta(days=2),
+            )
+        )
+    _patch_runtime_driver(monkeypatch, FakeJupyterGateway)
+    worker, redis = _worker(engine, tmp_path)
+    try:
+        await worker._multi_lifecycle.audit()
+        if worker.active_job_count:
+            await worker._dispatcher.wait_idle()
+    finally:
+        await redis.aclose()
+
+    async with session_factory() as session:
+        row = await session.get(ExecutionORM, execution.id)
+    assert row is not None
     assert row.status == ExecutionStatus.FAILED
     assert row.failure_type == FailureType.EXECUTION_TIMEOUT
+    assert row.finalized_by == FinalizedBy.MAX_RUNTIME
+    assert FakeJupyterGateway.deleted == ["kernel-finalize-stuck"]
+
+
+async def test_never_claimed_execution_fails_after_queue_timeout(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+    tmp_path: Path,
+) -> None:
+    stale = await execution_service.submit(_multi_command("queue-stale"))
+    fresh = await execution_service.submit(_multi_command("queue-fresh"))
+    session_factory = create_session_factory(engine)
+    async with session_factory() as session, session.begin():
+        await session.execute(
+            update(ExecutionORM)
+            .where(ExecutionORM.id == stale.id)
+            .values(created_at=utc_now() - timedelta(days=1, seconds=1))
+        )
+    worker, redis = _worker(engine, tmp_path)
+    try:
+        await worker._multi_lifecycle.audit()
+    finally:
+        await redis.aclose()
+
+    async with session_factory() as session:
+        stale_row = await session.get(ExecutionORM, stale.id)
+        fresh_row = await session.get(ExecutionORM, fresh.id)
+        operation = await session.scalar(
+            select(ExecutionOperationORM).where(
+                ExecutionOperationORM.execution_id == stale.id
+            )
+        )
+        step = await session.scalar(
+            select(ExecutionStepORM).where(
+                ExecutionStepORM.execution_id == stale.id
+            )
+        )
+        completed = await session.scalar(
+            select(func.count(ExecutionEventORM.id)).where(
+                ExecutionEventORM.execution_id == stale.id,
+                ExecutionEventORM.event_type == "execution.completed",
+            )
+        )
+    assert stale_row is not None and fresh_row is not None
+    assert operation is not None and step is not None
+    assert stale_row.status == ExecutionStatus.FAILED
+    assert stale_row.failure_type == FailureType.QUEUE_TIMEOUT
+    assert stale_row.finalized_by is None
+    assert operation.status == OperationStatus.FAILED
+    assert operation.failure_type == FailureType.QUEUE_TIMEOUT
+    assert step.status == StepStatus.SKIPPED
+    assert completed == 1
+    assert fresh_row.status == ExecutionStatus.QUEUED
 
 
 async def test_running_execution_deadline_requests_cancel_and_reclaims_kernel(
@@ -1146,12 +1305,24 @@ async def test_running_execution_deadline_requests_cancel_and_reclaims_kernel(
             select(func.count(ExecutionEventORM.id)).where(
                 ExecutionEventORM.execution_id == execution.id,
                 ExecutionEventORM.event_type == "execution.completed",
-                ExecutionEventORM.payload["status"].as_string() == "CANCELLED",
+                ExecutionEventORM.payload["status"].as_string() == "FAILED",
+                ExecutionEventORM.payload["finalized_by"].as_string()
+                == "MAX_RUNTIME",
             )
         )
-    assert row is not None
-    assert row.status == ExecutionStatus.CANCELLED
-    assert row.cancellation_reason == "Execution exceeded its maximum runtime."
+        attempt = await session.scalar(
+            select(ExecutionAttemptORM).where(
+                ExecutionAttemptORM.execution_id == execution.id
+            )
+        )
+    assert row is not None and attempt is not None
+    # Running past the maximum runtime is a failure, not a caller's cancel.
+    assert row.status == ExecutionStatus.FAILED
+    assert row.failure_type == FailureType.EXECUTION_TIMEOUT
+    assert row.finalized_by == FinalizedBy.MAX_RUNTIME
+    assert row.error_message == "Execution exceeded its maximum runtime."
+    assert attempt.status == AttemptStatus.FAILED
+    assert attempt.failure_type == FailureType.EXECUTION_TIMEOUT
     assert row.runtime_session_id is None
     assert timeout_events == 1
     assert FakeJupyterGateway.interrupted == ["kernel-running-timeout"]

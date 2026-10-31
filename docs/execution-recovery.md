@@ -19,7 +19,9 @@ renew leases while a Jupyter cell is running, and reconcile expired leases.
 | `INFRASTRUCTURE_ERROR` | Reserved for non-Jupyter infrastructure failures | Policy is assigned at the failure site |
 | `STEP_TIMEOUT` | One Step exceeded `step_timeout_seconds` | `FROM_FAILED_STEP` when the session is retained |
 | `OPERATION_TIMEOUT` | Total Operation time exceeded `operation_timeout_seconds` | `FROM_FAILED_STEP` when the session is retained |
-| `OPERATION_WAIT_TIMEOUT` | A MULTI caller did not submit/finalize before its wait deadline | `NOT_RETRYABLE` |
+| `OPERATION_WAIT_TIMEOUT` | A MULTI wait deadline passed before any Operation completed (a completed last Operation decides the outcome instead) | `NOT_RETRYABLE` |
+| `EXECUTION_TIMEOUT` | The Execution ran past `EXECUTION_MAX_RUNTIME_SECONDS`; `finalized_by` is `MAX_RUNTIME` | `NOT_RETRYABLE` |
+| `QUEUE_TIMEOUT` | No worker claimed the Execution within `EXECUTION_QUEUE_TIMEOUT_SECONDS` | `NOT_RETRYABLE` |
 
 A successful or cancelled Execution has no `failure_type` and uses `NOT_RETRYABLE`.
 `retry_strategy` is the single source of truth for whether and how an Execution can be retried.

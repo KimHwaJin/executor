@@ -60,6 +60,10 @@ class ExecutionSubmissionCommands:
         validate_submit(command)
         self._validate_tenant(command.tenant_id)
         self._support.validate_step_limits(0, len(command.steps))
+        self._support.validate_timeouts(
+            command.operation_timeout_seconds,
+            (step.step_timeout_seconds for step in command.steps),
+        )
         offering = self._runtime_offerings.get(command.runtime_type)
         if (
             offering is None

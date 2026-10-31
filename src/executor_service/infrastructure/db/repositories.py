@@ -208,6 +208,7 @@ class SQLAlchemyExecutionRepository:
                 recovery_count=execution.recovery_count,
                 runtime_session_cleanup_status=execution.runtime_session_cleanup_status,
                 finalization_requested=execution.finalization_requested,
+                finalized_by=execution.finalized_by,
                 active_operation_id=execution.active_operation_id,
                 operation_wait_expires_at=execution.operation_wait_expires_at,
                 execution_expires_at=execution.execution_expires_at,

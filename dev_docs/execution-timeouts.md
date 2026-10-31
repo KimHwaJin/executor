@@ -13,7 +13,10 @@
 후속 Operation POST는 `operation` wrapper 없이 `operation_timeout_seconds`와
 `spec`을 body 최상위에 받는다. 모든 값은 초 단위다. `300000`은 약 3.47일이며
 밀리초가 아니다. 예시의 300/600은 자동 기본값이 아니다. 0은 무제한 표시가 아니다.
-요청 모델에 이 필드들의 별도 최댓값은 없지만 서비스 전체 수명 제한은 적용된다.
+Step·Operation 제한이 `EXECUTION_MAX_RUNTIME_SECONDS`(설정값)를 넘으면 제출과
+후속 Operation 추가가 422 `INVALID_EXECUTION_SPEC`으로 거절된다. 같은 값은 받는다.
+서버 기본값은 없다. 셀 하나가 며칠 걸리는 작업이 있으므로 비워 두면 전체 수명만
+적용된다.
 
 ## 실제 적용 범위
 
@@ -37,24 +40,41 @@
 ## MULTI 대기 및 Execution 전체 제한
 
 ```text
+첫 실행 대기 만료 = 제출 시각 + EXECUTION_QUEUE_TIMEOUT_SECONDS
 전체 만료 = 최초 Worker 실행 시작 + EXECUTION_MAX_RUNTIME_SECONDS
 MULTI 대기 만료 = min(대기 진입 + 요청 대기시간, 전체 만료)
 ```
 
-- 전체 제한 기본값은 604800초(7일)이며 요청으로 별도 받지 않는다.
-- 최초 배정 전 QUEUED에는 별도 만료가 없다.
+- 전체 제한 기본값은 604800초(7일), 첫 실행 대기 제한 기본값은 86400초(24시간)이며
+  둘 다 서버 설정이고 요청으로 받지 않는다.
+- 한 번도 claim되지 않은 QUEUED가 첫 실행 대기 제한을 넘으면 `FAILED / QUEUE_TIMEOUT`.
+  타깃이 모두 OFFLINE이거나 용량이 계속 찬 경우다. Step은 SKIPPED, Operation은 FAILED.
 - 최초 실행 이후 MULTI 대기·재시도 간격도 전체 예산을 소비한다.
 - 각 Operation 완료 후 새 대기 기한을 계산한다. 다음 Operation/finalize 접수 시
   기존 대기 기한을 해제한다. 조회만으로 연장되지 않는다.
 - Agent 장애를 직접 감지하는 소유권 heartbeat는 없다. 실행 중에는 커널 감시와
   실행 제한을 따르고, 대기 중에는 다음 요청 대기 기한을 따른다.
-- 대기 중 만료는 FAILED/OPERATION_WAIT_TIMEOUT이며 전체 수명도 만료됐다면
-  FAILED/EXECUTION_TIMEOUT 경로를 사용한다.
-- 전체 수명 점검에서 이미 만료 시각이 있는 QUEUED/RUNNING은 CANCEL_REQUESTED로
-  바꾼 뒤 CANCELLED로 종료한다. 최대 시간 초과 사유는 cancellation_reason에 남는다.
-  WAITING 경로와 최종 상태가 다르다는 것이 현재 동작이다.
-- 전용 전체 수명 스캔의 대상에 FINALIZING은 직접 포함되지 않는다. 상태 전환과
-  주기 점검 방식이므로 정확한 시각의 강제 종료 SLA로 해석하지 않는다.
+
+### finalize 없이 끝나는 MULTI (Executor 관점 판정)
+
+대기 기한이나 전체 수명이 지나면 Agent의 finalize를 기다리지 않고 마지막
+Operation 결과로 끝낸다.
+
+| 마지막 Operation | 결과 | `finalized_by` |
+| --- | --- | --- |
+| 성공 | finalize와 같은 경로로 노트북 반영 후 `SUCCEEDED` | 대기 기한이면 `WAIT_TIMEOUT`, 전체 수명이면 `MAX_RUNTIME` |
+| 실패 | `FAILED`, 실패 유형은 그 Operation의 유형(`STEP_TIMEOUT`, `TOOL_ERROR` 등) | 같음 |
+| 완료된 Operation 없음 | `FAILED / OPERATION_WAIT_TIMEOUT` 또는 `EXECUTION_TIMEOUT` | 같음 |
+
+- 실행 중(QUEUED·RUNNING·FINALIZING) 전체 수명 초과는 커널을 멈추고
+  `FAILED / EXECUTION_TIMEOUT`, `finalized_by = MAX_RUNTIME`. CANCELLED가 아니다.
+  CANCELLED는 호출측이 취소한 경우뿐이다.
+- 전체 수명 때문에 자동 finalize한 실행은 반영 작업에 첫 실행 대기 제한만큼 유예를
+  더 받는다. 그 안에 끝나지 않으면 `FAILED / EXECUTION_TIMEOUT`.
+- Agent가 finalize하면 `finalized_by = AGENT`. SINGLE의 정상 종료와 취소는 null.
+- `finalized_by`는 `execution.completed` 이벤트 payload와 조회 응답의
+  `state.finalized_by`에 있다.
+- 상태 전환과 주기 점검 방식이므로 정확한 시각의 강제 종료 SLA로 해석하지 않는다.
 
 ## retry와 보존 커널
 

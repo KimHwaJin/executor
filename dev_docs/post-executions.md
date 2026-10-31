@@ -351,7 +351,9 @@ print(hashlib.sha256(path.read_bytes()).hexdigest())
 독립적인 타이머로 감싸지는 않는다. 제한시간에 중단·정리 완료까지 보장하지 않는다.
 
 별도 서비스 전체 제한 `EXECUTION_MAX_RUNTIME_SECONDS`는 기본 7일이며 최초
-Worker 실행 시작부터 계산한다. 최초 큐 대기에는 별도 시간 제한이 없다.
+Worker 실행 시작부터 계산한다. 넘으면 `FAILED / EXECUTION_TIMEOUT`이다.
+최초 큐 대기 제한 `EXECUTION_QUEUE_TIMEOUT_SECONDS`는 기본 24시간이며 넘으면
+`FAILED / QUEUE_TIMEOUT`이다. Step·Operation 제한이 전체 제한을 넘으면 422로 거절한다.
 MULTI 후속 요청 대기시간은 Operation 완료 후 시작하므로 코드 실행시간과 다르다.
 Agent 생존 heartbeat나 Agent 장애만을 이유로 한 자동 취소는 제공하지 않는다.
 상세한 현재 동작과 재시도 규칙은 [시간 제한 가이드](execution-timeouts.md)를 따른다.

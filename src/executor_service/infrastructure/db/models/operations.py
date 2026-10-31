@@ -17,7 +17,11 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
-from executor_service.domain.enums import ActorType, OperationStatus
+from executor_service.domain.enums import (
+    ActorType,
+    FailureType,
+    OperationStatus,
+)
 from executor_service.domain.models import ExecutionOperation, utc_now
 from executor_service.infrastructure.db.base import Base
 from executor_service.infrastructure.db.models.common import (
@@ -59,6 +63,15 @@ class ExecutionOperationORM(Base):
             "status IN ('QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED', 'CANCELLED')",
             name="valid_operation_status",
         ),
+        CheckConstraint(
+            "failure_type IS NULL OR failure_type IN ('TOOL_ERROR', "
+            "'INFRASTRUCTURE_ERROR', 'WORKER_SHUTDOWN', 'RUNTIME_UNAVAILABLE', "
+            "'LEASE_EXPIRED', 'INTERNAL_ERROR', 'OPERATION_WAIT_TIMEOUT', "
+            "'OPERATION_TIMEOUT', 'STEP_TIMEOUT', 'EXECUTION_TIMEOUT', "
+            "'QUEUE_TIMEOUT', 'OUTPUT_LIMIT_EXCEEDED', "
+            "'RUNTIME_SESSION_LOST', 'COMPLETION_FAILED')",
+            name="valid_operation_failure_type",
+        ),
         Index(
             "ix_execution_operations_execution_number",
             "execution_id",
@@ -99,6 +112,11 @@ class ExecutionOperationORM(Base):
         nullable=True,
     )
     error_message: Mapped[str | None] = mapped_column(Text)
+    # Why a MULTI Operation failed while its Runtime session was kept; the
+    # Execution takes this type if the Agent never sends another Operation.
+    failure_type: Mapped[FailureType | None] = mapped_column(
+        enum_type(FailureType, "operation_failure_type"), nullable=True
+    )
     created_by_type: Mapped[ActorType | None] = mapped_column(
         enum_type(ActorType, "actor_type"), nullable=True
     )

@@ -23,7 +23,8 @@ EXECUTION_TRANSITIONS: dict[S, frozenset[S]] = {
         {S.QUEUED, S.FINALIZING, S.CANCEL_REQUESTED, S.FAILED}
     ),
     S.FINALIZING: frozenset({S.RUNNING, S.CANCEL_REQUESTED, S.FAILED}),
-    S.CANCEL_REQUESTED: frozenset({S.CANCELLED}),
+    # FAILED when the maximum-runtime audit, not a caller, requested it.
+    S.CANCEL_REQUESTED: frozenset({S.CANCELLED, S.FAILED}),
     S.FAILED: frozenset({S.QUEUED}),  # Explicit SINGLE retry.
 }
 

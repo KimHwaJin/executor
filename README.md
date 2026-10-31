@@ -509,9 +509,14 @@ of already executed Steps is intentionally not supported.
   writes; no storage operation falls back across pools.
 
 `EXECUTION_MAX_RUNTIME_SECONDS` defaults to seven days and starts when a worker first claims the
-Execution. Each MULTI request supplies `lifecycle.operation_wait_timeout_seconds`; its deadline is
-reset after every Operation and never exceeds the total Execution deadline. A missed Agent deadline
-produces `OPERATION_WAIT_TIMEOUT`; a missing retained session produces `RUNTIME_SESSION_LOST`.
+Execution; running past it ends `FAILED`/`EXECUTION_TIMEOUT` with `finalized_by: MAX_RUNTIME`.
+An Execution no worker claims within `EXECUTION_QUEUE_TIMEOUT_SECONDS` (default 24 hours) ends
+`FAILED`/`QUEUE_TIMEOUT`. Step and Operation timeouts above the maximum runtime are rejected with
+422. Each MULTI request supplies `lifecycle.operation_wait_timeout_seconds`; its deadline is
+reset after every Operation and never exceeds the total Execution deadline. When it passes, the
+Executor ends the Execution from the last Operation: a success is finalized to `SUCCEEDED`, a
+failure ends `FAILED` with that Operation's failure type (`finalized_by: WAIT_TIMEOUT`, or
+`MAX_RUNTIME` at the total deadline). A missing retained session produces `RUNTIME_SESSION_LOST`.
 A disabled Runtime Target produces `RUNTIME_UNAVAILABLE`. These terminal MULTI failures are
 non-retryable and their sessions are deleted when still reachable. Temporary health-probe
 `OFFLINE` state alone does not immediately fail waiting work; the persisted deadline remains the

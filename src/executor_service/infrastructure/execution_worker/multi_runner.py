@@ -240,6 +240,7 @@ class MultiExecutionRunner:
                             operation_id,
                             OperationStatus.FAILED,
                             error_message=str(exc),
+                            failure_type=failure_type,
                         )
                     else:
                         await self._finalizer.finalize(
@@ -277,6 +278,7 @@ class MultiExecutionRunner:
                         operation_id,
                         OperationStatus.FAILED,
                         error_message=str(exc),
+                        failure_type=FailureType.TOOL_ERROR,
                     )
                     return
                 except StoredStepFailure as exc:

@@ -32,6 +32,7 @@ from executor_service.domain.errors import (
     ExecutionNotFoundError,
     ExecutionVersionConflictError,
     IdempotencyConflictError,
+    InvalidExecutionSpecError,
     InvalidStateTransitionError,
     UnsupportedRuntimeProfileError,
 )
@@ -159,6 +160,68 @@ async def test_step_limits_apply_to_submit_and_appended_operations(
                     StepSpec(sequence=1, code="value_1 = 1"),
                     StepSpec(sequence=2, code="value_2 = 2"),
                 ),
+            )
+        )
+
+
+async def test_timeouts_over_the_execution_maximum_runtime_are_rejected(
+    engine: AsyncEngine,
+    tmp_path: Path,
+) -> None:
+    session_factory = create_session_factory(engine)
+    service = ExecutionService(
+        lambda: SQLAlchemyUnitOfWork(session_factory),
+        {
+            RuntimeType.JUPYTER: RuntimeOffering(
+                ("basic",), JupyterRuntimeAdapter.capabilities
+            )
+        },
+        FilesystemExecutionResultStore(tmp_path),
+        max_runtime_seconds=3600,
+    )
+    with pytest.raises(
+        InvalidExecutionSpecError, match="operation_timeout_seconds"
+    ):
+        await service.submit(
+            replace(
+                submit_command("operation-over-runtime"),
+                operation_timeout_seconds=3601,
+            )
+        )
+    base = submit_command("step-over-runtime")
+    with pytest.raises(
+        InvalidExecutionSpecError, match=r"steps\[0\].step_timeout_seconds"
+    ):
+        await service.submit(
+            replace(
+                base,
+                steps=(replace(base.steps[0], step_timeout_seconds=3601),),
+            )
+        )
+    # Equal to the maximum runtime is accepted.
+    accepted = await service.submit(
+        replace(
+            submit_command("operation-at-runtime"),
+            operation_timeout_seconds=3600,
+        )
+    )
+    assert accepted.status == ExecutionStatus.QUEUED
+
+    execution = await service.submit(multi_submit_command("multi-runtime"))
+    async with session_factory() as session, session.begin():
+        await session.execute(
+            update(ExecutionORM)
+            .where(ExecutionORM.id == execution.id)
+            .values(status=ExecutionStatus.WAITING_FOR_OPERATION, version=2)
+        )
+    with pytest.raises(InvalidExecutionSpecError):
+        await service.create_operation(
+            CreateOperationCommand(
+                execution_id=execution.id,
+                idempotency_key="append-over-runtime",
+                expected_version=2,
+                operation_timeout_seconds=7200,
+                steps=(StepSpec(sequence=1, code="value_1 = 1"),),
             )
         )
 

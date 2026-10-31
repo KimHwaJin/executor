@@ -18,6 +18,7 @@ from executor_service.domain.enums import (
     AttemptStatus,
     ExecutionStatus,
     FailureType,
+    FinalizedBy,
     OperationMode,
     RetryStrategy,
     RuntimeSessionCleanupStatus,
@@ -547,13 +548,11 @@ async def test_one_probe_factory_failure_does_not_skip_other_waiting_deadlines(
             first_row is not None
             and first_row.status == ExecutionStatus.WAITING_FOR_OPERATION
         )
+        # Its last Operation succeeded, so the wait deadline finalizes it.
         assert (
             second_row is not None
-            and second_row.failure_type == FailureType.OPERATION_WAIT_TIMEOUT
-        )
-        assert (
-            second_row.runtime_session_cleanup_status
-            == RuntimeSessionCleanupStatus.FAILED
+            and second_row.status == ExecutionStatus.FINALIZING
+            and second_row.finalized_by == FinalizedBy.WAIT_TIMEOUT
         )
 
 

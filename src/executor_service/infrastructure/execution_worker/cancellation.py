@@ -11,6 +11,8 @@ from executor_service.domain.diagnostics import DiagnosticCategory
 from executor_service.domain.enums import (
     AttemptStatus,
     ExecutionStatus,
+    FailureType,
+    FinalizedBy,
     OperationStatus,
     RetryStrategy,
     RuntimeAbortStatus,
@@ -186,10 +188,33 @@ class CancellationProcessor:
                 ).all()
             )
             active_operation_id = execution.active_operation_id
-            require_execution_transition(
-                execution.status, ExecutionStatus.CANCELLED
+            # The maximum-runtime audit reuses this path to stop the
+            # Runtime; that ending is a failure, not a caller's cancel.
+            timed_out = execution.finalized_by == FinalizedBy.MAX_RUNTIME
+            terminal = (
+                ExecutionStatus.FAILED
+                if timed_out
+                else ExecutionStatus.CANCELLED
             )
-            execution.status = ExecutionStatus.CANCELLED
+            failure_type = FailureType.EXECUTION_TIMEOUT if timed_out else None
+            ended_attempt = (
+                AttemptStatus.FAILED if timed_out else AttemptStatus.CANCELLED
+            )
+            ended_step = (
+                StepStatus.FAILED if timed_out else StepStatus.CANCELLED
+            )
+            ended_operation = (
+                OperationStatus.FAILED
+                if timed_out
+                else OperationStatus.CANCELLED
+            )
+            reason = execution.cancellation_reason or (
+                "Step was cancelled by request."
+            )
+            require_execution_transition(execution.status, terminal)
+            execution.status = terminal
+            if timed_out:
+                execution.error_message = reason
             execution.finished_at = now
             execution.updated_at = now
             execution.lease_owner = None
@@ -198,7 +223,7 @@ class CancellationProcessor:
             execution.cancellation_lease_owner = None
             execution.cancellation_lease_expires_at = None
             execution.operation_wait_expires_at = None
-            execution.failure_type = None
+            execution.failure_type = failure_type
             execution.retry_strategy = RetryStrategy.NOT_RETRYABLE
             execution.retry_from_sequence = None
             execution.retained_runtime_session_until = None
@@ -221,8 +246,9 @@ class CancellationProcessor:
                     ),
                 )
                 .values(
-                    status=AttemptStatus.CANCELLED,
-                    failure_type=None,
+                    status=ended_attempt,
+                    failure_type=failure_type,
+                    **({"error_message": reason} if timed_out else {}),
                     retry_strategy=RetryStrategy.NOT_RETRYABLE,
                     runtime_session_cleanup_status=cleanup_status,
                     lease_owner=None,
@@ -245,7 +271,7 @@ class CancellationProcessor:
             # Only a Step that started is CANCELLED; one that never ran is
             # SKIPPED, as on the failure paths, and gets no Step event.
             for from_status, to_status in (
-                (StepStatus.RUNNING, StepStatus.CANCELLED),
+                (StepStatus.RUNNING, ended_step),
                 (StepStatus.PENDING, StepStatus.SKIPPED),
             ):
                 await session.execute(
@@ -265,7 +291,9 @@ class CancellationProcessor:
                     ),
                 )
                 .values(
-                    status=OperationStatus.CANCELLED,
+                    status=ended_operation,
+                    failure_type=failure_type,
+                    **({"error_message": reason} if timed_out else {}),
                     finished_at=now,
                     updated_at=now,
                 )
@@ -276,7 +304,7 @@ class CancellationProcessor:
                     ExecutionStepAttemptORM.execution_id == execution_id,
                     ExecutionStepAttemptORM.status == StepStatus.RUNNING,
                 )
-                .values(status=StepStatus.CANCELLED, finished_at=now)
+                .values(status=ended_step, finished_at=now)
             )
             for step_id, attempt_id in running_step_attempts:
                 await add_step_history_completed_event(
@@ -284,11 +312,8 @@ class CancellationProcessor:
                     execution_id,
                     step_id,
                     attempt_id,
-                    StepStatus.CANCELLED,
-                    error_message=(
-                        execution.cancellation_reason
-                        or "Step was cancelled by request."
-                    ),
+                    ended_step,
+                    error_message=reason,
                     retryable=False,
                 )
             if active_operation_id is not None:

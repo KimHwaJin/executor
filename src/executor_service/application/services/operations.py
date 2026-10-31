@@ -66,6 +66,10 @@ class ExecutionOperationCommands:
                 self._support.validate_step_limits(
                     len(execution.steps), len(command.steps)
                 )
+                self._support.validate_timeouts(
+                    command.operation_timeout_seconds,
+                    (step.step_timeout_seconds for step in command.steps),
+                )
                 expected_sequence = len(execution.steps)
                 sequences = [step.sequence for step in command.steps]
                 expected_sequences = list(

@@ -747,6 +747,7 @@ Execution의 현재 수행 주기가 `SUCCEEDED`, `FAILED` 또는 `CANCELLED`로
   "event_sequence": 6,
   "payload": {
     "status": "SUCCEEDED",
+    "finalized_by": "AGENT",
     "operation_summary": {
       "total": 2,
       "succeeded": 2,
@@ -786,6 +787,7 @@ Execution의 현재 수행 주기가 `SUCCEEDED`, `FAILED` 또는 `CANCELLED`로
   "event_sequence": 6,
   "payload": {
     "status": "FAILED",
+    "finalized_by": null,
     "operation_summary": {
       "total": 2,
       "succeeded": 1,
@@ -810,11 +812,16 @@ Execution의 현재 수행 주기가 `SUCCEEDED`, `FAILED` 또는 `CANCELLED`로
 ```
 
 취소 시 `status`는 `CANCELLED`, `retry`는 `null`이며 오류 코드는
-`EXECUTION_CANCELLED`를 사용한다.
+`EXECUTION_CANCELLED`를 사용한다. `CANCELLED`는 호출측이 취소한 경우뿐이다.
+전체 수명(`EXECUTION_MAX_RUNTIME_SECONDS`) 초과는 `FAILED`,
+`EXECUTION_EXECUTION_TIMEOUT`, `finalized_by: "MAX_RUNTIME"`이다. 첫 실행을
+`EXECUTION_QUEUE_TIMEOUT_SECONDS` 안에 시작하지 못하면 `FAILED`,
+`EXECUTION_QUEUE_TIMEOUT`이다.
 
 | payload 필드 | 타입 | 필수 | 규칙 |
 |---|---|---:|---|
 | `status` | enum | O | `SUCCEEDED`, `FAILED`, `CANCELLED` |
+| `finalized_by` | enum 또는 null | X | 무엇이 실행을 끝냈는지. `AGENT`(finalize 호출), `WAIT_TIMEOUT`(MULTI 다음 Operation 대기 기한), `MAX_RUNTIME`(전체 수명). SINGLE 정상 종료·취소는 `null`. 대기 기한·수명으로 끝난 MULTI는 마지막 Operation이 성공이면 `SUCCEEDED`, 실패면 그 Operation의 실패 유형으로 `FAILED` |
 | `operation_summary` | object | O | Operation 최종 상태 집계 |
 | `retry` | object 또는 null | O | 재시도 접수 정보 |
 | `error` | object 또는 null | O | 실패 또는 취소 요약 |

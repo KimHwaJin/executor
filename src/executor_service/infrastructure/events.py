@@ -291,6 +291,9 @@ class ExecutionSummary(ContractModel):
 
 class ExecutionCompletedPayload(ContractModel):
     status: Literal["SUCCEEDED", "FAILED", "CANCELLED"]
+    # What ended the Execution; null for a SINGLE that ended normally and
+    # for cancellation.
+    finalized_by: Literal["AGENT", "WAIT_TIMEOUT", "MAX_RUNTIME"] | None = None
     operation_summary: OperationSummary
     retry: RetryAvailability | None
     error: ExecutionErrorSummary | None

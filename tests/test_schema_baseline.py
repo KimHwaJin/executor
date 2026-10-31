@@ -14,9 +14,10 @@ def test_current_schema_keeps_baseline_and_additive_upgrades() -> None:
     revisions = list(scripts.walk_revisions())
 
     assert scripts.get_heads() == [EXPECTED_SCHEMA_REVISION]
-    assert len(revisions) == 12
-    assert revisions[0].revision == EXPECTED_SCHEMA_REVISION == "0012"
+    assert len(revisions) == 13
+    assert revisions[0].revision == EXPECTED_SCHEMA_REVISION == "0013"
     expected = [
+        "0013",
         "0012",
         "0011",
         "0010",

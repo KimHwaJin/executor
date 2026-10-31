@@ -135,9 +135,18 @@ class FailureType(StrEnum):
     OPERATION_TIMEOUT = "OPERATION_TIMEOUT"
     STEP_TIMEOUT = "STEP_TIMEOUT"
     EXECUTION_TIMEOUT = "EXECUTION_TIMEOUT"
+    QUEUE_TIMEOUT = "QUEUE_TIMEOUT"
     OUTPUT_LIMIT_EXCEEDED = "OUTPUT_LIMIT_EXCEEDED"
     RUNTIME_SESSION_LOST = "RUNTIME_SESSION_LOST"
     COMPLETION_FAILED = "COMPLETION_FAILED"
+
+
+class FinalizedBy(StrEnum):
+    """What ended a MULTI Execution, or any Execution past its lifetime."""
+
+    AGENT = "AGENT"
+    WAIT_TIMEOUT = "WAIT_TIMEOUT"
+    MAX_RUNTIME = "MAX_RUNTIME"
 
 
 class HandoverReason(StrEnum):

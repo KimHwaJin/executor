@@ -10,6 +10,7 @@ from executor_service.domain.enums import (
     CodeSourceType,
     ExecutionStatus,
     FailureType,
+    FinalizedBy,
     OperationMode,
     OperationStatus,
     RetryStrategy,
@@ -136,6 +137,7 @@ class Execution:
     )
     runtime_abort_status: RuntimeAbortStatus = RuntimeAbortStatus.NOT_REQUIRED
     finalization_requested: bool = False
+    finalized_by: FinalizedBy | None = None
     active_operation_id: UUID | None = None
     operation_wait_expires_at: datetime | None = None
     execution_expires_at: datetime | None = None
@@ -284,6 +286,7 @@ class Execution:
         require_execution_transition(self.status, ExecutionStatus.FINALIZING)
         self.status = ExecutionStatus.FINALIZING
         self.finalization_requested = True
+        self.finalized_by = FinalizedBy.AGENT
         self.operation_wait_expires_at = None
         self.updated_at = utc_now()
         self.version += 1

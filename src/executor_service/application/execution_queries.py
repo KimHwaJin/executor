@@ -14,6 +14,7 @@ from executor_service.domain.enums import (
     AttemptStatus,
     ExecutionStatus,
     FailureType,
+    FinalizedBy,
     OperationMode,
     OperationStatus,
     OutboxStatus,
@@ -74,6 +75,7 @@ class ExecutionDetailView:
     status: ExecutionStatus
     version: int
     cancellation_reason: str | None
+    finalized_by: FinalizedBy | None
     workspace_path: str | None
     notebook_path: str | None
     notebook_projection_status: NotebookProjectionStatus

@@ -189,6 +189,7 @@ class Settings(BaseSettings):
     runtime_cleanup_retry_interval_seconds: float = Field(default=60, gt=0)
     failed_session_retention_seconds: int = Field(default=3600, ge=60)
     execution_max_runtime_seconds: int = Field(default=604800, ge=60)
+    execution_queue_timeout_seconds: int = Field(default=86400, ge=60)
 
     @classmethod
     def settings_customise_sources(

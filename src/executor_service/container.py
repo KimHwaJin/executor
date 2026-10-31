@@ -63,7 +63,7 @@ from executor_service.infrastructure.runtime_storage import (
 from executor_service.interfaces.execution_specs import ExecutionSpecResolver
 from executor_service.settings import Settings
 
-EXPECTED_SCHEMA_REVISION = "0012"
+EXPECTED_SCHEMA_REVISION = "0013"
 READINESS_DATABASE_TIMEOUT_SECONDS = 2
 REDIS_PING_TIMEOUT_SECONDS = 1
 
@@ -90,7 +90,13 @@ class ApplicationContainer:
         )
         # Readiness gets its own connection: a pool busy with Executions is
         # load, not an outage, and must not pull the Pod out of the Service.
-        self.readiness_engine: AsyncEngine = engine(pooled=False)
+        # SQLite (local and tests) has no server to load; an unpooled
+        # in-memory engine would even open a different, empty database.
+        self.readiness_engine: AsyncEngine = (
+            self.engine
+            if settings.database_dsn.startswith("sqlite")
+            else engine(pooled=False)
+        )
         self.session_factory = create_session_factory(self.engine)
         self.redis: Redis = create_redis_client(settings)
         self.result_store = FilesystemExecutionResultStore(
@@ -107,6 +113,7 @@ class ApplicationContainer:
             max_steps_per_execution=(
                 settings.execution_max_steps_per_execution
             ),
+            max_runtime_seconds=settings.execution_max_runtime_seconds,
         )
         self.execution_queries = SQLAlchemyExecutionQueryService(
             self.session_factory
@@ -192,7 +199,8 @@ class ApplicationContainer:
         await self.outbox_publisher.stop()
         await self.redis.aclose()
         await self.engine.dispose()
-        await self.readiness_engine.dispose()
+        if self.readiness_engine is not self.engine:
+            await self.readiness_engine.dispose()
 
     async def readiness(self) -> dict[str, bool]:
         database_ready = False
