@@ -117,7 +117,7 @@ Redis Step 완료 이벤트와 Operation 완료 이벤트의 `step_results[].res
 `complete=true`는 Step 성공을 뜻하지 않는다. `FAILED`도 오류 결과를 끝까지 수집했다면
 `complete=true`다. 성공 여부는 `state` 또는 Result API의 Step status로 판단한다.
 
-실행 중에는 `<fencing-token>.partial/.state.json`이 사용되지만 이는 공개 계약이나 권위 있는
+실행 중에는 `<fencing-token>.partial/.state.json`(헤더)과 `outputs.jsonl`(배치마다 한 줄)이 사용되지만 이는 공개 계약이나 권위 있는
 결과가 아니다. Agent는 `result_ref`로 반환된 terminal `manifest.json`만 읽어야 한다.
 
 ## `identity`

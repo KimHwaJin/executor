@@ -114,8 +114,7 @@ def test_progress_requires_durably_written_text_and_image(
     root = tmp_path / "executions" / str(execution_id) / "1.partial"
     text = write_ref(root, "text.txt", b"before-interrupt:case")
     image = write_ref(root, "plot.png", b"\x89PNG\r\n\x1a\n")
-    state = {
-        "identity": {"sequence": 1},
+    entry = {
         "outputs": [
             {
                 "representations": [
@@ -126,7 +125,8 @@ def test_progress_requires_durably_written_text_and_image(
         ],
     }
     path = root / ".state.json"
-    path.write_text(json.dumps(state))
+    path.write_text(json.dumps({"identity": {"sequence": 1}}))
+    (root / "outputs.jsonl").write_text(json.dumps(entry) + "\n")
     assert PROBE["progress"](tmp_path, execution_id)
     (root / "plot.png").unlink()
     assert not PROBE["progress"](tmp_path, execution_id)

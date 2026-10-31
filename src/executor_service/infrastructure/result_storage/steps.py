@@ -42,6 +42,8 @@ from executor_service.infrastructure.result_storage.sources import (
 )
 
 TERMINAL_STATES = frozenset({"FINALIZED", "FAILED", "ABORTED"})
+# One JSON line per appended batch while a result is OPEN.
+OUTPUT_LOG = "outputs.jsonl"
 
 
 class FilesystemStepResultStore:
@@ -54,6 +56,9 @@ class FilesystemStepResultStore:
         self._paths = paths
         self._sources = sources
         self._codec = codec
+        # Only the fenced owner appends to a partial result, so its counters
+        # can stay in memory between appends.
+        self._logs: dict[Path, _OutputLog] = {}
 
     def read_projection(
         self, reference: StepResultReference
@@ -106,8 +111,9 @@ class FilesystemStepResultStore:
                 )
             return
         if partial.exists():
-            state = self._load_state(partial)
-            self._require_identity(state, identity)
+            state = _load_state(partial)
+            if state.get("identity") != identity_json(identity):
+                raise ResultStorageError("Step result identity conflicts.")
             if state.get("source") != source_json(source):
                 raise ResultStorageError(
                     "Open Step result belongs to different source content."
@@ -124,17 +130,9 @@ class FilesystemStepResultStore:
             "complete": False,
             "identity": identity_json(identity),
             "source": source_json(source),
-            "outputs": [],
-            "batches": {},
-            "output_count": 0,
-            "representation_count": 0,
-            "total_size_bytes": 0,
-            "execution_count": None,
-            "error_message": None,
             "created_at": now,
-            "updated_at": now,
-            "completed_at": None,
         }
+        atomic_write(partial / OUTPUT_LOG, b"")
         atomic_json_write(partial / ".state.json", state)
 
     def append(
@@ -147,72 +145,52 @@ class FilesystemStepResultStore:
         if not records:
             raise ResultStorageError("Step output batch must not be empty.")
         partial = self._paths.partial_directory(identity, must_exist=True)
-        state = self._load_state(partial)
-        self._require_identity(state, identity)
-        if state.get("state") != "OPEN":
-            raise ResultStorageError(
-                "Only an OPEN Step result accepts output."
-            )
+        log = self._open_log(partial, identity)
         request_digest = records_digest(records)
         batch_key = str(batch_id)
-        existing_batch = state["batches"].get(batch_key)
+        existing_batch = log.batches.get(batch_key)
         if existing_batch is not None:
-            if existing_batch.get("request_sha256") != request_digest:
+            if existing_batch["request_sha256"] != request_digest:
                 raise ResultStorageError(
                     "Step result batch ID conflicts with existing output."
                 )
             return StepResultAppend(
-                committed_offset=int(existing_batch["end_offset"]),
-                output_count=int(existing_batch["output_count"]),
-                representation_count=int(
-                    existing_batch["representation_count"]
-                ),
-                total_size_bytes=int(existing_batch["total_size_bytes"]),
+                committed_offset=existing_batch["end_offset"],
+                output_count=existing_batch["output_count"],
+                representation_count=existing_batch["representation_count"],
+                total_size_bytes=existing_batch["total_size_bytes"],
                 replayed=True,
             )
-        committed = int(state["output_count"])
-        if expected_offset != committed:
+        if expected_offset != log.output_count:
             raise ResultStorageError(
                 "Step result expected offset does not match committed output."
             )
-        outputs: list[dict[str, Any]] = []
-        representation_count = 0
-        total_size_bytes = 0
-        for index, record in enumerate(records):
-            output = self._codec.persist_record(
+        outputs = [
+            self._codec.persist_record(
                 partial,
                 result_relative=self._paths.result_relative(identity),
                 ordinal=expected_offset + index,
                 record=record,
             )
-            outputs.append(output)
-            representation_count += len(output["representations"])
-            total_size_bytes += sum(
-                int(item["size_bytes"]) for item in output["representations"]
-            )
-        state["outputs"].extend(outputs)
-        state["output_count"] = committed + len(outputs)
-        state["representation_count"] = (
-            int(state["representation_count"]) + representation_count
-        )
-        state["total_size_bytes"] = (
-            int(state["total_size_bytes"]) + total_size_bytes
-        )
-        state["updated_at"] = utc_now()
-        state["batches"][batch_key] = {
+            for index, record in enumerate(records)
+        ]
+        entry = {
+            "batch_id": batch_key,
             "request_sha256": request_digest,
-            "start_offset": expected_offset,
-            "end_offset": state["output_count"],
-            "output_count": len(outputs),
-            "representation_count": representation_count,
-            "total_size_bytes": total_size_bytes,
+            "outputs": outputs,
         }
-        atomic_json_write(partial / ".state.json", state)
+        # Append one line and fsync it: the cost of a batch no longer grows
+        # with the output already written.
+        with (partial / OUTPUT_LOG).open("ab") as handle:
+            handle.write(_log_line(entry))
+            handle.flush()
+            os.fsync(handle.fileno())
+        batch = log.add(entry)
         return StepResultAppend(
-            committed_offset=int(state["output_count"]),
-            output_count=len(outputs),
-            representation_count=representation_count,
-            total_size_bytes=total_size_bytes,
+            committed_offset=batch["end_offset"],
+            output_count=batch["output_count"],
+            representation_count=batch["representation_count"],
+            total_size_bytes=batch["total_size_bytes"],
             replayed=False,
         )
 
@@ -234,22 +212,33 @@ class FilesystemStepResultStore:
                 )
             return descriptor
         partial = self._paths.partial_directory(identity, must_exist=True)
-        state = self._load_state(partial)
-        self._require_identity(state, identity)
-        if state.get("state") != "OPEN":
-            raise ResultStorageError("Step result is not OPEN.")
-        state["state"] = state_name
-        state["complete"] = state_name in {"FINALIZED", "FAILED"}
-        state["execution_count"] = execution_count
-        state["error_message"] = (
-            error_message[:2000] if error_message is not None else None
-        )
-        state["output_summary"] = output_summary(state["outputs"])
-        state["completed_at"] = utc_now()
-        state["updated_at"] = state["completed_at"]
-        state.pop("batches", None)
-        atomic_json_write(partial / "manifest.json", state)
+        log = self._open_log(partial, identity)
+        outputs = [
+            output
+            for entry in _read_log(partial / OUTPUT_LOG)
+            for output in entry["outputs"]
+        ]
+        completed_at = utc_now()
+        manifest = {
+            **log.header,
+            "state": state_name,
+            "complete": state_name in {"FINALIZED", "FAILED"},
+            "outputs": outputs,
+            "output_count": log.output_count,
+            "representation_count": log.representation_count,
+            "total_size_bytes": log.total_size_bytes,
+            "execution_count": execution_count,
+            "error_message": (
+                error_message[:2000] if error_message is not None else None
+            ),
+            "output_summary": output_summary(outputs),
+            "updated_at": completed_at,
+            "completed_at": completed_at,
+        }
+        atomic_json_write(partial / "manifest.json", manifest)
         (partial / ".state.json").unlink()
+        (partial / OUTPUT_LOG).unlink()
+        self._logs.pop(partial, None)
         fsync_directory(partial)
         final.parent.mkdir(parents=True, exist_ok=True)
         os.replace(partial, final)
@@ -315,26 +304,97 @@ class FilesystemStepResultStore:
             ),
         )
 
-    @staticmethod
-    def _require_identity(
-        state: dict[str, Any], identity: StepResultIdentity
-    ) -> None:
-        if state.get("identity") != identity_json(identity):
-            raise ResultStorageError("Step result identity conflicts.")
+    def _open_log(
+        self, partial: Path, identity: StepResultIdentity
+    ) -> "_OutputLog":
+        """The OPEN result's counters, read from disk once per writer."""
 
-    @staticmethod
-    def _load_state(directory: Path) -> dict[str, Any]:
-        try:
-            value = json.loads((directory / ".state.json").read_bytes())
-        except (FileNotFoundError, json.JSONDecodeError) as exc:
-            raise ResultStorageError(
-                "Open Step result state is unavailable."
-            ) from exc
-        if not isinstance(value, dict):
-            raise ResultStorageError(
-                "Open Step result state must be an object."
-            )
-        return value
+        log = self._logs.get(partial)
+        if log is None:
+            header = _load_state(partial)
+            if header.get("state") != "OPEN":
+                raise ResultStorageError("Step result is not OPEN.")
+            log = _OutputLog(header)
+            for entry in _read_log(partial / OUTPUT_LOG, repair=True):
+                log.add(entry)
+            self._logs[partial] = log
+        if log.header.get("identity") != identity_json(identity):
+            raise ResultStorageError("Step result identity conflicts.")
+        return log
+
+
+class _OutputLog:
+    """Counters and batch receipts of one OPEN Step result."""
+
+    def __init__(self, header: dict[str, Any]) -> None:
+        self.header = header
+        self.output_count = 0
+        self.representation_count = 0
+        self.total_size_bytes = 0
+        self.batches: dict[str, dict[str, Any]] = {}
+
+    def add(self, entry: dict[str, Any]) -> dict[str, Any]:
+        outputs = entry["outputs"]
+        representations = [
+            item for output in outputs for item in output["representations"]
+        ]
+        batch = {
+            "request_sha256": entry["request_sha256"],
+            "end_offset": self.output_count + len(outputs),
+            "output_count": len(outputs),
+            "representation_count": len(representations),
+            "total_size_bytes": sum(
+                int(item["size_bytes"]) for item in representations
+            ),
+        }
+        self.output_count = batch["end_offset"]
+        self.representation_count += batch["representation_count"]
+        self.total_size_bytes += batch["total_size_bytes"]
+        self.batches[entry["batch_id"]] = batch
+        return batch
+
+
+def _log_line(entry: dict[str, Any]) -> bytes:
+    return (
+        json.dumps(
+            entry, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode("utf-8")
+        + b"\n"
+    )
+
+
+def _read_log(path: Path, *, repair: bool = False) -> list[dict[str, Any]]:
+    try:
+        body = path.read_bytes()
+    except FileNotFoundError as exc:
+        raise ResultStorageError(
+            "Open Step result output log is unavailable."
+        ) from exc
+    complete = body[: body.rfind(b"\n") + 1]
+    if repair and len(complete) != len(body):
+        # A crash mid-append leaves a partial last line that was never
+        # acknowledged; drop it so the next append starts on a clean line.
+        with path.open("r+b") as handle:
+            handle.truncate(len(complete))
+            os.fsync(handle.fileno())
+    try:
+        return [json.loads(line) for line in complete.splitlines()]
+    except json.JSONDecodeError as exc:
+        raise ResultStorageError(
+            "Open Step result output log is invalid."
+        ) from exc
+
+
+def _load_state(directory: Path) -> dict[str, Any]:
+    try:
+        value = json.loads((directory / ".state.json").read_bytes())
+    except (FileNotFoundError, json.JSONDecodeError) as exc:
+        raise ResultStorageError(
+            "Open Step result state is unavailable."
+        ) from exc
+    if not isinstance(value, dict):
+        raise ResultStorageError("Open Step result state must be an object.")
+    return value
 
 
 def remove_partial_files(root: Path, identity: StepResultIdentity) -> None:

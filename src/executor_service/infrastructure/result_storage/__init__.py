@@ -3,6 +3,7 @@
 import asyncio
 from pathlib import Path
 from uuid import UUID
+from weakref import WeakValueDictionary
 
 from executor_service.domain.results import (
     ExecutionSourceReference,
@@ -40,7 +41,11 @@ class FilesystemExecutionResultStore:
             self._sources,
             ResultOutputCodec(self._paths),
         )
-        self._locks: dict[str, asyncio.Lock] = {}
+        # Weak values: a Step's lock goes away once no append, seal or
+        # waiter holds it, so the map does not grow with every Step run.
+        self._locks: WeakValueDictionary[str, asyncio.Lock] = (
+            WeakValueDictionary()
+        )
         self._locks_guard = asyncio.Lock()
 
     async def snapshot_source(
@@ -129,7 +134,10 @@ class FilesystemExecutionResultStore:
     async def _lock(self, identity: StepResultIdentity) -> asyncio.Lock:
         key = self._paths.result_relative(identity).as_posix()
         async with self._locks_guard:
-            return self._locks.setdefault(key, asyncio.Lock())
+            lock = self._locks.get(key)
+            if lock is None:
+                lock = self._locks[key] = asyncio.Lock()
+            return lock
 
 
 def remove_partial_result(root: Path, identity: StepResultIdentity) -> None:
