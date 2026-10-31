@@ -188,6 +188,7 @@ def test_runtime_compose_preserves_fleet_and_storage() -> None:
         "jupyter-batch-secondary": "8891:8888",
     }
     assert set(runtime["services"]) == set(expected_ports)
+    assert runtime["services"]["jupyter"]["build"] == {"context": "deploy/jupyter"}
     for service, port in expected_ports.items():
         definition = runtime["services"][service]
         assert definition["image"] == "executor-jupyter:local"
@@ -195,6 +196,7 @@ def test_runtime_compose_preserves_fleet_and_storage() -> None:
         assert definition["volumes"] == [
             "./test_harness/jupyter/workspace:/workspace/pv"
         ]
+        assert definition["environment"]["JUPYTER_ROOT_DIR"] == "/workspace/pv"
         assert "profiles" not in definition
     app_overlay = yaml.safe_load(
         (ROOT / "docker-compose.test.yml").read_text()

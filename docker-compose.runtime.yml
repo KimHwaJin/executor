@@ -4,11 +4,12 @@ services:
   # INTERACTIVE primary; registered in Executor as local-jupyter.
   jupyter:
     image: executor-jupyter:local
+    # Same image as production; needs deploy/jupyter/python-sources (README).
     build:
-      context: .
-      dockerfile: test_harness/jupyter/Dockerfile
+      context: deploy/jupyter
     environment:
       JUPYTER_TOKEN: ${JUPYTER_TOKEN:-default}
+      JUPYTER_ROOT_DIR: /workspace/pv
       EXECUTOR_RESOURCE_CPU_CORES: ${JUPYTER_RESOURCE_CPU_CORES:-2}
       EXECUTOR_RESOURCE_MEMORY_BYTES: ${JUPYTER_RESOURCE_MEMORY_BYTES:-4294967296}
     ports:
@@ -31,6 +32,7 @@ services:
     image: executor-jupyter:local
     environment:
       JUPYTER_TOKEN: ${JUPYTER_SECONDARY_TOKEN:-default}
+      JUPYTER_ROOT_DIR: /workspace/pv
       EXECUTOR_RESOURCE_CPU_CORES: ${JUPYTER_RESOURCE_CPU_CORES:-2}
       EXECUTOR_RESOURCE_MEMORY_BYTES: ${JUPYTER_RESOURCE_MEMORY_BYTES:-4294967296}
     ports:
@@ -53,6 +55,7 @@ services:
     image: executor-jupyter:local
     environment:
       JUPYTER_TOKEN: ${JUPYTER_BATCH_PRIMARY_TOKEN:-default}
+      JUPYTER_ROOT_DIR: /workspace/pv
       EXECUTOR_RESOURCE_CPU_CORES: ${JUPYTER_RESOURCE_CPU_CORES:-2}
       EXECUTOR_RESOURCE_MEMORY_BYTES: ${JUPYTER_RESOURCE_MEMORY_BYTES:-4294967296}
     ports:
@@ -75,6 +78,7 @@ services:
     image: executor-jupyter:local
     environment:
       JUPYTER_TOKEN: ${JUPYTER_BATCH_SECONDARY_TOKEN:-default}
+      JUPYTER_ROOT_DIR: /workspace/pv
       EXECUTOR_RESOURCE_CPU_CORES: ${JUPYTER_RESOURCE_CPU_CORES:-2}
       EXECUTOR_RESOURCE_MEMORY_BYTES: ${JUPYTER_RESOURCE_MEMORY_BYTES:-4294967296}
     ports:
