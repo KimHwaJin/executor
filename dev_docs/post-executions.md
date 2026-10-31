@@ -350,7 +350,7 @@ print(hashlib.sha256(path.read_bytes()).hexdigest())
 현재 Operation 제한은 각 Step 실행 시 검사하며, 준비·마지막 후처리 전체를
 독립적인 타이머로 감싸지는 않는다. 제한시간에 중단·정리 완료까지 보장하지 않는다.
 
-별도 서비스 전체 제한 `EXECUTION_MAX_RUNTIME_SECONDS`는 기본 5일이며 최초
+별도 서비스 전체 제한 `EXECUTION_MAX_RUNTIME_SECONDS`는 기본 7일이며 최초
 Worker 실행 시작부터 계산한다. 최초 큐 대기에는 별도 시간 제한이 없다.
 MULTI 후속 요청 대기시간은 Operation 완료 후 시작하므로 코드 실행시간과 다르다.
 Agent 생존 heartbeat나 Agent 장애만을 이유로 한 자동 취소는 제공하지 않는다.
