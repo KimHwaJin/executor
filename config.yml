@@ -12,6 +12,9 @@ HOST: 0.0.0.0
 # Listen port; keep deployment containerPort in step.
 PORT: 8000
 HTTP_GRACEFUL_SHUTDOWN_SECONDS: 20
+# Swagger /docs, /redoc and /openapi.json. Internal-network rules keep them
+# off in every deployed environment (dev too); turn on only for local work.
+DOCS_ENABLED: false
 DATABASE_POOL_SIZE: 10
 DATABASE_MAX_OVERFLOW: 5
 DATABASE_POOL_TIMEOUT_SECONDS: 30

@@ -165,7 +165,10 @@ selected Runtime Driver to persist its final execution record, releases the reta
 session, and reaches a terminal state. The Jupyter driver writes the final notebook.
 
 All list endpoints use opaque cursor pagination. Clients must return `next_cursor` unchanged.
-OpenAPI is available at `/openapi.json`, Swagger UI at `/docs`, and ReDoc at `/redoc`.
+OpenAPI is available at `/openapi.json`, Swagger UI at `/docs`, and ReDoc at `/redoc` only when
+`DOCS_ENABLED=true`. The default is off and every deployed environment, dev included, keeps it off
+under internal-network rules; the routes then answer 404. Use the generated ReDoc HTML in
+`dev_docs/` instead.
 
 Execution history is always limited to the caller's tenant and, with `X-User-Id`, that user. It
 can be further filtered by `project_id`, `session_id`, `trigger_type`, and `status`. Detail and

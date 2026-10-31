@@ -154,7 +154,8 @@ This deployment path requires no Kubernetes API access from inside the applicati
 - Readiness: `GET /readyz` requires the expected database schema and a Worker accepting
   work. Redis is reported as `redis_reachable` but does not gate readiness, because the Outbox
   retries event publication. An empty Runtime Fleet does not make the control API unready.
-- REST/OpenAPI: `GET /docs`, `GET /redoc`, `GET /openapi.json`
+- REST/OpenAPI: `GET /docs`, `GET /redoc`, `GET /openapi.json`, only with `DOCS_ENABLED=true`;
+  off (404) in every deployed environment
 - MCP Streamable HTTP: `POST /mcp`
 - Internal Service URL: `http://executor:8000`
 

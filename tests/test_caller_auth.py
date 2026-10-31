@@ -62,6 +62,7 @@ async def _app(
         redis_url="redis://localhost:6399/15",
         runtime_enabled=False,
         shared_storage_root=tmp_path,
+        docs_enabled=True,
         **overrides,
     )
     container = ApplicationContainer(settings)

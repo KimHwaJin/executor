@@ -87,6 +87,7 @@ async def fleet_client(
         runtime_enabled=False,
         runtime_allowed_profiles=("default", "3102311"),
         shared_storage_root=tmp_path,
+        docs_enabled=True,
     )
     container = ApplicationContainer(settings)
     async with container.engine.begin() as connection:

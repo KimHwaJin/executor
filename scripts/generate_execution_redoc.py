@@ -47,7 +47,7 @@ def _parse_args() -> argparse.Namespace:
 
 
 def _execution_openapi(operation: str | None = None) -> dict[str, Any]:
-    settings = Settings(runtime_enabled=False)
+    settings = Settings(runtime_enabled=False, docs_enabled=True)
     app = create_app(ApplicationContainer(settings))
     source = app.openapi()
     only_method, only_path = (
