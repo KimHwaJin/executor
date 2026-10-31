@@ -168,7 +168,9 @@ class Settings(BaseSettings):
         "default",
         "3102311",
     )
-    runtime_default_max_concurrent_executions: int = Field(default=2, ge=1)
+    # Executions one Jupyter server runs at once when its registration gives
+    # no value; size it from server memory over one kernel's peak.
+    runtime_default_max_concurrent_executions: int = Field(default=20, ge=1)
     runtime_health_poll_interval_seconds: float = Field(default=15, gt=0)
     runtime_session_count_max_age_seconds: float = Field(default=45, gt=0)
     runtime_resource_max_age_seconds: float = Field(default=45, gt=0)

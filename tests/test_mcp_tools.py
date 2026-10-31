@@ -424,7 +424,8 @@ async def test_mcp_runtime_target_disable_uses_shared_contract(
         "drain_complete": False,
     }
     assert disabled.structured_content["capacity"] == {
-        "max_concurrent_executions": 2,
+        # Registered without a value: the setting's default applies.
+        "max_concurrent_executions": 20,
         "active_execution_count": 0,
         "active_session_count": None,
         "admission_used_count": 0,
