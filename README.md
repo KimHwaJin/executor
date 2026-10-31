@@ -747,7 +747,8 @@ never from `.env`. `config.yml` lists every shared tunable at its code default i
 hold credentials, MCP host/origin allowlists, storage roots and other deployment-only values. Keys
 are the setting names in any case. The
 platform offers no ConfigMaps or Secrets, so these files, credentials included, ship in the
-image (`COPY config*.yml`). `DATABASE_URL` and `REDIS_URL` are secret settings and are never
+image. Build one image per environment with `--build-arg APP_ENV=<env>`; it then carries
+`config.yml` and that environment's file only. `DATABASE_URL` and `REDIS_URL` are secret settings and are never
 intentionally logged. `.env.example` contains local-only credentials.
 
 `MCP_ALLOWED_HOSTS` and `MCP_ALLOWED_ORIGINS` are fail-closed allowlists for the SDK's DNS-rebinding

@@ -52,10 +52,9 @@ ARG UV_DEFAULT_INDEX
 
 # Deployment settings: override these with container environment variables.
 # ROOT_DIR must match the shared PVC mount path and be writable by UID 1000.
-# TOKEN defaults to "default" for testing; override via Secret in production.
-# See README.md section 5 before deployment.
-ENV JUPYTER_ROOT_DIR=/workspace/jupyter \
-    JUPYTER_TOKEN=default
+# JUPYTER_TOKEN has no image default: inject a distinct token per server at
+# runtime, or start-jupyter.sh refuses to start. See README.md section 5.
+ENV JUPYTER_ROOT_DIR=/workspace/jupyter
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PATH="/opt/venvs/jupyter/bin:${PATH}" \

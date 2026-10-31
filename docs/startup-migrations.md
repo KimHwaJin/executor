@@ -44,7 +44,8 @@ revision을 추가하지 않았으며, 현재 head는 Execution의 `task_id`/`wo
 
 ConfigMap/Secret을 쓸 수 없으므로 설정은 이미지에 들어가는 `config.{APP_ENV}.yml`(환경별 값)에
 두고, Deployment는 `APP_ENV`만 지정한다. 기본값은 `settings.py`에 있다. 환경 파일에는 DB/Redis
-자격 증명과 Fernet 키가 들어가므로 이미지 접근 권한자는 이 값을 볼 수 있다.
+자격 증명과 Fernet 키가 들어가므로 이미지 접근 권한자는 이 값을 볼 수 있다. 이미지는 환경마다
+`--build-arg APP_ENV=<env>`로 따로 빌드하며 그 환경의 파일만 들어간다.
 
 기본 전략은 RollingUpdate(maxSurge 1, maxUnavailable 0)다. 새 Pod가 기동하며 마이그레이션하고
 구버전 Pod는 그동안 계속 동작하므로, 한 릴리스의 마이그레이션은 구버전 코드와 호환되는 추가

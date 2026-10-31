@@ -39,6 +39,9 @@ Before deployment:
    such as Runtime profiles or pool size for one environment, add the key to `config.prd.yml`; for
    every environment, change it in `config.yml` and `src/executor_service/settings.py` together.
    An environment variable with the same name still overrides a file value.
+   Build one image per environment with `docker build --build-arg APP_ENV=prd .`: the image then
+   carries `config.yml` and `config.prd.yml` only, never another environment's credentials, and
+   its `APP_ENV` must match the Deployment's.
 3. Replace `REPLACE_USER`, `REPLACE_PASSWORD`, and `REPLACE_WITH_FERNET_KEY` in that file.
    `RUNTIME_CREDENTIAL_KEY` must be a Fernet key and must remain stable while encrypted
    Runtime credentials exist in PostgreSQL. URL-encode special characters in URL credentials.

@@ -69,12 +69,12 @@ def test_uv_base_images_and_build_only_default_index() -> None:
 def test_deployment_defaults_are_visible() -> None:
     dockerfile = (PACKAGE / "Dockerfile").read_text()
     runtime_stage = dockerfile.split("FROM ${PYTHON312_IMAGE}\n")[1]
-    assert (
-        "ENV JUPYTER_ROOT_DIR=/workspace/jupyter \\\n    JUPYTER_TOKEN=default"
-        in runtime_stage
-    )
+    assert "ENV JUPYTER_ROOT_DIR=/workspace/jupyter\n" in runtime_stage
     assert dockerfile.count("JUPYTER_ROOT_DIR=") == 1
-    assert dockerfile.count("JUPYTER_TOKEN=") == 1
+    # No baked-in token: each server gets its own at runtime.
+    assert "JUPYTER_TOKEN=" not in dockerfile
+    server_config = (PACKAGE / "jupyter_server_config.py").read_text()
+    assert 'os.environ.pop("JUPYTER_TOKEN", None)' in server_config
     assert 'mkdir -p "${JUPYTER_ROOT_DIR}"' in dockerfile
     assert 'chown -R 1000:1000 "${JUPYTER_ROOT_DIR}"' in dockerfile
     assert 'WORKDIR "${JUPYTER_ROOT_DIR}"' in dockerfile

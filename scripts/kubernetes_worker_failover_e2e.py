@@ -46,6 +46,8 @@ class Config:
     request_timeout_seconds: float
     report_path: Path
     bearer_token: str | None
+    # /workerz needs an admin key when the Executor checks keys.
+    admin_api_key: str | None = None
     ca_file: str | None
     allow_pod_delete: bool
 
@@ -147,9 +149,12 @@ def _http_verify(config: Config) -> bool | ssl.SSLContext:
 
 
 def _headers(config: Config) -> dict[str, str]:
-    if config.bearer_token is None:
-        return {}
-    return {"Authorization": f"Bearer {config.bearer_token}"}
+    headers: dict[str, str] = {}
+    if config.bearer_token is not None:
+        headers["Authorization"] = f"Bearer {config.bearer_token}"
+    if config.admin_api_key is not None:
+        headers["X-Api-Key"] = config.admin_api_key
+    return headers
 
 
 async def _get_json(
@@ -414,7 +419,7 @@ async def run(config: Config) -> dict[str, Any]:
         "configuration": {
             key: value
             for key, value in asdict(config).items()
-            if key not in {"bearer_token", "allow_pod_delete"}
+            if key not in {"bearer_token", "admin_api_key", "allow_pod_delete"}
         },
     }
     config.report_path.parent.mkdir(parents=True, exist_ok=True)
@@ -490,6 +495,7 @@ def _parse_args() -> Config:
         request_timeout_seconds=arguments.request_timeout_seconds,
         report_path=arguments.report_path,
         bearer_token=os.getenv("KUBE_FAILOVER_BEARER_TOKEN"),
+        admin_api_key=os.getenv("KUBE_FAILOVER_ADMIN_API_KEY"),
         ca_file=arguments.ca_file,
         allow_pod_delete=arguments.allow_pod_delete,
     )

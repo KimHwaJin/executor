@@ -26,8 +26,8 @@ Executor는 코드를 `POST /executor/kernels/{kernel_id}/executions`로 한 번
 Dockerfile의 각 구문, 권한 설정, PVC 적용 시 주의사항은
 [`DOCKERFILE_GUIDE.md`](DOCKERFILE_GUIDE.md)에 상세히 정리되어 있다.
 
-**배포 전 Dockerfile 상단의 `JUPYTER_ROOT_DIR`, `JUPYTER_TOKEN`과
-아래 5번 배포 설정을 확인한다. 별도 주입이 없으면 토큰은 `default`로 실행된다.**
+**배포 전 Dockerfile 상단의 `JUPYTER_ROOT_DIR`과 아래 5번 배포 설정을 확인한다.
+이미지에는 토큰 기본값이 없다. 서버마다 다른 `JUPYTER_TOKEN`을 주입하지 않으면 시작하지 않는다.**
 
 **저장소에 포함된 최초 `uv.lock`은 공개 PyPI 기준이다. 폐쇄망에 반입한 뒤에는 이미지
 빌드보다 먼저 아래 3번 절차로 실제 Nexus 기준 lock을 생성하고 Git에 커밋한다.**
@@ -226,22 +226,26 @@ docker push ${image.tag}
 
 ## 5. 배포할 때 지정할 값
 
-Dockerfile 상단에 두 설정의 이미지 기본값을 모아 두었다.
+Dockerfile 상단에 작업공간 루트의 이미지 기본값을 두었다.
 
 ```dockerfile
-ENV JUPYTER_ROOT_DIR=/workspace/jupyter \
-    JUPYTER_TOKEN=default
+ENV JUPYTER_ROOT_DIR=/workspace/jupyter
 ```
 
-별도 환경변수 주입이 없으면 `${JUPYTER_ROOT_DIR}`은 위 기본값을 사용하고,
-토큰은 `default`로 실행된다.
-운영 배포 시에는 Secret으로 별도 토큰을 주입한다.
+`JUPYTER_TOKEN`은 이미지 기본값이 없어 배포 환경에서 반드시 주입한다.
+
+- **서버(Runtime Target)마다 다른 토큰**을 쓴다. 한 토큰이 새면 그 서버만 영향을 받는다.
+  Executor에는 Runtime Target 등록 시 같은 값을 넣는다.
+- 서버는 시작할 때 토큰을 읽은 뒤 자기 환경변수에서 지운다. 커널은 서버 환경을 물려받으므로
+  사용자 코드가 `os.environ`으로 토큰을 읽을 수 없다.
+- 같은 UID로 실행되는 사용자 코드는 `/proc/<서버 PID>/environ`으로 시작 시 환경을 여전히
+  읽을 수 있다. 여러 조직(테넌트)이 쓰게 되면 테넌트별로 Jupyter 서버를 분리한다.
 
 
 | 항목 | 설정 |
 |---|---|
 | 이미지 | 위에서 빌드·업로드한 태그 |
-| `JUPYTER_TOKEN` | 기본 `default`. 운영에서는 플랫폼 Secret으로 덮어씀. 빈 값이면 시작 실패 |
+| `JUPYTER_TOKEN` | 필수, 서버마다 다른 값. 이미지 기본값 없음. 비어 있으면 시작 실패 |
 | `JUPYTER_ROOT_DIR` | 작업공간 루트 `${JUPYTER_ROOT_DIR}`. 실제 공유 PVC 마운트 경로와 일치시킴 |
 | `EXECUTOR_JOURNAL_DIR` | 선택. 실행 저널 위치. 기본 `/tmp/executor-journals`(컨테이너 로컬) |
 | `EXECUTOR_JOURNAL_MAX_BYTES` | 선택. 요청 하나의 저널 상한. 기본 `1073741824`(1GiB). 넘으면 `OUTPUT_LIMIT`로 끝남 |
@@ -340,5 +344,5 @@ v1은 분리/결합 컨트롤러 마운트, namespace 경로, 무제한 제한�
 
 AMD64 운영 환경은 해당 아키텍처로 다시 빌드·검증해야 한다. 내부 Harbor/Nexus/apt 미러
 접근 및 사내 패키지 목록은 이번 로컬 검증에 포함하지 않았다.
-기존 `JUPYTER_TOKEN=default` 때문에 Docker의 SecretsUsedInArgOrEnv 경고가 표시된다.
-이는 기존 테스트 기본값 정책이며 운영에서는 반드시 실제 토큰을 배포 환경에서 주입한다.
+이미지에 토큰 기본값이 없으므로 로컬 실행에서도 `JUPYTER_TOKEN`을 지정한다
+(`docker-compose.runtime.yml`은 `JUPYTER_TOKEN` 등 환경변수, 없으면 `default`를 넘긴다).

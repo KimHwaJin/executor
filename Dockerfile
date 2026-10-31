@@ -14,7 +14,11 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
 COPY alembic.ini ./
-COPY logger.yml config*.yml ./
+# One image per environment: build with --build-arg APP_ENV=stg (or prd) and
+# only that environment's credentials ship in it. Without APP_ENV the image
+# carries config.yml alone (the [l] glob may match nothing).
+ARG APP_ENV=
+COPY logger.yml config.yml config.${APP_ENV}.ym[l] ./
 COPY migrations ./migrations
 COPY src ./src
 RUN uv sync --frozen --no-dev \
