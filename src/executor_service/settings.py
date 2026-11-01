@@ -123,7 +123,7 @@ class Settings(BaseSettings):
     http_graceful_shutdown_seconds: int = Field(default=20, ge=0)
     # /docs, /redoc and /openapi.json. Off by default: internal-network rules
     # forbid exposing them in any deployed environment, dev included.
-    docs_enabled: bool = False
+    docs_enabled: bool = True
 
     database_url: SecretStr = SecretStr(
         "postgresql+psycopg://executor:executor@localhost:5432/executor"

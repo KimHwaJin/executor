@@ -23,6 +23,8 @@ AUTH_CLIENTS:
     key_sha256: ["0000000000000000000000000000000000000000000000000000000000000002"]
     admin: true
 MCP_ENABLED: false
+# Internal-network rules keep the API docs off when deployed.
+DOCS_ENABLED: false
 # Project root layout: <root>/executor holds results; callers send
 # inputs relative to <root> (batch/inputs/..., dtest-agent-service/...).
 SHARED_STORAGE_ROOT: /mnt/data/dtest/executor

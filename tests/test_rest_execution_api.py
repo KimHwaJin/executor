@@ -1377,7 +1377,7 @@ async def test_request_validation_details_carry_the_limit(
     assert issue["context"] == {"max_length": 255}
 
 
-async def test_docs_and_openapi_are_off_unless_enabled(tmp_path: Path) -> None:
+async def test_docs_and_openapi_are_off_when_disabled(tmp_path: Path) -> None:
     container = ApplicationContainer(
         Settings(
             _env_file=None,
@@ -1385,9 +1385,9 @@ async def test_docs_and_openapi_are_off_unless_enabled(tmp_path: Path) -> None:
             redis_url="redis://localhost:6399/15",
             runtime_enabled=False,
             shared_storage_root=tmp_path,
+            docs_enabled=False,
         )
     )
-    assert container.settings.docs_enabled is False
     transport = httpx.ASGITransport(app=create_app(container))
     try:
         async with httpx.AsyncClient(
