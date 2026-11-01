@@ -20,12 +20,14 @@ def issue_json(issue: ErrorIssue) -> dict[str, Any]:
 def error_content(
     code: str, message: str, details: Iterable[ErrorIssue] = ()
 ) -> dict[str, Any]:
-    """``{"error": {code, message, details?}}``; details only when present."""
-    error: dict[str, Any] = {"code": code, "message": message}
-    issues = [issue_json(issue) for issue in details]
-    if issues:
-        error["details"] = issues
-    return {"error": error}
+    """``{"error": {code, message, details}}``; details is [] when empty."""
+    return {
+        "error": {
+            "code": code,
+            "message": message,
+            "details": [issue_json(issue) for issue in details],
+        }
+    }
 
 
 def domain_error_content(exc: DomainError) -> dict[str, Any]:

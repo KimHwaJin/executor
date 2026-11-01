@@ -26,7 +26,7 @@ REST와 MCP 오류는 모두 같은 형식으로 응답한다. 요청 값에 문
 |---|---|
 | `code` | 오류 종류. 호출측 분기 기준 |
 | `message` | 사람이 읽는 설명. 문구는 바뀔 수 있으니 분기에 쓰지 않는다 |
-| `details[]` | 요청 값 문제일 때만 있다. 값 하나에 하나씩 |
+| `details[]` | 항상 있다. 요청 값 문제일 때 값 하나에 하나씩 들어가고, 그 밖에는 `[]`이다 |
 | `details[].location` | 값의 위치. 첫 원소는 `body`, `header`, `query`, `path` 중 하나이고, 그 뒤는 요청의 필드 이름과 배열 순번이다 |
 | `details[].type` | 바뀌지 않는 snake_case 사유. 분기에 쓴다 |
 | `details[].context` | 사유의 근거 값. 한도(`limit`, `limit_bytes`, `limit_seconds`)와 실제 값(`actual`, `actual_bytes`, `actual_seconds`) 등. 없으면 필드가 빠진다 |
@@ -34,7 +34,7 @@ REST와 MCP 오류는 모두 같은 형식으로 응답한다. 요청 값에 문
 `/mcp` 전송 계층 오류(JSON-RPC 오류, 허용되지 않은 Host의 421 등)는 MCP 프로토콜 형식을 따르며 이 형식에 포함되지 않는다.
 
 MCP Tool 오류는 본문이 `[CODE] message details=[...]`이다. `details=` 뒤는 위의 `details`와
-같은 JSON 배열이다.
+같은 JSON 배열이고, 없으면 `details=[]`이다.
 
 ## 상태 코드 규칙
 

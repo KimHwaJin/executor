@@ -182,8 +182,8 @@ and 1000. Going over either answers `422 INVALID_EXECUTION_SPEC`.
 
 ## Errors
 
-Every error body is `{"error": {"code", "message", "details?"}}`. `details` appears when a
-request value is at fault: each entry has `location` (`body`, `header`, `query` or `path`, then the field path),
+Every error body is `{"error": {"code", "message", "details"}}`. `details` is always present
+(`[]` when empty) and is filled when a request value is at fault: each entry has `location` (`body`, `header`, `query` or `path`, then the field path),
 `message`, a stable snake_case `type`, and `context` with the numbers behind it (for example
 `limit` and `actual`). Request-shape failures (`REQUEST_VALIDATION_ERROR`) and rule failures
 (`INVALID_EXECUTION_SPEC`) both use 422 and this shape; 409 is kept for requests that are valid

@@ -142,12 +142,7 @@ def create_app(
                     "Accept-Ranges": "bytes",
                     "Content-Range": f"bytes */{exc.size_bytes}",
                 },
-                content={
-                    "error": {
-                        "code": exc.code,
-                        "message": str(exc),
-                    }
-                },
+                content=error_content(exc.code, str(exc)),
             )
         return JSONResponse(
             status_code=exc.http_status,
@@ -179,12 +174,9 @@ def create_app(
         )
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content={
-                "error": {
-                    "code": ErrorCode.INTERNAL_ERROR,
-                    "message": "An internal error occurred.",
-                }
-            },
+            content=error_content(
+                ErrorCode.INTERNAL_ERROR, "An internal error occurred."
+            ),
         )
 
     @app.get("/healthz", include_in_schema=False)

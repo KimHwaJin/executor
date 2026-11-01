@@ -104,9 +104,8 @@ def _public_tool_error(exc: Exception) -> ToolError:
     if isinstance(exc, ToolError):
         return exc
     if isinstance(exc, DomainError):
-        if not exc.details:
-            return ToolError(f"[{exc.code}] {exc}")
-        # The same details a REST caller gets, as JSON after the message.
+        # The same details a REST caller gets, as JSON after the message;
+        # always present, [] when there are none.
         details = json.dumps(domain_error_content(exc)["error"]["details"])
         return ToolError(f"[{exc.code}] {exc} details={details}")
     logging.getLogger(__name__).exception(

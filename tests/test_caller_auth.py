@@ -276,6 +276,7 @@ async def test_executions_are_scoped_to_tenant_and_user(api_key_app) -> None:
         headers=_headers(AGENT_KEY, "b"),
     )
     assert cancel.status_code == 404
+    assert cancel.json()["error"]["details"] == []
 
 
 async def test_writes_require_a_user(api_key_app) -> None:
@@ -376,6 +377,7 @@ async def test_mcp_tools_use_the_request_caller(tmp_path: Path) -> None:
                 )
                 assert hidden.is_error
                 assert "EXECUTION_NOT_FOUND" in str(hidden.content)
+                assert "details=[]" in str(hidden.content)
 
 
 async def test_mcp_is_not_mounted_when_disabled(tmp_path: Path) -> None:
@@ -395,7 +397,7 @@ async def test_unknown_paths_and_methods_use_the_error_shape(
         wrong_method = await client.delete("/healthz")
     assert missing.status_code == 404
     assert missing.json() == {
-        "error": {"code": "NOT_FOUND", "message": "Not Found"}
+        "error": {"code": "NOT_FOUND", "message": "Not Found", "details": []}
     }
     assert wrong_method.status_code == 405
     assert wrong_method.headers["allow"] == "GET"
@@ -403,6 +405,7 @@ async def test_unknown_paths_and_methods_use_the_error_shape(
         "error": {
             "code": "METHOD_NOT_ALLOWED",
             "message": "Method Not Allowed",
+            "details": [],
         }
     }
 
