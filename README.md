@@ -761,8 +761,8 @@ Every API call needs an `X-Api-Key` listed in `AUTH_CLIENTS`, locally and in eve
 `AUTH_CLIENTS` lists each caller's key SHA-256, default tenant, relay permission, and admin flag.
 A relay key's `allowed_tenants` names the tenants it may send in `X-Tenant-Id`; `["*"]` (relay keys only, never mixed with names) allows every valid tenant, so a
 new tenant needs no Executor change: its Stream and workspace appear on first use. The shipped
-placeholder hashes in `config.{dev,stg,prd}.yml` match no key: replace them with
-`printf %s "$KEY" | sha256sum` output.
+placeholder hashes in `config.{dev,stg,prd}.yml` match no key: generate keys and hashes with
+`scripts/generate_api_keys.py` as described in [API keys](docs/api-keys.md).
 
 Locally, `docker-compose.yml` lists local-only keys in its comments; the `local` key (admin, any
 tenant) is the one the `scripts/` smoke tests send unless `EXECUTOR_API_KEY` is set.
