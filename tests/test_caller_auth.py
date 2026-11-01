@@ -219,12 +219,20 @@ async def test_write_requests_log_the_caller_in_the_message(
 ) -> None:
     client, _ = api_key_app
     caplog.set_level("INFO", logger="executor_service.interfaces.auth")
-    headers = _headers(GATEWAY_KEY, "u1", **{"X-Tenant-Id": "new-tenant"})
+    headers = _headers(
+        GATEWAY_KEY,
+        "u1",
+        **{"X-Tenant-Id": "new-tenant", "X-Request-ID": "req-1"},
+    )
     await _submit(client, headers, "logged")
-    assert (
+    unsafe = {**headers, "X-Request-ID": "x\nforged=1"}
+    await _submit(client, unsafe, "logged-unsafe")
+    line = (
         "Caller write request client=gateway tenant=new-tenant "
-        "user=u1 method=POST path=/api/v1/executions"
-    ) in caplog.messages
+        "user=u1 method=POST path=/api/v1/executions request_id="
+    )
+    assert line + "req-1" in caplog.messages
+    assert line + "-" in caplog.messages
 
 
 async def test_executions_are_scoped_to_tenant_and_user(api_key_app) -> None:
