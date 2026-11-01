@@ -91,17 +91,16 @@ class CancellationProcessor:
             await self.finalize(work.lease, cleanup_status)
         except ExecutionLeaseLostError:
             logger.info(
-                "Cancellation Worker lost ownership; discarding its result",
-                extra={
-                    "execution_id": str(execution_id),
-                    "fencing_token": work.lease.fencing_token,
-                },
+                "Cancellation Worker lost ownership; discarding its result"
+                " execution_id=%s fencing_token=%s",
+                execution_id,
+                work.lease.fencing_token,
             )
         except Exception:
             logger.exception(
-                "Cancellation Worker failed; another Worker may recover "
-                "after its lease expires",
-                extra={"execution_id": str(execution_id)},
+                "Cancellation Worker failed; another Worker may recover after its lease expires"
+                " execution_id=%s",
+                execution_id,
             )
         finally:
             heartbeat.cancel()

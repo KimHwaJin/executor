@@ -305,8 +305,8 @@ class ExecutionWorker:
         self._dispatcher.set_accepting(False)
         self._draining = True
         logger.info(
-            "Executor Worker drain started",
-            extra={"active_job_count": self.active_job_count},
+            "Executor Worker drain started active_job_count=%s",
+            self.active_job_count,
         )
         await self._cancel_tasks(self._admission_loops)
 
@@ -322,8 +322,9 @@ class ExecutionWorker:
                     await self._dispatcher.wait_idle()
             except TimeoutError:
                 logger.warning(
-                    "Executor Worker drain deadline exceeded; cancelling remaining jobs",
-                    extra={"active_job_count": self.active_job_count},
+                    "Executor Worker drain deadline exceeded; cancelling remaining jobs"
+                    " active_job_count=%s",
+                    self.active_job_count,
                 )
         self._stop_event.set()
         await self._cancel_tasks(self._maintenance_loops)

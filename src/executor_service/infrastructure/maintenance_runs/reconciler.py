@@ -80,11 +80,10 @@ class MaintenanceRunReconciler:
                 pass
             except Exception as exc:
                 logger.warning(
-                    "Maintenance Run cancellation request failed",
-                    extra={
-                        "maintenance_run_id": str(lease.run_id),
-                        "execution_id": str(execution_id),
-                    },
+                    "Maintenance Run cancellation request failed"
+                    " maintenance_run_id=%s execution_id=%s",
+                    lease.run_id,
+                    execution_id,
                     exc_info=exc,
                 )
                 await self._record_target_error(lease, target_id, str(exc))

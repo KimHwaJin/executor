@@ -124,11 +124,10 @@ class RuntimeTargetProber:
                     "RUNTIME_RESOURCE_UNAVAILABLE", exc
                 )
                 logger.warning(
-                    "Runtime Target resource probe failed",
-                    extra={
-                        "runtime_target_id": str(target_id),
-                        "runtime_probe_error": resource_error,
-                    },
+                    "Runtime Target resource probe failed runtime_target_id=%s"
+                    " runtime_probe_error=%s",
+                    target_id,
+                    resource_error,
                 )
         else:
             resource_error = _bounded_error(
@@ -136,11 +135,10 @@ class RuntimeTargetProber:
                 "Resource probe skipped because health probe failed.",
             )
             logger.warning(
-                "Runtime Target health probe failed",
-                extra={
-                    "runtime_target_id": str(target_id),
-                    "runtime_probe_error": error,
-                },
+                "Runtime Target health probe failed runtime_target_id=%s"
+                " runtime_probe_error=%s",
+                target_id,
+                error,
             )
         await driver.close()
 
@@ -184,14 +182,12 @@ class RuntimeTargetProber:
                 and view.active_session_count > view.active_execution_count
             ):
                 logger.warning(
-                    "Runtime session count exceeds durable reservations",
-                    extra={
-                        "runtime_target_id": str(view.id),
-                        "active_execution_count": (
-                            view.active_execution_count
-                        ),
-                        "active_session_count": view.active_session_count,
-                    },
+                    "Runtime session count exceeds durable reservations"
+                    " runtime_target_id=%s active_execution_count=%s"
+                    " active_session_count=%s",
+                    view.id,
+                    view.active_execution_count,
+                    view.active_session_count,
                 )
             return view
 

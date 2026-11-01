@@ -162,11 +162,6 @@ class CallerAuthenticationMiddleware:
                 caller.user_id,
                 scope["method"],
                 scope["path"],
-                extra={
-                    "client": caller.client,
-                    "tenant_id": caller.tenant_id,
-                    "user_id": caller.user_id,
-                },
             )
         with acting_as(caller):
             await self._app(scope, receive, send)

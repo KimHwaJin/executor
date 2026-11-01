@@ -71,8 +71,9 @@ class FleetRuntimeStorageAccess:
             except Exception as exc:
                 last_error = exc
                 logger.warning(
-                    "Runtime storage read failed; trying another shared-storage target",
-                    extra={"runtime_target_id": str(target.id)},
+                    "Runtime storage read failed; trying another shared-storage target"
+                    " runtime_target_id=%s",
+                    target.id,
                 )
             finally:
                 await driver.close()
@@ -110,8 +111,9 @@ class FleetRuntimeStorageAccess:
             except Exception as exc:
                 last_error = exc
                 logger.warning(
-                    "Runtime storage write failed; trying another shared-storage target",
-                    extra={"runtime_target_id": str(target.id)},
+                    "Runtime storage write failed; trying another shared-storage target"
+                    " runtime_target_id=%s",
+                    target.id,
                 )
             finally:
                 await driver.close()
@@ -149,8 +151,9 @@ class FleetRuntimeStorageAccess:
             except Exception as exc:
                 last_error = exc
                 logger.warning(
-                    "Runtime storage write failed; trying another shared-storage target",
-                    extra={"runtime_target_id": str(target.id)},
+                    "Runtime storage write failed; trying another shared-storage target"
+                    " runtime_target_id=%s",
+                    target.id,
                 )
             finally:
                 await driver.close()
@@ -200,8 +203,9 @@ class FleetRuntimeStorageAccess:
                 except Exception as exc:
                     last_error = exc
                     logger.warning(
-                        "Runtime download setup failed; trying another target",
-                        extra={"runtime_target_id": str(target.id)},
+                        "Runtime download setup failed; trying another target"
+                        " runtime_target_id=%s",
+                        target.id,
                     )
                     continue
                 # Once metadata is handed to HTTP, never switch to another

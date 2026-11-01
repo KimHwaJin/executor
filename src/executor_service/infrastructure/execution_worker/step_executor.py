@@ -310,8 +310,8 @@ class ExecutionStepExecutor:
             await driver.release_execution(runtime_session_id, run.request_id)
         except RuntimeDriverError:
             logger.warning(
-                "Runtime execution journal release failed",
-                extra={"request_id": str(run.request_id)},
+                "Runtime execution journal release failed request_id=%s",
+                run.request_id,
             )
 
     async def mark_succeeded(

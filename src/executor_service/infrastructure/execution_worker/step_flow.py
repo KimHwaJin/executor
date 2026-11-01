@@ -219,11 +219,10 @@ class StepFlow:
                 lease, sequence, artifact_exc
             )
             logger.warning(
-                "Incomplete Artifact registration failed",
-                extra={
-                    "execution_id": str(lease.execution_id),
-                    "sequence": sequence,
-                },
+                "Incomplete Artifact registration failed execution_id=%s"
+                " sequence=%s",
+                lease.execution_id,
+                sequence,
             )
 
     async def complete_session(
@@ -289,19 +288,18 @@ class StepFlow:
                 )
         except TimeoutError:
             logger.warning(
-                "Runtime session cleanup exceeded the Worker shutdown deadline",
-                extra={"execution_id": str(lease.execution_id)},
+                "Runtime session cleanup exceeded the Worker shutdown deadline"
+                " execution_id=%s",
+                lease.execution_id,
             )
             return RuntimeSessionCleanupStatus.FAILED
 
     @staticmethod
     def log_lease_lost(lease: ExecutionLease) -> None:
         logger.warning(
-            "Execution Worker lost its lease fence; stale results were "
-            "discarded",
-            extra={
-                "execution_id": str(lease.execution_id),
-                "execution_attempt_id": str(lease.attempt_id),
-                "fencing_token": lease.fencing_token,
-            },
+            "Execution Worker lost its lease fence; stale results were discarded"
+            " execution_id=%s execution_attempt_id=%s fencing_token=%s",
+            lease.execution_id,
+            lease.attempt_id,
+            lease.fencing_token,
         )
