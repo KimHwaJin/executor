@@ -86,7 +86,10 @@ class AuthClient(BaseModel):
             raise ValueError(f"tenant {sorted(reserved)} is reserved.")
         if self.allowed_tenants and not self.relay:
             raise ValueError("allowed_tenants requires relay: true.")
-        if ANY_TENANT in self.allowed_tenants and len(self.allowed_tenants) > 1:
+        if (
+            ANY_TENANT in self.allowed_tenants
+            and len(self.allowed_tenants) > 1
+        ):
             raise ValueError('allowed_tenants "*" must stand alone.')
         return self
 
