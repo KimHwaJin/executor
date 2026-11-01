@@ -38,6 +38,8 @@ def test_shipped_files_are_valid(workdir, monkeypatch, app_env):
         "pr-batch",
         "ops",
     }
+    relays = [client for client in settings.auth_clients if client.relay]
+    assert all(client.allows_tenant("any-new-tenant") for client in relays)
     if app_env == "dev":
         assert settings.auth_mode == "header"
         assert settings.mcp_allowed_hosts[0] == "executor:*"
