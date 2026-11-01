@@ -37,10 +37,14 @@ async def test_real_execution_validation_logs_body(
         response = await client.post(
             "/api/v1/executions",
             content=body,
-            headers={"Content-Type": "application/json"},
+            headers={
+                "Content-Type": "application/json",
+                "X-Request-ID": "req-7",
+            },
         )
     assert response.status_code == 422
     (entry,) = records(caplog)
+    assert entry["caller_request_id"] == "req-7"
     assert entry["request_body"] == body
     assert entry["body_complete"] is True
     assert entry["body_truncated"] is False
@@ -134,7 +138,12 @@ async def test_chunked_body_bounded_without_changing_received_bytes(
     )
     with caplog.at_level(logging.ERROR, logger=LOGGER):
         await middleware(
-            {"type": "http", "path": "/api/v1/executions", "method": "POST"},
+            {
+                "type": "http",
+                "path": "/api/v1/executions",
+                "method": "POST",
+                "headers": [],
+            },
             receive,
             send,
         )

@@ -6,6 +6,8 @@ from uuid import uuid4
 
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from executor_service.interfaces.request_ids import caller_request_id
+
 logger = logging.getLogger(__name__)
 
 
@@ -61,6 +63,7 @@ class ExecutionRequestErrorLoggingMiddleware:
                     {
                         "event": "rest.execution.request_failed",
                         "request_id": str(uuid4()),
+                        "caller_request_id": caller_request_id(scope),
                         "method": scope["method"],
                         "path": path,
                         "status_code": response_status,
