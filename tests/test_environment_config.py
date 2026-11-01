@@ -38,6 +38,7 @@ def test_shipped_files_are_valid(workdir, monkeypatch, app_env):
         "pr-batch",
         "ops",
     }
+    assert settings.docs_enabled is (app_env == "dev")
     relays = [client for client in settings.auth_clients if client.relay]
     assert all(client.allows_tenant("any-new-tenant") for client in relays)
     if app_env == "dev":
