@@ -17,13 +17,13 @@ AUTH_MODE: header
 AUTH_CLIENTS:
   - name: pr-agentic-service
     key_sha256: ["0000000000000000000000000000000000000000000000000000000000000000"]
-    tenant: pr-agentic-service
+    tenant: dtest-agent-service
     relay: true
-    allowed_tenants: [pr-agentic-service]
+    allowed_tenants: [dtest-agent-service]
   - name: pr-batch
     key_sha256: ["0000000000000000000000000000000000000000000000000000000000000001"]
     relay: true
-    allowed_tenants: [pr-agentic-service]
+    allowed_tenants: [dtest-agent-service]
   - name: ops
     key_sha256: ["0000000000000000000000000000000000000000000000000000000000000002"]
     admin: true
@@ -33,7 +33,7 @@ MCP_ALLOWED_HOSTS:
 MCP_ALLOWED_ORIGINS:
   - "https://agent.dev.example.internal"
 # Project root layout: <root>/executor holds results; callers send
-# inputs relative to <root> (batch/inputs/..., agent/...).
+# inputs relative to <root> (batch/inputs/..., dtest-agent-service/...).
 SHARED_STORAGE_ROOT: /mnt/data/dtest/executor
 INPUT_STORAGE_ROOT: /mnt/data/dtest
 DB_AUTO_MIGRATE: true

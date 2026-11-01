@@ -190,15 +190,15 @@ X-Session-Id: session-100
 }
 ```
 
-key의 기본 tenant가 `pr-agentic-service`라면 위 요청의 이벤트는
-`executor.events.pr-agentic-service` Stream으로 발행된다.
+key의 기본 tenant가 `dtest-agent-service`라면 위 요청의 이벤트는
+`executor.events.dtest-agent-service` Stream으로 발행된다.
 
 ## Request 예시 — BATCH
 
 ```http
 POST /api/v1/executions
 X-Api-Key: <pr-batch key>
-X-Tenant-Id: pr-agentic-service
+X-Tenant-Id: dtest-agent-service
 X-User-Id: user-100
 ```
 

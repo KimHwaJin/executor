@@ -43,7 +43,7 @@ Redis 처리 세부사항은 LLM이나 LangGraph 업무 노드가 아니라 Agen
   "event_sequence": 4,
   "payload": {},
   "occurred_at": "2026-08-26T10:15:31.523Z",
-  "tenant_id": "pr-agentic-service"
+  "tenant_id": "dtest-agent-service"
 }
 ```
 

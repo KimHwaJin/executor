@@ -48,7 +48,7 @@ Before deployment:
 4. Change `executor-shared-pvc` in `deployment.yaml` to the existing Agent/Executor RWX claim.
    The PVC is mounted at `/mnt/data`. The project root (`/mnt/data/dtest`) holds one folder per
    service: `INPUT_STORAGE_ROOT=/mnt/data/dtest` so callers send `batch/inputs/...` or
-   `agent/...`, and `SHARED_STORAGE_ROOT=/mnt/data/dtest/executor` for results. Executor must be able to read
+   `dtest-agent-service/...`, and `SHARED_STORAGE_ROOT=/mnt/data/dtest/executor` for results. Executor must be able to read
    the Agent directory and write its own result directory. Agent must resolve every result/manifest
    reference against its own mount of the Executor directory, not its authoring directory.
    Do not change the result root for existing executions unless the existing result files are

@@ -61,9 +61,9 @@ AUTH_MODE: api_key
 AUTH_CLIENTS:
   - name: pr-agentic-service
     key_sha256: ["<sha256 hex of the key>"]   # two entries during rotation
-    tenant: pr-agentic-service
+    tenant: dtest-agent-service
     relay: true
-    allowed_tenants: [pr-agentic-service]
+    allowed_tenants: [dtest-agent-service]
   - name: ops
     key_sha256: ["<sha256 hex>"]
     admin: true

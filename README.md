@@ -460,7 +460,7 @@ name their own hierarchy (batch, run, task) in the top-level `metadata`, which `
 echoes back.
 
 Every Execution has a tenant, and its events go only to its own Redis Stream,
-`{REDIS_EVENT_STREAM}.{tenant_id}` (for example `executor.events.pr-agentic-service`). The tenant
+`{REDIS_EVENT_STREAM}.{tenant_id}` (for example `executor.events.dtest-agent-service`). The tenant
 must match `^[a-z][a-z0-9-]{1,62}[a-z0-9]$`, must not be `dlq` or `work`, never changes, and is
 part of the submit idempotency fingerprint. Stream entries carry a `tenant_id` field; the payload
 is unchanged. Detail and list responses expose `tenant_id`, and lists only ever cover the
