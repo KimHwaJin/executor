@@ -15,6 +15,14 @@ services:
         required: false
     environment:
       APP_ENV: ${APP_ENV:-}
+      # Local stack: header (default) trusts identity headers without a key;
+      # api_key (EXECUTOR_AUTH_MODE=api_key) requires X-Api-Key as in stg/prd.
+      # These callers mirror config.prd.yml; the keys are local-only, not secrets:
+      #   pr-agentic-service: exe_local_agent_0123456789abcdef0123456789ab
+      #   pr-batch:           exe_local_batch_0123456789abcdef0123456789ab
+      #   ops (admin):        exe_local_ops_0123456789abcdef0123456789abcd
+      AUTH_MODE: ${EXECUTOR_AUTH_MODE:-header}
+      AUTH_CLIENTS: '[{"name": "pr-agentic-service", "key_sha256": ["e2b1bf2de62fb2800fdebf97b31fc0385f71ce630d68bab42a7a1aa4dd0e2b65"], "tenant": "dtest-agent-service", "relay": true, "allowed_tenants": ["*"]}, {"name": "pr-batch", "key_sha256": ["d0c047f993bf6eb1eeb6d026185b1d34a6062b76f080b4ae2eb65b73093386dc"], "relay": true, "allowed_tenants": ["*"]}, {"name": "ops", "key_sha256": ["364d317335897db4f6e2660edcf5f3efe36edaf5011abed7ee1c32c868651e85"], "admin": true}]'
       HOST: 0.0.0.0
       PORT: 8000
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-executor}:${POSTGRES_PASSWORD:-executor}@postgres:5432/${POSTGRES_DB:-executor}

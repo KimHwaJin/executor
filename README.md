@@ -767,6 +767,9 @@ authentication without rebuilding; in `header` mode a request that sends `X-Api-
 checked against them. The shipped placeholder hashes match no key: replace them with
 `printf %s "$KEY" | sha256sum` output.
 
+Locally, `EXECUTOR_AUTH_MODE=api_key` (shell or `.env`) runs `docker-compose.yml` with key
+authentication; its comments list the local-only keys.
+
 Redis carries only the Agent-facing `REDIS_EVENT_STREAM`. Workers find work by polling PostgreSQL
 every second; `EXECUTION_WORKER_MAX_ACTIVE` caps the Executions one Pod runs at once so a backlog
 costs a bounded number of claims and spreads across replicas.
