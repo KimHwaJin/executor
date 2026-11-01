@@ -15,8 +15,11 @@ HTTP_GRACEFUL_SHUTDOWN_SECONDS: 20
 # Swagger /docs, /redoc and /openapi.json. Internal-network rules keep them
 # off in every deployed environment (dev too); turn on only for local work.
 DOCS_ENABLED: false
-DATABASE_POOL_SIZE: 10
-DATABASE_MAX_OVERFLOW: 5
+# Shared PostgreSQL (max_connections 100) with pr-agentic-service and pr-batch.
+# Executor gets 16 per Pod: 5 kept open + 10 burst + 1 readiness probe.
+# Jupyter work holds no connection, so 5 idle connections are enough.
+DATABASE_POOL_SIZE: 5
+DATABASE_MAX_OVERFLOW: 10
 DATABASE_POOL_TIMEOUT_SECONDS: 30
 DATABASE_POOL_RECYCLE_SECONDS: 1800
 DATABASE_CONNECT_TIMEOUT_SECONDS: 10

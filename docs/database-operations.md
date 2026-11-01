@@ -88,8 +88,8 @@ EXECUTOR_RUN_POSTGRES_TESTS=1 uv run pytest tests/test_multi_worker_postgres.py
 
 | Environment variable | Default | Meaning |
 | --- | ---: | --- |
-| `DATABASE_POOL_SIZE` | `10` | Persistent connections maintained by one Executor process |
-| `DATABASE_MAX_OVERFLOW` | `5` | Temporary connections allowed above the persistent pool |
+| `DATABASE_POOL_SIZE` | `5` | Persistent connections maintained by one Executor process |
+| `DATABASE_MAX_OVERFLOW` | `10` | Temporary connections allowed above the persistent pool |
 | `DATABASE_POOL_TIMEOUT_SECONDS` | `30` | Maximum wait for a pool checkout before failing |
 | `DATABASE_POOL_RECYCLE_SECONDS` | `1800` | Age after which a checked-out connection is replaced |
 | `DATABASE_CONNECT_TIMEOUT_SECONDS` | `10` | Maximum time for a new PostgreSQL connection |
@@ -105,15 +105,21 @@ The maximum connection budget for Executor is:
 executor_max_connections = executor_pod_count * (DATABASE_POOL_SIZE + DATABASE_MAX_OVERFLOW)
 ```
 
-With the defaults, one Pod can open at most 15 connections and two Pods at most 30. Keep the sum of
-all Executor pools, other services, migration jobs, and operator connections below PostgreSQL
-`max_connections`. Reserve at least 20% of the server limit for administration and unexpected
-load. If PostgreSQL allows 100 connections and 20 are reserved, five default-sized Executor Pods
-would be the safe upper bound only when no other application shares that database:
+With the defaults, one Pod can open at most 15 pool connections plus one readiness connection.
+Executor shares one PostgreSQL server (`max_connections` 100) with pr-agentic-service and
+pr-batch, so keep the sum of all services, migration jobs, and operator connections below that
+limit with about 20 connections spare:
 
-```text
-floor((100 - 20) / 15) = 5 pods
-```
+| Service | Per Pod | Pods (min) | Total |
+| --- | ---: | ---: | ---: |
+| pr-agentic-service (`DB_POOL_SIZE` 5 + overflow 5, checkpoint pool 16) | 26 | 2 | 52 |
+| pr-batch (`DB_POOL_SIZE` 5 + overflow 5) | 10 | 1 | 10 |
+| Executor (5 + 10 + readiness 1) | 16 | 1 | 16 |
+| **Sum** | | | **78** |
+
+78 plus 20 spare fits 100 only at the minimum Pod counts. Adding an Executor Pod costs 16
+connections and an agentic Pod 26, so raise `max_connections` (or add a pooler such as PgBouncer)
+before scaling any service out.
 
 Pool capacity is not the same as the number of concurrently running analyses. Jupyter cells may run
 for days without holding a PostgreSQL connection, so size the pool from concurrent short database

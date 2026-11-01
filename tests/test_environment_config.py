@@ -75,7 +75,7 @@ def test_local_reads_only_common_file(workdir, monkeypatch, app_env):
 
 def test_app_env_comes_from_environment_only(workdir, monkeypatch):
     (workdir / ".env").write_text("APP_ENV=prd\n")
-    assert Settings().database_pool_size == 10
+    assert Settings().database_pool_size == 5
 
 
 def test_deployed_env_rejects_placeholder_credential_key(workdir, monkeypatch):
@@ -125,4 +125,4 @@ def test_dotenv_is_read_only_locally(workdir, monkeypatch):
         "RUNTIME_CREDENTIAL_KEY: not-the-local-placeholder\n"
     )
     monkeypatch.setenv("APP_ENV", "dev")
-    assert Settings().database_pool_size == 10
+    assert Settings().database_pool_size == 5

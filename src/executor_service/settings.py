@@ -115,8 +115,8 @@ class Settings(BaseSettings):
     database_url: SecretStr = SecretStr(
         "postgresql+psycopg://executor:executor@localhost:5432/executor"
     )
-    database_pool_size: int = Field(default=10, ge=1)
-    database_max_overflow: int = Field(default=5, ge=0)
+    database_pool_size: int = Field(default=5, ge=1)
+    database_max_overflow: int = Field(default=10, ge=0)
     database_pool_timeout_seconds: float = Field(default=30, gt=0)
     database_pool_recycle_seconds: int = Field(default=1800, ge=1)
     database_connect_timeout_seconds: int = Field(default=10, ge=1)
