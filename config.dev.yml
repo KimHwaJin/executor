@@ -11,8 +11,6 @@ RUNTIME_CREDENTIAL_KEY: REPLACE_WITH_FERNET_KEY
 # In header mode a request that sends X-Api-Key is still checked against
 # AUTH_CLIENTS, so callers either send no key or a registered one.
 AUTH_MODE: header
-# Internal-network rules keep the API docs off when deployed.
-DOCS_ENABLED: false
 # Callers send X-Api-Key; only its SHA-256 is kept here. Replace each
 # placeholder hash; the placeholder matches no key. The relay keys may act
 # for any tenant: pr-agentic-service decides which tenants get a key.

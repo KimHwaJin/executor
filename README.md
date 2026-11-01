@@ -11,7 +11,7 @@ submitted MULTI Operations through a Runtime Driver. Jupyter REST/WebSocket is t
 
 - Official MCP Python SDK 2.x `MCPServer`, exposed at `POST /mcp`
 - REST execution facade under `/api/v1`; OpenAPI, Swagger UI, and ReDoc at `/openapi.json`,
-  `/docs`, and `/redoc` when `DOCS_ENABLED=true` (the default; off in dev, stg, and prd)
+  `/docs`, and `/redoc` when `DOCS_ENABLED=true` (the default; off in stg and prd)
 - Execution tools: `execution_submit`, `execution_get`,
   `execution_cancel`, `execution_retry`, `execution_operation_create`, `execution_finalize`,
   `execution_list`, `execution_step_list`, `execution_attempt_list`,
