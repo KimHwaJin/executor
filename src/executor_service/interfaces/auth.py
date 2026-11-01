@@ -152,8 +152,16 @@ class CallerAuthenticationMiddleware:
             await response(scope, receive, send)
             return
         if scope["method"] not in READ_METHODS:
+            # Values go in the message as well: the platform's log format
+            # may print only %(message)s. Keys match the Agent audit log.
             logger.info(
-                "Caller write request",
+                "Caller write request client=%s tenant=%s user=%s "
+                "method=%s path=%s",
+                caller.client,
+                caller.tenant_id,
+                caller.user_id,
+                scope["method"],
+                scope["path"],
                 extra={
                     "client": caller.client,
                     "tenant_id": caller.tenant_id,
