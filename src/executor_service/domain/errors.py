@@ -39,6 +39,7 @@ class ErrorCode(StrEnum):
     NOT_FOUND = "NOT_FOUND"
     METHOD_NOT_ALLOWED = "METHOD_NOT_ALLOWED"
     INTERNAL_ERROR = "INTERNAL_ERROR"
+    DATABASE_UNAVAILABLE = "DATABASE_UNAVAILABLE"
 
 
 ContextValue = str | int | float | bool | None

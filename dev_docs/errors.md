@@ -50,6 +50,7 @@ MCP Tool 오류는 본문이 `[CODE] message details=[...]`이다. `details=` �
 | 422 | 요청 형식이 틀림(필수 값 누락, 타입, 길이, 패턴) | `REQUEST_VALIDATION_ERROR` |
 | 422 | **요청 값 자체가 규칙에 맞지 않음**. 개수·크기·시간 한도 초과, 소스 파일 문제, actor 규칙 위반 등 | `INVALID_EXECUTION_SPEC` |
 | 500 | 예상하지 못한 서버 오류 | `INTERNAL_ERROR` |
+| 503 | DB 연결이 끊김. 나중에 다시 시도하면 통과할 수 있음 | `DATABASE_UNAVAILABLE` |
 
 요청 값을 고쳐야 통과하면 422, 기다리거나 최신 상태를 다시 읽으면 통과할 수 있으면 409다.
 Execution 누적 Step 한도 초과도 요청을 줄여야 하므로 422다.

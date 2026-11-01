@@ -9,6 +9,13 @@ from fastapi import FastAPI, Request, Response, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from mcp.server.transport_security import TransportSecuritySettings
+from sqlalchemy.exc import (
+    DBAPIError,
+    DisconnectionError,
+    OperationalError,
+    SQLAlchemyError,
+)
+from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.routing import Route
 
@@ -163,6 +170,31 @@ def create_app(
             status_code=exc.status_code,
             headers=exc.headers,
             content=error_content(code, str(exc.detail)),
+        )
+
+    @app.exception_handler(SQLAlchemyError)
+    async def database_error_handler(
+        _request: Request, exc: SQLAlchemyError
+    ) -> JSONResponse:
+        logging.getLogger(__name__).exception(
+            "Database request error", exc_info=exc
+        )
+        # A lost connection can succeed on retry; other DB errors cannot.
+        if isinstance(
+            exc, (OperationalError, DisconnectionError, PoolTimeoutError)
+        ) or (isinstance(exc, DBAPIError) and exc.connection_invalidated):
+            return JSONResponse(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                content=error_content(
+                    ErrorCode.DATABASE_UNAVAILABLE,
+                    "Database unavailable; retry later.",
+                ),
+            )
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content=error_content(
+                ErrorCode.INTERNAL_ERROR, "An internal error occurred."
+            ),
         )
 
     @app.exception_handler(Exception)

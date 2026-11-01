@@ -12,6 +12,7 @@ import pytest
 from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
 from pydantic import ValidationError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from starlette.applications import Starlette
 from starlette.routing import Route
 
@@ -233,6 +234,39 @@ async def test_write_requests_log_the_caller_in_the_message(
     )
     assert line + "req-1" in caplog.messages
     assert line + "-" in caplog.messages
+
+
+@pytest.mark.parametrize(
+    ("error", "status", "code"),
+    (
+        (
+            OperationalError("SELECT", {}, Exception("down")),
+            503,
+            "DATABASE_UNAVAILABLE",
+        ),
+        (
+            IntegrityError("INSERT", {}, Exception("unique")),
+            500,
+            "INTERNAL_ERROR",
+        ),
+    ),
+)
+async def test_database_errors_use_the_error_shape_and_hide_the_statement(
+    api_key_app, monkeypatch, error: Exception, status: int, code: str
+) -> None:
+    client, container = api_key_app
+
+    async def fail(*_args: Any, **_kwargs: Any) -> None:
+        raise error
+
+    monkeypatch.setattr(container.execution_queries, "executions", fail)
+    response = await client.get(
+        "/api/v1/executions", headers=_headers(AGENT_KEY)
+    )
+    assert response.status_code == status
+    assert response.json()["error"]["code"] == code
+    assert response.json()["error"]["details"] == []
+    assert "SELECT" not in response.text and "INSERT" not in response.text
 
 
 async def test_executions_are_scoped_to_tenant_and_user(api_key_app) -> None:
