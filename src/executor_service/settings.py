@@ -38,6 +38,9 @@ APP_ENVS = ("dev", "stg", "prd")
 # AUTH_MODE=header trusts identity headers without a key.
 HEADER_AUTH_ENVS = ("", "dev")
 
+# In allowed_tenants: the relay may name any valid tenant.
+ANY_TENANT = "*"
+
 TenantId = Annotated[str, Field(pattern=TENANT_ID_PATTERN)]
 KeySha256 = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
 
@@ -72,7 +75,7 @@ class AuthClient(BaseModel):
     tenant: TenantId | None = None
     # A relay may name another tenant from allowed_tenants in X-Tenant-Id.
     relay: bool = False
-    allowed_tenants: tuple[TenantId, ...] = ()
+    allowed_tenants: tuple[TenantId | Literal["*"], ...] = ()
     admin: bool = False
 
     @model_validator(mode="after")
@@ -84,7 +87,18 @@ class AuthClient(BaseModel):
             raise ValueError(f"tenant {sorted(reserved)} is reserved.")
         if self.allowed_tenants and not self.relay:
             raise ValueError("allowed_tenants requires relay: true.")
+        if (
+            ANY_TENANT in self.allowed_tenants
+            and len(self.allowed_tenants) > 1
+        ):
+            raise ValueError(f"allowed_tenants: {ANY_TENANT!r} stands alone.")
         return self
+
+    def may_name_tenant(self, tenant: str) -> bool:
+        return self.relay and (
+            tenant in self.allowed_tenants
+            or ANY_TENANT in self.allowed_tenants
+        )
 
 
 class Settings(BaseSettings):

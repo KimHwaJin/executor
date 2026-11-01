@@ -41,7 +41,7 @@ OpenAPI declares these headers on every route, so Swagger UI shows them as input
 | Header | Rule |
 |---|---|
 | `X-Api-Key` | Required when `AUTH_MODE=api_key` (stg, prd). Matched by SHA-256 against `AUTH_CLIENTS`; missing or unknown is `401 UNAUTHENTICATED`. |
-| `X-Tenant-Id` | Honored only for a `relay` key and only within its `allowed_tenants`, otherwise `403 FORBIDDEN`. Without it the key's `tenant` applies; a key with neither is `400 INVALID_IDENTITY`. |
+| `X-Tenant-Id` | Honored only for a `relay` key and only within its `allowed_tenants` (`["*"]` admits any valid tenant), otherwise `403 FORBIDDEN`. Without it the key's `tenant` applies; a key with neither is `400 INVALID_IDENTITY`. |
 | `X-User-Id` | `^[a-z0-9][a-z0-9._-]{0,63}$`, lowercased first. Required for every write. |
 | `X-Project-Id`, `X-Session-Id` | `^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$`, never `unscoped`; a session requires a project. |
 
@@ -63,7 +63,7 @@ AUTH_CLIENTS:
     key_sha256: ["<sha256 hex of the key>"]   # two entries during rotation
     tenant: dtest-agent-service
     relay: true
-    allowed_tenants: [dtest-agent-service]
+    allowed_tenants: ["*"]   # or a list of tenants
   - name: ops
     key_sha256: ["<sha256 hex>"]
     admin: true

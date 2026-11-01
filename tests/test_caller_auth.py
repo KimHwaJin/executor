@@ -22,6 +22,7 @@ from executor_service.settings import AuthClient, Settings
 from tests.test_rest_execution_api import _submit_payload
 
 AGENT_KEY = "agent-key"
+ANY_TENANT_KEY = "any-tenant-key"
 BATCH_KEY = "batch-key"
 OPS_KEY = "ops-key"
 PLAIN_KEY = "plain-key"
@@ -44,6 +45,12 @@ CLIENTS = (
         key_sha256=(_sha256(BATCH_KEY),),
         relay=True,
         allowed_tenants=("agent-tenant",),
+    ),
+    AuthClient(
+        name="any-tenant",
+        key_sha256=(_sha256(ANY_TENANT_KEY),),
+        relay=True,
+        allowed_tenants=("*",),
     ),
     AuthClient(name="ops", key_sha256=(_sha256(OPS_KEY),), admin=True),
     AuthClient(
@@ -168,6 +175,19 @@ async def test_tenant_comes_from_key_or_allowed_override(api_key_app) -> None:
             client, _headers(key, **{"X-Tenant-Id": tenant}), "forbidden"
         )
         assert response.status_code == 403
+
+    # "*" admits any valid tenant, but not an invalid or reserved one.
+    anywhere = _headers(ANY_TENANT_KEY, **{"X-Tenant-Id": "new-tenant"})
+    admitted = await _submit(client, anywhere, "tenant-any")
+    detail = await client.get(admitted.headers["location"], headers=anywhere)
+    assert detail.json()["tenant_id"] == "new-tenant"
+    for tenant in ("*", "dlq"):
+        response = await _submit(
+            client,
+            _headers(ANY_TENANT_KEY, **{"X-Tenant-Id": tenant}),
+            "tenant-invalid",
+        )
+        assert response.status_code == 400
 
     # A relay key without a default tenant must name one.
     no_tenant = await _submit(client, _headers(BATCH_KEY), "no-tenant")
@@ -352,6 +372,17 @@ def test_relay_only_settings_and_unique_keys() -> None:
             name="x",
             key_sha256=(_sha256("x"),),
             allowed_tenants=("agent-tenant",),
+        )
+    with pytest.raises(ValidationError, match="relay"):
+        AuthClient(
+            name="x", key_sha256=(_sha256("x"),), allowed_tenants=("*",)
+        )
+    with pytest.raises(ValidationError, match="stands alone"):
+        AuthClient(
+            name="x",
+            key_sha256=(_sha256("x"),),
+            relay=True,
+            allowed_tenants=("*", "agent-tenant"),
         )
     with pytest.raises(ValidationError):
         Settings(

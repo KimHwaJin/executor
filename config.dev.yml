@@ -13,17 +13,17 @@ RUNTIME_CREDENTIAL_KEY: REPLACE_WITH_FERNET_KEY
 AUTH_MODE: header
 # Callers send X-Api-Key; only its SHA-256 is kept here. Replace each
 # placeholder hash; the placeholder matches no key. Executor and pr-batch
-# keep the same allowed_tenants.
+# keep the same allowed_tenants; "*" admits a new tenant without a redeploy.
 AUTH_CLIENTS:
   - name: pr-agentic-service
     key_sha256: ["0000000000000000000000000000000000000000000000000000000000000000"]
     tenant: dtest-agent-service
     relay: true
-    allowed_tenants: [dtest-agent-service]
+    allowed_tenants: ["*"]
   - name: pr-batch
     key_sha256: ["0000000000000000000000000000000000000000000000000000000000000001"]
     relay: true
-    allowed_tenants: [dtest-agent-service]
+    allowed_tenants: ["*"]
   - name: ops
     key_sha256: ["0000000000000000000000000000000000000000000000000000000000000002"]
     admin: true
