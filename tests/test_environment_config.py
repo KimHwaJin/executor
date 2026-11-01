@@ -14,7 +14,12 @@ ROOT = Path(__file__).resolve().parents[1]
 @pytest.fixture
 def workdir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.chdir(tmp_path)
-    for name in ("APP_ENV", "DATABASE_POOL_SIZE", "SHARED_STORAGE_ROOT"):
+    for name in (
+        "APP_ENV",
+        "AUTH_MODE",
+        "DATABASE_POOL_SIZE",
+        "SHARED_STORAGE_ROOT",
+    ):
         monkeypatch.delenv(name, raising=False)
     return tmp_path
 
@@ -28,17 +33,27 @@ def test_shipped_files_are_valid(workdir, monkeypatch, app_env):
     assert settings.db_auto_migrate is True
     assert settings.shared_storage_root == Path("/mnt/data/dtest/executor")
     assert settings.effective_input_storage_root == Path("/mnt/data/dtest")
+    assert {client.name for client in settings.auth_clients} == {
+        "pr-agentic-service",
+        "pr-batch",
+        "ops",
+    }
     if app_env == "dev":
         assert settings.auth_mode == "header"
         assert settings.mcp_allowed_hosts[0] == "executor:*"
     else:
         assert settings.auth_mode == "api_key"
         assert not settings.mcp_enabled
-        assert {client.name for client in settings.auth_clients} == {
-            "pr-agentic-service",
-            "pr-batch",
-            "ops",
-        }
+
+
+def test_dev_switches_to_api_key_through_the_environment(workdir, monkeypatch):
+    for name in ("config.yml", "config.dev.yml"):
+        shutil.copy(ROOT / name, workdir / name)
+    monkeypatch.setenv("APP_ENV", "dev")
+    monkeypatch.setenv("AUTH_MODE", "api_key")
+    settings = Settings(_env_file=None)
+    assert settings.auth_mode == "api_key"
+    assert len(settings.auth_clients) == 3
 
 
 def test_local_values_match_settings_defaults(monkeypatch):

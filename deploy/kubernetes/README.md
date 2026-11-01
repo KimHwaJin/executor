@@ -79,7 +79,9 @@ Generate a Fernet key outside Git with:
 python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
-stg and prd run `AUTH_MODE: api_key` and `MCP_ENABLED: false`. If MCP is ever enabled,
+stg and prd run `AUTH_MODE: api_key` and `MCP_ENABLED: false`. dev defaults to `header` and
+switches to key authentication with `AUTH_MODE=api_key` under the Deployment's `env:`; replace
+the placeholder hashes in `config.dev.yml` first. If MCP is ever enabled,
 `MCP_ALLOWED_HOSTS` must contain every Host header that can reach `/mcp`, including the internal
 Service and Gateway/Ingress hostnames. `MCP_ALLOWED_ORIGINS` must contain the browser or Agent
 origins that send an Origin header. Keep both lists narrow; do not disable DNS-rebinding protection.
