@@ -79,8 +79,8 @@ class RuntimeHealthMonitor:
             await self._prober.probe(target_id)
         except Exception:
             logger.exception(
-                "Runtime Target health update failed",
-                extra={"target_id": target_id},
+                "Runtime Target health update failed target_id=%s",
+                target_id,
             )
         finally:
             self._probes.pop(target_id, None)

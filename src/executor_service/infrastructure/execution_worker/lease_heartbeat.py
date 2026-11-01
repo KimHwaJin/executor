@@ -90,9 +90,10 @@ class LeaseHeartbeatManager:
                 raise
             except Exception:
                 logger.warning(
-                    "Lease heartbeat failed; retrying next interval",
+                    "Lease heartbeat failed; retrying next interval"
+                    " execution_id=%s",
+                    execution_id,
                     exc_info=True,
-                    extra={"execution_id": str(execution_id)},
                 )
 
     async def renew_cancellation(self, lease: CancellationLease) -> None:

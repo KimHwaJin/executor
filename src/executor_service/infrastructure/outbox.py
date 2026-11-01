@@ -184,8 +184,8 @@ class OutboxPublisher:
                         f"{type(exc).__name__}: Redis publish failed"
                     )
                     logger.warning(
-                        "Outbox publish failed",
-                        extra={"event_id": str(event.id)},
+                        "Outbox publish failed event_id=%s",
+                        event.id,
                     )
                     if isinstance(
                         exc, (TimeoutError, ConnectionError, RedisError)
