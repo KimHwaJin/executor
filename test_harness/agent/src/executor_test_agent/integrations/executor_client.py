@@ -1,7 +1,7 @@
 """MCP client for Executor that sends the caller identity as headers.
 
 Executor reads the tenant, user, project and session from request headers,
-never from the body, and checks X-Api-Key outside local and dev.
+never from the body, and requires X-Api-Key on every call.
 """
 
 from mcp import Client

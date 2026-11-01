@@ -25,6 +25,7 @@ from executor_service.infrastructure.db.models import (
 )
 from executor_service.interfaces.http.app import create_app
 from executor_service.settings import Settings
+from tests.auth_keys import TEST_AUTH_CLIENTS, TEST_HEADERS
 from tests.runtime_credentials import runtime_credential_fields
 
 
@@ -37,6 +38,7 @@ async def maintenance_client(
         redis_url="redis://localhost:6399/15",
         runtime_enabled=False,
         shared_storage_root=tmp_path,
+        auth_clients=TEST_AUTH_CLIENTS,
     )
     container = ApplicationContainer(settings)
     async with container.engine.begin() as connection:
@@ -47,7 +49,7 @@ async def maintenance_client(
     async with httpx.AsyncClient(
         transport=transport,
         base_url="http://testserver",
-        headers={"X-User-Id": "user-1"},
+        headers={**TEST_HEADERS, "X-User-Id": "user-1"},
     ) as client:
         yield client, container
     await container.redis.aclose()

@@ -36,8 +36,6 @@ from executor_service.domain.tenants import (
 )
 
 APP_ENVS = ("dev", "stg", "prd")
-# AUTH_MODE=header trusts identity headers without a key.
-HEADER_AUTH_ENVS = ("", "dev")
 
 TenantId = Annotated[str, Field(pattern=TENANT_ID_PATTERN)]
 KeySha256 = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
@@ -121,8 +119,7 @@ class Settings(BaseSettings):
     # Seconds open HTTP requests get to finish on SIGTERM before Uvicorn
     # closes them; Worker drain runs after this inside the Pod grace period.
     http_graceful_shutdown_seconds: int = Field(default=20, ge=0)
-    # /docs, /redoc and /openapi.json. Off by default: internal-network rules
-    # forbid exposing them in any deployed environment, dev included.
+    # /docs, /redoc and /openapi.json; stg and prd turn them off.
     docs_enabled: bool = True
 
     database_url: SecretStr = SecretStr(
@@ -157,7 +154,6 @@ class Settings(BaseSettings):
     published_outbox_retention_seconds: int = Field(default=604800, ge=3600)
     execution_event_retention_seconds: int = Field(default=7776000, ge=3600)
 
-    auth_mode: Literal["api_key", "header"] = "header"
     auth_clients: tuple[AuthClient, ...] = ()
     mcp_enabled: bool = True
     mcp_allowed_hosts: Annotated[tuple[str, ...], NoDecode] = (
@@ -300,13 +296,6 @@ class Settings(BaseSettings):
         ):
             raise ValueError(
                 "RUNTIME_CREDENTIAL_KEY must be replaced outside local environments."
-            )
-        if (
-            self.auth_mode == "header"
-            and os.environ.get("APP_ENV", "") not in HEADER_AUTH_ENVS
-        ):
-            raise ValueError(
-                "AUTH_MODE=header is allowed only locally and in dev."
             )
         names = [client.name for client in self.auth_clients]
         if len(names) != len(set(names)):

@@ -40,7 +40,7 @@ OpenAPI declares these headers on every route, so Swagger UI shows them as input
 
 | Header | Rule |
 |---|---|
-| `X-Api-Key` | Required when `AUTH_MODE=api_key` (stg, prd). Matched by SHA-256 against `AUTH_CLIENTS`; missing or unknown is `401 UNAUTHENTICATED`. |
+| `X-Api-Key` | Required on every call. Matched by SHA-256 against `AUTH_CLIENTS`; missing or unknown is `401 UNAUTHENTICATED`. |
 | `X-Tenant-Id` | Honored only for a `relay` key and only within its `allowed_tenants` (`["*"]` allows every valid tenant), otherwise `403 FORBIDDEN`. Format and reserved names (`dlq`, `work`) are `400 INVALID_IDENTITY` first. Without it the key's `tenant` applies; a key with neither is `400 INVALID_IDENTITY`. |
 | `X-User-Id` | `^[a-z0-9][a-z0-9._-]{0,63}$`, lowercased first. Required for every write. |
 | `X-Project-Id`, `X-Session-Id` | `^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$`, never `unscoped`; a session requires a project. |
@@ -53,11 +53,7 @@ same rule through the Artifact's Execution.
 `/workerz`, `/runtime-pools`, `/runtime-targets*`, and `/maintenance*` need an `admin` key (`403` otherwise).
 The same rule guards the MCP `runtime_target_*` tools.
 
-`AUTH_MODE=header` (local and dev only; startup fails elsewhere) trusts the identity headers
-without a key, defaults the tenant to `dev`, and treats every caller as admin.
-
 ```yaml
-AUTH_MODE: api_key
 AUTH_CLIENTS:
   - name: pr-agentic-service
     key_sha256: ["<sha256 hex of the key>"]   # two entries during rotation

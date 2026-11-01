@@ -48,7 +48,7 @@ class Config:
     bearer_token: str | None
     ca_file: str | None
     allow_pod_delete: bool
-    # /workerz needs an admin key when the Executor checks keys.
+    # An admin key: /workerz and the Runtime Target API require one.
     admin_api_key: str | None = None
 
 

@@ -18,7 +18,7 @@ POST /api/v1/executions
 
 | 헤더 | 필수 | 의미 |
 |---|---:|---|
-| `X-Api-Key` | stg/prd O | 호출 서비스의 API key. 없거나 틀리면 `401` |
+| `X-Api-Key` | O | 호출 서비스의 API key. 없거나 틀리면 `401` |
 | `X-User-Id` | O | 작업 소유 사용자 ID. `^[a-z0-9][a-z0-9._-]{0,63}$`, 소문자로 바꿔 저장. 없으면 `400 INVALID_IDENTITY` |
 | `X-Project-Id` | X | 프로젝트 ID. `^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$` |
 | `X-Session-Id` | X | 세션 ID. 형식은 프로젝트와 같고, 보내려면 `X-Project-Id`도 필요 |

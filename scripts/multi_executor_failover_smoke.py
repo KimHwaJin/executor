@@ -8,7 +8,12 @@ from typing import Any
 from uuid import uuid4
 
 import httpx
-from execution_spec_payload import execution_request, executor_mcp, inline_spec
+from execution_spec_payload import (
+    LOCAL_AUTH_CLIENTS,
+    execution_request,
+    executor_mcp,
+    inline_spec,
+)
 from mcp import Client
 from redis.asyncio import Redis
 from resilience_common import (
@@ -22,6 +27,7 @@ async def _start_executor(
     *, port: int, stream_prefix: str
 ) -> asyncio.subprocess.Process:
     environment = os.environ.copy()
+    environment.setdefault("AUTH_CLIENTS", LOCAL_AUTH_CLIENTS)
     environment.update(
         {
             "EXECUTION_LEASE_SECONDS": "30",

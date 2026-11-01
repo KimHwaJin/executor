@@ -12,7 +12,7 @@ from fastapi.security import APIKeyHeader
 API_KEY = APIKeyHeader(
     name="X-Api-Key",
     auto_error=False,
-    description="Caller API key. Required when AUTH_MODE=api_key (stg, prd).",
+    description="Caller API key; required on every API call.",
 )
 
 
@@ -24,7 +24,7 @@ async def documented_identity(
             alias="X-Tenant-Id",
             description=(
                 "Relay keys only, within their allowed tenants. Defaults to "
-                "the key's tenant, or 'dev' in header mode."
+                "the key's tenant."
             ),
         ),
     ] = None,

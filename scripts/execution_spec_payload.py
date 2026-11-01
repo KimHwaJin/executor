@@ -1,11 +1,31 @@
 """Shared builders for Executor Execution API v2 smoke payloads."""
 
+import hashlib
+import json
+import os
 from typing import Any
 
 from mcp.client.streamable_http import (
     create_mcp_http_client,
     streamable_http_client,
 )
+
+# Local-only key (admin, relay for any tenant) accepted by every local stack
+# in this repository; never a deployed key. EXECUTOR_API_KEY overrides it.
+LOCAL_API_KEY = "exe_local_dev_0123456789abcdef0123456789abcde"
+LOCAL_AUTH_CLIENTS = json.dumps(
+    [
+        {
+            "name": "local",
+            "key_sha256": [hashlib.sha256(LOCAL_API_KEY.encode()).hexdigest()],
+            "tenant": "dev",
+            "relay": True,
+            "allowed_tenants": ["*"],
+            "admin": True,
+        }
+    ]
+)
+API_KEY_HEADERS = {"X-Api-Key": os.getenv("EXECUTOR_API_KEY") or LOCAL_API_KEY}
 
 
 def inline_spec(
@@ -73,9 +93,13 @@ def identity_headers(
     session_id: str | None = None,
     tenant_id: str = "smoke",
 ) -> dict[str, str]:
-    """Identity headers for a local AUTH_MODE=header Executor."""
+    """The key and identity headers for a local Executor."""
 
-    headers = {"X-Tenant-Id": tenant_id, "X-User-Id": user_id}
+    headers = {
+        **API_KEY_HEADERS,
+        "X-Tenant-Id": tenant_id,
+        "X-User-Id": user_id,
+    }
     if project_id is not None:
         headers["X-Project-Id"] = project_id
     if session_id is not None:
@@ -85,7 +109,7 @@ def identity_headers(
 
 SMOKE_HEADERS = identity_headers("smoke-user")
 # No X-User-Id: reads see every Execution in the tenant.
-SYSTEM_HEADERS = {"X-Tenant-Id": "smoke"}
+SYSTEM_HEADERS = {**API_KEY_HEADERS, "X-Tenant-Id": "smoke"}
 
 
 def executor_mcp(url: str, headers: dict[str, str] = SMOKE_HEADERS) -> Any:

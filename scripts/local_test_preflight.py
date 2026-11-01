@@ -8,7 +8,7 @@ from uuid import uuid4
 import httpx
 from alembic.config import Config
 from alembic.script import ScriptDirectory
-from execution_spec_payload import executor_mcp
+from execution_spec_payload import API_KEY_HEADERS, executor_mcp
 from local_test_support import (
     env_bool,
     executor_http_url,
@@ -32,7 +32,9 @@ REQUIRED_TOOLS = {
 
 
 async def _http_checks(base_url: str) -> dict[str, Any]:
-    async with httpx.AsyncClient(base_url=base_url, timeout=10) as client:
+    async with httpx.AsyncClient(
+        base_url=base_url, timeout=10, headers=API_KEY_HEADERS
+    ) as client:
         responses = {
             path: await client.get(path)
             for path in (

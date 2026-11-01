@@ -70,7 +70,7 @@ SUBMIT_ARGUMENTS: dict[str, Any] = {
     }
 }
 CALLER = Caller(
-    client=None,
+    client="test",
     admin=True,
     tenant_id="test-tenant",
     user_id="user-1",

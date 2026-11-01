@@ -8,7 +8,6 @@ RUNTIME_CREDENTIAL_KEY: REPLACE_WITH_FERNET_KEY
 # Callers send X-Api-Key; only its SHA-256 is kept here. Replace each
 # placeholder hash; the placeholder matches no key. The relay keys may act
 # for any tenant: pr-agentic-service decides which tenants get a key.
-AUTH_MODE: api_key
 AUTH_CLIENTS:
   - name: pr-agentic-service
     key_sha256: ["0000000000000000000000000000000000000000000000000000000000000000"]

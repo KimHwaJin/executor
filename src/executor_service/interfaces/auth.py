@@ -57,7 +57,6 @@ ADMIN_PATH_PREFIXES = (
     "/api/v1/runtime-targets",
     "/api/v1/maintenance",
 )
-HEADER_MODE_TENANT = "dev"
 USER_ID = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 # Project and session IDs become Runtime workspace path segments.
 SCOPE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$")
@@ -68,7 +67,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class Caller:
-    client: str | None
+    client: str
     admin: bool
     tenant_id: str | None
     user_id: str | None
@@ -132,7 +131,6 @@ async def authorize_execution(
 class CallerAuthenticationMiddleware:
     def __init__(self, app: ASGIApp, *, settings: Settings) -> None:
         self._app = app
-        self._header_mode = settings.auth_mode == "header"
         self._clients = settings.auth_clients
 
     async def __call__(
@@ -171,19 +169,16 @@ class CallerAuthenticationMiddleware:
     def _caller(self, headers: Headers) -> Caller:
         key = headers.get("X-Api-Key")
         client = None if key is None else self._client(key)
-        if client is None and (key is not None or not self._header_mode):
+        if client is None:
             raise UnauthenticatedError("A valid X-Api-Key is required.")
         requested_tenant = headers.get("X-Tenant-Id")
-        if requested_tenant is not None and (
+        if requested_tenant is None:
+            tenant_id = client.tenant
+        elif (
             not is_valid_tenant_id(requested_tenant)
             or requested_tenant in RESERVED_TENANT_IDS
         ):
             raise InvalidIdentityError("X-Tenant-Id is not a valid tenant.")
-        if client is None:
-            # Header mode trusts the identity headers as sent.
-            tenant_id = requested_tenant or HEADER_MODE_TENANT
-        elif requested_tenant is None:
-            tenant_id = client.tenant
         elif client.allows_tenant(requested_tenant):
             tenant_id = requested_tenant
         else:
@@ -200,8 +195,8 @@ class CallerAuthenticationMiddleware:
         if session_id is not None and project_id is None:
             raise InvalidIdentityError("X-Session-Id requires X-Project-Id.")
         return Caller(
-            client=None if client is None else client.name,
-            admin=client is None or client.admin,
+            client=client.name,
+            admin=client.admin,
             tenant_id=tenant_id,
             user_id=user_id,
             project_id=project_id,

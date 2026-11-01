@@ -5,12 +5,6 @@ DATABASE_URL: "postgresql+psycopg://REPLACE_USER:REPLACE_PASSWORD@postgresql.inf
 REDIS_URL: "redis://:REPLACE_PASSWORD@redis-master.infra.svc.cluster.local:6379/3"
 # Fernet key; keep it stable while encrypted Runtime credentials exist.
 RUNTIME_CREDENTIAL_KEY: REPLACE_WITH_FERNET_KEY
-# Key authentication is switchable in dev only: header (identity headers
-# trusted, tenant dev, every caller admin) or api_key (as in stg and prd).
-# Set the Deployment env AUTH_MODE to switch without rebuilding the image.
-# In header mode a request that sends X-Api-Key is still checked against
-# AUTH_CLIENTS, so callers either send no key or a registered one.
-AUTH_MODE: header
 # API docs stay on in dev for integration testing; stg and prd turn them off.
 DOCS_ENABLED: true
 # Callers send X-Api-Key; only its SHA-256 is kept here. Replace each

@@ -15,7 +15,7 @@ from uuid import uuid4
 
 import psycopg
 from cryptography.fernet import Fernet
-from execution_spec_payload import executor_mcp
+from execution_spec_payload import LOCAL_AUTH_CLIENTS, executor_mcp
 from mcp import Client
 from psycopg import sql
 from redis.asyncio import Redis
@@ -86,6 +86,7 @@ async def main(
                 database=database_name
             ).render_as_string(hide_password=False),
             "REDIS_URL": redis_url,
+            "AUTH_CLIENTS": LOCAL_AUTH_CLIENTS,
             "DB_AUTO_MIGRATE": "true",
             "SHARED_STORAGE_ROOT": str(directory / "shared"),
             "HOST": "127.0.0.1",
