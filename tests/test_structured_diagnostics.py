@@ -54,6 +54,7 @@ from executor_service.infrastructure.result_storage import (
 )
 from executor_service.interfaces.http.app import create_app
 from executor_service.settings import Settings
+from tests.auth_keys import TEST_AUTH_CLIENTS, TEST_HEADERS
 from tests.runtime_credentials import runtime_credential_fields
 from tests.test_multi_lifecycle import _multi_command, _worker
 from tests.test_runtime_failure_evidence import EvidenceDriver
@@ -342,6 +343,7 @@ async def test_rest_diagnostic_history_contract(
         Settings(
             database_url="sqlite+aiosqlite:///:memory:",
             shared_storage_root=tmp_path,
+            auth_clients=TEST_AUTH_CLIENTS,
         )
     )
     container.diagnostic_queries = SQLAlchemyDiagnosticQueryService(factory)
@@ -350,7 +352,7 @@ async def test_rest_diagnostic_history_contract(
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=create_app(container)),
             base_url="http://testserver",
-            headers={"X-Tenant-Id": execution.tenant_id},
+            headers={**TEST_HEADERS, "X-Tenant-Id": execution.tenant_id},
         ) as client:
             path = f"/api/v1/executions/{execution.id}/diagnostics"
             result = await client.get(path)

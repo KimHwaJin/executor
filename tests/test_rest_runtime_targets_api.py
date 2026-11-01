@@ -22,6 +22,7 @@ from executor_service.infrastructure.db.models import (
 )
 from executor_service.interfaces.http.app import create_app
 from executor_service.settings import Settings
+from tests.auth_keys import TEST_AUTH_CLIENTS, TEST_HEADERS
 
 
 class HealthyGateway:
@@ -88,6 +89,7 @@ async def fleet_client(
         runtime_allowed_profiles=("default", "3102311"),
         shared_storage_root=tmp_path,
         docs_enabled=True,
+        auth_clients=TEST_AUTH_CLIENTS,
     )
     container = ApplicationContainer(settings)
     async with container.engine.begin() as connection:
@@ -98,6 +100,7 @@ async def fleet_client(
         transport=transport,
         base_url="http://testserver",
         headers={
+            **TEST_HEADERS,
             "X-User-Id": "fleet-admin",
             "X-Project-Id": "fleet-project",
             "X-Session-Id": "fleet-session",

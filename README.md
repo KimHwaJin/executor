@@ -442,7 +442,7 @@ and request examples.
 
 Identity is not part of the body. Every REST and MCP call names its user, project, session, and
 tenant through `X-User-Id`, `X-Project-Id`, `X-Session-Id`, and (relay keys only) `X-Tenant-Id`,
-authenticated by `X-Api-Key` in stg and prd. A body `context` or `tenant_id` is rejected. See
+authenticated by `X-Api-Key` in every environment. A body `context` or `tenant_id` is rejected. See
 [Authentication and identity](docs/rest-api.md#authentication-and-identity).
 
 Every public mutation records `created_by`/`updated_by` attribution on the affected Execution,
@@ -757,18 +757,15 @@ intentionally logged. `.env.example` contains local-only credentials.
 protection. Add the Kubernetes gateway hostname and origin before deployment; do not disable the
 protection to make a proxy work. stg and prd set `MCP_ENABLED: false`, so `/mcp` is not mounted.
 
-`AUTH_MODE` is `header` locally and in dev (identity headers trusted, tenant `dev`) and `api_key`
-in stg and prd, where `AUTH_CLIENTS` lists each caller's key SHA-256, default tenant, relay
-permission, and admin flag. A relay key's `allowed_tenants` names the tenants it may send in
-`X-Tenant-Id`; `["*"]` (relay keys only, never mixed with names) allows every valid tenant, so a
-new tenant needs no Executor change: its Stream and workspace appear on first use. Startup refuses `header` outside local and dev. dev also ships
-`AUTH_CLIENTS`, so setting the Deployment env `AUTH_MODE=api_key` switches dev to key
-authentication without rebuilding; in `header` mode a request that sends `X-Api-Key` is still
-checked against them. The shipped placeholder hashes match no key: replace them with
+Every API call needs an `X-Api-Key` listed in `AUTH_CLIENTS`, locally and in every environment.
+`AUTH_CLIENTS` lists each caller's key SHA-256, default tenant, relay permission, and admin flag.
+A relay key's `allowed_tenants` names the tenants it may send in `X-Tenant-Id`; `["*"]` (relay keys only, never mixed with names) allows every valid tenant, so a
+new tenant needs no Executor change: its Stream and workspace appear on first use. The shipped
+placeholder hashes in `config.{dev,stg,prd}.yml` match no key: replace them with
 `printf %s "$KEY" | sha256sum` output.
 
-Locally, `EXECUTOR_AUTH_MODE=api_key` (shell or `.env`) runs `docker-compose.yml` with key
-authentication; its comments list the local-only keys.
+Locally, `docker-compose.yml` lists local-only keys in its comments; the `local` key (admin, any
+tenant) is the one the `scripts/` smoke tests send unless `EXECUTOR_API_KEY` is set.
 
 Redis carries only the Agent-facing `REDIS_EVENT_STREAM`. Workers find work by polling PostgreSQL
 every second; `EXECUTION_WORKER_MAX_ACTIVE` caps the Executions one Pod runs at once so a backlog

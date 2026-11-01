@@ -80,6 +80,8 @@ services:
       DATABASE_POOL_SIZE: "5"
       DATABASE_MAX_OVERFLOW: "2"
       REDIS_URL: redis://redis:6379/0
+      # scripts/execution_spec_payload.py LOCAL_API_KEY; local-only.
+      AUTH_CLIENTS: '[{"name": "local", "key_sha256": ["b061e43ebf6dc8828ff97157745da7b61b921a83a2e1d2122e8ae0c6bd527d7b"], "tenant": "dev", "relay": true, "allowed_tenants": ["*"], "admin": true}]'
       MCP_ALLOWED_HOSTS: localhost:*,127.0.0.1:*,executor-primary:*,executor-secondary:*
       MCP_ALLOWED_ORIGINS: http://localhost:*,http://127.0.0.1:*
       SHARED_STORAGE_ROOT: /workspace/shared

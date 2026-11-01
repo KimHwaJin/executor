@@ -48,9 +48,11 @@ from executor_service.infrastructure.db.models import (
 )
 from executor_service.interfaces.http.app import create_app
 from executor_service.settings import Settings
+from tests.auth_keys import TEST_AUTH_CLIENTS, TEST_HEADERS
 from tests.runtime_credentials import runtime_credential_fields
 
 IDENTITY_HEADERS = {
+    **TEST_HEADERS,
     "X-Tenant-Id": "test-tenant",
     "X-User-Id": "rest-user",
     "X-Project-Id": "rest-project",
@@ -72,6 +74,7 @@ async def rest_client(
         shared_storage_root=tmp_path / "executor" if split else tmp_path,
         input_storage_root=tmp_path / "agent" if split else None,
         docs_enabled=True,
+        auth_clients=TEST_AUTH_CLIENTS,
     )
     container = ApplicationContainer(settings)
     async with container.engine.begin() as connection:
@@ -327,7 +330,11 @@ async def test_submit_contract_validates_lifecycle_and_optional_scope(
     response = await client.post("/api/v1/executions", json=multi_without_wait)
     assert response.status_code == 422
 
-    unscoped_headers = {"X-Tenant-Id": "test-tenant", "X-User-Id": "rest-user"}
+    unscoped_headers = {
+        **TEST_HEADERS,
+        "X-Tenant-Id": "test-tenant",
+        "X-User-Id": "rest-user",
+    }
     unscoped_client = httpx.AsyncClient(
         transport=client._transport,
         base_url=client.base_url,

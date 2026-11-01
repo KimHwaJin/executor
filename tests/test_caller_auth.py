@@ -64,7 +64,9 @@ CLIENTS = (
 
 @asynccontextmanager
 async def _app(
-    tmp_path: Path, **overrides: Any
+    tmp_path: Path,
+    auth_clients: tuple[AuthClient, ...] = CLIENTS,
+    **overrides: Any,
 ) -> AsyncIterator[tuple[httpx.AsyncClient, ApplicationContainer]]:
     settings = Settings(
         _env_file=None,
@@ -73,6 +75,7 @@ async def _app(
         runtime_enabled=False,
         shared_storage_root=tmp_path,
         docs_enabled=True,
+        auth_clients=auth_clients,
         **overrides,
     )
     container = ApplicationContainer(settings)
@@ -90,12 +93,10 @@ async def _app(
 
 
 @pytest.fixture
-async def api_key_app(
+async def auth_app(
     tmp_path: Path,
 ) -> AsyncIterator[tuple[httpx.AsyncClient, ApplicationContainer]]:
-    async with _app(
-        tmp_path, auth_mode="api_key", auth_clients=CLIENTS
-    ) as app:
+    async with _app(tmp_path) as app:
         yield app
 
 
@@ -114,8 +115,8 @@ async def _submit(
     )
 
 
-async def test_missing_or_unknown_key_is_unauthenticated(api_key_app) -> None:
-    client, _ = api_key_app
+async def test_missing_or_unknown_key_is_unauthenticated(auth_app) -> None:
+    client, _ = auth_app
     for headers in ({}, {"X-Api-Key": "wrong"}):
         response = await client.get("/api/v1/executions", headers=headers)
         assert response.status_code == 401
@@ -124,13 +125,13 @@ async def test_missing_or_unknown_key_is_unauthenticated(api_key_app) -> None:
     assert response.status_code == 401
 
 
-async def test_probes_need_no_key(api_key_app) -> None:
-    client, _ = api_key_app
+async def test_probes_need_no_key(auth_app) -> None:
+    client, _ = auth_app
     assert (await client.get("/healthz")).status_code == 200
 
 
-async def test_worker_status_requires_an_admin_key(api_key_app) -> None:
-    client, _ = api_key_app
+async def test_worker_status_requires_an_admin_key(auth_app) -> None:
+    client, _ = auth_app
     assert (await client.get("/workerz")).status_code == 401
     plain = await client.get("/workerz", headers=_headers(PLAIN_KEY))
     assert plain.status_code == 403
@@ -139,9 +140,9 @@ async def test_worker_status_requires_an_admin_key(api_key_app) -> None:
 
 
 async def test_runtime_and_maintenance_routes_require_admin(
-    api_key_app,
+    auth_app,
 ) -> None:
-    client, _ = api_key_app
+    client, _ = auth_app
     for path in (
         "/api/v1/runtime-targets",
         "/api/v1/runtime-pools",
@@ -156,8 +157,8 @@ async def test_runtime_and_maintenance_routes_require_admin(
     assert allowed.status_code == 200
 
 
-async def test_tenant_comes_from_key_or_allowed_override(api_key_app) -> None:
-    client, _ = api_key_app
+async def test_tenant_comes_from_key_or_allowed_override(auth_app) -> None:
+    client, _ = auth_app
     default = await _submit(client, _headers(AGENT_KEY), "tenant-default")
     assert default.status_code == 202
     detail = await client.get(
@@ -185,8 +186,8 @@ async def test_tenant_comes_from_key_or_allowed_override(api_key_app) -> None:
     assert no_tenant.json()["error"]["code"] == "INVALID_IDENTITY"
 
 
-async def test_any_tenant_key_acts_for_every_valid_tenant(api_key_app) -> None:
-    client, _ = api_key_app
+async def test_any_tenant_key_acts_for_every_valid_tenant(auth_app) -> None:
+    client, _ = auth_app
     new = _headers(GATEWAY_KEY, **{"X-Tenant-Id": "new-tenant"})
     submitted = await _submit(client, new, "any-tenant")
     assert submitted.status_code == 202
@@ -216,9 +217,9 @@ async def test_any_tenant_key_acts_for_every_valid_tenant(api_key_app) -> None:
 
 
 async def test_write_requests_log_the_caller_in_the_message(
-    api_key_app, caplog
+    auth_app, caplog
 ) -> None:
-    client, _ = api_key_app
+    client, _ = auth_app
     caplog.set_level("INFO", logger="executor_service.interfaces.auth")
     headers = _headers(
         GATEWAY_KEY,
@@ -252,9 +253,9 @@ async def test_write_requests_log_the_caller_in_the_message(
     ),
 )
 async def test_database_errors_use_the_error_shape_and_hide_the_statement(
-    api_key_app, monkeypatch, error: Exception, status: int, code: str
+    auth_app, monkeypatch, error: Exception, status: int, code: str
 ) -> None:
-    client, container = api_key_app
+    client, container = auth_app
 
     async def fail(*_args: Any, **_kwargs: Any) -> None:
         raise error
@@ -269,8 +270,8 @@ async def test_database_errors_use_the_error_shape_and_hide_the_statement(
     assert "SELECT" not in response.text and "INSERT" not in response.text
 
 
-async def test_executions_are_scoped_to_tenant_and_user(api_key_app) -> None:
-    client, _ = api_key_app
+async def test_executions_are_scoped_to_tenant_and_user(auth_app) -> None:
+    client, _ = auth_app
     owner = _headers(AGENT_KEY, "rest-user")
     submitted = await _submit(client, owner, "scoped")
     location = submitted.headers["location"]
@@ -313,8 +314,8 @@ async def test_executions_are_scoped_to_tenant_and_user(api_key_app) -> None:
     assert cancel.json()["error"]["details"] == []
 
 
-async def test_writes_require_a_user(api_key_app) -> None:
-    client, _ = api_key_app
+async def test_writes_require_a_user(auth_app) -> None:
+    client, _ = auth_app
     submitted = await _submit(client, _headers(AGENT_KEY), "owned")
     location = submitted.headers["location"]
 
@@ -332,8 +333,8 @@ async def test_writes_require_a_user(api_key_app) -> None:
     assert cancel.status_code == 400
 
 
-async def test_user_id_is_lowercased_and_validated(api_key_app) -> None:
-    client, _ = api_key_app
+async def test_user_id_is_lowercased_and_validated(auth_app) -> None:
+    client, _ = auth_app
     submitted = await _submit(
         client, _headers(AGENT_KEY, "Rest-User"), "lower"
     )
@@ -349,8 +350,8 @@ async def test_user_id_is_lowercased_and_validated(api_key_app) -> None:
         assert response.status_code == 400
 
 
-async def test_body_identity_fields_are_rejected(api_key_app) -> None:
-    client, _ = api_key_app
+async def test_body_identity_fields_are_rejected(auth_app) -> None:
+    client, _ = auth_app
     for field, value in (
         ("context", {"user_id": "user-a"}),
         ("tenant_id", "agent-tenant"),
@@ -366,8 +367,6 @@ async def test_body_identity_fields_are_rejected(api_key_app) -> None:
 async def test_mcp_tools_use_the_request_caller(tmp_path: Path) -> None:
     async with _app(
         tmp_path,
-        auth_mode="api_key",
-        auth_clients=CLIENTS,
         mcp_allowed_hosts=("testserver",),
     ) as (_, container):
         app = create_app(container)
@@ -417,7 +416,7 @@ async def test_mcp_tools_use_the_request_caller(tmp_path: Path) -> None:
 async def test_mcp_is_not_mounted_when_disabled(tmp_path: Path) -> None:
     async with _app(tmp_path, mcp_enabled=False) as (client, _):
         response = await client.post(
-            "/mcp", json={}, headers={"X-User-Id": "user-a"}
+            "/mcp", json={}, headers=_headers(AGENT_KEY, "user-a")
         )
     assert response.status_code == 404
 
@@ -427,7 +426,9 @@ async def test_unknown_paths_and_methods_use_the_error_shape(
     tmp_path: Path, mcp_enabled: bool
 ) -> None:
     async with _app(tmp_path, mcp_enabled=mcp_enabled) as (client, _):
-        missing = await client.get("/no-such-path")
+        missing = await client.get(
+            "/no-such-path", headers=_headers(AGENT_KEY)
+        )
         wrong_method = await client.delete("/healthz")
     assert missing.status_code == 404
     assert missing.json() == {
@@ -444,30 +445,6 @@ async def test_unknown_paths_and_methods_use_the_error_shape(
     }
 
 
-async def test_header_mode_trusts_headers_with_a_dev_default(
-    tmp_path: Path,
-) -> None:
-    async with _app(tmp_path) as (client, _):
-        user = {"X-User-Id": "rest-user"}
-        submitted = await _submit(client, user, "header-mode")
-        detail = await client.get(submitted.headers["location"], headers=user)
-        assert detail.json()["tenant_id"] == "dev"
-        assert (await client.get("/api/v1/runtime-targets")).status_code == 200
-
-
-@pytest.mark.parametrize("app_env", ["stg", "prd"])
-def test_header_mode_is_refused_outside_local_and_dev(
-    monkeypatch: pytest.MonkeyPatch, app_env: str
-) -> None:
-    monkeypatch.setenv("APP_ENV", app_env)
-    with pytest.raises(ValidationError, match="AUTH_MODE=header"):
-        Settings(
-            _env_file=None,
-            auth_mode="header",
-            runtime_credential_key="byMtLPvlNfS4KWGj7k0Rzt53Gl9NABlCqfbn8dSF1Ts=",
-        )
-
-
 def test_relay_only_settings_and_unique_keys() -> None:
     with pytest.raises(ValidationError, match="relay"):
         AuthClient(
@@ -478,7 +455,6 @@ def test_relay_only_settings_and_unique_keys() -> None:
     with pytest.raises(ValidationError):
         Settings(
             _env_file=None,
-            auth_mode="api_key",
             auth_clients=(CLIENTS[0], CLIENTS[0]),
         )
     for relay, allowed in ((False, ("*",)), (True, ("*", "agent-tenant"))):
@@ -491,16 +467,14 @@ def test_relay_only_settings_and_unique_keys() -> None:
             )
 
 
-async def test_openapi_documents_the_identity_headers(api_key_app) -> None:
-    client, _ = api_key_app
+async def test_openapi_documents_the_identity_headers(auth_app) -> None:
+    client, _ = auth_app
     schema = (await client.get("/openapi.json")).json()
     assert schema["components"]["securitySchemes"]["APIKeyHeader"] == {
         "type": "apiKey",
         "in": "header",
         "name": "X-Api-Key",
-        "description": (
-            "Caller API key. Required when AUTH_MODE=api_key (stg, prd)."
-        ),
+        "description": "Caller API key; required on every API call.",
     }
     submit = schema["paths"]["/api/v1/executions"]["post"]
     headers = {

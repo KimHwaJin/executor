@@ -3,19 +3,21 @@ import httpx
 from executor_service.container import ApplicationContainer
 from executor_service.interfaces.http.app import create_app
 from executor_service.settings import Settings
+from tests.auth_keys import TEST_AUTH_CLIENTS, TEST_HEADERS
 
 
 async def test_health_endpoint() -> None:
     settings = Settings(
         database_url="sqlite+aiosqlite:///:memory:",
         redis_url="redis://localhost:6399/15",
+        auth_clients=TEST_AUTH_CLIENTS,
     )
     container = ApplicationContainer(settings)
     app = create_app(container)
     transport = httpx.ASGITransport(app=app)
 
     async with httpx.AsyncClient(
-        transport=transport, base_url="http://testserver"
+        transport=transport, base_url="http://testserver", headers=TEST_HEADERS
     ) as client:
         health = await client.get("/healthz")
         worker = await client.get("/workerz")

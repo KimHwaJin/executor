@@ -8,7 +8,12 @@ from collections.abc import Mapping
 from typing import Any
 
 import httpx
-from execution_spec_payload import execution_request, inline_spec
+from execution_spec_payload import (
+    API_KEY_HEADERS,
+    LOCAL_AUTH_CLIENTS,
+    execution_request,
+    inline_spec,
+)
 from mcp import Client
 from redis.asyncio import Redis
 
@@ -29,7 +34,9 @@ async def require_exclusive_executor_control() -> None:
         return
     try:
         async with httpx.AsyncClient(timeout=0.75) as client:
-            response = await client.get(f"{existing_url}/workerz")
+            response = await client.get(
+                f"{existing_url}/workerz", headers=API_KEY_HEADERS
+            )
     except httpx.HTTPError:
         return
     if response.status_code == 200:
@@ -59,6 +66,7 @@ async def start_executor(
     extra_environment: Mapping[str, str] | None = None,
 ) -> asyncio.subprocess.Process:
     environment = os.environ.copy()
+    environment.setdefault("AUTH_CLIENTS", LOCAL_AUTH_CLIENTS)
     environment.update(
         {
             "EXECUTION_LEASE_SECONDS": "30",
@@ -116,7 +124,9 @@ async def cleanup_streams(redis: Redis, stream: str) -> None:
 async def worker_id(port: int) -> str:
     """The lease owner name a running Executor writes on its Attempts."""
     async with httpx.AsyncClient() as client:
-        response = await client.get(f"http://127.0.0.1:{port}/workerz")
+        response = await client.get(
+            f"http://127.0.0.1:{port}/workerz", headers=API_KEY_HEADERS
+        )
         response.raise_for_status()
         return str(response.json()["worker_id"])
 
