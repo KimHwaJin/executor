@@ -214,6 +214,19 @@ async def test_any_tenant_key_acts_for_every_valid_tenant(api_key_app) -> None:
     assert admin_only.status_code == 403
 
 
+async def test_write_requests_log_the_caller_in_the_message(
+    api_key_app, caplog
+) -> None:
+    client, _ = api_key_app
+    caplog.set_level("INFO", logger="executor_service.interfaces.auth")
+    headers = _headers(GATEWAY_KEY, "u1", **{"X-Tenant-Id": "new-tenant"})
+    await _submit(client, headers, "logged")
+    assert (
+        "Caller write request client=gateway tenant=new-tenant "
+        "user=u1 method=POST path=/api/v1/executions"
+    ) in caplog.messages
+
+
 async def test_executions_are_scoped_to_tenant_and_user(api_key_app) -> None:
     client, _ = api_key_app
     owner = _headers(AGENT_KEY, "rest-user")
