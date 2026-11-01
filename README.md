@@ -747,7 +747,8 @@ never from `.env`. `config.yml` lists every shared tunable at its code default i
 `src/executor_service/settings.py` (a test keeps the two equal, so change both together);
 `config.dev.yml`, `config.stg.yml` and `config.prd.yml`
 hold credentials, MCP host/origin allowlists, storage roots and other deployment-only values. Keys
-are the setting names in any case. The
+are the setting names in any case. [`config.example.yml`](config.example.yml) lists every setting
+with what it does and an example value (reference only; the service never reads it). The
 platform offers no ConfigMaps or Secrets, so these files, credentials included, ship in the
 image. Build one image per environment with `--build-arg APP_ENV=<env>`; it then carries
 `config.yml` and that environment's file only. `DATABASE_URL` and `REDIS_URL` are secret settings and are never
