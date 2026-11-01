@@ -69,7 +69,8 @@ AUTH_CLIENTS:
     admin: true
 ```
 
-Write requests log `client`, `tenant_id`, and `user_id`; the key itself is never logged.
+Write requests log `client`, `tenant`, `user`, `method`, `path`, and a plain `X-Request-ID` as `request_id` in the
+message; the key itself is never logged.
 
 ## Submit
 

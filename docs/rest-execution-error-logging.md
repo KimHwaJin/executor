@@ -11,6 +11,7 @@ Execution 경로(`/api/v1/executions` 및 하위 경로)의 POST/PUT/PATCH/DELET
 - 메서드, 경로, 로그용 request_id, 상태 코드, 요청 body와 오류 응답을 기록한다.
 - 오류 응답은 최대 16KiB, 미처리 예외는 타입·메시지를 기록한다.
 - request_id는 이 로그의 식별자이며 Agent 요청 ID나 응답 헤더는 아니다.
+- caller_request_id는 호출자가 보낸 `X-Request-ID`다. 형식에 맞지 않거나 없으면 null이다.
 
 요청 body는 마스킹하지 않는다. 코드·토큰·개인정보도 포함될 수 있으므로 로그 접근권한과
 보관정책을 별도로 관리한다. Authorization 등 요청 헤더는 수집하지 않는다.

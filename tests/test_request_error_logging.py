@@ -45,6 +45,25 @@ async def test_real_execution_validation_logs_body(
     assert entry["body_complete"] is True
     assert entry["body_truncated"] is False
     assert json.loads(entry["error_response"]) == response.json()
+    assert entry["caller_request_id"] is None
+
+
+async def test_failure_log_carries_the_callers_request_id(
+    rest_client, caplog: pytest.LogCaptureFixture
+) -> None:
+    client, _ = rest_client
+    with caplog.at_level(logging.ERROR, logger=LOGGER):
+        await client.post(
+            "/api/v1/executions",
+            content="{}",
+            headers={
+                "Content-Type": "application/json",
+                "X-Request-ID": "rid-1",
+            },
+        )
+    (entry,) = records(caplog)
+    assert entry["caller_request_id"] == "rid-1"
+    assert entry["request_id"] != "rid-1"
 
 
 @pytest.mark.parametrize(

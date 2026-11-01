@@ -223,8 +223,25 @@ async def test_write_requests_log_the_caller_in_the_message(
     await _submit(client, headers, "logged")
     assert (
         "Caller write request client=gateway tenant=new-tenant "
-        "user=u1 method=POST path=/api/v1/executions"
+        "user=u1 method=POST path=/api/v1/executions request_id=-"
     ) in caplog.messages
+
+
+@pytest.mark.parametrize(
+    ("sent", "logged"), (("rid-1:a.b", "rid-1:a.b"), ("forged user=x", "-"))
+)
+async def test_write_requests_log_only_a_plain_request_id(
+    api_key_app, caplog, sent: str, logged: str
+) -> None:
+    client, _ = api_key_app
+    caplog.set_level("INFO", logger="executor_service.interfaces.auth")
+    headers = _headers(AGENT_KEY, "u1", **{"X-Request-ID": sent})
+    await _submit(client, headers, f"request-id-{logged}")
+    assert any(
+        message.startswith("Caller write request")
+        and message.endswith(f" request_id={logged}")
+        for message in caplog.messages
+    )
 
 
 async def test_executions_are_scoped_to_tenant_and_user(api_key_app) -> None:

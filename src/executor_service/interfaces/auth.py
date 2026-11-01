@@ -34,6 +34,7 @@ from executor_service.domain.tenants import (
     is_valid_tenant_id,
 )
 from executor_service.interfaces.error_body import domain_error_content
+from executor_service.interfaces.request_id import caller_request_id
 from executor_service.settings import AuthClient, Settings
 
 # Kubelet probes call these without a key, and the API docs must load before
@@ -156,12 +157,13 @@ class CallerAuthenticationMiddleware:
             # may print only %(message)s. Keys match the Agent audit log.
             logger.info(
                 "Caller write request client=%s tenant=%s user=%s "
-                "method=%s path=%s",
+                "method=%s path=%s request_id=%s",
                 caller.client,
                 caller.tenant_id,
                 caller.user_id,
                 scope["method"],
                 scope["path"],
+                caller_request_id(Headers(scope=scope)) or "-",
             )
         with acting_as(caller):
             await self._app(scope, receive, send)
