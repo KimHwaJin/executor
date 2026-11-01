@@ -759,7 +759,9 @@ protection to make a proxy work. stg and prd set `MCP_ENABLED: false`, so `/mcp`
 
 `AUTH_MODE` is `header` locally and in dev (identity headers trusted, tenant `dev`) and `api_key`
 in stg and prd, where `AUTH_CLIENTS` lists each caller's key SHA-256, default tenant, relay
-permission, and admin flag. Startup refuses `header` outside local and dev. dev also ships
+permission, and admin flag. A relay key's `allowed_tenants` names the tenants it may send in
+`X-Tenant-Id`; `["*"]` (relay keys only, never mixed with names) allows every valid tenant, so a
+new tenant needs no Executor change: its Stream and workspace appear on first use. Startup refuses `header` outside local and dev. dev also ships
 `AUTH_CLIENTS`, so setting the Deployment env `AUTH_MODE=api_key` switches dev to key
 authentication without rebuilding; in `header` mode a request that sends `X-Api-Key` is still
 checked against them. The shipped placeholder hashes match no key: replace them with

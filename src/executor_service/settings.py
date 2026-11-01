@@ -30,6 +30,7 @@ from pydantic_settings import (
 )
 
 from executor_service.domain.tenants import (
+    ANY_TENANT,
     RESERVED_TENANT_IDS,
     TENANT_ID_PATTERN,
 )
@@ -70,9 +71,10 @@ class AuthClient(BaseModel):
     # SHA-256 hex of each accepted key; several while a key is rotated.
     key_sha256: tuple[KeySha256, ...] = Field(min_length=1)
     tenant: TenantId | None = None
-    # A relay may name another tenant from allowed_tenants in X-Tenant-Id.
+    # A relay may name another tenant from allowed_tenants in X-Tenant-Id;
+    # ["*"] allows every valid tenant.
     relay: bool = False
-    allowed_tenants: tuple[TenantId, ...] = ()
+    allowed_tenants: tuple[TenantId | Literal["*"], ...] = ()
     admin: bool = False
 
     @model_validator(mode="after")
@@ -84,7 +86,15 @@ class AuthClient(BaseModel):
             raise ValueError(f"tenant {sorted(reserved)} is reserved.")
         if self.allowed_tenants and not self.relay:
             raise ValueError("allowed_tenants requires relay: true.")
+        if ANY_TENANT in self.allowed_tenants and len(self.allowed_tenants) > 1:
+            raise ValueError('allowed_tenants "*" must stand alone.')
         return self
+
+    def allows_tenant(self, tenant_id: str) -> bool:
+        return self.relay and (
+            ANY_TENANT in self.allowed_tenants
+            or tenant_id in self.allowed_tenants
+        )
 
 
 class Settings(BaseSettings):

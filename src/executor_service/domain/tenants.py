@@ -6,6 +6,8 @@ TENANT_ID_PATTERN = r"^[a-z][a-z0-9-]{1,62}[a-z0-9]$"
 _TENANT_ID = re.compile(TENANT_ID_PATTERN)
 # Suffixes that name, or may later name, Executor's own Streams.
 RESERVED_TENANT_IDS = frozenset({"dlq", "work"})
+# allowed_tenants entry letting a relay key act for every valid tenant.
+ANY_TENANT = "*"
 
 
 def is_valid_tenant_id(value: str) -> bool:

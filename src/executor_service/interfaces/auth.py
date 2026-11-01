@@ -179,7 +179,7 @@ class CallerAuthenticationMiddleware:
             tenant_id = requested_tenant or HEADER_MODE_TENANT
         elif requested_tenant is None:
             tenant_id = client.tenant
-        elif client.relay and requested_tenant in client.allowed_tenants:
+        elif client.allows_tenant(requested_tenant):
             tenant_id = requested_tenant
         else:
             raise ForbiddenError("This key may not act for that X-Tenant-Id.")

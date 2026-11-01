@@ -16,6 +16,7 @@ from starlette.applications import Starlette
 from starlette.routing import Mount
 
 from executor_service.container import ApplicationContainer
+from executor_service.domain.tenants import tenant_event_stream
 from executor_service.infrastructure.db.base import Base
 from executor_service.interfaces.http.app import create_app
 from executor_service.settings import AuthClient, Settings
@@ -25,6 +26,7 @@ AGENT_KEY = "agent-key"
 BATCH_KEY = "batch-key"
 OPS_KEY = "ops-key"
 PLAIN_KEY = "plain-key"
+GATEWAY_KEY = "gateway-key"
 
 
 def _sha256(key: str) -> str:
@@ -48,6 +50,13 @@ CLIENTS = (
     AuthClient(name="ops", key_sha256=(_sha256(OPS_KEY),), admin=True),
     AuthClient(
         name="plain", key_sha256=(_sha256(PLAIN_KEY),), tenant="plain-tenant"
+    ),
+    AuthClient(
+        name="gateway",
+        key_sha256=(_sha256(GATEWAY_KEY),),
+        tenant="agent-tenant",
+        relay=True,
+        allowed_tenants=("*",),
     ),
 )
 
@@ -173,6 +182,36 @@ async def test_tenant_comes_from_key_or_allowed_override(api_key_app) -> None:
     no_tenant = await _submit(client, _headers(BATCH_KEY), "no-tenant")
     assert no_tenant.status_code == 400
     assert no_tenant.json()["error"]["code"] == "INVALID_IDENTITY"
+
+
+async def test_any_tenant_key_acts_for_every_valid_tenant(api_key_app) -> None:
+    client, _ = api_key_app
+    new = _headers(GATEWAY_KEY, **{"X-Tenant-Id": "new-tenant"})
+    submitted = await _submit(client, new, "any-tenant")
+    assert submitted.status_code == 202
+    location = submitted.headers["location"]
+    detail = await client.get(location, headers=new)
+    assert detail.json()["tenant_id"] == "new-tenant"
+    assert tenant_event_stream("executor.events", "new-tenant") == (
+        "executor.events.new-tenant"
+    )
+    # Still one tenant per request: another tenant cannot see it.
+    other = _headers(GATEWAY_KEY, **{"X-Tenant-Id": "other-tenant"})
+    assert (await client.get(location, headers=other)).status_code == 404
+    assert (
+        await client.get(location, headers=_headers(GATEWAY_KEY))
+    ).status_code == 404
+
+    for tenant in ("dlq", "work", "Bad_Tenant"):
+        response = await _submit(
+            client, _headers(GATEWAY_KEY, **{"X-Tenant-Id": tenant}), "bad"
+        )
+        assert response.status_code == 400
+        assert response.json()["error"]["code"] == "INVALID_IDENTITY"
+    admin_only = await client.get(
+        "/api/v1/runtime-targets", headers=_headers(GATEWAY_KEY)
+    )
+    assert admin_only.status_code == 403
 
 
 async def test_executions_are_scoped_to_tenant_and_user(api_key_app) -> None:
@@ -359,6 +398,14 @@ def test_relay_only_settings_and_unique_keys() -> None:
             auth_mode="api_key",
             auth_clients=(CLIENTS[0], CLIENTS[0]),
         )
+    for relay, allowed in ((False, ("*",)), (True, ("*", "agent-tenant"))):
+        with pytest.raises(ValidationError, match=r"relay|alone"):
+            AuthClient(
+                name="x",
+                key_sha256=(_sha256("x"),),
+                relay=relay,
+                allowed_tenants=allowed,
+            )
 
 
 async def test_openapi_documents_the_identity_headers(api_key_app) -> None:
