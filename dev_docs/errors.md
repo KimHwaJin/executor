@@ -27,9 +27,11 @@ REST와 MCP 오류는 모두 같은 형식으로 응답한다. 요청 값에 문
 | `code` | 오류 종류. 호출측 분기 기준 |
 | `message` | 사람이 읽는 설명. 문구는 바뀔 수 있으니 분기에 쓰지 않는다 |
 | `details[]` | 요청 값 문제일 때만 있다. 값 하나에 하나씩 |
-| `details[].location` | 값의 위치. 첫 원소는 `body` 또는 `header`이고, 그 뒤는 요청의 필드 이름과 배열 순번이다 |
+| `details[].location` | 값의 위치. 첫 원소는 `body`, `header`, `query`, `path` 중 하나이고, 그 뒤는 요청의 필드 이름과 배열 순번이다 |
 | `details[].type` | 바뀌지 않는 snake_case 사유. 분기에 쓴다 |
 | `details[].context` | 사유의 근거 값. 한도(`limit`, `limit_bytes`, `limit_seconds`)와 실제 값(`actual`, `actual_bytes`, `actual_seconds`) 등. 없으면 필드가 빠진다 |
+
+`/mcp` 전송 계층 오류(JSON-RPC 오류, 허용되지 않은 Host의 421 등)는 MCP 프로토콜 형식을 따르며 이 형식에 포함되지 않는다.
 
 MCP Tool 오류는 본문이 `[CODE] message details=[...]`이다. `details=` 뒤는 위의 `details`와
 같은 JSON 배열이다.
@@ -41,10 +43,13 @@ MCP Tool 오류는 본문이 `[CODE] message details=[...]`이다. `details=` �
 | 400 | 식별 헤더가 잘못됨 | `INVALID_IDENTITY` |
 | 401 / 403 | 인증 실패 / 권한 없음 | `UNAUTHENTICATED` / `FORBIDDEN` |
 | 404 | 대상이 없음 | `*_NOT_FOUND` |
+| 404 | 없는 경로 | `NOT_FOUND` |
+| 405 | 경로는 있지만 허용되지 않은 메서드(`Allow` 헤더로 허용 메서드를 알려 줌) | `METHOD_NOT_ALLOWED` |
 | 409 | **요청은 맞지만 지금 상태에서는 할 수 없음**. 이미 종료됨, `WAITING_FOR_OPERATION`이 아님, version 불일치, 멱등 키 재사용 등 | `INVALID_STATE_TRANSITION`, `EXECUTION_VERSION_CONFLICT`, `IDEMPOTENCY_CONFLICT` 등 |
 | 413 | 요청 본문이 `REQUEST_BODY_MAX_BYTES`(기본 30MB)를 넘음 | `REQUEST_BODY_TOO_LARGE` |
 | 422 | 요청 형식이 틀림(필수 값 누락, 타입, 길이, 패턴) | `REQUEST_VALIDATION_ERROR` |
 | 422 | **요청 값 자체가 규칙에 맞지 않음**. 개수·크기·시간 한도 초과, 소스 파일 문제, actor 규칙 위반 등 | `INVALID_EXECUTION_SPEC` |
+| 500 | 예상하지 못한 서버 오류 | `INTERNAL_ERROR` |
 
 요청 값을 고쳐야 통과하면 422, 기다리거나 최신 상태를 다시 읽으면 통과할 수 있으면 409다.
 Execution 누적 Step 한도 초과도 요청을 줄여야 하므로 422다.

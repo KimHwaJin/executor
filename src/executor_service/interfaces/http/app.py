@@ -9,6 +9,8 @@ from fastapi import FastAPI, Request, Response, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from mcp.server.transport_security import TransportSecuritySettings
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.routing import Route
 
 from executor_service.container import ApplicationContainer
 from executor_service.domain.errors import (
@@ -17,7 +19,10 @@ from executor_service.domain.errors import (
     ErrorCode,
 )
 from executor_service.interfaces.auth import CallerAuthenticationMiddleware
-from executor_service.interfaces.error_body import domain_error_content
+from executor_service.interfaces.error_body import (
+    domain_error_content,
+    error_content,
+)
 from executor_service.interfaces.http.body_limit import (
     RequestBodyLimitMiddleware,
 )
@@ -149,6 +154,22 @@ def create_app(
             content=domain_error_content(exc),
         )
 
+    @app.exception_handler(StarletteHTTPException)
+    async def http_error_handler(
+        _request: Request, exc: StarletteHTTPException
+    ) -> JSONResponse:
+        # Unknown paths and methods answer in the same error shape as
+        # every other response, not Starlette's {"detail": ...}.
+        code = {
+            status.HTTP_404_NOT_FOUND: ErrorCode.NOT_FOUND,
+            status.HTTP_405_METHOD_NOT_ALLOWED: ErrorCode.METHOD_NOT_ALLOWED,
+        }.get(exc.status_code, ErrorCode.INTERNAL_ERROR)
+        return JSONResponse(
+            status_code=exc.status_code,
+            headers=exc.headers,
+            content=error_content(code, str(exc.detail)),
+        )
+
     @app.exception_handler(Exception)
     async def unexpected_error_handler(
         _request: Request, exc: Exception
@@ -216,16 +237,19 @@ def create_app(
             allowed_hosts=list(container.settings.mcp_allowed_hosts),
             allowed_origins=list(container.settings.mcp_allowed_origins),
         )
-        # Mounted at the root because a "/mcp" mount answers POST /mcp with a
-        # 307 to "/mcp/". Registered last so every route above wins.
-        app.mount(
-            "/",
-            mcp_server.streamable_http_app(
-                streamable_http_path="/mcp",
-                json_response=True,
-                stateless_http=True,
-                transport_security=transport_security,
-            ),
+        # A route, not a mount: a "/mcp" mount answers POST /mcp with a 307
+        # to "/mcp/", and a root mount would answer every unknown path with
+        # the MCP app's plain-text 404 instead of the shared error shape.
+        app.router.routes.append(
+            Route(
+                "/mcp",
+                mcp_server.streamable_http_app(
+                    streamable_http_path="/mcp",
+                    json_response=True,
+                    stateless_http=True,
+                    transport_security=transport_security,
+                ),
+            )
         )
     return app
 

@@ -183,11 +183,12 @@ and 1000. Going over either answers `422 INVALID_EXECUTION_SPEC`.
 ## Errors
 
 Every error body is `{"error": {"code", "message", "details?"}}`. `details` appears when a
-request value is at fault: each entry has `location` (`body` or `header`, then the field path),
+request value is at fault: each entry has `location` (`body`, `header`, `query` or `path`, then the field path),
 `message`, a stable snake_case `type`, and `context` with the numbers behind it (for example
 `limit` and `actual`). Request-shape failures (`REQUEST_VALIDATION_ERROR`) and rule failures
 (`INVALID_EXECUTION_SPEC`) both use 422 and this shape; 409 is kept for requests that are valid
-but conflict with the current state or version. MCP Tool errors read `[CODE] message
+but conflict with the current state or version. Unknown paths answer 404 `NOT_FOUND`, and a
+known path with the wrong method answers 405 `METHOD_NOT_ALLOWED`. MCP Tool errors read `[CODE] message
 details=[...]` with the same JSON. The full list of types is in
 [dev_docs/errors.md](../dev_docs/errors.md).
 

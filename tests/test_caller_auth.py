@@ -13,7 +13,7 @@ from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
 from pydantic import ValidationError
 from starlette.applications import Starlette
-from starlette.routing import Mount
+from starlette.routing import Route
 
 from executor_service.container import ApplicationContainer
 from executor_service.domain.tenants import tenant_event_stream
@@ -336,9 +336,13 @@ async def test_mcp_tools_use_the_request_caller(tmp_path: Path) -> None:
         mcp_allowed_hosts=("testserver",),
     ) as (_, container):
         app = create_app(container)
-        [mount] = [route for route in app.routes if isinstance(route, Mount)]
-        # The mount's lifespan starts the MCP session manager.
-        mcp_app = cast(Starlette, mount.app)
+        [route] = [
+            route
+            for route in app.routes
+            if isinstance(route, Route) and route.path == "/mcp"
+        ]
+        # The MCP app's lifespan starts its session manager.
+        mcp_app = cast(Starlette, route.endpoint)
         async with mcp_app.router.lifespan_context(mcp_app):
 
             def mcp(headers: dict[str, str]) -> Client:
@@ -380,6 +384,27 @@ async def test_mcp_is_not_mounted_when_disabled(tmp_path: Path) -> None:
             "/mcp", json={}, headers={"X-User-Id": "user-a"}
         )
     assert response.status_code == 404
+
+
+@pytest.mark.parametrize("mcp_enabled", [True, False])
+async def test_unknown_paths_and_methods_use_the_error_shape(
+    tmp_path: Path, mcp_enabled: bool
+) -> None:
+    async with _app(tmp_path, mcp_enabled=mcp_enabled) as (client, _):
+        missing = await client.get("/no-such-path")
+        wrong_method = await client.delete("/healthz")
+    assert missing.status_code == 404
+    assert missing.json() == {
+        "error": {"code": "NOT_FOUND", "message": "Not Found"}
+    }
+    assert wrong_method.status_code == 405
+    assert wrong_method.headers["allow"] == "GET"
+    assert wrong_method.json() == {
+        "error": {
+            "code": "METHOD_NOT_ALLOWED",
+            "message": "Method Not Allowed",
+        }
+    }
 
 
 async def test_header_mode_trusts_headers_with_a_dev_default(
