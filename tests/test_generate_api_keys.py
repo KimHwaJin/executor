@@ -1,42 +1,74 @@
 import hashlib
-import re
 import subprocess
 import sys
 from pathlib import Path
+
+import yaml
 
 from executor_service.settings import AuthClient
 
 SCRIPT = Path(__file__).parents[1] / "scripts" / "generate_api_keys.py"
 
 
-def _generate(*args: str) -> list[tuple[str, str, str]]:
-    output = subprocess.run(
+def _run(*args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
         [sys.executable, str(SCRIPT), *args],
-        check=True,
         capture_output=True,
         text=True,
-    ).stdout
-    return re.findall(
-        r"^(\S+)\n  .*key_sha256: (\S+)\n  .*: (\S+)$", output, re.MULTILINE
     )
 
 
-def test_every_caller_gets_a_key_matching_a_valid_hash() -> None:
-    generated = _generate("prd")
+def _generate(*args: str) -> tuple[AuthClient, str]:
+    result = _run(*args)
+    assert result.returncode == 0, result.stderr
+    entry, key = result.stdout.rsplit("\n#", 1)
+    return (
+        AuthClient(**yaml.safe_load(entry)[0]),
+        key.splitlines()[1],
+    )
 
-    assert [name for name, _, _ in generated] == [
+
+def test_master_key_is_admin_only() -> None:
+    client, key = _generate("prd", "--kind", "master", "--caller", "ops")
+
+    assert client.name == "ops"
+    assert client.admin
+    assert not client.relay
+    assert client.tenant is None
+    assert key.startswith("exe_prd_master_")
+    assert client.key_sha256 == (hashlib.sha256(key.encode()).hexdigest(),)
+
+
+def test_normal_key_relays_any_tenant_and_is_not_admin() -> None:
+    client, key = _generate(
+        "stg",
+        "--kind",
+        "normal",
+        "--caller",
         "pr-agentic-service",
-        "pr-batch",
-        "ops",
-    ]
-    assert len({key for _, _, key in generated}) == 3
-    for name, digest, key in generated:
-        assert key.startswith("exe_prd_")
-        assert hashlib.sha256(key.encode()).hexdigest() == digest
-        AuthClient(name=name, key_sha256=(digest,))
+        "--tenant",
+        "dtest-agent-service",
+    )
+
+    assert not client.admin
+    assert client.tenant == "dtest-agent-service"
+    assert client.allows_tenant("any-new-tenant")
+    assert key.startswith("exe_stg_normal_")
 
 
-def test_caller_option_limits_the_output_for_a_rotation() -> None:
-    assert [name for name, _, _ in _generate("stg", "--caller", "ops")] == [
-        "ops"
-    ]
+def test_invalid_tenant_is_refused() -> None:
+    result = _run(
+        "prd", "--kind", "normal", "--caller", "x", "--tenant", "dlq"
+    )
+
+    assert result.returncode == 2
+    assert "exe_" not in result.stdout
+
+
+def test_master_key_refuses_a_tenant() -> None:
+    result = _run(
+        "prd", "--kind", "master", "--caller", "ops", "--tenant", "acme"
+    )
+
+    assert result.returncode == 2
+    assert "exe_" not in result.stdout
