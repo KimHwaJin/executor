@@ -747,7 +747,8 @@ never from `.env`. `config.yml` lists every shared tunable at its code default i
 `src/executor_service/settings.py` (a test keeps the two equal, so change both together);
 `config.dev.yml`, `config.stg.yml` and `config.prd.yml`
 hold credentials, MCP host/origin allowlists, storage roots and other deployment-only values. Keys
-are the setting names in any case. The
+are the setting names in any case. [`config.example.yml`](config.example.yml) lists every setting
+with what it does and an example value (reference only; the service never reads it). The
 platform offers no ConfigMaps or Secrets, so these files, credentials included, ship in the
 image. Build one image per environment with `--build-arg APP_ENV=<env>`; it then carries
 `config.yml` and that environment's file only. `DATABASE_URL` and `REDIS_URL` are secret settings and are never
@@ -761,8 +762,8 @@ Every API call needs an `X-Api-Key` listed in `AUTH_CLIENTS`, locally and in eve
 `AUTH_CLIENTS` lists each caller's key SHA-256, default tenant, relay permission, and admin flag.
 A relay key's `allowed_tenants` names the tenants it may send in `X-Tenant-Id`; `["*"]` (relay keys only, never mixed with names) allows every valid tenant, so a
 new tenant needs no Executor change: its Stream and workspace appear on first use. The shipped
-placeholder hashes in `config.{dev,stg,prd}.yml` match no key: generate keys and hashes with
-`scripts/generate_api_keys.py` as described in [API keys](docs/api-keys.md).
+placeholder hashes in `config.{dev,stg,prd}.yml` match no key: replace them with the output of
+`scripts/generate_api_keys.py`. See [API Keys](docs/api-keys.md).
 
 Locally, `docker-compose.yml` lists local-only keys in its comments; the `local` key (admin, any
 tenant) is the one the `scripts/` smoke tests send unless `EXECUTOR_API_KEY` is set.

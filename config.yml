@@ -3,7 +3,7 @@
 # both. Keys are Settings field names in any case. Values here equal the
 # code defaults in src/executor_service/settings.py (a test keeps them in
 # step), so change both together; per-environment values go in
-# config.{APP_ENV}.yml.
+# config.{APP_ENV}.yml. config.example.yml lists and explains every setting.
 # Unmasked bodies: opt in only after approving log access/retention.
 REST_ERROR_BODY_LOGGING_ENABLED: false
 REST_ERROR_BODY_LOG_MAX_BYTES: 65536
