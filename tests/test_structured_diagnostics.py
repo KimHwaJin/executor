@@ -342,7 +342,7 @@ async def test_rest_diagnostic_history_contract(
     container = ApplicationContainer(
         Settings(
             database_url="sqlite+aiosqlite:///:memory:",
-            shared_storage_root=tmp_path,
+            storage_root=tmp_path,
             auth_clients=TEST_AUTH_CLIENTS,
         )
     )

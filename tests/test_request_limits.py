@@ -28,7 +28,7 @@ def _client(tmp_path: Path, max_bytes: int) -> TestClient:
         database_url="sqlite+aiosqlite:///:memory:",
         redis_url="redis://localhost:6399/15",
         runtime_enabled=False,
-        shared_storage_root=tmp_path,
+        storage_root=tmp_path,
         request_body_max_bytes=max_bytes,
     )
     return TestClient(create_app(ApplicationContainer(settings)))

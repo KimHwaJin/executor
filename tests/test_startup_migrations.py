@@ -32,7 +32,7 @@ async def test_migration_precedes_any_db_initialization_or_background_task(
     container = ApplicationContainer(
         Settings(
             _env_file=None,
-            shared_storage_root=tmp_path,
+            storage_root=tmp_path,
             db_auto_migrate=enabled,
             runtime_enabled=False,
         )
@@ -72,7 +72,7 @@ async def test_failed_migration_prevents_serving_and_closes_container(
     container = ApplicationContainer(
         Settings(
             _env_file=None,
-            shared_storage_root=tmp_path,
+            storage_root=tmp_path,
             db_auto_migrate=True,
         )
     )
@@ -129,9 +129,8 @@ def test_deployment_reads_image_config_and_safe_update_strategy() -> None:
         + defaults.db_migration_statement_timeout_seconds
     )
     mounts = {Path(mount["mountPath"]) for mount in container["volumeMounts"]}
-    for key in ("SHARED_STORAGE_ROOT", "INPUT_STORAGE_ROOT"):
-        root = Path(config[key])
-        assert any(root.is_relative_to(mount) for mount in mounts)
+    root = Path(config["STORAGE_ROOT"])
+    assert any(root.is_relative_to(mount) for mount in mounts)
     for old in ("configmap.yaml", "secret.example.yaml", "migration-job.yaml"):
         assert not (ROOT / "deploy/kubernetes" / old).exists()
 

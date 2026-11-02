@@ -189,7 +189,7 @@ async def main() -> None:
                         assert steps[1].result_complete is False
                         assert steps[1].result_manifest_path
                         manifest_path = (
-                            settings.shared_storage_root
+                            settings.storage_root
                             / steps[1].result_manifest_path
                         )
                         assert manifest_path.is_file()
@@ -197,7 +197,7 @@ async def main() -> None:
                         assert manifest["complete"] is False
                         texts = [
                             (
-                                settings.shared_storage_root
+                                settings.storage_root
                                 / representation["relative_path"]
                             ).read_text()
                             for output in manifest["outputs"]

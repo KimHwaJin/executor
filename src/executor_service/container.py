@@ -100,7 +100,7 @@ class ApplicationContainer:
         self.session_factory = create_session_factory(self.engine)
         self.redis: Redis = create_redis_client(settings)
         self.result_store = FilesystemExecutionResultStore(
-            settings.shared_storage_root
+            settings.storage_root
         )
         self.runtime_adapters = RuntimeAdapterRegistry(settings)
         self.execution_service = ExecutionService(
@@ -125,7 +125,7 @@ class ApplicationContainer:
             self.execution_queries
         )
         self.execution_spec_resolver = ExecutionSpecResolver(
-            settings.effective_input_storage_root,
+            settings.storage_root,
             inline_max_bytes=settings.execution_inline_spec_max_bytes,
             file_max_bytes=settings.execution_file_spec_max_bytes,
             max_steps=settings.execution_max_steps_per_operation,
@@ -154,7 +154,7 @@ class ApplicationContainer:
         self.materialized_artifacts = MaterializedArtifactService(
             self.session_factory,
             self.runtime_storage,
-            settings.effective_input_storage_root,
+            settings.storage_root,
             max_bytes=settings.execution_file_spec_max_bytes,
         )
         self.outbox_publisher = OutboxPublisher(

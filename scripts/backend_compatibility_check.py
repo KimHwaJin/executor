@@ -228,7 +228,7 @@ def isolated_settings(
             "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
         ),
         runtime_allowed_profiles=("default",),
-        shared_storage_root=directory,
+        storage_root=directory,
         redis_event_stream=f"{prefix}:events",
     )
     # No implicit localhost defaults for a deployment diagnostic.

@@ -165,7 +165,7 @@ async def test_output_limit_aborts_runtime_and_persists_incomplete_result(
     )
     settings = Settings(
         runtime_enabled=False,
-        shared_storage_root=tmp_path,
+        storage_root=tmp_path,
         runtime_max_output_message_bytes=1048576,
     )
     redis = Redis.from_url("redis://127.0.0.1:6379/15", decode_responses=True)
@@ -179,9 +179,7 @@ async def test_output_limit_aborts_runtime_and_persists_incomplete_result(
         settings=settings,
         registry=RuntimeTargetRegistry(session_factory, settings),
         artifact_manager=ExecutionArtifactManager(session_factory),
-        result_store=FilesystemExecutionResultStore(
-            settings.shared_storage_root
-        ),
+        result_store=FilesystemExecutionResultStore(settings.storage_root),
         driver_factory=cast(
             RuntimeDriverFactory,
             OutputLimitDriverFactory(driver),

@@ -243,12 +243,12 @@ endpoint, token, target name, or pool on the Executor process:
 RUNTIME_ENABLED=true
 RUNTIME_ALLOWED_PROFILES=default,3102311
 RUNTIME_DEFAULT_MAX_CONCURRENT_EXECUTIONS=1
-LOCAL_TEST_SHARED_STORAGE_ROOT=C:/absolute/path/to/executor/shared_dir
+LOCAL_TEST_STORAGE_ROOT=C:/absolute/path/to/executor/shared_dir
 ```
 
 Use the equivalent absolute POSIX path on Linux or macOS. Jupyter must use the custom image or have
 the Executor extension installed. Its root is Jupyter-owned storage, not
-`SHARED_STORAGE_ROOT`. The
+`STORAGE_ROOT`. The
 cross-platform native bootstrap is documented in
 [`test_harness/jupyter/README.md`](../test_harness/jupyter/README.md). It is the required setup path for a
 cloned repository without Docker and works in Windows PowerShell without WSL.

@@ -180,14 +180,14 @@ async def test_result_disk_layout_is_a_stable_contract(tmp_path: Path) -> None:
         "print('contract')",
     )
     assert source.relative_path == (
-        "executions/10000000-0000-0000-0000-000000000001/sources/"
+        "executor/executions/10000000-0000-0000-0000-000000000001/sources/"
         "30000000-0000-0000-0000-000000000003/source.py"
     )
 
     await store.begin_step_result(identity, source)
     partial = (
         tmp_path
-        / "executions/10000000-0000-0000-0000-000000000001/operations/"
+        / "executor/executions/10000000-0000-0000-0000-000000000001/operations/"
         "20000000-0000-0000-0000-000000000002/steps/"
         "30000000-0000-0000-0000-000000000003/attempts/"
         "40000000-0000-0000-0000-000000000004/1.partial"
@@ -216,7 +216,7 @@ async def test_result_disk_layout_is_a_stable_contract(tmp_path: Path) -> None:
 
     result = await store.finalize_step_result(identity, execution_count=7)
     assert result.reference.relative_path == (
-        "executions/10000000-0000-0000-0000-000000000001/operations/"
+        "executor/executions/10000000-0000-0000-0000-000000000001/operations/"
         "20000000-0000-0000-0000-000000000002/steps/"
         "30000000-0000-0000-0000-000000000003/attempts/"
         "40000000-0000-0000-0000-000000000004/1/manifest.json"
@@ -392,17 +392,21 @@ async def test_fencing_generations_use_different_directories(
 
 
 @pytest.mark.asyncio
-async def test_source_reference_cannot_escape_shared_root(
-    tmp_path: Path,
+@pytest.mark.parametrize(
+    "relative_path",
+    ["../outside.py", "agent/step.py", "executor/executions/../x.py"],
+)
+async def test_source_reference_stays_below_result_folder(
+    tmp_path: Path, relative_path: str
 ) -> None:
     store = FilesystemExecutionResultStore(tmp_path)
     source = await store.snapshot_source(uuid4(), uuid4(), "print(1)")
     invalid = type(source)(
-        relative_path="../outside.py",
+        relative_path=relative_path,
         checksum_sha256=source.checksum_sha256,
         size_bytes=source.size_bytes,
     )
-    with pytest.raises(ResultStorageError, match="unsafe segment"):
+    with pytest.raises(ResultStorageError):
         await store.read_source(invalid)
 
 

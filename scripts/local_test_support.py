@@ -136,10 +136,8 @@ async def required_tool_result(
     return result.structured_content
 
 
-def local_shared_storage_root() -> Path:
-    return Path(
-        os.getenv("LOCAL_TEST_SHARED_STORAGE_ROOT", "shared_dir")
-    ).resolve()
+def local_storage_root() -> Path:
+    return Path(os.getenv("LOCAL_TEST_STORAGE_ROOT", "shared_dir")).resolve()
 
 
 async def execution_step_outputs(
@@ -149,7 +147,7 @@ async def execution_step_outputs(
     result = await required_tool_result(
         client, "execution_result_get", {"execution_id": execution_id}
     )
-    store = FilesystemExecutionResultStore(local_shared_storage_root())
+    store = FilesystemExecutionResultStore(local_storage_root())
     items: list[dict[str, Any]] = []
     for operation in result["operations"]:
         for step in operation["steps"]:

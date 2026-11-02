@@ -88,7 +88,7 @@ async def main(
             "REDIS_URL": redis_url,
             "AUTH_CLIENTS": LOCAL_AUTH_CLIENTS,
             "DB_AUTO_MIGRATE": "true",
-            "SHARED_STORAGE_ROOT": str(directory / "shared"),
+            "STORAGE_ROOT": str(directory / "shared"),
             "HOST": "127.0.0.1",
             "PORT": str(port),
             "RUNTIME_ENABLED": "true",

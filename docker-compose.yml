@@ -32,9 +32,7 @@ services:
       MCP_ALLOWED_HOSTS: ${MCP_ALLOWED_HOSTS_DOCKER:-localhost:*,127.0.0.1:*,testserver,executor:*}
       MCP_ALLOWED_ORIGINS: ${MCP_ALLOWED_ORIGINS_DOCKER:-http://localhost:*,http://127.0.0.1:*}
       LOG_CONFIG_FILE: /app/logger.yml
-      SHARED_STORAGE_ROOT: /workspace/shared
-      # Container path, not a host path. Mount the input directory if separate.
-      INPUT_STORAGE_ROOT: ${INPUT_STORAGE_ROOT_DOCKER:-/workspace/shared}
+      STORAGE_ROOT: /workspace/shared
     ports:
       - "${EXECUTOR_PORT:-8000}:8000"
     healthcheck:

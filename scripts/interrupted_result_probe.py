@@ -158,7 +158,7 @@ async def snapshot(execution_id: UUID, root: Path) -> dict[str, Any]:
 if __name__ == "__main__":
     action, raw_id = sys.argv[1:]
     execution_id = UUID(raw_id)
-    root = Path(os.environ["SHARED_STORAGE_ROOT"])
+    root = Path(os.environ["STORAGE_ROOT"])
     if action == "progress":
         print(json.dumps({"ready": progress(root, execution_id)}))
     elif action == "snapshot":

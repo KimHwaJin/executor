@@ -185,7 +185,7 @@ async def _reconciled_result(
             resolved = await asyncio.to_thread(
                 resolve_execution_result,
                 result,
-                settings.executor_shared_storage_root,
+                settings.executor_storage_root,
             )
             return resolved, detail
         except Exception:

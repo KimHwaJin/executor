@@ -143,16 +143,14 @@ def _worker(
     factory = create_session_factory(engine)
     settings = Settings(
         runtime_enabled=False,
-        shared_storage_root=tmp_path,
+        storage_root=tmp_path,
     )
     return ExecutionWorker(
         session_factory=factory,
         settings=settings,
         registry=RuntimeTargetRegistry(factory, settings),
         artifact_manager=ExecutionArtifactManager(factory),
-        result_store=FilesystemExecutionResultStore(
-            settings.shared_storage_root
-        ),
+        result_store=FilesystemExecutionResultStore(settings.storage_root),
         driver_factory=cast(RuntimeDriverFactory, JournalKernelFactory()),
     )
 

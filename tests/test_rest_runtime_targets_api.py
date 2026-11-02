@@ -87,7 +87,7 @@ async def fleet_client(
         redis_url="redis://localhost:6399/15",
         runtime_enabled=False,
         runtime_allowed_profiles=("default", "3102311"),
-        shared_storage_root=tmp_path,
+        storage_root=tmp_path,
         docs_enabled=True,
         auth_clients=TEST_AUTH_CLIENTS,
     )

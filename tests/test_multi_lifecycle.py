@@ -342,7 +342,7 @@ def _worker(
 ) -> tuple[ExecutionWorker, Redis]:
     settings = Settings(
         runtime_enabled=False,
-        shared_storage_root=tmp_path,
+        storage_root=tmp_path,
         execution_lease_seconds=30,
         execution_heartbeat_seconds=5,
         jupyter_request_timeout_seconds=0.1,
@@ -355,9 +355,7 @@ def _worker(
         settings=settings,
         registry=registry,
         artifact_manager=ExecutionArtifactManager(session_factory),
-        result_store=FilesystemExecutionResultStore(
-            settings.shared_storage_root
-        ),
+        result_store=FilesystemExecutionResultStore(settings.storage_root),
         driver_factory=RuntimeAdapterRegistry(settings),
     )
     return worker, redis
@@ -591,7 +589,7 @@ async def test_multi_operation_executes_submitted_steps_until_boundary(
         assert event.payload["step"]["id"] == str(steps[index - 1].id)
         result_ref = event.payload["result_ref"]
         assert result_ref["storage"] == "SHARED_PV"
-        assert result_ref["relative_path"].startswith("executions/")
+        assert result_ref["relative_path"].startswith("executor/executions/")
         assert len(result_ref["checksum_sha256"]) == 64
         assert result_ref["size_bytes"] > 0
         assert event.payload["attempt"]["id"] == str(

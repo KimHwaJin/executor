@@ -109,7 +109,7 @@ async def lifecycle_check(
                 ("default",), JupyterRuntimeAdapter.capabilities
             )
         },
-        FilesystemExecutionResultStore(settings.shared_storage_root),
+        FilesystemExecutionResultStore(settings.storage_root),
     )
     publisher = OutboxPublisher(
         sessions,

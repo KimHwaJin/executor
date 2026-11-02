@@ -43,11 +43,10 @@ stg와 prd에서는 꺼져 있다(`DOCS_ENABLED=false`, 404).
 
 1. 기본 커널 프로파일은 `default`, `3102311`이다. 배포 설정이 다르면 실제
    `RUNTIME_ALLOWED_PROFILES`와 서버의 지원 프로파일을 확인한다.
-2. PATH 입력은 `INPUT_STORAGE_ROOT` 기준이다. 미지정 시에만 `SHARED_STORAGE_ROOT`를
-   사용한다. source/output/result ref는 Executor 결과 루트 `SHARED_STORAGE_ROOT`
-   기준이며 Agent에 마운트된 해당 결과 루트에 결합한다.
+2. PATH 입력과 source/output/result ref는 모두 공통 루트 `STORAGE_ROOT` 기준이다.
+   결과 ref는 `executor/executions/...` 형태이며 Agent도 같은 루트에 결합한다.
 3. Jupyter의 notebook/report/artifact 파일은 Jupyter PV에 있다. Step 결과 원본은
-   Agent/Executor 공유 PV에 있다. Artifact의 경로를 결과 루트에 결합하지 않는다.
+   Agent/Executor 공유 PV에 있다. Artifact의 경로를 공통 루트에 결합하지 않는다.
 4. `completed` 이벤트는 성공뿐 아니라 실패·취소도 나타낸다. status를 확인한다.
 5. `CANCELLED`는 원격 커널 정리 성공을 보증하지 않는다. 상세의 recovery를 본다.
 6. 노트북은 최초 저장 시부터 등록되고 실행 중·실패 후에도 다운로드할 수 있다.
@@ -58,4 +57,4 @@ stg와 prd에서는 꺼져 있다(`DOCS_ENABLED=false`, 404).
 ## 예시 사용 안내
 
 예시의 사용자 ID, 실행 ID, 체크섬은 실제 요청 대상에 맞게 지정한다.
-PATH 요청의 파일은 입력 루트 아래에 작성하고, 실행에 사용할 Runtime을 등록한다.
+PATH 요청의 파일은 공통 루트 아래 자기 영역에 작성하고, 실행에 사용할 Runtime을 등록한다.

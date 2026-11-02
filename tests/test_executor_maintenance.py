@@ -37,7 +37,7 @@ async def maintenance_client(
         database_url="sqlite+aiosqlite:///:memory:",
         redis_url="redis://localhost:6399/15",
         runtime_enabled=False,
-        shared_storage_root=tmp_path,
+        storage_root=tmp_path,
         auth_clients=TEST_AUTH_CLIENTS,
     )
     container = ApplicationContainer(settings)

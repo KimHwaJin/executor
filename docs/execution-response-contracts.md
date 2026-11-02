@@ -95,7 +95,7 @@ retry Attempt remain addressable after consolidated Result stops embedding Step 
     "attempt_id": "...",
     "fencing_token": 3,
     "complete": true,
-    "relative_path": "executions/.../manifest.json",
+    "relative_path": "executor/executions/.../manifest.json",
     "checksum_sha256": "hex",
     "representation_count": 2,
     "total_size_bytes": 1024

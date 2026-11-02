@@ -28,8 +28,7 @@ MCP_ALLOWED_HOSTS:
   - "executor.dev.example.internal:*"
 MCP_ALLOWED_ORIGINS:
   - "https://agent.dev.example.internal"
-# Project root layout: <root>/executor holds results; callers send
-# inputs relative to <root> (batch/inputs/..., dtest-agent-service/...).
-SHARED_STORAGE_ROOT: /mnt/data/dtest/executor
-INPUT_STORAGE_ROOT: /mnt/data/dtest
+# Shared project root: callers send inputs relative to it (batch/inputs/...,
+# agent/...) and receive results as executor/executions/... below it.
+STORAGE_ROOT: /mnt/data/dtest
 DB_AUTO_MIGRATE: true

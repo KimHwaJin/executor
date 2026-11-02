@@ -93,16 +93,14 @@ def _worker(
     session_factory = create_session_factory(engine)
     settings = Settings(
         runtime_enabled=False,
-        shared_storage_root=tmp_path,
+        storage_root=tmp_path,
     )
     return ExecutionWorker(
         session_factory=session_factory,
         settings=settings,
         registry=RuntimeTargetRegistry(session_factory, settings),
         artifact_manager=ExecutionArtifactManager(session_factory),
-        result_store=FilesystemExecutionResultStore(
-            settings.shared_storage_root
-        ),
+        result_store=FilesystemExecutionResultStore(settings.storage_root),
         driver_factory=RuntimeAdapterRegistry(settings),
     )
 

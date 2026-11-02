@@ -43,7 +43,7 @@ Only the sealed reference is published. No Execution/Operation aggregate manifes
 {
   "scope": "STEP",
   "storage": "SHARED_PV",
-  "relative_path": "executions/.../manifest.json",
+  "relative_path": "executor/executions/.../manifest.json",
   "checksum_sha256": "hex",
   "attempt_id": "uuid",
   "fencing_token": 3,

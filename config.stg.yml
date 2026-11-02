@@ -24,8 +24,7 @@ AUTH_CLIENTS:
 MCP_ENABLED: false
 # Internal-network rules keep the API docs off when deployed.
 DOCS_ENABLED: false
-# Project root layout: <root>/executor holds results; callers send
-# inputs relative to <root> (batch/inputs/..., dtest-agent-service/...).
-SHARED_STORAGE_ROOT: /mnt/data/dtest/executor
-INPUT_STORAGE_ROOT: /mnt/data/dtest
+# Shared project root: callers send inputs relative to it (batch/inputs/...,
+# agent/...) and receive results as executor/executions/... below it.
+STORAGE_ROOT: /mnt/data/dtest
 DB_AUTO_MIGRATE: true

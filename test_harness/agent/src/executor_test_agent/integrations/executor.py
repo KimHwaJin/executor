@@ -28,12 +28,12 @@ async def required_tool_result(
 async def collect_execution_result(
     client: Client,
     execution_id: str,
-    shared_storage_root: Path,
+    storage_root: Path,
 ) -> dict[str, Any]:
     """Fetch Executor state over MCP, then resolve output bodies from shared PV."""
 
     result = await fetch_execution_result(client, execution_id)
-    return resolve_execution_result(result, shared_storage_root)
+    return resolve_execution_result(result, storage_root)
 
 
 async def fetch_execution_result(
@@ -64,7 +64,7 @@ async def fetch_execution_detail(
 
 def resolve_execution_result(
     result: dict[str, Any],
-    shared_storage_root: Path,
+    storage_root: Path,
 ) -> dict[str, Any]:
     """Resolve immutable Step outputs after the MCP transport is closed."""
 
@@ -72,20 +72,20 @@ def resolve_execution_result(
         for step in operation["steps"]:
             reference = step["result"].get("result_ref")
             step["result"]["resolved_result"] = (
-                read_step_result(shared_storage_root, reference) if reference is not None else None
+                read_step_result(storage_root, reference) if reference is not None else None
             )
     return result
 
 
 def read_step_result(
-    shared_storage_root: Path,
+    storage_root: Path,
     reference: dict[str, Any],
 ) -> dict[str, Any]:
     """Resolve only an Executor-issued manifest and its declared files."""
 
     if reference.get("storage") != "SHARED_PV":
         raise ExecutionResultReadError("Unsupported result storage type.")
-    root = shared_storage_root.resolve()
+    root = storage_root.resolve()
     manifest_path = _resolve(root, str(reference["relative_path"]))
     manifest_body = manifest_path.read_bytes()
     if _sha256(manifest_body) != reference.get("checksum_sha256"):
