@@ -1461,7 +1461,7 @@ def _workers(
         redis = Redis.from_url(_redis_test_url(), decode_responses=True)
         settings = Settings(
             runtime_enabled=False,
-            shared_storage_root=tmp_path / f"worker-{index}",
+            storage_root=tmp_path / f"worker-{index}",
         )
         workers.append(
             ExecutionWorker(
@@ -1470,7 +1470,7 @@ def _workers(
                 registry=RuntimeTargetRegistry(session_factory, settings),
                 artifact_manager=ExecutionArtifactManager(session_factory),
                 result_store=FilesystemExecutionResultStore(
-                    settings.shared_storage_root
+                    settings.storage_root
                 ),
                 driver_factory=RuntimeAdapterRegistry(settings),
             )
@@ -1846,15 +1846,13 @@ async def test_partial_result_outbox_redis_and_history_agree(
     redis = Redis.from_url(_redis_test_url(), decode_responses=True)
     unique = f"test:partial-results:{uuid4().hex}"
     event_stream = f"{unique}:events"
-    settings = Settings(runtime_enabled=False, shared_storage_root=tmp_path)
+    settings = Settings(runtime_enabled=False, storage_root=tmp_path)
     worker = ExecutionWorker(
         session_factory=factory,
         settings=settings,
         registry=RuntimeTargetRegistry(factory, settings),
         artifact_manager=ExecutionArtifactManager(factory),
-        result_store=FilesystemExecutionResultStore(
-            settings.shared_storage_root
-        ),
+        result_store=FilesystemExecutionResultStore(settings.storage_root),
         driver_factory=RuntimeAdapterRegistry(settings),
     )
     try:

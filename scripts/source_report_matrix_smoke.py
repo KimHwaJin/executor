@@ -141,11 +141,8 @@ async def _assert_notebook(
 def _prepare_inputs(
     unique: str, python_content: str, report_content: str
 ) -> tuple[Path, Path, Path]:
-    shared_root = Path(
-        os.getenv("LOCAL_TEST_SHARED_STORAGE_ROOT", "shared_dir")
-    ).resolve()
     input_root = Path(
-        os.getenv("LOCAL_TEST_INPUT_STORAGE_ROOT", str(shared_root))
+        os.getenv("LOCAL_TEST_STORAGE_ROOT", "shared_dir")
     ).resolve()
     relative_root = Path("smoke") / f"source-report-{unique}"
     source_dir = input_root / relative_root

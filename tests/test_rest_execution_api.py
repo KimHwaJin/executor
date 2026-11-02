@@ -63,16 +63,13 @@ IDENTITY_HEADERS = {
 @pytest_asyncio.fixture
 async def rest_client(
     tmp_path: Path,
-    request: pytest.FixtureRequest,
 ) -> AsyncIterator[tuple[httpx.AsyncClient, ApplicationContainer]]:
-    split = getattr(request, "param", "single") == "split"
     settings = Settings(
         _env_file=None,
         database_url="sqlite+aiosqlite:///:memory:",
         redis_url="redis://localhost:6399/15",
         runtime_enabled=False,
-        shared_storage_root=tmp_path / "executor" if split else tmp_path,
-        input_storage_root=tmp_path / "agent" if split else None,
+        storage_root=tmp_path / "shared",
         docs_enabled=True,
         auth_clients=TEST_AUTH_CLIENTS,
     )
@@ -600,7 +597,6 @@ async def test_consolidated_result_returns_operation_steps_in_one_call(
 
 
 @pytest.mark.parametrize("pool", list(RuntimePool))
-@pytest.mark.parametrize("rest_client", ["single", "split"], indirect=True)
 @pytest.mark.parametrize("source_type", ["INLINE", "PATH"])
 async def test_materializes_final_report_below_runtime_reports_directory(
     rest_client: tuple[httpx.AsyncClient, ApplicationContainer],
@@ -632,7 +628,7 @@ async def test_materializes_final_report_below_runtime_reports_directory(
     report = "# Final report\n\nDone."
     source = {"type": "INLINE", "content": report}
     if source_type == "PATH":
-        root = container.settings.effective_input_storage_root
+        root = container.settings.storage_root
         root.mkdir(parents=True, exist_ok=True)
         (root / "report.md").write_text(report)
         source = {
@@ -640,10 +636,6 @@ async def test_materializes_final_report_below_runtime_reports_directory(
             "path": "report.md",
             "sha256": hashlib.sha256(report.encode()).hexdigest(),
         }
-        if root != container.settings.shared_storage_root:
-            (container.settings.shared_storage_root / "report.md").write_text(
-                "wrong root"
-            )
 
     response = await client.post(
         f"/api/v1/executions/{execution_id}/artifacts",
@@ -1088,7 +1080,6 @@ async def test_multi_operation_create_and_finalize_rest_api(
 @pytest.mark.parametrize(
     "relative", ["plans/path-plan/step-0.py", "requests/step.py", "step.py"]
 )
-@pytest.mark.parametrize("rest_client", ["single", "split"], indirect=True)
 async def test_path_execution_spec_rest_submit(
     rest_client: tuple[httpx.AsyncClient, ApplicationContainer],
     relative: str,
@@ -1096,15 +1087,9 @@ async def test_path_execution_spec_rest_submit(
     client, container = rest_client
     content = b"print('PATH source')"
     relative_path = Path(relative)
-    source_path = (
-        container.settings.effective_input_storage_root / relative_path
-    )
+    source_path = container.settings.storage_root / relative_path
     source_path.parent.mkdir(parents=True, exist_ok=True)
     source_path.write_bytes(content)
-    if container.settings.input_storage_root is not None:
-        wrong = container.settings.shared_storage_root / relative_path
-        wrong.parent.mkdir(parents=True, exist_ok=True)
-        wrong.write_text("raise RuntimeError('must not read output root')")
     payload = _submit_payload(key="rest-path-submit")
     payload["operation"]["spec"]["steps"][0]["payload"] = {
         "type": "PYTHON_EXECUTE",
@@ -1137,35 +1122,27 @@ async def test_path_execution_spec_rest_submit(
         assert stored is not None
         snapshot = Path(stored.source_snapshot_path)
     assert not snapshot.is_absolute()
-    assert (
-        container.settings.shared_storage_root / snapshot
-    ).read_bytes() == content
-    if container.settings.input_storage_root is not None:
-        assert not (
-            container.settings.input_storage_root / "executions"
-        ).exists()
+    assert snapshot.parts[:2] == ("executor", "executions")
+    assert (container.settings.storage_root / snapshot).read_bytes() == content
 
 
-@pytest.mark.parametrize("rest_client", ["split"], indirect=True)
 @pytest.mark.parametrize(
     "kind", ["missing", "absolute", "traversal", "symlink"]
 )
-async def test_split_input_root_rejects_output_files_and_escapes(
+async def test_path_input_rejects_missing_files_and_root_escapes(
     rest_client, kind
 ):
     client, container = rest_client
-    root = container.settings.effective_input_storage_root
-    root.mkdir(parents=True)
-    output = container.settings.shared_storage_root
-    output.mkdir(parents=True, exist_ok=True)
+    root = container.settings.storage_root
+    root.mkdir(parents=True, exist_ok=True)
     code = b"print('must not read')"
-    outside = output / "hidden.py"
+    outside = root.parent / "hidden.py"
     outside.write_bytes(code)
     path = "hidden.py"
     if kind == "absolute":
         path = str(outside)
     elif kind == "traversal":
-        path = "../executor/hidden.py"
+        path = "../hidden.py"
     elif kind == "symlink":
         (root / path).symlink_to(outside)
     payload = _submit_payload()
@@ -1178,7 +1155,7 @@ async def test_split_input_root_rejects_output_files_and_escapes(
     assert response.status_code == 422
     submitted = await client.post("/api/v1/executions", json=_submit_payload())
     execution_id = submitted.json()["execution_id"]
-    # Text artifact input uses the same boundary and does not fall back either.
+    # Text artifact input uses the same boundary.
     response = await client.post(
         f"/api/v1/executions/{execution_id}/artifacts",
         json={
@@ -1193,8 +1170,7 @@ async def test_split_input_root_rejects_output_files_and_escapes(
     assert response.status_code == 400
 
 
-@pytest.mark.parametrize("rest_client", ["split"], indirect=True)
-async def test_multi_followup_path_uses_input_root(rest_client):
+async def test_multi_followup_path_uses_storage_root(rest_client):
     client, container = rest_client
     submitted = await client.post(
         "/api/v1/executions", json=_submit_payload(operation_mode="MULTI")
@@ -1211,14 +1187,14 @@ async def test_multi_followup_path_uses_input_root(rest_client):
             .where(ExecutionStepORM.execution_id == execution_id)
             .values(status=StepStatus.SUCCEEDED)
         )
-    root = container.settings.effective_input_storage_root
-    root.mkdir(parents=True)
-    code = b"print('follow-up from agent directory')"
+    root = container.settings.storage_root
+    root.mkdir(parents=True, exist_ok=True)
+    code = b"print('follow-up from caller directory')"
     (root / "next.py").write_bytes(code)
     response = await client.post(
         f"/api/v1/executions/{execution_id}/operations",
         json={
-            "idempotency_key": "split-followup",
+            "idempotency_key": "path-followup",
             "expected_version": 1,
             "actor": {"type": "USER", "id": "rest-user"},
             "spec": {
@@ -1251,9 +1227,8 @@ async def test_multi_followup_path_uses_input_root(rest_client):
         )
         assert step is not None
         assert (
-            container.settings.shared_storage_root / step.source_snapshot_path
+            container.settings.storage_root / step.source_snapshot_path
         ).read_bytes() == code
-    assert not (root / "executions").exists()
 
 
 async def test_retry_and_domain_error_mapping(
@@ -1391,7 +1366,7 @@ async def test_docs_and_openapi_are_off_when_disabled(tmp_path: Path) -> None:
             database_url="sqlite+aiosqlite:///:memory:",
             redis_url="redis://localhost:6399/15",
             runtime_enabled=False,
-            shared_storage_root=tmp_path,
+            storage_root=tmp_path,
             docs_enabled=False,
         )
     )

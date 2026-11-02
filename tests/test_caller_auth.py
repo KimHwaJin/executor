@@ -73,7 +73,7 @@ async def _app(
         database_url="sqlite+aiosqlite:///:memory:",
         redis_url="redis://localhost:6399/15",
         runtime_enabled=False,
-        shared_storage_root=tmp_path,
+        storage_root=tmp_path,
         docs_enabled=True,
         auth_clients=auth_clients,
         **overrides,

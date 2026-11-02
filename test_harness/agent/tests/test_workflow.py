@@ -64,7 +64,7 @@ async def test_reconciliation_retries_after_mcp_task_group_failure(
         AgentSettings,
         SimpleNamespace(
             executor_mcp_url="http://executor.test/mcp",
-            executor_shared_storage_root="unused",
+            executor_storage_root="unused",
         ),
     )
 

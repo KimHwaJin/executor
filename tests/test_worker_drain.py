@@ -34,7 +34,7 @@ def _worker(
 ) -> ExecutionWorker:
     settings = Settings(
         runtime_enabled=True,
-        shared_storage_root=tmp_path,
+        storage_root=tmp_path,
         execution_drain_timeout_seconds=drain_timeout,
     )
     session_factory = create_session_factory(engine)
@@ -43,9 +43,7 @@ def _worker(
         settings=settings,
         registry=RuntimeTargetRegistry(session_factory, settings),
         artifact_manager=ExecutionArtifactManager(session_factory),
-        result_store=FilesystemExecutionResultStore(
-            settings.shared_storage_root
-        ),
+        result_store=FilesystemExecutionResultStore(settings.storage_root),
         driver_factory=RuntimeAdapterRegistry(settings),
     )
 
@@ -186,7 +184,7 @@ async def test_readiness_fails_as_soon_as_worker_enters_drain(
         database_url="sqlite+aiosqlite:///:memory:",
         redis_url="redis://localhost:6399/15",
         runtime_enabled=True,
-        shared_storage_root=tmp_path,
+        storage_root=tmp_path,
     )
     container = ApplicationContainer(settings)
     async with container.engine.begin() as connection:

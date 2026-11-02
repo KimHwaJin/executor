@@ -46,13 +46,11 @@ Before deployment:
    `RUNTIME_CREDENTIAL_KEY` must be a Fernet key and must remain stable while encrypted
    Runtime credentials exist in PostgreSQL. URL-encode special characters in URL credentials.
 4. Change `executor-shared-pvc` in `deployment.yaml` to the existing Agent/Executor RWX claim.
-   The PVC is mounted at `/mnt/data`. The project root (`/mnt/data/dtest`) holds one folder per
-   service: `INPUT_STORAGE_ROOT=/mnt/data/dtest` so callers send `batch/inputs/...` or
-   `dtest-agent-service/...`, and `SHARED_STORAGE_ROOT=/mnt/data/dtest/executor` for results. Executor must be able to read
-   the Agent directory and write its own result directory. Agent must resolve every result/manifest
-   reference against its own mount of the Executor directory, not its authoring directory.
-   Do not change the result root for existing executions unless the existing result files are
-   also available there; files and DB references are not moved automatically.
+   The PVC is mounted at `/mnt/data`, and every service sharing it must mount it at the same path.
+   `STORAGE_ROOT=/mnt/data/dtest` is the project root with one folder per service: callers send
+   `batch/inputs/...` or `agent/...`, and Executor writes and returns `executor/executions/...`.
+   Every service resolves these paths against the same root. Do not move the root for existing
+   executions; files and DB references are not moved automatically.
 5. Ensure all Jupyter servers mount their own common Jupyter PV. Executor must not mount or inspect
    that Jupyter PV; notebook and artifact access goes through Jupyter APIs.
 6. Replace the placeholder `AUTH_CLIENTS` hashes in `config.prd.yml` with the output of

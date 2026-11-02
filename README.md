@@ -468,7 +468,7 @@ caller's tenant. See [Redis execution events](dev_docs/redis-execution-events.md
 
 ExecutionSpec stays at schema version `1.0` during pre-release development. Each ordered Step uses
 `PYTHON_EXECUTE` and independently embeds INLINE code or references one UTF-8 `.py` file below
-`INPUT_STORAGE_ROOT` (defaults to `SHARED_STORAGE_ROOT`) with a root-relative path and SHA-256
+`STORAGE_ROOT` with a root-relative path and SHA-256
 (no implicit prefix). Executor persists the resolved source and
 provenance on that ExecutionStep. The Jupyter Driver executes each Step as one code cell. See
 [ExecutionSpec v1](docs/execution-spec.md).
@@ -486,18 +486,14 @@ of already executed Steps is intentionally not supported.
 
 ## Storage ownership
 
-- The Agent chooses input directories below `INPUT_STORAGE_ROOT` and sends the full root-relative
-  PATH of each `.py` file. Executor does not add `requests/` or another prefix. Executor reads
-  them through its Agent/Executor shared volume; Jupyter does not need this volume.
-- `SHARED_STORAGE_ROOT` is Executor's writable result root (source snapshots, outputs, manifests).
-  `INPUT_STORAGE_ROOT` is the caller-authored input root and can be read-only to Executor.
-  If omitted/empty, the input root uses `SHARED_STORAGE_ROOT`; otherwise no search/fallback
-  to the result root is performed. Execution submit, MULTI Operation and Artifact PATH inputs
-  all use the input root. INLINE behavior is unchanged.
-- For separate directories on one PVC, configure `INPUT_STORAGE_ROOT=/mnt/data/agent` and
-  `SHARED_STORAGE_ROOT=/mnt/data/executor`. Both must be accessible inside Executor.
-  Agent reads all result and manifest references relative to its mount of the Executor directory,
-  not its own authoring directory. Input files are never modified or automatically created by Executor.
+- `STORAGE_ROOT` is the project root every service shares on one PVC, mounted at the same path.
+  Every path exchanged between services is relative to it, and its first folder names the
+  service that wrote the file.
+- Callers write inputs below their own folder (`batch/...`, `agent/...`) and send the full
+  root-relative PATH of each `.py` file. Executor does not add `requests/` or another prefix,
+  never modifies input files, and reads them through the shared volume; Jupyter does not need it.
+- Executor writes source snapshots, outputs and manifests below `executor/executions/` and returns
+  them as `executor/executions/...`, so callers resolve every reference against the same root.
 - Jupyter creates execution workspaces, notebooks, artifacts, datasets, and manifests on its own
   shared storage. Targets within one Runtime pool share that storage; different pools may use
   different PVs.
@@ -687,11 +683,10 @@ Jupyter-relative hierarchy:
     └── checkpoints/
 ```
 
-Raw data remains in S3. PATH submissions are resolved under
-`INPUT_STORAGE_ROOT` (or `SHARED_STORAGE_ROOT` when unset), and paths escaping that root are rejected.
-All shared-result references, including source snapshots and output representations inside Step
-manifests, use `SHARED_STORAGE_ROOT` instead. See
-[Shared PV path contract](docs/shared-pv-path-contract.md) for the coordinated transition.
+Raw data remains in S3. PATH submissions and all shared-result references, including source
+snapshots and output representations inside Step manifests, are relative to `STORAGE_ROOT`;
+paths escaping that root are rejected. See
+[Shared PV path contract](docs/shared-pv-path-contract.md).
 The reusable processed-data hierarchy is intentionally not fixed until
 [Deferred Decisions](docs/deferred-decisions.md) DD-002 is resolved.
 

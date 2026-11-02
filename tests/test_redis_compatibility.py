@@ -72,7 +72,7 @@ async def test_startup_does_not_need_redis(
     container = ApplicationContainer(
         Settings(
             _env_file=None,
-            shared_storage_root=tmp_path,
+            storage_root=tmp_path,
             db_auto_migrate=False,
             runtime_enabled=False,
             redis_url="redis://127.0.0.1:1/0",
@@ -93,7 +93,7 @@ async def test_silent_redis_does_not_hold_the_reachability_check(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     container = ApplicationContainer(
-        Settings(_env_file=None, shared_storage_root=tmp_path)
+        Settings(_env_file=None, storage_root=tmp_path)
     )
     monkeypatch.setattr(
         "executor_service.container.REDIS_PING_TIMEOUT_SECONDS", 0.05

@@ -36,11 +36,8 @@ async def _wait_terminal(client: Client, execution_id: str) -> dict[str, Any]:
 
 
 def _publish_input(unique: str) -> tuple[Path, Path, Path, bytes]:
-    shared_root = Path(
-        os.getenv("LOCAL_TEST_SHARED_STORAGE_ROOT", "shared_dir")
-    ).resolve()
     input_root = Path(
-        os.getenv("LOCAL_TEST_INPUT_STORAGE_ROOT", str(shared_root))
+        os.getenv("LOCAL_TEST_STORAGE_ROOT", "shared_dir")
     ).resolve()
     relative_path = Path("smoke") / unique / "step-0.py"
     source_path = input_root / relative_path

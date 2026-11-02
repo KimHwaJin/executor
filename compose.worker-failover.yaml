@@ -84,7 +84,7 @@ services:
       AUTH_CLIENTS: '[{"name": "local", "key_sha256": ["b061e43ebf6dc8828ff97157745da7b61b921a83a2e1d2122e8ae0c6bd527d7b"], "tenant": "dev", "relay": true, "allowed_tenants": ["*"], "admin": true}]'
       MCP_ALLOWED_HOSTS: localhost:*,127.0.0.1:*,executor-primary:*,executor-secondary:*
       MCP_ALLOWED_ORIGINS: http://localhost:*,http://127.0.0.1:*
-      SHARED_STORAGE_ROOT: /workspace/shared
+      STORAGE_ROOT: /workspace/shared
       RUNTIME_ALLOWED_PROFILES: default,3102311
       RUNTIME_HEALTH_POLL_INTERVAL_SECONDS: "2"
       RUNTIME_SESSION_COUNT_MAX_AGE_SECONDS: "10"

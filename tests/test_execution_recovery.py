@@ -202,7 +202,7 @@ async def test_expired_lease_is_failed_once_and_can_restart_from_zero(
 
     settings = Settings(
         runtime_enabled=False,
-        shared_storage_root=tmp_path,
+        storage_root=tmp_path,
         execution_lease_seconds=30,
         execution_heartbeat_seconds=5,
     )
@@ -213,9 +213,7 @@ async def test_expired_lease_is_failed_once_and_can_restart_from_zero(
         settings=settings,
         registry=registry,
         artifact_manager=ExecutionArtifactManager(session_factory),
-        result_store=FilesystemExecutionResultStore(
-            settings.shared_storage_root
-        ),
+        result_store=FilesystemExecutionResultStore(settings.storage_root),
         driver_factory=RuntimeAdapterRegistry(settings),
     )
     stale_lease = ExecutionLease(
@@ -450,7 +448,7 @@ async def test_orphan_running_execution_without_attempt_is_fenced_and_cleaned(
     )
     settings = Settings(
         runtime_enabled=False,
-        shared_storage_root=tmp_path,
+        storage_root=tmp_path,
     )
     redis = Redis.from_url(
         "redis://127.0.0.1:6379/15",
@@ -461,9 +459,7 @@ async def test_orphan_running_execution_without_attempt_is_fenced_and_cleaned(
         settings=settings,
         registry=RuntimeTargetRegistry(session_factory, settings),
         artifact_manager=ExecutionArtifactManager(session_factory),
-        result_store=FilesystemExecutionResultStore(
-            settings.shared_storage_root
-        ),
+        result_store=FilesystemExecutionResultStore(settings.storage_root),
         driver_factory=RuntimeAdapterRegistry(settings),
     )
     try:
@@ -582,7 +578,7 @@ async def test_expired_lease_resolves_pending_runtime_abort(
     )
     settings = Settings(
         runtime_enabled=False,
-        shared_storage_root=tmp_path,
+        storage_root=tmp_path,
         execution_lease_seconds=30,
         execution_heartbeat_seconds=5,
     )
@@ -592,9 +588,7 @@ async def test_expired_lease_resolves_pending_runtime_abort(
         settings=settings,
         registry=RuntimeTargetRegistry(session_factory, settings),
         artifact_manager=ExecutionArtifactManager(session_factory),
-        result_store=FilesystemExecutionResultStore(
-            settings.shared_storage_root
-        ),
+        result_store=FilesystemExecutionResultStore(settings.storage_root),
         driver_factory=RuntimeAdapterRegistry(settings),
     )
     try:

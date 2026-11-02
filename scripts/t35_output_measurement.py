@@ -26,7 +26,7 @@ from execution_spec_payload import (
 )
 from local_test_support import (
     executor_http_url,
-    local_shared_storage_root,
+    local_storage_root,
     write_report,
 )
 from sqlalchemy import text
@@ -542,7 +542,7 @@ async def _validate_shared_result(
     index: int,
 ) -> dict[str, Any]:
     try:
-        root = await asyncio.to_thread(local_shared_storage_root)
+        root = await asyncio.to_thread(local_storage_root)
         store = FilesystemExecutionResultStore(root)
         outputs: list[dict[str, object]] = []
         if len(references) != 1 or references[0].get("complete") is not True:

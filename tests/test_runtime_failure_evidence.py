@@ -210,7 +210,7 @@ async def test_failures_preserve_state_reason_partial_refs_and_operator_logs(
         "executor_service.infrastructure.runtime_adapters.JupyterRuntimeDriver",
         lambda *_args, **_kwargs: driver,
     )
-    settings = Settings(runtime_enabled=False, shared_storage_root=tmp_path)
+    settings = Settings(runtime_enabled=False, storage_root=tmp_path)
     redis = Redis.from_url("redis://127.0.0.1:6379/15", decode_responses=True)
     worker = ExecutionWorker(
         session_factory=factory,

@@ -249,15 +249,13 @@ async def test_reconcile_dispatches_each_durable_work_state(
             .values(status=ExecutionStatus.CANCEL_REQUESTED)
         )
 
-    settings = Settings(runtime_enabled=False, shared_storage_root=tmp_path)
+    settings = Settings(runtime_enabled=False, storage_root=tmp_path)
     worker = ExecutionWorker(
         session_factory=session_factory,
         settings=settings,
         registry=RuntimeTargetRegistry(session_factory, settings),
         artifact_manager=ExecutionArtifactManager(session_factory),
-        result_store=FilesystemExecutionResultStore(
-            settings.shared_storage_root
-        ),
+        result_store=FilesystemExecutionResultStore(settings.storage_root),
         driver_factory=RuntimeAdapterRegistry(settings),
     )
     dispatched: list[tuple[UUID, bool]] = []
@@ -348,16 +346,14 @@ async def test_two_workers_create_only_one_execution_attempt(
 
 
 def _worker(engine: AsyncEngine, tmp_path: Path) -> ExecutionWorker:
-    settings = Settings(runtime_enabled=False, shared_storage_root=tmp_path)
+    settings = Settings(runtime_enabled=False, storage_root=tmp_path)
     session_factory = create_session_factory(engine)
     worker = ExecutionWorker(
         session_factory=session_factory,
         settings=settings,
         registry=RuntimeTargetRegistry(session_factory, settings),
         artifact_manager=ExecutionArtifactManager(session_factory),
-        result_store=FilesystemExecutionResultStore(
-            settings.shared_storage_root
-        ),
+        result_store=FilesystemExecutionResultStore(settings.storage_root),
         driver_factory=RuntimeAdapterRegistry(settings),
     )
     # Exercise active-Worker internals without starting background loops.

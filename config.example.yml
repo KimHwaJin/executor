@@ -223,12 +223,10 @@ FAILED_SESSION_RETENTION_SECONDS: 3600
 # 공유 스토리지
 # ---------------------------------------------------------------------------
 
-# [환경별] 실행 결과·노트북을 저장하는 루트. Executor Pod와 Jupyter Pod가
-# 같은 PV를 같은 경로로 마운트해야 한다. 로컬 기본값은 ./shared_dir.
-SHARED_STORAGE_ROOT: /mnt/data/dtest/executor
-# [환경별] 호출자가 PATH로 넘기는 입력 파일의 기준 루트. 비우면
-# SHARED_STORAGE_ROOT를 쓴다. 예: batch/inputs/..., dtest-agent-service/...
-INPUT_STORAGE_ROOT: /mnt/data/dtest
+# [환경별] 서비스들이 함께 쓰는 공유 PV 루트. 호출자는 PATH 입력을 이 루트 기준
+# 상대경로(batch/inputs/..., agent/...)로 보내고, 결과는 <루트>/executor/executions/
+# 아래에 쓰여 executor/executions/... 로 돌아간다. 로컬 기본값은 ./shared_dir.
+STORAGE_ROOT: /mnt/data/dtest
 
 # ---------------------------------------------------------------------------
 # 실행 요청 한도

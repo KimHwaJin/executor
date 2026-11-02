@@ -128,7 +128,7 @@ PATH source:
 | 필드 | 필수 | 의미 |
 |---|---:|---|
 | `type` | O | `PATH` |
-| `path` | O | `INPUT_STORAGE_ROOT` 기준 상대경로 (미지정 시 `SHARED_STORAGE_ROOT`). `requests/` 자동 추가 없음. 절대경로와 입력 루트 이탈 금지 |
+| `path` | O | `STORAGE_ROOT` 기준 상대경로. `requests/` 자동 추가 없음. 절대경로와 루트 이탈 금지 |
 | `sha256` | O | 파일 내용의 SHA-256. 64자리 16진수 |
 
 PATH 파일은 `.py`, UTF-8이어야 하며 요청한 checksum과 실제 파일 checksum이 같아야 한다.
@@ -235,24 +235,24 @@ Step마다 실행할 `.py` 파일 경로와 checksum을 전달한다. 하나의 
 전체가 하나의 Step으로 실행되며, 파일 내부의 함수별로 자동 분해하지 않는다.
 아래는 두 Step을 실행한 뒤 후속 Operation을 기다리는 MULTI 예시다.
 
-Executor 설정이 `INPUT_STORAGE_ROOT=/mnt/data/agent`라면 입력 파일은 다음과 같다.
+Executor 설정이 `STORAGE_ROOT=/mnt/data/dtest`라면 입력 파일은 다음과 같다.
 Agent는 같은 저장소를 자신의 마운트 경로에서 작성하고, 요청에는 루트 기준
 상대경로만 넣는다. `requests/` 같은 접두사는 필요 없다.
 
 ```text
-/mnt/data/agent/
-└── tasks/task-100/
+/mnt/data/dtest/
+└── agent/tasks/task-100/
     ├── prepare.py
     └── summarize.py
 ```
 
-`tasks/task-100/prepare.py`:
+`agent/tasks/task-100/prepare.py`:
 
 ```python
 values = [10, 20, 30]
 ```
 
-`tasks/task-100/summarize.py`:
+`agent/tasks/task-100/summarize.py`:
 
 ```python
 total = sum(values)
@@ -286,7 +286,7 @@ print(total)
             "type": "PYTHON_EXECUTE",
             "source": {
               "type": "PATH",
-              "path": "tasks/task-100/prepare.py",
+              "path": "agent/tasks/task-100/prepare.py",
               "sha256": "54aed2d85ef666ce4f9a52703d69ed96cb281cd859b93c85ee04391247c60cb5"
             }
           },
@@ -298,7 +298,7 @@ print(total)
             "type": "PYTHON_EXECUTE",
             "source": {
               "type": "PATH",
-              "path": "tasks/task-100/summarize.py",
+              "path": "agent/tasks/task-100/summarize.py",
               "sha256": "ed7de6fea8894809ed9d90b0539ce374d773b67a15c57a2f9da80e85fa53549c"
             }
           },
@@ -321,13 +321,12 @@ MULTI 후속 요청은 [Operation 문서의 PATH 예시](post-execution-operatio
 import hashlib
 from pathlib import Path
 
-path = Path("/mnt/data/agent/tasks/task-100/prepare.py")
+path = Path("/mnt/data/dtest/agent/tasks/task-100/prepare.py")
 print(hashlib.sha256(path.read_bytes()).hexdigest())
 ```
 
 입력 파일은 요청을 제출하기 전에 작성을 완료해야 한다. 이 경로는 익스큐터가 읽는
-입력 파일의 경로이며, 주피터 저장소의 파일 경로가 아니다. `INPUT_STORAGE_ROOT`를
-설정하지 않으면 `SHARED_STORAGE_ROOT`를 기준으로 해석한다.
+입력 파일의 경로이며, 주피터 저장소의 파일 경로가 아니다.
 
 ## Response: `202 Accepted`
 

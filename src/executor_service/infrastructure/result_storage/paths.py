@@ -10,6 +10,8 @@ from executor_service.infrastructure.result_storage.errors import (
 )
 
 SAFE_SEGMENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$")
+# Executor's folder below the shared storage root; references include it.
+RESULT_DIRECTORY = Path("executor", "executions")
 
 
 class ResultStoragePaths:
@@ -17,8 +19,7 @@ class ResultStoragePaths:
         self.root = root.resolve()
 
     def source_relative(self, execution_id: UUID, step_id: UUID) -> Path:
-        return Path(
-            "executions",
+        return RESULT_DIRECTORY.joinpath(
             str(execution_id),
             "sources",
             str(step_id),
@@ -26,8 +27,7 @@ class ResultStoragePaths:
         )
 
     def result_relative(self, identity: StepResultIdentity) -> Path:
-        return Path(
-            "executions",
+        return RESULT_DIRECTORY.joinpath(
             str(identity.execution_id),
             "operations",
             str(identity.operation_id),
@@ -65,6 +65,10 @@ class ResultStoragePaths:
     ) -> Path:
         if relative.is_absolute() or not relative.parts:
             raise ResultStorageError("Shared result path must be relative.")
+        if not relative.is_relative_to(RESULT_DIRECTORY):
+            raise ResultStorageError(
+                "Shared result path must stay below Executor's result folder."
+            )
         if any(
             part in {"", ".", ".."} or not SAFE_SEGMENT.fullmatch(part)
             for part in relative.parts

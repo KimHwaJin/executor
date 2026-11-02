@@ -17,7 +17,7 @@ def workdir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     for name in (
         "APP_ENV",
         "DATABASE_POOL_SIZE",
-        "SHARED_STORAGE_ROOT",
+        "STORAGE_ROOT",
     ):
         monkeypatch.delenv(name, raising=False)
     return tmp_path
@@ -30,8 +30,7 @@ def test_shipped_files_are_valid(workdir, monkeypatch, app_env):
     monkeypatch.setenv("APP_ENV", app_env)
     settings = Settings(_env_file=None)
     assert settings.db_auto_migrate is True
-    assert settings.shared_storage_root == Path("/mnt/data/dtest/executor")
-    assert settings.effective_input_storage_root == Path("/mnt/data/dtest")
+    assert settings.storage_root == Path("/mnt/data/dtest")
     assert {client.name for client in settings.auth_clients} == {
         "pr-agentic-service",
         "pr-batch",
@@ -57,14 +56,12 @@ def test_local_values_match_settings_defaults(monkeypatch):
 
 def test_keys_are_case_insensitive_and_env_wins(workdir, monkeypatch):
     (workdir / "config.dev.yml").write_text(
-        "database_pool_size: 4\nSHARED_STORAGE_ROOT: /data/executor\n"
+        "database_pool_size: 4\nSTORAGE_ROOT: /data/executor\n"
         "RUNTIME_CREDENTIAL_KEY: not-the-local-placeholder\n"
     )
     monkeypatch.setenv("APP_ENV", "dev")
     assert Settings(_env_file=None).database_pool_size == 4
-    assert Settings(_env_file=None).shared_storage_root == Path(
-        "/data/executor"
-    )
+    assert Settings(_env_file=None).storage_root == Path("/data/executor")
     monkeypatch.setenv("DATABASE_POOL_SIZE", "7")
     assert Settings(_env_file=None).database_pool_size == 7
 

@@ -47,10 +47,9 @@ Operation의 결과를 확인하고 후속 코드 또는 오류 수정 코드를
 
 INLINE source는 `{"type":"INLINE","content":"..."}` 형식이다. PATH source는
 `{"type":"PATH","path":"...py","sha256":"64자리 checksum"}` 형식이며
-`INPUT_STORAGE_ROOT` 기준 상대경로, `.py`, UTF-8, checksum 일치를 요구한다.
-입력 루트 미지정 시 `SHARED_STORAGE_ROOT`를 사용한다. `requests/`를 자동으로
-붙이지 않는다. 결과 ref는 입력 루트가 아닌 Executor의 `SHARED_STORAGE_ROOT`
-기준이므로 Agent는 입력 쓰기 루트와 결과 읽기 루트를 구분해야 한다.
+`STORAGE_ROOT` 기준 상대경로, `.py`, UTF-8, checksum 일치를 요구한다.
+`requests/`를 자동으로 붙이지 않는다. 결과 ref도 같은 루트 기준
+`executor/executions/...` 형태이므로 Agent는 루트 하나에 결합하면 된다.
 
 `lineage`는 `skill_name`, `tool_name`, `input_parameters`를 지원한다. Operation/Execution
 Step 최대 개수는 Executor 설정값을 넘을 수 없다.
@@ -97,7 +96,7 @@ Execution이 `WAITING_FOR_OPERATION`이 된 후의 요청이다. 최초 제출 �
 `execution_id`를 URL에 넣는다. `expected_version: 4`는 예시이므로 실제 최신
 `state.version` 또는 continuation의 `expected_version`으로 바꾼다.
 
-입력 루트 아래에 `tasks/task-100/average.py`를 작성한다:
+공통 루트 아래에 `agent/tasks/task-100/average.py`를 작성한다:
 
 ```python
 print(total / len(values))
@@ -121,7 +120,7 @@ print(total / len(values))
           "type": "PYTHON_EXECUTE",
           "source": {
             "type": "PATH",
-            "path": "tasks/task-100/average.py",
+            "path": "agent/tasks/task-100/average.py",
             "sha256": "c976508b0b8b3c220e9ad83f72ae5cc2cc407f45aeb0c6c15f4357543bce6029"
           }
         },

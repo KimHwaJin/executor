@@ -9,11 +9,11 @@
 기계 판독용 JSON Schema는
 [step-result-manifest.schema.json](step-result-manifest.schema.json)에 있다.
 
-manifest는 Agent/Executor 공유 PV에 존재한다. Agent는 자신이 마운트한 Executor 결과 루트에
+manifest는 Agent/Executor 공유 PV에 존재한다. Agent는 자신이 마운트한 공통 루트에
 `result_ref.relative_path`를 결합해 파일을 읽는다.
 
-이 결과 루트는 Executor의 `SHARED_STORAGE_ROOT`와 같은 파일을 볼 수 있는 Agent 측
-마운트다. Agent가 코드를 쓰는 입력 루트(`INPUT_STORAGE_ROOT`)와는 다를 수 있다.
+이 루트는 Executor의 `STORAGE_ROOT`와 같은 파일을 같은 경로로 보는 Agent 측
+마운트이며, Agent가 코드를 쓰는 루트와 같다.
 Jupyter의 notebook/report/artifact 파일 경로와도 구분한다.
 
 Redis Step 완료 이벤트와 Operation 완료 이벤트의 `step_results[].result_ref`도
@@ -37,7 +37,7 @@ Redis Step 완료 이벤트와 Operation 완료 이벤트의 `step_results[].res
     "fencing_token": 1
   },
   "source": {
-    "relative_path": "executions/10000000-0000-0000-0000-000000000001/sources/30000000-0000-0000-0000-000000000003/source.py",
+    "relative_path": "executor/executions/10000000-0000-0000-0000-000000000001/sources/30000000-0000-0000-0000-000000000003/source.py",
     "checksum_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "size_bytes": 14
   },
@@ -51,7 +51,7 @@ Redis Step 완료 이벤트와 Operation 완료 이벤트의 `step_results[].res
         {
           "media_type": "text/plain",
           "encoding": "UTF8",
-          "relative_path": "executions/10000000-0000-0000-0000-000000000001/operations/20000000-0000-0000-0000-000000000002/steps/30000000-0000-0000-0000-000000000003/attempts/40000000-0000-0000-0000-000000000004/1/outputs/000000-stream-00.txt",
+          "relative_path": "executor/executions/10000000-0000-0000-0000-000000000001/operations/20000000-0000-0000-0000-000000000002/steps/30000000-0000-0000-0000-000000000003/attempts/40000000-0000-0000-0000-000000000004/1/outputs/000000-stream-00.txt",
           "size_bytes": 6,
           "checksum_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
           "complete": true,
@@ -139,12 +139,12 @@ Agent는 `execution_id`, `step_id`, `execution_attempt_id`, `fencing_token`이 R
 
 | 필드 | 의미 |
 |---|---|
-| `relative_path` | Executor 결과 루트 기준 실행 코드 snapshot 경로 |
+| `relative_path` | 공통 루트 기준 실행 코드 snapshot 경로 |
 | `checksum_sha256` | source 파일 SHA-256 |
 | `size_bytes` | source 파일 byte 크기 |
 
-`source.relative_path`는 manifest 디렉터리나 Agent 입력 루트가 아니라,
-Agent가 마운트한 Executor 결과 루트를 기준으로 해석한다.
+`source.relative_path`는 manifest 디렉터리가 아니라,
+Agent가 마운트한 공통 루트를 기준으로 해석한다.
 읽은 파일의 크기와 checksum을 모두 확인해야 한다.
 
 ## `outputs[]`
@@ -175,7 +175,7 @@ Agent가 마운트한 Executor 결과 루트를 기준으로 해석한다.
 |---|---|
 | `media_type` | `text/plain`, `application/json`, `image/png` 등의 MIME type |
 | `encoding` | Runtime에서 수신한 표현 인코딩: `UTF8` 또는 `BASE64` |
-| `relative_path` | Executor 결과 루트 (`SHARED_STORAGE_ROOT`) 기준 실제 출력 파일 경로 |
+| `relative_path` | 공통 루트 (`STORAGE_ROOT`) 기준 실제 출력 파일 경로 |
 | `size_bytes` | 저장된 출력 파일 byte 크기 |
 | `checksum_sha256` | 저장된 출력 파일 SHA-256 |
 | `complete` | 개별 representation 파일 기록 완료 여부. terminal manifest에서는 `true` |
@@ -211,14 +211,14 @@ outputs[].representations[].relative_path
 
 ## Agent 검증 및 읽기 순서
 
-1. Result API가 반환한 `result_ref.relative_path`를 Agent가 마운트한 Executor 결과 루트 아래에서 해석한다.
+1. Result API가 반환한 `result_ref.relative_path`를 Agent가 마운트한 공통 루트 아래에서 해석한다.
 2. 절대경로, `..`, 공유 루트 이탈 경로는 거부한다.
 3. manifest bytes의 크기와 SHA-256을 계산해 각각 `result_ref.size_bytes`,
    `result_ref.checksum_sha256`과 비교한다.
 4. `schema_version`이 지원하는 `1.0`인지 확인한다.
 5. manifest `identity`가 Result API의 Execution/Step/Attempt/fence와 일치하는지 확인한다.
 6. `state`와 `complete`를 확인한다. `ABORTED` 출력은 부분 증거로만 사용한다.
-7. source와 output representation 모두 Executor 결과 루트 기준으로 읽는다.
+7. source와 output representation 모두 공통 루트 기준으로 읽는다.
    출력 파일은 해당 manifest의 Step/Attempt/fence 디렉터리 안에 속하는지도 검증한다.
 8. 각 파일의 `size_bytes`와 `checksum_sha256`을 검증한다.
 9. 필요한 MIME representation만 Agent/LLM에 전달한다.
@@ -226,5 +226,5 @@ outputs[].representations[].relative_path
 일반 파일 탐색으로 다른 attempt나 fencing generation을 선택해서는 안 된다. PostgreSQL 원본
 상태가 가리키는 `result_ref`와 그 manifest 내부에 선언된 파일만 읽는다.
 
-파일 경로는 모두 Executor 결과 루트 기준으로 해석한다.
+파일 경로는 모두 공통 루트 기준으로 해석한다.
 manifest 파일이 있는 디렉터리를 기준으로 해석하지 않는다.

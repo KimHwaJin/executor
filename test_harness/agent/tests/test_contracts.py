@@ -158,7 +158,7 @@ def test_identity_travels_in_headers_not_the_body() -> None:
         executor_redis_url="redis://redis/0",
         executor_event_stream="executor.events.dev",
         executor_consumer_group_prefix="agent",
-        executor_shared_storage_root=Path("/shared"),
+        executor_storage_root=Path("/shared"),
         execution_timeout_seconds=120,
         natural_language_execution_enabled=True,
         default_user_id="user-1",

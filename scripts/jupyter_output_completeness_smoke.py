@@ -114,7 +114,7 @@ async def run_case(
     settings = Settings(
         _env_file=None,
         runtime_enabled=False,
-        shared_storage_root=root,
+        storage_root=root,
         runtime_credential_key=SecretStr(cipher_key.decode()),
     )
     store = FilesystemExecutionResultStore(root)
