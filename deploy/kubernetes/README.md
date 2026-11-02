@@ -55,10 +55,10 @@ Before deployment:
    also available there; files and DB references are not moved automatically.
 5. Ensure all Jupyter servers mount their own common Jupyter PV. Executor must not mount or inspect
    that Jupyter PV; notebook and artifact access goes through Jupyter APIs.
-6. Replace the placeholder `AUTH_CLIENTS` hashes in `config.prd.yml` with the output of
-   `python3 scripts/generate_api_keys.py prd` ([API Keys](../../docs/api-keys.md)). Hand each key
-   to its caller out of band; only the hash ships in this image. During rotation list both
-   hashes, then drop the old one.
+6. Replace each placeholder `AUTH_CLIENTS` entry in `config.prd.yml` with the output of
+   `python3 scripts/generate_api_keys.py prd <caller> <kind>` ([API Keys](../../docs/api-keys.md)).
+   Hand each key to its caller out of band; only the hash ships in this image. During rotation
+   list both hashes, then drop the old one.
 7. After Executor is Ready, register every Jupyter server through the Runtime Target REST API
    with the `ops` admin key. Executor starts with an empty Runtime Fleet and never creates a
    target from environment variables. MCP is disabled in stg and prd.
