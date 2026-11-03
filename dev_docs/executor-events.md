@@ -1,9 +1,10 @@
-# Executor Redis 실행 이벤트 계약
+# Executor 이벤트
 
 ## 1. 목적
 
 이 문서는 Executor가 외부 시스템에 발행하는 Redis 실행 이벤트의 계약을
 정의한다. Agent를 포함한 모든 외부 소비자는 이 문서를 기준으로 이벤트를 구현한다.
+API 호출 방법과 헤더 규칙은 [Executor API 사용 가이드](executor-api.md)를 본다.
 
 실제 ID는 UUID다. 아래 JSON의 ID/checksum은 형식상 유효한 설명용 값이며 실제
 파일의 크기·checksum·참조 대상을 보장하는 실행 fixture는 아니다.
@@ -44,7 +45,7 @@ Execution의 모든 이벤트는 `{REDIS_EVENT_STREAM}.{tenant_id}` 한 곳으�
 - 한 Execution의 이벤트는 처음부터 끝까지 같은 Stream으로 간다. `tenant_id`는
   바뀌지 않고, 후속 Operation과 재시도도 제출 시 값을 따른다.
 - Stream 이름 접미사는 `tenant_id` 그대로다. 형식과 예약어 규칙은
-  [Execution 제출 API](post-executions.md#tenant)를 따른다.
+  [Executor API 사용 가이드](executor-api.md#tenant)를 따른다.
 - Stream은 첫 이벤트를 발행할 때 생긴다. 구독자는 아래처럼 `MKSTREAM`으로 미리
   group을 만들어 둔다.
 - `REDIS_EVENT_RETENTION_SECONDS` 기준 시간 정리는 PostgreSQL에 기록된 모든 tenant
@@ -232,7 +233,7 @@ Step 객체:
 ```
 
 - `id`: Executor가 발급한 논리 Step ID
-- `sequence`: Operation 내부 실행 순서이며 `0`부터 시작
+- `sequence`: Execution 전체에서 매기는 Step 실행 순서이며 `0`부터 시작. 후속 Operation의 Step은 앞 Operation 다음 번호를 받는다
 - Retry해도 `id`와 `sequence`는 변경하지 않음
 
 Attempt 객체:
@@ -758,8 +759,7 @@ Execution의 현재 수행 주기가 `SUCCEEDED`, `FAILED` 또는 `CANCELLED`로
     "error": null,
     "execution": {
       "trigger": {
-        "type": "BATCH",
-        "actor": {"type": "USER", "id": "7d1c2a8e-5b3f-4c9a-9e21-0f6a4b8c2d11"}
+        "type": "BATCH"
       },
       "context": {
         "user_id": "7d1c2a8e-5b3f-4c9a-9e21-0f6a4b8c2d11",
@@ -832,10 +832,7 @@ Execution의 현재 수행 주기가 `SUCCEEDED`, `FAILED` 또는 `CANCELLED`로
 | 필드 | 타입 | 규칙 |
 |---|---|---|
 | `trigger.type` | enum | `INTERACTIVE`, `BATCH` |
-| `trigger.actor` | object 또는 null | 제출 actor(`created_by_type`/`created_by`). 제출 후 바뀌지 않는다. actor 없이 제출된 Execution은 `null` |
-| `trigger.actor.type` | enum | `AGENT`, `USER`, `BATCH` |
-| `trigger.actor.id` | string | 1~255자 |
-| `context` | object | 제출 요청의 `context`와 같은 필드: `user_id`, `project_id`, `session_id`. `user_id`만 항상 있고 나머지는 `null`일 수 있다 |
+| `context` | object | 제출 시 받은 `X-User-Id`, `X-Project-Id`, `X-Session-Id` 헤더 값: `user_id`, `project_id`, `session_id`. `user_id`만 항상 있고 나머지는 `null`일 수 있다. 누가 제출했는지는 `user_id`로 판단한다 |
 | `metadata` | object | 제출 요청의 최상위 `metadata`. 상세 조회와 같이 키 이름에 token/secret/password/credential이 들어간 값은 `[REDACTED]`로 가린다. 빈 객체일 수 있다 |
 
 `execution`은 schema `1.0`에 추가된 선택 필드다. 소비자는 필드가 없을 수 있다고

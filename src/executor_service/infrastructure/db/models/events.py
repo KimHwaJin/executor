@@ -19,7 +19,6 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from executor_service.domain.enums import (
-    ActorType,
     OutboxStatus,
 )
 from executor_service.domain.models import (
@@ -29,7 +28,6 @@ from executor_service.domain.models import (
 from executor_service.infrastructure.db.base import Base
 from executor_service.infrastructure.db.models.common import (
     UTCDateTime,
-    audit_actor_constraints,
     enum_type,
 )
 
@@ -54,7 +52,6 @@ class ExecutionEventSequenceORM(Base):
 class ExecutionEventORM(Base):
     __tablename__ = "execution_events"
     __table_args__ = (
-        *audit_actor_constraints(),
         CheckConstraint(
             "event_sequence >= 1",
             name="positive_event_sequence",
@@ -84,12 +81,12 @@ class ExecutionEventORM(Base):
     event_type: Mapped[str] = mapped_column(String(255), nullable=False)
     schema_version: Mapped[str] = mapped_column(String(32), nullable=False)
     payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
-    created_by_type: Mapped[ActorType | None] = mapped_column(
-        enum_type(ActorType, "actor_type"), nullable=True
+    created_by_client: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
     )
     created_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    updated_by_type: Mapped[ActorType | None] = mapped_column(
-        enum_type(ActorType, "actor_type"), nullable=True
+    updated_by_client: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
     )
     updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
@@ -104,9 +101,9 @@ class ExecutionEventORM(Base):
             event_type=event.event_type,
             schema_version=event.schema_version,
             payload=event.payload,
-            created_by_type=event.created_by_type,
+            created_by_client=event.created_by_client,
             created_by=event.created_by,
-            updated_by_type=event.updated_by_type,
+            updated_by_client=event.updated_by_client,
             updated_by=event.updated_by,
             created_at=event.created_at,
             updated_at=event.updated_at,
@@ -116,7 +113,6 @@ class ExecutionEventORM(Base):
 class OutboxEventORM(Base):
     __tablename__ = "outbox_events"
     __table_args__ = (
-        *audit_actor_constraints(),
         CheckConstraint(
             "status IN ('PENDING', 'PUBLISHED')", name="valid_outbox_status"
         ),
@@ -156,12 +152,12 @@ class OutboxEventORM(Base):
         ForeignKey("execution_events.id", ondelete="RESTRICT"),
         nullable=False,
     )
-    created_by_type: Mapped[ActorType | None] = mapped_column(
-        enum_type(ActorType, "actor_type"), nullable=True
+    created_by_client: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
     )
     created_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    updated_by_type: Mapped[ActorType | None] = mapped_column(
-        enum_type(ActorType, "actor_type"), nullable=True
+    updated_by_client: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
     )
     updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
     status: Mapped[OutboxStatus] = mapped_column(
@@ -191,9 +187,9 @@ class OutboxEventORM(Base):
             event_type=event.event_type,
             event_sequence=event.event_sequence,
             execution_event_id=event.id,
-            created_by_type=event.created_by_type,
+            created_by_client=event.created_by_client,
             created_by=event.created_by,
-            updated_by_type=event.updated_by_type,
+            updated_by_client=event.updated_by_client,
             updated_by=event.updated_by,
             status=OutboxStatus.PENDING,
             attempt_count=0,

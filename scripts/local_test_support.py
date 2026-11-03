@@ -207,7 +207,6 @@ async def register_local_runtime_targets(
                     "credential": spec.token,
                     "pool": spec.pool,
                     "max_concurrent_executions": spec.capacity,
-                    "actor": {"type": "USER", "id": "local-test-operator"},
                 }
             },
         )

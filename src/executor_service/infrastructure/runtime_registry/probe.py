@@ -6,7 +6,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from executor_service.application.runtime_targets import RuntimeTargetView
-from executor_service.domain.enums import ActorType, RuntimeTargetStatus
+from executor_service.domain.enums import RuntimeTargetStatus
 from executor_service.domain.models import utc_now
 from executor_service.domain.runtime import RuntimeResourceObservation
 from executor_service.infrastructure.db.models import RuntimeTargetORM
@@ -54,7 +54,7 @@ class RuntimeTargetProber:
         self,
         target_id: UUID,
         *,
-        actor_type: ActorType | None = None,
+        actor_client: str | None = None,
         actor_id: str | None = None,
     ) -> RuntimeTargetView:
         async with self._session_factory() as session:
@@ -172,8 +172,8 @@ class RuntimeTargetProber:
                 if resource is not None:
                     _apply_resource_observation(target, resource)
                 target.updated_at = utc_now()
-                if actor_type is not None:
-                    target.updated_by_type = actor_type
+                if actor_client is not None:
+                    target.updated_by_client = actor_client
                     target.updated_by = actor_id
             view = await runtime_target_view(session, target, self._settings)
             if (

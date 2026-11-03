@@ -14,11 +14,7 @@ from executor_service.application.commands import (
 from executor_service.application.services.types import (
     UnitOfWorkFactory,
 )
-from executor_service.domain.enums import (
-    ActorType,
-    OperationMode,
-    TriggerType,
-)
+from executor_service.domain.enums import OperationMode, TriggerType
 from executor_service.domain.errors import (
     ExecutionNotFoundError,
     IdempotencyConflictError,
@@ -170,41 +166,8 @@ def ensure_same_fingerprint(execution: Execution, value: str) -> None:
 
 def validate_submit(command: SubmitExecutionCommand) -> None:
     spec = (*SUBMIT_OPERATION_LOCATION, "spec")
-    actor = ("body", "trigger", "actor")
     wait_timeout = ("body", "lifecycle", "operation_wait_timeout_seconds")
     validate_schema_version(command.spec_schema_version, spec)
-    validate_actor(command.actor_type, command.actor_id, location=actor)
-    allowed_actors = {
-        TriggerType.BATCH: (ActorType.USER, ActorType.BATCH),
-        TriggerType.INTERACTIVE: (ActorType.AGENT, ActorType.USER),
-    }.get(command.trigger_type)
-    if (
-        command.actor_type is not None
-        and allowed_actors is not None
-        and command.actor_type not in allowed_actors
-    ):
-        allowed = " or ".join(allowed_actors)
-        raise InvalidExecutionSpecError.at(
-            (*actor, "type"),
-            f"{command.trigger_type} submit requires a {allowed} actor, "
-            f"not {command.actor_type}.",
-            "actor_not_allowed_for_trigger",
-            trigger_type=command.trigger_type,
-            actual=command.actor_type,
-            allowed=allowed,
-        )
-    if (
-        command.actor_type == ActorType.USER
-        and command.actor_id != command.user_id
-    ):
-        raise InvalidExecutionSpecError.at(
-            (*actor, "id"),
-            f"A USER actor.id ({command.actor_id}) must equal X-User-Id "
-            f"({command.user_id}).",
-            "actor_user_mismatch",
-            actual=command.actor_id,
-            expected=command.user_id,
-        )
     if command.session_id is not None and command.project_id is None:
         raise InvalidExecutionSpecError.at(
             ("header", "X-Session-Id"),
@@ -332,45 +295,25 @@ def operation_id_from_receipt(
     return UUID(value)
 
 
-def validate_actor(
-    actor_type: ActorType | None,
-    actor_id: str | None,
-    *,
-    location: Location = ("body", "actor"),
-) -> None:
-    if (actor_type is None) != (actor_id is None):
-        raise InvalidExecutionSpecError.at(
-            location,
-            "actor.type and actor.id must be provided together.",
-            "actor_incomplete",
-        )
-    if actor_id is not None and not actor_id.strip():
-        raise InvalidExecutionSpecError.at(
-            (*location, "id"), "actor.id must not be blank.", "actor_id_blank"
-        )
-
-
 def apply_actor(
     execution: Execution,
-    actor_type: ActorType | None,
+    actor_client: str | None,
     actor_id: str | None,
 ) -> None:
-    validate_actor(actor_type, actor_id)
-    if actor_type is None:
+    if actor_client is None:
         return
-    execution.updated_by_type = actor_type
+    execution.updated_by_client = actor_client
     execution.updated_by = actor_id
 
 
 def apply_step_actor(
     step: ExecutionStep,
-    actor_type: ActorType | None,
+    actor_client: str | None,
     actor_id: str | None,
 ) -> None:
-    validate_actor(actor_type, actor_id)
-    if actor_type is None:
+    if actor_client is None:
         return
-    step.updated_by_type = actor_type
+    step.updated_by_client = actor_client
     step.updated_by = actor_id
 
 

@@ -93,7 +93,7 @@ class DiagnosticRecorder:
                         if step is None:
                             raise ValueError("Diagnostic Step was not found.")
                     now = utc_now()
-                    actor_type = execution.updated_by_type
+                    actor_client = execution.updated_by_client
                     actor_id = execution.updated_by
                     session.add(
                         ExecutionDiagnosticORM(
@@ -109,9 +109,9 @@ class DiagnosticRecorder:
                             occurred_at=observed,
                             created_at=now,
                             updated_at=now,
-                            created_by_type=actor_type,
+                            created_by_client=actor_client,
                             created_by=actor_id,
-                            updated_by_type=actor_type,
+                            updated_by_client=actor_client,
                             updated_by=actor_id,
                         )
                     )
@@ -226,8 +226,8 @@ def _view(row: ExecutionDiagnosticORM) -> DiagnosticView:
         occurred_at=row.occurred_at,
         created_at=row.created_at,
         updated_at=row.updated_at,
-        created_by_type=row.created_by_type,
+        created_by_client=row.created_by_client,
         created_by=row.created_by,
-        updated_by_type=row.updated_by_type,
+        updated_by_client=row.updated_by_client,
         updated_by=row.updated_by,
     )

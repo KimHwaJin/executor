@@ -10,6 +10,7 @@ from executor_service.application.maintenance import (
 )
 from executor_service.container import ApplicationContainer
 from executor_service.domain.enums import ExecutorAdmissionState
+from executor_service.interfaces.auth import current_caller, require_user
 from executor_service.interfaces.contracts import (
     ExecutorMaintenanceResponse,
     MaintenanceRunResponse,
@@ -62,12 +63,13 @@ def build_maintenance_router(
         request: ExecutorMaintenanceMutationRequest,
         desired_state: ExecutorAdmissionState,
     ) -> ExecutorMaintenanceResponse:
+        caller = current_caller()
         view = await maintenance.set_state(
             SetExecutorAdmissionCommand(
                 idempotency_key=request.idempotency_key,
                 desired_state=desired_state,
-                actor_type=request.actor.type,
-                actor_id=request.actor.id,
+                actor_client=caller.client,
+                actor_id=require_user(caller),
             )
         )
         return ExecutorMaintenanceResponse.from_view(view)
@@ -105,7 +107,9 @@ def build_maintenance_router(
         request: MaintenanceRunCreateRequest,
         response: Response,
     ) -> MaintenanceRunResponse:
-        view = await maintenance_runs.create(request.to_command())
+        view = await maintenance_runs.create(
+            request.to_command(current_caller())
+        )
         response.headers["Location"] = f"/api/v1/maintenance/runs/{view.id}"
         return MaintenanceRunResponse.from_view(view)
 

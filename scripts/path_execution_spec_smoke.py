@@ -108,7 +108,6 @@ async def main() -> None:
                                 }
                             ],
                         },
-                        actor={"type": "USER", "id": "path-smoke-user"},
                     )
                 },
             )

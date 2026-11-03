@@ -10,7 +10,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from executor_service.interfaces.bounded_mappings import CallerMetadata
 from executor_service.interfaces.contracts import (
-    ActorInput,
     ExecutionArtifactMaterializeRequest,
     ExecutionSubmitRequest,
     RuntimeTargetUpsertRequest,
@@ -21,7 +20,6 @@ from executor_service.interfaces.execution_specs import (
 )
 
 __all__ = [
-    "ActorInput",
     "ExecutionArtifactMaterializeToolRequest",
     "ExecutionCancelRequest",
     "ExecutionFinalizeRequest",
@@ -45,13 +43,11 @@ class ExecutionCancelRequest(MCPModel):
     execution_id: UUID
     idempotency_key: str = Field(min_length=1, max_length=255)
     reason: str | None = Field(default=None, max_length=2000)
-    actor: ActorInput
 
 
 class ExecutionRetryRequest(MCPModel):
     execution_id: UUID
     idempotency_key: str = Field(min_length=1, max_length=255)
-    actor: ActorInput
 
 
 class ExecutionOperationCreateRequest(MCPModel):
@@ -61,14 +57,12 @@ class ExecutionOperationCreateRequest(MCPModel):
     operation_timeout_seconds: int | None = Field(default=None, ge=1)
     spec: ExecutionSpec
     metadata: CallerMetadata = Field(default_factory=dict)
-    actor: ActorInput
 
 
 class ExecutionFinalizeRequest(MCPModel):
     execution_id: UUID
     idempotency_key: str = Field(min_length=1, max_length=255)
     expected_version: int = Field(ge=0)
-    actor: ActorInput
 
 
 class ExecutionArtifactMaterializeToolRequest(
@@ -79,17 +73,14 @@ class ExecutionArtifactMaterializeToolRequest(
 
 class RuntimeTargetProbeRequest(MCPModel):
     target_id: UUID
-    actor: ActorInput
 
 
 class RuntimeTargetDisableRequest(MCPModel):
     idempotency_key: str = Field(min_length=1, max_length=255)
     target_id: UUID
-    actor: ActorInput
 
 
 class RuntimeTargetSetStateRequest(MCPModel):
     idempotency_key: str = Field(min_length=1, max_length=255)
     target_id: UUID
     desired_state: str = Field(pattern=r"^(ACTIVE|DRAINING)$")
-    actor: ActorInput

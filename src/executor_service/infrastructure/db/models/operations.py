@@ -18,7 +18,6 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from executor_service.domain.enums import (
-    ActorType,
     FailureType,
     OperationStatus,
 )
@@ -26,7 +25,6 @@ from executor_service.domain.models import ExecutionOperation, utc_now
 from executor_service.infrastructure.db.base import Base
 from executor_service.infrastructure.db.models.common import (
     UTCDateTime,
-    audit_actor_constraints,
     enum_type,
 )
 
@@ -36,7 +34,6 @@ class ExecutionOperationORM(Base):
 
     __tablename__ = "execution_operations"
     __table_args__ = (
-        *audit_actor_constraints(),
         UniqueConstraint(
             "execution_id",
             "operation_number",
@@ -120,12 +117,12 @@ class ExecutionOperationORM(Base):
     failure_type: Mapped[FailureType | None] = mapped_column(
         enum_type(FailureType, "operation_failure_type"), nullable=True
     )
-    created_by_type: Mapped[ActorType | None] = mapped_column(
-        enum_type(ActorType, "actor_type"), nullable=True
+    created_by_client: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
     )
     created_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    updated_by_type: Mapped[ActorType | None] = mapped_column(
-        enum_type(ActorType, "actor_type"), nullable=True
+    updated_by_client: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
     )
     updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -158,9 +155,9 @@ class ExecutionOperationORM(Base):
             status=operation.status,
             execution_attempt_id=operation.execution_attempt_id,
             error_message=operation.error_message,
-            created_by_type=operation.created_by_type,
+            created_by_client=operation.created_by_client,
             created_by=operation.created_by,
-            updated_by_type=operation.updated_by_type,
+            updated_by_client=operation.updated_by_client,
             updated_by=operation.updated_by,
             created_at=operation.created_at,
             updated_at=operation.updated_at,

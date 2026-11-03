@@ -48,7 +48,7 @@ MCP Tool 오류는 본문이 `[CODE] message details=[...]`이다. `details=` �
 | 409 | **요청은 맞지만 지금 상태에서는 할 수 없음**. 이미 종료됨, `WAITING_FOR_OPERATION`이 아님, version 불일치, 멱등 키 재사용 등 | `INVALID_STATE_TRANSITION`, `EXECUTION_VERSION_CONFLICT`, `IDEMPOTENCY_CONFLICT` 등 |
 | 413 | 요청 본문이 `REQUEST_BODY_MAX_BYTES`(기본 30MB)를 넘음 | `REQUEST_BODY_TOO_LARGE` |
 | 422 | 요청 형식이 틀림(필수 값 누락, 타입, 길이, 패턴) | `REQUEST_VALIDATION_ERROR` |
-| 422 | **요청 값 자체가 규칙에 맞지 않음**. 개수·크기·시간 한도 초과, 소스 파일 문제, actor 규칙 위반 등 | `INVALID_EXECUTION_SPEC` |
+| 422 | **요청 값 자체가 규칙에 맞지 않음**. 개수·크기·시간 한도 초과, 소스 파일 문제, 식별자 헤더 규칙 위반 등 | `INVALID_EXECUTION_SPEC` |
 | 500 | 예상하지 못한 서버 오류 | `INTERNAL_ERROR` |
 | 503 | DB 연결이 끊김. 나중에 다시 시도하면 통과할 수 있음 | `DATABASE_UNAVAILABLE` |
 
@@ -79,9 +79,6 @@ MULTI 후속 Operation은 상태·version을 먼저 확인한다. 오래된 vers
 | `exceeds_max_runtime` | `body.operation.operation_timeout_seconds` 또는 `...steps[i].step_timeout_seconds` | `limit_seconds`, `actual_seconds` |
 | `not_allowed_for_single` / `required_for_multi` | `body.lifecycle.operation_wait_timeout_seconds` | `actual`(있을 때) |
 | `multi_requires_interactive` | `body.trigger.type` | `expected`, `actual` |
-| `actor_not_allowed_for_trigger` | `body.trigger.actor.type` | `trigger_type`, `allowed`, `actual` |
-| `actor_user_mismatch` | `body.trigger.actor.id` | `expected`(X-User-Id), `actual` |
-| `actor_incomplete` / `actor_id_blank` | `body.trigger.actor` / `body.actor` | 없음 |
 | `session_without_project` / `reserved_value` | `header.X-Session-Id` / `header.X-Project-Id` | `actual`(있을 때) |
 
 ## `REQUEST_VALIDATION_ERROR`

@@ -252,12 +252,6 @@ async def submit_static(
                 idempotency_key=f"resilience-{unique}-{name}",
                 operation_mode="SINGLE",
                 trigger_type="BATCH" if pool == "BATCH" else "INTERACTIVE",
-                actor={
-                    "type": "BATCH" if pool == "BATCH" else "USER",
-                    "id": "resilience-batch"
-                    if pool == "BATCH"
-                    else "resilience-user",
-                },
                 runtime_profile="default",
                 spec=inline_spec(
                     [
@@ -293,7 +287,6 @@ async def upsert_runtime_target(
         "connection_config": {"endpoint": endpoint},
         "pool": pool,
         "max_concurrent_executions": capacity,
-        "actor": {"type": "USER", "id": "resilience-operator"},
     }
     if token is not None:
         request["credential"] = token
@@ -318,7 +311,6 @@ async def probe_runtime_target(
         {
             "request": {
                 "target_id": server_id,
-                "actor": {"type": "USER", "id": "resilience-operator"},
             }
         },
     )

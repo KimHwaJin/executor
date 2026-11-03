@@ -125,14 +125,12 @@ def _upsert_payload(
         "credential": f"never-return-this-secret-{index}",
         "pool": pool,
         "max_concurrent_executions": index + 2,
-        "actor": {"type": "USER", "id": "fleet-admin"},
     }
 
 
 def _mutation_payload(key: str) -> dict[str, Any]:
     return {
         "idempotency_key": key,
-        "actor": {"type": "USER", "id": "fleet-admin"},
     }
 
 
@@ -142,7 +140,6 @@ def _execution_payload() -> dict[str, Any]:
         "lifecycle": {"operation_mode": "SINGLE"},
         "trigger": {
             "type": "INTERACTIVE",
-            "actor": {"type": "USER", "id": "fleet-admin"},
         },
         "runtime": {"type": "JUPYTER", "profile": "default"},
         "operation": {
@@ -223,8 +220,7 @@ async def test_resource_only_probe_failure_keeps_target_active_and_marks_data_st
     HealthyGateway.fail_resource_probe = True
     try:
         probed = await client.post(
-            f"/api/v1/runtime-targets/{target_id}/probe",
-            json={"actor": {"type": "USER", "id": "fleet-admin"}},
+            f"/api/v1/runtime-targets/{target_id}/probe"
         )
     finally:
         HealthyGateway.fail_resource_probe = False
@@ -252,8 +248,7 @@ async def test_failed_probe_retains_session_observation_but_marks_it_stale(
     HealthyGateway.fail_health_probe = True
     try:
         probed = await client.post(
-            f"/api/v1/runtime-targets/{target_id}/probe",
-            json={"actor": {"type": "USER", "id": "fleet-admin"}},
+            f"/api/v1/runtime-targets/{target_id}/probe"
         )
     finally:
         HealthyGateway.fail_health_probe = False
@@ -457,12 +452,9 @@ async def test_hard_purge_requires_disable_and_keeps_tombstone(
         "/api/v1/runtime-targets", json=_upsert_payload(10)
     )
     target_id = created.json()["target_id"]
-    purge_payload = {
-        "actor": {"type": "USER", "id": "fleet-admin"},
-    }
 
     active_purge = await client.post(
-        f"/api/v1/runtime-targets/{target_id}/purge", json=purge_payload
+        f"/api/v1/runtime-targets/{target_id}/purge"
     )
     assert active_purge.status_code == 409
     assert (
@@ -473,29 +465,17 @@ async def test_hard_purge_requires_disable_and_keeps_tombstone(
         f"/api/v1/runtime-targets/{target_id}/disable",
         json=_mutation_payload("fleet-disable-10"),
     )
-    wrong_name = await client.post(
-        f"/api/v1/runtime-targets/{target_id}/purge",
-        json={**purge_payload, "confirmation_name": "wrong-name"},
-    )
-    assert wrong_name.status_code == 422
-    old_key = await client.post(
-        f"/api/v1/runtime-targets/{target_id}/purge",
-        json={**purge_payload, "idempotency_key": "removed"},
-    )
-    assert old_key.status_code == 422
 
-    purged = await client.post(
-        f"/api/v1/runtime-targets/{target_id}/purge", json=purge_payload
-    )
+    purged = await client.post(f"/api/v1/runtime-targets/{target_id}/purge")
     repeated = await client.post(
         f"/api/v1/runtime-targets/{target_id}/purge",
-        json={"actor": {"type": "USER", "id": "another-admin"}},
+        headers={"X-User-Id": "another-admin"},
     )
     assert purged.status_code == 200
     assert repeated.json() == purged.json()
-    assert purged.json()["created_by_type"] == "USER"
+    assert purged.json()["created_by_client"] == "test"
     assert purged.json()["created_by"] == "fleet-admin"
-    assert purged.json()["updated_by_type"] == "USER"
+    assert purged.json()["updated_by_client"] == "test"
     assert purged.json()["updated_by"] == "fleet-admin"
     assert purged.json()["created_at"] is not None
     assert purged.json()["updated_at"] is not None
@@ -565,10 +545,7 @@ async def test_endpoint_has_one_registration_until_purged(
         json={**duplicate_payload, "idempotency_key": "fleet-retry-21"},
     )
     assert still_registered.status_code == 409
-    await client.post(
-        f"/api/v1/runtime-targets/{target_id}/purge",
-        json={"actor": {"type": "USER", "id": "fleet-admin"}},
-    )
+    await client.post(f"/api/v1/runtime-targets/{target_id}/purge")
     replaced = await client.post(
         "/api/v1/runtime-targets",
         json={**duplicate_payload, "idempotency_key": "fleet-replace-21"},
@@ -606,16 +583,19 @@ async def test_invalid_connection_config_has_one_configuration_error(
         assert "secret" not in response.text
 
 
-async def test_purge_requires_actor_and_distinguishes_unknown_id(
+async def test_purge_requires_user_and_distinguishes_unknown_id(
     fleet_client: tuple[httpx.AsyncClient, ApplicationContainer],
 ) -> None:
     client, _ = fleet_client
     route = f"/api/v1/runtime-targets/{uuid4()}/purge"
-    for body in ({}, {"actor": {"type": "USER"}}, {"actor": {"id": "user"}}):
-        assert (await client.post(route, json=body)).status_code == 422
-    response = await client.post(
-        route, json={"actor": {"type": "USER", "id": "admin"}}
-    )
+    user = client.headers.pop("X-User-Id")
+    try:
+        missing = await client.post(route)
+    finally:
+        client.headers["X-User-Id"] = user
+    assert missing.status_code == 400
+    assert missing.json()["error"]["code"] == "INVALID_IDENTITY"
+    response = await client.post(route)
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "RUNTIME_TARGET_NOT_FOUND"
 
@@ -645,9 +625,7 @@ async def test_server_referenced_by_unfinished_execution_cannot_be_purged(
     )
     purged = await client.post(
         f"/api/v1/runtime-targets/{target_id}/purge",
-        json={
-            "actor": {"type": "USER", "id": "fleet-admin"},
-        },
+        json={},
     )
     assert purged.status_code == 409
     assert "unfinished work" in purged.json()["error"]["message"]

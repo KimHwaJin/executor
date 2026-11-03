@@ -33,8 +33,9 @@ async def documented_identity(
         Header(
             alias="X-User-Id",
             description=(
-                "Owning user, ^[a-z0-9][a-z0-9._-]{0,63}$ after lowercasing. "
-                "Required for writes; reads without it see the whole tenant."
+                "Acting user, ^[a-z0-9][a-z0-9._-]{0,63}$ after lowercasing. "
+                "Required for writes and recorded as created_by/updated_by; "
+                "reads without it see the whole tenant."
             ),
         ),
     ] = None,
@@ -42,7 +43,10 @@ async def documented_identity(
         str | None,
         Header(
             alias="X-Project-Id",
-            description="^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$, never 'unscoped'.",
+            description=(
+                "^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$, never 'unscoped'. Stored "
+                "on submit only; other calls check it and ignore it."
+            ),
         ),
     ] = None,
     _session_id: Annotated[
@@ -58,5 +62,15 @@ async def documented_identity(
 
 async def documented_admin_key(
     _api_key: Annotated[str | None, Security(API_KEY)] = None,
+    _user_id: Annotated[
+        str | None,
+        Header(
+            alias="X-User-Id",
+            description=(
+                "Operator ID; required for writes and recorded as "
+                "created_by/updated_by."
+            ),
+        ),
+    ] = None,
 ) -> None:
     pass

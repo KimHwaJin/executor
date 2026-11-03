@@ -59,7 +59,6 @@ def execution_request(
     idempotency_key: str,
     operation_mode: str,
     trigger_type: str,
-    actor: dict[str, str],
     runtime_profile: str,
     spec: dict[str, Any],
     operation_wait_timeout_seconds: int | None = None,
@@ -80,7 +79,7 @@ def execution_request(
     return {
         "idempotency_key": idempotency_key,
         "lifecycle": lifecycle,
-        "trigger": {"type": trigger_type, "actor": actor},
+        "trigger": {"type": trigger_type},
         "runtime": {"type": "JUPYTER", "profile": runtime_profile},
         "operation": operation,
         "metadata": metadata or {},

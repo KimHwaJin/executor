@@ -16,7 +16,6 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from executor_service.domain.enums import (
-    ActorType,
     ExecutionStatus,
     ExecutorAdmissionState,
     MaintenanceRunAction,
@@ -27,7 +26,6 @@ from executor_service.domain.models import utc_now
 from executor_service.infrastructure.db.base import Base
 from executor_service.infrastructure.db.models.common import (
     UTCDateTime,
-    audit_actor_constraints,
     enum_type,
 )
 
@@ -37,7 +35,6 @@ class ExecutorMaintenanceORM(Base):
 
     __tablename__ = "executor_maintenance"
     __table_args__ = (
-        *audit_actor_constraints(),
         CheckConstraint("singleton_key = 'executor'", name="singleton_key"),
         CheckConstraint(
             "admission_state IN ('ACTIVE', 'DRAINING')",
@@ -55,12 +52,12 @@ class ExecutorMaintenanceORM(Base):
         default=ExecutorAdmissionState.ACTIVE,
     )
     version: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
-    created_by_type: Mapped[ActorType | None] = mapped_column(
-        enum_type(ActorType, "actor_type"), nullable=True
+    created_by_client: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
     )
     created_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    updated_by_type: Mapped[ActorType | None] = mapped_column(
-        enum_type(ActorType, "actor_type"), nullable=True
+    updated_by_client: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
     )
     updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -110,7 +107,6 @@ class BackgroundPassLeaseORM(Base):
 class MaintenanceRunORM(Base):
     __tablename__ = "maintenance_runs"
     __table_args__ = (
-        *audit_actor_constraints(),
         CheckConstraint(
             "action IN ('STOP_ACTIVE_EXECUTIONS')", name="valid_action"
         ),
@@ -153,12 +149,12 @@ class MaintenanceRunORM(Base):
         BigInteger, nullable=False, default=0
     )
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_by_type: Mapped[ActorType | None] = mapped_column(
-        enum_type(ActorType, "actor_type"), nullable=True
+    created_by_client: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
     )
     created_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    updated_by_type: Mapped[ActorType | None] = mapped_column(
-        enum_type(ActorType, "actor_type"), nullable=True
+    updated_by_client: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
     )
     updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -181,7 +177,6 @@ class MaintenanceRunORM(Base):
 class MaintenanceRunTargetORM(Base):
     __tablename__ = "maintenance_run_targets"
     __table_args__ = (
-        *audit_actor_constraints(),
         UniqueConstraint(
             "maintenance_run_id",
             "execution_id",
@@ -235,12 +230,12 @@ class MaintenanceRunTargetORM(Base):
     completed_at: Mapped[datetime | None] = mapped_column(
         UTCDateTime(), nullable=True
     )
-    created_by_type: Mapped[ActorType | None] = mapped_column(
-        enum_type(ActorType, "actor_type"), nullable=True
+    created_by_client: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
     )
     created_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    updated_by_type: Mapped[ActorType | None] = mapped_column(
-        enum_type(ActorType, "actor_type"), nullable=True
+    updated_by_client: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
     )
     updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(

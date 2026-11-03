@@ -149,9 +149,9 @@ async def purge_target(
         runtime_type=target.runtime_type,
         connection_config=target.connection_config,
         pool=target.pool,
-        created_by_type=command.actor_type,
+        created_by_client=command.actor_client,
         created_by=command.actor_id,
-        updated_by_type=command.actor_type,
+        updated_by_client=command.actor_client,
         updated_by=command.actor_id,
     )
     session.add(tombstone)

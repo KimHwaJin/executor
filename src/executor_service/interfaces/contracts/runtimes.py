@@ -17,8 +17,8 @@ from executor_service.domain.enums import (
     RuntimeTargetStatus,
     RuntimeType,
 )
+from executor_service.interfaces.auth import Caller, require_user
 from executor_service.interfaces.contracts.common import (
-    ActorInput,
     AuditFields,
     ContractModel,
     PageResponse,
@@ -35,9 +35,8 @@ class RuntimeTargetUpsertRequest(ContractModel):
     credential: SecretStr | None = None
     pool: RuntimePool
     max_concurrent_executions: int | None = Field(default=None, ge=1, le=1000)
-    actor: ActorInput
 
-    def to_command(self) -> UpsertRuntimeTargetCommand:
+    def to_command(self, caller: Caller) -> UpsertRuntimeTargetCommand:
         return UpsertRuntimeTargetCommand(
             idempotency_key=self.idempotency_key,
             name=self.name,
@@ -48,8 +47,8 @@ class RuntimeTargetUpsertRequest(ContractModel):
             ),
             pool=self.pool,
             max_concurrent_executions=self.max_concurrent_executions,
-            actor_type=self.actor.type,
-            actor_id=self.actor.id,
+            actor_client=caller.client,
+            actor_id=require_user(caller),
         )
 
 
@@ -170,9 +169,9 @@ class RuntimeTargetResponse(AuditFields):
                 ),
                 errors=list(view.resource_errors),
             ),
-            created_by_type=view.created_by_type,
+            created_by_client=view.created_by_client,
             created_by=view.created_by,
-            updated_by_type=view.updated_by_type,
+            updated_by_client=view.updated_by_client,
             updated_by=view.updated_by,
             created_at=view.created_at,
             updated_at=view.updated_at,

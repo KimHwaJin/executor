@@ -8,7 +8,6 @@ from uuid import UUID
 
 from executor_service.application.pagination import Page
 from executor_service.domain.enums import (
-    ActorType,
     RuntimePool,
     RuntimeTargetStatus,
     RuntimeType,
@@ -23,7 +22,7 @@ class UpsertRuntimeTargetCommand:
     credential: str | None
     pool: RuntimePool
     runtime_type: RuntimeType = RuntimeType.JUPYTER
-    actor_type: ActorType | None = None
+    actor_client: str | None = None
     actor_id: str | None = None
     max_concurrent_executions: int | None = None
 
@@ -32,7 +31,7 @@ class UpsertRuntimeTargetCommand:
 class DisableRuntimeTargetCommand:
     idempotency_key: str
     target_id: UUID
-    actor_type: ActorType | None = None
+    actor_client: str | None = None
     actor_id: str | None = None
 
 
@@ -41,14 +40,14 @@ class SetRuntimeTargetStateCommand:
     idempotency_key: str
     target_id: UUID
     desired_state: RuntimeTargetStatus
-    actor_type: ActorType | None = None
+    actor_client: str | None = None
     actor_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class PurgeRuntimeTargetCommand:
     target_id: UUID
-    actor_type: ActorType | None = None
+    actor_client: str | None = None
     actor_id: str | None = None
 
 
@@ -85,9 +84,9 @@ class RuntimeTargetView:
     memory_utilization: float | None
     resource_pressure_score: float | None
     resource_errors: tuple[str, ...]
-    created_by_type: ActorType | None
+    created_by_client: str | None
     created_by: str | None
-    updated_by_type: ActorType | None
+    updated_by_client: str | None
     updated_by: str | None
     created_at: datetime
     updated_at: datetime
@@ -151,9 +150,9 @@ class RuntimeTargetPurgeView:
     runtime_type: RuntimeType
     connection_config: dict[str, Any]
     pool: RuntimePool
-    created_by_type: ActorType | None
+    created_by_client: str | None
     created_by: str | None
-    updated_by_type: ActorType | None
+    updated_by_client: str | None
     updated_by: str | None
     created_at: datetime
     updated_at: datetime
@@ -183,7 +182,7 @@ class RuntimeTargetManager(Protocol):
         self,
         target_id: UUID,
         *,
-        actor_type: ActorType | None = None,
+        actor_client: str | None = None,
         actor_id: str | None = None,
     ) -> RuntimeTargetView: ...
 

@@ -59,7 +59,6 @@ async def maintenance_client(
 def _mutation(key: str) -> dict[str, Any]:
     return {
         "idempotency_key": key,
-        "actor": {"type": "USER", "id": "operator-1"},
     }
 
 
@@ -69,7 +68,6 @@ def _execution(key: str) -> dict[str, Any]:
         "lifecycle": {"operation_mode": "SINGLE"},
         "trigger": {
             "type": "INTERACTIVE",
-            "actor": {"type": "USER", "id": "user-1"},
         },
         "runtime": {"type": "JUPYTER", "profile": "default"},
         "operation": {
@@ -96,7 +94,6 @@ def _run(key: str) -> dict[str, Any]:
     return {
         "idempotency_key": key,
         "action": "STOP_ACTIVE_EXECUTIONS",
-        "actor": {"type": "USER", "id": "operator-1"},
     }
 
 
@@ -125,8 +122,8 @@ async def test_maintenance_defaults_to_active_and_is_safe(
     }
     assert payload["active_run"] is None
     assert payload["safe_to_shutdown"] is True
-    assert payload["created_by_type"] is None
-    assert payload["updated_by_type"] is None
+    assert payload["created_by_client"] is None
+    assert payload["updated_by_client"] is None
 
 
 async def test_drain_is_persistent_idempotent_and_activate_resumes(
@@ -149,7 +146,7 @@ async def test_drain_is_persistent_idempotent_and_activate_resumes(
         "version": 1,
     }
     assert repeated.json()["admission"] == drained.json()["admission"]
-    assert drained.json()["updated_by"] == "operator-1"
+    assert drained.json()["updated_by"] == "user-1"
 
     conflict = await client.post(
         "/api/v1/maintenance/activate", json=_mutation("drain-1")

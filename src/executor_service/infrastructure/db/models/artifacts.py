@@ -17,7 +17,6 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from executor_service.domain.enums import (
-    ActorType,
     ArtifactStatus,
     ArtifactStorageType,
     ArtifactType,
@@ -26,7 +25,6 @@ from executor_service.domain.models import utc_now
 from executor_service.infrastructure.db.base import Base
 from executor_service.infrastructure.db.models.common import (
     UTCDateTime,
-    audit_actor_constraints,
     enum_type,
 )
 
@@ -36,7 +34,6 @@ class ExecutionArtifactORM(Base):
 
     __tablename__ = "execution_artifacts"
     __table_args__ = (
-        *audit_actor_constraints(),
         CheckConstraint(
             "artifact_type IN ('DATASET', 'NOTEBOOK', 'REPORT', 'PLOT', 'MODEL', "
             "'METRIC', 'LOG', 'OTHER')",
@@ -111,12 +108,12 @@ class ExecutionArtifactORM(Base):
     identity_hash: Mapped[str] = mapped_column(
         String(64), nullable=False, unique=True
     )
-    created_by_type: Mapped[ActorType | None] = mapped_column(
-        enum_type(ActorType, "actor_type"), nullable=True
+    created_by_client: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
     )
     created_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    updated_by_type: Mapped[ActorType | None] = mapped_column(
-        enum_type(ActorType, "actor_type"), nullable=True
+    updated_by_client: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
     )
     updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(

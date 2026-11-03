@@ -21,7 +21,6 @@ async def main() -> None:
                     idempotency_key=submit_key,
                     operation_mode="SINGLE",
                     trigger_type="INTERACTIVE",
-                    actor={"type": "USER", "id": "smoke-user"},
                     runtime_profile="python-analysis-a",
                     spec=inline_spec(
                         [{"tool_name": "smoke", "code": "print('smoke')"}],
@@ -44,7 +43,6 @@ async def main() -> None:
                     "execution_id": execution_id,
                     "idempotency_key": cancel_key,
                     "reason": "smoke test",
-                    "actor": {"type": "USER", "id": "smoke-user"},
                 }
             },
         )

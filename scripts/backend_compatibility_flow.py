@@ -18,7 +18,6 @@ from executor_service.application.commands import (
 )
 from executor_service.application.services import ExecutionService
 from executor_service.domain.enums import (
-    ActorType,
     ExecutionStatus,
     OperationMode,
     OperationStatus,
@@ -162,8 +161,8 @@ async def lifecycle_check(
         project_id="compat-project",
         session_id="compat-session",
         tenant_id="smoke",
-        actor_type=ActorType.BATCH,
-        actor_id="compatibility-check",
+        actor_client="compatibility-check",
+        actor_id="compat-user",
         steps=(StepSpec(sequence=0, code="print('compatibility')"),),
     )
     execution = await service.submit(command)
@@ -186,8 +185,8 @@ async def lifecycle_check(
     cancel = CancelExecutionCommand(
         execution_id=execution.id,
         idempotency_key="compat-cancel",
-        actor_type=ActorType.BATCH,
-        actor_id="compatibility-check",
+        actor_client="compatibility-check",
+        actor_id="compat-user",
     )
     requested = await service.cancel(cancel)
     await service.cancel(cancel)

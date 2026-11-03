@@ -181,12 +181,12 @@ class ExecutionStepExecutor:
                     input_parameters=step.input_parameters,
                     status=StepStatus.RUNNING,
                     output_summary=empty_output_summary(),
-                    created_by_type=(
-                        step.updated_by_type or step.created_by_type
+                    created_by_client=(
+                        step.updated_by_client or step.created_by_client
                     ),
                     created_by=step.updated_by or step.created_by,
-                    updated_by_type=(
-                        step.updated_by_type or step.created_by_type
+                    updated_by_client=(
+                        step.updated_by_client or step.created_by_client
                     ),
                     updated_by=step.updated_by or step.created_by,
                     started_at=now,

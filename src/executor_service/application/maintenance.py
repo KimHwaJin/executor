@@ -5,7 +5,6 @@ from datetime import datetime
 from uuid import UUID
 
 from executor_service.domain.enums import (
-    ActorType,
     ExecutorAdmissionState,
     MaintenanceRunAction,
     MaintenanceRunStatus,
@@ -16,7 +15,7 @@ from executor_service.domain.enums import (
 class SetExecutorAdmissionCommand:
     idempotency_key: str
     desired_state: ExecutorAdmissionState
-    actor_type: ActorType
+    actor_client: str
     actor_id: str
 
 
@@ -32,9 +31,9 @@ class ExecutorMaintenanceView:
     active_run_id: UUID | None
     active_run_action: MaintenanceRunAction | None
     active_run_status: MaintenanceRunStatus | None
-    created_by_type: ActorType | None
+    created_by_client: str | None
     created_by: str | None
-    updated_by_type: ActorType | None
+    updated_by_client: str | None
     updated_by: str | None
     created_at: datetime
     updated_at: datetime

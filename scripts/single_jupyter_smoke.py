@@ -63,7 +63,6 @@ async def main() -> None:
                     "credential": token,
                     "pool": "INTERACTIVE",
                     "max_concurrent_executions": 1,
-                    "actor": {"type": "USER", "id": "single-jupyter-operator"},
                 }
             },
         )
@@ -84,7 +83,6 @@ async def main() -> None:
                     idempotency_key=f"single-jupyter-submit-{unique}",
                     operation_mode="SINGLE",
                     trigger_type="INTERACTIVE",
-                    actor={"type": "USER", "id": "single-jupyter-user"},
                     runtime_profile=kernel_name,
                     spec=inline_spec(
                         [

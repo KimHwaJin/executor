@@ -123,7 +123,6 @@ def _submit_payload(
         },
         "trigger": {
             "type": "INTERACTIVE",
-            "actor": {"type": "USER", "id": "rest-user"},
         },
         "runtime": {"type": "JUPYTER", "profile": "default"},
         "operation": {
@@ -644,7 +643,6 @@ async def test_materializes_final_report_below_runtime_reports_directory(
             "type": "REPORT",
             "source": source,
             "append_to_notebook": True,
-            "actor": {"type": "USER", "id": "rest-user"},
         },
     )
 
@@ -673,7 +671,6 @@ async def test_rejects_dataset_and_model_text_materialization(
                 "idempotency_key": f"reject-{artifact_type.lower()}",
                 "type": artifact_type,
                 "source": {"type": "INLINE", "content": "text"},
-                "actor": {"type": "AGENT", "id": "rest-agent"},
             },
         )
 
@@ -698,9 +695,9 @@ async def test_single_execution_rest_lifecycle_and_queries(
         "execution_id",
         "operation",
         "state",
-        "created_by_type",
+        "created_by_client",
         "created_by",
-        "updated_by_type",
+        "updated_by_client",
         "updated_by",
         "created_at",
         "updated_at",
@@ -727,7 +724,6 @@ async def test_single_execution_rest_lifecycle_and_queries(
     assert fetched.json()["runtime"]["type"] == "JUPYTER"
     assert fetched.json()["trigger"] == {
         "type": "INTERACTIVE",
-        "actor": {"type": "USER", "id": "rest-user"},
     }
     assert fetched.json()["metadata"] == {"caller": "integration-test"}
     assert history.json()["items"][0]["trigger"] == fetched.json()["trigger"]
@@ -762,7 +758,7 @@ async def test_single_execution_rest_lifecycle_and_queries(
     assert attempts.json()["items"] == []
     assert events.json()["items"] == []
     assert artifacts.json()["items"] == []
-    assert body["created_by_type"] == "USER"
+    assert body["created_by_client"] == "test"
     assert body["created_by"] == "rest-user"
 
     cancelled = await client.post(
@@ -770,7 +766,6 @@ async def test_single_execution_rest_lifecycle_and_queries(
         json={
             "idempotency_key": "rest-cancel-1",
             "reason": "REST test",
-            "actor": {"type": "USER", "id": "rest-user"},
         },
     )
     assert cancelled.status_code == 202
@@ -818,6 +813,11 @@ async def test_execution_history_cursor_pagination_and_invalid_cursor(
     )
     assert invalid.status_code == 422
     assert invalid.json()["error"]["code"] == "INVALID_CURSOR"
+
+    for params in ({"project_id": "../other"}, {"session_id": "a b"}):
+        bad_filter = await client.get("/api/v1/executions", params=params)
+        assert bad_filter.status_code == 422
+        assert bad_filter.json()["error"]["code"] == "REQUEST_VALIDATION_ERROR"
 
 
 async def test_attempt_detail_and_step_attempt_routes(
@@ -972,7 +972,6 @@ async def test_multi_operation_create_and_finalize_rest_api(
                     },
                 ],
             },
-            "actor": {"type": "USER", "id": "rest-user"},
         },
     )
     assert continued.status_code == 202
@@ -1013,7 +1012,6 @@ async def test_multi_operation_create_and_finalize_rest_api(
                     },
                 ],
             },
-            "actor": {"type": "USER", "id": "rest-user"},
         },
     )
     assert continued_repeat.status_code == 202
@@ -1069,7 +1067,6 @@ async def test_multi_operation_create_and_finalize_rest_api(
         json={
             "idempotency_key": "rest-finalize-1",
             "expected_version": 3,
-            "actor": {"type": "USER", "id": "rest-user"},
         },
     )
     assert finished.status_code == 202
@@ -1164,7 +1161,6 @@ async def test_path_input_rejects_missing_files_and_root_escapes(
             "source": payload["operation"]["spec"]["steps"][0]["payload"][
                 "source"
             ],
-            "actor": {"type": "USER", "id": "rest-user"},
         },
     )
     assert response.status_code == 400
@@ -1196,7 +1192,6 @@ async def test_multi_followup_path_uses_storage_root(rest_client):
         json={
             "idempotency_key": "path-followup",
             "expected_version": 1,
-            "actor": {"type": "USER", "id": "rest-user"},
             "spec": {
                 "schema_version": "1.0",
                 "steps": [
@@ -1265,7 +1260,6 @@ async def test_retry_and_domain_error_mapping(
         f"/api/v1/executions/{execution_id}/retry",
         json={
             "idempotency_key": "rest-retry-1",
-            "actor": {"type": "USER", "id": "rest-user"},
         },
     )
     assert retried.status_code == 202

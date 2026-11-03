@@ -43,7 +43,6 @@ async def main() -> None:
         "SHARED_STORAGE_SECONDARY_ENDPOINT", "http://jupyter-secondary:8888"
     )
     secondary_token = os.getenv("JUPYTER_SECONDARY_TOKEN", "default")
-    operator = {"type": "USER", "id": "shared-storage-operator"}
 
     async with Client(executor_mcp(mcp_url)) as client:
         targets = []
@@ -58,7 +57,6 @@ async def main() -> None:
                 "connection_config": {"endpoint": endpoint},
                 "pool": "INTERACTIVE",
                 "max_concurrent_executions": 1,
-                "actor": operator,
             }
             if credential is not None:
                 request["credential"] = credential
@@ -87,7 +85,6 @@ async def main() -> None:
                             }
                         ],
                     ),
-                    actor={"type": "USER", "id": "shared-storage-user"},
                 )
             },
         )
@@ -104,7 +101,6 @@ async def main() -> None:
                 "request": {
                     "target_id": historical_target_id,
                     "idempotency_key": f"shared-storage-disable-{unique}",
-                    "actor": operator,
                 }
             },
         )
@@ -133,7 +129,6 @@ async def main() -> None:
                         "target_id": historical_target_id,
                         "desired_state": "ACTIVE",
                         "idempotency_key": f"shared-storage-reactivate-{unique}",
-                        "actor": operator,
                     }
                 },
             )

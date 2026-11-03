@@ -43,8 +43,8 @@ Execution 자체가 없으면 404, 잘못된 UUID/커서/limit이면 422다. 존
 | `fencing_token` | 기록 당시 소유권/Execution 세대. 백그라운드는 현재 Execution 세대를 사용하며 실행 이벤트 순번이 아님 |
 | `occurred_at` | Executor가 오류를 관측한 시각. 원격 서버 내부 발생시각을 추측하지 않음 |
 | `created_at`, `updated_at` | DB 기록 시각. 추가 전용 이력이므로 두 값이 같음 |
-| `created_by_type`, `created_by` | 당시 실행의 actor 정보. Worker 자체 계정이라는 의미는 아님 |
-| `updated_by_type`, `updated_by` | 생성 actor와 동일. actor가 없으면 모두 null |
+| `created_by_client`, `created_by` | 당시 명령을 보낸 API key client 이름과 `X-User-Id`. Worker 자체 계정이라는 의미는 아님 |
+| `updated_by_client`, `updated_by` | 생성 값과 동일. 외부 명령 없이 생긴 행이면 모두 null |
 | `diagnostic` | 아래의 공통 진단 정보 |
 
 | `diagnostic` 필드 | 의미 |

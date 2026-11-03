@@ -14,10 +14,10 @@ All mutation responses contain `execution_id`, `state`, the complete audit field
     "steps": [{"sequence": 0, "step_id": "..."}]
   },
   "state": {"status": "QUEUED", "version": 0},
-  "created_by_type": "AGENT",
-  "created_by": "analytics-agent",
-  "updated_by_type": "AGENT",
-  "updated_by": "analytics-agent",
+  "created_by_client": "pr-agentic-service",
+  "created_by": "7d1c2a8e-5b3f-4c9a-9e21-0f6a4b8c2d11",
+  "updated_by_client": "pr-agentic-service",
+  "updated_by": "7d1c2a8e-5b3f-4c9a-9e21-0f6a4b8c2d11",
   "created_at": "...",
   "updated_at": "..."
 }

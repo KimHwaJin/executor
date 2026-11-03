@@ -85,9 +85,7 @@ class RuntimeTargetCommands:
                 "max_concurrent_executions": (
                     command.max_concurrent_executions
                 ),
-                "actor_type": command.actor_type.value
-                if command.actor_type
-                else None,
+                "actor_client": command.actor_client,
                 "actor_id": command.actor_id,
             }
         )
@@ -147,9 +145,9 @@ class RuntimeTargetCommands:
                         or self._settings.runtime_default_max_concurrent_executions
                     ),
                     supported_profiles=[],
-                    created_by_type=command.actor_type,
+                    created_by_client=command.actor_client,
                     created_by=command.actor_id,
-                    updated_by_type=command.actor_type,
+                    updated_by_client=command.actor_client,
                     updated_by=command.actor_id,
                 )
                 session.add(target)
@@ -196,8 +194,8 @@ class RuntimeTargetCommands:
                         command.credential
                     )
                 target.updated_at = utc_now()
-                if command.actor_type is not None:
-                    target.updated_by_type = command.actor_type
+                if command.actor_client is not None:
+                    target.updated_by_client = command.actor_client
                     target.updated_by = command.actor_id
             try:
                 await session.flush()
@@ -217,7 +215,7 @@ class RuntimeTargetCommands:
             target_id = target.id
         return await self._prober.probe(
             target_id,
-            actor_type=command.actor_type,
+            actor_client=command.actor_client,
             actor_id=command.actor_id,
         )
 
@@ -227,9 +225,7 @@ class RuntimeTargetCommands:
         request_fingerprint = canonical_sha256(
             {
                 "target_id": str(command.target_id),
-                "actor_type": command.actor_type.value
-                if command.actor_type
-                else None,
+                "actor_client": command.actor_client,
                 "actor_id": command.actor_id,
             }
         )
@@ -249,8 +245,8 @@ class RuntimeTargetCommands:
             target.enabled = False
             target.status = RuntimeTargetStatus.OFFLINE
             target.updated_at = utc_now()
-            if command.actor_type is not None:
-                target.updated_by_type = command.actor_type
+            if command.actor_client is not None:
+                target.updated_by_client = command.actor_client
                 target.updated_by = command.actor_id
             self._receipts.add(
                 session,
@@ -276,9 +272,7 @@ class RuntimeTargetCommands:
             {
                 "target_id": str(command.target_id),
                 "desired_state": command.desired_state.value,
-                "actor_type": command.actor_type.value
-                if command.actor_type
-                else None,
+                "actor_client": command.actor_client,
                 "actor_id": command.actor_id,
             }
         )
@@ -304,8 +298,8 @@ class RuntimeTargetCommands:
                 else RuntimeTargetStatus.DRAINING
             )
             target.updated_at = utc_now()
-            if command.actor_type is not None:
-                target.updated_by_type = command.actor_type
+            if command.actor_client is not None:
+                target.updated_by_client = command.actor_client
                 target.updated_by = command.actor_id
             self._receipts.add(
                 session,
@@ -318,7 +312,7 @@ class RuntimeTargetCommands:
         if command.desired_state == RuntimeTargetStatus.ACTIVE:
             return await self._prober.probe(
                 target_id,
-                actor_type=command.actor_type,
+                actor_client=command.actor_client,
                 actor_id=command.actor_id,
             )
         return await self._queries.get(target_id)

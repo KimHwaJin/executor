@@ -66,7 +66,6 @@ async def _submit_as(
                 idempotency_key=f"routing-fairness-submit-{run_id}-{index}",
                 operation_mode="SINGLE",
                 trigger_type="INTERACTIVE",
-                actor={"type": "USER", "id": user_id},
                 runtime_profile="default",
                 spec=inline_spec(
                     [
@@ -158,7 +157,6 @@ async def _assert_unsupported_profile(run_id: str) -> str:
                     idempotency_key=f"unsupported-profile-{run_id}",
                     operation_mode="SINGLE",
                     trigger_type="INTERACTIVE",
-                    actor={"type": "USER", "id": "routing-user"},
                     runtime_profile="not-a-runtime-profile",
                     spec=inline_spec([{"code": "print('must not execute')"}]),
                 )
@@ -194,7 +192,6 @@ async def _assert_profile_routing(
                         idempotency_key=f"profile-routing-{run_id}-{profile}",
                         operation_mode="SINGLE",
                         trigger_type="INTERACTIVE",
-                        actor={"type": "USER", "id": "profile-routing-user"},
                         runtime_profile=profile,
                         spec=inline_spec(
                             [
@@ -359,10 +356,6 @@ async def main() -> None:
                     {
                         "request": {
                             "target_id": target_id,
-                            "actor": {
-                                "type": "USER",
-                                "id": "routing-operator",
-                            },
                         }
                     },
                 )

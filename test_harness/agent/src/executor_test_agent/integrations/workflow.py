@@ -88,7 +88,6 @@ async def create_execution_operation(
                     ),
                     "expected_version": expected_version,
                     "spec": {"schema_version": "1.0", "steps": source_steps},
-                    "actor": _agent_actor(actor_id),
                 }
             },
         )
@@ -116,7 +115,6 @@ async def finalize_execution(
                     "execution_id": execution_id,
                     "idempotency_key": _scenario_idempotency_key(execution_id, "finalize", 0, {}),
                     "expected_version": expected_version,
-                    "actor": _agent_actor(actor_id),
                 }
             },
         )

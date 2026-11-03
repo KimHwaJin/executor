@@ -315,10 +315,7 @@ async def _resource_sample(
     async def runtime_request() -> tuple[int | None, int]:
         responses = await asyncio.gather(
             *(
-                client.post(
-                    f"/api/v1/runtime-targets/{target_id}/probe",
-                    json={"actor": {"type": "USER", "id": "t35-monitor"}},
-                )
+                client.post(f"/api/v1/runtime-targets/{target_id}/probe")
                 for target_id in sorted(target_ids)
             )
         )
@@ -407,7 +404,6 @@ async def _submit_execution(
         idempotency_key=f"t35-{run_id}-{scenario.name}-{index}",
         operation_mode=operation_mode,
         trigger_type="INTERACTIVE",
-        actor={"type": "USER", "id": "t35-user"},
         runtime_profile="default",
         operation_wait_timeout_seconds=(
             300 if operation_mode == "MULTI" else None
@@ -657,7 +653,6 @@ async def _cleanup_output_limit_executions(
                     "idempotency_key": (
                         f"t35-cleanup-retry-{run_id}-{execution_id}"
                     ),
-                    "actor": {"type": "USER", "id": "t35-user"},
                 },
             )
             response.raise_for_status()
@@ -667,7 +662,6 @@ async def _cleanup_output_limit_executions(
             json={
                 "idempotency_key": f"t35-cleanup-{run_id}-{execution_id}",
                 "reason": "T35 output-limit cleanup",
-                "actor": {"type": "USER", "id": "t35-user"},
             },
         )
         response.raise_for_status()

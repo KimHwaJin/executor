@@ -32,7 +32,6 @@ async def main() -> None:
                     idempotency_key=f"retry-submit-{unique}",
                     operation_mode="SINGLE",
                     trigger_type="INTERACTIVE",
-                    actor={"type": "USER", "id": "retry-user"},
                     runtime_profile="default",
                     spec=inline_spec(
                         [
@@ -78,7 +77,6 @@ async def main() -> None:
                 "request": {
                     "execution_id": execution_id,
                     "idempotency_key": f"retry-command-{unique}",
-                    "actor": {"type": "USER", "id": "retry-user"},
                 }
             },
         )

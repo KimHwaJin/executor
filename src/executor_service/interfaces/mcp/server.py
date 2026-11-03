@@ -52,10 +52,12 @@ from executor_service.infrastructure.materialized_artifacts import (
     MaterializedArtifactService,
 )
 from executor_service.interfaces.auth import (
+    SCOPE_ID,
     authorize_execution,
     current_caller,
     require_admin,
     require_tenant,
+    require_user,
 )
 from executor_service.interfaces.contracts import (
     ExecutionArtifactPageResponse,
@@ -98,6 +100,7 @@ from executor_service.interfaces.mcp.schemas import (
 StandardLimit = Annotated[int, Field(ge=1, le=200)]
 EventLimit = Annotated[int, Field(ge=1, le=500)]
 ArtifactLimit = Annotated[int, Field(ge=1, le=1000)]
+ScopeFilter = Annotated[str | None, Field(pattern=SCOPE_ID.pattern)]
 
 
 def _public_tool_error(exc: Exception) -> ToolError:
@@ -194,8 +197,8 @@ def build_mcp_server(
                     execution_id=request.execution_id,
                     idempotency_key=request.idempotency_key,
                     reason=request.reason,
-                    actor_type=request.actor.type,
-                    actor_id=request.actor.id,
+                    actor_client=current_caller().client,
+                    actor_id=require_user(current_caller()),
                 )
             )
         except Exception as exc:
@@ -217,8 +220,8 @@ def build_mcp_server(
                 RetryExecutionCommand(
                     execution_id=request.execution_id,
                     idempotency_key=request.idempotency_key,
-                    actor_type=request.actor.type,
-                    actor_id=request.actor.id,
+                    actor_client=current_caller().client,
+                    actor_id=require_user(current_caller()),
                 )
             )
         except Exception as exc:
@@ -267,8 +270,8 @@ def build_mcp_server(
                         )
                         for source_step in source_steps
                     ),
-                    actor_type=request.actor.type,
-                    actor_id=request.actor.id,
+                    actor_client=current_caller().client,
+                    actor_id=require_user(current_caller()),
                 )
             )
         except Exception as exc:
@@ -292,8 +295,8 @@ def build_mcp_server(
                     execution_id=request.execution_id,
                     idempotency_key=request.idempotency_key,
                     expected_version=request.expected_version,
-                    actor_type=request.actor.type,
-                    actor_id=request.actor.id,
+                    actor_client=current_caller().client,
+                    actor_id=require_user(current_caller()),
                 )
             )
         except Exception as exc:
@@ -364,7 +367,7 @@ def build_mcp_server(
             try:
                 await authorize(request.execution_id, write=True)
                 artifact_id = await materialized_artifacts.materialize(
-                    request.to_command(request.execution_id)
+                    request.to_command(request.execution_id, current_caller())
                 )
                 view = await execution_queries.artifact(artifact_id)
             except Exception as exc:
@@ -417,8 +420,8 @@ def build_mcp_server(
         )
     )
     async def execution_list(
-        project_id: str | None = None,
-        session_id: str | None = None,
+        project_id: ScopeFilter = None,
+        session_id: ScopeFilter = None,
         trigger_type: TriggerType | None = None,
         status: ExecutionStatus | None = None,
         cursor: str | None = None,
@@ -660,8 +663,8 @@ def build_mcp_server(
                             else None
                         ),
                         pool=request.pool,
-                        actor_type=request.actor.type,
-                        actor_id=request.actor.id,
+                        actor_client=current_caller().client,
+                        actor_id=require_user(current_caller()),
                         max_concurrent_executions=request.max_concurrent_executions,
                     )
                 )
@@ -717,8 +720,8 @@ def build_mcp_server(
                 require_admin(current_caller())
                 view = await runtime_manager.probe(
                     request.target_id,
-                    actor_type=request.actor.type,
-                    actor_id=request.actor.id,
+                    actor_client=current_caller().client,
+                    actor_id=require_user(current_caller()),
                 )
             except Exception as exc:
                 raise _public_tool_error(exc) from exc
@@ -739,8 +742,8 @@ def build_mcp_server(
                     DisableRuntimeTargetCommand(
                         idempotency_key=request.idempotency_key,
                         target_id=request.target_id,
-                        actor_type=request.actor.type,
-                        actor_id=request.actor.id,
+                        actor_client=current_caller().client,
+                        actor_id=require_user(current_caller()),
                     )
                 )
             except Exception as exc:
@@ -765,8 +768,8 @@ def build_mcp_server(
                         desired_state=RuntimeTargetStatus(
                             request.desired_state
                         ),
-                        actor_type=request.actor.type,
-                        actor_id=request.actor.id,
+                        actor_client=current_caller().client,
+                        actor_id=require_user(current_caller()),
                     )
                 )
             except Exception as exc:

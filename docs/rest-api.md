@@ -77,8 +77,7 @@ Write requests log `client`, `tenant_id`, and `user_id`; the key itself is never
     "operation_wait_timeout_seconds": 600
   },
   "trigger": {
-    "type": "INTERACTIVE",
-    "actor": {"type": "AGENT", "id": "analytics-agent"}
+    "type": "INTERACTIVE"
   },
   "runtime": {"type": "JUPYTER", "profile": "basic"},
   "operation": {
@@ -125,7 +124,7 @@ triggering. `operation_timeout_seconds` limits all Steps in that Operation; each
 
 전체 이벤트 Envelope, 타입별 payload 및 소비 알고리즘은 다음 문서를 참고한다.
 
-- [Redis Execution Event Contract 1.0](../dev_docs/redis-execution-events.md)
+- [Redis Execution Event Contract 1.0](../dev_docs/executor-events.md)
 - [Agent Execution Event Consumer Guide](../dev_docs/agent-execution-event-consumer-guide.md)
 
 The command receipt includes Executor-owned IDs:
@@ -138,10 +137,10 @@ The command receipt includes Executor-owned IDs:
     "steps": [{"sequence": 0, "step_id": "..."}]
   },
   "state": {"status": "QUEUED", "version": 0},
-  "created_by_type": "AGENT",
-  "created_by": "analytics-agent",
-  "updated_by_type": "AGENT",
-  "updated_by": "analytics-agent",
+  "created_by_client": "pr-agentic-service",
+  "created_by": "7d1c2a8e-5b3f-4c9a-9e21-0f6a4b8c2d11",
+  "updated_by_client": "pr-agentic-service",
+  "updated_by": "7d1c2a8e-5b3f-4c9a-9e21-0f6a4b8c2d11",
   "created_at": "...",
   "updated_at": "..."
 }
@@ -150,13 +149,13 @@ The command receipt includes Executor-owned IDs:
 ## Append and finalize MULTI work
 
 Append uses `POST /executions/{execution_id}/operations` with `idempotency_key`, the last observed
-`expected_version`, optional `operation_timeout_seconds`, `spec`, optional `metadata`, and `actor`.
+`expected_version`, optional `operation_timeout_seconds`, `spec`, and optional `metadata`.
 The spec may contain one or more contiguous Steps. Executor runs every accepted Step and then
 transitions to `WAITING_FOR_OPERATION`, where the Agent can inspect results and submit another
 Operation.
 
-Finalize uses `POST /executions/{execution_id}/finalize` with `idempotency_key`,
-`expected_version`, and `actor`. Acceptance transitions to `FINALIZING`; the Worker asks the
+Finalize uses `POST /executions/{execution_id}/finalize` with `idempotency_key` and
+`expected_version`. Acceptance transitions to `FINALIZING`; the Worker asks the
 selected Runtime Driver to persist its final execution record, releases the retained Runtime
 session, and reaches a terminal state. The Jupyter driver writes the final notebook.
 
@@ -168,8 +167,7 @@ internal-network rules, and the routes then answer 404. Use the generated ReDoc 
 
 Execution history is always limited to the caller's tenant and, with `X-User-Id`, that user. It
 can be further filtered by `project_id`, `session_id`, `trigger_type`, and `status`. Detail and
-history items expose `tenant_id`, the Execution `context`, and `trigger{type,
-actor}` (the immutable submit actor) and the submit `metadata` object, which `execution.completed`
+history items expose `tenant_id`, the Execution `context`, `trigger{type}`, and the submit `metadata` object, which `execution.completed`
 also carries. Submit `metadata` holds at most 32 keys matching `^[a-z][a-z0-9_]{0,63}$` and
 4096 serialized bytes. Executor accepts at most
 `EXECUTION_MAX_STEPS_PER_OPERATION` Steps in one Operation and

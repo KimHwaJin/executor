@@ -56,7 +56,7 @@ rows or files are deleted. Stop old processes before upgrading: old purge code
 uses the removed columns. A downgrade is rejected if history already refers to
 deleted registrations; restore a pre-purge backup or remain on `0005`, never
 null the historical IDs to force rollback. See the
-[purge contract](../dev_docs/post-runtime-target-purge.md).
+[purge contract](../dev_docs/executor-api.md#runtime-서버).
 
 `0003` downgrade validates existing failure rows. If `COMPLETION_FAILED` is present,
 PostgreSQL rejects the downgrade and rolls back the transaction rather than deleting

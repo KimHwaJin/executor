@@ -61,7 +61,7 @@ class ExecutorMaintenanceService:
         fingerprint = canonical_sha256(
             {
                 "desired_state": command.desired_state.value,
-                "actor_type": command.actor_type.value,
+                "actor_client": command.actor_client,
                 "actor_id": command.actor_id,
             }
         )
@@ -88,7 +88,7 @@ class ExecutorMaintenanceService:
             if state.admission_state != command.desired_state:
                 state.admission_state = command.desired_state
                 state.version += 1
-            state.updated_by_type = command.actor_type
+            state.updated_by_client = command.actor_client
             state.updated_by = command.actor_id
             state.updated_at = utc_now()
             session.add(
@@ -184,9 +184,9 @@ class ExecutorMaintenanceService:
             active_run_id=active_run.id if active_run else None,
             active_run_action=active_run.action if active_run else None,
             active_run_status=active_run.status if active_run else None,
-            created_by_type=state.created_by_type,
+            created_by_client=state.created_by_client,
             created_by=state.created_by,
-            updated_by_type=state.updated_by_type,
+            updated_by_client=state.updated_by_client,
             updated_by=state.updated_by,
             created_at=state.created_at,
             updated_at=state.updated_at,

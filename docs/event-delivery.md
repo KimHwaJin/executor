@@ -29,7 +29,7 @@ Every Executor-produced Stream entry contains:
 The decoded `payload` is a JSON object and does not duplicate envelope fields. Executor validates
 this contract before durable event/Outbox persistence and again immediately before Redis publication to
 the tenant Stream. See
-[Redis Execution Event Contract 1.0](../dev_docs/redis-execution-events.md).
+[Redis Execution Event Contract 1.0](../dev_docs/executor-events.md).
 
 The sequence is allocated in the same PostgreSQL transaction as the event. A Publisher does not
 select a later event for one Execution while an earlier sequence remains unpublished. Different

@@ -23,7 +23,6 @@ from executor_service.interfaces.contracts.attempts import (  # noqa: F401
     ExecutionAttemptResponse,
 )
 from executor_service.interfaces.contracts.common import (  # noqa: F401
-    ActorInput,
     AuditFields,
     ContractModel,
     Lifecycle,

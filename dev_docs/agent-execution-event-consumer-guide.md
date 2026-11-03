@@ -61,7 +61,7 @@ Redis 처리 세부사항은 LLM이나 LangGraph 업무 노드가 아니라 Agen
 `execution_id + event_sequence`를 사용한다.
 
 이벤트 타입별 payload는
-[Redis 실행 이벤트 스키마 1.0](./redis-execution-events.md)을 따른다.
+[Redis 실행 이벤트 스키마 1.0](./executor-events.md)을 따른다.
 
 ## 3. Agent Subscriber 처리 알고리즘
 

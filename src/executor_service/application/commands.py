@@ -5,7 +5,6 @@ from typing import Any
 from uuid import UUID
 
 from executor_service.domain.enums import (
-    ActorType,
     ArtifactType,
     CodeSourceType,
     OperationMode,
@@ -41,7 +40,7 @@ class SubmitExecutionCommand:
     operation_wait_timeout_seconds: int | None = None
     operation_timeout_seconds: int | None = None
     runtime_type: RuntimeType = RuntimeType.JUPYTER
-    actor_type: ActorType | None = None
+    actor_client: str | None = None
     actor_id: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
     operation_metadata: dict[str, Any] = field(default_factory=dict)
@@ -53,7 +52,7 @@ class CancelExecutionCommand:
     execution_id: UUID
     idempotency_key: str
     reason: str | None = None
-    actor_type: ActorType | None = None
+    actor_client: str | None = None
     actor_id: str | None = None
 
 
@@ -61,7 +60,7 @@ class CancelExecutionCommand:
 class RetryExecutionCommand:
     execution_id: UUID
     idempotency_key: str
-    actor_type: ActorType | None = None
+    actor_client: str | None = None
     actor_id: str | None = None
 
 
@@ -74,7 +73,7 @@ class CreateOperationCommand:
     spec_schema_version: str = "1.0"
     operation_timeout_seconds: int | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
-    actor_type: ActorType | None = None
+    actor_client: str | None = None
     actor_id: str | None = None
 
 
@@ -83,7 +82,7 @@ class FinalizeExecutionCommand:
     execution_id: UUID
     idempotency_key: str
     expected_version: int
-    actor_type: ActorType | None = None
+    actor_client: str | None = None
     actor_id: str | None = None
 
 
@@ -101,5 +100,5 @@ class MaterializeArtifactCommand:
     media_type: str | None = None
     append_to_notebook: bool = False
     metadata: dict[str, Any] = field(default_factory=dict)
-    actor_type: ActorType | None = None
+    actor_client: str | None = None
     actor_id: str | None = None

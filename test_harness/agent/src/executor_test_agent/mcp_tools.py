@@ -269,7 +269,6 @@ async def _cancel(
                 "execution_id": parsed.execution_id,
                 "idempotency_key": _idempotency_key("cancel", request_scope_id, arguments),
                 "reason": parsed.reason,
-                "actor": _actor(settings),
             }
         },
     )
@@ -298,7 +297,6 @@ async def _retry(
             "request": {
                 "execution_id": parsed.execution_id,
                 "idempotency_key": _idempotency_key("retry", request_scope_id, arguments),
-                "actor": _actor(settings),
             }
         },
     )
@@ -356,7 +354,6 @@ async def _create_operation(
                     "schema_version": "1.0",
                     "steps": source_steps,
                 },
-                "actor": _actor(settings),
             }
         },
     )
@@ -391,7 +388,6 @@ async def _finalize(
                 "execution_id": parsed.execution_id,
                 "idempotency_key": _idempotency_key("finalize", request_scope_id, arguments),
                 "expected_version": execution["state"]["version"],
-                "actor": _actor(settings),
             }
         },
     )

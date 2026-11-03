@@ -241,7 +241,6 @@ async def main() -> None:
                         idempotency_key=f"mixed-load-submit-{run_id}-{index}",
                         operation_mode="SINGLE",
                         trigger_type="INTERACTIVE",
-                        actor={"type": "USER", "id": "mixed-load-user"},
                         runtime_profile=profile,
                         operation_timeout_seconds=180,
                         spec=inline_spec(
@@ -351,7 +350,6 @@ async def main() -> None:
                     {
                         "request": {
                             "target_id": target_id,
-                            "actor": {"type": "USER", "id": "mixed-load-user"},
                         }
                     },
                 )

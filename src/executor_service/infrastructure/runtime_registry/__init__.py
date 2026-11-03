@@ -16,7 +16,6 @@ from executor_service.application.runtime_targets import (
     UpsertRuntimeTargetCommand,
 )
 from executor_service.domain.enums import (
-    ActorType,
     RuntimePool,
     RuntimeTargetStatus,
     RuntimeType,
@@ -112,12 +111,12 @@ class RuntimeTargetRegistry:
         self,
         target_id: UUID,
         *,
-        actor_type: ActorType | None = None,
+        actor_client: str | None = None,
         actor_id: str | None = None,
     ) -> RuntimeTargetView:
         return await self._prober.probe(
             target_id,
-            actor_type=actor_type,
+            actor_client=actor_client,
             actor_id=actor_id,
         )
 

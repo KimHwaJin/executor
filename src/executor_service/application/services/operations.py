@@ -79,7 +79,7 @@ class ExecutionOperationCommands:
                     expected_start=len(execution.steps),
                     location=(*OPERATION_CREATE_LOCATION, "spec"),
                 )
-                apply_actor(execution, command.actor_type, command.actor_id)
+                apply_actor(execution, command.actor_client, command.actor_id)
                 operation = ExecutionOperation(
                     execution_id=execution.id,
                     operation_number=(
@@ -96,9 +96,9 @@ class ExecutionOperationCommands:
                     idempotency_key=command.idempotency_key,
                     request_fingerprint=request_fingerprint,
                     schema_version=command.spec_schema_version,
-                    created_by_type=command.actor_type,
+                    created_by_client=command.actor_client,
                     created_by=command.actor_id,
-                    updated_by_type=command.actor_type,
+                    updated_by_client=command.actor_client,
                     updated_by=command.actor_id,
                 )
                 steps = [
@@ -114,9 +114,9 @@ class ExecutionOperationCommands:
                         tool_name=source.tool_name,
                         input_parameters=source.input_parameters,
                         operation_id=operation.id,
-                        created_by_type=command.actor_type,
+                        created_by_client=command.actor_client,
                         created_by=command.actor_id,
-                        updated_by_type=command.actor_type,
+                        updated_by_client=command.actor_client,
                         updated_by=command.actor_id,
                     )
                     for source in command.steps

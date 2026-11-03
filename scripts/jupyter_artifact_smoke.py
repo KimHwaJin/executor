@@ -66,7 +66,6 @@ async def main() -> None:
                     idempotency_key=f"artifact-smoke-{unique}",
                     operation_mode="SINGLE",
                     trigger_type="INTERACTIVE",
-                    actor={"type": "USER", "id": user_id},
                     runtime_profile="default",
                     spec=inline_spec(
                         [

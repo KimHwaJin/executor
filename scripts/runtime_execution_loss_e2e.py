@@ -66,7 +66,6 @@ async def main() -> None:
     sessions = create_session_factory(engine)
     redis = Redis.from_url(settings.redis_dsn, decode_responses=True)
     profile = os.environ.get("REDIS_COMPAT_RUNTIME_PROFILE", "default")
-    actor = {"type": "USER", "id": "continuity-smoke"}
     try:
         async with (
             httpx.AsyncClient(
@@ -104,7 +103,6 @@ async def main() -> None:
                     idempotency_key=unique,
                     operation_mode=mode,
                     trigger_type="INTERACTIVE",
-                    actor=actor,
                     runtime_profile=profile,
                     operation_wait_timeout_seconds=60
                     if mode == "MULTI"

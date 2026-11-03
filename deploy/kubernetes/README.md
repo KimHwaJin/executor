@@ -136,7 +136,7 @@ code stopped using it, so ordinary releases keep `RollingUpdate`.
 
 Current head is `0011`. Runtime purge preserves
 historical IDs after deletion.
-See [purge and rollback](../../dev_docs/post-runtime-target-purge.md).
+See [purge and rollback](../../dev_docs/executor-api.md#runtime-서버).
 Before rollback, review whether the old image is compatible with the new schema; startup
 does not automatically downgrade.
 

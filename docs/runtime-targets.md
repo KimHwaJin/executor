@@ -214,11 +214,11 @@ naming the existing Target. Update that Target by its name instead, or disable a
 3. Call `runtime_target_disable` to disable the registry record while preserving history.
 4. Terminate the Jupyter deployment through the internal platform.
 5. Optionally remove its registration using REST
-   `POST /api/v1/runtime-targets/{target_id}/purge` with only `actor` in the body.
+   `POST /api/v1/runtime-targets/{target_id}/purge` with no body (the operator comes from `X-User-Id`).
    Completed history and files survive; unfinished work, retry-retained kernels
    (including expired but not cleaned kernels) and unconfirmed cleanup block
    deletion. No live probe is required. `drain_complete` alone is not proof of
-   kernel cleanup. See [purge contract](../dev_docs/post-runtime-target-purge.md).
+   kernel cleanup. See [purge contract](../dev_docs/executor-api.md#runtime-서버).
 
 Re-registering the same name/endpoint after purge requires a fresh registration
 idempotency key and produces a new UUID. Historical executions keep the old UUID. Downloads

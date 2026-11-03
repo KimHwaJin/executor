@@ -184,10 +184,6 @@ async def _submit(client: Client, config: Config, unique: str) -> str:
                 idempotency_key=f"docker-worker-loss-submit-{unique}",
                 operation_mode="SINGLE",
                 trigger_type="INTERACTIVE",
-                actor={
-                    "type": "USER",
-                    "id": "docker-failover-validator",
-                },
                 runtime_profile=config.runtime_profile,
                 spec=inline_spec(
                     [
@@ -309,10 +305,6 @@ async def run(config: Config) -> dict[str, Any]:
                         "idempotency_key": (
                             f"docker-worker-loss-retry-{unique}"
                         ),
-                        "actor": {
-                            "type": "USER",
-                            "id": "docker-failover-validator",
-                        },
                     }
                 },
             )

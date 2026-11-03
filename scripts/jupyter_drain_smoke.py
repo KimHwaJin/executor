@@ -39,7 +39,6 @@ async def _set_state(
                 ),
                 "target_id": server_id,
                 "desired_state": state,
-                "actor": {"type": "USER", "id": "drain-operator"},
             }
         },
     )
@@ -56,7 +55,6 @@ async def _submit(client: Client, unique: str, index: int, sleep: int) -> str:
                 idempotency_key=f"drain-execution-{unique}-{index}",
                 operation_mode="SINGLE",
                 trigger_type="INTERACTIVE",
-                actor={"type": "USER", "id": "drain-user"},
                 runtime_profile="default",
                 spec=inline_spec(
                     [
@@ -96,7 +94,6 @@ async def main() -> None:
                         "credential": secondary_token,
                         "pool": "INTERACTIVE",
                         "max_concurrent_executions": 1,
-                        "actor": {"type": "USER", "id": "drain-operator"},
                     }
                 },
             )

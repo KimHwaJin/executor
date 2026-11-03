@@ -20,7 +20,6 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from executor_service.domain.enums import (
-    ActorType,
     CodeSourceType,
     ExecutionStatus,
     FailureType,
@@ -44,7 +43,6 @@ from executor_service.domain.models import (
 from executor_service.infrastructure.db.base import Base
 from executor_service.infrastructure.db.models.common import (
     UTCDateTime,
-    audit_actor_constraints,
     enum_type,
 )
 
@@ -52,7 +50,6 @@ from executor_service.infrastructure.db.models.common import (
 class ExecutionORM(Base):
     __tablename__ = "executions"
     __table_args__ = (
-        *audit_actor_constraints(),
         UniqueConstraint(
             "tenant_id",
             "idempotency_key",
@@ -294,12 +291,12 @@ class ExecutionORM(Base):
         UTCDateTime(), nullable=True, index=True
     )
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    created_by_type: Mapped[ActorType | None] = mapped_column(
-        enum_type(ActorType, "actor_type"), nullable=True
+    created_by_client: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
     )
     created_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    updated_by_type: Mapped[ActorType | None] = mapped_column(
-        enum_type(ActorType, "actor_type"), nullable=True
+    updated_by_client: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
     )
     updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
@@ -344,9 +341,9 @@ class ExecutionORM(Base):
             project_id=execution.project_id,
             session_id=execution.session_id,
             tenant_id=execution.tenant_id,
-            created_by_type=execution.created_by_type,
+            created_by_client=execution.created_by_client,
             created_by=execution.created_by,
-            updated_by_type=execution.updated_by_type,
+            updated_by_client=execution.updated_by_client,
             updated_by=execution.updated_by,
             execution_metadata=execution.metadata,
             cancellation_reason=execution.cancellation_reason,
@@ -404,9 +401,9 @@ class ExecutionORM(Base):
             project_id=self.project_id,
             session_id=self.session_id,
             tenant_id=self.tenant_id,
-            created_by_type=self.created_by_type,
+            created_by_client=self.created_by_client,
             created_by=self.created_by,
-            updated_by_type=self.updated_by_type,
+            updated_by_client=self.updated_by_client,
             updated_by=self.updated_by,
             metadata=self.execution_metadata,
             cancellation_reason=self.cancellation_reason,
@@ -449,7 +446,6 @@ class ExecutionORM(Base):
 class ExecutionStepORM(Base):
     __tablename__ = "execution_steps"
     __table_args__ = (
-        *audit_actor_constraints(),
         UniqueConstraint(
             "execution_id",
             "sequence",
@@ -531,12 +527,12 @@ class ExecutionStepORM(Base):
         BigInteger, nullable=False, default=0
     )
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_by_type: Mapped[ActorType | None] = mapped_column(
-        enum_type(ActorType, "actor_type"), nullable=True
+    created_by_client: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
     )
     created_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    updated_by_type: Mapped[ActorType | None] = mapped_column(
-        enum_type(ActorType, "actor_type"), nullable=True
+    updated_by_client: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
     )
     updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -582,9 +578,9 @@ class ExecutionStepORM(Base):
             result_representation_count=step.result_representation_count,
             result_total_size_bytes=step.result_total_size_bytes,
             error_message=step.error_message,
-            created_by_type=step.created_by_type,
+            created_by_client=step.created_by_client,
             created_by=step.created_by,
-            updated_by_type=step.updated_by_type,
+            updated_by_client=step.updated_by_client,
             updated_by=step.updated_by,
             created_at=step.created_at,
             updated_at=step.updated_at,
@@ -621,9 +617,9 @@ class ExecutionStepORM(Base):
             result_representation_count=self.result_representation_count,
             result_total_size_bytes=self.result_total_size_bytes,
             error_message=self.error_message,
-            created_by_type=self.created_by_type,
+            created_by_client=self.created_by_client,
             created_by=self.created_by,
-            updated_by_type=self.updated_by_type,
+            updated_by_client=self.updated_by_client,
             updated_by=self.updated_by,
             created_at=self.created_at,
             updated_at=self.updated_at,

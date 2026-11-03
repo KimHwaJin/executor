@@ -38,7 +38,6 @@ async def _probe(client: Client, server_id: str) -> dict[str, Any]:
         {
             "request": {
                 "target_id": server_id,
-                "actor": {"type": "USER", "id": "load-smoke-operator"},
             }
         },
     )

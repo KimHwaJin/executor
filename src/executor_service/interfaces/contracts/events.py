@@ -58,9 +58,9 @@ class ExecutionEventResponse(AuditFields):
                 and view.available_at is not None
                 else None
             ),
-            created_by_type=view.created_by_type,
+            created_by_client=view.created_by_client,
             created_by=view.created_by,
-            updated_by_type=view.updated_by_type,
+            updated_by_client=view.updated_by_client,
             updated_by=view.updated_by,
             created_at=view.created_at,
             updated_at=view.updated_at,

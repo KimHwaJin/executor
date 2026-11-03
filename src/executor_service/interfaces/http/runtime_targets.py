@@ -5,12 +5,16 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
 
+from executor_service.application.runtime_targets import (
+    PurgeRuntimeTargetCommand,
+)
 from executor_service.container import ApplicationContainer
 from executor_service.domain.enums import (
     RuntimePool,
     RuntimeTargetStatus,
     RuntimeType,
 )
+from executor_service.interfaces.auth import current_caller, require_user
 from executor_service.interfaces.contracts import (
     RuntimePoolPageResponse,
     RuntimePoolResponse,
@@ -22,8 +26,6 @@ from executor_service.interfaces.http.identity import documented_admin_key
 from executor_service.interfaces.http.schemas import (
     ErrorResponse,
     RuntimeTargetMutationRequest,
-    RuntimeTargetProbeRequest,
-    RuntimeTargetPurgeRequest,
     RuntimeTargetPurgeResponse,
 )
 
@@ -61,7 +63,7 @@ def build_runtime_target_router(container: ApplicationContainer) -> APIRouter:
     async def upsert_runtime_target(
         request: RuntimeTargetUpsertRequest,
     ) -> RuntimeTargetResponse:
-        view = await registry.upsert(request.to_command())
+        view = await registry.upsert(request.to_command(current_caller()))
         return RuntimeTargetResponse.from_view(view)
 
     @router.get(
@@ -118,12 +120,13 @@ def build_runtime_target_router(container: ApplicationContainer) -> APIRouter:
         summary="Probe one enabled Runtime Target now",
     )
     async def probe_runtime_target(
-        target_id: UUID, request: RuntimeTargetProbeRequest
+        target_id: UUID,
     ) -> RuntimeTargetResponse:
+        caller = current_caller()
         view = await registry.probe(
             target_id,
-            actor_type=request.actor.type,
-            actor_id=request.actor.id,
+            actor_client=caller.client,
+            actor_id=require_user(caller),
         )
         return RuntimeTargetResponse.from_view(view)
 
@@ -137,7 +140,9 @@ def build_runtime_target_router(container: ApplicationContainer) -> APIRouter:
         target_id: UUID, request: RuntimeTargetMutationRequest
     ) -> RuntimeTargetResponse:
         view = await registry.set_state(
-            request.to_state_command(target_id, RuntimeTargetStatus.DRAINING)
+            request.to_state_command(
+                target_id, RuntimeTargetStatus.DRAINING, current_caller()
+            )
         )
         return RuntimeTargetResponse.from_view(view)
 
@@ -151,7 +156,9 @@ def build_runtime_target_router(container: ApplicationContainer) -> APIRouter:
         target_id: UUID, request: RuntimeTargetMutationRequest
     ) -> RuntimeTargetResponse:
         view = await registry.set_state(
-            request.to_state_command(target_id, RuntimeTargetStatus.ACTIVE)
+            request.to_state_command(
+                target_id, RuntimeTargetStatus.ACTIVE, current_caller()
+            )
         )
         return RuntimeTargetResponse.from_view(view)
 
@@ -164,7 +171,9 @@ def build_runtime_target_router(container: ApplicationContainer) -> APIRouter:
     async def disable_runtime_target(
         target_id: UUID, request: RuntimeTargetMutationRequest
     ) -> RuntimeTargetResponse:
-        view = await registry.disable(request.to_disable_command(target_id))
+        view = await registry.disable(
+            request.to_disable_command(target_id, current_caller())
+        )
         return RuntimeTargetResponse.from_view(view)
 
     @router.post(
@@ -174,9 +183,16 @@ def build_runtime_target_router(container: ApplicationContainer) -> APIRouter:
         summary="Remove a disabled target while preserving execution history",
     )
     async def purge_runtime_target(
-        target_id: UUID, request: RuntimeTargetPurgeRequest
+        target_id: UUID,
     ) -> RuntimeTargetPurgeResponse:
-        view = await registry.purge(request.to_command(target_id))
+        caller = current_caller()
+        view = await registry.purge(
+            PurgeRuntimeTargetCommand(
+                target_id=target_id,
+                actor_client=caller.client,
+                actor_id=require_user(caller),
+            )
+        )
         return RuntimeTargetPurgeResponse.from_view(view)
 
     return router

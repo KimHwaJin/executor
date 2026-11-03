@@ -17,6 +17,7 @@ from executor_service.interfaces.http.executions.common import (
     CurrentCaller,
     Cursor,
     ExecutionLimit,
+    ScopeFilter,
     execution_router,
 )
 
@@ -33,8 +34,8 @@ def build_query_router(container: ApplicationContainer) -> APIRouter:
     )
     async def list_executions(
         caller: CurrentCaller,
-        project_id: str | None = None,
-        session_id: str | None = None,
+        project_id: ScopeFilter = None,
+        session_id: ScopeFilter = None,
         trigger_type: TriggerType | None = None,
         execution_status: Annotated[
             ExecutionStatus | None, Query(alias="status")

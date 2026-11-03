@@ -18,7 +18,6 @@ from executor_service.interfaces.auth import (
 )
 from executor_service.interfaces.bounded_mappings import CallerMetadata
 from executor_service.interfaces.contracts.common import (
-    ActorInput,
     ContractModel,
 )
 from executor_service.interfaces.execution_specs import (
@@ -47,7 +46,6 @@ class ExecutionLifecycleInput(ContractModel):
 
 class ExecutionTriggerInput(ContractModel):
     type: TriggerType
-    actor: ActorInput
 
 
 class ExecutionRuntimeInput(ContractModel):
@@ -97,8 +95,8 @@ class ExecutionSubmitRequest(ContractModel):
             operation_timeout_seconds=(
                 self.operation.operation_timeout_seconds
             ),
-            actor_type=self.trigger.actor.type,
-            actor_id=self.trigger.actor.id,
+            actor_client=caller.client,
+            actor_id=require_user(caller),
             tenant_id=require_tenant(caller),
             metadata=self.metadata,
             operation_metadata=self.operation.metadata,
