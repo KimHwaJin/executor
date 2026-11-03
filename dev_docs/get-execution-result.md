@@ -372,10 +372,10 @@ GET /api/v1/artifacts/{artifact_id}/content
 
 | 필드 | 타입 | 의미 |
 |---|---|---|
-| `created_by_type` | enum/null | 생성 주체 유형: `AGENT`, `USER`, `BATCH` |
-| `created_by` | string/null | 생성 주체 ID |
-| `updated_by_type` | enum/null | 마지막 수정 주체 유형 |
-| `updated_by` | string/null | 마지막 수정 주체 ID |
+| `created_by_client` | string/null | 생성 요청을 보낸 API key client 이름 |
+| `created_by` | string/null | 생성 요청의 `X-User-Id` |
+| `updated_by_client` | string/null | 마지막 수정 요청을 보낸 API key client 이름 |
+| `updated_by` | string/null | 마지막 수정 요청의 `X-User-Id` |
 | `created_at` | datetime | 생성 시각 |
 | `updated_at` | datetime | 마지막 수정 시각 |
 
@@ -412,5 +412,5 @@ Result API 호출 자체는 공유 PV의 manifest나 출력 파일을 읽지 않
 찾기 위한 통합 결과 인덱스 API다.
 
 이 API의 축약된 Execution에는 failure/recovery/deadlines가 없다. 취소 후 커널 정리,
-타임아웃 사유, 노트북 최신 반영 상태는 [Execution 상세](get-execution.md)와
+타임아웃 사유, 노트북 최신 반영 상태는 [Execution 상세](executor-api.md)와
 [진단 이력](execution-diagnostics.md)을 조회한다.

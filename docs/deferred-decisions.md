@@ -98,34 +98,31 @@ reusable across all projects owned by the same user or only within its source pr
 - No user/project visibility rule in Executor.
 - Agent/API Asset CRUD remains outside this repository.
 
-## DD-003: Additional audit actor types
+## DD-003: Additional audit attribution
 
 - Status: DEFERRED
 - Area: public mutation contracts, background operations, audit attribution
-- Deferred on: 2026-08-10
-- Resume when: an external caller or operational requirement needs attribution beyond end users
-  and scheduled batch executions
+- Deferred on: 2026-08-10, revised 2026-11-03 (body `actor` removed)
+- Resume when: an external caller or operational requirement needs attribution beyond the
+  calling user and API key client
 
 ### Current decision
 
-- Public mutation requests accept `AGENT`, `USER`, and `BATCH` actor types.
-- `actor.id` is the stable identifier supplied by the upstream Agent/API or Batch service.
-- Interactive submissions accept `AGENT` or `USER`; batch submissions accept `USER` (the registering
-  user, matching `context.user_id`) or `BATCH`.
-- Executor-created child records inherit the actor of the Agent, user, or batch command.
-- Executor background maintenance that has no new external command may leave actor fields nullable
+- Requests carry no body `actor`. Audit columns record `*_by` from the `X-User-Id` header and
+  `*_by_client` from the authenticated API key client name.
+- Executor-created child records inherit the user and client of the command that caused them.
+- Executor background maintenance that has no new external command leaves audit fields null
   while retaining its operational identity in logs and traces.
 
 ### Questions still open
 
-- Whether `SYSTEM`, `SERVICE`, or `WORKER` should become first-class actor types.
 - Which stable service-instance identity should be persisted for automatic health probes, recovery,
   reconciliation, and Outbox publication updates.
-- Whether internal actor identities should be visible through public APIs or only audit exports.
+- Whether a batch schedule identity should be recorded separately from the owning user.
 
 ### Explicitly excluded until resumed
 
-- No additional actor enum values beyond `AGENT`, `USER`, and `BATCH`.
+- No body-supplied attribution.
 - No fabricated system user IDs for autonomous Executor maintenance.
 
 ## DD-004: REST idempotency key transport

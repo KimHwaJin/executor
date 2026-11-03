@@ -403,8 +403,8 @@ Revision `0004` removes only the approved obsolete trace columns and their value
 Execution, Step, event and Outbox business history is preserved.
 Databases built from that baseline can run `alembic upgrade head` directly;
 Revision `0005` preserves historical Runtime UUIDs when
-removing registrations and simplifies purge to an actor-only request; see
-[Runtime deletion](dev_docs/post-runtime-target-purge.md).
+removing registrations and simplifies purge to a body-less request; see
+[Runtime deletion](dev_docs/executor-api.md#runtime-서버).
 Revision `0006` adds the Step run and handover tables used by
 [Step handover](docs/execution-recovery.md#step-handover-between-workers), and `0007` adds the
 Execution tenant. `0008` allows one Runtime Target per normalized endpoint, `0009` drops the
@@ -433,7 +433,7 @@ and request examples.
 
 - `idempotency_key`: required for safe retries; reuse with different content is rejected
 - `lifecycle.operation_mode`: `SINGLE` or `MULTI`
-- `trigger.type`: `INTERACTIVE` or `BATCH`; `trigger.actor` is the audit principal
+- `trigger.type`: `INTERACTIVE` or `BATCH`
 - `runtime.type`: Runtime Driver kind; currently `JUPYTER`
 - `runtime.profile`: one of the target's supported profiles; for Jupyter this is a kernelspec name
 - `operation.spec`: ExecutionSpec `1.0`; every Step independently supplies INLINE code or a
@@ -446,11 +446,9 @@ authenticated by `X-Api-Key` in every environment. A body `context` or `tenant_i
 [Authentication and identity](docs/rest-api.md#authentication-and-identity).
 
 Every public mutation records `created_by`/`updated_by` attribution on the affected Execution,
-Step, Attempt, Artifact, Outbox Event, or Runtime Target where applicable. The `X-User-Id` user owns
-the Execution and its results. Interactive submits accept `AGENT` or `USER`; a USER actor ID must
-match that user. Batch submits accept `USER` or `BATCH`: a USER actor is the user who
-registered the batch and must match that user; a BATCH actor ID identifies a system schedule
-or trigger and may differ from the owning user.
+Step, Attempt, Artifact, Outbox Event, or Runtime Target where applicable. `created_by`/`updated_by`
+is the `X-User-Id` user and `created_by_client`/`updated_by_client` is the API key client name. There
+is no body `actor`. The `X-User-Id` user owns the Execution and its results.
 
 `runtime_pool` is not accepted from callers. Executor derives `INTERACTIVE` or `BATCH` from
 `trigger.type`, then selects a healthy compatible Runtime Target with available capacity inside
@@ -464,7 +462,7 @@ Every Execution has a tenant, and its events go only to its own Redis Stream,
 must match `^[a-z][a-z0-9-]{1,62}[a-z0-9]$`, must not be `dlq` or `work`, never changes, and is
 part of the submit idempotency fingerprint. Stream entries carry a `tenant_id` field; the payload
 is unchanged. Detail and list responses expose `tenant_id`, and lists only ever cover the
-caller's tenant. See [Redis execution events](dev_docs/redis-execution-events.md) for subscriber rules.
+caller's tenant. See [Redis execution events](dev_docs/executor-events.md) for subscriber rules.
 
 ExecutionSpec stays at schema version `1.0` during pre-release development. Each ordered Step uses
 `PYTHON_EXECUTE` and independently embeds INLINE code or references one UTF-8 `.py` file below
@@ -655,12 +653,12 @@ procedures.
 
 The same fleet registry is available to operators through REST at `/api/v1/runtime-targets` and
 `/api/v1/runtime-pools`. REST supports registration, filtered cursor listing, detail, immediate
-probe, drain, activate, disable, and a deliberately restricted hard purge. Purge takes only
-`actor`, requires a disabled `OFFLINE` target without unfinished work or unconfirmed kernel
+probe, drain, activate, disable, and a deliberately restricted hard purge. Purge takes no body,
+requires a disabled `OFFLINE` target without unfinished work or unconfirmed kernel
 cleanup, and preserves historical Execution/Attempt UUID references and an immutable deletion
 record. Repeating purge for the same UUID returns that record, even after same-name registration
 with a new UUID. No execution history or files are deleted. See
-[purge contract](dev_docs/post-runtime-target-purge.md).
+[purge contract](dev_docs/executor-api.md#runtime-서버).
 Credentials are accepted only on upsert and credentials are absent from every response.
 The non-secret endpoint is returned as `runtime.connection_config.endpoint`.
 
@@ -713,7 +711,7 @@ environment-configurable; see [Event Delivery](docs/event-delivery.md).
 
 Every published Stream entry and JSON payload uses the versioned Executor event contract. Agent
 consumers must use their own consumer group and durably deduplicate on `event_id` before ACK. See
-[Redis Execution Event Contract 1.0](dev_docs/redis-execution-events.md) and the reference
+[Redis Execution Event Contract 1.0](dev_docs/executor-events.md) and the reference
 `scripts/agent_event_consumer_example.py`.
 
 The real-Jupyter regression suite includes a combined SINGLE failure/retry/cancellation scenario

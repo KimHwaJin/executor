@@ -17,12 +17,12 @@ POST /api/v1/maintenance/drain
 POST /api/v1/maintenance/activate
 ```
 
-Both mutations require the standard `idempotency_key` and `actor` body:
+Both mutations require the standard `idempotency_key` body. The operator is the admin key's
+`X-User-Id` header:
 
 ```json
 {
-  "idempotency_key": "maintenance-drain-20260826-1",
-  "actor": {"type": "USER", "id": "operator-100"}
+  "idempotency_key": "maintenance-drain-20260826-1"
 }
 ```
 
@@ -47,9 +47,9 @@ counts, audit fields, and `safe_to_shutdown`:
   },
   "active_run": null,
   "safe_to_shutdown": true,
-  "created_by_type": null,
+  "created_by_client": null,
   "created_by": null,
-  "updated_by_type": "USER",
+  "updated_by_client": "ops-console",
   "updated_by": "operator-100",
   "created_at": "2026-08-26T00:00:00Z",
   "updated_at": "2026-08-26T00:01:00Z"
@@ -91,8 +91,7 @@ Create a Run with the supported action:
 ```json
 {
   "idempotency_key": "maintenance-stop-20260826-1",
-  "action": "STOP_ACTIVE_EXECUTIONS",
-  "actor": {"type": "USER", "id": "operator-100"}
+  "action": "STOP_ACTIVE_EXECUTIONS"
 }
 ```
 

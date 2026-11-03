@@ -3,41 +3,36 @@
 이 디렉토리는 Agent/BFF 연동에 필요한
 문서 모음이며, 모든 운영 API에 개별 Markdown이 있는 것은 아니다.
 
-## 실행 API
+## 먼저 볼 문서
 
-| API | 가이드 |
-| --- | --- |
-| `POST /api/v1/executions` | [제출](post-executions.md) |
-| `GET /api/v1/executions/{execution_id}` | [상태·오류·정리 상태](get-execution.md) |
-| `POST /api/v1/executions/{execution_id}/cancel` | [취소](post-execution-cancel.md) |
-| `POST /api/v1/executions/{execution_id}/retry` | [SINGLE 재시도](post-execution-retry.md) |
-| `POST /api/v1/executions/{execution_id}/operations` | [MULTI 후속 Operation](post-execution-operations.md) |
-| `POST /api/v1/executions/{execution_id}/finalize` | [MULTI 최종화](post-execution-finalize.md) |
-| `GET /api/v1/executions/{execution_id}/result` | [통합 결과 인덱스](get-execution-result.md) |
-| `GET /api/v1/executions/{execution_id}/diagnostics` | [진단 이력](execution-diagnostics.md) |
-| `GET /api/v1/artifacts/{artifact_id}/content` | [현재 파일 다운로드](get-artifact-content.md) |
-| `POST /api/v1/runtime-targets/{target_id}/purge` | [서버 등록 제거, REST 전용](post-runtime-target-purge.md) |
+- [Executor API 사용 가이드](executor-api.md): 전체 API 목록, 헤더(`X-Api-Key`,
+  `X-Tenant-Id`, `X-User-Id`, `X-Project-Id`, `X-Session-Id`)에 무엇을 넣는지,
+  요청·응답 필드의 의미, 호출 순서와 예시. 다른 에이전트가 연동할 때 이 문서 하나로 시작한다.
+- [Executor 이벤트](executor-events.md): Redis Stream으로 발행되는 이벤트 1.0의
+  envelope, 8개 이벤트 유형, payload 필드, 순서·누락 복구 규칙.
 
-[Execution 전용 ReDoc HTML](execution-api-redoc.html)은 현재 Execution 태그의
-22개 경로와 112개 component schema를 포함한다. Artifact 작성/목록/상세,
-Operation·Step·Attempt·Event·Notebook 조회의 전체 필드도 이 문서에서 확인한다.
-제출 API만 볼 때는 [`POST /api/v1/executions` ReDoc HTML](post-executions-redoc.html)을
-사용한다. Runtime 관리와 maintenance 전체 계약은 [전체 REST 가이드](../docs/rest-api.md)를 사용한다.
-서비스의 `/docs`, `/redoc`, `/openapi.json`은 로컬 실행과 개발계에서 켜져 있고, 내부망 규정에 따라
-stg와 prd에서는 꺼져 있다(`DOCS_ENABLED=false`, 404).
+식별자 규칙 요약: 신원과 범위(tenant, user, project, session)는 헤더, 대상 리소스는 path,
+목록 필터는 query, 실행 내용은 body로 보낸다. body에 `actor`나 `context`는 보내지 않는다.
 
-[오류 응답](errors.md): 모든 API가 쓰는 `error.code`·`details` 형식, 409와 422의 구분,
-`details[].type`별 위치와 근거 값.
+## 세부 문서
 
-## 이벤트와 파일
-
-- [Redis 이벤트 1.0](redis-execution-events.md): `tenant_id`를 포함한 8개 envelope 필드와
-  8개 이벤트 유형.
+- [결과 인덱스](get-execution-result.md): `GET /api/v1/executions/{execution_id}/result`.
+- [진단 이력](execution-diagnostics.md): `GET /api/v1/executions/{execution_id}/diagnostics`.
+- [파일 다운로드](get-artifact-content.md): `GET /api/v1/artifacts/{artifact_id}/content`.
+- [오류 응답](errors.md): 모든 API가 쓰는 `error.code`·`details` 형식, 409와 422의 구분,
+  `details[].type`별 위치와 근거 값.
 - [Agent 소비 가이드](agent-execution-event-consumer-guide.md): 순서·중복·누락 복구,
   SINGLE/MULTI wake-up 경계와 실패 처리.
 - [Manifest 설명](step-result-manifest.md) / [JSON Schema](step-result-manifest.schema.json):
   코드·출력 원본을 읽는 파일 계약.
 - [현재 시간 제한](execution-timeouts.md): 요청값의 단위, 범위, 대기·retry·만료 처리.
+
+[Execution 전용 ReDoc HTML](execution-api-redoc.html)은 Execution 태그 경로와 component
+schema 전체 필드를 담는다. 제출 API만 볼 때는
+[`POST /api/v1/executions` ReDoc HTML](post-executions-redoc.html)을 사용한다.
+Runtime 관리와 maintenance 운영 설명은 [전체 REST 가이드](../docs/rest-api.md)에 있다.
+서비스의 `/docs`, `/redoc`, `/openapi.json`은 로컬 실행과 개발계에서 켜져 있고, 내부망 규정에 따라
+stg와 prd에서는 꺼져 있다(`DOCS_ENABLED=false`, 404).
 
 ## 반드시 구분할 사항
 
