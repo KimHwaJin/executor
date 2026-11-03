@@ -284,7 +284,6 @@ async def main() -> None:
                     idempotency_key=f"long-soak-submit-{run_id}",
                     operation_mode="SINGLE",
                     trigger_type="INTERACTIVE",
-                    actor={"type": "USER", "id": "long-soak-user"},
                     runtime_profile=profile,
                     operation_timeout_seconds=operation_timeout_seconds,
                     spec=inline_spec(steps),
@@ -413,7 +412,6 @@ async def main() -> None:
             {
                 "request": {
                     "target_id": target_id,
-                    "actor": {"type": "USER", "id": "long-soak-user"},
                 }
             },
         )

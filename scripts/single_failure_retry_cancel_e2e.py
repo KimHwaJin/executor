@@ -473,7 +473,6 @@ async def _run_failure_retry_case(
     redis: Redis,
     stream: str,
 ) -> CaseResult:
-    user_id = f"single-retry-{unique}-user"
     submitted = await _mcp_result(
         mcp,
         "execution_submit",
@@ -482,7 +481,6 @@ async def _run_failure_retry_case(
                 idempotency_key=f"single-retry-submit-{unique}",
                 operation_mode="SINGLE",
                 trigger_type="INTERACTIVE",
-                actor={"type": "USER", "id": user_id},
                 runtime_profile=runtime_profile,
                 spec=inline_spec(
                     [
@@ -549,7 +547,6 @@ async def _run_failure_retry_case(
             "request": {
                 "execution_id": execution_id,
                 "idempotency_key": f"single-retry-command-{unique}",
-                "actor": {"type": "USER", "id": user_id},
             }
         },
     )
@@ -799,12 +796,10 @@ async def _run_cancel_case(
     redis: Redis,
     stream: str,
 ) -> CaseResult:
-    user_id = f"single-cancel-{unique}-user"
     payload = execution_request(
         idempotency_key=f"single-cancel-submit-{unique}",
         operation_mode="SINGLE",
         trigger_type="INTERACTIVE",
-        actor={"type": "USER", "id": user_id},
         runtime_profile=runtime_profile,
         spec=inline_spec(
             [
@@ -871,7 +866,6 @@ async def _run_cancel_case(
         json={
             "idempotency_key": f"single-cancel-command-{unique}",
             "reason": "single cancellation regression E2E",
-            "actor": {"type": "USER", "id": user_id},
         },
     )
     if cancel_requested["state"]["status"] != "CANCEL_REQUESTED":

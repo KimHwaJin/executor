@@ -16,8 +16,8 @@ from executor_service.domain.enums import (
     ArtifactType,
     CodeSourceType,
 )
+from executor_service.interfaces.auth import Caller, require_user
 from executor_service.interfaces.contracts.common import (
-    ActorInput,
     AuditFields,
     ContractModel,
     PageResponse,
@@ -65,7 +65,6 @@ class ExecutionArtifactMaterializeRequest(ContractModel):
     media_type: str | None = Field(default=None, min_length=1, max_length=255)
     append_to_notebook: bool = False
     metadata: dict[str, Any] = Field(default_factory=dict)
-    actor: ActorInput
 
     @model_validator(mode="after")
     def validate_notebook_append(
@@ -77,7 +76,9 @@ class ExecutionArtifactMaterializeRequest(ContractModel):
             )
         return self
 
-    def to_command(self, execution_id: UUID) -> MaterializeArtifactCommand:
+    def to_command(
+        self, execution_id: UUID, caller: Caller
+    ) -> MaterializeArtifactCommand:
         return MaterializeArtifactCommand(
             execution_id=execution_id,
             idempotency_key=self.idempotency_key,
@@ -103,8 +104,8 @@ class ExecutionArtifactMaterializeRequest(ContractModel):
             media_type=self.media_type,
             append_to_notebook=self.append_to_notebook,
             metadata=self.metadata,
-            actor_type=self.actor.type,
-            actor_id=self.actor.id,
+            actor_client=caller.client,
+            actor_id=require_user(caller),
         )
 
 
@@ -170,9 +171,9 @@ class ExecutionArtifactResponse(AuditFields):
                 checksum_sha256=view.checksum_sha256,
             ),
             metadata=view.metadata,
-            created_by_type=view.created_by_type,
+            created_by_client=view.created_by_client,
             created_by=view.created_by,
-            updated_by_type=view.updated_by_type,
+            updated_by_client=view.updated_by_client,
             updated_by=view.updated_by,
             created_at=view.created_at,
             updated_at=view.updated_at,
@@ -214,9 +215,9 @@ class ExecutionArtifactSummaryResponse(AuditFields):
                 media_type=view.media_type,
                 size_bytes=view.size_bytes,
             ),
-            created_by_type=view.created_by_type,
+            created_by_client=view.created_by_client,
             created_by=view.created_by,
-            updated_by_type=view.updated_by_type,
+            updated_by_client=view.updated_by_client,
             updated_by=view.updated_by,
             created_at=view.created_at,
             updated_at=view.updated_at,

@@ -65,7 +65,6 @@ async def _register_servers(
                 "credential": interactive_spec.token,
                 "pool": "INTERACTIVE",
                 "max_concurrent_executions": 1,
-                "actor": {"type": "USER", "id": "batch-smoke-operator"},
             }
         },
     )
@@ -87,10 +86,6 @@ async def _register_servers(
                         "credential": spec.token,
                         "pool": "BATCH",
                         "max_concurrent_executions": 1,
-                        "actor": {
-                            "type": "USER",
-                            "id": "batch-smoke-operator",
-                        },
                     }
                 },
             )
@@ -133,12 +128,6 @@ async def _submit(
                 idempotency_key=f"batch-pool-execution-{unique}-{name}",
                 operation_mode="SINGLE",
                 trigger_type="BATCH" if pool == "BATCH" else "INTERACTIVE",
-                actor={
-                    "type": "BATCH" if pool == "BATCH" else "USER",
-                    "id": "batch-smoke-job"
-                    if pool == "BATCH"
-                    else "batch-pool-user",
-                },
                 runtime_profile="default",
                 spec=inline_spec(
                     [

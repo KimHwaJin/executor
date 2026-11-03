@@ -22,7 +22,11 @@ from sqlalchemy import create_engine as create_sync_engine
 from sqlalchemy import delete, func, inspect, select, text, update
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncConnection,
+    AsyncEngine,
+    create_async_engine,
+)
 
 from executor_service.application.commands import (
     CancelExecutionCommand,
@@ -41,7 +45,6 @@ from executor_service.application.services import ExecutionService
 from executor_service.container import EXPECTED_SCHEMA_REVISION
 from executor_service.domain.diagnostics import DiagnosticCategory
 from executor_service.domain.enums import (
-    ActorType,
     AttemptStatus,
     ExecutionStatus,
     ExecutorAdmissionState,
@@ -289,7 +292,7 @@ async def test_runtime_purge_is_idempotent_across_concurrent_sessions(
         *[
             registry.purge(
                 PurgeRuntimeTargetCommand(
-                    target.id, ActorType.USER, f"admin-{i}"
+                    target.id, "test-client", f"admin-{i}"
                 )
             )
             for i in range(8)
@@ -445,10 +448,31 @@ async def test_runtime_purge_serializes_with_target_mutations(
 # add these for the writes only, so the rows match what old code wrote. The
 # current ORM also no longer sets the Outbox destination dropped by 0010, nor
 # the task_id that is required before 0007 and dropped by 0011.
+AUDIT_TABLES = (
+    "executions",
+    "executor_maintenance",
+    "maintenance_runs",
+    "maintenance_run_targets",
+    "runtime_targets",
+    "runtime_target_purges",
+    "execution_attempts",
+    "execution_diagnostics",
+    "execution_events",
+    "execution_operations",
+    "execution_steps",
+    "execution_step_attempts",
+    "execution_artifacts",
+    "outbox_events",
+)
 COLUMNS_FROM_0013_ON = (
     ("executions", "finalized_by", "VARCHAR(32)"),
     ("execution_operations", "failure_type", "VARCHAR(32)"),
     ("command_receipts", "scope", "VARCHAR(64) NOT NULL DEFAULT ''"),
+    *(
+        (table, f"{prefix}_by_client", "VARCHAR(64)")
+        for table in AUDIT_TABLES
+        for prefix in ("created", "updated")
+    ),
 )
 LATER_COLUMNS = (
     ("executions", "tenant_id", "VARCHAR(64)"),
@@ -457,16 +481,42 @@ LATER_COLUMNS = (
 )
 
 
+async def _table_names(connection: AsyncConnection) -> set[str]:
+    return set(
+        await connection.run_sync(lambda sync: inspect(sync).get_table_names())
+    )
+
+
+async def _audit_type_checks(
+    connection: AsyncConnection, tables: set[str], *, enabled: bool
+) -> None:
+    """Before 0015 a user without an actor type breaks these checks."""
+    for table in tables.intersection(AUDIT_TABLES):
+        for prefix in ("created", "updated"):
+            name = f"ck_{table}_complete_{prefix}_by"
+            statement = (
+                f"ALTER TABLE {table} ADD CONSTRAINT {name} CHECK "
+                f"(({prefix}_by_type IS NULL) = ({prefix}_by IS NULL)) "
+                "NOT VALID"
+                if enabled
+                else f"ALTER TABLE {table} DROP CONSTRAINT {name}"
+            )
+            await connection.execute(text(statement))
+
+
 @asynccontextmanager
 async def _columns(
     engine: AsyncEngine, columns: tuple[tuple[str, str, str], ...]
 ) -> AsyncIterator[None]:
     """Let today's ORM write to an older schema that lacks ``columns``."""
     async with engine.begin() as connection:
+        tables = await _table_names(connection)
+        columns = tuple(c for c in columns if c[0] in tables)
         for table, column, column_type in columns:
             await connection.execute(
                 text(f"ALTER TABLE {table} ADD COLUMN {column} {column_type}")
             )
+        await _audit_type_checks(connection, tables, enabled=False)
     try:
         yield
     finally:
@@ -475,15 +525,12 @@ async def _columns(
                 await connection.execute(
                     text(f"ALTER TABLE {table} DROP COLUMN {column}")
                 )
+            await _audit_type_checks(connection, tables, enabled=True)
 
 
 @asynccontextmanager
 async def _current_columns(engine: AsyncEngine) -> AsyncIterator[None]:
     async with engine.begin() as connection:
-        for table, column, column_type in LATER_COLUMNS:
-            await connection.execute(
-                text(f"ALTER TABLE {table} ADD COLUMN {column} {column_type}")
-            )
         await connection.execute(
             text(
                 "ALTER TABLE outbox_events "
@@ -494,13 +541,10 @@ async def _current_columns(engine: AsyncEngine) -> AsyncIterator[None]:
             text("ALTER TABLE executions ALTER COLUMN task_id SET DEFAULT 't'")
         )
     try:
-        yield
+        async with _columns(engine, LATER_COLUMNS):
+            yield
     finally:
         async with engine.begin() as connection:
-            for table, column, _ in LATER_COLUMNS:
-                await connection.execute(
-                    text(f"ALTER TABLE {table} DROP COLUMN {column}")
-                )
             await connection.execute(
                 text(
                     "ALTER TABLE outbox_events "
@@ -515,9 +559,11 @@ async def _current_columns(engine: AsyncEngine) -> AsyncIterator[None]:
 
 
 # Columns that differ between an older revision and head: added by 0007,
-# 0008, 0013 and 0014, dropped by 0009, 0010 and 0011. Compare rows across an upgrade
-# without them.
+# 0008, 0013, 0014 and 0015, dropped by 0009, 0010, 0011 and 0015. Compare
+# rows across an upgrade without them.
 CHANGED_COLUMNS = {column for _, column, _ in LATER_COLUMNS} | {
+    "created_by_type",
+    "updated_by_type",
     "cancellation_heartbeat_at",
     "task_id",
     "workflow_id",
@@ -566,7 +612,7 @@ async def test_task_drop_upgrade_strips_stored_completion_context(
         "retry": None,
         "error": None,
         "execution": {
-            "trigger": {"type": "INTERACTIVE", "actor": None},
+            "trigger": {"type": "INTERACTIVE"},
             "context": context,
         },
     }
@@ -580,7 +626,11 @@ async def test_task_drop_upgrade_strips_stored_completion_context(
     # Written as a 0010 Pod did, bypassing today's payload validation.
     stored.payload = payload
     factory = create_session_factory(postgres_engine)
-    async with factory() as session, session.begin():
+    async with (
+        _columns(postgres_engine, COLUMNS_FROM_0013_ON),
+        factory() as session,
+        session.begin(),
+    ):
         session.add(stored)
 
     await asyncio.to_thread(_upgrade_and_check_baseline, url)
@@ -1041,19 +1091,17 @@ async def test_connection_key_upgrade_normalizes_and_rejects_duplicates(
     await asyncio.to_thread(_downgrade_to_before_connection_key, url)
     first, second = _server(capacity=1), _server(capacity=1)
     factory = create_session_factory(postgres_engine)
-    async with postgres_engine.begin() as connection:
-        await connection.execute(
-            text(
-                "ALTER TABLE runtime_targets "
-                "ADD COLUMN connection_key VARCHAR(2048)"
-            )
-        )
-    async with factory() as session, session.begin():
+    columns = (
+        ("runtime_targets", "connection_key", "VARCHAR(2048)"),
+        *COLUMNS_FROM_0013_ON,
+    )
+    async with (
+        _columns(postgres_engine, columns),
+        factory() as session,
+        session.begin(),
+    ):
         session.add_all([first, second])
     async with postgres_engine.begin() as connection:
-        await connection.execute(
-            text("ALTER TABLE runtime_targets DROP COLUMN connection_key")
-        )
         await connection.execute(
             text(
                 "UPDATE runtime_targets SET connection_config = :config "
@@ -1584,7 +1632,7 @@ async def test_persistent_drain_blocks_every_worker_until_activate(
         SetExecutorAdmissionCommand(
             idempotency_key="postgres-global-drain",
             desired_state=ExecutorAdmissionState.DRAINING,
-            actor_type=ActorType.USER,
+            actor_client="test-client",
             actor_id="postgres-operator",
         )
     )
@@ -1601,7 +1649,7 @@ async def test_persistent_drain_blocks_every_worker_until_activate(
             SetExecutorAdmissionCommand(
                 idempotency_key="postgres-global-activate",
                 desired_state=ExecutorAdmissionState.ACTIVE,
-                actor_type=ActorType.USER,
+                actor_client="test-client",
                 actor_id="postgres-operator",
             )
         )
@@ -1642,7 +1690,7 @@ async def test_maintenance_run_has_one_owner_and_recovers_after_lease_expiry(
         CreateMaintenanceRunCommand(
             idempotency_key="postgres-maintenance-run",
             action=MaintenanceRunAction.STOP_ACTIVE_EXECUTIONS,
-            actor_type=ActorType.USER,
+            actor_client="test-client",
             actor_id="postgres-operator",
         )
     )
@@ -2515,7 +2563,7 @@ async def test_current_baseline_repeated_upgrade_preserves_events(
             text("SELECT count(*) FROM event_retention_lease")
         )
 
-    assert revision == EXPECTED_SCHEMA_REVISION == "0014"
+    assert revision == EXPECTED_SCHEMA_REVISION == "0015"
     assert maintenance_count == retention_count == 1
     assert migrated_event is not None
     assert migrated_event.execution_id == execution.id
@@ -2556,7 +2604,7 @@ async def test_current_baseline_downgrade_and_recreate(
             text("SELECT singleton_key FROM event_retention_lease")
         )
     assert tables == set(Base.metadata.tables) | {"alembic_version"}
-    assert revision == EXPECTED_SCHEMA_REVISION == "0014"
+    assert revision == EXPECTED_SCHEMA_REVISION == "0015"
     assert admission == "ACTIVE"
     assert retention_key == "events"
 

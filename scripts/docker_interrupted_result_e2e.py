@@ -112,7 +112,6 @@ def case_request(mode: str, profile: str, unique: str) -> dict[str, Any]:
         idempotency_key=unique,
         operation_mode=mode,
         trigger_type="INTERACTIVE",
-        actor=ACTOR,
         runtime_profile=profile,
         operation_wait_timeout_seconds=300 if mode == "MULTI" else None,
         operation_timeout_seconds=300,
@@ -258,7 +257,6 @@ async def run_case(
                 f"{path}/cancel",
                 json={
                     "idempotency_key": f"{unique}-cancel",
-                    "actor": ACTOR,
                     "reason": "Docker E2E user cancellation",
                 },
             )

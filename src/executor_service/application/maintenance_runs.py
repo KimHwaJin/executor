@@ -5,7 +5,6 @@ from datetime import datetime
 from uuid import UUID
 
 from executor_service.domain.enums import (
-    ActorType,
     ExecutionStatus,
     MaintenanceRunAction,
     MaintenanceRunStatus,
@@ -17,7 +16,7 @@ from executor_service.domain.enums import (
 class CreateMaintenanceRunCommand:
     idempotency_key: str
     action: MaintenanceRunAction
-    actor_type: ActorType
+    actor_client: str
     actor_id: str
 
 
@@ -41,9 +40,9 @@ class MaintenanceRunView:
     status: MaintenanceRunStatus
     counts: MaintenanceRunCounts
     error_message: str | None
-    created_by_type: ActorType | None
+    created_by_client: str | None
     created_by: str | None
-    updated_by_type: ActorType | None
+    updated_by_client: str | None
     updated_by: str | None
     created_at: datetime
     updated_at: datetime
@@ -61,9 +60,9 @@ class MaintenanceRunTargetView:
     error_message: str | None
     stop_requested_at: datetime | None
     completed_at: datetime | None
-    created_by_type: ActorType | None
+    created_by_client: str | None
     created_by: str | None
-    updated_by_type: ActorType | None
+    updated_by_client: str | None
     updated_by: str | None
     created_at: datetime
     updated_at: datetime

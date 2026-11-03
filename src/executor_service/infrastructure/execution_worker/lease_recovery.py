@@ -206,9 +206,9 @@ class LeaseRecoveryProcessor:
                             occurred_at=now,
                             created_at=now,
                             updated_at=now,
-                            created_by_type=execution.updated_by_type,
+                            created_by_client=execution.updated_by_client,
                             created_by=execution.updated_by,
-                            updated_by_type=execution.updated_by_type,
+                            updated_by_client=execution.updated_by_client,
                             updated_by=execution.updated_by,
                         )
                     )

@@ -11,7 +11,6 @@ from starlette.responses import PlainTextResponse
 from starlette.routing import Route
 
 from executor_service.container import ApplicationContainer
-from executor_service.interfaces.contracts.common import ActorInput
 from executor_service.interfaces.execution_specs import StepLineage
 from executor_service.interfaces.http.app import create_app
 from executor_service.interfaces.http.body_limit import (
@@ -81,12 +80,6 @@ def test_body_under_the_limit_reaches_the_application(tmp_path: Path) -> None:
     assert response.status_code != 413
 
 
-def test_actor_id_is_stored_lowercase() -> None:
-    assert ActorInput(type="USER", id=" Alice.Kim ").id == "alice.kim"
-    with pytest.raises(ValidationError):
-        ActorInput(type="USER", id="   ")
-
-
 def test_operation_metadata_and_input_parameters_are_bounded() -> None:
     with pytest.raises(ValidationError):
         StepLineage(input_parameters={f"p{i}": i for i in range(33)})
@@ -109,7 +102,6 @@ def test_operation_metadata_and_input_parameters_are_bounded() -> None:
                 }
             ],
         },
-        "actor": {"type": "AGENT", "id": "agent"},
     }
     with pytest.raises(ValidationError):
         ExecutionOperationCreateRequest.model_validate(

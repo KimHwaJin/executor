@@ -17,7 +17,6 @@ from executor_service.application.commands import (
 )
 from executor_service.application.services import ExecutionService
 from executor_service.domain.enums import (
-    ActorType,
     ExecutionStatus,
     FailureType,
     OperationMode,
@@ -302,89 +301,21 @@ async def test_submit_key_rejects_different_request(
         await execution_service.submit(changed)
 
 
-async def test_interactive_submit_requires_actor_to_match_user(
+async def test_submit_records_the_calling_user_and_client(
     execution_service: ExecutionService,
 ) -> None:
     command = replace(
-        submit_command("interactive-actor-mismatch"),
-        actor_type=ActorType.USER,
-        actor_id="another-user",
-    )
-
-    with pytest.raises(
-        InvalidExecutionSpecError,
-        match=r"USER actor\.id \(another-user\) must equal X-User-Id",
-    ):
-        await execution_service.submit(command)
-
-
-async def test_batch_submit_allows_actor_to_differ_from_owning_user(
-    execution_service: ExecutionService,
-) -> None:
-    command = replace(
-        submit_command("batch-actor-differs"),
-        trigger_type=TriggerType.BATCH,
-        actor_type=ActorType.BATCH,
-        actor_id="schedule-1",
-    )
-
-    submitted = await execution_service.submit(command)
-
-    assert submitted.user_id == "user-1"
-    assert submitted.runtime_pool.value == "BATCH"
-    assert submitted.created_by_type == ActorType.BATCH
-    assert submitted.created_by == "schedule-1"
-
-
-async def test_batch_submit_accepts_registering_user_actor(
-    execution_service: ExecutionService,
-) -> None:
-    command = replace(
-        submit_command("batch-user-actor"),
-        trigger_type=TriggerType.BATCH,
-        actor_type=ActorType.USER,
+        submit_command("audit-from-caller"),
+        actor_client="pr-batch",
         actor_id="user-1",
     )
 
     submitted = await execution_service.submit(command)
 
-    assert submitted.runtime_pool.value == "BATCH"
-    assert submitted.created_by_type == ActorType.USER
+    assert submitted.created_by_client == "pr-batch"
     assert submitted.created_by == "user-1"
-
-
-async def test_batch_submit_requires_user_actor_to_match_user(
-    execution_service: ExecutionService,
-) -> None:
-    command = replace(
-        submit_command("batch-user-actor-mismatch"),
-        trigger_type=TriggerType.BATCH,
-        actor_type=ActorType.USER,
-        actor_id="another-user",
-    )
-
-    with pytest.raises(
-        InvalidExecutionSpecError,
-        match=r"USER actor\.id \(another-user\) must equal X-User-Id",
-    ):
-        await execution_service.submit(command)
-
-
-async def test_batch_submit_rejects_agent_actor(
-    execution_service: ExecutionService,
-) -> None:
-    command = replace(
-        submit_command("batch-agent-actor"),
-        trigger_type=TriggerType.BATCH,
-        actor_type=ActorType.AGENT,
-        actor_id="analytics-agent",
-    )
-
-    with pytest.raises(
-        InvalidExecutionSpecError,
-        match="BATCH submit requires a USER or BATCH actor, not AGENT",
-    ):
-        await execution_service.submit(command)
+    assert submitted.updated_by_client == "pr-batch"
+    assert submitted.updated_by == "user-1"
 
 
 async def test_unknown_execution_is_not_found(

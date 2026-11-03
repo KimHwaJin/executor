@@ -263,18 +263,7 @@ async def add_execution_completed_event(
             "retry": retry,
             "error": error,
             "execution": {
-                "trigger": {
-                    "type": execution.trigger_type.value,
-                    "actor": (
-                        {
-                            "type": execution.created_by_type.value,
-                            "id": execution.created_by,
-                        }
-                        if execution.created_by_type is not None
-                        and execution.created_by is not None
-                        else None
-                    ),
-                },
+                "trigger": {"type": execution.trigger_type.value},
                 "context": {
                     "user_id": execution.user_id,
                     "project_id": execution.project_id,

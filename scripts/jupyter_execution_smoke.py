@@ -17,7 +17,6 @@ async def main() -> None:
                     idempotency_key=f"jupyter-smoke-{unique}",
                     operation_mode="SINGLE",
                     trigger_type="INTERACTIVE",
-                    actor={"type": "USER", "id": "smoke-user"},
                     runtime_profile="default",
                     spec=inline_spec(
                         [

@@ -20,7 +20,6 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from executor_service.domain.enums import (
-    ActorType,
     AttemptStatus,
     FailureType,
     RetryStrategy,
@@ -33,7 +32,6 @@ from executor_service.domain.models import empty_output_summary, utc_now
 from executor_service.infrastructure.db.base import Base
 from executor_service.infrastructure.db.models.common import (
     UTCDateTime,
-    audit_actor_constraints,
     enum_type,
 )
 
@@ -70,7 +68,6 @@ class ExecutionRetryORM(Base):
 class ExecutionAttemptORM(Base):
     __tablename__ = "execution_attempts"
     __table_args__ = (
-        *audit_actor_constraints(),
         UniqueConstraint(
             "execution_id",
             "attempt_number",
@@ -176,12 +173,12 @@ class ExecutionAttemptORM(Base):
         nullable=False,
         default=RuntimeAbortStatus.NOT_REQUIRED,
     )
-    created_by_type: Mapped[ActorType | None] = mapped_column(
-        enum_type(ActorType, "actor_type"), nullable=True
+    created_by_client: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
     )
     created_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    updated_by_type: Mapped[ActorType | None] = mapped_column(
-        enum_type(ActorType, "actor_type"), nullable=True
+    updated_by_client: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
     )
     updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -202,7 +199,6 @@ class ExecutionStepAttemptORM(Base):
 
     __tablename__ = "execution_step_attempts"
     __table_args__ = (
-        *audit_actor_constraints(),
         UniqueConstraint(
             "execution_attempt_id",
             "sequence",
@@ -263,12 +259,12 @@ class ExecutionStepAttemptORM(Base):
         BigInteger, nullable=False, default=0
     )
     error_message: Mapped[str | None] = mapped_column(Text)
-    created_by_type: Mapped[ActorType | None] = mapped_column(
-        enum_type(ActorType, "actor_type"), nullable=True
+    created_by_client: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
     )
     created_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    updated_by_type: Mapped[ActorType | None] = mapped_column(
-        enum_type(ActorType, "actor_type"), nullable=True
+    updated_by_client: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
     )
     updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(

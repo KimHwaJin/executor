@@ -179,7 +179,6 @@ async def main() -> None:
                         idempotency_key=f"multi-executor-submit-{unique}",
                         operation_mode="SINGLE",
                         trigger_type="INTERACTIVE",
-                        actor={"type": "USER", "id": "multi-executor-user"},
                         runtime_profile="default",
                         spec=inline_spec(
                             [
@@ -241,7 +240,6 @@ async def main() -> None:
                     "request": {
                         "execution_id": execution_id,
                         "idempotency_key": f"multi-executor-retry-{unique}",
-                        "actor": {"type": "USER", "id": "multi-executor-user"},
                     }
                 },
             )

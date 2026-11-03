@@ -343,15 +343,15 @@ class ExecutionClaimer:
                     lease_expires_at=lease_expires,
                     heartbeat_at=now,
                     fencing_token=fencing_token,
-                    created_by_type=(
-                        execution_row.updated_by_type
-                        or execution_row.created_by_type
+                    created_by_client=(
+                        execution_row.updated_by_client
+                        or execution_row.created_by_client
                     ),
                     created_by=execution_row.updated_by
                     or execution_row.created_by,
-                    updated_by_type=(
-                        execution_row.updated_by_type
-                        or execution_row.created_by_type
+                    updated_by_client=(
+                        execution_row.updated_by_client
+                        or execution_row.created_by_client
                     ),
                     updated_by=execution_row.updated_by
                     or execution_row.created_by,

@@ -9,7 +9,6 @@ from executor_service.infrastructure.db.models.attempts import (
     ExecutionStepAttemptORM,
 )
 from executor_service.infrastructure.db.models.common import (
-    audit_actor_constraints,
     enum_type,
 )
 from executor_service.infrastructure.db.models.diagnostics import (
@@ -69,7 +68,6 @@ __all__ = [
     "OutboxEventORM",
     "RuntimeTargetORM",
     "RuntimeTargetPurgeORM",
-    "audit_actor_constraints",
     "enum_type",
     "execution_receipt_scope",
 ]

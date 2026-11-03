@@ -24,7 +24,7 @@ TERMINAL = {"SUCCEEDED", "FAILED", "CANCELLED"}
 
 async def main() -> None:
     base_url = os.environ["EXECUTOR_REST_URL"]
-    actor = {"type": "USER", "id": f"notebook-smoke-{uuid4().hex}"}
+    {"type": "USER", "id": f"notebook-smoke-{uuid4().hex}"}
     profile = os.getenv("REDIS_COMPAT_RUNTIME_PROFILE", "default")
     checked_downloads = 0
     async with httpx.AsyncClient(
@@ -79,7 +79,6 @@ async def main() -> None:
                 f"/executions/{eid}/{action}",
                 {
                     "idempotency_key": uuid4().hex,
-                    "actor": actor,
                     **(
                         {"expected_version": current["state"]["version"]}
                         if action == "finalize"
@@ -116,7 +115,6 @@ async def main() -> None:
                     if mode == "MULTI"
                     else None,
                     trigger_type="INTERACTIVE",
-                    actor=actor,
                     runtime_profile=profile,
                     spec=inline_spec([{"code": slow}, {"code": code}]),
                 ),

@@ -418,7 +418,6 @@ async def test_real_notebook_download_after_report_and_manual_edits(
                             + "Findings. " * 200,
                         },
                         "append_to_notebook": True,
-                        "actor": {"type": "USER", "id": "download-test"},
                     },
                 )
                 assert report.status_code == 201, report.text
@@ -617,15 +616,13 @@ async def test_separate_pool_pvs_never_cross_read_or_write(
                     .where(ExecutionArtifactORM.id == artifact_id)
                     .values(execution_attempt_id=attempt_id)
                 )
-            actor = {"type": "USER", "id": "purge-tester"}
             disabled = await client.post(
                 f"/api/v1/runtime-targets/{preferred_id}/disable",
-                json={"idempotency_key": "disable-preferred", "actor": actor},
+                json={"idempotency_key": "disable-preferred"},
             )
             assert disabled.status_code == 200
             removed = await client.post(
-                f"/api/v1/runtime-targets/{preferred_id}/purge",
-                json={"actor": actor},
+                f"/api/v1/runtime-targets/{preferred_id}/purge"
             )
             assert removed.status_code == 200, removed.text
             for suffix in (
@@ -663,7 +660,6 @@ async def test_separate_pool_pvs_never_cross_read_or_write(
                 "type": "REPORT",
                 "source": {"type": "INLINE", "content": "# Batch only"},
                 "append_to_notebook": True,
-                "actor": {"type": "USER", "id": "pool-tester"},
             },
         )
         assert report.status_code == 201, report.text

@@ -42,7 +42,6 @@ SUBMIT_ARGUMENTS: dict[str, Any] = {
         "lifecycle": {"operation_mode": "SINGLE"},
         "trigger": {
             "type": "INTERACTIVE",
-            "actor": {"type": "USER", "id": "user-1"},
         },
         "runtime": {"type": "JUPYTER", "profile": "basic"},
         "operation": {
@@ -130,9 +129,9 @@ async def test_mcp_client_can_list_and_call_execution_tools(
             "execution_id",
             "operation",
             "state",
-            "created_by_type",
+            "created_by_client",
             "created_by",
-            "updated_by_type",
+            "updated_by_client",
             "updated_by",
             "created_at",
             "updated_at",
@@ -154,7 +153,6 @@ async def test_mcp_client_can_list_and_call_execution_tools(
                     "execution_id": execution_id,
                     "idempotency_key": "mcp-cancel-1",
                     "reason": "integration test",
-                    "actor": {"type": "USER", "id": "user-1"},
                 }
             },
         )
@@ -398,7 +396,6 @@ async def test_mcp_runtime_target_disable_uses_shared_contract(
                     "connection_config": {"endpoint": "http://127.0.0.1:9"},
                     "credential": "not-returned",
                     "pool": "INTERACTIVE",
-                    "actor": {"type": "USER", "id": "operator-1"},
                 }
             },
         )
@@ -408,7 +405,6 @@ async def test_mcp_runtime_target_disable_uses_shared_contract(
                 "request": {
                     "target_id": created.structured_content["target_id"],
                     "idempotency_key": "mcp-target-disable-1",
-                    "actor": {"type": "USER", "id": "operator-1"},
                 }
             },
         )
@@ -450,7 +446,6 @@ async def test_execution_submit_reads_path_spec_and_derives_batch_pool(
     arguments["request"]["idempotency_key"] = "mcp-path-submit-1"
     arguments["request"]["trigger"] = {
         "type": "BATCH",
-        "actor": {"type": "BATCH", "id": "batch-1"},
     }
     arguments["request"]["metadata"] = {"batch_id": "batch-1"}
     arguments["request"]["operation"]["spec"]["steps"][0]["payload"] = {
@@ -471,7 +466,7 @@ async def test_execution_submit_reads_path_spec_and_derives_batch_pool(
         submitted = await client.call_tool("execution_submit", arguments)
 
     assert not submitted.is_error
-    assert submitted.structured_content["created_by"] == "batch-1"
+    assert submitted.structured_content["created_by"] == "user-1"
     execution = await execution_service.get(
         UUID(submitted.structured_content["execution_id"])
     )
@@ -514,7 +509,6 @@ async def test_multi_continue_accepts_next_inline_execution_spec(
                     "execution_id": execution_id,
                     "idempotency_key": "mcp-multi-continue-1",
                     "expected_version": 2,
-                    "actor": {"type": "USER", "id": "user-1"},
                     "spec": {
                         "schema_version": "1.0",
                         "steps": [
@@ -591,7 +585,6 @@ async def test_mcp_retry_returns_the_requeued_operation_id(
                 "request": {
                     "execution_id": str(execution_id),
                     "idempotency_key": "mcp-retry-operation-command",
-                    "actor": {"type": "USER", "id": "user-1"},
                 }
             },
         )

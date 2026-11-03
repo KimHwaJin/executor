@@ -9,7 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
 
-from executor_service.domain.enums import ActorType, OperationStatus
+from executor_service.domain.enums import OperationStatus
 from executor_service.domain.errors import PersistenceConflictError
 from executor_service.domain.models import (
     Execution,
@@ -172,7 +172,7 @@ class SQLAlchemyExecutionRepository:
         self,
         operation_id: UUID,
         *,
-        updated_by_type: ActorType | None,
+        updated_by_client: str | None,
         updated_by: str | None,
     ) -> None:
         result = await self._session.execute(
@@ -185,7 +185,7 @@ class SQLAlchemyExecutionRepository:
                 status=OperationStatus.QUEUED,
                 execution_attempt_id=None,
                 error_message=None,
-                updated_by_type=updated_by_type,
+                updated_by_client=updated_by_client,
                 updated_by=updated_by,
                 updated_at=utc_now(),
                 started_at=None,
@@ -229,7 +229,7 @@ class SQLAlchemyExecutionRepository:
                 active_operation_id=execution.active_operation_id,
                 operation_wait_expires_at=execution.operation_wait_expires_at,
                 execution_expires_at=execution.execution_expires_at,
-                updated_by_type=execution.updated_by_type,
+                updated_by_client=execution.updated_by_client,
                 updated_by=execution.updated_by,
             )
         )
@@ -250,7 +250,7 @@ class SQLAlchemyExecutionRepository:
                     source_size_bytes=step.source_size_bytes,
                     code_hash=step.code_hash,
                     step_timeout_seconds=step.step_timeout_seconds,
-                    updated_by_type=step.updated_by_type,
+                    updated_by_client=step.updated_by_client,
                     updated_by=step.updated_by,
                     output_summary=step.output_summary,
                     result_execution_attempt_id=(

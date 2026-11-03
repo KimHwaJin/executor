@@ -7,7 +7,6 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from executor_service.domain.enums import ActorType
 from executor_service.domain.models import ExecutionEvent
 
 EXECUTION_EVENT_SCHEMA_VERSION = "1.0"
@@ -264,14 +263,8 @@ class OperationCompletedPayload(ContractModel):
         return self
 
 
-class TriggerActor(ContractModel):
-    type: Literal["AGENT", "USER", "BATCH"]
-    id: str = Field(min_length=1, max_length=255)
-
-
 class ExecutionTriggerSummary(ContractModel):
     type: Literal["INTERACTIVE", "BATCH"]
-    actor: TriggerActor | None
 
 
 class ExecutionContextSummary(ContractModel):
@@ -392,7 +385,7 @@ def build_execution_event(
     event_sequence: int,
     event_type: str,
     payload: dict[str, Any],
-    actor_type: ActorType | None = None,
+    actor_client: str | None = None,
     actor_id: str | None = None,
 ) -> ExecutionEvent:
     """Build one validated public event for durable history persistence."""
@@ -403,8 +396,8 @@ def build_execution_event(
         event_type=event_type,
         payload=normalized,
         event_sequence=event_sequence,
-        created_by_type=actor_type,
+        created_by_client=actor_client,
         created_by=actor_id,
-        updated_by_type=actor_type,
+        updated_by_client=actor_client,
         updated_by=actor_id,
     )

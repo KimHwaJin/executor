@@ -4,7 +4,6 @@ from types import TracebackType
 from typing import Protocol, Self
 from uuid import UUID
 
-from executor_service.domain.enums import ActorType
 from executor_service.domain.models import (
     Execution,
     ExecutionOperation,
@@ -66,7 +65,7 @@ class ExecutionRepository(Protocol):
         self,
         operation_id: UUID,
         *,
-        updated_by_type: ActorType | None,
+        updated_by_client: str | None,
         updated_by: str | None,
     ) -> None: ...
 

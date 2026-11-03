@@ -98,7 +98,6 @@ def _submission_payload(
     unique: str, transport: Transport, runtime_profile: str
 ) -> dict[str, Any]:
     label = transport.lower()
-    user_id = f"single-observability-{label}-user"
     return execution_request(
         idempotency_key=f"single-observability-{label}-submit-{unique}",
         operation_mode="SINGLE",
@@ -128,7 +127,6 @@ def _submission_payload(
                 },
             ],
         ),
-        actor={"type": "USER", "id": user_id},
     )
 
 
@@ -562,10 +560,6 @@ async def _probe_target(
         {
             "request": {
                 "target_id": target_id,
-                "actor": {
-                    "type": "USER",
-                    "id": f"single-observability-{unique}",
-                },
             }
         },
     )

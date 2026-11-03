@@ -7,7 +7,6 @@ from uuid import UUID
 
 from executor_service.application.pagination import Page
 from executor_service.domain.enums import (
-    ActorType,
     ArtifactStatus,
     ArtifactStorageType,
     ArtifactType,
@@ -46,9 +45,9 @@ class ExecutionSummaryView:
     status: ExecutionStatus
     version: int
     step_count: int
-    created_by_type: ActorType | None
+    created_by_client: str | None
     created_by: str | None
-    updated_by_type: ActorType | None
+    updated_by_client: str | None
     updated_by: str | None
     created_at: datetime
     updated_at: datetime
@@ -93,9 +92,9 @@ class ExecutionDetailView:
     runtime_abort_status: RuntimeAbortStatus
     operation_wait_expires_at: datetime | None
     execution_expires_at: datetime | None
-    created_by_type: ActorType | None
+    created_by_client: str | None
     created_by: str | None
-    updated_by_type: ActorType | None
+    updated_by_client: str | None
     updated_by: str | None
     created_at: datetime
     updated_at: datetime
@@ -123,9 +122,9 @@ class ExecutionStepAttemptView:
     result_representation_count: int
     result_total_size_bytes: int
     error_message: str | None
-    created_by_type: ActorType | None
+    created_by_client: str | None
     created_by: str | None
-    updated_by_type: ActorType | None
+    updated_by_client: str | None
     updated_by: str | None
     created_at: datetime
     updated_at: datetime
@@ -151,9 +150,9 @@ class ExecutionAttemptView:
     retry_strategy: RetryStrategy
     runtime_session_cleanup_status: RuntimeSessionCleanupStatus
     runtime_abort_status: RuntimeAbortStatus
-    created_by_type: ActorType | None
+    created_by_client: str | None
     created_by: str | None
-    updated_by_type: ActorType | None
+    updated_by_client: str | None
     updated_by: str | None
     created_at: datetime
     updated_at: datetime
@@ -175,9 +174,9 @@ class ExecutionOperationView:
     status: OperationStatus
     execution_attempt_id: UUID | None
     error_message: str | None
-    created_by_type: ActorType | None
+    created_by_client: str | None
     created_by: str | None
-    updated_by_type: ActorType | None
+    updated_by_client: str | None
     updated_by: str | None
     created_at: datetime
     updated_at: datetime
@@ -196,9 +195,9 @@ class ExecutionEventView:
     payload: dict[str, Any]
     delivery_status: OutboxStatus | None
     publish_attempt_count: int | None
-    created_by_type: ActorType | None
+    created_by_client: str | None
     created_by: str | None
-    updated_by_type: ActorType | None
+    updated_by_client: str | None
     updated_by: str | None
     available_at: datetime | None
     created_at: datetime
@@ -227,9 +226,9 @@ class ExecutionArtifactView:
     size_bytes: int | None
     checksum_sha256: str | None
     metadata: dict[str, Any]
-    created_by_type: ActorType | None
+    created_by_client: str | None
     created_by: str | None
-    updated_by_type: ActorType | None
+    updated_by_client: str | None
     updated_by: str | None
     created_at: datetime
     updated_at: datetime

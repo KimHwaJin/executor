@@ -17,7 +17,6 @@ async def main() -> None:
                     idempotency_key=f"cancel-smoke-submit-{unique}",
                     operation_mode="SINGLE",
                     trigger_type="INTERACTIVE",
-                    actor={"type": "USER", "id": "smoke-user"},
                     runtime_profile="default",
                     spec=inline_spec(
                         [
@@ -51,7 +50,6 @@ async def main() -> None:
                     "execution_id": execution_id,
                     "idempotency_key": f"cancel-smoke-cancel-{unique}",
                     "reason": "cancel smoke test",
-                    "actor": {"type": "USER", "id": "smoke-user"},
                 }
             },
         )

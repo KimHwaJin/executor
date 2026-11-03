@@ -139,7 +139,6 @@ class AgentExecutionRequest(BaseModel):
             },
             "trigger": {
                 "type": "INTERACTIVE",
-                "actor": {"type": "AGENT", "id": self.actor_id},
             },
             "runtime": {"type": "JUPYTER", "profile": self.runtime_profile},
             "operation": {

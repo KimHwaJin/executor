@@ -6,7 +6,6 @@ from typing import Any, Literal
 from uuid import UUID, uuid4
 
 from executor_service.domain.enums import (
-    ActorType,
     CodeSourceType,
     ExecutionStatus,
     FailureType,
@@ -79,9 +78,9 @@ class ExecutionStep:
     result_representation_count: int = 0
     result_total_size_bytes: int = 0
     error_message: str | None = None
-    created_by_type: ActorType | None = None
+    created_by_client: str | None = None
     created_by: str | None = None
-    updated_by_type: ActorType | None = None
+    updated_by_client: str | None = None
     updated_by: str | None = None
     created_at: datetime = field(default_factory=utc_now)
     updated_at: datetime = field(default_factory=utc_now)
@@ -104,9 +103,9 @@ class Execution:
     tenant_id: str
     operation_wait_timeout_seconds: int | None = None
     runtime_type: RuntimeType = RuntimeType.JUPYTER
-    created_by_type: ActorType | None = None
+    created_by_client: str | None = None
     created_by: str | None = None
-    updated_by_type: ActorType | None = None
+    updated_by_client: str | None = None
     updated_by: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
     steps: list[ExecutionStep] = field(default_factory=list)
@@ -306,9 +305,9 @@ class ExecutionOperation:
     status: OperationStatus = OperationStatus.QUEUED
     execution_attempt_id: UUID | None = None
     error_message: str | None = None
-    created_by_type: ActorType | None = None
+    created_by_client: str | None = None
     created_by: str | None = None
-    updated_by_type: ActorType | None = None
+    updated_by_client: str | None = None
     updated_by: str | None = None
     id: UUID = field(default_factory=uuid4)
     created_at: datetime = field(default_factory=utc_now)
@@ -324,9 +323,9 @@ class ExecutionEvent:
     event_type: str
     payload: dict[str, Any]
     schema_version: str = "1.0"
-    created_by_type: ActorType | None = None
+    created_by_client: str | None = None
     created_by: str | None = None
-    updated_by_type: ActorType | None = None
+    updated_by_client: str | None = None
     updated_by: str | None = None
     id: UUID = field(default_factory=uuid4)
     created_at: datetime = field(default_factory=utc_now)

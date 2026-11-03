@@ -51,7 +51,7 @@ class MaintenanceRunCommands:
         request_fingerprint = canonical_sha256(
             {
                 "action": command.action.value,
-                "actor_type": command.actor_type.value,
+                "actor_client": command.actor_client,
                 "actor_id": command.actor_id,
             }
         )
@@ -96,7 +96,7 @@ class MaintenanceRunCommands:
             if maintenance.admission_state != ExecutorAdmissionState.DRAINING:
                 maintenance.admission_state = ExecutorAdmissionState.DRAINING
                 maintenance.version += 1
-            maintenance.updated_by_type = command.actor_type
+            maintenance.updated_by_client = command.actor_client
             maintenance.updated_by = command.actor_id
             maintenance.updated_at = now
 
@@ -124,9 +124,9 @@ class MaintenanceRunCommands:
                 request_fingerprint=request_fingerprint,
                 action=command.action,
                 status=status,
-                created_by_type=command.actor_type,
+                created_by_client=command.actor_client,
                 created_by=command.actor_id,
-                updated_by_type=command.actor_type,
+                updated_by_client=command.actor_client,
                 updated_by=command.actor_id,
                 started_at=now if not selected else None,
                 finished_at=now if not selected else None,
@@ -139,9 +139,9 @@ class MaintenanceRunCommands:
                         execution_id=execution_id,
                         selected_execution_status=execution_status,
                         status=MaintenanceRunTargetStatus.PENDING,
-                        created_by_type=command.actor_type,
+                        created_by_client=command.actor_client,
                         created_by=command.actor_id,
-                        updated_by_type=command.actor_type,
+                        updated_by_client=command.actor_client,
                         updated_by=command.actor_id,
                     )
                     for execution_id, execution_status in selected

@@ -484,8 +484,6 @@ async def _run_correction_and_finalization_case(
     redis: Redis,
     stream: str,
 ) -> CaseResult:
-    user_id = f"multi-flow-{unique}-user"
-    actor = {"type": "USER", "id": user_id}
     submitted = await _mcp_result(
         mcp,
         "execution_submit",
@@ -496,7 +494,6 @@ async def _run_correction_and_finalization_case(
                 operation_wait_timeout_seconds=600,
                 trigger_type="INTERACTIVE",
                 runtime_profile=runtime_profile,
-                actor=actor,
                 spec=inline_spec(
                     [
                         {
@@ -533,7 +530,6 @@ async def _run_correction_and_finalization_case(
         json_body={
             "idempotency_key": f"multi-flow-continue-1-{unique}",
             "expected_version": first["state"]["version"],
-            "actor": actor,
             "spec": _single_step_spec(
                 1,
                 skill_name="eda",
@@ -577,7 +573,6 @@ async def _run_correction_and_finalization_case(
                 "execution_id": execution_id,
                 "idempotency_key": f"multi-flow-continue-2-{unique}",
                 "expected_version": second["state"]["version"],
-                "actor": actor,
                 "spec": _single_step_spec(
                     2,
                     skill_name="modeling",
@@ -631,7 +626,6 @@ async def _run_correction_and_finalization_case(
         json_body={
             "idempotency_key": f"multi-flow-continue-3-{unique}",
             "expected_version": failed["state"]["version"],
-            "actor": actor,
             "spec": _single_step_spec(
                 3,
                 skill_name="evaluation",
@@ -677,7 +671,6 @@ async def _run_correction_and_finalization_case(
                 "execution_id": execution_id,
                 "idempotency_key": f"multi-flow-finish-{unique}",
                 "expected_version": corrected["state"]["version"],
-                "actor": actor,
             }
         },
     )
@@ -896,8 +889,6 @@ async def _run_running_cancel_case(
     redis: Redis,
     stream: str,
 ) -> CaseResult:
-    user_id = f"multi-cancel-{unique}-user"
-    actor = {"type": "USER", "id": user_id}
     submitted = await _rest_json(
         rest,
         "POST",
@@ -908,7 +899,6 @@ async def _run_running_cancel_case(
             operation_wait_timeout_seconds=600,
             trigger_type="INTERACTIVE",
             runtime_profile=runtime_profile,
-            actor=actor,
             spec=inline_spec(
                 [
                     {
@@ -972,7 +962,6 @@ async def _run_running_cancel_case(
                 "execution_id": execution_id,
                 "idempotency_key": f"multi-cancel-command-{unique}",
                 "reason": "multi running cancellation regression E2E",
-                "actor": actor,
             }
         },
     )

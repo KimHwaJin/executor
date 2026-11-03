@@ -471,7 +471,6 @@ def test_completed_event_carries_optional_execution_identity() -> None:
     identity = {
         "trigger": {
             "type": "BATCH",
-            "actor": {"type": "USER", "id": "batch-owner"},
         },
         "context": {
             "user_id": "batch-owner",

@@ -306,7 +306,6 @@ async def test_executions_are_scoped_to_tenant_and_user(auth_app) -> None:
         f"{location}/cancel",
         json={
             "idempotency_key": "cancel-other",
-            "actor": {"type": "USER", "id": "b"},
         },
         headers=_headers(AGENT_KEY, "b"),
     )
@@ -326,7 +325,6 @@ async def test_writes_require_a_user(auth_app) -> None:
         f"{location}/cancel",
         json={
             "idempotency_key": "cancel-system",
-            "actor": {"type": "USER", "id": "system"},
         },
         headers=_headers(AGENT_KEY, None),
     )

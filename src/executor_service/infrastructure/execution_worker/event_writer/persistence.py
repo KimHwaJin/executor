@@ -25,14 +25,14 @@ async def persist_execution_event(
     if execution is None:
         raise ValueError(f"Execution {execution_id} was not found.")
     event_sequence = await next_execution_event_sequence(session, execution_id)
-    actor_type = execution.updated_by_type or execution.created_by_type
+    actor_client = execution.updated_by_client or execution.created_by_client
     actor_id = execution.updated_by or execution.created_by
     event = build_execution_event(
         execution_id=execution_id,
         event_sequence=event_sequence,
         event_type=event_type,
         payload=payload,
-        actor_type=actor_type,
+        actor_client=actor_client,
         actor_id=actor_id,
     )
     session.add(ExecutionEventORM.from_domain(event))

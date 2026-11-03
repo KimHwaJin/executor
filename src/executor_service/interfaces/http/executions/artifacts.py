@@ -15,6 +15,7 @@ from executor_service.interfaces.contracts import (
 from executor_service.interfaces.http.executions.common import (
     DOMAIN_ERROR_RESPONSES,
     ArtifactLimit,
+    CurrentCaller,
     Cursor,
     execution_router,
 )
@@ -54,9 +55,10 @@ def build_artifact_router(container: ApplicationContainer) -> APIRouter:
         execution_id: UUID,
         request: ExecutionArtifactMaterializeRequest,
         response: Response,
+        caller: CurrentCaller,
     ) -> ExecutionArtifactResponse:
         artifact_id = await container.materialized_artifacts.materialize(
-            request.to_command(execution_id)
+            request.to_command(execution_id, caller)
         )
         response.headers["Location"] = f"/api/v1/artifacts/{artifact_id}"
         view = await execution_queries.artifact(artifact_id)

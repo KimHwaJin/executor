@@ -15,19 +15,15 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
-from executor_service.domain.enums import ActorType
 from executor_service.infrastructure.db.base import Base
 from executor_service.infrastructure.db.models.common import (
     UTCDateTime,
-    audit_actor_constraints,
-    enum_type,
 )
 
 
 class ExecutionDiagnosticORM(Base):
     __tablename__ = "execution_diagnostics"
     __table_args__ = (
-        *audit_actor_constraints(),
         CheckConstraint("fencing_token >= 1", name="positive_fencing_token"),
         CheckConstraint(
             "step_sequence IS NULL OR step_sequence >= 0",
@@ -62,11 +58,11 @@ class ExecutionDiagnosticORM(Base):
     occurred_at: Mapped[datetime] = mapped_column(UTCDateTime())
     created_at: Mapped[datetime] = mapped_column(UTCDateTime())
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime())
-    created_by_type: Mapped[ActorType | None] = mapped_column(
-        enum_type(ActorType, "actor_type"), nullable=True
+    created_by_client: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
     )
     created_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    updated_by_type: Mapped[ActorType | None] = mapped_column(
-        enum_type(ActorType, "actor_type"), nullable=True
+    updated_by_client: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
     )
     updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)

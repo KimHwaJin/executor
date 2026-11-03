@@ -12,7 +12,6 @@ from executor_service.application.execution_queries import (
 )
 from executor_service.application.pagination import Page
 from executor_service.domain.enums import (
-    ActorType,
     ExecutionStatus,
     FailureType,
     FinalizedBy,
@@ -42,31 +41,8 @@ class ExecutionContext(ContractModel):
     session_id: str | None
 
 
-class ExecutionActor(ContractModel):
-    type: ActorType
-    id: str
-
-
 class ExecutionTrigger(ContractModel):
-    """Submit trigger; the actor is the immutable submitter (created_by)."""
-
     type: TriggerType
-    actor: ExecutionActor | None
-
-
-def execution_trigger(
-    trigger_type: TriggerType,
-    created_by_type: ActorType | None,
-    created_by: str | None,
-) -> ExecutionTrigger:
-    return ExecutionTrigger(
-        type=trigger_type,
-        actor=(
-            ExecutionActor(type=created_by_type, id=created_by)
-            if created_by_type is not None and created_by is not None
-            else None
-        ),
-    )
 
 
 class ExecutionRuntime(ContractModel):
@@ -164,11 +140,7 @@ def _execution_common(
             finished_at=execution.finished_at,
         ),
         "trigger_type": execution.trigger_type,
-        "trigger": execution_trigger(
-            execution.trigger_type,
-            execution.created_by_type,
-            execution.created_by,
-        ),
+        "trigger": ExecutionTrigger(type=execution.trigger_type),
         "context": ExecutionContext(
             user_id=execution.user_id,
             project_id=execution.project_id,
@@ -198,9 +170,9 @@ def _execution_common(
                 execution.retained_runtime_session_until
             ),
         ),
-        "created_by_type": execution.created_by_type,
+        "created_by_client": execution.created_by_client,
         "created_by": execution.created_by,
-        "updated_by_type": execution.updated_by_type,
+        "updated_by_client": execution.updated_by_client,
         "updated_by": execution.updated_by,
         "created_at": execution.created_at,
         "updated_at": execution.updated_at,
@@ -250,9 +222,9 @@ class ExecutionCommandResponse(AuditFields):
                 status=execution.status,
                 version=execution.version,
             ),
-            created_by_type=execution.created_by_type,
+            created_by_client=execution.created_by_client,
             created_by=execution.created_by,
-            updated_by_type=execution.updated_by_type,
+            updated_by_client=execution.updated_by_client,
             updated_by=execution.updated_by,
             created_at=execution.created_at,
             updated_at=execution.updated_at,
@@ -331,11 +303,7 @@ class ExecutionSummaryResponse(AuditFields):
             execution_id=execution.id,
             operation_mode=execution.operation_mode,
             trigger_type=execution.trigger_type,
-            trigger=execution_trigger(
-                execution.trigger_type,
-                execution.created_by_type,
-                execution.created_by,
-            ),
+            trigger=ExecutionTrigger(type=execution.trigger_type),
             context=ExecutionContext(
                 user_id=execution.user_id,
                 project_id=execution.project_id,
@@ -352,9 +320,9 @@ class ExecutionSummaryResponse(AuditFields):
                 finished_at=execution.finished_at,
             ),
             step_count=execution.step_count,
-            created_by_type=execution.created_by_type,
+            created_by_client=execution.created_by_client,
             created_by=execution.created_by,
-            updated_by_type=execution.updated_by_type,
+            updated_by_client=execution.updated_by_client,
             updated_by=execution.updated_by,
             created_at=execution.created_at,
             updated_at=execution.updated_at,

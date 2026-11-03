@@ -72,7 +72,7 @@ class MaintenanceRunReconciler:
                             "Stopped by Executor Maintenance Run "
                             f"{lease.run_id}."
                         ),
-                        actor_type=lease.actor_type,
+                        actor_client=lease.actor_client,
                         actor_id=lease.actor_id,
                     )
                 )
@@ -128,7 +128,7 @@ class MaintenanceRunReconciler:
                 run_id=run.id,
                 owner=owner,
                 fencing_token=run.fencing_token,
-                actor_type=run.created_by_type,
+                actor_client=run.created_by_client,
                 actor_id=run.created_by,
             )
 

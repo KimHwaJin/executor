@@ -54,7 +54,6 @@ async def _submit(
                 idempotency_key=f"source-report-{label}-submit-{unique}",
                 operation_mode="SINGLE",
                 trigger_type="INTERACTIVE",
-                actor={"type": "USER", "id": "source-report-user"},
                 runtime_profile="default",
                 spec={"schema_version": "1.0", "steps": [_step(source)]},
             )
@@ -92,7 +91,6 @@ async def _create_report(
                     "test_run_id": unique,
                     "source_type": label.upper(),
                 },
-                "actor": {"type": "USER", "id": "source-report-user"},
             }
         },
     )

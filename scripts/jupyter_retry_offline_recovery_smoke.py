@@ -56,7 +56,6 @@ async def _upsert_server(
                 "credential": token,
                 "pool": "INTERACTIVE",
                 "max_concurrent_executions": 2,
-                "actor": {"type": "USER", "id": "retry-offline-operator"},
             }
         },
     )
@@ -99,7 +98,6 @@ async def main() -> None:
                     idempotency_key=f"retry-offline-submit-{unique}",
                     operation_mode="SINGLE",
                     trigger_type="INTERACTIVE",
-                    actor={"type": "USER", "id": "retry-offline-user"},
                     runtime_profile="default",
                     spec=inline_spec(
                         [
@@ -156,7 +154,6 @@ async def main() -> None:
                     "request": {
                         "execution_id": execution_id,
                         "idempotency_key": f"retry-offline-command-{unique}",
-                        "actor": {"type": "USER", "id": "retry-offline-user"},
                     }
                 },
             )

@@ -134,7 +134,6 @@ async def main() -> None:
         max(operation_durations) + timeout_margin_seconds
     )
     operation_wait_timeout_seconds = max(3600, operation_timeout_seconds)
-    actor = {"type": "USER", "id": "multi-soak-user"}
     all_samples: list[dict[str, Any]] = []
     waiting_states: list[dict[str, Any]] = []
 
@@ -154,7 +153,6 @@ async def main() -> None:
                     operation_mode="MULTI",
                     operation_wait_timeout_seconds=operation_wait_timeout_seconds,
                     trigger_type="INTERACTIVE",
-                    actor=actor,
                     runtime_profile=runtime_profile,
                     operation_timeout_seconds=operation_timeout_seconds,
                     spec=_single_step_spec(
@@ -235,7 +233,6 @@ async def main() -> None:
                                 step_timeout_seconds=step_timeout_seconds,
                             ),
                             "metadata": {"operation_index": next_index},
-                            "actor": actor,
                         }
                     },
                 )
@@ -252,7 +249,6 @@ async def main() -> None:
                     "execution_id": execution_id,
                     "idempotency_key": f"multi-soak-finalize-{run_id}",
                     "expected_version": waiting_states[-1]["version"],
-                    "actor": actor,
                 }
             },
         )
@@ -342,7 +338,7 @@ async def main() -> None:
         target = await required_tool_result(
             client,
             "runtime_target_probe",
-            {"request": {"target_id": retained_target_id, "actor": actor}},
+            {"request": {"target_id": retained_target_id}},
         )
         if target["capacity"]["active_execution_count"] != 0:
             raise RuntimeError(

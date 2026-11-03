@@ -14,7 +14,6 @@ from executor_service.application.runtime_targets import (
 )
 from executor_service.application.services import ExecutionService
 from executor_service.domain.enums import (
-    ActorType,
     ArtifactStatus,
     ArtifactStorageType,
     ArtifactType,
@@ -92,7 +91,7 @@ async def test_purge_preserves_history_and_new_registration_identity(
     attempt_id, artifact_id = await _history(factory, execution.id, target.id)
     await registry.disable(DisableRuntimeTargetCommand("disable", target.id))
     driver.reset_mock()
-    command = PurgeRuntimeTargetCommand(target.id, ActorType.USER, "first")
+    command = PurgeRuntimeTargetCommand(target.id, "test-client", "first")
     removed = await registry.purge(command)
     repeated = await registry.purge(replace(command, actor_id="second"))
     assert removed == repeated

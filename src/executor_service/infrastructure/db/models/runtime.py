@@ -19,7 +19,6 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, validates
 
 from executor_service.domain.enums import (
-    ActorType,
     RuntimePool,
     RuntimeTargetStatus,
     RuntimeType,
@@ -28,7 +27,6 @@ from executor_service.domain.models import utc_now
 from executor_service.infrastructure.db.base import Base
 from executor_service.infrastructure.db.models.common import (
     UTCDateTime,
-    audit_actor_constraints,
     enum_type,
 )
 
@@ -36,7 +34,6 @@ from executor_service.infrastructure.db.models.common import (
 class RuntimeTargetORM(Base):
     __tablename__ = "runtime_targets"
     __table_args__ = (
-        *audit_actor_constraints(),
         CheckConstraint(
             "status IN ('ACTIVE', 'DRAINING', 'OFFLINE')",
             name="valid_runtime_target_status",
@@ -119,12 +116,12 @@ class RuntimeTargetORM(Base):
     resource_errors: Mapped[list[str]] = mapped_column(
         JSON, nullable=False, default=list
     )
-    created_by_type: Mapped[ActorType | None] = mapped_column(
-        enum_type(ActorType, "actor_type"), nullable=True
+    created_by_client: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
     )
     created_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    updated_by_type: Mapped[ActorType | None] = mapped_column(
-        enum_type(ActorType, "actor_type"), nullable=True
+    updated_by_client: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
     )
     updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -147,7 +144,6 @@ class RuntimeTargetPurgeORM(Base):
 
     __tablename__ = "runtime_target_purges"
     __table_args__ = (
-        *audit_actor_constraints(),
         CheckConstraint("pool IN ('INTERACTIVE', 'BATCH')", name="valid_pool"),
         CheckConstraint(
             "runtime_type IN ('JUPYTER')", name="valid_runtime_type"
@@ -170,12 +166,12 @@ class RuntimeTargetPurgeORM(Base):
     pool: Mapped[RuntimePool] = mapped_column(
         enum_type(RuntimePool, "runtime_target_purge_pool"), nullable=False
     )
-    created_by_type: Mapped[ActorType | None] = mapped_column(
-        enum_type(ActorType, "actor_type"), nullable=True
+    created_by_client: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
     )
     created_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    updated_by_type: Mapped[ActorType | None] = mapped_column(
-        enum_type(ActorType, "actor_type"), nullable=True
+    updated_by_client: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
     )
     updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(

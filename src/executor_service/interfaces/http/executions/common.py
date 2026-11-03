@@ -11,6 +11,7 @@ from executor_service.domain.errors import (
 )
 from executor_service.interfaces.auth import (
     READ_METHODS,
+    SCOPE_ID,
     Caller,
     authorize_execution,
     current_caller,
@@ -26,6 +27,8 @@ EventLimit = Annotated[int, Query(ge=1, le=500)]
 EventSequence = Annotated[int, Query(ge=0)]
 ArtifactLimit = Annotated[int, Query(ge=1, le=1000)]
 Cursor = Annotated[str | None, Query(max_length=2048)]
+# Same format as X-Project-Id/X-Session-Id: a filter, not the caller's scope.
+ScopeFilter = Annotated[str | None, Query(pattern=SCOPE_ID.pattern)]
 NotebookLimit = Annotated[int, Query(ge=1, le=200)]
 NotebookStartIndex = Annotated[int, Query(ge=0)]
 

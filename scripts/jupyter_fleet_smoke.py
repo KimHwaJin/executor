@@ -37,7 +37,6 @@ async def main() -> None:
                     "connection_config": {"endpoint": "http://127.0.0.1:8888"},
                     "pool": "INTERACTIVE",
                     "max_concurrent_executions": 1,
-                    "actor": {"type": "USER", "id": "fleet-operator"},
                 }
             },
         )
@@ -52,7 +51,6 @@ async def main() -> None:
                     "credential": secondary_token,
                     "pool": "INTERACTIVE",
                     "max_concurrent_executions": 1,
-                    "actor": {"type": "USER", "id": "fleet-operator"},
                 }
             },
         )
@@ -74,7 +72,6 @@ async def main() -> None:
                         idempotency_key=f"fleet-execution-{unique}-{index}",
                         operation_mode="SINGLE",
                         trigger_type="INTERACTIVE",
-                        actor={"type": "USER", "id": "fleet-user"},
                         runtime_profile="default",
                         spec=inline_spec(
                             [

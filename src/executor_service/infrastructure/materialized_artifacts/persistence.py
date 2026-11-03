@@ -180,9 +180,9 @@ class MaterializedArtifactPersistence:
                         "source_type": command.source_type.value,
                     },
                     identity_hash=identity_hash,
-                    created_by_type=command.actor_type,
+                    created_by_client=command.actor_client,
                     created_by=command.actor_id,
-                    updated_by_type=command.actor_type,
+                    updated_by_client=command.actor_client,
                     updated_by=command.actor_id,
                 )
                 session.add(artifact)

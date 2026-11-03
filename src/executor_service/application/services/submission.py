@@ -115,9 +115,9 @@ class ExecutionSubmissionCommands:
                     idempotency_key=command.idempotency_key,
                     request_fingerprint=request_fingerprint,
                     schema_version=command.spec_schema_version,
-                    created_by_type=command.actor_type,
+                    created_by_client=command.actor_client,
                     created_by=command.actor_id,
-                    updated_by_type=command.actor_type,
+                    updated_by_client=command.actor_client,
                     updated_by=command.actor_id,
                 )
                 execution = Execution(
@@ -135,9 +135,9 @@ class ExecutionSubmissionCommands:
                     project_id=command.project_id,
                     session_id=command.session_id,
                     tenant_id=command.tenant_id,
-                    created_by_type=command.actor_type,
+                    created_by_client=command.actor_client,
                     created_by=command.actor_id,
-                    updated_by_type=command.actor_type,
+                    updated_by_client=command.actor_client,
                     updated_by=command.actor_id,
                     metadata=command.metadata,
                     steps=[
@@ -153,9 +153,9 @@ class ExecutionSubmissionCommands:
                             tool_name=step.tool_name,
                             input_parameters=step.input_parameters,
                             operation_id=operation.id,
-                            created_by_type=command.actor_type,
+                            created_by_client=command.actor_client,
                             created_by=command.actor_id,
-                            updated_by_type=command.actor_type,
+                            updated_by_client=command.actor_client,
                             updated_by=command.actor_id,
                         )
                         for step in command.steps

@@ -7,7 +7,6 @@ from uuid import UUID
 
 from executor_service.application.pagination import Page
 from executor_service.domain.diagnostics import RuntimeDiagnostic
-from executor_service.domain.enums import ActorType
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,9 +22,9 @@ class DiagnosticView:
     occurred_at: datetime
     created_at: datetime
     updated_at: datetime
-    created_by_type: ActorType | None
+    created_by_client: str | None
     created_by: str | None
-    updated_by_type: ActorType | None
+    updated_by_client: str | None
     updated_by: str | None
 
 

@@ -77,9 +77,9 @@ class SQLAlchemyEventReader:
                 publish_attempt_count=(
                     outbox.attempt_count if outbox else None
                 ),
-                created_by_type=event.created_by_type,
+                created_by_client=event.created_by_client,
                 created_by=event.created_by,
-                updated_by_type=event.updated_by_type,
+                updated_by_client=event.updated_by_client,
                 updated_by=event.updated_by,
                 available_at=outbox.available_at if outbox else None,
                 created_at=event.created_at,

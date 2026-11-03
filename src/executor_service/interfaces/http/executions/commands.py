@@ -12,6 +12,7 @@ from executor_service.application.commands import (
     StepSpec,
 )
 from executor_service.container import ApplicationContainer
+from executor_service.interfaces.auth import require_user
 from executor_service.interfaces.contracts import (
     ExecutionCommandResponse,
     ExecutionSubmitRequest,
@@ -74,14 +75,15 @@ def build_command_router(container: ApplicationContainer) -> APIRouter:
         execution_id: UUID,
         request: ExecutionCancelRequest,
         response: Response,
+        caller: CurrentCaller,
     ) -> ExecutionCommandResponse:
         execution = await execution_service.cancel(
             CancelExecutionCommand(
                 execution_id=execution_id,
                 idempotency_key=request.idempotency_key,
                 reason=request.reason,
-                actor_type=request.actor.type,
-                actor_id=request.actor.id,
+                actor_client=caller.client,
+                actor_id=require_user(caller),
             )
         )
         response.headers["Location"] = f"/api/v1/executions/{execution.id}"
@@ -98,13 +100,14 @@ def build_command_router(container: ApplicationContainer) -> APIRouter:
         execution_id: UUID,
         request: ExecutionRetryRequest,
         response: Response,
+        caller: CurrentCaller,
     ) -> ExecutionCommandResponse:
         result = await execution_service.retry_result(
             RetryExecutionCommand(
                 execution_id=execution_id,
                 idempotency_key=request.idempotency_key,
-                actor_type=request.actor.type,
-                actor_id=request.actor.id,
+                actor_client=caller.client,
+                actor_id=require_user(caller),
             )
         )
         response.headers["Location"] = (
@@ -125,6 +128,7 @@ def build_command_router(container: ApplicationContainer) -> APIRouter:
         execution_id: UUID,
         request: ExecutionOperationCreateRequest,
         response: Response,
+        caller: CurrentCaller,
     ) -> ExecutionCommandResponse:
         resolved = await resolver.resolve(request.spec)
         source_steps = resolved.steps
@@ -152,8 +156,8 @@ def build_command_router(container: ApplicationContainer) -> APIRouter:
                     )
                     for source_step in source_steps
                 ),
-                actor_type=request.actor.type,
-                actor_id=request.actor.id,
+                actor_client=caller.client,
+                actor_id=require_user(caller),
             )
         )
         execution = result.execution
@@ -176,14 +180,15 @@ def build_command_router(container: ApplicationContainer) -> APIRouter:
         execution_id: UUID,
         request: ExecutionFinalizeRequest,
         response: Response,
+        caller: CurrentCaller,
     ) -> ExecutionCommandResponse:
         execution = await execution_service.finalize_execution(
             FinalizeExecutionCommand(
                 execution_id=execution_id,
                 idempotency_key=request.idempotency_key,
                 expected_version=request.expected_version,
-                actor_type=request.actor.type,
-                actor_id=request.actor.id,
+                actor_client=caller.client,
+                actor_id=require_user(caller),
             )
         )
         response.headers["Location"] = f"/api/v1/executions/{execution.id}"

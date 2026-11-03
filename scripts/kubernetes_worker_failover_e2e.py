@@ -286,7 +286,6 @@ async def run(config: Config) -> dict[str, Any]:
             idempotency_key=f"kube-worker-loss-submit-{unique}",
             operation_mode="SINGLE",
             trigger_type="INTERACTIVE",
-            actor={"type": "USER", "id": "kube-failover-validator"},
             runtime_profile=config.runtime_profile,
             spec=inline_spec(
                 [
@@ -357,10 +356,6 @@ async def run(config: Config) -> dict[str, Any]:
             f"/api/v1/executions/{execution_id}/retry",
             json={
                 "idempotency_key": f"kube-worker-loss-retry-{unique}",
-                "actor": {
-                    "type": "USER",
-                    "id": "kube-failover-validator",
-                },
             },
         )
         retry.raise_for_status()

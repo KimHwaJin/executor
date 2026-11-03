@@ -28,12 +28,6 @@ class TriggerType(StrEnum):
     BATCH = "BATCH"
 
 
-class ActorType(StrEnum):
-    AGENT = "AGENT"
-    USER = "USER"
-    BATCH = "BATCH"
-
-
 class ExecutorAdmissionState(StrEnum):
     ACTIVE = "ACTIVE"
     DRAINING = "DRAINING"

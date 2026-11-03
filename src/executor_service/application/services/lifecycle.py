@@ -62,7 +62,7 @@ class ExecutionLifecycleCommands:
                         f"Execution {command.execution_id} was not found."
                     )
                 execution.request_finalization(command.expected_version)
-                apply_actor(execution, command.actor_type, command.actor_id)
+                apply_actor(execution, command.actor_client, command.actor_id)
                 await uow.executions.save(execution)
                 await uow.executions.add_command_receipt(
                     execution.id,
@@ -104,7 +104,7 @@ class ExecutionLifecycleCommands:
                 execution.request_cancel(
                     command.idempotency_key, command.reason
                 )
-                apply_actor(execution, command.actor_type, command.actor_id)
+                apply_actor(execution, command.actor_client, command.actor_id)
                 await uow.executions.save(execution)
                 await uow.commit()
                 return execution
@@ -146,21 +146,21 @@ class ExecutionLifecycleCommands:
                 operation_id = required_operation_id(
                     execution.active_operation_id
                 )
-                apply_actor(execution, command.actor_type, command.actor_id)
+                apply_actor(execution, command.actor_client, command.actor_id)
                 for step in execution.steps:
                     if (
                         execution.retry_from_sequence is not None
                         and step.sequence >= execution.retry_from_sequence
                     ):
                         apply_step_actor(
-                            step, command.actor_type, command.actor_id
+                            step, command.actor_client, command.actor_id
                         )
                 if execution.retry_from_sequence is None:
                     raise RuntimeError("Retry sequence unexpectedly missing.")
                 await uow.executions.save(execution)
                 await uow.executions.requeue_operation_for_retry(
                     operation_id,
-                    updated_by_type=command.actor_type,
+                    updated_by_client=command.actor_client,
                     updated_by=command.actor_id,
                 )
                 await uow.executions.add_retry_receipt(
