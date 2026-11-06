@@ -467,7 +467,7 @@ def test_relay_only_settings_and_unique_keys() -> None:
 
 async def test_openapi_documents_the_identity_headers(auth_app) -> None:
     client, _ = auth_app
-    schema = (await client.get("/openapi.json")).json()
+    schema = (await client.get("/openapi")).json()
     assert schema["components"]["securitySchemes"]["APIKeyHeader"] == {
         "type": "apiKey",
         "in": "header",

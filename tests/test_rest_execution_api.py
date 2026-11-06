@@ -157,11 +157,11 @@ async def test_openapi_documents_all_execution_routes(
 ) -> None:
     client, _ = rest_client
     docs = await client.get("/docs")
-    openapi = await client.get("/openapi.json")
+    schema = await client.get("/openapi")
 
     assert docs.status_code == 200
-    assert openapi.status_code == 200
-    paths = openapi.json()["paths"]
+    assert schema.status_code == 200
+    paths = schema.json()["paths"]
     expected_methods = {
         "/api/v1/executions": {"get", "post"},
         "/api/v1/executions/{execution_id}": {"get"},
@@ -1369,7 +1369,7 @@ async def test_docs_and_openapi_are_off_when_disabled(tmp_path: Path) -> None:
         async with httpx.AsyncClient(
             transport=transport, base_url="http://testserver"
         ) as client:
-            for path in ("/docs", "/redoc", "/openapi.json"):
+            for path in ("/docs", "/redoc", "/openapi"):
                 assert (await client.get(path)).status_code == 404, path
     finally:
         await container.redis.aclose()

@@ -89,7 +89,7 @@ def create_app(
         # None removes the route, so a disabled page answers 404.
         docs_url="/docs" if docs_enabled else None,
         redoc_url="/redoc" if docs_enabled else None,
-        openapi_url="/openapi.json" if docs_enabled else None,
+        openapi_url="/openapi" if docs_enabled else None,
         openapi_tags=openapi_tags,
         lifespan=lifespan,
     )

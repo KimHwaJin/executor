@@ -47,7 +47,7 @@ PUBLIC_PATHS = frozenset(
         "/docs",
         "/docs/oauth2-redirect",
         "/redoc",
-        "/openapi.json",
+        "/openapi",
     }
 )
 # Tenant-independent operations reserved for admin keys.

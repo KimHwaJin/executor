@@ -34,7 +34,7 @@ authoritative state store and execution happens asynchronously through the Worke
 ## Authentication and identity
 
 One ASGI middleware authenticates every request, REST and MCP alike. Only the probes
-(`/healthz`, `/readyz`) and the API docs (`/docs`, `/redoc`, `/openapi.json`) skip it.
+(`/healthz`, `/readyz`) and the API docs (`/docs`, `/redoc`, `/openapi`) skip it.
 OpenAPI declares these headers on every route, so Swagger UI shows them as inputs and its
 **Authorize** button sets `X-Api-Key`.
 
@@ -160,7 +160,7 @@ selected Runtime Driver to persist its final execution record, releases the reta
 session, and reaches a terminal state. The Jupyter driver writes the final notebook.
 
 All list endpoints use opaque cursor pagination. Clients must return `next_cursor` unchanged.
-OpenAPI is available at `/openapi.json`, Swagger UI at `/docs`, and ReDoc at `/redoc` unless
+OpenAPI is available at `/openapi`, Swagger UI at `/docs`, and ReDoc at `/redoc` unless
 `DOCS_ENABLED=false`. The default is on for local runs and dev; stg and prd turn it off under
 internal-network rules, and the routes then answer 404. Use the generated ReDoc HTML in
 `dev_docs/` instead.

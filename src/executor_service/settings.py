@@ -119,7 +119,7 @@ class Settings(BaseSettings):
     # Seconds open HTTP requests get to finish on SIGTERM before Uvicorn
     # closes them; Worker drain runs after this inside the Pod grace period.
     http_graceful_shutdown_seconds: int = Field(default=20, ge=0)
-    # /docs, /redoc and /openapi.json; stg and prd turn them off.
+    # /docs, /redoc and /openapi; stg and prd turn them off.
     docs_enabled: bool = True
 
     database_url: SecretStr = SecretStr(

@@ -10,7 +10,7 @@ Agent, BFF, 배치 서비스가 Executor를 호출할 때 읽는 단일 문서�
 - 시각은 모두 UTC ISO-8601, 시간 값은 모두 초 단위 정수다.
 - 전체 스키마: [Execution ReDoc](execution-api-redoc.html),
   [제출 API ReDoc](post-executions-redoc.html). 개발계 서버는 `/docs`, `/redoc`,
-  `/openapi.json`도 제공한다(stg·prd는 `DOCS_ENABLED=false`라 404).
+  `/openapi`도 제공한다(stg·prd는 `DOCS_ENABLED=false`라 404).
 
 ## 1. 식별자는 어디로 보내나
 
