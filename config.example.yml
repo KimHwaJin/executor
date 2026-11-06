@@ -51,7 +51,7 @@ REQUEST_BODY_MAX_BYTES: 31457280
 # SIGTERM 후 진행 중인 HTTP 요청이 끝나기를 기다리는 초. 이후 Worker drain이
 # 이어지므로 Pod terminationGracePeriodSeconds 안에 둘 다 들어가야 한다.
 HTTP_GRACEFUL_SHUTDOWN_SECONDS: 20
-# Swagger /docs, /redoc, /openapi.json 노출 여부. [환경별] 로컬·dev는 켜고,
+# Swagger /docs, /redoc, /openapi 노출 여부. [환경별] 로컬·dev는 켜고,
 # 내부망 규정에 따라 stg·prd의 config 파일에서 false로 끈다.
 DOCS_ENABLED: true
 

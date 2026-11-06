@@ -10,7 +10,7 @@ submitted MULTI Operations through a Runtime Driver. Jupyter REST/WebSocket is t
 ## Implemented scope
 
 - Official MCP Python SDK 2.x `MCPServer`, exposed at `POST /mcp`
-- REST execution facade under `/api/v1`; OpenAPI, Swagger UI, and ReDoc at `/openapi.json`,
+- REST execution facade under `/api/v1`; OpenAPI, Swagger UI, and ReDoc at `/openapi`,
   `/docs`, and `/redoc` when `DOCS_ENABLED=true` (the default, also in dev; off in stg and prd)
 - Execution tools: `execution_submit`, `execution_get`,
   `execution_cancel`, `execution_retry`, `execution_operation_create`, `execution_finalize`,
@@ -294,7 +294,7 @@ Operational endpoints:
 - MCP: `http://127.0.0.1:8000/mcp`
 - REST API: `http://127.0.0.1:8000/api/v1`
 - Swagger UI: `http://127.0.0.1:8000/docs` (on unless `DOCS_ENABLED=false`)
-- OpenAPI: `http://127.0.0.1:8000/openapi.json` (same)
+- OpenAPI: `http://127.0.0.1:8000/openapi` (same)
 - liveness: `http://127.0.0.1:8000/healthz`
 - readiness (PostgreSQL schema, Worker admission; Redis not required): `http://127.0.0.1:8000/readyz`
 - Worker lifecycle, active execution count, Redis reachability, and startup reconciliation summary:

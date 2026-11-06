@@ -12,7 +12,7 @@ HOST: 0.0.0.0
 # Listen port; keep deployment containerPort in step.
 PORT: 8000
 HTTP_GRACEFUL_SHUTDOWN_SECONDS: 20
-# Swagger /docs, /redoc and /openapi.json. On for local runs and dev;
+# Swagger /docs, /redoc and /openapi. On for local runs and dev;
 # internal-network rules keep them off in stg and prd.
 DOCS_ENABLED: true
 # Shared PostgreSQL (max_connections 100) with pr-agentic-service and pr-batch.

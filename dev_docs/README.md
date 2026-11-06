@@ -31,7 +31,7 @@
 schema 전체 필드를 담는다. 제출 API만 볼 때는
 [`POST /api/v1/executions` ReDoc HTML](post-executions-redoc.html)을 사용한다.
 Runtime 관리와 maintenance 운영 설명은 [전체 REST 가이드](../docs/rest-api.md)에 있다.
-서비스의 `/docs`, `/redoc`, `/openapi.json`은 로컬 실행과 개발계에서 켜져 있고, 내부망 규정에 따라
+서비스의 `/docs`, `/redoc`, `/openapi`은 로컬 실행과 개발계에서 켜져 있고, 내부망 규정에 따라
 stg와 prd에서는 꺼져 있다(`DOCS_ENABLED=false`, 404).
 
 ## 반드시 구분할 사항

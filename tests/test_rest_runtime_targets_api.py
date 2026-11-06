@@ -166,8 +166,8 @@ async def test_openapi_documents_runtime_fleet_routes_and_never_returns_token(
     fleet_client: tuple[httpx.AsyncClient, ApplicationContainer],
 ) -> None:
     client, _ = fleet_client
-    openapi = await client.get("/openapi.json")
-    paths = openapi.json()["paths"]
+    schema = await client.get("/openapi")
+    paths = schema.json()["paths"]
     assert {
         "/api/v1/runtime-targets",
         "/api/v1/runtime-pools",
