@@ -1,0 +1,18 @@
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: executor
+  labels:
+    app.kubernetes.io/name: executor
+spec:
+  hosts:
+    - executor.frodo.com
+  gateways:
+    # REPLACE: the frodo ingress Gateway, as <namespace>/<name>.
+    - REPLACE_GATEWAY_NAMESPACE/REPLACE_GATEWAY_NAME
+  http:
+    - route:
+        - destination:
+            host: executor
+            port:
+              number: 8000

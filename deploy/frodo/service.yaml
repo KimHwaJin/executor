@@ -1,0 +1,17 @@
+# In-cluster callers (pr-agentic-service, pr-batch) use http://executor:8000;
+# the VirtualService routes the frodo host here too.
+apiVersion: v1
+kind: Service
+metadata:
+  name: executor
+  labels:
+    app.kubernetes.io/name: executor
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: executor
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+      protocol: TCP

@@ -12,6 +12,7 @@ test_harness/jupyter/.native/
 .env
 deploy/kubernetes/secret.yaml
 deploy/kubernetes/deployment.local.yaml
+deploy/frodo/secret.yaml
 .pytest_cache/
 .ruff_cache/
 .coverage
