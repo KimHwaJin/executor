@@ -1,35 +1,26 @@
 # frodo deployment
 
-Plain manifests for the frodo cluster. Settings come from `config.yml` in the image, the
-`executor-config` ConfigMap (mounted as `/app/config.dev.yml`, `APP_ENV=dev`) and the
-`executor-secrets` Secret (environment variables, which win over both files).
+Plain manifests for the frodo cluster. Every setting, credentials included, lives in
+`config.yml` and `config.dev.yml` baked into the image; the Deployment sets only `APP_ENV=dev`.
 
 | File | Resource |
 | --- | --- |
 | `deployment.yaml` | Executor API and Worker, one container |
 | `service.yaml` | `executor:8000` inside the cluster |
 | `virtualservice.yaml` | `executor.frodo.com` through the Istio ingress Gateway |
-| `configmap.yaml` | frodo values without credentials |
-| `secret.example.yaml` | template for `secret.yaml` (Git-ignored) |
 
 ## Before the first apply
 
-1. `deployment.yaml`: the image (`REPLACE_REGISTRY/executor-service:REPLACE_TAG`) and, if it
+1. Fill in `config.dev.yml` outside Git (database, Redis, Fernet key, `AUTH_CLIENTS` hashes,
+   MCP hosts) and build with `docker build --build-arg APP_ENV=dev .`.
+2. `deployment.yaml`: the image (`REPLACE_REGISTRY/executor-service:REPLACE_TAG`) and, if it
    differs, the RWX claim name.
-2. `virtualservice.yaml`: the Gateway, and the host if it is not `executor.frodo.com`.
-3. `configmap.yaml`: the three `AUTH_CLIENTS` hashes ([API Keys](../../docs/api-keys.md)).
-4. `cp secret.example.yaml secret.yaml` and fill in the database, Redis and Fernet values.
+3. `virtualservice.yaml`: the Gateway, and the host if it is not `executor.frodo.com`.
 
 ```bash
-kubectl apply -n <namespace> -f deploy/frodo/secret.yaml
-kubectl apply -n <namespace> -f deploy/frodo/configmap.yaml \
-  -f deploy/frodo/service.yaml -f deploy/frodo/virtualservice.yaml \
-  -f deploy/frodo/deployment.yaml
+kubectl apply -n <namespace> -f deploy/frodo/
 kubectl rollout status -n <namespace> deployment/executor --timeout=660s
 ```
-
-Pods read the ConfigMap and Secret only at startup; after changing either, run
-`kubectl rollout restart -n <namespace> deployment/executor`.
 
 ## After the Pod is Ready
 

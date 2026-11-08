@@ -49,12 +49,11 @@ spec:
             capabilities:
               drop: ["ALL"]
             readOnlyRootFilesystem: true
+          # Settings come from config.yml and config.dev.yml in the image
+          # (docker build --build-arg APP_ENV=dev); APP_ENV must match it.
           env:
             - name: APP_ENV
               value: dev
-          envFrom:
-            - secretRef:
-                name: executor-secrets
           lifecycle:
             preStop:
               # Keep serving until the Service and gateway stop routing here.
@@ -98,18 +97,11 @@ spec:
               cpu: 1500m
               memory: 2Gi
           volumeMounts:
-            - name: config
-              mountPath: /app/config.dev.yml
-              subPath: config.dev.yml
-              readOnly: true
             - name: shared-storage
               mountPath: /mnt/data
             - name: tmp
               mountPath: /tmp
       volumes:
-        - name: config
-          configMap:
-            name: executor-config
         - name: shared-storage
           persistentVolumeClaim:
             # The RWX claim pr-agentic-service and pr-batch mount at /mnt/data.
