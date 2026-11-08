@@ -10,6 +10,7 @@ metadata:
   name: executor
   labels:
     app.kubernetes.io/name: executor
+    app.kubernetes.io/component: application
 spec:
   revisionHistoryLimit: 3
   strategy:
@@ -22,10 +23,15 @@ spec:
   selector:
     matchLabels:
       app.kubernetes.io/name: executor
+      app.kubernetes.io/component: application
+      app.kubernetes.io/component: application
   template:
     metadata:
       labels:
         app.kubernetes.io/name: executor
+        app.kubernetes.io/component: application
+    app.kubernetes.io/component: application
+      app.kubernetes.io/component: application
     spec:
       automountServiceAccountToken: false
       # preStop 5s + open HTTP requests 20s + Worker drain 30s + shutdown
