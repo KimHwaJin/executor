@@ -90,7 +90,7 @@ async def _wait_for_status(
                 "status": status,
                 "version": execution["state"]["version"],
                 "target_id": execution["runtime"]["target_id"],
-                "session_id": execution["runtime"]["session_id"],
+                "session_id": execution["runtime"]["kernel_id"],
                 "attempt": attempt,
             }
         )
@@ -186,7 +186,7 @@ async def main() -> None:
             )
             all_samples.extend(samples)
             target_id = waiting["runtime"]["target_id"]
-            session_id = waiting["runtime"]["session_id"]
+            session_id = waiting["runtime"]["kernel_id"]
             if target_id is None or session_id is None:
                 raise RuntimeError(
                     "Waiting MULTI execution did not retain its Runtime session."
@@ -264,7 +264,7 @@ async def main() -> None:
             poll_interval_seconds=poll_interval_seconds,
         )
         all_samples.extend(final_samples)
-        if terminal["runtime"]["session_id"] is not None:
+        if terminal["runtime"]["kernel_id"] is not None:
             raise RuntimeError(
                 "Finalized MULTI execution retained its Runtime session."
             )

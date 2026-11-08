@@ -99,7 +99,7 @@ def test_agent_example_requires_history_recovery_for_a_gap(
                 "provider": "JUPYTER",
                 "profile": "basic",
                 "target_id": str(uuid4()),
-                "session_id": "kernel-1",
+                "kernel_id": "kernel-1",
             },
         },
         occurred_at=datetime.now(UTC),

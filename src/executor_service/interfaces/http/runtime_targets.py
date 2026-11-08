@@ -176,8 +176,10 @@ def build_runtime_target_router(container: ApplicationContainer) -> APIRouter:
         )
         return RuntimeTargetResponse.from_view(view)
 
-    @router.post(
-        "/runtime-targets/{target_id}/purge",
+    # DELETE is idempotent by definition, so purge takes no idempotency key:
+    # repeating it returns the first purge record.
+    @router.delete(
+        "/runtime-targets/{target_id}",
         response_model=RuntimeTargetPurgeResponse,
         responses=FLEET_ERROR_RESPONSES,
         summary="Remove a disabled target while preserving execution history",

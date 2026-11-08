@@ -33,7 +33,16 @@ class RuntimeSummary(ContractModel):
     provider: str = Field(min_length=1, max_length=64)
     profile: str = Field(min_length=1, max_length=128)
     target_id: UUID
-    session_id: str | None = Field(default=None, max_length=255)
+    kernel_id: str | None = Field(default=None, max_length=255)
+
+    @model_validator(mode="before")
+    @classmethod
+    def accept_stored_session_id(cls, data: Any) -> Any:
+        # Events persisted before the rename name the kernel session_id.
+        if isinstance(data, dict) and "session_id" in data:
+            data = dict(data)
+            data.setdefault("kernel_id", data.pop("session_id"))
+        return data
 
 
 class OperationReference(ContractModel):

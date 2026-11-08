@@ -29,7 +29,7 @@ class AttemptRuntime(ContractModel):
     type: RuntimeType
     profile: str
     target_id: UUID
-    session_id: str | None
+    kernel_id: str | None
 
 
 class AttemptLease(ContractModel):
@@ -101,7 +101,7 @@ class ExecutionAttemptDetailResponse(ExecutionAttemptResponse):
                 type=view.runtime_type,
                 profile=view.runtime_profile,
                 target_id=view.runtime_target_id,
-                session_id=view.runtime_session_id,
+                kernel_id=view.runtime_session_id,
             ),
             lease=AttemptLease(
                 owner=view.lease_owner,

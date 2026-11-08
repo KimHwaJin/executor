@@ -230,7 +230,7 @@ async def wait_for_status(
     for _ in range(attempts_count):
         state = await execution(client, execution_id)
         if state["state"]["status"] in statuses and (
-            not require_kernel or state["runtime"]["session_id"] is not None
+            not require_kernel or state["runtime"]["kernel_id"] is not None
         ):
             return state
         await asyncio.sleep(interval_seconds)

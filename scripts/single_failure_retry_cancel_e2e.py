@@ -155,7 +155,7 @@ async def _wait_for_status(
             observed.append(status)
         if status in statuses and (
             not require_runtime_session
-            or execution["runtime"]["session_id"] is not None
+            or execution["runtime"]["kernel_id"] is not None
         ):
             return execution, tuple(observed)
         await asyncio.sleep(0.1)
@@ -532,7 +532,7 @@ async def _run_failure_retry_case(
             f"Execution did not expose a retained-kernel retry: {failed}"
         )
     retained_target_id = UUID(str(failed["runtime"]["target_id"]))
-    retained_session_id = str(failed["runtime"]["session_id"])
+    retained_session_id = str(failed["runtime"]["kernel_id"])
     if not await _runtime_session_exists(
         session_factory, retained_target_id, retained_session_id
     ):
@@ -567,7 +567,7 @@ async def _run_failure_retry_case(
     if (
         succeeded["state"]["status"] != "SUCCEEDED"
         or succeeded["runtime"]["target_id"] != str(retained_target_id)
-        or succeeded["runtime"]["session_id"] is not None
+        or succeeded["runtime"]["kernel_id"] is not None
         or succeeded["retry"]["count"] != 1
         or succeeded["recovery"]["runtime_session_cleanup_status"]
         != "SUCCEEDED"
@@ -655,7 +655,7 @@ async def _run_failure_retry_case(
             "MCP", execution_id, attempt_id, mcp=mcp, rest=rest
         )
         if (
-            detail["runtime"]["session_id"] != retained_session_id
+            detail["runtime"]["kernel_id"] != retained_session_id
             or tuple(step["result"]["status"] for step in history) != expected
         ):
             raise RuntimeError(
@@ -836,7 +836,7 @@ async def _run_cancel_case(
         require_runtime_session=True,
     )
     runtime_target_id = UUID(str(running["runtime"]["target_id"]))
-    runtime_session_id = str(running["runtime"]["session_id"])
+    runtime_session_id = str(running["runtime"]["kernel_id"])
     workspace_path = running["workspace"]["path"]
     if not workspace_path:
         raise RuntimeError("Running Execution has no Runtime workspace path.")
@@ -883,7 +883,7 @@ async def _run_cancel_case(
     if (
         cancelled["state"]["cancellation_reason"]
         != "single cancellation regression E2E"
-        or cancelled["runtime"]["session_id"] is not None
+        or cancelled["runtime"]["kernel_id"] is not None
         or cancelled["retry"]["strategy"] != "NOT_RETRYABLE"
         or cancelled["recovery"]["runtime_session_cleanup_status"]
         != "SUCCEEDED"
@@ -933,7 +933,7 @@ async def _run_cancel_case(
         "REST", execution_id, attempt_id, mcp=mcp, rest=rest
     )
     if (
-        attempt_detail["runtime"]["session_id"] != runtime_session_id
+        attempt_detail["runtime"]["kernel_id"] != runtime_session_id
         or attempt_detail["recovery"]["runtime_session_cleanup_status"]
         != "SUCCEEDED"
         or [step["result"]["status"] for step in attempt_history]

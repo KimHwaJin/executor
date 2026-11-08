@@ -58,7 +58,7 @@ def validate_attempt_history(
         )
     if second["state"]["status"] != "SUCCEEDED":
         raise FailoverValidationError("The retry Attempt did not succeed.")
-    if second["runtime"]["session_id"] == initial_session_id:
+    if second["runtime"]["kernel_id"] == initial_session_id:
         raise FailoverValidationError(
             "FROM_START retry reused the abandoned session."
         )

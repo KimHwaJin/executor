@@ -897,7 +897,7 @@ async def test_attempt_detail_and_step_attempt_routes(
 
     assert attempts.json()["items"][0]["step_count"] == 1
     assert "runtime" not in attempts.json()["items"][0]
-    assert detail.json()["runtime"]["session_id"] == "rest-kernel"
+    assert detail.json()["runtime"]["kernel_id"] == "rest-kernel"
     assert detail.json()["lease"]["owner"] == "rest-worker"
     assert attempt_steps.json()["items"][0]["execution_step_id"] == str(
         step_id

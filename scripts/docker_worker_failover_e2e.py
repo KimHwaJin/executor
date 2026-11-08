@@ -252,7 +252,7 @@ async def run(config: Config) -> dict[str, Any]:
                 execution_id,
                 lambda state: (
                     state["state"]["status"] == "RUNNING"
-                    and state["runtime"]["session_id"] is not None
+                    and state["runtime"]["kernel_id"] is not None
                 ),
                 timeout_seconds=config.completion_timeout_seconds,
                 description="the initial Execution to run",
@@ -267,7 +267,7 @@ async def run(config: Config) -> dict[str, Any]:
                 )
             owner = str(initial_attempts[0]["lease"]["owner"])
             killed_service, survivor_url = _owner_target(owner, config)
-            initial_session_id = str(running["runtime"]["session_id"])
+            initial_session_id = str(running["runtime"]["kernel_id"])
 
         print(f"Killing owning service {killed_service} ({owner})...")
         await compose.kill(killed_service)

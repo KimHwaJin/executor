@@ -673,7 +673,7 @@ async def _cleanup_output_limit_executions(
     outcomes: dict[str, dict[str, str | None]] = {
         execution_id: {
             "status": state["state"]["status"],
-            "runtime_session_id": state["runtime"]["session_id"],
+            "runtime_session_id": state["runtime"]["kernel_id"],
             "runtime_session_cleanup_status": state["recovery"][
                 "runtime_session_cleanup_status"
             ],

@@ -176,8 +176,8 @@ async def test_openapi_documents_runtime_fleet_routes_and_never_returns_token(
         "/api/v1/runtime-targets/{target_id}/drain",
         "/api/v1/runtime-targets/{target_id}/activate",
         "/api/v1/runtime-targets/{target_id}/disable",
-        "/api/v1/runtime-targets/{target_id}/purge",
     } <= set(paths)
+    assert "delete" in paths["/api/v1/runtime-targets/{target_id}"]
 
     payload = _upsert_payload(0)
     created = await client.post("/api/v1/runtime-targets", json=payload)
@@ -453,9 +453,7 @@ async def test_hard_purge_requires_disable_and_keeps_tombstone(
     )
     target_id = created.json()["target_id"]
 
-    active_purge = await client.post(
-        f"/api/v1/runtime-targets/{target_id}/purge"
-    )
+    active_purge = await client.delete(f"/api/v1/runtime-targets/{target_id}")
     assert active_purge.status_code == 409
     assert (
         active_purge.json()["error"]["code"] == "RUNTIME_TARGET_PURGE_CONFLICT"
@@ -466,9 +464,9 @@ async def test_hard_purge_requires_disable_and_keeps_tombstone(
         json=_mutation_payload("fleet-disable-10"),
     )
 
-    purged = await client.post(f"/api/v1/runtime-targets/{target_id}/purge")
-    repeated = await client.post(
-        f"/api/v1/runtime-targets/{target_id}/purge",
+    purged = await client.delete(f"/api/v1/runtime-targets/{target_id}")
+    repeated = await client.delete(
+        f"/api/v1/runtime-targets/{target_id}",
         headers={"X-User-Id": "another-admin"},
     )
     assert purged.status_code == 200
@@ -545,7 +543,7 @@ async def test_endpoint_has_one_registration_until_purged(
         json={**duplicate_payload, "idempotency_key": "fleet-retry-21"},
     )
     assert still_registered.status_code == 409
-    await client.post(f"/api/v1/runtime-targets/{target_id}/purge")
+    await client.delete(f"/api/v1/runtime-targets/{target_id}")
     replaced = await client.post(
         "/api/v1/runtime-targets",
         json={**duplicate_payload, "idempotency_key": "fleet-replace-21"},
@@ -587,15 +585,15 @@ async def test_purge_requires_user_and_distinguishes_unknown_id(
     fleet_client: tuple[httpx.AsyncClient, ApplicationContainer],
 ) -> None:
     client, _ = fleet_client
-    route = f"/api/v1/runtime-targets/{uuid4()}/purge"
+    route = f"/api/v1/runtime-targets/{uuid4()}"
     user = client.headers.pop("X-User-Id")
     try:
-        missing = await client.post(route)
+        missing = await client.delete(route)
     finally:
         client.headers["X-User-Id"] = user
     assert missing.status_code == 400
     assert missing.json()["error"]["code"] == "INVALID_IDENTITY"
-    response = await client.post(route)
+    response = await client.delete(route)
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "RUNTIME_TARGET_NOT_FOUND"
 
@@ -623,9 +621,6 @@ async def test_server_referenced_by_unfinished_execution_cannot_be_purged(
         f"/api/v1/runtime-targets/{target_id}/disable",
         json=_mutation_payload("fleet-disable-history"),
     )
-    purged = await client.post(
-        f"/api/v1/runtime-targets/{target_id}/purge",
-        json={},
-    )
+    purged = await client.delete(f"/api/v1/runtime-targets/{target_id}")
     assert purged.status_code == 409
     assert "unfinished work" in purged.json()["error"]["message"]

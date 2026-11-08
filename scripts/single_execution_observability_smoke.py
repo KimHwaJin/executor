@@ -469,8 +469,8 @@ async def _run_case(
         raise RuntimeError(
             f"Attempt Step history is incomplete: {attempt_steps}"
         )
-    runtime_session_id = attempt["runtime"]["session_id"]
-    if not runtime_session_id or terminal["runtime"]["session_id"] is not None:
+    runtime_session_id = attempt["runtime"]["kernel_id"]
+    if not runtime_session_id or terminal["runtime"]["kernel_id"] is not None:
         raise RuntimeError(
             "Runtime session history or terminal cleanup state is invalid."
         )

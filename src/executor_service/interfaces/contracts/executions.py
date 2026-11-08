@@ -50,7 +50,8 @@ class ExecutionRuntime(ContractModel):
     pool: RuntimePool
     profile: str
     target_id: UUID | None
-    session_id: str | None
+    # The Jupyter kernel running this Execution, not the caller's session.
+    kernel_id: str | None
 
 
 class ExecutionState(ContractModel):
@@ -153,7 +154,7 @@ def _execution_common(
             pool=execution.runtime_pool,
             profile=execution.runtime_profile,
             target_id=execution.runtime_target_id,
-            session_id=execution.runtime_session_id,
+            kernel_id=execution.runtime_session_id,
         ),
         "state": ExecutionState(
             status=execution.status,

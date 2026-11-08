@@ -97,7 +97,7 @@ async def _wait_for(
     for _ in range(attempts):
         state = await _execution(client, execution_id)
         if state["state"]["status"] in statuses and (
-            not require_kernel or state["runtime"]["session_id"] is not None
+            not require_kernel or state["runtime"]["kernel_id"] is not None
         ):
             return state
         await asyncio.sleep(0.2)
@@ -200,7 +200,7 @@ async def main() -> None:
                 {"RUNNING"},
                 require_kernel=True,
             )
-            initial_kernel = str(running["runtime"]["session_id"])
+            initial_kernel = str(running["runtime"]["kernel_id"])
             first_attempts = await _attempts(client, execution_id)
             if (
                 len(first_attempts) != 1
@@ -228,7 +228,7 @@ async def main() -> None:
                 or failed["retry"]["strategy"] != "FROM_START"
                 or failed["recovery"]["runtime_session_cleanup_status"]
                 != "SUCCEEDED"
-                or failed["runtime"]["session_id"] is not None
+                or failed["runtime"]["kernel_id"] is not None
             ):
                 raise RuntimeError(
                     f"Crash recovery was not classified safely: {failed}"
@@ -263,8 +263,8 @@ async def main() -> None:
                 != [None, secondary_id]
                 or [item["state"]["status"] for item in attempts]
                 != ["FAILED", "SUCCEEDED"]
-                or attempts[0]["runtime"]["session_id"]
-                == attempts[1]["runtime"]["session_id"]
+                or attempts[0]["runtime"]["kernel_id"]
+                == attempts[1]["runtime"]["kernel_id"]
             ):
                 raise RuntimeError(
                     f"Secondary did not complete exactly one retry: {succeeded}, {attempts}"

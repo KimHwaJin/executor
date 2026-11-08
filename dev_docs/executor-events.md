@@ -193,7 +193,7 @@ entry의 값은 문자열이므로 wire level에서는 `payload`가 JSON 문자�
   "provider": "JUPYTER",
   "profile": "default",
   "target_id": "66666666-6666-4666-8666-666666666666",
-  "session_id": "77777777-7777-4777-8777-777777777777"
+  "kernel_id": "77777777-7777-4777-8777-777777777777"
 }
 ```
 
@@ -202,9 +202,9 @@ entry의 값은 문자열이므로 wire level에서는 `payload`가 JSON 문자�
 | `provider` | string | O | Runtime Provider 종류 |
 | `profile` | string | O | 요청에 사용된 Runtime Profile |
 | `target_id` | string | O | 실제 할당된 Runtime Target ID |
-| `session_id` | string 또는 null | O | Runtime Session ID |
+| `kernel_id` | string 또는 null | O | Jupyter 커널 ID. 호출자의 `X-Session-Id`와 무관 |
 
-Session 개념이 없는 Provider는 `session_id`를 `null`로 제공한다. endpoint, token,
+커널이 없는 Provider는 `kernel_id`를 `null`로 제공한다. endpoint, token,
 credential 등 비밀정보는 포함하지 않는다.
 
 ### 5.2 Operation, Step, Attempt
@@ -355,7 +355,7 @@ Retry에서는 다시 발행하지 않는다. Runtime 준비 전에 실패하면
       "provider": "JUPYTER",
       "profile": "default",
       "target_id": "66666666-6666-4666-8666-666666666666",
-      "session_id": "77777777-7777-4777-8777-777777777777"
+      "kernel_id": "77777777-7777-4777-8777-777777777777"
     }
   },
   "occurred_at": "2026-08-26T10:15:32.456Z"

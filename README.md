@@ -653,7 +653,7 @@ procedures.
 
 The same fleet registry is available to operators through REST at `/api/v1/runtime-targets` and
 `/api/v1/runtime-pools`. REST supports registration, filtered cursor listing, detail, immediate
-probe, drain, activate, disable, and a deliberately restricted hard purge. Purge takes no body,
+probe, drain, activate, disable, and a deliberately restricted hard purge (`DELETE /api/v1/runtime-targets/{target_id}`). Purge takes no body,
 requires a disabled `OFFLINE` target without unfinished work or unconfirmed kernel
 cleanup, and preserves historical Execution/Attempt UUID references and an immutable deletion
 record. Repeating purge for the same UUID returns that record, even after same-name registration

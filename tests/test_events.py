@@ -34,6 +34,7 @@ from executor_service.infrastructure.events import (
     StepCompletedPayload,
     StepResult,
     build_execution_event,
+    validate_execution_event_payload,
 )
 from executor_service.infrastructure.execution_worker.event_writer import (
     persist_execution_event,
@@ -82,7 +83,7 @@ def _started_payload() -> dict[str, object]:
             "provider": "JUPYTER",
             "profile": "basic",
             "target_id": str(uuid4()),
-            "session_id": "kernel-1",
+            "kernel_id": "kernel-1",
         },
     }
 
@@ -465,6 +466,21 @@ def test_history_reference_requires_persisted_manifest_metadata(
         assert row_result_reference(row) is None
     else:
         assert row_result_reference(row) == _result_reference(False)
+
+
+def test_started_event_reads_a_stored_session_id_as_kernel_id() -> None:
+    runtime = {
+        "provider": "JUPYTER",
+        "profile": "default",
+        "target_id": str(uuid4()),
+    }
+    # 0015 Pods wrote the kernel as session_id; they may still publish
+    # while a rollout drains them.
+    stored = {"status": "RUNNING", "runtime": {**runtime, "session_id": "k-1"}}
+
+    payload = validate_execution_event_payload("execution.started", stored)
+
+    assert payload["runtime"] == {**runtime, "kernel_id": "k-1"}
 
 
 def test_completed_event_carries_optional_execution_identity() -> None:
