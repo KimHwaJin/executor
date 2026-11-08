@@ -141,7 +141,7 @@ Agent, BFF, 배치 서비스가 Executor를 호출할 때 읽는 단일 문서�
 | `POST /runtime-targets/{target_id}/drain` | `runtime_target_set_state`(`DRAINING`) | (관리자) 새 작업 배정 중지 |
 | `POST /runtime-targets/{target_id}/activate` | `runtime_target_set_state`(`ACTIVE`) | (관리자) 배정 재개 |
 | `POST /runtime-targets/{target_id}/disable` | `runtime_target_disable` | (관리자) 비활성화 |
-| `POST /runtime-targets/{target_id}/purge` | 없음 | (관리자) 등록 삭제 |
+| `DELETE /runtime-targets/{target_id}` | 없음 | (관리자) 등록 삭제(purge) |
 | `GET /runtime-pools` | 없음 | (관리자) Pool 용량 요약 |
 | `GET /maintenance` | 없음 | (관리자) Executor 수용 상태 |
 | `POST /maintenance/drain`, `/maintenance/activate` | 없음 | (관리자) 전체 수용 중지·재개 |
@@ -322,12 +322,13 @@ checksum 계산: `hashlib.sha256(Path(root, path).read_bytes()).hexdigest()`. �
 
 | 쿼리 | 의미 |
 | --- | --- |
+| `user_id` | 소유자로 거른다. `X-User-Id` 형식. `X-User-Id`를 보냈다면 그 값과 같아야 하고, 다르면 `403 FORBIDDEN` |
 | `project_id`, `session_id` | 프로젝트·세션으로 거른다. 헤더와 같은 형식, 어기면 `422` |
 | `trigger_type` | `INTERACTIVE` 또는 `BATCH` |
 | `status` | Execution 상태 |
 | `cursor`, `limit` | 페이지. `limit` 1~200, 기본 100 |
 
-항상 호출자 tenant로 한정되고, `X-User-Id`를 보내면 그 사용자의 것만 나온다. 필터는 AND다.
+항상 호출자 tenant로 한정되고, `X-User-Id`를 보내면 그 사용자의 것만 나온다. `X-User-Id` 없이 부르는 시스템 조회는 tenant 전체를 보고, 소유자로 거를 때는 쿼리 `user_id`를 쓴다. 필터는 AND다.
 최신순이며 시간 필터는 없다. `items[]` 필드: `execution_id`, `operation_mode`, `trigger_type`,
 `trigger{type}`, `tenant_id`, `context`, `metadata`, `state{status, version}`,
 `lifecycle{started_at, finished_at}`, `step_count`, 감사 필드.
@@ -346,7 +347,7 @@ PostgreSQL의 원본 상태다. 이벤트 누락, 재시작, 명령 반영 확�
 | `metadata` | 제출 최상위 `metadata`. 키 이름에 token/secret/password/credential이 들어간 값은 `[REDACTED]` |
 | `runtime.type`, `pool`, `profile` | provider, 내부 결정 Pool(`INTERACTIVE`/`BATCH`), 요청 프로파일 |
 | `runtime.target_id` | 할당된 Runtime 서버 ID. 할당 전이나 FROM_START 재시도 준비 중에는 `null`. 서버 purge 후에도 과거 ID가 남는다 |
-| `runtime.session_id` | Jupyter 커널 세션 ID(호출자 세션과 무관). 생성 전·정리 후 `null` |
+| `runtime.kernel_id` | Jupyter 커널 ID(`/api/kernels/{id}`, 호출자 세션과 무관). 생성 전·정리 후 `null` |
 | `state.status` | `QUEUED`, `RUNNING`, `WAITING_FOR_OPERATION`, `FINALIZING`, `CANCEL_REQUESTED`, `CANCELLED`, `SUCCEEDED`, `FAILED`. 끝의 셋이 terminal |
 | `state.version` | 상태 버전. operations·finalize의 `expected_version` |
 | `state.cancellation_reason` | 취소 사유 또는 `null` |
@@ -474,7 +475,7 @@ manifest는 [Step 결과 manifest](step-result-manifest.md).
 | `GET .../steps`, `.../operations/{id}/steps` | 현재 Step 요약 목록 |
 | `GET .../steps/{step_id}` | `step_id`, `sequence`, `code_hash`, `source{type, path, sha256}`, `step_timeout_seconds`, `lineage`, `result{status, output_summary, error_message, result_ref}`, `lifecycle`. Step `status`: `PENDING`, `RUNNING`, `SUCCEEDED`, `FAILED`, `SKIPPED`, `CANCELLED` |
 | `GET .../attempts` | `items[]`: `attempt_id`, `attempt_number`, `state.status`(`RUNNING`/`WAITING`/`SUCCEEDED`/`FAILED`/`CANCELLED`), `failure`, `lifecycle`, `step_count` |
-| `GET .../attempts/{attempt_id}` | 위 + `runtime{type, profile, target_id, session_id}`, `lease{owner, expires_at, heartbeat_at}`, `recovery{retry_strategy, runtime_session_cleanup_status, runtime_abort_status}` |
+| `GET .../attempts/{attempt_id}` | 위 + `runtime{type, profile, target_id, kernel_id}`, `lease{owner, expires_at, heartbeat_at}`, `recovery{retry_strategy, runtime_session_cleanup_status, runtime_abort_status}` |
 | `GET .../attempts/{attempt_id}/steps` | 그 Attempt에서 실행된 Step 결과(불변): `step_attempt_id`, `execution_step_id`, `sequence`, `tool`, `result`, `lifecycle` |
 
 Attempt는 Worker가 실행을 맡을 때마다 하나씩 생긴다(최초 실행, retry, 장애 복구, MULTI의
@@ -564,7 +565,7 @@ Agent의 결과 경로는 9절의 결과 API다.
 | `POST /runtime-targets/{target_id}/drain` | `idempotency_key` | 새 작업 배정 중지, 진행 중 작업은 계속 |
 | `POST /runtime-targets/{target_id}/activate` | `idempotency_key` | 활성화·점검 후 배정 재개 |
 | `POST /runtime-targets/{target_id}/disable` | `idempotency_key` | 비활성화(이력 보존) |
-| `POST /runtime-targets/{target_id}/purge` | 없음 | 등록 삭제 |
+| `DELETE /runtime-targets/{target_id}` | 없음 | 등록 삭제(purge). DELETE라 멱등성 키가 없다 |
 | `GET /runtime-pools` | 없음 | Pool별 `runtime{type, pool}`, `targets{total, enabled, active, draining, offline}`, `capacity{configured, schedulable, reserved_execution_count, available}`, `state{accepting_new_executions, saturated}` |
 
 Runtime 서버 응답: `target_id`, `name`, `runtime{type, pool, connection_config, supported_profiles}`,

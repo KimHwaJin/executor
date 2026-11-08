@@ -130,7 +130,7 @@ async def main() -> None:
                 f"Execution failure did not retain its kernel: {failed}"
             )
         original_server_id = str(failed["runtime"]["target_id"])
-        original_runtime_session_id = str(failed["runtime"]["session_id"])
+        original_runtime_session_id = str(failed["runtime"]["kernel_id"])
 
         try:
             offline_server = await _upsert_server(
@@ -165,7 +165,7 @@ async def main() -> None:
                 waiting["state"]["status"] != "QUEUED"
                 or waiting["retry"]["strategy"] != "FROM_FAILED_STEP"
                 or str(waiting["runtime"]["target_id"]) != original_server_id
-                or str(waiting["runtime"]["session_id"])
+                or str(waiting["runtime"]["kernel_id"])
                 != original_runtime_session_id
             ):
                 raise RuntimeError(
@@ -213,7 +213,7 @@ async def main() -> None:
                 or retry_attempt is None
                 or str(retry_attempt["runtime"]["target_id"])
                 != original_server_id
-                or str(retry_attempt["runtime"]["session_id"])
+                or str(retry_attempt["runtime"]["kernel_id"])
                 != original_runtime_session_id
             ):
                 raise RuntimeError(
@@ -228,7 +228,7 @@ async def main() -> None:
             )
             print(
                 "same_kernel:",
-                str(retry_attempt["runtime"]["session_id"])
+                str(retry_attempt["runtime"]["kernel_id"])
                 == original_runtime_session_id,
             )
             print("final_status:", succeeded["state"]["status"])

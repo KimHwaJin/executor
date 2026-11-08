@@ -133,7 +133,7 @@ async def main() -> None:
                             execution = await get(
                                 rest, f"executions/{execution_id}"
                             )
-                            kernel_id = execution["runtime"]["session_id"]
+                            kernel_id = execution["runtime"]["kernel_id"]
                             if (
                                 kernel_id
                                 and step["result"]["status"] == "RUNNING"
@@ -231,7 +231,7 @@ async def main() -> None:
                 # Confirm the existing durable cleanup retry actually releases
                 # that session before the next case needs the one-slot target.
                 async with asyncio.timeout(90):
-                    while execution["runtime"]["session_id"] is not None:
+                    while execution["runtime"]["kernel_id"] is not None:
                         await asyncio.sleep(0.2)
                         execution = await get(
                             rest, f"executions/{execution_id}"

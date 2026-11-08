@@ -68,7 +68,7 @@ async def main() -> None:
             or failed["retry"]["from_sequence"] != 1
         ):
             raise RuntimeError(f"Failure was not resumable: {failed}")
-        original_runtime_session = failed["runtime"]["session_id"]
+        original_runtime_session = failed["runtime"]["kernel_id"]
         original_runtime_target = failed["runtime"]["target_id"]
 
         retry = await client.call_tool(
@@ -97,7 +97,7 @@ async def main() -> None:
             succeeded["state"]["status"] != "SUCCEEDED"
             or succeeded["retry"]["count"] != 1
             or succeeded["runtime"]["target_id"] != original_runtime_target
-            or succeeded["runtime"]["session_id"] is not None
+            or succeeded["runtime"]["kernel_id"] is not None
             or [step["result"]["status"] for step in current_steps]
             != ["SUCCEEDED", "SUCCEEDED", "SUCCEEDED"]
         ):
@@ -140,7 +140,7 @@ async def main() -> None:
             or attempts[0]["failure"]["type"] != "TOOL_ERROR"
             or attempt_details[0]["recovery"]["retry_strategy"]
             != "FROM_FAILED_STEP"
-            or attempt_details[1]["runtime"]["session_id"]
+            or attempt_details[1]["runtime"]["kernel_id"]
             != original_runtime_session
             or attempt_details[1]["runtime"]["target_id"]
             != original_runtime_target
@@ -190,7 +190,7 @@ async def main() -> None:
         print("retry_from_sequence:", failed["retry"]["from_sequence"])
         print(
             "same_kernel:",
-            attempt_details[1]["runtime"]["session_id"]
+            attempt_details[1]["runtime"]["kernel_id"]
             == original_runtime_session,
         )
         print("attempts_in_trace:", len(attempts))

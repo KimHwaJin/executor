@@ -302,6 +302,27 @@ async def test_executions_are_scoped_to_tenant_and_user(auth_app) -> None:
     )
     assert hidden.json()["items"] == []
 
+    # A system read filters by owner with the user_id query instead.
+    async def owned_by(user: str) -> list:
+        response = await client.get(
+            "/api/v1/executions", params={"user_id": user}, headers=system
+        )
+        assert response.status_code == 200
+        return response.json()["items"]
+
+    assert len(await owned_by("REST-User")) == 1
+    assert await owned_by("b") == []
+    # A user caller cannot widen its view by naming someone else.
+    same = await client.get(
+        "/api/v1/executions", params={"user_id": "rest-user"}, headers=owner
+    )
+    assert len(same.json()["items"]) == 1
+    other = await client.get(
+        "/api/v1/executions", params={"user_id": "b"}, headers=owner
+    )
+    assert other.status_code == 403
+    assert other.json()["error"]["code"] == "FORBIDDEN"
+
     cancel = await client.post(
         f"{location}/cancel",
         json={
@@ -487,5 +508,14 @@ async def test_openapi_documents_the_identity_headers(auth_app) -> None:
         "X-Session-Id",
     }
     assert submit["security"] == [{"APIKeyHeader": []}]
+    # Only submit stores X-Project-Id/X-Session-Id, so only it documents them.
+    scoped = {
+        f"{method.upper()} {path}"
+        for path, item in schema["paths"].items()
+        for method, operation in item.items()
+        if {"X-Project-Id", "X-Session-Id"}
+        & {p["name"] for p in operation.get("parameters", [])}
+    }
+    assert scoped == {"POST /api/v1/executions"}
     targets = schema["paths"]["/api/v1/runtime-targets"]["get"]
     assert targets["security"] == [{"APIKeyHeader": []}]

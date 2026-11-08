@@ -311,7 +311,7 @@ async def run(config: Config) -> dict[str, Any]:
             execution_id,
             lambda state: (
                 state["state"]["status"] == "RUNNING"
-                and state["runtime"]["session_id"] is not None
+                and state["runtime"]["kernel_id"] is not None
             ),
             timeout_seconds=config.completion_timeout_seconds,
             description="the initial Execution to run",
@@ -327,7 +327,7 @@ async def run(config: Config) -> dict[str, Any]:
                 f"Attempt owner {owner!r} is not a Ready Pod selected by "
                 f"{config.selector!r}: {initial_pods}"
             )
-        initial_session_id = str(running["runtime"]["session_id"])
+        initial_session_id = str(running["runtime"]["kernel_id"])
         await kubectl.delete_pod(owner)
 
         failed = await _wait_for_execution(
@@ -347,7 +347,7 @@ async def run(config: Config) -> dict[str, Any]:
             raise ValidationError(f"Unexpected retry strategy: {failed}")
         if failed["recovery"]["runtime_session_cleanup_status"] != "SUCCEEDED":
             raise ValidationError(f"Runtime cleanup did not succeed: {failed}")
-        if failed["runtime"]["session_id"] is not None:
+        if failed["runtime"]["kernel_id"] is not None:
             raise ValidationError(
                 "The abandoned Runtime session is still assigned."
             )

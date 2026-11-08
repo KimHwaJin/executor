@@ -128,7 +128,7 @@ async def _attempt_snapshot(
         "attempt_id": detail["attempt_id"],
         "status": detail["state"]["status"],
         "target_id": detail["runtime"]["target_id"],
-        "session_id": detail["runtime"]["session_id"],
+        "session_id": detail["runtime"]["kernel_id"],
         "lease_owner": detail["lease"]["owner"],
         "lease_expires_at": detail["lease"]["expires_at"],
         "heartbeat_at": detail["lease"]["heartbeat_at"],
@@ -158,7 +158,7 @@ async def _wait_for_terminal(
             "status": status,
             "version": execution["state"]["version"],
             "target_id": execution["runtime"]["target_id"],
-            "session_id": execution["runtime"]["session_id"],
+            "session_id": execution["runtime"]["kernel_id"],
             "attempt": attempt,
         }
         if status != last_status or status == "RUNNING":

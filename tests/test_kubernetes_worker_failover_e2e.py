@@ -128,14 +128,14 @@ def test_attempt_history_proves_fencing_cleanup_and_from_start_retry() -> None:
                 "state": {"status": "FAILED"},
                 "failure": {"type": "LEASE_EXPIRED"},
                 "recovery": {"runtime_session_cleanup_status": "SUCCEEDED"},
-                "runtime": {"session_id": "kernel-old"},
+                "runtime": {"kernel_id": "kernel-old"},
             },
             {
                 "lease": {"owner": "executor-new"},
                 "state": {"status": "SUCCEEDED"},
                 "failure": None,
                 "recovery": {"runtime_session_cleanup_status": "NOT_REQUIRED"},
-                "runtime": {"session_id": "kernel-new"},
+                "runtime": {"kernel_id": "kernel-new"},
             },
         ],
         initial_session_id="kernel-old",
@@ -149,14 +149,14 @@ def test_attempt_history_rejects_reused_abandoned_session() -> None:
             "state": {"status": "FAILED"},
             "failure": {"type": "LEASE_EXPIRED"},
             "recovery": {"runtime_session_cleanup_status": "SUCCEEDED"},
-            "runtime": {"session_id": "kernel-old"},
+            "runtime": {"kernel_id": "kernel-old"},
         },
         {
             "lease": {"owner": "executor-new"},
             "state": {"status": "SUCCEEDED"},
             "failure": None,
             "recovery": {"runtime_session_cleanup_status": "NOT_REQUIRED"},
-            "runtime": {"session_id": "kernel-old"},
+            "runtime": {"kernel_id": "kernel-old"},
         },
     ]
     with pytest.raises(ValidationError, match="reused"):
@@ -173,14 +173,14 @@ def test_attempt_history_requires_failed_lease_release() -> None:
             "state": {"status": "FAILED"},
             "failure": {"type": "LEASE_EXPIRED"},
             "recovery": {"runtime_session_cleanup_status": "SUCCEEDED"},
-            "runtime": {"session_id": "kernel-old"},
+            "runtime": {"kernel_id": "kernel-old"},
         },
         {
             "lease": {"owner": "executor-new"},
             "state": {"status": "SUCCEEDED"},
             "failure": None,
             "recovery": {"runtime_session_cleanup_status": "NOT_REQUIRED"},
-            "runtime": {"session_id": "kernel-new"},
+            "runtime": {"kernel_id": "kernel-new"},
         },
     ]
     with pytest.raises(ValidationError, match="not released"):

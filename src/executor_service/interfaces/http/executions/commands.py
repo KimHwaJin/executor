@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Response, status
+from fastapi import APIRouter, Depends, Response, status
 
 from executor_service.application.commands import (
     CancelExecutionCommand,
@@ -26,6 +26,7 @@ from executor_service.interfaces.http.executions.common import (
     CurrentCaller,
     execution_router,
 )
+from executor_service.interfaces.http.identity import documented_submit_scope
 from executor_service.interfaces.http.schemas import (
     ExecutionCancelRequest,
     ExecutionFinalizeRequest,
@@ -45,6 +46,8 @@ def build_command_router(container: ApplicationContainer) -> APIRouter:
         status_code=status.HTTP_202_ACCEPTED,
         responses=DOMAIN_ERROR_RESPONSES,
         summary="Submit an asynchronous execution",
+        # Only submit stores the scope; other routes merely validate it.
+        dependencies=[Depends(documented_submit_scope)],
     )
     async def submit_execution(
         request: ExecutionSubmitRequest,

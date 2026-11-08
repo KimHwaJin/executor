@@ -246,7 +246,7 @@ async def run_case(
         attempt_id = attempts["items"][0]["attempt_id"]
         attempt = await request(api, "GET", f"{path}/attempts/{attempt_id}")
         owner = HOSTS[attempt["lease"]["owner"].rsplit("-", 2)[0]]
-        kernel_id = attempt["runtime"]["session_id"]
+        kernel_id = attempt["runtime"]["kernel_id"]
         live = await kernels(compose)
         assert len(live) == 1 and live[0]["id"] == kernel_id
         survivor = next(service for service in SERVICES if service != owner)

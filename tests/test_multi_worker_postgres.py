@@ -649,6 +649,48 @@ async def test_task_drop_upgrade_strips_stored_completion_context(
     validate_execution_event_payload("execution.completed", migrated.payload)
 
 
+async def test_kernel_id_upgrade_renames_stored_started_runtime(
+    postgres_engine: AsyncEngine, tmp_path: Path
+) -> None:
+    url = postgres_engine.url.render_as_string(hide_password=False)
+    config = Config(str(REPOSITORY_ROOT / "alembic.ini"))
+    config.attributes["database_url"] = url
+    config.attributes["configure_logger"] = False
+    await asyncio.to_thread(command.downgrade, config, "0015")
+    execution = await _service(postgres_engine, tmp_path).submit(
+        _command("before-kernel-id")
+    )
+    runtime = {
+        "provider": "JUPYTER",
+        "profile": "default",
+        "target_id": str(uuid4()),
+        "kernel_id": "kernel-1",
+    }
+    event = build_execution_event(
+        execution_id=execution.id,
+        event_sequence=1,
+        event_type="execution.started",
+        payload={"status": "RUNNING", "runtime": runtime},
+    )
+    stored = ExecutionEventORM.from_domain(event)
+    # Written as a 0015 Pod did, bypassing today's payload contract.
+    legacy = {k: v for k, v in runtime.items() if k != "kernel_id"}
+    stored.payload = {
+        "status": "RUNNING",
+        "runtime": {**legacy, "session_id": "kernel-1"},
+    }
+    factory = create_session_factory(postgres_engine)
+    async with factory() as session, session.begin():
+        session.add(stored)
+
+    await asyncio.to_thread(_upgrade_and_check_baseline, url)
+
+    async with factory() as session:
+        migrated = await session.get(ExecutionEventORM, event.id)
+    assert migrated is not None
+    assert migrated.payload == event.payload
+
+
 def _downgrade_to_before_runtime_purge(database_url: str) -> None:
     config = Config(str(REPOSITORY_ROOT / "alembic.ini"))
     config.attributes["database_url"] = database_url
@@ -920,14 +962,14 @@ async def test_trace_removal_preserves_business_rows_and_restores_only_schema(
         event = build_execution_event(
             execution_id=execution.id,
             event_sequence=1,
-            event_type="execution.started",
+            # Not execution.started: 0016 rewrites that payload on the way.
+            event_type="execution.operation_started",
             payload={
                 "status": "RUNNING",
-                "runtime": {
-                    "provider": "JUPYTER",
-                    "profile": "basic",
-                    "target_id": str(uuid4()),
-                    "session_id": "migration-test-session",
+                "operation": {
+                    "id": str(uuid4()),
+                    "number": 1,
+                    "step_count": 1,
                 },
             },
         )
@@ -2563,7 +2605,7 @@ async def test_current_baseline_repeated_upgrade_preserves_events(
             text("SELECT count(*) FROM event_retention_lease")
         )
 
-    assert revision == EXPECTED_SCHEMA_REVISION == "0015"
+    assert revision == EXPECTED_SCHEMA_REVISION == "0016"
     assert maintenance_count == retention_count == 1
     assert migrated_event is not None
     assert migrated_event.execution_id == execution.id
@@ -2604,7 +2646,7 @@ async def test_current_baseline_downgrade_and_recreate(
             text("SELECT singleton_key FROM event_retention_lease")
         )
     assert tables == set(Base.metadata.tables) | {"alembic_version"}
-    assert revision == EXPECTED_SCHEMA_REVISION == "0015"
+    assert revision == EXPECTED_SCHEMA_REVISION == "0016"
     assert admission == "ACTIVE"
     assert retention_key == "events"
 

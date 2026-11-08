@@ -42,7 +42,7 @@ async def add_start_events(session: AsyncSession, execution_id: UUID) -> None:
                     "provider": execution.runtime_type.value,
                     "profile": execution.runtime_profile,
                     "target_id": str(execution.runtime_target_id),
-                    "session_id": execution.runtime_session_id,
+                    "kernel_id": execution.runtime_session_id,
                 },
             },
         )

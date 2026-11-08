@@ -621,8 +621,8 @@ async def test_separate_pool_pvs_never_cross_read_or_write(
                 json={"idempotency_key": "disable-preferred"},
             )
             assert disabled.status_code == 200
-            removed = await client.post(
-                f"/api/v1/runtime-targets/{preferred_id}/purge"
+            removed = await client.delete(
+                f"/api/v1/runtime-targets/{preferred_id}"
             )
             assert removed.status_code == 200, removed.text
             for suffix in (

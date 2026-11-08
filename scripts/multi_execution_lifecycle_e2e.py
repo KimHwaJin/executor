@@ -178,7 +178,7 @@ async def _wait_for_status(
             observed.append(status)
         if status in statuses and (
             not require_runtime_session
-            or execution["runtime"]["session_id"] is not None
+            or execution["runtime"]["kernel_id"] is not None
         ):
             return execution, tuple(observed)
         await asyncio.sleep(0.1)
@@ -456,7 +456,7 @@ async def _assert_waiting_runtime(
     if execution["state"]["status"] != "WAITING_FOR_OPERATION":
         raise RuntimeError(f"MULTI Execution is not waiting: {execution}")
     target_id = UUID(str(execution["runtime"]["target_id"]))
-    session_id = str(execution["runtime"]["session_id"])
+    session_id = str(execution["runtime"]["kernel_id"])
     if expected_target_id is not None and target_id != expected_target_id:
         raise RuntimeError(
             "MULTI Execution changed Runtime Target between cells."
@@ -689,7 +689,7 @@ async def _run_correction_and_finalization_case(
     if (
         finished["state"]["status"] != "SUCCEEDED"
         or finished["runtime"]["target_id"] != str(target_id)
-        or finished["runtime"]["session_id"] is not None
+        or finished["runtime"]["kernel_id"] is not None
         or finished["recovery"]["runtime_session_cleanup_status"]
         != "SUCCEEDED"
     ):
@@ -753,7 +753,7 @@ async def _run_correction_and_finalization_case(
             transport, execution_id, attempt_id, mcp=mcp, rest=rest
         )
         if (
-            detail["runtime"]["session_id"] != session_id
+            detail["runtime"]["kernel_id"] != session_id
             or tuple(step["result"]["status"] for step in history)
             != step_statuses
         ):
@@ -929,7 +929,7 @@ async def _run_running_cancel_case(
         require_runtime_session=True,
     )
     target_id = UUID(str(running["runtime"]["target_id"]))
-    runtime_session_id = str(running["runtime"]["session_id"])
+    runtime_session_id = str(running["runtime"]["kernel_id"])
     workspace_path = running["workspace"]["path"]
     if not workspace_path:
         raise RuntimeError(
@@ -980,7 +980,7 @@ async def _run_running_cancel_case(
     if (
         cancelled["state"]["cancellation_reason"]
         != "multi running cancellation regression E2E"
-        or cancelled["runtime"]["session_id"] is not None
+        or cancelled["runtime"]["kernel_id"] is not None
         or cancelled["recovery"]["runtime_session_cleanup_status"]
         != "SUCCEEDED"
     ):
@@ -1029,7 +1029,7 @@ async def _run_running_cancel_case(
         "MCP", execution_id, attempt_id, mcp=mcp, rest=rest
     )
     if (
-        detail["runtime"]["session_id"] != runtime_session_id
+        detail["runtime"]["kernel_id"] != runtime_session_id
         or detail["recovery"]["runtime_session_cleanup_status"] != "SUCCEEDED"
         or [item["result"]["status"] for item in history] != ["CANCELLED"]
     ):

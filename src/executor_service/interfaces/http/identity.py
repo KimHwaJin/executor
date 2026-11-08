@@ -39,13 +39,19 @@ async def documented_identity(
             ),
         ),
     ] = None,
+) -> None:
+    pass
+
+
+async def documented_submit_scope(
     _project_id: Annotated[
         str | None,
         Header(
             alias="X-Project-Id",
             description=(
-                "^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$, never 'unscoped'. Stored "
-                "on submit only; other calls check it and ignore it."
+                "Project the new Execution belongs to, "
+                "^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$, never 'unscoped'. Filter "
+                "lists with the project_id query parameter instead."
             ),
         ),
     ] = None,
@@ -53,7 +59,10 @@ async def documented_identity(
         str | None,
         Header(
             alias="X-Session-Id",
-            description="Same format as X-Project-Id, which it requires.",
+            description=(
+                "Session the new Execution belongs to; same format as "
+                "X-Project-Id, which it requires."
+            ),
         ),
     ] = None,
 ) -> None:
