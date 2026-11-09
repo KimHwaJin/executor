@@ -5,6 +5,8 @@
 
 ## 먼저 볼 문서
 
+- [API 레퍼런스](api-reference/README.md): 쿠베 배포 기준 API 44개(실행 25, 관리자 15, 헬스 3, MCP 1)와
+  Redis 이벤트 8종의 종류별 명세. 코딩 에이전트에게는 [agent-guide.md](api-reference/agent-guide.md) 한 파일을 준다.
 - [Executor API 사용 가이드](executor-api.md): 전체 API 목록, 헤더(`X-Api-Key`,
   `X-Tenant-Id`, `X-User-Id`, `X-Project-Id`, `X-Session-Id`)에 무엇을 넣는지,
   요청·응답 필드의 의미, 호출 순서와 예시. 다른 에이전트가 연동할 때 이 문서 하나로 시작한다.
