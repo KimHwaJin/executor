@@ -4,7 +4,7 @@
 
 > 이 파일 하나로 Executor를 호출하는 코드를 작성할 수 있게 정리했다. 필드 타입·필수 여부가 더 필요하면
 > 같은 폴더의 `openapi.json`(코드에서 생성)을 기준으로 삼는다. 이 문서와 openapi.json이 다르면 openapi.json이 맞다.
-> 기준: `kimhwajin/executor` main `c73ee52` (2026-11-09). Kubernetes에 배포된 Executor를 클러스터 안의 다른 서비스에서 호출하는 경우를 기준으로 쓴다.
+> Kubernetes에 배포된 Executor를 클러스터 안의 다른 서비스에서 호출하는 경우를 기준으로 쓴다.
 
 ## 0. 한 줄 요약
 
