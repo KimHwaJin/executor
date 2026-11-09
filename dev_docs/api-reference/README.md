@@ -12,7 +12,7 @@
 | [03-health.md](03-health.md) | 헬스체크(`/healthz`, `/readyz`, `/workerz`) | 3 |
 | [04-mcp.md](04-mcp.md) | MCP 엔드포인트 `POST /mcp`와 도구 | 1 (도구 28) |
 | [05-events.md](05-events.md) | Redis Stream 이벤트 | 8종 |
-| [agent-guide.md](agent-guide.md) | 코딩 에이전트용 연동 가이드(한 파일) | - |
+| [agent-guide.md](agent-guide.md) | 코딩 에이전트용 연동 가이드(영어, 한 파일). 한글판 [agent-guide.ko.md](agent-guide.ko.md) | - |
 | [openapi.json](openapi.json) | 코드에서 생성한 OpenAPI 3.1(REST 40개, 스키마 144개) | - |
 
 HTTP 엔드포인트 합계 **44개**(실행 25 + 관리자 15 + 헬스 3 + MCP 1).

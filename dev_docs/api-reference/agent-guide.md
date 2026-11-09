@@ -1,61 +1,62 @@
-# Executor 연동 가이드 (코딩 에이전트용)
+# Executor Integration Guide (for coding agents)
 
-> 이 파일 하나로 Executor를 호출하는 코드를 작성할 수 있게 정리했다. 필드 타입·필수 여부가 더 필요하면
-> 같은 폴더의 `openapi.json`(코드에서 생성)을 기준으로 삼는다. 이 문서와 openapi.json이 다르면 openapi.json이 맞다.
-> 기준: `kimhwajin/executor` main `c73ee52` (2026-11-09). Kubernetes에 배포된 Executor를 클러스터 안의 다른 서비스에서 호출하는 경우를 기준으로 쓴다.
+> This single file is enough to write code that calls Executor. For exact field types and required flags,
+> use `openapi.json` in this folder (generated from the code). If this guide and `openapi.json` disagree, `openapi.json` wins.
+> Source: `kimhwajin/executor` main `c73ee52` (2026-11-09). Written for services inside the Kubernetes cluster calling the deployed Executor.
+> A Korean copy for human reviewers is in [agent-guide.ko.md](agent-guide.ko.md).
 
-## 0. 한 줄 요약
+## 0. Summary
 
-Executor는 Python 코드를 Jupyter 커널에서 **비동기로** 실행하는 HTTP 서비스다. 실행을 **제출**하면 `202`와
-`execution_id`를 바로 돌려주고, 호출자는 **상태를 폴링하거나 Redis 이벤트를 받아** 끝났는지 확인한 뒤 **결과 API**로 결과를 읽는다.
+Executor is an HTTP service that runs Python code in a Jupyter kernel **asynchronously**. **Submitting** an execution returns `202`
+and an `execution_id` immediately. The caller then **polls the status or consumes Redis events** to learn when it is done, and reads the outcome from the **result API**.
 
-## 1. 반드시 지킬 규칙
+## 1. Rules you must follow
 
-1. 모든 호출에 `X-Api-Key` 헤더를 넣는다. 쓰기(POST)에는 `X-User-Id`도 넣는다. 받은 key에 기본 tenant가 없으면(`pr-batch` 등) 모든 호출에 `X-Tenant-Id`도 넣는다.
-2. 바디에 문서에 없는 필드를 넣지 않는다. 모르는 필드는 `422`로 거부된다. 특히 `tenant_id`, `user_id`, `actor`, `context`를 바디에 넣지 않는다(헤더로 보낸다).
-3. 모든 POST 명령에 `idempotency_key`를 넣는다. **같은 작업을 재시도할 때는 같은 키**, 새 작업에는 새 키를 쓴다(예: `f"{task_id}:submit"`). 같은 키로 다른 바디를 보내면 `409 IDEMPOTENCY_CONFLICT`.
-4. `202`는 "접수"다. 실행 완료로 취급하지 않는다.
-5. 끝났는지는 `state.status`가 `SUCCEEDED`, `FAILED`, `CANCELLED` 중 하나인지로 판단한다. `WAITING_FOR_OPERATION`은 MULTI에서 다음 지시를 기다리는 상태다(끝난 것 아님).
-6. 목록의 `next_cursor`는 파싱·수정하지 말고 그대로 `cursor`로 넘긴다.
-7. 관리자 API(`/runtime-targets`, `/runtime-pools`, `/maintenance`, `/workerz`)는 호출하지 않는다. admin key 전용이다.
-8. 5xx(`500 INTERNAL_ERROR`, `503 DATABASE_UNAVAILABLE`)와 네트워크 오류만 지수 백오프로 재시도한다(명령은 같은 `idempotency_key`로). 4xx는 재시도하지 말고 원인을 고친다.
+1. Send `X-Api-Key` on every call. Send `X-User-Id` on every write (POST). If your key has no default tenant (for example `pr-batch`), send `X-Tenant-Id` on every call too.
+2. Never send fields that are not documented. Unknown fields are rejected with `422`. In particular, never put `tenant_id`, `user_id`, `actor` or `context` in a body (they go in headers).
+3. Every POST command carries an `idempotency_key`. **Reuse the same key when retrying the same action**, use a new key for a new action (for example `f"{task_id}:submit"`). The same key with a different body returns `409 IDEMPOTENCY_CONFLICT`.
+4. `202` means "accepted". Never treat it as "finished".
+5. An execution is finished only when `state.status` is `SUCCEEDED`, `FAILED` or `CANCELLED`. `WAITING_FOR_OPERATION` means a MULTI execution is waiting for your next instruction (not finished).
+6. Pass `next_cursor` back as `cursor` exactly as received. Never parse or modify it.
+7. Never call the admin APIs (`/runtime-targets`, `/runtime-pools`, `/maintenance`, `/workerz`). They require an admin key.
+8. Retry with exponential backoff only on 5xx (`500 INTERNAL_ERROR`, `503 DATABASE_UNAVAILABLE`) and network errors (commands keep the same `idempotency_key`). Never retry a 4xx; fix the cause.
 
-## 2. 접속 정보
+## 2. Connection
 
-| 항목 | 값 |
+| Item | Value |
 | --- | --- |
-| Base URL | `{EXECUTOR_URL}/api/v1`. 같은 namespace면 `http://executor:8000/api/v1`, 다른 namespace면 `http://executor.<namespace>.svc.cluster.local:8000/api/v1`. 코드에 박지 말고 환경변수 `EXECUTOR_URL`로 받는다 |
-| 인증 | `X-Api-Key: {API_KEY}`. 환경(dev·stg·prd)마다 key가 다르다. 환경변수 `EXECUTOR_API_KEY`로 받고 로그에 찍지 않는다 |
-| 사용자 | `X-User-Id: {user}` — 소문자 `^[a-z0-9][a-z0-9._-]{0,63}$`. 쓰기 필수. 읽기에 넣으면 그 사용자 것만 보인다 |
-| tenant | `X-Tenant-Id` — key에 기본 tenant가 없으면 필수, 있으면 다른 tenant를 대신할 때만. 형식 `^[a-z][a-z0-9-]{1,62}[a-z0-9]$` |
-| 프로젝트·세션(선택) | `X-Project-Id`, `X-Session-Id` — **제출(`POST /executions`)에만** 넣는다. 그 Execution이 어디 속하는지로 저장된다. `^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$`, `X-Session-Id`는 `X-Project-Id`와 함께 |
-| 바디 | `Content-Type: application/json`, 최대 30MB |
-| 시각 | UTC ISO-8601 문자열 |
+| Base URL | `{EXECUTOR_URL}/api/v1`. Same namespace: `http://executor:8000/api/v1`. Other namespace: `http://executor.<namespace>.svc.cluster.local:8000/api/v1`. Read it from the `EXECUTOR_URL` environment variable; never hard-code it |
+| Auth | `X-Api-Key: {API_KEY}`. Each environment (dev, stg, prd) has its own key. Read it from `EXECUTOR_API_KEY` and never log it |
+| User | `X-User-Id: {user}`, lowercase `^[a-z0-9][a-z0-9._-]{0,63}$`. Required on writes. On reads it limits results to that user |
+| Tenant | `X-Tenant-Id`. Required when the key has no default tenant; otherwise only to act for another tenant. Format `^[a-z][a-z0-9-]{1,62}[a-z0-9]$` |
+| Project / session (optional) | `X-Project-Id`, `X-Session-Id`. Send them **only on submit (`POST /executions`)**; they are stored as where the execution belongs. Format `^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$`. `X-Session-Id` requires `X-Project-Id` |
+| Body | `Content-Type: application/json`, at most 30 MB |
+| Time | UTC ISO-8601 strings |
 
-다른 사용자의 Execution은 존재해도 `404`로 보인다. 같은 `X-User-Id`로 제출·조회·명령을 한다.
-프로젝트·세션·사용자로 목록을 거를 때는 헤더가 아니라 쿼리(`project_id`, `session_id`, `user_id`)를 쓴다.
+Another user's execution returns `404` even if it exists. Use the same `X-User-Id` to submit, read and command an execution.
+To filter a list by project, session or user, use query parameters (`project_id`, `session_id`, `user_id`), not headers.
 
-## 3. 핵심 개념
+## 3. Concepts
 
-| 용어 | 뜻 |
+| Term | Meaning |
 | --- | --- |
-| Execution | 실행 한 건. `execution_id`가 대표 키 |
-| Operation | Execution 안의 Step 묶음 한 번. SINGLE은 1개, MULTI는 여러 개 |
-| Step | 코드 한 조각(Jupyter 셀 하나). `sequence`는 **Execution 전체** 기준 0부터 연속 |
-| Attempt | Worker가 실행을 맡은 한 번(최초, retry, 장애 복구). 조회 키로 쓰지 않는다 |
-| SINGLE | 제출한 Operation이 끝나면 Execution도 끝난다 |
-| MULTI | Operation이 끝나면 `WAITING_FOR_OPERATION`. 같은 커널(변수 유지)에 다음 코드를 붙이거나 finalize로 끝낸다 |
-| `state.version` | 상태가 바뀔 때마다 증가. MULTI 명령의 `expected_version` |
+| Execution | One run. `execution_id` is its key |
+| Operation | One batch of Steps inside an Execution. SINGLE has one, MULTI has several |
+| Step | One piece of code (one Jupyter cell). `sequence` starts at 0 and is contiguous across the **whole Execution** |
+| Attempt | One time a Worker ran the execution (first run, retry, recovery). Never use it as a lookup key |
+| SINGLE | The Execution ends when its submitted Operation ends |
+| MULTI | After each Operation the Execution goes to `WAITING_FOR_OPERATION`. Append more code to the same kernel (variables are kept) or finalize |
+| `state.version` | Increments on every state change. Used as `expected_version` in MULTI commands |
 
-## 4. 흐름 A — SINGLE: 코드 한 번 실행하고 결과 받기
+## 4. Flow A: SINGLE, run code once and get the result
 
 ```text
 POST /executions  →  202 {execution_id, state.status=QUEUED}
-loop: GET /executions/{id}  →  state.status 가 terminal 이 될 때까지 (2s → 최대 10s 백오프)
-GET /executions/{id}/result →  Step별 status, output_summary, error_message, result_ref
+loop: GET /executions/{id}  →  until state.status is terminal (backoff 2s → max 10s)
+GET /executions/{id}/result →  per-Step status, output_summary, error_message, result_ref
 ```
 
-제출 바디:
+Submit body:
 
 ```json
 {
@@ -77,29 +78,29 @@ GET /executions/{id}/result →  Step별 status, output_summary, error_message, 
 }
 ```
 
-- SINGLE에는 `lifecycle.operation_wait_timeout_seconds`를 **보내지 않는다**(보내면 `422`).
-- `trigger.type`: 사용자 대화형은 `INTERACTIVE`, 배치는 `BATCH`.
-- `runtime.profile`: 보통 `default`. 허용값은 배포 설정에 따른다(기본 `default`, `3102311`).
-- Step은 한 Operation에 최대 100개(기본 설정). sequence는 0, 1, 2… 빈틈없이.
-- `metadata` 키는 `^[a-z][a-z0-9_]{0,63}$`, 32개 이하, 4096 bytes 이하. 비밀값 금지.
+- **Do not send** `lifecycle.operation_wait_timeout_seconds` for SINGLE (it returns `422`).
+- `trigger.type`: `INTERACTIVE` for user-facing work, `BATCH` for batch jobs.
+- `runtime.profile`: usually `default`. Allowed values come from the deployment (default `default`, `3102311`).
+- At most 100 Steps per Operation (default setting). `sequence` is 0, 1, 2… with no gaps.
+- `metadata` keys match `^[a-z][a-z0-9_]{0,63}$`, at most 32 keys and 4096 bytes. No secrets.
 
-## 5. 흐름 B — MULTI: 결과를 보고 다음 코드를 이어서 실행
+## 5. Flow B: MULTI, look at the result and continue with more code
 
 ```text
 POST /executions (operation_mode=MULTI, operation_wait_timeout_seconds=600)
 loop until status ∈ {WAITING_FOR_OPERATION, SUCCEEDED, FAILED, CANCELLED}
-GET  /executions/{id}/operations/{operation_id}/result   ← 방금 Operation 결과
-     ↓ 결과를 보고 판단
- ├ 더 실행: POST /executions/{id}/operations {expected_version, spec(sequence 이어서)}
- ├ 끝내기 : POST /executions/{id}/finalize   {expected_version}   ← 마지막 Operation이 성공했을 때만
- └ 그만두기: POST /executions/{id}/cancel
+GET  /executions/{id}/operations/{operation_id}/result   ← result of the Operation that just ran
+     ↓ decide from the result
+ ├ continue: POST /executions/{id}/operations {expected_version, spec (sequence continues)}
+ ├ finish  : POST /executions/{id}/finalize   {expected_version}   ← only if the last Operation succeeded
+ └ stop    : POST /executions/{id}/cancel
 ```
 
-- `expected_version`은 방금 `GET /executions/{id}`의 `state.version`이다. 다르면 `409` → 다시 조회해서 최신 값으로.
-- 다음 Operation의 `sequence`는 지금까지 Step 총수부터 시작한다(첫 Operation이 0~1이었다면 다음은 2부터). `GET /executions/{id}/steps`의 개수나 직전 Operation의 `sequence_range.last + 1`을 쓴다.
-- 다음 Operation 바디에는 `lifecycle`, `trigger`, `runtime`, `operation` 래퍼가 **없다**. `{idempotency_key, expected_version, operation_timeout_seconds?, spec, metadata?}`만 보낸다.
-- 마지막 Operation이 실패한 상태에서 finalize하면 `409`. 고친 코드로 Operation을 하나 더 성공시키거나 cancel한다.
-- `operation_wait_timeout_seconds`(30 이상) 안에 다음 요청이 없으면 `FAILED`(`OPERATION_WAIT_TIMEOUT`)로 끝난다.
+- `expected_version` is `state.version` from a fresh `GET /executions/{id}`. A mismatch returns `409`; read again and use the latest value.
+- The next Operation's `sequence` starts at the number of Steps so far (if the first Operation used 0–1, the next starts at 2). Use the count from `GET /executions/{id}/steps` or the previous Operation's `sequence_range.last + 1`.
+- The next-Operation body has **no** `lifecycle`, `trigger`, `runtime` or `operation` wrapper. Send only `{idempotency_key, expected_version, operation_timeout_seconds?, spec, metadata?}`.
+- Finalizing after a failed last Operation returns `409`. Run one more Operation with fixed code that succeeds, or cancel.
+- If no next request arrives within `operation_wait_timeout_seconds` (at least 30), the execution ends as `FAILED` (`OPERATION_WAIT_TIMEOUT`).
 
 ```json
 {
@@ -112,9 +113,9 @@ GET  /executions/{id}/operations/{operation_id}/result   ← 방금 Operation �
 }
 ```
 
-## 6. 결과 읽기
+## 6. Reading results
 
-`GET /executions/{id}/result` 응답 구조(핵심만):
+Shape of `GET /executions/{id}/result` (key fields only):
 
 ```text
 execution: {execution_id, state: {status, version, cancellation_reason, finalized_by}}
@@ -122,45 +123,45 @@ operations[]: {operation_id, operation_number, sequence_range{first,last}, resul
   steps[]: {step_id, sequence, lineage, lifecycle,
             result: {status, error_message, output_summary{output_count, output_types, stream_names, mime_types, has_image, image_count, has_error},
                      result_ref: {relative_path, checksum_sha256, size_bytes, complete, ...} | null}}
-attempts[]: Attempt 요약
-artifacts[]: Artifact 요약(노트북, 리포트 등)
+attempts[]: Attempt summaries
+artifacts[]: Artifact summaries (notebook, reports, ...)
 ```
 
-- Step 성공 여부는 `steps[].result.status`(`SUCCEEDED`/`FAILED`/`SKIPPED`/`CANCELLED` 등)로 본다. 실패 메시지는 `error_message`.
-- **출력 원문(stdout, 표, 이미지)은 이 응답에 없다.** 두 가지 방법 중 하나로 읽는다.
-  1. 공유 PVC를 마운트한 Pod인 경우: 루트는 `/mnt/data/dtest`다. `/mnt/data/dtest/{result_ref.relative_path}`(`executor/executions/...`)의 `manifest.json`을 읽고 `checksum_sha256`을 검증한 뒤, `outputs[].representations[].relative_path` 파일을 읽는다. 경로 결합 시 절대경로·`..`를 막는다.
-  2. 공유 PVC가 없는 경우: 노트북 API를 쓴다. `GET /executions/{id}/notebook?view=FULL&start_index=0&limit=20` 또는 `GET /executions/{id}/notebook/cells/{index}`. 노트북이 아직 없으면 `409 EXECUTION_NOTEBOOK_NOT_AVAILABLE`이니 잠시 후 다시.
-- 파일(Artifact)은 `GET /executions/{id}/artifacts`로 목록을 보고 `GET /artifacts/{artifact_id}/content`로 내려받는다.
+- A Step's outcome is `steps[].result.status` (`SUCCEEDED`, `FAILED`, `SKIPPED`, `CANCELLED`, ...). The failure message is `error_message`.
+- **Raw output (stdout, tables, images) is not in this response.** Read it one of two ways:
+  1. Pod that mounts the shared PVC: the root is `/mnt/data/dtest`. Read `manifest.json` under `/mnt/data/dtest/{result_ref.relative_path}` (`executor/executions/...`), verify `checksum_sha256`, then read the files at `outputs[].representations[].relative_path`. Reject absolute paths and `..` when joining paths.
+  2. No shared PVC: use the notebook API, `GET /executions/{id}/notebook?view=FULL&start_index=0&limit=20` or `GET /executions/{id}/notebook/cells/{index}`. If the notebook is not ready yet you get `409 EXECUTION_NOTEBOOK_NOT_AVAILABLE`; try again shortly.
+- For files (Artifacts), list them with `GET /executions/{id}/artifacts` and download with `GET /artifacts/{artifact_id}/content`.
 
-## 7. 실패·취소·재시도
+## 7. Failure, cancel, retry
 
-| 상황 | 어떻게 |
+| Situation | What to do |
 | --- | --- |
-| 실행 취소 | `POST /executions/{id}/cancel` `{"idempotency_key": "...", "reason": "..."}` → `CANCEL_REQUESTED` → 나중에 `CANCELLED`. 이미 끝났으면 `409` |
-| SINGLE 실패 재시도 | `GET /executions/{id}`의 `retry.strategy`가 `NOT_RETRYABLE`이 아니면 `POST /executions/{id}/retry` `{"idempotency_key": "..."}`. 시작 위치는 Executor가 정한다 |
-| MULTI 실패 | retry 불가. 고친 코드로 다음 Operation을 제출한다 |
-| 실패 원인 | `GET /executions/{id}`의 `failure{type, message}`, 더 자세히는 `GET /executions/{id}/diagnostics` |
+| Cancel | `POST /executions/{id}/cancel` `{"idempotency_key": "...", "reason": "..."}` → `CANCEL_REQUESTED` → later `CANCELLED`. Already finished returns `409` |
+| Retry a failed SINGLE | If `retry.strategy` from `GET /executions/{id}` is not `NOT_RETRYABLE`, call `POST /executions/{id}/retry` `{"idempotency_key": "..."}`. Executor decides where it restarts |
+| Failed MULTI | Retry is not available. Submit the next Operation with fixed code |
+| Why it failed | `failure{type, message}` from `GET /executions/{id}`; more detail from `GET /executions/{id}/diagnostics` |
 
-`failure.type` 값: `TOOL_ERROR`(사용자 코드 예외), `STEP_TIMEOUT`, `OPERATION_TIMEOUT`, `OPERATION_WAIT_TIMEOUT`, `EXECUTION_TIMEOUT`, `QUEUE_TIMEOUT`, `OUTPUT_LIMIT_EXCEEDED`, `RUNTIME_UNAVAILABLE`, `RUNTIME_SESSION_LOST`, `INFRASTRUCTURE_ERROR`, `WORKER_SHUTDOWN`, `LEASE_EXPIRED`, `COMPLETION_FAILED`, `INTERNAL_ERROR`.
+`failure.type` values: `TOOL_ERROR` (exception in user code), `STEP_TIMEOUT`, `OPERATION_TIMEOUT`, `OPERATION_WAIT_TIMEOUT`, `EXECUTION_TIMEOUT`, `QUEUE_TIMEOUT`, `OUTPUT_LIMIT_EXCEEDED`, `RUNTIME_UNAVAILABLE`, `RUNTIME_SESSION_LOST`, `INFRASTRUCTURE_ERROR`, `WORKER_SHUTDOWN`, `LEASE_EXPIRED`, `COMPLETION_FAILED`, `INTERNAL_ERROR`.
 
-## 8. 오류 처리
+## 8. Error handling
 
-오류 바디는 항상 `{"error": {"code", "message", "details": [{"location", "message", "type", "context"}]}}`.
-`code`로 분기한다.
+Every error body is `{"error": {"code", "message", "details": [{"location", "message", "type", "context"}]}}`.
+Branch on `code`.
 
-| HTTP | 대표 code | 코드에서 할 일 |
+| HTTP | Typical code | What your code does |
 | --- | --- | --- |
-| 400 | `INVALID_IDENTITY` | 헤더 값 수정. 재시도 금지 |
-| 401 / 403 | `UNAUTHENTICATED` / `FORBIDDEN` | key·권한 문제. 재시도 금지 |
-| 404 | `EXECUTION_NOT_FOUND` 등 | id 또는 `X-User-Id`가 다름 |
-| 409 | `EXECUTION_VERSION_CONFLICT`, `INVALID_STATE_TRANSITION` | `GET /executions/{id}`로 상태·버전을 다시 읽고 판단 |
-| 409 | `IDEMPOTENCY_CONFLICT` | 같은 키로 다른 바디를 보냄. 키 생성 로직 수정 |
-| 409 | `EXECUTION_NOTEBOOK_NOT_AVAILABLE` | 잠시 후 다시 |
-| 413 | `REQUEST_BODY_TOO_LARGE` | 코드를 줄이거나 PATH source 사용 |
-| 422 | `REQUEST_VALIDATION_ERROR`, `INVALID_EXECUTION_SPEC`, `UNSUPPORTED_RUNTIME_PROFILE`, `INVALID_CURSOR` | `details[].location`이 가리키는 값 수정 |
-| 500 / 503 | `INTERNAL_ERROR` / `DATABASE_UNAVAILABLE` | 백오프 재시도(같은 `idempotency_key`) |
+| 400 | `INVALID_IDENTITY` | Fix the header value. Do not retry |
+| 401 / 403 | `UNAUTHENTICATED` / `FORBIDDEN` | Key or permission problem. Do not retry |
+| 404 | `EXECUTION_NOT_FOUND`, ... | Wrong id, or a different `X-User-Id` |
+| 409 | `EXECUTION_VERSION_CONFLICT`, `INVALID_STATE_TRANSITION` | Re-read state and version with `GET /executions/{id}`, then decide |
+| 409 | `IDEMPOTENCY_CONFLICT` | Same key sent with a different body. Fix how keys are built |
+| 409 | `EXECUTION_NOTEBOOK_NOT_AVAILABLE` | Try again shortly |
+| 413 | `REQUEST_BODY_TOO_LARGE` | Send less code or use a PATH source |
+| 422 | `REQUEST_VALIDATION_ERROR`, `INVALID_EXECUTION_SPEC`, `UNSUPPORTED_RUNTIME_PROFILE`, `INVALID_CURSOR` | Fix the value that `details[].location` points to |
+| 500 / 503 | `INTERNAL_ERROR` / `DATABASE_UNAVAILABLE` | Retry with backoff (same `idempotency_key`) |
 
-## 9. Python 클라이언트 예시
+## 9. Python client example
 
 ```python
 import time
@@ -317,47 +318,47 @@ client.finalize(eid, key="task-200:finalize")
 client.wait(eid)
 ```
 
-`add_operation`의 sequence 계산은 Operation 목록이 200개를 넘지 않는다고 가정한다. 넘을 수 있으면 `next_cursor`로 끝까지 읽는다.
+`add_operation` assumes no more than 200 Operations when computing the next sequence. If there can be more, follow `next_cursor` to the end.
 
-## 10. 폴링 대신 이벤트(선택)
+## 10. Events instead of polling (optional)
 
-대량·저지연이 필요하면 Redis Stream `executor.events.{tenant_id}`를 구독한다. 이벤트는 "다시 조회하라"는 신호로만 쓴다.
+For high volume or low latency, consume the Redis Stream `executor.events.{tenant_id}`. Treat an event only as a signal to read the state again.
 
-- 중요한 이벤트: `execution.operation_completed`(MULTI는 여기서 다음 판단, `payload.continuation.expected_version` 제공), `execution.completed`(끝).
-- 같은 `event_id`가 중복으로 올 수 있다. `event_sequence`가 건너뛰면 `GET /executions/{id}/events?after_sequence={last}`로 채운다.
-- 상세 규칙은 [05-events.md](05-events.md). 처음 구현할 때는 폴링으로 시작해도 된다.
+- Key events: `execution.operation_completed` (MULTI decides here; it carries `payload.continuation.expected_version`) and `execution.completed` (finished).
+- The same `event_id` can arrive more than once. If `event_sequence` skips, fill the gap with `GET /executions/{id}/events?after_sequence={last}`.
+- Full rules are in [05-events.md](05-events.md). Starting with polling is fine.
 
-## 11. MCP로 붙는 경우 (dev 전용)
+## 11. MCP (dev only)
 
-MCP는 **dev 배포에서만** 켜져 있고 stg·prd에서는 `/mcp`가 없다(404). 운영까지 갈 코드는 REST로 작성한다.
-dev에서는 같은 서버 `POST /mcp`(Streamable HTTP, stateless)에 같은 헤더로 연결한다. `Host`·`Origin`이 Executor의 허용 목록에 있어야 한다. 도구 이름은 `execution_submit`,
-`execution_get`, `execution_result_get`, `execution_operation_create`, `execution_finalize`, `execution_cancel` 등이고,
-명령 도구는 `request` 객체 하나(REST 바디 + `execution_id`)를 받는다. 오류는 `[CODE] message details=[...]`. 전체 목록은 [04-mcp.md](04-mcp.md).
+MCP is enabled **only in the dev deployment**; in stg and prd `/mcp` does not exist (404). Write code that will reach production against REST.
+In dev, connect to `POST /mcp` on the same server (Streamable HTTP, stateless) with the same headers. `Host` and `Origin` must be on Executor's allowlist. Tool names include `execution_submit`,
+`execution_get`, `execution_result_get`, `execution_operation_create`, `execution_finalize` and `execution_cancel`.
+Command tools take one `request` object (the REST body plus `execution_id`). Errors read `[CODE] message details=[...]`. The full list is in [04-mcp.md](04-mcp.md).
 
-## 12. 하지 말 것
+## 12. Never do this
 
-- `202`를 성공으로 처리하기.
-- `execution_id` 대신 `attempt_id`로 상태를 추적하기.
-- `next_cursor`를 만들거나 고치기, 페이지 중간에 필터 바꾸기.
-- 재시도마다 새 `idempotency_key` 만들기(중복 실행이 생긴다).
-- MULTI에서 버전을 캐시해 두고 재사용하기(명령 직전에 다시 읽는다).
-- 이벤트 payload만 믿고 최종 판단하기(최종 리포트 전 `GET .../result`로 확인).
-- 관리자 API 호출, 응답에 없는 필드 가정.
+- Treat `202` as success.
+- Track state by `attempt_id` instead of `execution_id`.
+- Build or edit `next_cursor`, or change filters in the middle of paging.
+- Create a new `idempotency_key` on every retry (this creates duplicate executions).
+- Cache the MULTI version and reuse it (read it right before each command).
+- Make the final decision from an event payload alone (confirm with `GET .../result` before reporting).
+- Call admin APIs, or assume fields that are not in the response.
 
-## 13. 참고 엔드포인트 요약
+## 13. Endpoint cheat sheet
 
-| 하고 싶은 일 | 호출 |
+| Goal | Call |
 | --- | --- |
-| 실행 제출 | `POST /executions` |
-| 상태 확인 | `GET /executions/{id}` |
-| 결과 | `GET /executions/{id}/result` |
-| Operation 하나의 결과 | `GET /executions/{id}/operations/{operation_id}/result` |
-| MULTI 다음 코드 | `POST /executions/{id}/operations` |
-| MULTI 종료 | `POST /executions/{id}/finalize` |
-| 취소 | `POST /executions/{id}/cancel` |
-| SINGLE 재시도 | `POST /executions/{id}/retry` |
-| 내 실행 목록 | `GET /executions?status=&project_id=&session_id=&limit=` (`X-User-Id`를 넣으면 내 것만) |
-| 노트북 보기 | `GET /executions/{id}/notebook?view=FULL` |
-| 파일 목록·다운로드 | `GET /executions/{id}/artifacts`, `GET /artifacts/{artifact_id}/content` |
-| 텍스트 리포트 저장 | `POST /executions/{id}/artifacts` (`SUCCEEDED` Execution만, `type: "REPORT"`) |
-| 실패 진단 | `GET /executions/{id}/diagnostics` |
+| Submit | `POST /executions` |
+| Status | `GET /executions/{id}` |
+| Result | `GET /executions/{id}/result` |
+| One Operation's result | `GET /executions/{id}/operations/{operation_id}/result` |
+| MULTI: next code | `POST /executions/{id}/operations` |
+| MULTI: finish | `POST /executions/{id}/finalize` |
+| Cancel | `POST /executions/{id}/cancel` |
+| Retry SINGLE | `POST /executions/{id}/retry` |
+| My executions | `GET /executions?status=&project_id=&session_id=&limit=` (with `X-User-Id`, only yours) |
+| Notebook | `GET /executions/{id}/notebook?view=FULL` |
+| List / download files | `GET /executions/{id}/artifacts`, `GET /artifacts/{artifact_id}/content` |
+| Save a text report | `POST /executions/{id}/artifacts` (`SUCCEEDED` executions only, `type: "REPORT"`) |
+| Failure diagnostics | `GET /executions/{id}/diagnostics` |
