@@ -1,6 +1,6 @@
 # Executor API 레퍼런스
 
-`kimhwajin/executor` main 브랜치(`c73ee52`, 2026-11-09) 코드를 기준으로, Kubernetes에 배포된 서비스를 호출할 때 필요한 내용만 담았다. 요청·응답 표는
+Kubernetes에 배포된 Executor를 호출할 때 필요한 내용만 담았다. 요청·응답 표는
 코드가 생성한 OpenAPI와 Pydantic 계약에서 그대로 뽑았고, 의미 설명은 코드와 대조해 붙였다.
 
 ## 문서 구성
@@ -174,6 +174,6 @@ terminal 전 어느 상태든: cancel → CANCEL_REQUESTED → CANCELLED
 
 ## 기존 문서와의 관계
 
-저장소의 [`executor-api.md`](../executor-api.md), [`executor-events.md`](../executor-events.md)와 내용이 겹친다. 이 레퍼런스는 그 내용을
+상위 폴더의 [`executor-api.md`](../executor-api.md), [`executor-events.md`](../executor-events.md)와 내용이 겹친다. 이 레퍼런스는 그 내용을
 코드와 다시 대조하고, 요청·응답 필드를 코드 스키마에서 빠짐없이 뽑은 판이다. 결과 manifest 읽는 법,
 Artifact Range 세부, 진단 phase 목록처럼 더 깊은 내용은 상위 `dev_docs/`의 세부 문서를 본다.

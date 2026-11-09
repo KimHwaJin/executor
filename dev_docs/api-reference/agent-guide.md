@@ -2,7 +2,7 @@
 
 > This single file is enough to write code that calls Executor. For exact field types and required flags,
 > use `openapi.json` in this folder (generated from the code). If this guide and `openapi.json` disagree, `openapi.json` wins.
-> Source: `kimhwajin/executor` main `c73ee52` (2026-11-09). Written for services inside the Kubernetes cluster calling the deployed Executor.
+> Written for services inside the Kubernetes cluster calling the deployed Executor.
 > A Korean copy for human reviewers is in [agent-guide.ko.md](agent-guide.ko.md).
 
 ## 0. Summary
