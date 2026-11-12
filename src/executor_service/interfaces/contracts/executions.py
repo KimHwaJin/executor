@@ -140,7 +140,6 @@ def _execution_common(
             started_at=execution.started_at,
             finished_at=execution.finished_at,
         ),
-        "trigger_type": execution.trigger_type,
         "trigger": ExecutionTrigger(type=execution.trigger_type),
         "context": ExecutionContext(
             user_id=execution.user_id,
@@ -234,7 +233,6 @@ class ExecutionCommandResponse(AuditFields):
 
 class ExecutionResponse(AuditFields):
     execution_id: UUID
-    trigger_type: TriggerType
     trigger: ExecutionTrigger
     tenant_id: str
     context: ExecutionContext
@@ -286,7 +284,6 @@ class ExecutionResponse(AuditFields):
 class ExecutionSummaryResponse(AuditFields):
     execution_id: UUID
     operation_mode: OperationMode
-    trigger_type: TriggerType
     trigger: ExecutionTrigger
     tenant_id: str
     context: ExecutionContext
@@ -303,7 +300,6 @@ class ExecutionSummaryResponse(AuditFields):
         return cls(
             execution_id=execution.id,
             operation_mode=execution.operation_mode,
-            trigger_type=execution.trigger_type,
             trigger=ExecutionTrigger(type=execution.trigger_type),
             context=ExecutionContext(
                 user_id=execution.user_id,

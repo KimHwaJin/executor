@@ -31,6 +31,7 @@ async def test_health_endpoint() -> None:
         "state": "STOPPED",
         "accepting_new_executions": False,
         "active_execution_count": 0,
+        "max_active_execution_count": (settings.execution_worker_max_active),
         "redis_reachable": False,
         "startup_reconciliation": {
             "completed_at": None,

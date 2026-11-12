@@ -234,6 +234,7 @@ def create_app(
             "state": worker.lifecycle_state,
             "accepting_new_executions": worker.accepting_work,
             "active_execution_count": worker.active_job_count,
+            "max_active_execution_count": worker.max_active_job_count,
             # Reported for operators; event publication retries on its own.
             "redis_reachable": await container.redis_reachable(),
             "startup_reconciliation": {

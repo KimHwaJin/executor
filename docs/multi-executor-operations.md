@@ -50,7 +50,12 @@ PostgreSQL state.
 When the drain deadline expires, remaining local handlers are cancelled. Unfinished SINGLE work is
 classified as `WORKER_SHUTDOWN`, its Runtime session is deleted, and a `FROM_START` retry is exposed when
 safe. A MULTI Step interrupted during shutdown is not replayed automatically. `/workerz` exposes
-the local lifecycle state, active execution count, and startup reconciliation summary for diagnosis.
+the local lifecycle state, active and maximum execution counts, and startup reconciliation summary for
+diagnosis. When every local slot is taken the Worker logs `Executor Worker full` once, and when no
+Target can take an Execution it logs `Runtime admission blocked` with the reason (`NO_ACTIVE_TARGET`,
+`PROFILE_UNSUPPORTED`, `CAPACITY_FULL` or `MEMORY_LIMIT`) once per pool and profile until a Target
+admits work again. A Worker job that ends with an exception logs `Execution job failed` with its
+traceback.
 
 A forced process or Pod failure cannot perform the shutdown cleanup. Another Pod detects the
 expired lease, transitions the Execution to `FAILED` with `LEASE_EXPIRED`, and then deletes the

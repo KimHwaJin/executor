@@ -197,6 +197,10 @@ class ExecutionWorker:
         return self._dispatcher.active_job_count
 
     @property
+    def max_active_job_count(self) -> int:
+        return self._settings.execution_worker_max_active
+
+    @property
     def startup_reconciliation_completed_at(self) -> datetime | None:
         return self._startup_reconciliation_completed_at
 

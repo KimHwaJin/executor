@@ -1059,7 +1059,6 @@ Artifact 하나와 lineage 참조다. 보이는 범위는 그 Artifact의 Execut
 | `created_at` | string(date-time) | O | 생성 시각(UTC) |
 | `updated_at` | string(date-time) | O | 마지막 변경 시각(UTC). 출력 시각이 아니다 |
 | `execution_id` | string(uuid) | O | Execution ID |
-| `trigger_type` | `INTERACTIVE` \| `BATCH` | O | `INTERACTIVE` 또는 `BATCH`(`trigger.type`과 같은 값) |
 | `trigger` | [ExecutionTrigger](#schema-executiontrigger) | O | 트리거 |
 | `tenant_id` | string | O | Execution의 tenant. 이벤트 Stream 이름을 정한다. 바뀌지 않는다 |
 | `context` | [ExecutionContext](#schema-executioncontext) | O | 소유 범위 |
@@ -1298,7 +1297,6 @@ Artifact 하나와 lineage 참조다. 보이는 범위는 그 Artifact의 Execut
 | `updated_at` | string(date-time) | O | 마지막 변경 시각(UTC). 출력 시각이 아니다 |
 | `execution_id` | string(uuid) | O | Execution ID |
 | `operation_mode` | `SINGLE` \| `MULTI` | O | `SINGLE` 또는 `MULTI` |
-| `trigger_type` | `INTERACTIVE` \| `BATCH` | O | `INTERACTIVE` 또는 `BATCH`(`trigger.type`과 같은 값) |
 | `trigger` | [ExecutionTrigger](#schema-executiontrigger) | O | 트리거 |
 | `tenant_id` | string | O | Execution의 tenant. 이벤트 Stream 이름을 정한다. 바뀌지 않는다 |
 | `context` | [ExecutionContext](#schema-executioncontext) | O | 소유 범위 |

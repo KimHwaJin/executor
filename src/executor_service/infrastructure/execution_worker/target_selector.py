@@ -1,5 +1,6 @@
 """Runtime Target admission and load-aware selection."""
 
+import logging
 from datetime import datetime, timedelta
 
 from sqlalchemy import Select, select
@@ -17,12 +18,17 @@ from executor_service.infrastructure.runtime_admission import (
 )
 from executor_service.settings import Settings
 
+logger = logging.getLogger(__name__)
+
 
 class RuntimeTargetSelector:
     """Selects an eligible Target using reservations and fresh utilization."""
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
+        # Why each (pool, type, profile) last found no Target, so a wait is
+        # logged when it starts and ends rather than on every pass.
+        self._blocked: dict[tuple[str, str, str], str] = {}
 
     async def select(
         self, session: AsyncSession, execution: ExecutionORM
@@ -35,7 +41,8 @@ class RuntimeTargetSelector:
                 self._eligible(execution).order_by(RuntimeTargetORM.name)
             )
         )
-        chosen = await self._best(session, execution, targets)
+        chosen, reason, detail = await self._best(session, execution, targets)
+        self._report(execution, reason, detail)
         if chosen is None:
             return None
         target = await session.scalar(
@@ -46,7 +53,34 @@ class RuntimeTargetSelector:
         )
         if target is None:
             return None
-        return await self._best(session, execution, [target])
+        return (await self._best(session, execution, [target]))[0]
+
+    def _report(
+        self, execution: ExecutionORM, reason: str | None, detail: str
+    ) -> None:
+        key = (
+            execution.runtime_pool.value,
+            execution.runtime_type.value,
+            execution.runtime_profile,
+        )
+        previous = self._blocked.get(key)
+        if reason == previous:
+            return
+        if reason is None:
+            del self._blocked[key]
+            logger.info(
+                "Runtime admission resumed pool=%s runtime_type=%s profile=%s",
+                *key,
+            )
+            return
+        self._blocked[key] = reason
+        logger.warning(
+            "Runtime admission blocked pool=%s runtime_type=%s profile=%s "
+            "reason=%s targets=%s",
+            *key,
+            reason,
+            detail or "-",
+        )
 
     @staticmethod
     def _eligible(execution: ExecutionORM) -> Select[tuple[RuntimeTargetORM]]:
@@ -62,8 +96,13 @@ class RuntimeTargetSelector:
         session: AsyncSession,
         execution: ExecutionORM,
         targets: list[RuntimeTargetORM],
-    ) -> RuntimeTargetORM | None:
+    ) -> tuple[RuntimeTargetORM | None, str | None, str]:
+        """The chosen Target, or None with the reason and per-Target values."""
+
+        if not targets:
+            return None, "NO_ACTIVE_TARGET", ""
         candidates: list[tuple[RuntimeTargetORM, int]] = []
+        full: list[str] = []
         now = utc_now()
         for target in targets:
             if execution.runtime_profile not in target.supported_profiles:
@@ -79,8 +118,15 @@ class RuntimeTargetSelector:
             )
             if effective_usage < target.max_concurrent_executions:
                 candidates.append((target, effective_usage))
+            else:
+                full.append(
+                    f"{target.name}={effective_usage}/"
+                    f"{target.max_concurrent_executions}"
+                )
         if not candidates:
-            return None
+            if full:
+                return None, "CAPACITY_FULL", ",".join(full)
+            return None, "PROFILE_UNSUPPORTED", ""
 
         fresh_candidates = [
             candidate
@@ -96,10 +142,17 @@ class RuntimeTargetSelector:
                 < self._settings.runtime_memory_admission_limit
             ]
             if not admitted:
-                return None
-            return min(admitted, key=self._resource_candidate_key)[0]
+                return (
+                    None,
+                    "MEMORY_LIMIT",
+                    ",".join(
+                        f"{target.name}={target.memory_utilization:.2f}"
+                        for target, _usage in fresh_candidates
+                    ),
+                )
+            return min(admitted, key=self._resource_candidate_key)[0], None, ""
 
-        return min(
+        best = min(
             candidates,
             key=lambda candidate: (
                 candidate[1] / candidate[0].max_concurrent_executions,
@@ -107,6 +160,7 @@ class RuntimeTargetSelector:
                 candidate[0].name,
             ),
         )[0]
+        return best, None, ""
 
     def _has_fresh_resource_observation(
         self, target: RuntimeTargetORM, now: datetime
