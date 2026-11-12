@@ -633,8 +633,10 @@ async def _multi_output_limit_failure_type(
 ) -> str | None:
     response = await client.get(f"/api/v1/executions/{execution_id}")
     response.raise_for_status()
-    failure = response.json().get("failure")
-    return str(failure["type"]) if isinstance(failure, dict) else None
+    state = response.json()["state"]
+    return (
+        str(state["reason"]["code"]) if state["status"] == "FAILED" else None
+    )
 
 
 async def _cleanup_output_limit_executions(
@@ -793,14 +795,13 @@ async def run_scenario(
             multi_failure_types = dict(zip(execution_ids, values, strict=True))
         terminal_outcomes = {}
         for execution_id, state in terminal.items():
-            failure = state.get("failure")
             terminal_outcomes[execution_id] = {
                 "status": state["state"]["status"],
                 "failure_type": (
                     multi_failure_types.get(execution_id)
                     if operation_mode == "MULTI"
-                    else failure["type"]
-                    if failure is not None
+                    else state["state"]["reason"]["code"]
+                    if state["state"]["status"] == "FAILED"
                     else None
                 ),
             }

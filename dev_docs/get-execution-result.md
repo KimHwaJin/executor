@@ -34,6 +34,7 @@ Execution 전체의 현재 상태다.
 | `execution.execution_id` | UUID | Executor가 발급한 Execution 식별자 |
 | `execution.state.status` | enum | Execution의 현재 상태 |
 | `execution.state.version` | integer | 상태 갱신 버전. 상태 변경 시 증가하며 이전 조회 결과와 최신 상태를 구분할 때 사용 |
+| `execution.state.reason` | object/null | 이 상태인 이유 `{code, message, detail}`. 실패 유형, 취소 사유, 대기 이유 등. [상태별 reason](api-reference/README.md#상태별-reason) 참고 |
 
 ### Execution 상태
 
@@ -250,7 +251,7 @@ Execution의 실행 시도 이력이다. 최초 실행과 재시도가 각각 �
 | `execution_id` | UUID | 소속 Execution 식별자 |
 | `attempt_number` | integer | 실행 시도 순번. `1`부터 시작 |
 | `state.status` | enum | Attempt 상태 |
-| `failure` | object/null | Attempt 실패 정보 |
+| `state.reason` | object/null | Attempt 실패 정보 |
 | `lifecycle.started_at` | datetime/null | Attempt 시작 시각 |
 | `lifecycle.finished_at` | datetime/null | Attempt 종료 시각 |
 | `step_count` | integer | 해당 Attempt에 속한 StepAttempt 개수 |
@@ -265,14 +266,14 @@ Execution의 실행 시도 이력이다. 최초 실행과 재시도가 각각 �
 | `FAILED` | 실패 |
 | `CANCELLED` | 취소 |
 
-### `attempts[].failure`
+### `attempts[].state.reason`
 
 | 필드 | 타입 | 의미 |
 |---|---|---|
-| `failure.type` | enum | 구조화된 실패 분류 |
-| `failure.message` | string | 실패 상세 메시지 |
+| `state.reason.code` | enum | 구조화된 실패 분류 |
+| `state.reason.message` | string | 실패 상세 메시지 |
 
-정상 실행이거나 실패 정보가 아직 확정되지 않았다면 `failure`는 `null`이다.
+정상 실행이거나 실패 정보가 아직 확정되지 않았다면 `state.reason`은 `null`이다.
 
 | 실패 유형 | 의미 |
 |---|---|

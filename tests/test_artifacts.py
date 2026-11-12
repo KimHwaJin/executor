@@ -47,6 +47,7 @@ from executor_service.interfaces.contracts import (
     ExecutionArtifactPageResponse,
     ExecutionArtifactResponse,
 )
+from executor_service.settings import Settings
 from tests.runtime_credentials import runtime_credential_fields
 from tests.runtime_storage_fake import InMemoryRuntimeStorage
 
@@ -215,7 +216,10 @@ async def test_artifact_discovery_manifest_lineage_and_idempotency(
 
     assert len(artifact_ids) == 5
     assert repeated_ids == artifact_ids
-    queries = SQLAlchemyExecutionQueryService(create_session_factory(engine))
+    queries = SQLAlchemyExecutionQueryService(
+        create_session_factory(engine),
+        Settings(_env_file=None, auth_clients=[]),
+    )
     artifacts = await queries.artifacts(execution.id)
     assert len(artifacts) == 5
     assert {artifact.artifact_type for artifact in artifacts} == {

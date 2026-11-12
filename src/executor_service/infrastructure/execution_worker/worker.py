@@ -59,9 +59,6 @@ from executor_service.infrastructure.execution_worker.session_recovery import (
 from executor_service.infrastructure.execution_worker.step_executor import (
     ExecutionStepExecutor,
 )
-from executor_service.infrastructure.execution_worker.target_selector import (
-    RuntimeTargetSelector,
-)
 from executor_service.infrastructure.execution_worker.work_admission import (
     WorkAdmissionProcessor,
 )
@@ -70,6 +67,9 @@ from executor_service.infrastructure.maintenance_runs import (
 )
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
+)
+from executor_service.infrastructure.runtime_target_selector import (
+    RuntimeTargetSelector,
 )
 from executor_service.infrastructure.workspace import (
     WorkspaceManager,

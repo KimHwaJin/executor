@@ -27,6 +27,7 @@ from executor_service.interfaces.contracts.common import (  # noqa: F401
     ContractModel,
     Lifecycle,
     PageResponse,
+    StatusReasonResponse,
 )
 from executor_service.interfaces.contracts.diagnostics import (  # noqa: F401
     DiagnosticCauseResponse,
@@ -58,7 +59,6 @@ from executor_service.interfaces.contracts.executions import (  # noqa: F401
     ExecutionState,
     ExecutionStepReceipt,
     ExecutionSummaryResponse,
-    FailureResponse,
     NotebookProjectionResponse,
     RecoveryResponse,
     RetryResponse,

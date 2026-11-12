@@ -72,8 +72,9 @@ Operation 결과로 끝낸다.
 - 전체 수명 때문에 자동 finalize한 실행은 반영 작업에 첫 실행 대기 제한만큼 유예를
   더 받는다. 그 안에 끝나지 않으면 `FAILED / EXECUTION_TIMEOUT`.
 - Agent가 finalize하면 `finalized_by = AGENT`. SINGLE의 정상 종료와 취소는 null.
-- `finalized_by`는 `execution.completed` 이벤트 payload와 조회 응답의
-  `state.finalized_by`에 있다.
+- `finalized_by`는 `execution.completed` 이벤트 payload에 있다. 조회 응답에서는
+  `state.reason`으로 나온다: `SUCCEEDED`·`FINALIZING`은 `reason.code`, `FAILED`는
+  `reason.detail.finalized_by`.
 - 상태 전환과 주기 점검 방식이므로 정확한 시각의 강제 종료 SLA로 해석하지 않는다.
 
 ## retry와 보존 커널

@@ -224,7 +224,7 @@ async def main() -> None:
         ) as client:
             failed = await _wait_for_recovered_failure(client, execution_id)
             if (
-                failed["failure"]["type"] != "LEASE_EXPIRED"
+                failed["state"]["reason"]["code"] != "LEASE_EXPIRED"
                 or failed["retry"]["strategy"] != "FROM_START"
                 or failed["recovery"]["runtime_session_cleanup_status"]
                 != "SUCCEEDED"
@@ -272,7 +272,7 @@ async def main() -> None:
 
             print("execution_id:", execution_id)
             print("primary_exit_code:", primary.returncode)
-            print("failure_type:", failed["failure"]["type"])
+            print("failure_type:", failed["state"]["reason"]["code"])
             print("retry_strategy:", failed["retry"]["strategy"])
             print(
                 "runtime_session_cleanup_status:",

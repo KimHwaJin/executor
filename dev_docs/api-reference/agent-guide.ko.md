@@ -119,7 +119,7 @@ GET  /executions/{id}/operations/{operation_id}/result   ← 방금 Operation �
 `GET /executions/{id}/result` 응답 구조(핵심만):
 
 ```text
-execution: {execution_id, state: {status, version, cancellation_reason, finalized_by}}
+execution: {execution_id, state: {status, version, reason{code, message, detail}}}
 operations[]: {operation_id, operation_number, sequence_range{first,last}, result{status, error_message}, lifecycle, steps[]}
   steps[]: {step_id, sequence, lineage, lifecycle,
             result: {status, error_message, output_summary{output_count, output_types, stream_names, mime_types, has_image, image_count, has_error},
@@ -141,9 +141,10 @@ artifacts[]: Artifact 요약(노트북, 리포트 등)
 | 실행 취소 | `POST /executions/{id}/cancel` `{"idempotency_key": "...", "reason": "..."}` → `CANCEL_REQUESTED` → 나중에 `CANCELLED`. 이미 끝났으면 `409` |
 | SINGLE 실패 재시도 | `GET /executions/{id}`의 `retry.strategy`가 `NOT_RETRYABLE`이 아니면 `POST /executions/{id}/retry` `{"idempotency_key": "..."}`. 시작 위치는 Executor가 정한다 |
 | MULTI 실패 | retry 불가. 고친 코드로 다음 Operation을 제출한다 |
-| 실패 원인 | `GET /executions/{id}`의 `failure{type, message}`, 더 자세히는 `GET /executions/{id}/diagnostics` |
+| 실패 원인 | `GET /executions/{id}`의 `state.reason{code, message}`, 더 자세히는 `GET /executions/{id}/diagnostics` |
+| `QUEUED`가 오래 감 | `GET /executions/{id}`의 `state.reason.code`로 무엇을 기다리는지 본다(`CAPACITY_FULL`, `NO_ACTIVE_TARGET`, `WAITING_FOR_WORKER` 등). `detail.queue_position`이 대기열 순번이다. 전체 code는 [README](README.md#상태별-reason) |
 
-`failure.type` 값: `TOOL_ERROR`(사용자 코드 예외), `STEP_TIMEOUT`, `OPERATION_TIMEOUT`, `OPERATION_WAIT_TIMEOUT`, `EXECUTION_TIMEOUT`, `QUEUE_TIMEOUT`, `OUTPUT_LIMIT_EXCEEDED`, `RUNTIME_UNAVAILABLE`, `RUNTIME_SESSION_LOST`, `INFRASTRUCTURE_ERROR`, `WORKER_SHUTDOWN`, `LEASE_EXPIRED`, `COMPLETION_FAILED`, `INTERNAL_ERROR`.
+`FAILED`의 `state.reason.code` 값: `TOOL_ERROR`(사용자 코드 예외), `STEP_TIMEOUT`, `OPERATION_TIMEOUT`, `OPERATION_WAIT_TIMEOUT`, `EXECUTION_TIMEOUT`, `QUEUE_TIMEOUT`, `OUTPUT_LIMIT_EXCEEDED`, `RUNTIME_UNAVAILABLE`, `RUNTIME_SESSION_LOST`, `INFRASTRUCTURE_ERROR`, `WORKER_SHUTDOWN`, `LEASE_EXPIRED`, `COMPLETION_FAILED`, `INTERNAL_ERROR`.
 
 ## 8. 오류 처리
 

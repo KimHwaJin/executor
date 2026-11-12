@@ -9,6 +9,7 @@ from executor_service.application.execution_queries import (
     ExecutionOperationView,
     ExecutionStepAttemptView,
     ExecutionSummaryView,
+    StatusReason,
 )
 from executor_service.infrastructure.db.models import (
     ExecutionArtifactORM,
@@ -16,6 +17,9 @@ from executor_service.infrastructure.db.models import (
     ExecutionOperationORM,
     ExecutionORM,
     ExecutionStepAttemptORM,
+)
+from executor_service.infrastructure.execution_queries.status_reasons import (
+    STATUS_REASON_COLUMNS,
 )
 
 EXECUTION_SUMMARY_COLUMNS = (
@@ -38,25 +42,17 @@ EXECUTION_SUMMARY_COLUMNS = (
     ExecutionORM.updated_at,
     ExecutionORM.started_at,
     ExecutionORM.finished_at,
+    *STATUS_REASON_COLUMNS,
 )
 
 EXECUTION_DETAIL_COLUMNS = (
     *EXECUTION_SUMMARY_COLUMNS,
-    ExecutionORM.runtime_type,
-    ExecutionORM.runtime_pool,
-    ExecutionORM.runtime_profile,
-    ExecutionORM.runtime_target_id,
-    ExecutionORM.runtime_session_id,
-    ExecutionORM.cancellation_reason,
-    ExecutionORM.finalized_by,
     ExecutionORM.workspace_path,
     ExecutionORM.notebook_path,
     ExecutionORM.notebook_projection_status,
     ExecutionORM.notebook_projection_attempt_count,
     ExecutionORM.notebook_projection_error,
     ExecutionORM.notebook_projected_at,
-    ExecutionORM.failure_type,
-    ExecutionORM.error_message,
     ExecutionORM.retry_strategy,
     ExecutionORM.retry_count,
     ExecutionORM.retry_from_sequence,
@@ -81,7 +77,7 @@ def redact(value: Any) -> Any:
 
 
 def execution_summary_view(
-    row: ExecutionORM, step_count: int
+    row: ExecutionORM, step_count: int, reason: StatusReason | None
 ) -> ExecutionSummaryView:
     return ExecutionSummaryView(
         id=row.id,
@@ -95,6 +91,7 @@ def execution_summary_view(
         metadata=redact(row.execution_metadata),
         status=row.status,
         version=row.version,
+        reason=reason,
         step_count=step_count,
         created_by_client=row.created_by_client,
         created_by=row.created_by,
@@ -107,7 +104,9 @@ def execution_summary_view(
     )
 
 
-def execution_detail_view(row: ExecutionORM) -> ExecutionDetailView:
+def execution_detail_view(
+    row: ExecutionORM, reason: StatusReason | None
+) -> ExecutionDetailView:
     return ExecutionDetailView(
         id=row.id,
         operation_mode=row.operation_mode,
@@ -125,8 +124,7 @@ def execution_detail_view(row: ExecutionORM) -> ExecutionDetailView:
         runtime_session_id=row.runtime_session_id,
         status=row.status,
         version=row.version,
-        cancellation_reason=row.cancellation_reason,
-        finalized_by=row.finalized_by,
+        reason=reason,
         workspace_path=row.workspace_path,
         notebook_path=row.notebook_path,
         notebook_projection_status=row.notebook_projection_status,
@@ -135,8 +133,6 @@ def execution_detail_view(row: ExecutionORM) -> ExecutionDetailView:
         ),
         notebook_projection_error=row.notebook_projection_error,
         notebook_projected_at=row.notebook_projected_at,
-        failure_type=row.failure_type,
-        error_message=row.error_message,
         retry_strategy=row.retry_strategy,
         retry_count=row.retry_count,
         retry_from_sequence=row.retry_from_sequence,

@@ -43,14 +43,14 @@ from executor_service.infrastructure.execution_worker.execution_state import (
 from executor_service.infrastructure.execution_worker.handover import (
     StepHandover,
 )
-from executor_service.infrastructure.execution_worker.target_selector import (
-    RuntimeTargetSelector,
-)
 from executor_service.infrastructure.execution_worker.types import (
     CancellationWork,
 )
 from executor_service.infrastructure.maintenance import (
     ExecutorMaintenanceService,
+)
+from executor_service.infrastructure.runtime_target_selector import (
+    RuntimeTargetSelector,
 )
 from executor_service.settings import Settings
 

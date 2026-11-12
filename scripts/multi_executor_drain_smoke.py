@@ -135,7 +135,7 @@ async def main() -> None:
             )
         if (
             long["state"]["status"] != "FAILED"
-            or long["failure"]["type"] != "WORKER_SHUTDOWN"
+            or long["state"]["reason"]["code"] != "WORKER_SHUTDOWN"
             or long["retry"]["strategy"] != "FROM_START"
             or long["recovery"]["runtime_session_cleanup_status"]
             != "SUCCEEDED"
@@ -163,7 +163,7 @@ async def main() -> None:
         print("primary_exit_code:", primary.returncode)
         print("short_status:", short["state"]["status"])
         print("long_status:", long["state"]["status"])
-        print("long_failure_type:", long["failure"]["type"])
+        print("long_failure_type:", long["state"]["reason"]["code"])
         print(
             "long_cleanup_status:",
             long["recovery"]["runtime_session_cleanup_status"],

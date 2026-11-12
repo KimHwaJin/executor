@@ -17,10 +17,9 @@ from executor_service.interfaces.contracts.attempts import (
 from executor_service.interfaces.contracts.common import (
     ContractModel,
     Lifecycle,
+    StatusReasonResponse,
 )
-from executor_service.interfaces.contracts.executions import (
-    ExecutionCommandState,
-)
+from executor_service.interfaces.contracts.executions import ExecutionState
 from executor_service.interfaces.contracts.operations import (
     OperationResult,
     OperationSequenceRange,
@@ -34,7 +33,7 @@ from executor_service.interfaces.contracts.steps import (
 
 class ExecutionResultExecutionResponse(ContractModel):
     execution_id: UUID
-    state: ExecutionCommandState
+    state: ExecutionState
 
     @classmethod
     def from_view(
@@ -43,9 +42,10 @@ class ExecutionResultExecutionResponse(ContractModel):
     ) -> "ExecutionResultExecutionResponse":
         return cls(
             execution_id=view.id,
-            state=ExecutionCommandState(
+            state=ExecutionState(
                 status=view.status,
                 version=view.version,
+                reason=StatusReasonResponse.from_view(view.reason),
             ),
         )
 

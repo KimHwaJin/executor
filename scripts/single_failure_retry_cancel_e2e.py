@@ -524,7 +524,7 @@ async def _run_failure_retry_case(
         require_runtime_session=True,
     )
     if (
-        failed["failure"]["type"] != "TOOL_ERROR"
+        failed["state"]["reason"]["code"] != "TOOL_ERROR"
         or failed["retry"]["strategy"] != "FROM_FAILED_STEP"
         or failed["retry"]["from_sequence"] != 1
     ):
@@ -881,7 +881,7 @@ async def _run_cancel_case(
         timeout_seconds=timeout_seconds,
     )
     if (
-        cancelled["state"]["cancellation_reason"]
+        cancelled["state"]["reason"]["message"]
         != "single cancellation regression E2E"
         or cancelled["runtime"]["kernel_id"] is not None
         or cancelled["retry"]["strategy"] != "NOT_RETRYABLE"

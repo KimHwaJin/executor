@@ -29,13 +29,19 @@ from executor_service.infrastructure.execution_queries.mappers import (
     execution_detail_view,
     operation_view,
 )
+from executor_service.infrastructure.execution_queries.status_reasons import (
+    StatusReasonResolver,
+)
 
 
 class SQLAlchemyResultSnapshotReader:
     def __init__(
-        self, session_factory: async_sessionmaker[AsyncSession]
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        reasons: StatusReasonResolver,
     ) -> None:
         self._session_factory = session_factory
+        self._reasons = reasons
 
     async def operation_result_snapshot(
         self, execution_id: UUID, operation_id: UUID
@@ -64,8 +70,11 @@ class SQLAlchemyResultSnapshotReader:
                     .order_by(ExecutionStepORM.sequence)
                 )
             )
+            reason = (await self._reasons.resolve(session, [execution]))[
+                execution.id
+            ]
         return OperationResultSnapshot(
-            execution=execution_detail_view(execution),
+            execution=execution_detail_view(execution, reason),
             operation=operation_view(operation),
             steps=steps,
         )
@@ -119,11 +128,14 @@ class SQLAlchemyResultSnapshotReader:
                     )
                 )
             )
+            reason = (await self._reasons.resolve(session, [execution]))[
+                execution.id
+            ]
         step_counts = {
             attempt_id: count for attempt_id, count in step_count_rows
         }
         return ExecutionResultSnapshot(
-            execution=execution_detail_view(execution),
+            execution=execution_detail_view(execution, reason),
             operations=tuple(operation_view(row) for row in operations),
             steps=steps,
             attempts=tuple(

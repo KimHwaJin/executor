@@ -89,7 +89,10 @@ async def mcp_client(
 
 
 def _queries(engine: AsyncEngine) -> SQLAlchemyExecutionQueryService:
-    return SQLAlchemyExecutionQueryService(create_session_factory(engine))
+    return SQLAlchemyExecutionQueryService(
+        create_session_factory(engine),
+        Settings(_env_file=None, auth_clients=[]),
+    )
 
 
 async def test_mcp_client_can_list_and_call_execution_tools(
@@ -168,7 +171,10 @@ async def test_mcp_client_can_query_execution_history_resources(
     engine: AsyncEngine,
     tmp_path: Path,
 ) -> None:
-    queries = SQLAlchemyExecutionQueryService(create_session_factory(engine))
+    queries = SQLAlchemyExecutionQueryService(
+        create_session_factory(engine),
+        Settings(_env_file=None, auth_clients=[]),
+    )
     target = build_mcp_server(
         execution_service,
         queries,
@@ -234,7 +240,10 @@ async def test_mcp_execution_list_uses_opaque_next_cursor(
     engine: AsyncEngine,
     tmp_path: Path,
 ) -> None:
-    queries = SQLAlchemyExecutionQueryService(create_session_factory(engine))
+    queries = SQLAlchemyExecutionQueryService(
+        create_session_factory(engine),
+        Settings(_env_file=None, auth_clients=[]),
+    )
     target = build_mcp_server(
         execution_service,
         queries,
@@ -286,7 +295,10 @@ async def test_mcp_list_rejects_limit_outside_declared_contract(
     engine: AsyncEngine,
     tmp_path: Path,
 ) -> None:
-    queries = SQLAlchemyExecutionQueryService(create_session_factory(engine))
+    queries = SQLAlchemyExecutionQueryService(
+        create_session_factory(engine),
+        Settings(_env_file=None, auth_clients=[]),
+    )
     target = build_mcp_server(
         execution_service,
         queries,

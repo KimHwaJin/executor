@@ -33,13 +33,19 @@ from executor_service.infrastructure.execution_queries.mappers import (
     execution_detail_view,
     execution_summary_view,
 )
+from executor_service.infrastructure.execution_queries.status_reasons import (
+    StatusReasonResolver,
+)
 
 
 class SQLAlchemyExecutionReader:
     def __init__(
-        self, session_factory: async_sessionmaker[AsyncSession]
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        reasons: StatusReasonResolver,
     ) -> None:
         self._session_factory = session_factory
+        self._reasons = reasons
 
     async def executions(
         self,
@@ -95,7 +101,10 @@ class SQLAlchemyExecutionReader:
         ).limit(limit + 1)
         async with self._session_factory() as session:
             rows = list((await session.execute(statement)).all())
-        page_rows = rows[:limit]
+            page_rows = rows[:limit]
+            reasons = await self._reasons.resolve(
+                session, [row for row, _count in page_rows]
+            )
         next_cursor = (
             encode_time_cursor(
                 "executions", page_rows[-1][0].created_at, page_rows[-1][0].id
@@ -105,7 +114,8 @@ class SQLAlchemyExecutionReader:
         )
         return Page(
             items=[
-                execution_summary_view(row, count) for row, count in page_rows
+                execution_summary_view(row, count, reasons[row.id])
+                for row, count in page_rows
             ],
             next_cursor=next_cursor,
         )
@@ -120,11 +130,12 @@ class SQLAlchemyExecutionReader:
                     noload(ExecutionORM.steps),
                 )
             )
-        if row is None:
-            raise ExecutionNotFoundError(
-                f"Execution {execution_id} was not found."
-            )
-        return execution_detail_view(row)
+            if row is None:
+                raise ExecutionNotFoundError(
+                    f"Execution {execution_id} was not found."
+                )
+            reasons = await self._reasons.resolve(session, [row])
+        return execution_detail_view(row, reasons[row.id])
 
     async def steps(
         self,

@@ -159,7 +159,8 @@ async def main() -> None:
                 terminal_seconds = monotonic() - started
                 if expected == "FAILED":
                     assert (
-                        execution["failure"]["type"] == "RUNTIME_SESSION_LOST"
+                        execution["state"]["reason"]["code"]
+                        == "RUNTIME_SESSION_LOST"
                     ), execution
                     assert execution["retry"]["strategy"] != "FROM_FAILED_STEP"
                 async with sessions() as session:

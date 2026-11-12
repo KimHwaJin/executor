@@ -159,7 +159,6 @@ ClusterIP Service `executor`(포트 `8000`)로 떠 있다. 하나의 이미지�
 | Operation | `QUEUED`, `RUNNING`, `SUCCEEDED`, `FAILED`, `CANCELLED` |
 | Step | `PENDING`, `RUNNING`, `SUCCEEDED`, `FAILED`, `SKIPPED`, `CANCELLED` |
 | Attempt | `RUNNING`, `WAITING`, `SUCCEEDED`, `FAILED`, `CANCELLED` |
-| failure.type | `TOOL_ERROR`, `INFRASTRUCTURE_ERROR`, `WORKER_SHUTDOWN`, `RUNTIME_UNAVAILABLE`, `LEASE_EXPIRED`, `INTERNAL_ERROR`, `OPERATION_WAIT_TIMEOUT`, `OPERATION_TIMEOUT`, `STEP_TIMEOUT`, `EXECUTION_TIMEOUT`, `QUEUE_TIMEOUT`, `OUTPUT_LIMIT_EXCEEDED`, `RUNTIME_SESSION_LOST`, `COMPLETION_FAILED` |
 | retry.strategy | `NOT_RETRYABLE`, `FROM_FAILED_STEP`, `FROM_START` |
 | Runtime Target | `ACTIVE`, `DRAINING`, `OFFLINE` |
 
@@ -171,6 +170,26 @@ MULTI : submit → QUEUED → RUNNING → WAITING_FOR_OPERATION ─┬ operation
                                                           └ 대기 기한 초과 → FAILED(OPERATION_WAIT_TIMEOUT)
 terminal 전 어느 상태든: cancel → CANCEL_REQUESTED → CANCELLED
 ```
+
+## 상태별 reason
+
+Execution 조회 응답(`GET /executions`, `GET /executions/{id}`, `GET /executions/{id}/result`의 `execution`)의
+`state.reason {code, message, detail}`이 "왜 이 상태인가"를 한곳에서 알려 준다. 조회 시점에 DB 상태로 계산하므로
+어느 Executor Pod가 응답해도 같다.
+
+| status | `reason.code` | `message` · `detail` |
+| --- | --- | --- |
+| `QUEUED` | `ADMISSION_DRAINING`(유지보수로 신규 시작 중단), `NO_ACTIVE_TARGET`(Pool에 켜진 ACTIVE Target 없음), `PROFILE_UNSUPPORTED`(프로파일을 지원하는 Target 없음), `CAPACITY_FULL`(모든 Target이 동시 실행 한도), `MEMORY_LIMIT`(모든 Target이 메모리 한도 초과), `TARGET_UNAVAILABLE`(커널을 유지한 실행의 Target이 OFFLINE·비활성), `WAITING_FOR_WORKER`(Target은 받을 수 있고 Worker 슬롯 차례 대기) | `detail.queue_position`: 대기열 순번(1부터). `detail.targets`: Target별 값(`CAPACITY_FULL`은 `사용/한도`, `MEMORY_LIMIT`은 사용률, `TARGET_UNAVAILABLE`은 `OFFLINE`/`DISABLED`/`MISSING`) |
+| `RUNNING` | 보통 `null`. Worker가 멈춰 다른 Worker가 이어받는 중이면 `WORKER_HANDOVER` | `detail.handover_reason`(`EXECUTOR_SHUTDOWN`/`EXECUTOR_UNRESPONSIVE`), `detail.paused_since` |
+| `WAITING_FOR_OPERATION` | `AWAITING_NEXT_OPERATION` | 기한은 `deadlines.operation_wait_expires_at` |
+| `FINALIZING`, `SUCCEEDED` | 무엇이 끝냈나: `AGENT`(finalize), `WAIT_TIMEOUT`(MULTI 대기 기한), `MAX_RUNTIME`(전체 수명). SINGLE 정상 종료는 `COMPLETED` | |
+| `CANCEL_REQUESTED`, `CANCELLED` | `CANCELLED_BY_REQUEST`(취소 요청), `MAX_RUNTIME`(전체 수명 초과로 중단 중) | `message`는 취소 요청의 `reason` |
+| `FAILED` | 실패 유형: `TOOL_ERROR`, `INFRASTRUCTURE_ERROR`, `WORKER_SHUTDOWN`, `RUNTIME_UNAVAILABLE`, `LEASE_EXPIRED`, `INTERNAL_ERROR`, `OPERATION_WAIT_TIMEOUT`, `OPERATION_TIMEOUT`, `STEP_TIMEOUT`, `EXECUTION_TIMEOUT`, `QUEUE_TIMEOUT`, `OUTPUT_LIMIT_EXCEEDED`, `RUNTIME_SESSION_LOST`, `COMPLETION_FAILED` | `message`는 실패 메시지. 대기 기한·전체 수명으로 끝났으면 `detail.finalized_by` |
+
+Attempt 응답의 `state.reason`은 실패한 Attempt에만 있고 `code`는 실패 유형이다.
+
+Worker의 빈 슬롯 수는 각 Pod 안에만 있어서 "모든 Worker가 꽉 참"은 따로 구분하지 않는다. 그 경우도
+`WAITING_FOR_WORKER`와 `queue_position`으로 나온다.
 
 ## 기존 문서와의 관계
 

@@ -22,6 +22,7 @@ from executor_service.domain.enums import (
     RuntimePool,
     RuntimeSessionCleanupStatus,
     RuntimeType,
+    StatusReasonCode,
     StepStatus,
     TriggerType,
 )
@@ -29,6 +30,15 @@ from executor_service.domain.models import (
     ExecutionStep,
     NotebookProjectionStatus,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class StatusReason:
+    """Why an Execution or Attempt is in its status."""
+
+    code: FailureType | FinalizedBy | StatusReasonCode
+    message: str
+    detail: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,6 +54,7 @@ class ExecutionSummaryView:
     metadata: dict[str, Any]
     status: ExecutionStatus
     version: int
+    reason: StatusReason | None
     step_count: int
     created_by_client: str | None
     created_by: str | None
@@ -73,16 +84,13 @@ class ExecutionDetailView:
     runtime_session_id: str | None
     status: ExecutionStatus
     version: int
-    cancellation_reason: str | None
-    finalized_by: FinalizedBy | None
+    reason: StatusReason | None
     workspace_path: str | None
     notebook_path: str | None
     notebook_projection_status: NotebookProjectionStatus
     notebook_projection_attempt_count: int
     notebook_projection_error: str | None
     notebook_projected_at: datetime | None
-    failure_type: FailureType | None
-    error_message: str | None
     retry_strategy: RetryStrategy
     retry_count: int
     retry_from_sequence: int | None

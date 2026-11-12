@@ -27,6 +27,7 @@ from executor_service.infrastructure.execution_queries import (
 from executor_service.interfaces.contracts.results import (
     ExecutionResultResponse,
 )
+from executor_service.settings import get_settings
 
 
 def checked_file(root: Path, ref: dict[str, Any]) -> bytes:
@@ -134,7 +135,7 @@ async def snapshot(execution_id: UUID, root: Path) -> dict[str, Any]:
             }
         bundle = ExecutionResultResponse.from_bundle(
             await ExecutionResultQueryService(
-                SQLAlchemyExecutionQueryService(factory)
+                SQLAlchemyExecutionQueryService(factory, get_settings())
             ).execution(execution_id)
         ).model_dump(mode="json")
         messages = []

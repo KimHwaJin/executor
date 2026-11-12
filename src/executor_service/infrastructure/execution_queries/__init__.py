@@ -36,20 +36,29 @@ from executor_service.infrastructure.execution_queries.operations import (
 from executor_service.infrastructure.execution_queries.results import (
     SQLAlchemyResultSnapshotReader,
 )
+from executor_service.infrastructure.execution_queries.status_reasons import (
+    StatusReasonResolver,
+)
+from executor_service.settings import Settings
 
 
 class SQLAlchemyExecutionQueryService:
     """Entry point composed from responsibility-specific readers."""
 
     def __init__(
-        self, session_factory: async_sessionmaker[AsyncSession]
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        settings: Settings,
     ) -> None:
-        self._executions = SQLAlchemyExecutionReader(session_factory)
+        reasons = StatusReasonResolver(settings)
+        self._executions = SQLAlchemyExecutionReader(session_factory, reasons)
         self._attempts = SQLAlchemyAttemptReader(session_factory)
         self._operations = SQLAlchemyOperationReader(session_factory)
         self._events = SQLAlchemyEventReader(session_factory)
         self._artifacts = SQLAlchemyArtifactReader(session_factory)
-        self._results = SQLAlchemyResultSnapshotReader(session_factory)
+        self._results = SQLAlchemyResultSnapshotReader(
+            session_factory, reasons
+        )
 
     async def executions(
         self,

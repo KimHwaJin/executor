@@ -77,7 +77,7 @@ async def main() -> None:
             )
         print("execution_id:", execution_id)
         print("status: FAILED")
-        print("error:", result["failure"]["message"])
+        print("error:", result["state"]["reason"]["message"])
         print("output_kind:", errors[0]["output_type"])
         print("traceback:", errors[0]["traceback"])
 
