@@ -329,8 +329,7 @@ checksum 계산: `hashlib.sha256(Path(root, path).read_bytes()).hexdigest()`. �
 | `cursor`, `limit` | 페이지. `limit` 1~200, 기본 100 |
 
 항상 호출자 tenant로 한정되고, `X-User-Id`를 보내면 그 사용자의 것만 나온다. `X-User-Id` 없이 부르는 시스템 조회는 tenant 전체를 보고, 소유자로 거를 때는 쿼리 `user_id`를 쓴다. 필터는 AND다.
-최신순이며 시간 필터는 없다. `items[]` 필드: `execution_id`, `operation_mode`, `trigger_type`,
-`trigger{type}`, `tenant_id`, `context`, `metadata`, `state{status, version}`,
+최신순이며 시간 필터는 없다. `items[]` 필드: `execution_id`, `operation_mode`, `trigger{type}`, `tenant_id`, `context`, `metadata`, `state{status, version}`,
 `lifecycle{started_at, finished_at}`, `step_count`, 감사 필드.
 
 ## 8. 상태조회 — `GET /executions/{execution_id}`
@@ -340,7 +339,7 @@ PostgreSQL의 원본 상태다. 이벤트 누락, 재시작, 명령 반영 확�
 | 필드 | 의미 |
 | --- | --- |
 | `execution_id` | Execution ID |
-| `trigger_type`, `trigger.type` | `INTERACTIVE` 또는 `BATCH`. 같은 값이다 |
+| `trigger.type` | `INTERACTIVE` 또는 `BATCH`. 목록 필터 쿼리 이름은 `trigger_type`이다 |
 | `tenant_id` | Execution의 tenant. 이벤트 Stream을 정한다 |
 | `context.user_id` | 소유 사용자(제출 때 `X-User-Id`) |
 | `context.project_id`, `context.session_id` | 제출 때 헤더 값 또는 `null` |

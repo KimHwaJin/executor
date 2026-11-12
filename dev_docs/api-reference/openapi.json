@@ -6980,9 +6980,6 @@
             "format": "uuid",
             "title": "Execution Id"
           },
-          "trigger_type": {
-            "$ref": "#/components/schemas/TriggerType"
-          },
           "trigger": {
             "$ref": "#/components/schemas/ExecutionTrigger"
           },
@@ -7040,7 +7037,6 @@
           "created_at",
           "updated_at",
           "execution_id",
-          "trigger_type",
           "trigger",
           "tenant_id",
           "context",
@@ -7910,9 +7906,6 @@
           "operation_mode": {
             "$ref": "#/components/schemas/OperationMode"
           },
-          "trigger_type": {
-            "$ref": "#/components/schemas/TriggerType"
-          },
           "trigger": {
             "$ref": "#/components/schemas/ExecutionTrigger"
           },
@@ -7950,7 +7943,6 @@
           "updated_at",
           "execution_id",
           "operation_mode",
-          "trigger_type",
           "trigger",
           "tenant_id",
           "context",

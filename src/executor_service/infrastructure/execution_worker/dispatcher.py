@@ -1,9 +1,12 @@
 """In-process execution job dispatch and cancellation handoff."""
 
 import asyncio
+import logging
 from collections.abc import Coroutine
 from typing import Any
 from uuid import UUID
+
+logger = logging.getLogger(__name__)
 
 
 class ExecutionJobDispatcher:
@@ -98,3 +101,11 @@ class ExecutionJobDispatcher:
             self._jobs.pop(execution_id, None)
             if not self._jobs:
                 self._idle.set()
+        if not task.cancelled() and (exc := task.exception()) is not None:
+            # Nothing awaits a job, so its failure is reported only here.
+            logger.error(
+                "Execution job failed execution_id=%s job=%s",
+                execution_id,
+                task.get_name(),
+                exc_info=exc,
+            )

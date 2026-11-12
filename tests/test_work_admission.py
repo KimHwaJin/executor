@@ -105,24 +105,36 @@ async def test_reconcile_takes_only_free_slots_and_rotates(
 async def test_full_worker_dispatches_only_cancellations(
     execution_service: ExecutionService,
     engine: AsyncEngine,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    await execution_service.submit(_command("queued"))
+    queued = await execution_service.submit(_command("queued"))
     seen: list[UUID] = []
 
     def dispatch(execution_id, coroutine, **kwargs):
         coroutine.close()
         seen.append(execution_id)
 
+    dispatcher = Mock(dispatch=dispatch, active_job_count=3)
     processor = WorkAdmissionProcessor(
         create_session_factory(engine),
-        Mock(dispatch=dispatch, active_job_count=3),
+        dispatcher,
         AsyncMock(),
         AsyncMock(),
         worker_id="worker-a",
         max_active_jobs=3,
     )
-    assert await processor.reconcile() == 0
-    assert seen == []
+    with caplog.at_level("INFO"):
+        assert await processor.reconcile() == 0
+        assert await processor.reconcile() == 0
+        dispatcher.active_job_count = 2
+        assert await processor.reconcile() == 1
+    assert seen == [queued.id]
+    # A full Worker is logged when it fills and when it frees, not per pass.
+    assert [record.getMessage() for record in caplog.records] == [
+        "Executor Worker full; new Executions wait "
+        "active_job_count=3 max_active=3",
+        "Executor Worker has free slots again free_slots=1",
+    ]
 
 
 async def test_cancellation_under_another_live_lease_is_left_to_its_owner(

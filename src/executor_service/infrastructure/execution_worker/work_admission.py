@@ -1,5 +1,6 @@
 """Admission of durable Execution work into the local job dispatcher."""
 
+import logging
 from datetime import datetime
 from uuid import UUID
 
@@ -22,6 +23,8 @@ from executor_service.infrastructure.execution_worker.dispatcher import (
 from executor_service.infrastructure.execution_worker.runner import (
     ExecutionRunner,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class WorkAdmissionProcessor:
@@ -51,6 +54,7 @@ class WorkAdmissionProcessor:
         self._worker_id = worker_id
         self._max_active_jobs = max_active_jobs
         self._run_cursor: tuple[datetime, UUID] | None = None
+        self._full = False
 
     async def reconcile(self) -> int:
         async with self._session_factory() as session:
@@ -65,7 +69,21 @@ class WorkAdmissionProcessor:
                 self._max_active_jobs - self._dispatcher.active_job_count
             )
             if free_slots <= 0:
+                if not self._full:
+                    self._full = True
+                    logger.warning(
+                        "Executor Worker full; new Executions wait "
+                        "active_job_count=%s max_active=%s",
+                        self._dispatcher.active_job_count,
+                        self._max_active_jobs,
+                    )
                 return len(cancellations)
+            if self._full:
+                self._full = False
+                logger.info(
+                    "Executor Worker has free slots again free_slots=%s",
+                    free_slots,
+                )
             # A released Step keeps running on its kernel and its journal
             # keeps the output, so waiting for a slot loses nothing.
             handovers = await self._oldest_handovers(session, free_slots)
