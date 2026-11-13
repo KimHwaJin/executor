@@ -978,7 +978,7 @@ async def _run_running_cancel_case(
         timeout_seconds=timeout_seconds,
     )
     if (
-        cancelled["state"]["cancellation_reason"]
+        cancelled["state"]["reason"]["message"]
         != "multi running cancellation regression E2E"
         or cancelled["runtime"]["kernel_id"] is not None
         or cancelled["recovery"]["runtime_session_cleanup_status"]

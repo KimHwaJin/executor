@@ -312,7 +312,7 @@ async def run_case(
             "SUCCEEDED"
         )
         if action in {"shutdown", "kill", "pause"}:
-            assert detail["failure"]["type"] == (
+            assert detail["state"]["reason"]["code"] == (
                 "WORKER_SHUTDOWN" if action == "shutdown" else "LEASE_EXPIRED"
             )
             assert attempt["recovery"]["retry_strategy"] == (
@@ -380,7 +380,7 @@ async def run_case(
                 "owner": owner,
                 "elapsed_seconds": round(time.monotonic() - start, 2),
                 "status": detail["state"]["status"],
-                "failure": detail["failure"],
+                "failure": detail["state"]["reason"],
                 "notebook_projection": detail["workspace"][
                     "notebook_projection"
                 ],

@@ -347,7 +347,9 @@ async def test_rest_diagnostic_history_contract(
         )
     )
     container.diagnostic_queries = SQLAlchemyDiagnosticQueryService(factory)
-    container.execution_queries = SQLAlchemyExecutionQueryService(factory)
+    container.execution_queries = SQLAlchemyExecutionQueryService(
+        factory, Settings(_env_file=None, auth_clients=[])
+    )
     try:
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=create_app(container)),

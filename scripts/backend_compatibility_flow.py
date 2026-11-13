@@ -58,9 +58,6 @@ from executor_service.infrastructure.execution_worker.lease_heartbeat import (
 from executor_service.infrastructure.execution_worker.runtime_calls import (
     RuntimeDriverProvider,
 )
-from executor_service.infrastructure.execution_worker.target_selector import (
-    RuntimeTargetSelector,
-)
 from executor_service.infrastructure.maintenance import (
     ExecutorMaintenanceService,
 )
@@ -74,6 +71,9 @@ from executor_service.infrastructure.runtime_adapters import (
 )
 from executor_service.infrastructure.runtime_registry import (
     RuntimeTargetRegistry,
+)
+from executor_service.infrastructure.runtime_target_selector import (
+    RuntimeTargetSelector,
 )
 from executor_service.settings import Settings
 

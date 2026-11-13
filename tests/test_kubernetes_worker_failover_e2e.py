@@ -125,15 +125,16 @@ def test_attempt_history_proves_fencing_cleanup_and_from_start_retry() -> None:
         [
             {
                 "lease": {"owner": None},
-                "state": {"status": "FAILED"},
-                "failure": {"type": "LEASE_EXPIRED"},
+                "state": {
+                    "status": "FAILED",
+                    "reason": {"code": "LEASE_EXPIRED"},
+                },
                 "recovery": {"runtime_session_cleanup_status": "SUCCEEDED"},
                 "runtime": {"kernel_id": "kernel-old"},
             },
             {
                 "lease": {"owner": "executor-new"},
-                "state": {"status": "SUCCEEDED"},
-                "failure": None,
+                "state": {"status": "SUCCEEDED", "reason": None},
                 "recovery": {"runtime_session_cleanup_status": "NOT_REQUIRED"},
                 "runtime": {"kernel_id": "kernel-new"},
             },
@@ -146,15 +147,13 @@ def test_attempt_history_rejects_reused_abandoned_session() -> None:
     attempts = [
         {
             "lease": {"owner": None},
-            "state": {"status": "FAILED"},
-            "failure": {"type": "LEASE_EXPIRED"},
+            "state": {"status": "FAILED", "reason": {"code": "LEASE_EXPIRED"}},
             "recovery": {"runtime_session_cleanup_status": "SUCCEEDED"},
             "runtime": {"kernel_id": "kernel-old"},
         },
         {
             "lease": {"owner": "executor-new"},
-            "state": {"status": "SUCCEEDED"},
-            "failure": None,
+            "state": {"status": "SUCCEEDED", "reason": None},
             "recovery": {"runtime_session_cleanup_status": "NOT_REQUIRED"},
             "runtime": {"kernel_id": "kernel-old"},
         },
@@ -170,15 +169,13 @@ def test_attempt_history_requires_failed_lease_release() -> None:
     attempts = [
         {
             "lease": {"owner": "stale-worker"},
-            "state": {"status": "FAILED"},
-            "failure": {"type": "LEASE_EXPIRED"},
+            "state": {"status": "FAILED", "reason": {"code": "LEASE_EXPIRED"}},
             "recovery": {"runtime_session_cleanup_status": "SUCCEEDED"},
             "runtime": {"kernel_id": "kernel-old"},
         },
         {
             "lease": {"owner": "executor-new"},
-            "state": {"status": "SUCCEEDED"},
-            "failure": None,
+            "state": {"status": "SUCCEEDED", "reason": None},
             "recovery": {"runtime_session_cleanup_status": "NOT_REQUIRED"},
             "runtime": {"kernel_id": "kernel-new"},
         },

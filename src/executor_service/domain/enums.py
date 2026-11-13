@@ -142,6 +142,28 @@ class FinalizedBy(StrEnum):
     MAX_RUNTIME = "MAX_RUNTIME"
 
 
+class StatusReasonCode(StrEnum):
+    """Why an Execution is in its status, where no other enum says so.
+
+    A FAILED Execution's reason is its FailureType, and one ended by
+    finalization or the maximum runtime carries its FinalizedBy.
+    """
+
+    # QUEUED: what keeps a Worker from starting it.
+    ADMISSION_DRAINING = "ADMISSION_DRAINING"
+    NO_ACTIVE_TARGET = "NO_ACTIVE_TARGET"
+    PROFILE_UNSUPPORTED = "PROFILE_UNSUPPORTED"
+    CAPACITY_FULL = "CAPACITY_FULL"
+    MEMORY_LIMIT = "MEMORY_LIMIT"
+    TARGET_UNAVAILABLE = "TARGET_UNAVAILABLE"
+    WAITING_FOR_WORKER = "WAITING_FOR_WORKER"
+    # RUNNING, while a released Step waits for another Worker.
+    WORKER_HANDOVER = "WORKER_HANDOVER"
+    AWAITING_NEXT_OPERATION = "AWAITING_NEXT_OPERATION"
+    CANCELLED_BY_REQUEST = "CANCELLED_BY_REQUEST"
+    COMPLETED = "COMPLETED"
+
+
 class HandoverReason(StrEnum):
     EXECUTOR_SHUTDOWN = "EXECUTOR_SHUTDOWN"
     EXECUTOR_UNRESPONSIVE = "EXECUTOR_UNRESPONSIVE"

@@ -26,7 +26,9 @@ All mutation responses contain `execution_id`, `state`, the complete audit field
 Cancel and finalize omit `operation` because they do not create or requeue an Operation.
 
 Execution detail groups information by responsibility: `context`, `runtime`, `workspace`,
-`state`, `failure`, `retry`, `recovery`, `deadlines`, and `lifecycle`. The lifecycle object exposes
+`state`, `retry`, `recovery`, `deadlines`, and `lifecycle`. `state.reason` (`code`, `message`,
+`detail`) says why the Execution is in its status: what a `QUEUED` one waits for, the failure
+type, the cancellation reason, or what ended it. The lifecycle object exposes
 `operation_mode`, `operation_wait_timeout_seconds`, `started_at`, and `finished_at`. Runtime
 assignment fields remain null until the Worker selects a target and opens a session.
 `workspace.notebook_projection` independently reports `NOT_STARTED`, `PENDING`, `SUCCEEDED`, or

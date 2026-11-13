@@ -444,8 +444,9 @@ Execution의 현재 상태 원본이다. 이벤트 누락, 재시작, 명령 반
 
 **주의**
 
+- `state.reason`이 이 상태인 이유다. `QUEUED`가 길어지면 `state.reason.code`와 `detail`로 무엇을 기다리는지 확인한다.
 - `CANCELLED`여도 커널 정리가 `FAILED`일 수 있다. terminal 상태만으로 정리 여부를 추론하지 않는다.
-- `failure.type=COMPLETION_FAILED`는 필수 결과 전달·최종 정리 실패이며 `NOT_RETRYABLE`이다. 이미 성공한 Step 결과는 그대로다.
+- `state.reason.code=COMPLETION_FAILED`는 필수 결과 전달·최종 정리 실패이며 `NOT_RETRYABLE`이다. 이미 성공한 Step 결과는 그대로다.
 
 <a id="ep-8"></a>
 ### 8. 통합 결과
@@ -1066,7 +1067,6 @@ Artifact 하나와 lineage 참조다. 보이는 범위는 그 Artifact의 Execut
 | `runtime` | [ExecutionRuntime](#schema-executionruntime) | O | Runtime 정보 |
 | `state` | [ExecutionState](#schema-executionstate) | O | 상태 |
 | `workspace` | [WorkspaceResponse](#schema-workspaceresponse) | O | Runtime workspace |
-| `failure` | [FailureResponse](#schema-failureresponse) \| null | O | 실패 정보. 실패가 아니면 `null` |
 | `retry` | [RetryResponse](#schema-retryresponse) | O | 재시도 정보 |
 | `recovery` | [RecoveryResponse](#schema-recoveryresponse) | O | 복구·정리 상태 |
 | `deadlines` | [DeadlinesResponse](#schema-deadlinesresponse) | O | 기한 |
@@ -1204,7 +1204,6 @@ Artifact 하나와 lineage 참조다. 보이는 범위는 그 Artifact의 Execut
 | `execution_id` | string(uuid) | O | Execution ID |
 | `attempt_number` | integer | O | Attempt 순번(1부터) |
 | `state` | [AttemptState](#schema-attemptstate) | O | 상태 |
-| `failure` | [FailureResponse](#schema-failureresponse) \| null | O | 실패 정보. 실패가 아니면 `null` |
 | `lifecycle` | [Lifecycle](#schema-lifecycle) | O | 수명 시각 |
 | `step_count` | integer | O | Step 수 |
 | `runtime` | [AttemptRuntime](#schema-attemptruntime) | O | Runtime 정보 |
@@ -1301,7 +1300,7 @@ Artifact 하나와 lineage 참조다. 보이는 범위는 그 Artifact의 Execut
 | `tenant_id` | string | O | Execution의 tenant. 이벤트 Stream 이름을 정한다. 바뀌지 않는다 |
 | `context` | [ExecutionContext](#schema-executioncontext) | O | 소유 범위 |
 | `metadata` | object | O | 제출 최상위 metadata(민감 키는 `[REDACTED]`) |
-| `state` | [ExecutionCommandState](#schema-executioncommandstate) | O | 상태 |
+| `state` | [ExecutionState](#schema-executionstate) | O | 상태 |
 | `lifecycle` | [Lifecycle](#schema-lifecycle) | O | 수명 시각 |
 | `step_count` | integer | O | Step 수 |
 
@@ -1339,8 +1338,7 @@ Artifact 하나와 lineage 참조다. 보이는 범위는 그 Artifact의 Execut
 | --- | --- | :---: | --- |
 | `status` | `QUEUED` \| `RUNNING` \| `WAITING_FOR_OPERATION` \| `FINALIZING` \| `CANCEL_REQUESTED` \| `CANCELLED` \| `SUCCEEDED` \| `FAILED` | O | Execution 상태. `CANCELLED`, `SUCCEEDED`, `FAILED`가 terminal |
 | `version` | integer | O | 상태가 바뀔 때마다 오르는 버전. operations·finalize의 `expected_version` |
-| `cancellation_reason` | string \| null | O | 취소 사유 또는 `null` |
-| `finalized_by` | `AGENT` \| `WAIT_TIMEOUT` \| `MAX_RUNTIME` \| null |  | 무엇이 끝냈나: `AGENT`(finalize), `WAIT_TIMEOUT`(MULTI 대기 기한), `MAX_RUNTIME`(전체 수명). 진행 중·SINGLE 정상 종료·취소는 `null` |
+| `reason` | [StatusReasonResponse](#schema-statusreasonresponse) \| null | O | 이 상태인 이유. `RUNNING`이고 Worker가 정상 실행 중일 때만 `null`. 상태별 code는 [README](README.md#상태별-reason) 참고 |
 
 <a id="schema-workspaceresponse"></a>
 #### `WorkspaceResponse`
@@ -1350,14 +1348,6 @@ Artifact 하나와 lineage 참조다. 보이는 범위는 그 Artifact의 Execut
 | `path` | string \| null | O | workspace 상대경로. 준비 전 `null` |
 | `notebook_path` | string \| null | O | 실행 노트북 상대경로. 준비 전 `null` |
 | `notebook_projection` | [NotebookProjectionResponse](#schema-notebookprojectionresponse) | O | 노트북 반영 상태. 반영 실패는 실행 성공에 영향을 주지 않는다 |
-
-<a id="schema-failureresponse"></a>
-#### `FailureResponse`
-
-| 필드 | 타입 | 필수 | 설명 |
-| --- | --- | :---: | --- |
-| `type` | `TOOL_ERROR` \| `INFRASTRUCTURE_ERROR` \| `WORKER_SHUTDOWN` \| `RUNTIME_UNAVAILABLE` \| `LEASE_EXPIRED` \| `INTERNAL_ERROR` \| `OPERATION_WAIT_TIMEOUT` \| `OPERATION_TIMEOUT` \| `STEP_TIMEOUT` \| `EXECUTION_TIMEOUT` \| `QUEUE_TIMEOUT` \| `OUTPUT_LIMIT_EXCEEDED` \| `RUNTIME_SESSION_LOST` \| `COMPLETION_FAILED` | O | 실패 유형 |
-| `message` | string | O | 실패 메시지 |
 
 <a id="schema-retryresponse"></a>
 #### `RetryResponse`
@@ -1402,7 +1392,7 @@ Artifact 하나와 lineage 참조다. 보이는 범위는 그 Artifact의 Execut
 | 필드 | 타입 | 필수 | 설명 |
 | --- | --- | :---: | --- |
 | `execution_id` | string(uuid) | O | Execution ID |
-| `state` | [ExecutionCommandState](#schema-executioncommandstate) | O | 상태 |
+| `state` | [ExecutionState](#schema-executionstate) | O | 상태 |
 
 <a id="schema-executionresultoperationresponse"></a>
 #### `ExecutionResultOperationResponse`
@@ -1431,7 +1421,6 @@ Artifact 하나와 lineage 참조다. 보이는 범위는 그 Artifact의 Execut
 | `execution_id` | string(uuid) | O | Execution ID |
 | `attempt_number` | integer | O | Attempt 순번(1부터) |
 | `state` | [AttemptState](#schema-attemptstate) | O | 상태 |
-| `failure` | [FailureResponse](#schema-failureresponse) \| null | O | 실패 정보. 실패가 아니면 `null` |
 | `lifecycle` | [Lifecycle](#schema-lifecycle) | O | 수명 시각 |
 | `step_count` | integer | O | Step 수 |
 
@@ -1608,6 +1597,7 @@ Artifact 하나와 lineage 참조다. 보이는 범위는 그 Artifact의 Execut
 | 필드 | 타입 | 필수 | 설명 |
 | --- | --- | :---: | --- |
 | `status` | `RUNNING` \| `WAITING` \| `SUCCEEDED` \| `FAILED` \| `CANCELLED` | O | Attempt 상태 |
+| `reason` | [StatusReasonResponse](#schema-statusreasonresponse) \| null | O | Attempt가 실패한 이유. 실패하지 않았으면 `null` |
 
 <a id="schema-attemptruntime"></a>
 #### `AttemptRuntime`
@@ -1722,6 +1712,15 @@ Artifact 하나와 lineage 참조다. 보이는 범위는 그 Artifact의 Execut
 | `message` | string | O | 메시지 |
 | `type` | string | O | 안정적인 snake_case 사유 |
 | `context` | object \| null |  | 한도와 실제 값 등 근거 |
+
+<a id="schema-statusreasonresponse"></a>
+#### `StatusReasonResponse`
+
+| 필드 | 타입 | 필수 | 설명 |
+| --- | --- | :---: | --- |
+| `code` | `TOOL_ERROR` \| `INFRASTRUCTURE_ERROR` \| `WORKER_SHUTDOWN` \| `RUNTIME_UNAVAILABLE` \| `LEASE_EXPIRED` \| `INTERNAL_ERROR` \| `OPERATION_WAIT_TIMEOUT` \| `OPERATION_TIMEOUT` \| `STEP_TIMEOUT` \| `EXECUTION_TIMEOUT` \| `QUEUE_TIMEOUT` \| `OUTPUT_LIMIT_EXCEEDED` \| `RUNTIME_SESSION_LOST` \| `COMPLETION_FAILED` \| `AGENT` \| `WAIT_TIMEOUT` \| `MAX_RUNTIME` \| `ADMISSION_DRAINING` \| `NO_ACTIVE_TARGET` \| `PROFILE_UNSUPPORTED` \| `CAPACITY_FULL` \| `MEMORY_LIMIT` \| `TARGET_UNAVAILABLE` \| `WAITING_FOR_WORKER` \| `WORKER_HANDOVER` \| `AWAITING_NEXT_OPERATION` \| `CANCELLED_BY_REQUEST` \| `COMPLETED` | O | 이유 코드. `FAILED`는 실패 유형(FailureType), finalize·최대 수명으로 끝난 경우는 `AGENT`/`WAIT_TIMEOUT`/`MAX_RUNTIME`, 그 외는 상태별 코드(예: `QUEUED`의 `CAPACITY_FULL`) |
+| `message` | string | O | 사람이 읽는 설명. 취소는 호출자가 보낸 사유, 실패는 실패 메시지 |
+| `detail` | object \| null | O | code의 근거 값. `QUEUED`는 `queue_position`과 Target별 `targets`, `WORKER_HANDOVER`는 `handover_reason`·`paused_since`, `FAILED`는 있으면 `finalized_by`. 없으면 `null` |
 
 <a id="schema-notebookprojectionresponse"></a>
 #### `NotebookProjectionResponse`

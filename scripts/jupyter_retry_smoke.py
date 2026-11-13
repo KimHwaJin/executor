@@ -63,7 +63,7 @@ async def main() -> None:
         execution_id = submitted.structured_content["execution_id"]
         failed = await _wait(client, execution_id, {"FAILED"})
         if (
-            failed["failure"]["type"] != "TOOL_ERROR"
+            failed["state"]["reason"]["code"] != "TOOL_ERROR"
             or failed["retry"]["strategy"] != "FROM_FAILED_STEP"
             or failed["retry"]["from_sequence"] != 1
         ):
@@ -137,7 +137,7 @@ async def main() -> None:
             attempt_step_rows.append(steps_result.structured_content["items"])
         if (
             len(attempts) != 2
-            or attempts[0]["failure"]["type"] != "TOOL_ERROR"
+            or attempts[0]["state"]["reason"]["code"] != "TOOL_ERROR"
             or attempt_details[0]["recovery"]["retry_strategy"]
             != "FROM_FAILED_STEP"
             or attempt_details[1]["runtime"]["kernel_id"]

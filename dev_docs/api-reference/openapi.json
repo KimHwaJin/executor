@@ -4963,12 +4963,23 @@
         "properties": {
           "status": {
             "$ref": "#/components/schemas/AttemptStatus"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StatusReasonResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "status"
+          "status",
+          "reason"
         ],
         "title": "AttemptState"
       },
@@ -5635,16 +5646,6 @@
           "state": {
             "$ref": "#/components/schemas/AttemptState"
           },
-          "failure": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/FailureResponse"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
           "lifecycle": {
             "$ref": "#/components/schemas/Lifecycle"
           },
@@ -5675,7 +5676,6 @@
           "execution_id",
           "attempt_number",
           "state",
-          "failure",
           "lifecycle",
           "step_count",
           "runtime",
@@ -5791,16 +5791,6 @@
           "state": {
             "$ref": "#/components/schemas/AttemptState"
           },
-          "failure": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/FailureResponse"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
           "lifecycle": {
             "$ref": "#/components/schemas/Lifecycle"
           },
@@ -5822,7 +5812,6 @@
           "execution_id",
           "attempt_number",
           "state",
-          "failure",
           "lifecycle",
           "step_count"
         ],
@@ -7004,16 +6993,6 @@
           "workspace": {
             "$ref": "#/components/schemas/WorkspaceResponse"
           },
-          "failure": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/FailureResponse"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
           "retry": {
             "$ref": "#/components/schemas/RetryResponse"
           },
@@ -7044,7 +7023,6 @@
           "runtime",
           "state",
           "workspace",
-          "failure",
           "retry",
           "recovery",
           "deadlines",
@@ -7060,7 +7038,7 @@
             "title": "Execution Id"
           },
           "state": {
-            "$ref": "#/components/schemas/ExecutionCommandState"
+            "$ref": "#/components/schemas/ExecutionState"
           }
         },
         "additionalProperties": false,
@@ -7296,27 +7274,15 @@
             "type": "integer",
             "title": "Version"
           },
-          "cancellation_reason": {
+          "reason": {
             "anyOf": [
               {
-                "type": "string"
+                "$ref": "#/components/schemas/StatusReasonResponse"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Cancellation Reason"
-          },
-          "finalized_by": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/FinalizedBy"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "What ended the Execution: AGENT (finalize call), WAIT_TIMEOUT (no next MULTI Operation before the wait deadline) or MAX_RUNTIME (EXECUTION_MAX_RUNTIME_SECONDS reached). Null while open, for a SINGLE Execution that ended normally, and for cancellation."
+            ]
           }
         },
         "additionalProperties": false,
@@ -7324,7 +7290,7 @@
         "required": [
           "status",
           "version",
-          "cancellation_reason"
+          "reason"
         ],
         "title": "ExecutionState"
       },
@@ -7922,7 +7888,7 @@
             "title": "Metadata"
           },
           "state": {
-            "$ref": "#/components/schemas/ExecutionCommandState"
+            "$ref": "#/components/schemas/ExecutionState"
           },
           "lifecycle": {
             "$ref": "#/components/schemas/Lifecycle"
@@ -8165,24 +8131,6 @@
           "cancel_requested_count"
         ],
         "title": "ExecutorWorkloadResponse"
-      },
-      "FailureResponse": {
-        "properties": {
-          "type": {
-            "$ref": "#/components/schemas/FailureType"
-          },
-          "message": {
-            "type": "string",
-            "title": "Message"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "type",
-          "message"
-        ],
-        "title": "FailureResponse"
       },
       "FailureType": {
         "type": "string",
@@ -10044,6 +9992,69 @@
           "JUPYTER"
         ],
         "title": "RuntimeType"
+      },
+      "StatusReasonCode": {
+        "type": "string",
+        "enum": [
+          "ADMISSION_DRAINING",
+          "NO_ACTIVE_TARGET",
+          "PROFILE_UNSUPPORTED",
+          "CAPACITY_FULL",
+          "MEMORY_LIMIT",
+          "TARGET_UNAVAILABLE",
+          "WAITING_FOR_WORKER",
+          "WORKER_HANDOVER",
+          "AWAITING_NEXT_OPERATION",
+          "CANCELLED_BY_REQUEST",
+          "COMPLETED"
+        ],
+        "title": "StatusReasonCode",
+        "description": "Why an Execution is in its status, where no other enum says so.\n\nA FAILED Execution's reason is its FailureType, and one ended by\nfinalization or the maximum runtime carries its FinalizedBy."
+      },
+      "StatusReasonResponse": {
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FailureType"
+              },
+              {
+                "$ref": "#/components/schemas/FinalizedBy"
+              },
+              {
+                "$ref": "#/components/schemas/StatusReasonCode"
+              }
+            ],
+            "title": "Code",
+            "description": "A FailureType for FAILED; AGENT, WAIT_TIMEOUT or MAX_RUNTIME for an Execution ended by finalization or its maximum runtime; otherwise a status-specific code such as CAPACITY_FULL for QUEUED."
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail",
+            "description": "Values behind the code: queue_position and per-Target targets for QUEUED, handover_reason and paused_since for WORKER_HANDOVER. Null when the code needs none."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "detail"
+        ],
+        "title": "StatusReasonResponse",
+        "description": "Why the resource is in its status."
       },
       "StepLineage": {
         "properties": {

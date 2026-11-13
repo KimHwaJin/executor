@@ -278,7 +278,10 @@ async def test_query_service_filters_by_tenant(
     acme = await service.submit(_command(tenant_id="acme-data"))
     await service.submit(_command(tenant_id="other-team"))
     await service.submit(_command(tenant_id="third-team"))
-    queries = SQLAlchemyExecutionQueryService(create_session_factory(engine))
+    queries = SQLAlchemyExecutionQueryService(
+        create_session_factory(engine),
+        Settings(_env_file=None, auth_clients=[]),
+    )
 
     page = await queries.executions(tenant_id="acme-data")
 

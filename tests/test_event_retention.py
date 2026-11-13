@@ -136,9 +136,9 @@ async def test_published_outbox_expires_before_durable_event_history(
     assert durable is not None
     assert delivery is None
 
-    page = await SQLAlchemyExecutionQueryService(session_factory).events(
-        execution.id
-    )
+    page = await SQLAlchemyExecutionQueryService(
+        session_factory, Settings(_env_file=None, auth_clients=[])
+    ).events(execution.id)
     assert [item.event_sequence for item in page] == [1]
     assert page.items[0].delivery_status is None
 

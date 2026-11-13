@@ -4,8 +4,10 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from executor_service.domain.enums import RuntimePool, RuntimeType
-from executor_service.infrastructure.execution_worker import target_selector
-from executor_service.infrastructure.execution_worker.target_selector import (
+from executor_service.infrastructure import (
+    runtime_target_selector as target_selector,
+)
+from executor_service.infrastructure.runtime_target_selector import (
     RuntimeTargetSelector,
 )
 from executor_service.settings import Settings

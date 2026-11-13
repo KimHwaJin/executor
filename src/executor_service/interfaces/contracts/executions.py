@@ -4,8 +4,6 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import Field
-
 from executor_service.application.execution_queries import (
     ExecutionDetailView,
     ExecutionSummaryView,
@@ -13,8 +11,6 @@ from executor_service.application.execution_queries import (
 from executor_service.application.pagination import Page
 from executor_service.domain.enums import (
     ExecutionStatus,
-    FailureType,
-    FinalizedBy,
     OperationMode,
     RetryStrategy,
     RuntimeAbortStatus,
@@ -32,6 +28,7 @@ from executor_service.interfaces.contracts.common import (
     ContractModel,
     Lifecycle,
     PageResponse,
+    StatusReasonResponse,
 )
 
 
@@ -57,17 +54,8 @@ class ExecutionRuntime(ContractModel):
 class ExecutionState(ContractModel):
     status: ExecutionStatus
     version: int
-    cancellation_reason: str | None
-    finalized_by: FinalizedBy | None = Field(
-        default=None,
-        description=(
-            "What ended the Execution: AGENT (finalize call), WAIT_TIMEOUT "
-            "(no next MULTI Operation before the wait deadline) or "
-            "MAX_RUNTIME (EXECUTION_MAX_RUNTIME_SECONDS reached). Null "
-            "while open, for a SINGLE Execution that ended normally, and "
-            "for cancellation."
-        ),
-    )
+    # Null only while RUNNING under a live Worker.
+    reason: StatusReasonResponse | None
 
 
 class ExecutionCommandState(ContractModel):
@@ -86,11 +74,6 @@ class WorkspaceResponse(ContractModel):
     path: str | None
     notebook_path: str | None
     notebook_projection: NotebookProjectionResponse
-
-
-class FailureResponse(ContractModel):
-    type: FailureType
-    message: str
 
 
 class RetryResponse(ContractModel):
@@ -116,67 +99,6 @@ class ExecutionLifecycleResponse(ContractModel):
     operation_wait_timeout_seconds: int | None
     started_at: datetime | None
     finished_at: datetime | None
-
-
-def _execution_common(
-    execution: Execution | ExecutionDetailView,
-) -> dict[str, Any]:
-    failure = None
-    if (
-        execution.failure_type is not None
-        and execution.error_message is not None
-    ):
-        failure = FailureResponse(
-            type=execution.failure_type,
-            message=execution.error_message,
-        )
-    return {
-        "execution_id": execution.id,
-        "lifecycle": ExecutionLifecycleResponse(
-            operation_mode=execution.operation_mode,
-            operation_wait_timeout_seconds=(
-                execution.operation_wait_timeout_seconds
-            ),
-            started_at=execution.started_at,
-            finished_at=execution.finished_at,
-        ),
-        "trigger": ExecutionTrigger(type=execution.trigger_type),
-        "context": ExecutionContext(
-            user_id=execution.user_id,
-            project_id=execution.project_id,
-            session_id=execution.session_id,
-        ),
-        "tenant_id": execution.tenant_id,
-        "metadata": dict(execution.metadata),
-        "runtime": ExecutionRuntime(
-            type=execution.runtime_type,
-            pool=execution.runtime_pool,
-            profile=execution.runtime_profile,
-            target_id=execution.runtime_target_id,
-            kernel_id=execution.runtime_session_id,
-        ),
-        "state": ExecutionState(
-            status=execution.status,
-            version=execution.version,
-            cancellation_reason=execution.cancellation_reason,
-            finalized_by=execution.finalized_by,
-        ),
-        "failure": failure,
-        "retry": RetryResponse(
-            strategy=execution.retry_strategy,
-            count=execution.retry_count,
-            from_sequence=execution.retry_from_sequence,
-            retained_runtime_session_until=(
-                execution.retained_runtime_session_until
-            ),
-        ),
-        "created_by_client": execution.created_by_client,
-        "created_by": execution.created_by,
-        "updated_by_client": execution.updated_by_client,
-        "updated_by": execution.updated_by,
-        "created_at": execution.created_at,
-        "updated_at": execution.updated_at,
-    }
 
 
 class ExecutionStepReceipt(ContractModel):
@@ -240,19 +162,57 @@ class ExecutionResponse(AuditFields):
     runtime: ExecutionRuntime
     state: ExecutionState
     workspace: WorkspaceResponse
-    failure: FailureResponse | None
     retry: RetryResponse
     recovery: RecoveryResponse
     deadlines: DeadlinesResponse
     lifecycle: ExecutionLifecycleResponse
 
     @classmethod
-    def from_view(
-        cls,
-        execution: ExecutionDetailView | Execution,
-    ) -> "ExecutionResponse":
+    def from_view(cls, execution: ExecutionDetailView) -> "ExecutionResponse":
         return cls(
-            **_execution_common(execution),
+            execution_id=execution.id,
+            lifecycle=ExecutionLifecycleResponse(
+                operation_mode=execution.operation_mode,
+                operation_wait_timeout_seconds=(
+                    execution.operation_wait_timeout_seconds
+                ),
+                started_at=execution.started_at,
+                finished_at=execution.finished_at,
+            ),
+            trigger=ExecutionTrigger(type=execution.trigger_type),
+            context=ExecutionContext(
+                user_id=execution.user_id,
+                project_id=execution.project_id,
+                session_id=execution.session_id,
+            ),
+            tenant_id=execution.tenant_id,
+            metadata=dict(execution.metadata),
+            runtime=ExecutionRuntime(
+                type=execution.runtime_type,
+                pool=execution.runtime_pool,
+                profile=execution.runtime_profile,
+                target_id=execution.runtime_target_id,
+                kernel_id=execution.runtime_session_id,
+            ),
+            state=ExecutionState(
+                status=execution.status,
+                version=execution.version,
+                reason=StatusReasonResponse.from_view(execution.reason),
+            ),
+            retry=RetryResponse(
+                strategy=execution.retry_strategy,
+                count=execution.retry_count,
+                from_sequence=execution.retry_from_sequence,
+                retained_runtime_session_until=(
+                    execution.retained_runtime_session_until
+                ),
+            ),
+            created_by_client=execution.created_by_client,
+            created_by=execution.created_by,
+            updated_by_client=execution.updated_by_client,
+            updated_by=execution.updated_by,
+            created_at=execution.created_at,
+            updated_at=execution.updated_at,
             workspace=WorkspaceResponse(
                 path=execution.workspace_path,
                 notebook_path=execution.notebook_path,
@@ -288,7 +248,7 @@ class ExecutionSummaryResponse(AuditFields):
     tenant_id: str
     context: ExecutionContext
     metadata: dict[str, Any]
-    state: ExecutionCommandState
+    state: ExecutionState
     lifecycle: Lifecycle
     step_count: int
 
@@ -308,9 +268,10 @@ class ExecutionSummaryResponse(AuditFields):
             ),
             tenant_id=execution.tenant_id,
             metadata=dict(execution.metadata),
-            state=ExecutionCommandState(
+            state=ExecutionState(
                 status=execution.status,
                 version=execution.version,
+                reason=StatusReasonResponse.from_view(execution.reason),
             ),
             lifecycle=Lifecycle(
                 started_at=execution.started_at,

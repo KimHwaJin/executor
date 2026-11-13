@@ -3,7 +3,10 @@
 from datetime import datetime
 from uuid import UUID
 
-from executor_service.application.execution_queries import ExecutionAttemptView
+from executor_service.application.execution_queries import (
+    ExecutionAttemptView,
+    StatusReason,
+)
 from executor_service.application.pagination import Page
 from executor_service.domain.enums import (
     AttemptStatus,
@@ -17,12 +20,14 @@ from executor_service.interfaces.contracts.common import (
     ContractModel,
     Lifecycle,
     PageResponse,
+    StatusReasonResponse,
 )
-from executor_service.interfaces.contracts.executions import FailureResponse
 
 
 class AttemptState(ContractModel):
     status: AttemptStatus
+    # Set once the Attempt has failed.
+    reason: StatusReasonResponse | None
 
 
 class AttemptRuntime(ContractModel):
@@ -49,7 +54,6 @@ class ExecutionAttemptResponse(AuditFields):
     execution_id: UUID
     attempt_number: int
     state: AttemptState
-    failure: FailureResponse | None
     lifecycle: Lifecycle
     step_count: int
 
@@ -58,18 +62,17 @@ class ExecutionAttemptResponse(AuditFields):
         cls,
         view: ExecutionAttemptView,
     ) -> "ExecutionAttemptResponse":
-        failure = None
+        reason = None
         if view.failure_type is not None and view.error_message is not None:
-            failure = FailureResponse(
-                type=view.failure_type,
-                message=view.error_message,
-            )
+            reason = StatusReason(view.failure_type, view.error_message)
         return cls(
             attempt_id=view.id,
             execution_id=view.execution_id,
             attempt_number=view.attempt_number,
-            state=AttemptState(status=view.status),
-            failure=failure,
+            state=AttemptState(
+                status=view.status,
+                reason=StatusReasonResponse.from_view(reason),
+            ),
             lifecycle=Lifecycle(
                 started_at=view.started_at,
                 finished_at=view.finished_at,

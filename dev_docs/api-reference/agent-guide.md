@@ -118,7 +118,7 @@ GET  /executions/{id}/operations/{operation_id}/result   ← result of the Opera
 Shape of `GET /executions/{id}/result` (key fields only):
 
 ```text
-execution: {execution_id, state: {status, version, cancellation_reason, finalized_by}}
+execution: {execution_id, state: {status, version, reason{code, message, detail}}}
 operations[]: {operation_id, operation_number, sequence_range{first,last}, result{status, error_message}, lifecycle, steps[]}
   steps[]: {step_id, sequence, lineage, lifecycle,
             result: {status, error_message, output_summary{output_count, output_types, stream_names, mime_types, has_image, image_count, has_error},
@@ -140,9 +140,10 @@ artifacts[]: Artifact summaries (notebook, reports, ...)
 | Cancel | `POST /executions/{id}/cancel` `{"idempotency_key": "...", "reason": "..."}` → `CANCEL_REQUESTED` → later `CANCELLED`. Already finished returns `409` |
 | Retry a failed SINGLE | If `retry.strategy` from `GET /executions/{id}` is not `NOT_RETRYABLE`, call `POST /executions/{id}/retry` `{"idempotency_key": "..."}`. Executor decides where it restarts |
 | Failed MULTI | Retry is not available. Submit the next Operation with fixed code |
-| Why it failed | `failure{type, message}` from `GET /executions/{id}`; more detail from `GET /executions/{id}/diagnostics` |
+| Why it failed | `state.reason{code, message}` from `GET /executions/{id}`; more detail from `GET /executions/{id}/diagnostics` |
+| `QUEUED` for a long time | `state.reason.code` from `GET /executions/{id}` says what it waits for (`CAPACITY_FULL`, `NO_ACTIVE_TARGET`, `WAITING_FOR_WORKER`, ...). `detail.queue_position` is its place in the queue. All codes: [README](README.md#상태별-reason) |
 
-`failure.type` values: `TOOL_ERROR` (exception in user code), `STEP_TIMEOUT`, `OPERATION_TIMEOUT`, `OPERATION_WAIT_TIMEOUT`, `EXECUTION_TIMEOUT`, `QUEUE_TIMEOUT`, `OUTPUT_LIMIT_EXCEEDED`, `RUNTIME_UNAVAILABLE`, `RUNTIME_SESSION_LOST`, `INFRASTRUCTURE_ERROR`, `WORKER_SHUTDOWN`, `LEASE_EXPIRED`, `COMPLETION_FAILED`, `INTERNAL_ERROR`.
+`state.reason.code` values for `FAILED`: `TOOL_ERROR` (exception in user code), `STEP_TIMEOUT`, `OPERATION_TIMEOUT`, `OPERATION_WAIT_TIMEOUT`, `EXECUTION_TIMEOUT`, `QUEUE_TIMEOUT`, `OUTPUT_LIMIT_EXCEEDED`, `RUNTIME_UNAVAILABLE`, `RUNTIME_SESSION_LOST`, `INFRASTRUCTURE_ERROR`, `WORKER_SHUTDOWN`, `LEASE_EXPIRED`, `COMPLETION_FAILED`, `INTERNAL_ERROR`.
 
 ## 8. Error handling
 

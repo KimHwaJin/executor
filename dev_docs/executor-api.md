@@ -349,11 +349,9 @@ PostgreSQL의 원본 상태다. 이벤트 누락, 재시작, 명령 반영 확�
 | `runtime.kernel_id` | Jupyter 커널 ID(`/api/kernels/{id}`, 호출자 세션과 무관). 생성 전·정리 후 `null` |
 | `state.status` | `QUEUED`, `RUNNING`, `WAITING_FOR_OPERATION`, `FINALIZING`, `CANCEL_REQUESTED`, `CANCELLED`, `SUCCEEDED`, `FAILED`. 끝의 셋이 terminal |
 | `state.version` | 상태 버전. operations·finalize의 `expected_version` |
-| `state.cancellation_reason` | 취소 사유 또는 `null` |
-| `state.finalized_by` | 무엇이 끝냈나: `AGENT`(finalize), `WAIT_TIMEOUT`(MULTI 대기 기한), `MAX_RUNTIME`(전체 수명). 진행 중·SINGLE 정상 종료·취소는 `null` |
+| `state.reason` | 이 상태인 이유 `{code, message, detail}`. `RUNNING`이고 Worker가 정상 실행 중일 때만 `null`. `QUEUED`는 대기 이유(`CAPACITY_FULL`, `NO_ACTIVE_TARGET`, `WAITING_FOR_WORKER` 등)와 `detail.queue_position`, `FAILED`는 실패 유형과 메시지, 취소는 취소 사유, `SUCCEEDED`·`FINALIZING`은 무엇이 끝냈나(`AGENT`/`WAIT_TIMEOUT`/`MAX_RUNTIME`/`COMPLETED`). 전체 표는 [api-reference/README](api-reference/README.md#상태별-reason) |
 | `workspace.path`, `workspace.notebook_path` | Runtime workspace와 노트북의 상대경로. 준비 전 `null` |
 | `workspace.notebook_projection` | 노트북 반영 상태 `status`(`NOT_STARTED`/`PENDING`/`SUCCEEDED`/`FAILED`), `attempt_count`, `error_message`, `projected_at`. 반영 실패는 실행 성공에 영향을 주지 않는다 |
-| `failure` | `null` 또는 `{type, message}`. `type`: `TOOL_ERROR`, `INFRASTRUCTURE_ERROR`, `WORKER_SHUTDOWN`, `RUNTIME_UNAVAILABLE`, `LEASE_EXPIRED`, `INTERNAL_ERROR`, `OPERATION_WAIT_TIMEOUT`, `OPERATION_TIMEOUT`, `STEP_TIMEOUT`, `EXECUTION_TIMEOUT`, `QUEUE_TIMEOUT`, `OUTPUT_LIMIT_EXCEEDED`, `RUNTIME_SESSION_LOST`, `COMPLETION_FAILED` |
 | `retry.strategy` | `NOT_RETRYABLE`, `FROM_FAILED_STEP`(보존 커널에서 실패 Step부터), `FROM_START`(새 커널에서 처음부터) |
 | `retry.count`, `retry.from_sequence` | 요청된 retry 횟수, 다음 retry 시작 sequence |
 | `retry.retained_runtime_session_until` | 실패 커널 보존 만료 시각 또는 `null` |
@@ -473,7 +471,7 @@ manifest는 [Step 결과 manifest](step-result-manifest.md).
 | `GET .../operations/{operation_id}` | 위와 같은 Operation 하나 |
 | `GET .../steps`, `.../operations/{id}/steps` | 현재 Step 요약 목록 |
 | `GET .../steps/{step_id}` | `step_id`, `sequence`, `code_hash`, `source{type, path, sha256}`, `step_timeout_seconds`, `lineage`, `result{status, output_summary, error_message, result_ref}`, `lifecycle`. Step `status`: `PENDING`, `RUNNING`, `SUCCEEDED`, `FAILED`, `SKIPPED`, `CANCELLED` |
-| `GET .../attempts` | `items[]`: `attempt_id`, `attempt_number`, `state.status`(`RUNNING`/`WAITING`/`SUCCEEDED`/`FAILED`/`CANCELLED`), `failure`, `lifecycle`, `step_count` |
+| `GET .../attempts` | `items[]`: `attempt_id`, `attempt_number`, `state.status`(`RUNNING`/`WAITING`/`SUCCEEDED`/`FAILED`/`CANCELLED`), `state.reason`(실패한 Attempt의 `{code, message, detail}`), `lifecycle`, `step_count` |
 | `GET .../attempts/{attempt_id}` | 위 + `runtime{type, profile, target_id, kernel_id}`, `lease{owner, expires_at, heartbeat_at}`, `recovery{retry_strategy, runtime_session_cleanup_status, runtime_abort_status}` |
 | `GET .../attempts/{attempt_id}/steps` | 그 Attempt에서 실행된 Step 결과(불변): `step_attempt_id`, `execution_step_id`, `sequence`, `tool`, `result`, `lifecycle` |
 

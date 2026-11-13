@@ -25,6 +25,7 @@ from executor_service.interfaces.contracts.steps import (
     ExecutionStepAttemptResponse,
     ExecutionStepResponse,
 )
+from executor_service.settings import Settings
 
 
 async def assert_result_evidence_surfaces(
@@ -32,7 +33,9 @@ async def assert_result_evidence_surfaces(
     execution_id: UUID,
     root: Path,
 ) -> None:
-    queries = SQLAlchemyExecutionQueryService(factory)
+    queries = SQLAlchemyExecutionQueryService(
+        factory, Settings(_env_file=None, auth_clients=[])
+    )
     results = ExecutionResultQueryService(queries)
     bundle = ExecutionResultResponse.from_bundle(
         await results.execution(execution_id)

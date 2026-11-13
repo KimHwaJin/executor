@@ -116,7 +116,7 @@ class ApplicationContainer:
             max_runtime_seconds=settings.execution_max_runtime_seconds,
         )
         self.execution_queries = SQLAlchemyExecutionQueryService(
-            self.session_factory
+            self.session_factory, settings
         )
         self.diagnostic_queries: DiagnosticQueryService = (
             SQLAlchemyDiagnosticQueryService(self.session_factory)

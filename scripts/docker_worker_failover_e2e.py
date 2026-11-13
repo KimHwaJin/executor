@@ -289,7 +289,7 @@ async def run(config: Config) -> dict[str, Any]:
                 timeout_seconds=config.lease_timeout_seconds,
                 description="lease fencing and Runtime cleanup",
             )
-            if failed["failure"]["type"] != "LEASE_EXPIRED":
+            if failed["state"]["reason"]["code"] != "LEASE_EXPIRED":
                 raise FailoverValidationError(
                     f"Unexpected recovery result: {failed}"
                 )
@@ -347,7 +347,7 @@ async def run(config: Config) -> dict[str, Any]:
             "execution": {
                 "execution_id": execution_id,
                 "initial_runtime_session_id": initial_session_id,
-                "failure_type": failed["failure"]["type"],
+                "failure_type": failed["state"]["reason"]["code"],
                 "retry_strategy": failed["retry"]["strategy"],
                 "runtime_session_cleanup_status": failed["recovery"][
                     "runtime_session_cleanup_status"

@@ -36,6 +36,7 @@ from executor_service.infrastructure.db.session import create_session_factory
 from executor_service.infrastructure.execution_queries import (
     SQLAlchemyExecutionQueryService,
 )
+from executor_service.settings import Settings
 from tests.runtime_credentials import runtime_credential_fields
 
 
@@ -151,7 +152,9 @@ async def test_query_service_returns_attempt_step_and_redacted_events(
                 )
             )
 
-    queries = SQLAlchemyExecutionQueryService(session_factory)
+    queries = SQLAlchemyExecutionQueryService(
+        session_factory, Settings(_env_file=None, auth_clients=[])
+    )
     attempts = await queries.attempts(execution.id)
     attempt = await queries.attempt(execution.id, attempt_id)
     attempt_steps = await queries.attempt_steps(execution.id, attempt_id)
@@ -211,7 +214,8 @@ async def test_execution_reads_do_not_load_source_code_or_step_rows(
     )
     try:
         queries = SQLAlchemyExecutionQueryService(
-            create_session_factory(engine)
+            create_session_factory(engine),
+            Settings(_env_file=None, auth_clients=[]),
         )
         page = await queries.executions(user_id=execution.user_id)
         detail = await queries.execution(execution.id)
@@ -223,7 +227,9 @@ async def test_execution_reads_do_not_load_source_code_or_step_rows(
     assert page[0].step_count == 1
     assert detail.id == execution.id
     normalized = [" ".join(statement.split()) for statement in statements]
-    assert len(normalized) == 2
+    # Each read of a QUEUED Execution adds three for its reason: queue
+    # position, admission state and the matching Runtime Targets.
+    assert len(normalized) == 8
     assert all(
         "execution_steps.code" not in statement for statement in normalized
     )
@@ -266,7 +272,9 @@ async def test_result_snapshot_uses_fixed_bulk_queries_and_scope_filter(
         )
     )
 
-    queries = SQLAlchemyExecutionQueryService(session_factory)
+    queries = SQLAlchemyExecutionQueryService(
+        session_factory, Settings(_env_file=None, auth_clients=[])
+    )
     filtered = await queries.executions(session_id="bulk-session")
     assert [item.id for item in filtered.items] == [execution.id]
     assert not (await queries.executions(session_id="other")).items
@@ -295,4 +303,4 @@ async def test_result_snapshot_uses_fixed_bulk_queries_and_scope_filter(
 
     assert len(snapshot.operations) == 2
     assert len(snapshot.steps) == 2
-    assert len(statements) == 6
+    assert len(statements) == 9  # Six for the snapshot, three for the reason.

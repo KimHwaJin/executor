@@ -48,7 +48,7 @@ def validate_attempt_history(
         raise FailoverValidationError(
             "The first Attempt was not fenced as FAILED."
         )
-    if first["failure"]["type"] != "LEASE_EXPIRED":
+    if first["state"]["reason"]["code"] != "LEASE_EXPIRED":
         raise FailoverValidationError(
             "The first Attempt was not LEASE_EXPIRED."
         )
