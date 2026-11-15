@@ -71,21 +71,17 @@ and isolated Redis keys. It does not execute Jupyter code or upgrade the service
 schema. See the [compatibility check guide](docs/backend-compatibility-check.md)
 for permissions, optional JSON output and limitations.
 
-This branch supports Redis server **6.0.8 and newer**, using `redis-py` 5.3.x
-(`uv.lock` pins the tested client). Both Redis 6.0.8 and 7.4 use the same bounded
-`XRANGE`/`XDEL` retention implementation.
-Redis must permit `EVAL` and the Stream commands used inside its Lua scripts.
-Executor starts and stays ready without Redis: the event retention pass checks server
-version, command availability, and basic scripting access before its first Redis trim, and
-skips Redis work until the check passes. `/workerz` reports `redis_reachable`.
-Local Docker Compose now defaults to the exact **`redis:6.0.8`** image and
-the dedicated `executor-redis-608` volume. The integration quality gate also
-expects 6.0.8 by default; set `EXECUTOR_EXPECT_REDIS_VERSION` explicitly when
-validating another supported version. `REDIS_URL` does not select a server
-version: Docker Compose (or the infrastructure operator) selects the image.
+Executor supports Redis server **8.0 and newer** (verified on 8.0 through 8.10), using
+`redis-py` 5.3.x (`uv.lock` pins the tested client). Redis needs only `XADD`, `XTRIM`, and `PING`
+on the event Streams; no scripting is used. Executor starts and stays ready without Redis: events
+wait in the Outbox, the retention pass skips Redis trimming while it fails, and `/workerz` reports
+`redis_reachable`. Local Docker Compose defaults to the exact **`redis:8.6.8`** image and the
+dedicated `executor-redis-8` volume. The integration quality gate also expects 8.6.8 by default;
+set `EXECUTOR_EXPECT_REDIS_VERSION` explicitly when validating another version. `REDIS_URL` does
+not select a server version: Docker Compose (or the infrastructure operator) selects the image.
 
-See [Redis 6.0 compatibility](docs/redis-6-compatibility.md) for ACL requirements,
-retention limits, test commands, and deployment precautions.
+See [Redis compatibility](docs/redis-compatibility.md) for ACL requirements, retention behavior,
+test commands, and deployment precautions.
 
 ## Logging
 
@@ -180,7 +176,7 @@ Executor and test Agent remain normal host processes in that topology.
 cp .env.example .env
 uv sync --dev
 docker volume create executor_executor-postgres
-docker volume create executor_executor-redis-608
+docker volume create executor_executor-redis-8
 docker compose -f docker-compose.infra.yml up -d --wait
 docker compose -f docker-compose.runtime.yml up -d --wait
 uv run alembic upgrade head
@@ -201,7 +197,7 @@ Agent and Executor share `./shared_dir`; the Jupyter fleet separately mounts
 ```bash
 cp .env.example .env
 docker volume create executor_executor-postgres
-docker volume create executor_executor-redis-608
+docker volume create executor_executor-redis-8
 docker compose -f docker-compose.infra.yml up -d --wait
 docker compose -f docker-compose.runtime.yml up -d --build --wait
 docker compose up -d --build --wait
@@ -228,7 +224,7 @@ SINGLE_JUPYTER_ENDPOINT=http://jupyter:8888 \
 Stop infrastructure separately with `docker compose -f docker-compose.infra.yml stop`.
 Stop runtimes separately with `docker compose -f docker-compose.runtime.yml stop`.
 Infrastructure uses external volumes, so Compose does not delete its data. The default names reuse
-the existing `executor_executor-postgres` and `executor_executor-redis-608` volumes. For a fresh
+the existing `executor_executor-postgres` and `executor_executor-redis-8` volumes. For a fresh
 installation, create the volumes as shown above; if `SHARED_POSTGRES_VOLUME` or
 `SHARED_REDIS_VOLUME` is overridden, create those names instead. Shared results and the Jupyter
 workspace remain bind-mounted.
@@ -770,7 +766,7 @@ costs a bounded number of claims and spreads across replicas.
 `PUBLISHED_OUTBOX_RETENTION_SECONDS` and `EXECUTION_EVENT_RETENTION_SECONDS` independently bound
 transport rows and durable terminal-event history. Executor never trims the Agent-owned Event DLQ.
 The event window applies to every tenant Stream recorded in PostgreSQL. Set `REDIS_EVENT_STREAM_MAXLEN` to also add `MAXLEN ~ <value>` to every event `XADD`
-(per Stream, approximate). It is unset by default; `MINID` is not used because Redis 6.0 lacks it.
+(per Stream, approximate). It is unset by default.
 
 Each Worker names itself `<hostname>-<pid>-<suffix>` as its lease owner (shown on `/workerz`). See
 [Multi-Executor Operations](docs/multi-executor-operations.md) for locking invariants, lease

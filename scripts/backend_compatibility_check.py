@@ -20,7 +20,7 @@ from uuid import uuid4
 
 from alembic.config import Config
 from alembic.script import ScriptDirectory
-from backend_compatibility_flow import FlowFailure, lifecycle_check
+from backend_compatibility_flow import TENANT_ID, FlowFailure, lifecycle_check
 from pydantic import SecretStr
 from redis.asyncio import Redis
 from redis.exceptions import AuthenticationError, NoPermissionError
@@ -28,13 +28,10 @@ from sqlalchemy import inspect, text
 from sqlalchemy.engine import Connection, make_url
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
+from executor_service.domain.tenants import tenant_event_stream
 from executor_service.infrastructure.db.base import Base
 from executor_service.infrastructure.db.migrations import upgrade_database
 from executor_service.infrastructure.redis_client import create_redis_client
-from executor_service.infrastructure.redis_streams import (
-    check_redis_compatibility,
-    trim_before,
-)
 from executor_service.settings import Settings
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -61,9 +58,7 @@ def safe_error(exc: BaseException) -> str:
     if isinstance(exc, (CheckFailure, FlowFailure)):
         return str(exc)
     if isinstance(exc, NoPermissionError):
-        return (
-            "Redis ACL denied a command or test key (including Lua commands)."
-        )
+        return "Redis ACL denied a command or test key."
     if isinstance(exc, AuthenticationError):
         return "Redis authentication failed; check URL username/password."
     original = getattr(exc, "orig", exc)
@@ -196,14 +191,13 @@ def inspect_schema(connection: Connection, schema: str) -> str:
 
 
 async def redis_checks(redis: Redis, prefix: str) -> str:
-    """Execute the production compatibility and retention helpers."""
+    """Run the commands Executor uses, with the retention trim's arguments."""
     await redis.ping()
-    await check_redis_compatibility(redis)
     stream = f"{prefix}:retention"
     old = await redis.xadd(stream, {"probe": "한국어-output"})
     kept = await redis.xadd(stream, {"probe": "kept"})
     require(
-        await trim_before(redis, stream, kept, count=10) == 1,
+        await redis.xtrim(stream, minid=kept, approximate=False) == 1,
         "Retention did not remove expired events.",
     )
     require(
@@ -256,7 +250,8 @@ async def run_check(args: argparse.Namespace, report: Report) -> bool:
     successful = False
     # Includes only exact run-owned keys, never a scan/glob or FLUSH command.
     keys = [
-        f"{report.redis_prefix}:{suffix}" for suffix in ("retention", "events")
+        f"{report.redis_prefix}:retention",
+        tenant_event_stream(f"{report.redis_prefix}:events", TENANT_ID),
     ]
     redis_owned = False
     with tempfile.TemporaryDirectory(prefix="executor-compat-") as temp:
@@ -298,9 +293,7 @@ async def run_check(args: argparse.Namespace, report: Report) -> bool:
                     redis, report.redis_prefix
                 )
 
-            await report.check(
-                "Redis commands / Lua / retention", redis_probe, 60
-            )
+            await report.check("Redis commands / retention", redis_probe, 60)
 
             async def migrate() -> None:
                 nonlocal created

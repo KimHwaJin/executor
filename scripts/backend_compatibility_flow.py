@@ -28,6 +28,7 @@ from executor_service.domain.enums import (
 )
 from executor_service.domain.models import utc_now
 from executor_service.domain.runtime import RuntimeOffering
+from executor_service.domain.tenants import tenant_event_stream
 from executor_service.infrastructure.cluster_passes import claim_pass
 from executor_service.infrastructure.db.models import (
     ExecutionEventORM,
@@ -77,6 +78,8 @@ from executor_service.infrastructure.runtime_target_selector import (
 )
 from executor_service.settings import Settings
 
+TENANT_ID = "smoke"
+
 
 class FlowFailure(Exception):
     """Safe fixed-message assertion, never populated from driver exceptions."""
@@ -91,6 +94,7 @@ async def lifecycle_check(
     engine: AsyncEngine, redis: Redis, settings: Settings
 ) -> dict[str, Any]:
     sessions = create_session_factory(engine)
+    stream = tenant_event_stream(settings.redis_event_stream, TENANT_ID)
     async with sessions() as session:
         verify(
             await session.scalar(select(RuntimeTargetORM.id)) is None,
@@ -133,7 +137,7 @@ async def lifecycle_check(
         ),
     )
     await redis.xgroup_create(
-        settings.redis_event_stream, "external-consumer", id="0", mkstream=True
+        stream, "external-consumer", id="0", mkstream=True
     )
 
     async def publish_all() -> None:
@@ -160,7 +164,7 @@ async def lifecycle_check(
         user_id="compat-user",
         project_id="compat-project",
         session_id="compat-session",
-        tenant_id="smoke",
+        tenant_id=TENANT_ID,
         actor_client="compatibility-check",
         actor_id="compat-user",
         steps=(StepSpec(sequence=0, code="print('compatibility')"),),
@@ -228,7 +232,7 @@ async def lifecycle_check(
     batches = await redis.xreadgroup(
         "external-consumer",
         "compatibility-reader",
-        {settings.redis_event_stream: ">"},
+        {stream: ">"},
         count=100,
         block=1000,
     )
@@ -236,9 +240,7 @@ async def lifecycle_check(
     for _stream, messages in batches:
         for message_id, fields in messages:
             envelopes.append(ExecutionStreamEnvelope.from_redis_fields(fields))
-            await redis.xack(
-                settings.redis_event_stream, "external-consumer", message_id
-            )
+            await redis.xack(stream, "external-consumer", message_id)
     verify(
         bool(events) and len(envelopes) == len(events),
         "Published public events do not match durable event count.",
@@ -264,12 +266,7 @@ async def lifecycle_check(
         "Terminal event does not describe the cancelled Execution.",
     )
     verify(
-        (
-            await redis.xpending(
-                settings.redis_event_stream, "external-consumer"
-            )
-        )["pending"]
-        == 0,
+        (await redis.xpending(stream, "external-consumer"))["pending"] == 0,
         "External event consumer could not ACK all events.",
     )
 

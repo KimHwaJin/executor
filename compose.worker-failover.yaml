@@ -14,7 +14,7 @@ services:
       - postgres-data:/var/lib/postgresql/data
 
   redis:
-    image: redis:6.0.8
+    image: redis:8.6.8
     command: ["redis-server", "--appendonly", "yes"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -22,7 +22,7 @@ services:
       timeout: 5s
       retries: 30
     volumes:
-      - redis-data-608:/data
+      - redis-data-8:/data
 
   migrate:
     image: executor-service:failover
@@ -139,6 +139,6 @@ services:
 
 volumes:
   postgres-data:
-  redis-data-608:
+  redis-data-8:
   jupyter-workspace:
   executor-shared:

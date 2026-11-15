@@ -233,25 +233,14 @@ async def main() -> None:
         await _ensure_group(redis, stream, group, group_start_id)
         print(f"consuming stream={stream} group={group} consumer={consumer}")
         while True:
-            # Redis 6.0 has neither XAUTOCLAIM nor XPENDING IDLE.
-            idle = [
-                entry
-                for entry in await redis.xpending_range(
-                    stream, group, min="-", max="+", count=20
-                )
-                if entry["time_since_delivered"] >= pending_idle_milliseconds
-            ]
-            claimed = (
-                await redis.xclaim(
-                    stream,
-                    group,
-                    consumer,
-                    pending_idle_milliseconds,
-                    [entry["message_id"] for entry in idle],
-                )
-                if idle
-                else []
+            # Take over entries another consumer left idle, 20 at a time.
+            _, claimed, trimmed = await redis.xautoclaim(
+                stream, group, consumer, pending_idle_milliseconds, count=20
             )
+            for message_id in trimmed:
+                # Retention removed it while pending; Redis dropped it from
+                # the PEL. Recover the range through execution_event_list.
+                print(f"trimmed pending message_id={message_id}")
             for message_id, fields in claimed:
                 if await _consume_message(
                     redis,

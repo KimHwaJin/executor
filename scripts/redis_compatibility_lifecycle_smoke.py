@@ -27,9 +27,7 @@ from resilience_common import (
 )
 from sqlalchemy.engine import make_url
 
-from executor_service.infrastructure.redis_streams import (
-    check_redis_compatibility,
-)
+from executor_service.domain.tenants import tenant_event_stream
 from executor_service.settings import get_settings
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -107,7 +105,6 @@ async def main(
     )
     print(f"Test evidence: {directory}", flush=True)
     try:
-        await check_redis_compatibility(redis)
         print(
             "Redis server:",
             (await redis.info("server"))["redis_version"],
@@ -153,7 +150,10 @@ async def main(
             await stop_executor(process)
         finally:
             try:
-                await redis.delete(f"{stream}.events")
+                # The lifecycle scripts submit as tenant "smoke".
+                await redis.delete(
+                    tenant_event_stream(f"{stream}.events", "smoke")
+                )
             finally:
                 try:
                     await redis.aclose()

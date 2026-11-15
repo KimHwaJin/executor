@@ -52,8 +52,7 @@ Execution의 모든 이벤트는 `{REDIS_EVENT_STREAM}.{tenant_id}` 한 곳으�
   Stream에 똑같이 적용된다.
 - `REDIS_EVENT_STREAM_MAXLEN`을 설정하면 모든 이벤트 `XADD`에
   `MAXLEN ~ {값}`이 붙는다. Stream마다 따로 적용되며 근사치라 실제 길이는 값보다 조금
-  클 수 있다. 미설정이면 길이 제한 없이 시간 정리만 한다. Redis 6.0 호환을 위해
-  `MINID`는 쓰지 않는다.
+  클 수 있다. 미설정이면 길이 제한 없이 시간 정리만 한다.
 
 ### 2.2 구독자 안내
 
@@ -76,11 +75,10 @@ group이 이미 있으면 `BUSYGROUP` 오류가 나므로 무시한다. 이후 �
 - 빠진 이벤트: 보관 한도(`MAXLEN` 또는 보관 기간)를 넘겨 Stream에서 지워졌거나
   순번이 건너뛰면 `GET /api/v1/executions/{execution_id}/events?after_sequence={last}`로
   채운다. PostgreSQL 이력이 원본이다.
-- 미처리 메시지 회수: Redis 6.0이라 `XAUTOCLAIM`이 없다. 주기적으로
-  `XPENDING {stream} {group} - + {count}`로 오래 걸린 메시지를 찾고
-  `XCLAIM {stream} {group} {consumer} {min-idle-ms} {id...}`로 가져온다.
-  `XCLAIM` 결과에 본문이 없는 ID는 이미 Stream에서 지워진 것이므로 `XACK`하고
-  이벤트 이력 API로 채운다.
+- 미처리 메시지 회수: 주기적으로
+  `XAUTOCLAIM {stream} {group} {consumer} {min-idle-ms} 0-0 COUNT {count}`로 오래 걸린
+  메시지를 가져온다. 응답 세 번째 항목의 ID는 이미 Stream에서 지워져 Redis가 Pending
+  목록에서도 뺀 것이므로 이벤트 이력 API로 채운다.
 - 모든 Stream 항목에 `tenant_id` 필드가 있다.
 
 Execution 상태 변경, 영구 ExecutionEvent, 전송용 OutboxEvent 생성은 하나의 PostgreSQL
@@ -997,7 +995,7 @@ GET /api/v1/executions/{execution_id}/result
 - Redis 처리와 복구 로직을 LLM 또는 LangGraph 업무 노드에 직접 구현하지 않는다.
 - 지원하는 `schema_version`인지 먼저 검사한다.
 - 알 수 없는 `event_type`은 적용하지 않고 로그에 남긴 뒤 `XACK`한다.
-- 오래 미처리된 메시지는 `XPENDING`/`XCLAIM`으로 회수한다(Redis 6.0에는 `XAUTOCLAIM`이 없다).
+- 오래 미처리된 메시지는 `XAUTOCLAIM`으로 회수한다.
 - `execution_id`를 현재 상태 조회의 대표 키로 사용한다.
 - Attempt ID를 Execution의 대표 조회 키로 사용하지 않는다.
 - `relative_path`를 공통 루트에 안전하게 결합한다.

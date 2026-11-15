@@ -2,7 +2,7 @@
 
 실행할 서비스와 **같은 계정·연결 주소**로 현재 Executor 코드가 PostgreSQL과
 Redis를 사용할 수 있는지 점검한다. Jupyter, Agent, 실행 중인 Executor API 서버는
-필요 없다. Redis 6.0.8용 별도 구현이 아니라 **현재 서비스의 구현을 직접 호출**한다.
+필요 없다. 별도 구현이 아니라 **현재 서비스의 구현을 직접 호출**한다.
 
 ## 실행
 
@@ -46,8 +46,8 @@ uv run python scripts/backend_compatibility_check.py --report /tmp/backend-check
 
 1. **기존 DB 읽기 전용 검사**: 접속, 서버 버전, 현재 Alembic HEAD 일치,
    ORM에서 요구하는 테이블·컬럼 존재. 같은 revision인데 컬럼이 빠진 경우도 실패한다.
-2. **Redis 실동작**: PING, INFO, COMMAND INFO, EVAL 및 Lua 안에서 필요한 명령 권한.
-   Stream 쓰기와 보존기간 삭제(경계 이전만 삭제)를 실제 서비스 함수로 확인한다.
+2. **Redis 실동작**: PING, 그리고 보존기간 정리와 같은 인자의 `XTRIM ... MINID`로
+   Stream 쓰기와 보존기간 삭제(경계 이전만 삭제)를 확인한다. 서버 버전은 INFO로 기록한다.
 3. **격리 DB 초기화**: 같은 DB 안에 임시 스키마를 만들고 실제 Alembic 마이그레이션을
    처음부터 실행한다. 운영 스키마로 fallback하지 않는 독립 `search_path`를 사용한다.
 4. **실제 서비스 처리 한 바퀴**:
@@ -59,9 +59,10 @@ uv run python scripts/backend_compatibility_check.py --report /tmp/backend-check
    이력 삭제까지 검증한다.
 6. 성공/실패와 무관하게 **이번 실행에서 만든 스키마·Redis 키·로컬 임시 파일만 정리**한다.
 
-서비스의 Redis 명령 범위는 PING, INFO, COMMAND INFO, EVAL, EXISTS, XADD, XRANGE,
-XDEL이다. 외부 소비자 흉내를 위해 XGROUP CREATE, XREADGROUP, XACK, XPENDING을,
-진단 데이터 정리를 위해 DEL 권한을 추가로 쓴다. 실제 `trim_before` Lua를 실행한다.
+서비스의 Redis 명령 범위는 PING, XADD, XTRIM이다. 점검 도구는 버전 기록을 위해 INFO,
+결과 확인을 위해 XRANGE, 테스트 키 확인을 위해 EXISTS, 외부 소비자 흉내를 위해
+XGROUP CREATE, XREADGROUP, XACK, XPENDING을, 진단 데이터 정리를 위해 DEL 권한을 추가로 쓴다.
+이벤트는 서비스와 같은 테넌트별 Stream(`<prefix>:events.smoke`)으로 발행·소비한다.
 
 ## 안전 범위와 필요한 권한
 
@@ -93,7 +94,7 @@ XDEL이다. 외부 소비자 흉내를 위해 XGROUP CREATE, XREADGROUP, XACK, X
 | --- | --- |
 | configuration | 환경변수/설정 파싱, URL 형식, 로컬 임시 디렉토리 쓰기 |
 | service schema | 접속 주소·인증·TLS, 지정 스키마, Alembic revision, 빠진 테이블/컬럼 |
-| Redis commands / Lua | Redis 6.0.8 이상, 인증, EVAL과 Lua 내부 명령의 ACL, 테스트 키 ACL |
+| Redis commands / retention | Redis 8.0 이상, 인증, XADD·XTRIM·INFO ACL, 테스트 키 ACL |
 | isolated schema / migration | DB CREATE 권한, 마이그레이션 파일, 다른 배포가 잡은 lock |
 | submit / Outbox / consume | DB 저장, Redis 발행·ACK 권한, 이벤트 계약 불일치 |
 | cleanup | 연결 복구, DEL/스키마 삭제 권한, 출력된 테스트 대상의 잔여 여부 |
@@ -108,7 +109,7 @@ XDEL이다. 외부 소비자 흉내를 위해 XGROUP CREATE, XREADGROUP, XACK, X
 - 모든 SQL 분기, 기존 DB의 전체 제약/인덱스/타입 동일성, 운영 테이블별 쓰기 권한,
   RLS 정책, 실제 운영 Stream 접두사별 ACL, 다중 Worker 경쟁·부하·5일 장기 실행까지
   보장하지 않는다. 운영 스키마/키를 변경하지 않기 때문에 생기는 의도적인 한계다.
-- **기능 호환성 통과는 Redis 6.0.8의 보안 패치 적합성이나 프로덕션 준비 완료 판정이 아니다.**
+- **기능 호환성 통과는 Redis 서버의 보안 패치 적합성이나 프로덕션 준비 완료 판정이 아니다.**
 
 ## 개발 검증
 
@@ -119,11 +120,14 @@ uv run pytest tests/test_backend_compatibility_check.py
 실제 통합 테스트까지 실행하려면 로컬 테스트 DB/Redis를 대상으로
 `EXECUTOR_COMPAT_TEST_DATABASE_URL`, `EXECUTOR_REDIS_TEST_URL`을 설정한다.
 설정하지 않으면 통합 항목은 skip된다. `EXECUTOR_COMPAT_TEST_ACL=1`은 **로컬 테스트에서만**
-임시 Redis ACL 사용자를 만들어 EVAL/XINFO/XADD/DEL 거부를 확인하고 삭제하는 추가 검증이다.
+임시 Redis ACL 사용자를 만들어 XTRIM/XREADGROUP/XADD/DEL 거부를 확인하고 삭제하는 추가 검증이다.
 배포 담당자용 스크립트 자체는 ACL 사용자를 생성하지 않는다.
 
-초기 구현 검증에서는 로컬 Redis 6.0.8 / PostgreSQL 17의 임시 스키마에서
+초기 구현 검증(당시 Redis 6.0.8 기준 구현)에서는 로컬 Redis 6.0.8 / PostgreSQL 17의 임시 스키마에서
 단일 CLI 실행, 전체 왕복, ACL 거부, 중단 후 정리, 기존 키 보호, 병렬 실행 격리,
 마이그레이션 불일치·누락 컬럼 검출, 최신 스키마의 `alembic check`를 포함해
 22개 테스트가 통과했다. 기존 서비스 DB의 revision `0004` 불일치는 탐지했으며,
 해당 DB를 자동 수정하거나 초기화하지 않았다.
+
+Redis 8 전환 후에는 Redis 8.0.6 / 8.2.11 / 8.4.8 / 8.6.8 / 8.8.4 / 8.10.3과 PostgreSQL 17에서
+`EXECUTOR_COMPAT_TEST_ACL=1`을 포함한 이 파일의 22개 테스트가 모두 통과했다.

@@ -308,7 +308,7 @@ async def test_existing_redis_key_is_never_deleted(
 ) -> None:
     engine, redis, args = deployed_schema
     report = new_report()
-    key = f"{report.redis_prefix}:events"
+    key = f"{report.redis_prefix}:events.{probe.TENANT_ID}"
     await redis.xadd(key, {"sentinel": "untouched"})
     try:
         assert not await probe.run_check(args, report)
@@ -320,7 +320,7 @@ async def test_existing_redis_key_is_never_deleted(
 
 @pytest.mark.postgres
 @pytest.mark.redis
-@pytest.mark.parametrize("denied", ["eval", "xinfo", "xadd", "del"])
+@pytest.mark.parametrize("denied", ["xtrim", "xreadgroup", "xadd", "del"])
 async def test_real_redis_acl_denial_is_a_failure(
     deployed_schema: Any,
     monkeypatch: pytest.MonkeyPatch,
@@ -361,10 +361,8 @@ async def test_real_redis_acl_denial_is_a_failure(
         await redis.execute_command("ACL", "DELUSER", name)
         # The deny-DEL case intentionally needs administrator cleanup.
         await redis.delete(
-            *(
-                f"{report.redis_prefix}:{suffix}"
-                for suffix in ("retention", "events")
-            )
+            f"{report.redis_prefix}:retention",
+            f"{report.redis_prefix}:events.{probe.TENANT_ID}",
         )
     await verify_cleanup(engine, redis, report)
 
