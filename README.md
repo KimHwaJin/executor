@@ -72,7 +72,7 @@ schema. See the [compatibility check guide](docs/backend-compatibility-check.md)
 for permissions, optional JSON output and limitations.
 
 Executor supports Redis server **8.0 and newer** (verified on 8.0 through 8.10), using
-`redis-py` 5.3.x (`uv.lock` pins the tested client). Redis needs only `XADD`, `XTRIM`, and `PING`
+`redis-py` 7.4.x (`uv.lock` pins the tested client). Redis needs only `XADD`, `XTRIM`, and `PING`
 on the event Streams; no scripting is used. Executor starts and stays ready without Redis: events
 wait in the Outbox, the retention pass skips Redis trimming while it fails, and `/workerz` reports
 `redis_reachable`. Local Docker Compose defaults to the exact **`redis:8.6.8`** image and the

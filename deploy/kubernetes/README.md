@@ -20,7 +20,7 @@ Workers find work by polling it; Redis only carries outbound events. A Pod there
 PostgreSQL, Redis, and the registered Jupyter fleet.
 
 Redis server 8.0 or newer is required by this branch. Build the image with its
-`uv.lock` (redis-py 5.3.x); changing only the Redis URL does not update code
+`uv.lock` (redis-py 7.4.x); changing only the Redis URL does not update code
 inside an older image. Permit `PING`, `XADD`, and `XTRIM` on the event Streams, as
 listed in [Redis compatibility](../../docs/redis-compatibility.md). Pods start and
 stay ready while Redis is down; events wait in the Outbox and publish once Redis returns.

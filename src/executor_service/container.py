@@ -233,6 +233,7 @@ class ApplicationContainer:
             # A silent Redis would otherwise hold the caller for the full
             # socket timeout.
             async with asyncio.timeout(REDIS_PING_TIMEOUT_SECONDS):
-                return bool(await self.redis.ping())
+                # redis-py types ping() for its sync and async clients alike.
+                return bool(await self.redis.ping())  # ty: ignore[invalid-await]
         except Exception:
             return False
