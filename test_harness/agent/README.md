@@ -53,7 +53,7 @@ Agent-owned DLQ.
 
 ## Setup
 
-The test Agent pins the same Redis 5.x Python client as Executor (redis-py 5.3.1).
+The test Agent pins the same Redis Python client as Executor (redis-py 7.4.1).
 Its temporary event bridge uses basic Stream commands and does not own production
 Pending recovery. No change to the Executor event schema or Agent workflow is required.
 

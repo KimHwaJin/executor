@@ -4,8 +4,9 @@
 
 - Server: Redis 8.0 or newer, verified on 8.0.6, 8.2.11, 8.4.8, 8.6.8, 8.8.4 and 8.10.3.
   Redis 8 publishes only even minor versions as GA; `8.5.x` is the 8.6 release candidate and is
-  not for production. Python client: redis-py 5.3.x, frozen at 5.3.1 in both Executor and test
-  Agent lockfiles.
+  not for production. Python client: redis-py 7.4.x (`redis>=7.4,<8`), frozen at 7.4.1 in both
+  Executor and test Agent lockfiles. redis-py 8 switches the wire protocol to RESP3 by default
+  and is not used.
 - Executor uses only standard Stream commands and RESP2: no Lua, Functions, modules, Pub/Sub or
   transactions.
 
