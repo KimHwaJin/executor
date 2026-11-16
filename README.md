@@ -80,6 +80,9 @@ dedicated `executor-redis-8` volume. The integration quality gate also expects 8
 set `EXECUTOR_EXPECT_REDIS_VERSION` explicitly when validating another version. `REDIS_URL` does
 not select a server version: Docker Compose (or the infrastructure operator) selects the image.
 
+`REDIS_MODE` is `standalone` (`REDIS_URL`) by default; `sentinel` follows the master through
+`REDIS_SENTINEL_*`, as production does.
+
 See [Redis compatibility](docs/redis-compatibility.md) for ACL requirements, retention behavior,
 test commands, and deployment precautions.
 

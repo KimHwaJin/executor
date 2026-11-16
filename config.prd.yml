@@ -2,7 +2,15 @@
 # deployments; shared ones are in config.yml. Credentials live in this
 # file: the platform has no Secrets.
 DATABASE_URL: "postgresql+psycopg://REPLACE_USER:REPLACE_PASSWORD@postgresql.infra.svc.cluster.local:5432/executor"
-REDIS_URL: "redis://:REPLACE_PASSWORD@redis-master.infra.svc.cluster.local:6379/3"
+# Redis runs behind Sentinel here: Executor asks it for the current master
+# and uses DB 0. AUTH is the AES-encrypted password (HCP guide), decrypted
+# with hcp's AESCipher; the same account signs in to Sentinel and to Redis.
+REDIS_MODE: sentinel
+REDIS_SENTINEL_HOST: REPLACE_SENTINEL_HOST
+REDIS_SENTINEL_PORT: 26379
+REDIS_SENTINEL_MASTER_NAME: REPLACE_MASTER_NAME
+REDIS_SENTINEL_USERNAME: REPLACE_USER
+REDIS_SENTINEL_AUTH: REPLACE_WITH_ENCRYPTED_PASSWORD
 # Fernet key; keep it stable while encrypted Runtime credentials exist.
 RUNTIME_CREDENTIAL_KEY: REPLACE_WITH_FERNET_KEY
 # Callers send X-Api-Key; only its SHA-256 is kept here. Replace each

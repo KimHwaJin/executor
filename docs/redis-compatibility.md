@@ -38,6 +38,33 @@ Agent-owned.
 - Monitor actual Stream length and Redis memory; age is eligibility for deletion, not a hard
   memory ceiling.
 
+## Standalone and Sentinel
+
+`REDIS_MODE` selects how Executor finds Redis; nothing else in the code differs between the two.
+
+| `REDIS_MODE` | Reads | Connects to |
+| --- | --- | --- |
+| `standalone` (default; dev, stg, local) | `REDIS_URL` | that host, with the DB in the URL |
+| `sentinel` (prd) | `REDIS_SENTINEL_HOST`, `_PORT`, `_MASTER_NAME`, `_USERNAME`, `_AUTH` | the master Sentinel reports, DB 0 |
+
+- Every Executor command is a write, so it must reach the master. In `sentinel` mode each new
+  connection asks Sentinel for the current master; after a failover the old connections fail and
+  the next one lands on the new master without a restart. Never point `REDIS_URL` at one node of
+  a Sentinel deployment: it works only until the first failover.
+- `REDIS_SENTINEL_AUTH` holds the AES-encrypted password required by the internal guide and is
+  decrypted with `hcp.framework.util.crypto_cipher.AESCipher`; `sentinel` mode therefore needs the
+  internal `hcp` library and fails at startup with a clear error without it. One account signs in
+  to both Sentinel and Redis. `REDIS_SENTINEL_MASTER_NAME` is required; Executor does not guess it.
+- Sentinel must report a master address that Executor Pods can reach.
+- Verified against Redis 8.6.8 with one master, two replicas and three ACL-protected Sentinels:
+  killing the master cost one failed `XADD` and about five seconds; a planned
+  `SENTINEL FAILOVER` cost none. The Outbox retries the failed event.
+- Redis replication is asynchronous. An event acknowledged just before a failover can be missing
+  from the new master, and a consumer group can step back slightly. Consumers already deduplicate
+  by `event_id` and fill gaps from the durable event history; they should also re-check an
+  Execution that has been silent too long. `min-replicas-to-write` on the server narrows the
+  window.
+
 ## Connection and permissions
 
 The existing URL and credential mechanism remains unchanged. Use the primary write endpoint, not

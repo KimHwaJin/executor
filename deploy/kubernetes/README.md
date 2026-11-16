@@ -27,6 +27,10 @@ stay ready while Redis is down; events wait in the Outbox and publish once Redis
 The retention pass logs a warning and skips Redis trimming while Redis is down or denies
 `XTRIM`. No Redis data reset is required.
 
+`config.prd.yml` sets `REDIS_MODE: sentinel`: fill in the Sentinel host, master name, account and
+the AES-encrypted password (`REDIS_SENTINEL_AUTH`). The image for that environment must include the
+internal `hcp` library, which decrypts it. dev and stg stay `standalone` on `REDIS_URL`.
+
 ## Required deployment substitutions
 
 Before deployment:

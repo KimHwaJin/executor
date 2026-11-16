@@ -2,6 +2,7 @@
 # deployments; shared ones are in config.yml. Credentials live in this
 # file: the platform has no Secrets.
 DATABASE_URL: "postgresql+psycopg://REPLACE_USER:REPLACE_PASSWORD@postgresql.infra.svc.cluster.local:5432/executor"
+REDIS_MODE: standalone
 REDIS_URL: "redis://:REPLACE_PASSWORD@redis-master.infra.svc.cluster.local:6379/3"
 # Fernet key; keep it stable while encrypted Runtime credentials exist.
 RUNTIME_CREDENTIAL_KEY: REPLACE_WITH_FERNET_KEY
