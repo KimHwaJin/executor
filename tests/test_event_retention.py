@@ -2,7 +2,6 @@ from datetime import timedelta
 from typing import Any, cast
 from uuid import uuid4
 
-import pytest
 from redis.asyncio import Redis
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -36,26 +35,18 @@ from executor_service.settings import Settings
 
 
 class RecordingRetentionRedis:
-    """Passes the compatibility check and records retention trims."""
+    """Records retention trims."""
 
-    def __init__(self, trimmed_per_call: int = 0) -> None:
-        self.trim_calls: list[tuple[Any, ...]] = []
-        self.trimmed_per_call = trimmed_per_call
+    def __init__(self) -> None:
+        self.trim_calls: list[tuple[str, str, bool]] = []
 
-    async def info(self, _section: str) -> dict[str, str]:
-        return {"redis_version": "6.0.8"}
-
-    async def execute_command(self, *args: Any) -> Any:
-        if args[0] == "COMMAND":
-            return {name: {"name": name} for name in args[2:]}
-        if args[:2] == ("EVAL", "return 1"):
-            return 1
-        self.trim_calls.append(args)
-        return self.trimmed_per_call
+    async def xtrim(self, name: str, *, minid: str, approximate: bool) -> int:
+        self.trim_calls.append((name, minid, approximate))
+        return 0
 
 
 class UnreachableRedis:
-    async def info(self, _section: str) -> dict[str, str]:
+    async def xtrim(self, *_args: Any, **_kwargs: Any) -> int:
         raise ConnectionError("Redis is down")
 
 
@@ -220,7 +211,7 @@ async def test_terminal_event_history_expires_only_without_outbox_reference(
     assert [event.id for event in remaining] == [retained.id]
 
 
-async def test_event_trim_is_bounded(
+async def test_event_trim_drops_entries_before_the_cutoff_exactly(
     execution_service: ExecutionService,
     engine: AsyncEngine,
 ) -> None:
@@ -231,12 +222,15 @@ async def test_event_trim_is_bounded(
         session_factory, cast(Redis, redis), _settings()
     )
 
+    before = utc_now() - timedelta(days=7)
     result = await manager.run_pass()
     assert result.published_outbox_deleted == 0
-    assert len(redis.trim_calls) == 1
-    assert redis.trim_calls[0][0] == "EVAL"
-    assert redis.trim_calls[0][3] == "executor.events.test-tenant"
-    assert redis.trim_calls[0][-1] == 1000
+    [(stream, minid, approximate)] = redis.trim_calls
+    assert stream == "executor.events.test-tenant"
+    milliseconds, sequence = map(int, minid.split("-"))
+    assert sequence == 0
+    assert abs(milliseconds - before.timestamp() * 1000) < 60_000
+    assert approximate is False
 
 
 async def test_pass_drains_a_backlog_larger_than_one_batch(
@@ -279,29 +273,6 @@ async def test_pass_drains_a_backlog_larger_than_one_batch(
         assert not list(await session.scalars(select(OutboxEventORM.id)))
 
 
-async def test_pass_stops_at_its_time_budget(
-    execution_service: ExecutionService,
-    engine: AsyncEngine,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    await execution_service.submit(_command("retention-budget"))
-    monkeypatch.setattr(
-        "executor_service.infrastructure.event_retention."
-        "RETENTION_PASS_BUDGET_SECONDS",
-        0,
-    )
-    redis = RecordingRetentionRedis(trimmed_per_call=1000)
-    manager = EventRetentionManager(
-        create_session_factory(engine), cast(Redis, redis), _settings()
-    )
-
-    result = await manager.run_pass()
-
-    # Full batches keep coming, but the spent budget ends the pass.
-    assert len(redis.trim_calls) == 1
-    assert result.event_stream_trimmed == 1000
-
-
 async def test_pass_cleans_postgresql_while_redis_is_down(
     engine: AsyncEngine,
 ) -> None:
@@ -314,4 +285,3 @@ async def test_pass_cleans_postgresql_while_redis_is_down(
     result = await manager.run_pass()
 
     assert result.event_stream_trimmed == 0
-    assert manager._redis_checked is False

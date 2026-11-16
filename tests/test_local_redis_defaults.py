@@ -11,26 +11,26 @@ ROOT = Path(__file__).parents[1]
     ("filename", "volume", "old_volume"),
     [
         ("docker-compose.infra.yml", "redis-data", "executor-redis"),
-        ("compose.worker-failover.yaml", "redis-data-608", "redis-data"),
+        ("compose.worker-failover.yaml", "redis-data-8", "redis-data-608"),
     ],
 )
-def test_compose_pins_redis_and_uses_separate_downgrade_volume(
+def test_compose_pins_redis_8_on_its_own_volume(
     filename: str, volume: str, old_volume: str
 ) -> None:
     compose = yaml.safe_load((ROOT / filename).read_text())
     redis = compose["services"]["redis"]
-    assert redis["image"] == "redis:6.0.8"
+    assert redis["image"] == "redis:8.6.8"
     assert redis["volumes"] == [f"{volume}:/data"]
     assert volume in compose["volumes"]
     assert old_volume not in compose["volumes"]
     if filename == "docker-compose.infra.yml":
         assert compose["volumes"][volume]["external"] is True
         assert compose["volumes"][volume]["name"] == (
-            "${SHARED_REDIS_VOLUME:-executor_executor-redis-608}"
+            "${SHARED_REDIS_VOLUME:-executor_executor-redis-8}"
         )
 
 
-@pytest.mark.parametrize("override", [None, "7.4.10"])
+@pytest.mark.parametrize("override", [None, "8.10.3"])
 def test_integration_gate_checks_expected_redis_version(
     monkeypatch: pytest.MonkeyPatch, override: str | None
 ) -> None:
@@ -41,5 +41,5 @@ def test_integration_gate_checks_expected_redis_version(
     script = runpy.run_path(str(ROOT / "scripts" / "quality_gate.py"))
     for check in script["_integration_checks"]():
         assert check.environment["EXECUTOR_EXPECT_REDIS_VERSION"] == (
-            override or "6.0.8"
+            override or "8.6.8"
         )

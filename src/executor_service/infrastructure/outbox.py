@@ -162,7 +162,7 @@ class OutboxPublisher:
                         if self._event_stream_maxlen is None:
                             await self._redis.xadd(stream, fields)
                         else:
-                            # Redis 6.0 has no MINID; MAXLEN ~ is cheap.
+                            # MAXLEN ~ trims whole nodes, so it stays cheap.
                             await self._redis.xadd(
                                 stream,
                                 fields,

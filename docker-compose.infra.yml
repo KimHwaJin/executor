@@ -19,7 +19,7 @@ services:
     restart: unless-stopped
 
   redis:
-    image: redis:6.0.8
+    image: redis:8.6.8
     ports:
       - "6379:6379"
     command: ["redis-server", "--appendonly", "yes"]
@@ -29,7 +29,7 @@ services:
       timeout: 5s
       retries: 10
     volumes:
-      # Preserve the existing Redis 6 volume; never reuse a Redis 7 AOF/RDB volume.
+      # A Redis 8 volume; Redis 8 cannot be downgraded onto an older server.
       - redis-data:/data
     restart: unless-stopped
 
@@ -45,4 +45,4 @@ volumes:
     name: ${SHARED_POSTGRES_VOLUME:-executor_executor-postgres}
   redis-data:
     external: true
-    name: ${SHARED_REDIS_VOLUME:-executor_executor-redis-608}
+    name: ${SHARED_REDIS_VOLUME:-executor_executor-redis-8}

@@ -13,7 +13,7 @@ the document that now describes the behaviour. Open items keep only their remain
 | PR-005 | Controlled maintenance (DRAINING, `safe_to_shutdown`) and fail-safe restart recovery | [Executor maintenance](executor-maintenance.md) |
 | PR-006A | Exclusive and recoverable cancellation ownership | [Execution recovery](execution-recovery.md) |
 | PR-006B | Ordered and recoverable integration events through the transactional Outbox | [Event delivery](event-delivery.md) |
-| PR-006C | Bounded Redis Streams decoupled from durable event history | [Event delivery](event-delivery.md), [Redis 6.0.8 compatibility](redis-6-compatibility.md) |
+| PR-006C | Bounded Redis Streams decoupled from durable event history | [Event delivery](event-delivery.md), [Redis compatibility](redis-compatibility.md) |
 
 A Runtime-side Runner that keeps executing across Executor Worker loss stays out of scope. An
 unexpected Worker loss is handled as a failure, never as a silently resumed execution.

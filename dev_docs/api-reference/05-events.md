@@ -7,7 +7,7 @@ Executor는 실행 상태가 바뀔 때 Redis Stream에 이벤트를 발행한�
 - 이름: `{REDIS_EVENT_STREAM}.{tenant_id}`, 기본 `executor.events.{tenant_id}`. tenant마다 하나이고, 한 Execution의 이벤트는 끝까지 같은 Stream으로 간다.
 - 전달 보장: at-least-once. 같은 `event_id`가 두 번 이상 올 수 있다.
 - 순서: Execution별 `event_sequence`(1부터 1씩 증가)로 판단한다. Redis message ID와 `event_id`는 다른 값이다. Publisher는 앞 순번이 발행될 때까지 뒤 순번을 보류한다.
-- 보관: `REDIS_EVENT_RETENTION_SECONDS`(기본 7일) 시간 정리. `REDIS_EVENT_STREAM_MAXLEN`을 설정하면 `XADD ... MAXLEN ~ N`이 붙는다(Redis 6.0 호환, `MINID` 미사용).
+- 보관: `REDIS_EVENT_RETENTION_SECONDS`(기본 7일) 시간 정리. `REDIS_EVENT_STREAM_MAXLEN`을 설정하면 `XADD ... MAXLEN ~ N`이 붙는다.
 - 상태 변경·영구 이벤트·Outbox 행은 한 트랜잭션으로 저장되고, Outbox Publisher가 커밋된 이벤트를 발행한다. 같은 이벤트는 `GET /api/v1/executions/{id}/events`로 다시 읽을 수 있다.
 
 ## Stream 항목(필드)
@@ -257,7 +257,7 @@ Worker 인계 : step_started → step_handover_started → step_handover_complet
 3. 처리한 `event_id`를 영속 저장하고 다시 오면 적용하지 않고 `XACK`한다.
 4. Execution별 마지막 연속 `event_sequence`(last)를 저장한다. `== last+1`이면 적용, `<= last`면 무시하고 ACK, `> last+1`이면 먼저 `GET /api/v1/executions/{id}/events?after_sequence={last}&limit=500`으로 빈 구간을 채운다.
 5. 모르는 `event_type`은 적용하지 않고 기록 후 `XACK`한다. 지원하지 않는 `schema_version`은 적용하지 않는다.
-6. Redis 6.0에는 `XAUTOCLAIM`이 없다. `XPENDING`/`XCLAIM`으로 오래 걸린 메시지를 회수하고, 본문이 없는 ID는 `XACK` 후 이력 API로 채운다.
+6. 오래 걸린 메시지는 `XAUTOCLAIM {stream} {group} {consumer} {min-idle-ms} 0-0 COUNT {count}`로 회수한다. 응답 세 번째 항목(이미 Stream에서 지워진 ID)은 Redis가 Pending 목록에서 빼므로 이력 API로 채운다.
 7. 결과 원문은 이벤트에 없다. `result_ref.relative_path`를 공유 루트에 안전하게 결합해 manifest를 읽고 크기·SHA-256을 검증한다.
 8. 최종 리포트 전이나 상태가 의심스러우면(순서가 이상함, 집계 불일치, 체크섬 불일치, 상충하는 종료 상태) `GET .../result`로 원본을 확인한다.
 9. `CANCELLED`는 취소 확정이지 커널 정리 성공 보장이 아니다. `COMPLETION_FAILED`는 필수 노트북·Artifact 처리 또는 최종 정리 실패다.

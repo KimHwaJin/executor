@@ -11,6 +11,7 @@ from datetime import timedelta
 from uuid import uuid4
 
 from redis.asyncio import Redis
+from redis.exceptions import RedisError
 from sqlalchemy import delete, exists, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -27,11 +28,6 @@ from executor_service.infrastructure.db.models import (
     ExecutionEventORM,
     ExecutionORM,
     OutboxEventORM,
-)
-from executor_service.infrastructure.redis_streams import (
-    MAX_BATCH_SIZE,
-    check_redis_compatibility,
-    trim_before,
 )
 from executor_service.settings import Settings
 
@@ -67,7 +63,6 @@ class EventRetentionManager:
         self._redis = redis
         self._settings = settings
         self._owner = f"retention-{uuid4()}"
-        self._redis_checked = False
         self._task: asyncio.Task[None] | None = None
 
     def start(self) -> None:
@@ -111,37 +106,11 @@ class EventRetentionManager:
         events_deleted = await _drain(
             self._delete_execution_events, batch_size, deadline
         )
-        event_trimmed = 0
-        if await self._redis_supports_retention():
-            for stream in await self._event_streams():
-                event_trimmed += await self._trim_event_stream(
-                    stream, deadline
-                )
         return EventRetentionResult(
             published_outbox_deleted=outbox_deleted,
             execution_events_deleted=events_deleted,
-            event_stream_trimmed=event_trimmed,
+            event_stream_trimmed=await self._trim_event_streams(),
         )
-
-    async def _redis_supports_retention(self) -> bool:
-        """Check Redis once before trimming; startup never waits on Redis."""
-
-        if self._redis_checked:
-            return True
-        try:
-            await check_redis_compatibility(self._redis)
-        except RuntimeError:
-            logger.exception(
-                "Redis cannot run event Stream retention; skipping trimming"
-            )
-            return False
-        except Exception:
-            logger.warning(
-                "Redis is unavailable; skipping event Stream trimming"
-            )
-            return False
-        self._redis_checked = True
-        return True
 
     async def _delete_published_outbox(self) -> int:
         cutoff = utc_now() - timedelta(
@@ -220,20 +189,26 @@ class EventRetentionManager:
             for tenant_id in tenant_ids
         ]
 
-    async def _trim_event_stream(self, stream: str, deadline: float) -> int:
+    async def _trim_event_streams(self) -> int:
+        """Drop entries older than the cutoff; Redis being down skips it."""
+
         boundary = _cutoff_stream_id(
             self._settings.redis_event_retention_seconds
         )
-        batch_size = min(
-            self._settings.event_retention_batch_size, MAX_BATCH_SIZE
-        )
-
-        async def trim_batch() -> int:
-            return await trim_before(
-                self._redis, stream, boundary, count=batch_size
+        trimmed = 0
+        try:
+            for stream in await self._event_streams():
+                # Exact MINID keeps the cutoff entry and frees whole old
+                # nodes; ~ with LIMIT below a node's size trims nothing.
+                trimmed += await self._redis.xtrim(
+                    stream, minid=boundary, approximate=False
+                )
+        except (RedisError, OSError) as exc:
+            # Down, or denied by ACL: PostgreSQL cleanup already ran.
+            logger.warning(
+                "Event Stream trimming skipped: %s", type(exc).__name__
             )
-
-        return await _drain(trim_batch, batch_size, deadline)
+        return trimmed
 
 
 async def _drain(

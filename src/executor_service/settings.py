@@ -137,6 +137,15 @@ class Settings(BaseSettings):
     db_migration_lock_timeout_seconds: int = Field(default=60, ge=1)
     db_migration_statement_timeout_seconds: int = Field(default=300, ge=1)
     redis_url: SecretStr = SecretStr("redis://localhost:6379/0")
+    # standalone connects to REDIS_URL. sentinel asks REDIS_SENTINEL_* for
+    # the current master (DB 0); AUTH is the AES-encrypted password the HCP
+    # guide requires, and one account signs in to Sentinel and to Redis.
+    redis_mode: Literal["standalone", "sentinel"] = "standalone"
+    redis_sentinel_host: str | None = Field(default=None, min_length=1)
+    redis_sentinel_port: int = Field(default=26379, ge=1, le=65535)
+    redis_sentinel_master_name: str | None = Field(default=None, min_length=1)
+    redis_sentinel_username: str | None = Field(default=None, min_length=1)
+    redis_sentinel_auth: SecretStr | None = None
     redis_connect_timeout_seconds: float = Field(default=5, gt=0)
     redis_socket_timeout_seconds: float = Field(default=5, gt=0)
     redis_event_stream: str = Field(default="executor.events", min_length=1)
@@ -284,6 +293,15 @@ class Settings(BaseSettings):
         ):
             raise ValueError(
                 "RUNTIME_CREDENTIAL_KEY must be replaced outside local environments."
+            )
+        if self.redis_mode == "sentinel" and not (
+            self.redis_sentinel_host
+            and self.redis_sentinel_master_name
+            and self.redis_sentinel_auth
+        ):
+            raise ValueError(
+                "REDIS_MODE=sentinel requires REDIS_SENTINEL_HOST, "
+                "REDIS_SENTINEL_MASTER_NAME and REDIS_SENTINEL_AUTH."
             )
         names = [client.name for client in self.auth_clients]
         if len(names) != len(set(names)):

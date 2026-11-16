@@ -119,7 +119,14 @@ def test_deployment_reads_image_config_and_safe_update_strategy() -> None:
         **yaml.safe_load((ROOT / "config.prd.yml").read_text()),
     }
     assert config["DB_AUTO_MIGRATE"] is True
-    for key in ("DATABASE_URL", "REDIS_URL", "RUNTIME_CREDENTIAL_KEY"):
+    assert config["REDIS_MODE"] == "sentinel"
+    for key in (
+        "DATABASE_URL",
+        "REDIS_SENTINEL_HOST",
+        "REDIS_SENTINEL_MASTER_NAME",
+        "REDIS_SENTINEL_AUTH",
+        "RUNTIME_CREDENTIAL_KEY",
+    ):
         assert "REPLACE" in config[key]
     defaults = Settings(_env_file=None)
     assert container["startupProbe"]["failureThreshold"] * (

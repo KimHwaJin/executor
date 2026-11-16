@@ -134,8 +134,20 @@ DB_MIGRATION_STATEMENT_TIMEOUT_SECONDS: 300
 # Redis 이벤트 Stream
 # ---------------------------------------------------------------------------
 
-# [환경별] 접속 URL(비밀값). Agent에게 실행 이벤트를 전달하는 데만 쓴다.
+# [환경별] 접속 방식. standalone은 REDIS_URL로 직접 붙고, sentinel은
+# REDIS_SENTINEL_*로 Sentinel에 현재 마스터를 물어 붙는다(DB 0번, REDIS_URL 미사용).
+REDIS_MODE: standalone
+# [환경별] standalone 접속 URL(비밀값). Agent에게 실행 이벤트를 전달하는 데만 쓴다.
 REDIS_URL: "redis://:REPLACE_PASSWORD@redis-master.infra.svc.cluster.local:6379/3"
+# [환경별] sentinel 모드 전용. Sentinel 주소와 포트.
+REDIS_SENTINEL_HOST: null
+REDIS_SENTINEL_PORT: 26379
+# Sentinel이 감시하는 마스터 이름. sentinel 모드에서 필수.
+REDIS_SENTINEL_MASTER_NAME: null
+# Sentinel과 Redis에 같이 쓰는 계정. 계정 없이 비밀번호만 쓰면 null.
+REDIS_SENTINEL_USERNAME: null
+# AES로 암호화한 비밀번호(사내 가이드). 사내 hcp 라이브러리의 AESCipher로 복호화한다.
+REDIS_SENTINEL_AUTH: null
 # Redis 접속 타임아웃 초.
 REDIS_CONNECT_TIMEOUT_SECONDS: 5
 # Redis 명령 응답 타임아웃 초.
