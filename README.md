@@ -306,6 +306,19 @@ It does not collect or export OpenTelemetry spans. Execution IDs, Step IDs, fail
 and ordered public events remain available independently of any trace collector.
 See [ADR-005](docs/architecture-decisions.md#adr-005-remove-executor-owned-tracing).
 
+`executor-events` reads the event Streams from inside an Executor Pod, connecting with the Pod's
+own Redis settings (Sentinel or standalone). It only reads, and works with a read-only ACL user.
+
+```bash
+kubectl exec deploy/executor -- executor-events streams          # Streams, length, groups
+kubectl exec deploy/executor -- executor-events recent -t TENANT -n 20 [-e EXECUTION_ID] [-v]
+kubectl exec deploy/executor -- executor-events groups -t TENANT  # consumers and pending
+kubectl exec -it deploy/executor -- executor-events follow [-t TENANT] [-e EXECUTION_ID]
+```
+
+Images built before the command existed run the module from stdin instead:
+`kubectl exec -i POD -- python - recent -t TENANT < src/executor_service/interfaces/event_inspector.py`.
+
 Run the official SDK client smoke test in a second terminal:
 
 ```bash
