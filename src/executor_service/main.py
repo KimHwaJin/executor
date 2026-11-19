@@ -19,6 +19,7 @@ api_tags_meta = [
     {"name": "executions", "description": "Execution requests and results."},
     {"name": "runtime-targets", "description": "Runtime target management."},
     {"name": "maintenance", "description": "Executor maintenance controls."},
+    {"name": "event-streams", "description": "Redis event Stream inspection."},
 ]
 
 

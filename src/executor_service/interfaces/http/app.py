@@ -33,6 +33,9 @@ from executor_service.interfaces.error_body import (
 from executor_service.interfaces.http.body_limit import (
     RequestBodyLimitMiddleware,
 )
+from executor_service.interfaces.http.event_streams import (
+    build_event_stream_router,
+)
 from executor_service.interfaces.http.executions import build_execution_router
 from executor_service.interfaces.http.maintenance import (
     build_maintenance_router,
@@ -255,6 +258,7 @@ def create_app(
     app.include_router(build_execution_router(container))
     app.include_router(build_runtime_target_router(container))
     app.include_router(build_maintenance_router(container))
+    app.include_router(build_event_stream_router(container))
 
     if mcp_server is not None:
         transport_security = TransportSecuritySettings(

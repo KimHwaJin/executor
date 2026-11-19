@@ -4606,6 +4606,445 @@
           }
         }
       }
+    },
+    "/api/v1/event-streams": {
+      "get": {
+        "tags": [
+          "event-streams"
+        ],
+        "summary": "Show the Redis connection and every tenant's event Stream",
+        "operationId": "get_event_streams_api_v1_event_streams_get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Operator ID; required for writes and recorded as created_by/updated_by.",
+              "title": "X-User-Id"
+            },
+            "description": "Operator ID; required for writes and recorded as created_by/updated_by."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventStreamOverviewResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Redis unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/event-streams/{tenant_id}": {
+      "get": {
+        "tags": [
+          "event-streams"
+        ],
+        "summary": "Show one tenant's event Stream and its consumer groups",
+        "operationId": "get_event_stream_api_v1_event_streams__tenant_id__get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]{1,62}[a-z0-9]$",
+              "title": "Tenant Id"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Operator ID; required for writes and recorded as created_by/updated_by.",
+              "title": "X-User-Id"
+            },
+            "description": "Operator ID; required for writes and recorded as created_by/updated_by."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventStreamResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Redis unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Stream or group not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/event-streams/{tenant_id}/entries": {
+      "get": {
+        "tags": [
+          "event-streams"
+        ],
+        "summary": "List a Stream's entries, newest first",
+        "description": "A filtered request reads at most 1000 entries, so it may return fewer than `limit` items and still a `next_before` to go on.",
+        "operationId": "list_event_stream_entries_api_v1_event_streams__tenant_id__entries_get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]{1,62}[a-z0-9]$",
+              "title": "Tenant Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^\\d{1,20}(-\\d{1,20})?$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Before"
+            }
+          },
+          {
+            "name": "execution_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Execution Id"
+            }
+          },
+          {
+            "name": "event_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 128
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Event Type"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Operator ID; required for writes and recorded as created_by/updated_by.",
+              "title": "X-User-Id"
+            },
+            "description": "Operator ID; required for writes and recorded as created_by/updated_by."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventStreamEntryPageResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Redis unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Stream or group not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/event-streams/{tenant_id}/groups/{group}/pending": {
+      "get": {
+        "tags": [
+          "event-streams"
+        ],
+        "summary": "List entries a consumer group has not acknowledged",
+        "operationId": "list_pending_entries_api_v1_event_streams__tenant_id__groups__group__pending_get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]{1,62}[a-z0-9]$",
+              "title": "Tenant Id"
+            }
+          },
+          {
+            "name": "group",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255,
+              "title": "Group"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "consumer",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 255
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Consumer"
+            }
+          },
+          {
+            "name": "min_idle_ms",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Min Idle Ms"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Operator ID; required for writes and recorded as created_by/updated_by.",
+              "title": "X-User-Id"
+            },
+            "description": "Operator ID; required for writes and recorded as created_by/updated_by."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PendingEntryPageResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Redis unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Stream or group not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -5002,6 +5441,121 @@
         ],
         "title": "CodeSourceType"
       },
+      "ConsumerGroupResponse": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "pending": {
+            "type": "integer",
+            "title": "Pending",
+            "description": "Entries delivered but not acknowledged."
+          },
+          "lag": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lag",
+            "description": "Entries not yet delivered to the group; null when Redis cannot tell, such as after entries were deleted."
+          },
+          "entries_read": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entries Read"
+          },
+          "last_delivered": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StreamPositionResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when the group has read nothing."
+          },
+          "oldest_pending": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StreamPositionResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "consumers": {
+            "items": {
+              "$ref": "#/components/schemas/ConsumerResponse"
+            },
+            "type": "array",
+            "title": "Consumers"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "pending",
+          "lag",
+          "entries_read",
+          "last_delivered",
+          "oldest_pending",
+          "consumers"
+        ],
+        "title": "ConsumerGroupResponse"
+      },
+      "ConsumerResponse": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "pending": {
+            "type": "integer",
+            "title": "Pending",
+            "description": "Entries delivered but not acknowledged."
+          },
+          "idle_ms": {
+            "type": "integer",
+            "title": "Idle Ms",
+            "description": "Since its last attempt to read."
+          },
+          "inactive_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inactive Ms",
+            "description": "Since its last successful read or claim."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "pending",
+          "idle_ms",
+          "inactive_ms"
+        ],
+        "title": "ConsumerResponse"
+      },
       "CpuResources": {
         "properties": {
           "used_cores": {
@@ -5228,6 +5782,253 @@
           "last_error"
         ],
         "title": "EventDelivery"
+      },
+      "EventStreamEntryPageResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/EventStreamEntryResponse"
+            },
+            "type": "array",
+            "title": "Items",
+            "description": "Newest first."
+          },
+          "next_before": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Before",
+            "description": "Pass as `before` for older entries; null at the Stream's start."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "items",
+          "next_before"
+        ],
+        "title": "EventStreamEntryPageResponse"
+      },
+      "EventStreamEntryResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          },
+          "event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Id"
+          },
+          "event_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Type"
+          },
+          "schema_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schema Version"
+          },
+          "execution_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Id"
+          },
+          "event_sequence": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Sequence"
+          },
+          "occurred_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occurred At"
+          },
+          "tenant_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Id"
+          },
+          "payload": {
+            "title": "Payload",
+            "description": "Parsed JSON, or the stored text when it is not JSON."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "at",
+          "event_id",
+          "event_type",
+          "schema_version",
+          "execution_id",
+          "event_sequence",
+          "occurred_at",
+          "tenant_id",
+          "payload"
+        ],
+        "title": "EventStreamEntryResponse",
+        "description": "One entry as stored; fields a broken entry lacks are null."
+      },
+      "EventStreamOverviewResponse": {
+        "properties": {
+          "connection": {
+            "$ref": "#/components/schemas/RedisConnectionResponse"
+          },
+          "retention_seconds": {
+            "type": "integer",
+            "title": "Retention Seconds",
+            "description": "Entries older than this are trimmed."
+          },
+          "max_length": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Length",
+            "description": "Approximate per-Stream cap; null when unset."
+          },
+          "streams": {
+            "items": {
+              "$ref": "#/components/schemas/EventStreamResponse"
+            },
+            "type": "array",
+            "title": "Streams"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "connection",
+          "retention_seconds",
+          "max_length",
+          "streams"
+        ],
+        "title": "EventStreamOverviewResponse"
+      },
+      "EventStreamResponse": {
+        "properties": {
+          "tenant_id": {
+            "type": "string",
+            "title": "Tenant Id"
+          },
+          "stream": {
+            "type": "string",
+            "title": "Stream"
+          },
+          "exists": {
+            "type": "boolean",
+            "title": "Exists",
+            "description": "False when Redis holds no Stream for the tenant."
+          },
+          "length": {
+            "type": "integer",
+            "title": "Length"
+          },
+          "entries_added": {
+            "type": "integer",
+            "title": "Entries Added",
+            "description": "Entries ever written, including trimmed ones."
+          },
+          "first_entry": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StreamPositionResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "last_entry": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StreamPositionResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/ConsumerGroupResponse"
+            },
+            "type": "array",
+            "title": "Groups"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "tenant_id",
+          "stream",
+          "exists",
+          "length",
+          "entries_added",
+          "first_entry",
+          "last_entry",
+          "groups"
+        ],
+        "title": "EventStreamResponse"
       },
       "ExecutionArtifactMaterializeRequest": {
         "properties": {
@@ -9080,6 +9881,108 @@
         ],
         "title": "PathStepSource"
       },
+      "PendingEntryPageResponse": {
+        "properties": {
+          "group": {
+            "type": "string",
+            "title": "Group"
+          },
+          "total_pending": {
+            "type": "integer",
+            "title": "Total Pending",
+            "description": "Before any filter."
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PendingEntryResponse"
+            },
+            "type": "array",
+            "title": "Items",
+            "description": "Oldest first."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "group",
+          "total_pending",
+          "items"
+        ],
+        "title": "PendingEntryPageResponse"
+      },
+      "PendingEntryResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          },
+          "consumer": {
+            "type": "string",
+            "title": "Consumer"
+          },
+          "idle_ms": {
+            "type": "integer",
+            "title": "Idle Ms",
+            "description": "Since the last delivery."
+          },
+          "delivery_count": {
+            "type": "integer",
+            "title": "Delivery Count"
+          },
+          "execution_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Id",
+            "description": "Null, like the next two, once the entry was trimmed."
+          },
+          "event_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Type"
+          },
+          "event_sequence": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Sequence"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "at",
+          "consumer",
+          "idle_ms",
+          "delivery_count",
+          "execution_id",
+          "event_type",
+          "event_sequence"
+        ],
+        "title": "PendingEntryResponse"
+      },
       "PythonExecutePayload": {
         "properties": {
           "type": {
@@ -9135,6 +10038,30 @@
           "runtime_abort_status"
         ],
         "title": "RecoveryResponse"
+      },
+      "RedisConnectionResponse": {
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "standalone",
+              "sentinel"
+            ],
+            "title": "Mode"
+          },
+          "address": {
+            "type": "string",
+            "title": "Address",
+            "description": "host:port Executor talks to; under Sentinel, the current master."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "mode",
+          "address"
+        ],
+        "title": "RedisConnectionResponse"
       },
       "RetryResponse": {
         "properties": {
@@ -10272,6 +11199,28 @@
         ],
         "title": "StepStatus"
       },
+      "StreamPositionResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "Redis Stream entry ID."
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At",
+            "description": "When Redis assigned the ID."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "at"
+        ],
+        "title": "StreamPositionResponse"
+      },
       "ToolReference": {
         "properties": {
           "skill_name": {
@@ -10472,5 +11421,23 @@
         "name": "X-Api-Key"
       }
     }
-  }
+  },
+  "tags": [
+    {
+      "name": "executions",
+      "description": "Execution requests and results."
+    },
+    {
+      "name": "runtime-targets",
+      "description": "Runtime target management."
+    },
+    {
+      "name": "maintenance",
+      "description": "Executor maintenance controls."
+    },
+    {
+      "name": "event-streams",
+      "description": "Redis event Stream inspection."
+    }
+  ]
 }

@@ -147,6 +147,8 @@ async def test_runtime_and_maintenance_routes_require_admin(
         "/api/v1/runtime-targets",
         "/api/v1/runtime-pools",
         "/api/v1/maintenance/runs",
+        "/api/v1/event-streams",
+        "/api/v1/event-streams/agent-tenant/entries",
     ):
         denied = await client.get(path, headers=_headers(AGENT_KEY))
         assert denied.status_code == 403

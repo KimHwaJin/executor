@@ -56,6 +56,7 @@ ADMIN_PATH_PREFIXES = (
     "/api/v1/runtime-pools",
     "/api/v1/runtime-targets",
     "/api/v1/maintenance",
+    "/api/v1/event-streams",
 )
 USER_ID = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 # Project and session IDs become Runtime workspace path segments.
