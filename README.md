@@ -618,11 +618,13 @@ The background health monitor repeats the probe at
 `RUNTIME_HEALTH_POLL_INTERVAL_SECONDS` on one Pod per interval. Each target is probed on its own
 task, so a hung Runtime does not delay the others, and a pass skips targets checked within the
 last half interval. A failed health or kernel-profile probe makes the target
-`OFFLINE`; a resource-only failure leaves it `ACTIVE` with stale resource data. Fresh targets are
-ranked by slot, CPU, and memory pressure, with the memory admission threshold configured by
-`RUNTIME_MEMORY_ADMISSION_LIMIT`. If all resource observations exceed
-`RUNTIME_RESOURCE_MAX_AGE_SECONDS`, scheduling falls back to the least effective admission-usage
-ratio. Meanwhile,
+`OFFLINE`; a resource-only failure leaves it `ACTIVE` with stale resource data. A new Execution goes
+to the Target with the most memory still open to new kernels: capacity times
+`RUNTIME_MEMORY_ADMISSION_LIMIT`, minus observed use, minus a per-profile reserve
+(`RUNTIME_KERNEL_MEMORY_RESERVE_BYTES`, `RUNTIME_PROFILE_MEMORY_RESERVE_BYTES`) for each kernel
+started after the observation. Targets above `RUNTIME_CPU_BUSY_LIMIT` rank after calmer ones, and
+Targets whose observation is older than `RUNTIME_RESOURCE_MAX_AGE_SECONDS` rank last by slot usage.
+Meanwhile,
 `runtime_target_disable` performs a durable disable so historical execution foreign keys
 remain valid. `runtime_target_list` reports capacity, active executions, observed sessions,
 supported profiles, and the latest health result. The scheduler selects within the requested

@@ -1,7 +1,6 @@
 """Runtime persistence-to-view mappings and resource value conversion."""
 
 from collections.abc import Sequence
-from datetime import timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,6 +23,7 @@ from executor_service.infrastructure.db.models import (
 from executor_service.infrastructure.runtime_admission import (
     admission_used_count,
     count_runtime_reservations,
+    resource_is_fresh,
     session_count_is_fresh,
 )
 from executor_service.settings import Settings
@@ -49,7 +49,9 @@ async def runtime_target_view(
         now,
         settings.runtime_session_count_max_age_seconds,
     )
-    resource_fresh = _resource_is_fresh(target, settings)
+    resource_fresh = resource_is_fresh(
+        target, now, settings.runtime_resource_max_age_seconds
+    )
     resource_pressure_score = None
     if resource_fresh:
         pressure_components = [
@@ -182,14 +184,3 @@ def as_float(value: float | int | None) -> float | None:
 
 def as_int(value: float | int | None) -> int | None:
     return int(value) if value is not None else None
-
-
-def _resource_is_fresh(target: RuntimeTargetORM, settings: Settings) -> bool:
-    observed_at = target.resource_observed_at
-    if observed_at is None or target.resource_last_error is not None:
-        return False
-    if target.cpu_utilization is None and target.memory_utilization is None:
-        return False
-    return observed_at >= utc_now() - timedelta(
-        seconds=settings.runtime_resource_max_age_seconds
-    )

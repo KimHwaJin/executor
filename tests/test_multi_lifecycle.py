@@ -131,7 +131,6 @@ class RecordingMultiDriver(InMemoryRuntimeStorage):
             estimated=None,
         )
         return RuntimeResourceObservation(
-            observed_at=utc_now(),
             process_count=None,
             cpu=empty,
             memory=empty,

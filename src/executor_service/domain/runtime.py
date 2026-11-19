@@ -3,7 +3,6 @@
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
-from datetime import datetime
 from typing import Any, Literal, Protocol, runtime_checkable
 from uuid import UUID
 
@@ -219,7 +218,6 @@ class RuntimeResourceMetric:
 
 @dataclass(frozen=True, slots=True)
 class RuntimeResourceObservation:
-    observed_at: datetime
     process_count: int | None
     cpu: RuntimeResourceMetric
     memory: RuntimeResourceMetric

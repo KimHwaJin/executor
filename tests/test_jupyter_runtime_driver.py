@@ -86,7 +86,6 @@ async def test_resource_status_parses_versioned_jupyter_response(
     assert observation.cpu.source == source
     assert observation.memory.source == source
     assert observation.memory.estimated == (source == "CGROUP_V1")
-    assert observation.observed_at.tzinfo is not None
 
 
 async def test_status_reads_active_session_count_from_jupyter() -> None:

@@ -1,7 +1,6 @@
 """Runtime Target admission and load-aware selection."""
 
 import logging
-from datetime import datetime, timedelta
 
 from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,16 +15,23 @@ from executor_service.infrastructure.db.models import (
     RuntimeTargetORM,
 )
 from executor_service.infrastructure.runtime_admission import (
+    admissible_memory_bytes,
     admission_used_count,
     count_runtime_reservations,
+    resource_is_fresh,
 )
 from executor_service.settings import Settings
 
 logger = logging.getLogger(__name__)
 
+_GIB = 1 << 30
+# A Target that admits the Execution, its used slots and, when a fresh
+# observation gives it, the memory new kernels may still take.
+type _Candidate = tuple[RuntimeTargetORM, int, int | None]
+
 
 class RuntimeTargetSelector:
-    """Selects an eligible Target using reservations and fresh utilization."""
+    """Selects the eligible Target with the most memory left for new kernels."""
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
@@ -118,8 +124,12 @@ class RuntimeTargetSelector:
 
         if not targets:
             return None, StatusReasonCode.NO_ACTIVE_TARGET, {}
-        candidates: list[tuple[RuntimeTargetORM, int]] = []
+        reserve = self._settings.kernel_memory_reserve_bytes(
+            execution.runtime_profile
+        )
+        candidates: list[_Candidate] = []
         full: dict[str, str] = {}
+        short: dict[str, str] = {}
         now = utc_now()
         for target in targets:
             if execution.runtime_profile not in target.supported_profiles:
@@ -133,85 +143,43 @@ class RuntimeTargetSelector:
                 now,
                 self._settings.runtime_session_count_max_age_seconds,
             )
-            if effective_usage < target.max_concurrent_executions:
-                candidates.append((target, effective_usage))
-            else:
+            if effective_usage >= target.max_concurrent_executions:
                 full[target.name] = (
                     f"{effective_usage}/{target.max_concurrent_executions}"
                 )
-        if not candidates:
-            if full:
-                return None, StatusReasonCode.CAPACITY_FULL, full
-            return None, StatusReasonCode.PROFILE_UNSUPPORTED, {}
-
-        fresh_candidates = [
-            candidate
-            for candidate in candidates
-            if self._has_fresh_resource_observation(candidate[0], now)
-        ]
-        if fresh_candidates:
-            admitted = [
-                candidate
-                for candidate in fresh_candidates
-                if candidate[0].memory_utilization is None
-                or candidate[0].memory_utilization
-                < self._settings.runtime_memory_admission_limit
-            ]
-            if not admitted:
-                return (
-                    None,
-                    StatusReasonCode.MEMORY_LIMIT,
-                    {
-                        target.name: f"{target.memory_utilization:.2f}"
-                        for target, _usage in fresh_candidates
-                    },
+                continue
+            # A Target whose observation is stale or reports no memory
+            # stays eligible: its memory is unknown, not exhausted.
+            memory = (
+                await admissible_memory_bytes(session, target, self._settings)
+                if resource_is_fresh(
+                    target,
+                    now,
+                    self._settings.runtime_resource_max_age_seconds,
                 )
-            return min(admitted, key=self._resource_candidate_key)[0], None, {}
+                else None
+            )
+            if memory is not None and memory < reserve:
+                short[target.name] = f"{memory / _GIB:.1f}GiB"
+                continue
+            candidates.append((target, effective_usage, memory))
+        if candidates:
+            return min(candidates, key=self._rank)[0], None, {}
+        if short:
+            return None, StatusReasonCode.MEMORY_LIMIT, short
+        if full:
+            return None, StatusReasonCode.CAPACITY_FULL, full
+        return None, StatusReasonCode.PROFILE_UNSUPPORTED, {}
 
-        best = min(
-            candidates,
-            key=lambda candidate: (
-                candidate[1] / candidate[0].max_concurrent_executions,
-                candidate[1],
-                candidate[0].name,
-            ),
-        )[0]
-        return best, None, {}
+    def _rank(self, candidate: _Candidate) -> tuple[int, int, float, int, str]:
+        """Most free memory first; busy CPU and unknown memory come last."""
 
-    def _has_fresh_resource_observation(
-        self, target: RuntimeTargetORM, now: datetime
-    ) -> bool:
-        observed_at = target.resource_observed_at
-        if observed_at is None or target.resource_last_error is not None:
-            return False
-        if (
-            target.cpu_utilization is None
-            and target.memory_utilization is None
-        ):
-            return False
-        return observed_at >= now - timedelta(
-            seconds=self._settings.runtime_resource_max_age_seconds
+        target, usage, memory = candidate
+        slots = (usage / target.max_concurrent_executions, usage, target.name)
+        if memory is None:
+            return 2, 0, *slots
+        busy = (
+            target.cpu_utilization is not None
+            and target.cpu_utilization >= self._settings.runtime_cpu_busy_limit
         )
-
-    @staticmethod
-    def _resource_candidate_key(
-        candidate: tuple[RuntimeTargetORM, int],
-    ) -> tuple[float, float, int, str]:
-        target, reserved = candidate
-        pressure = max(
-            reserved / target.max_concurrent_executions,
-            *(
-                value
-                for value in (
-                    target.cpu_utilization,
-                    target.memory_utilization,
-                )
-                if value is not None
-            ),
-        )
-        memory = (
-            target.memory_utilization
-            if target.memory_utilization is not None
-            else float("inf")
-        )
-        return pressure, memory, reserved, target.name
+        return int(busy), -memory, *slots

@@ -1,6 +1,5 @@
 """Jupyter status, profile, and resource observations."""
 
-from datetime import datetime
 from typing import Any
 
 from executor_service.domain.runtime import (
@@ -45,11 +44,6 @@ class JupyterObservabilityClient:
             payload = response.json()
             if payload.get("schema_version") != "1.0":
                 raise ValueError("unsupported resource schema version")
-            observed_at = datetime.fromisoformat(
-                str(payload["observed_at"]).replace("Z", "+00:00")
-            )
-            if observed_at.tzinfo is None:
-                raise ValueError("observed_at must include a timezone")
             cpu = resource_metric(
                 payload["cpu"],
                 used_key="used_cores",
@@ -70,7 +64,6 @@ class JupyterObservabilityClient:
                 "Jupyter resource response is invalid."
             ) from exc
         return RuntimeResourceObservation(
-            observed_at=observed_at,
             process_count=process_count,
             cpu=cpu,
             memory=memory,
