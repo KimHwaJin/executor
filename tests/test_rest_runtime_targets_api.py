@@ -57,9 +57,7 @@ class HealthyGateway:
     async def resource_status(self) -> RuntimeResourceObservation:
         if self.fail_resource_probe:
             raise RuntimeError("resource endpoint unavailable")
-        now = datetime.now(UTC)
         return RuntimeResourceObservation(
-            observed_at=now,
             process_count=3,
             cpu=RuntimeResourceMetric(0.4, 1.0, 0.2, "CGROUP_V2", False),
             memory=RuntimeResourceMetric(256, 1024, 0.25, "CGROUP_V2", False),

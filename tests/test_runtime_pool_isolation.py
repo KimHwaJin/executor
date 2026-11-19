@@ -43,6 +43,8 @@ from executor_service.infrastructure.runtime_registry import (
 from executor_service.settings import Settings
 from tests.runtime_credentials import runtime_credential_fields
 
+GIB = 1 << 30
+
 
 class CleanupDriver:
     deleted: ClassVar[list[str]] = []
@@ -89,12 +91,15 @@ def _target(
     capacity: int = 1,
     profiles: list[str] | None = None,
     cpu_utilization: float | None = None,
-    memory_utilization: float | None = None,
+    memory_gib: tuple[float, float] | None = None,
+    observed_seconds_ago: float = 0,
     active_session_count: int | None = None,
 ) -> RuntimeTargetORM:
-    has_resource = (
-        cpu_utilization is not None or memory_utilization is not None
-    )
+    """`memory_gib` is the observed (used, capacity)."""
+
+    has_resource = cpu_utilization is not None or memory_gib is not None
+    observed_at = utc_now() - timedelta(seconds=observed_seconds_ago)
+    used, total = memory_gib or (None, None)
     return RuntimeTargetORM(
         name=name,
         connection_config={"endpoint": f"http://{name}.invalid:8888"},
@@ -108,10 +113,12 @@ def _target(
         session_count_observed_at=(
             utc_now() if active_session_count is not None else None
         ),
-        resource_observed_at=utc_now() if has_resource else None,
-        resource_last_check_at=utc_now() if has_resource else None,
+        resource_observed_at=observed_at if has_resource else None,
+        resource_last_check_at=observed_at if has_resource else None,
         cpu_utilization=cpu_utilization,
-        memory_utilization=memory_utilization,
+        memory_used_bytes=int(used * GIB) if used is not None else None,
+        memory_capacity_bytes=int(total * GIB) if total is not None else None,
+        memory_utilization=used / total if used and total else None,
     )
 
 
@@ -206,11 +213,12 @@ async def test_cleanup_failed_session_reserves_until_maintenance_succeeds(
 
 
 def _worker(
-    engine: AsyncEngine, tmp_path: Path, consumer: str
+    engine: AsyncEngine, tmp_path: Path, consumer: str, **overrides: Any
 ) -> tuple[ExecutionWorker, Redis]:
     settings = Settings(
         runtime_enabled=False,
         storage_root=tmp_path,
+        **overrides,
     )
     session_factory = create_session_factory(engine)
     redis = Redis.from_url("redis://127.0.0.1:6379/15", decode_responses=True)
@@ -247,42 +255,121 @@ async def test_scheduler_requires_explicit_profile_support(
         await redis.aclose()
 
 
-async def test_scheduler_prefers_lower_fresh_resource_pressure(
+async def _claimed_target(
     execution_service: ExecutionService,
     engine: AsyncEngine,
     tmp_path: Path,
-) -> None:
+    targets: list[RuntimeTargetORM],
+    **settings: Any,
+) -> str | None:
+    """The Target a new INTERACTIVE Execution is started on, if any."""
+
     session_factory = create_session_factory(engine)
     async with session_factory() as session, session.begin():
-        session.add_all(
-            [
-                _target(
-                    "a-busy",
-                    RuntimePool.INTERACTIVE,
-                    cpu_utilization=0.85,
-                    memory_utilization=0.70,
-                ),
-                _target(
-                    "z-idle",
-                    RuntimePool.INTERACTIVE,
-                    cpu_utilization=0.10,
-                    memory_utilization=0.20,
-                ),
-            ]
-        )
+        session.add_all(targets)
     execution = await execution_service.submit(
-        _command(RuntimePool.INTERACTIVE, "resources")
+        _command(RuntimePool.INTERACTIVE, f"select-{uuid4().hex[:8]}")
     )
-    worker, redis = _worker(engine, tmp_path, "resource-worker")
+    worker, redis = _worker(engine, tmp_path, "select-worker", **settings)
     try:
         claim = await worker._claimer.claim(execution.id)
     finally:
         await redis.aclose()
-    assert claim is not None
-    assert claim[1].name == "z-idle"
+    return claim[1].name if claim is not None else None
 
 
-async def test_scheduler_does_not_use_stale_target_when_fresh_memory_is_full(
+async def test_scheduler_prefers_most_free_memory_over_lowest_utilization(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+    tmp_path: Path,
+) -> None:
+    targets = [
+        # 30% used but only 0.6GiB admissible.
+        _target("a-small", RuntimePool.INTERACTIVE, memory_gib=(0.3, 1)),
+        # 60% used but 30GiB admissible.
+        _target("z-large", RuntimePool.INTERACTIVE, memory_gib=(60, 100)),
+    ]
+    assert (
+        await _claimed_target(execution_service, engine, tmp_path, targets)
+        == "z-large"
+    )
+
+
+async def test_scheduler_blocks_target_without_room_for_the_profile_reserve(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+    tmp_path: Path,
+) -> None:
+    # 32GiB * 0.9 - 28.5GiB leaves 0.3GiB, below the 0.5GiB reserve.
+    targets = [_target("full", RuntimePool.INTERACTIVE, memory_gib=(28.5, 32))]
+    assert (
+        await _claimed_target(execution_service, engine, tmp_path, targets)
+        is None
+    )
+
+
+async def test_scheduler_uses_unobserved_target_when_observed_memory_is_short(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+    tmp_path: Path,
+) -> None:
+    targets = [
+        _target("a-short", RuntimePool.INTERACTIVE, memory_gib=(31, 32)),
+        _target(
+            "m-stale",
+            RuntimePool.INTERACTIVE,
+            memory_gib=(31, 32),
+            observed_seconds_ago=3600,
+        ),
+        _target("z-unobserved", RuntimePool.INTERACTIVE, capacity=2),
+    ]
+    assert (
+        await _claimed_target(execution_service, engine, tmp_path, targets)
+        == "m-stale"
+    )
+
+
+async def test_scheduler_prefers_observed_memory_over_unknown_memory(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+    tmp_path: Path,
+) -> None:
+    targets = [
+        _target("a-unobserved", RuntimePool.INTERACTIVE),
+        _target("z-observed", RuntimePool.INTERACTIVE, memory_gib=(16, 32)),
+    ]
+    assert (
+        await _claimed_target(execution_service, engine, tmp_path, targets)
+        == "z-observed"
+    )
+
+
+async def test_scheduler_ranks_cpu_busy_target_after_calm_ones(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+    tmp_path: Path,
+) -> None:
+    targets = [
+        _target(
+            "a-busy",
+            RuntimePool.INTERACTIVE,
+            cpu_utilization=0.95,
+            memory_gib=(8, 128),
+        ),
+        _target(
+            "z-calm",
+            RuntimePool.INTERACTIVE,
+            cpu_utilization=0.4,
+            memory_gib=(16, 32),
+        ),
+    ]
+    assert (
+        await _claimed_target(execution_service, engine, tmp_path, targets)
+        == "z-calm"
+    )
+
+
+async def test_kernels_started_after_the_observation_count_at_their_reserve(
     execution_service: ExecutionService,
     engine: AsyncEngine,
     tmp_path: Path,
@@ -292,21 +379,62 @@ async def test_scheduler_does_not_use_stale_target_when_fresh_memory_is_full(
         session.add_all(
             [
                 _target(
-                    "fresh-full",
+                    "a-first",
                     RuntimePool.INTERACTIVE,
-                    memory_utilization=0.95,
+                    capacity=10,
+                    memory_gib=(10, 32),
+                    observed_seconds_ago=5,
                 ),
-                _target("stale-idle", RuntimePool.INTERACTIVE),
+                _target(
+                    "z-second",
+                    RuntimePool.INTERACTIVE,
+                    capacity=10,
+                    memory_gib=(11, 32),
+                    observed_seconds_ago=5,
+                ),
             ]
         )
-    execution = await execution_service.submit(
-        _command(RuntimePool.INTERACTIVE, "memory-gate")
+    worker, redis = _worker(
+        engine,
+        tmp_path,
+        "burst-worker",
+        runtime_kernel_memory_reserve_bytes=2 * GIB,
     )
-    worker, redis = _worker(engine, tmp_path, "memory-worker")
+    chosen: list[str] = []
     try:
-        assert await worker._claimer.claim(execution.id) is None
+        for index in range(4):
+            execution = await execution_service.submit(
+                _command(RuntimePool.INTERACTIVE, f"burst-{index}")
+            )
+            claim = await worker._claimer.claim(execution.id)
+            assert claim is not None
+            chosen.append(claim[1].name)
     finally:
         await redis.aclose()
+
+    # Neither observation changes, yet the burst alternates: a-first drops
+    # from 18.8GiB to 16.8GiB admissible, below z-second's 17.8GiB.
+    assert chosen == ["a-first", "z-second", "a-first", "z-second"]
+
+
+async def test_profile_reserve_overrides_the_default_reserve(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+    tmp_path: Path,
+) -> None:
+    # 4.8GiB admissible: enough for the default reserve, not for 8GiB.
+    targets = [_target("only", RuntimePool.INTERACTIVE, memory_gib=(24, 32))]
+    assert (
+        await _claimed_target(
+            execution_service,
+            engine,
+            tmp_path,
+            targets,
+            runtime_allowed_profiles=("basic",),
+            runtime_profile_memory_reserve_bytes={"basic": 8 * GIB},
+        )
+        is None
+    )
 
 
 async def test_interactive_and_batch_claims_are_isolated_and_batch_uses_two_targets(

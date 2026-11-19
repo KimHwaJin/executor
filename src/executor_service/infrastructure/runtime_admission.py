@@ -17,6 +17,7 @@ from executor_service.infrastructure.db.models import (
     ExecutionORM,
     RuntimeTargetORM,
 )
+from executor_service.settings import Settings
 
 
 async def count_runtime_reservations(
@@ -86,3 +87,57 @@ def admission_used_count(
     ):
         return reserved_count
     return max(reserved_count, target.active_session_count)
+
+
+def resource_is_fresh(
+    target: RuntimeTargetORM,
+    now: datetime,
+    max_age_seconds: float,
+) -> bool:
+    observed_at = target.resource_observed_at
+    if observed_at is None or target.resource_last_error is not None:
+        return False
+    if target.cpu_utilization is None and target.memory_utilization is None:
+        return False
+    return observed_at >= now - timedelta(seconds=max_age_seconds)
+
+
+async def admissible_memory_bytes(
+    session: AsyncSession,
+    target: RuntimeTargetORM,
+    settings: Settings,
+) -> int | None:
+    """Memory new kernels may still take, or None when it is unknown.
+
+    The observed usage misses kernels started after it was taken, so each
+    of those counts at its profile's reserve until the next observation.
+    """
+
+    if (
+        target.memory_used_bytes is None
+        or target.memory_capacity_bytes is None
+    ):
+        return None
+    started = await session.execute(
+        select(ExecutionAttemptORM.runtime_profile, func.count())
+        .where(
+            ExecutionAttemptORM.runtime_target_id == target.id,
+            ExecutionAttemptORM.status.in_(
+                [AttemptStatus.RUNNING, AttemptStatus.WAITING]
+            ),
+            ExecutionAttemptORM.started_at > target.resource_observed_at,
+        )
+        .group_by(ExecutionAttemptORM.runtime_profile)
+    )
+    reserved = sum(
+        settings.kernel_memory_reserve_bytes(profile) * count
+        for profile, count in started
+    )
+    return (
+        int(
+            target.memory_capacity_bytes
+            * settings.runtime_memory_admission_limit
+        )
+        - target.memory_used_bytes
+        - reserved
+    )

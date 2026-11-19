@@ -211,10 +211,22 @@ RUNTIME_DEFAULT_MAX_CONCURRENT_EXECUTIONS: 20
 RUNTIME_HEALTH_POLL_INTERVAL_SECONDS: 15
 # Jupyter가 보고한 세션 수를 배정 판단에 믿는 최대 경과 초.
 RUNTIME_SESSION_COUNT_MAX_AGE_SECONDS: 45
-# CPU·메모리 관측값을 배정 판단에 믿는 최대 경과 초. 지나면 사용 슬롯 수로만 고른다.
+# CPU·메모리 관측값을 배정 판단에 믿는 최대 경과 초. 지나면 그 Target은 메모리를
+# 모르는 것으로 보고 관측이 있는 Target 다음 순서로, 사용 슬롯 수로 고른다.
 RUNTIME_RESOURCE_MAX_AGE_SECONDS: 45
-# 메모리 사용률이 이 값 이상인 Target에는 새 실행을 배정하지 않는다(0~1).
+# 새 실행은 "배정 가능 메모리"가 가장 큰 Target으로 간다.
+#   배정 가능 메모리 = 메모리 용량 × 이 값 − 관측된 사용량 − 관측 뒤 시작된 커널의 예약 합
+# 남기는 몫(1 − 이 값)은 Jupyter 서버와, 실행 중에 더 커지는 커널을 위한 여유다(0~1).
 RUNTIME_MEMORY_ADMISSION_LIMIT: 0.9
+# 새로 시작한 커널이 다음 관측에 실제 사용량이 잡힐 때까지 쓴다고 보는 메모리(바이트).
+# 배정 가능 메모리가 이 값보다 작은 Target에는 배정하지 않는다. 크게 잡으면 짧은
+# 작업의 동시 실행 수가 "배정 가능 메모리 ÷ 이 값"으로 묶인다.
+RUNTIME_KERNEL_MEMORY_RESERVE_BYTES: 536870912
+# 프로필별 예약 메모리. 무거운 작업을 돌리는 프로필만 크게 준다. 없는 프로필은 위 값을
+# 쓴다. 환경변수는 JSON(예: '{"3102311": 8589934592}').
+RUNTIME_PROFILE_MEMORY_RESERVE_BYTES: {}
+# CPU 사용률이 이 값 이상인 Target은 더 한가한 Target이 없을 때만 고른다(0~1).
+RUNTIME_CPU_BUSY_LIMIT: 0.9
 # Jupyter REST 요청 타임아웃 초.
 JUPYTER_REQUEST_TIMEOUT_SECONDS: 30
 # Jupyter를 통한 파일 읽기·쓰기(노트북, 결과물) 타임아웃 초.

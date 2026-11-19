@@ -85,7 +85,8 @@ The endpoint uses the existing Jupyter authentication and returns aggregate reso
 ```
 
 CPU is a rate calculated between consecutive requests, so `used_cores` and `utilization` are null
-on the first request. The collector uses cgroup v2 only. CPU and memory are collected independently;
+on the first request. Memory `used_bytes` is the working set: cgroup usage minus inactive file
+cache, which the kernel reclaims before any OOM kill. The collector uses cgroup v2 only. CPU and memory are collected independently;
 if a usage file is missing or unreadable, that resource returns null usage and utilization with a
 safe error code. No alternative measurement source is used. A finite cgroup capacity overrides the
 configured capacity values:
@@ -171,12 +172,25 @@ Session observations expire after `RUNTIME_SESSION_COUNT_MAX_AGE_SECONDS`. Runti
 performed before the registry transaction; scheduling reads only persisted observations while
 holding the Target row lock. Redis Stream entries are not reservations.
 
-The periodic probe also reads each driver's resource observation. Fresh observations are ranked by
-the maximum of reserved-slot ratio, CPU utilization, and memory utilization; CPU is a ranking
-signal, while memory at or above `RUNTIME_MEMORY_ADMISSION_LIMIT` blocks new admission. Ties use
-memory utilization, reservation count, and stable target name. If every candidate lacks a fresh
-observation (`RUNTIME_RESOURCE_MAX_AGE_SECONDS`), scheduling safely falls back to the least
-effective admission usage.
+The periodic probe also reads each driver's resource observation and stamps it with the Executor's
+own clock, taken before the request. Scheduling sends a new Execution to the Target with the most
+memory still open to new kernels:
+
+```text
+admissible = memory capacity x RUNTIME_MEMORY_ADMISSION_LIMIT
+           - observed memory in use
+           - reserve of every kernel started after the observation
+```
+
+A kernel started after the observation is missing from it, so until the next probe it counts at
+its profile's reserve (`RUNTIME_PROFILE_MEMORY_RESERVE_BYTES`, otherwise
+`RUNTIME_KERNEL_MEMORY_RESERVE_BYTES`). A burst therefore spreads over Targets instead of
+following one stale reading. A Target whose admissible memory is below the reserve of the
+Execution's profile is not admitted (`MEMORY_LIMIT`). Targets at or above
+`RUNTIME_CPU_BUSY_LIMIT` CPU utilization rank after calmer ones, and Targets with no fresh
+observation (`RUNTIME_RESOURCE_MAX_AGE_SECONDS`) or no reported memory rank last, ordered by
+slot usage: their memory is unknown, so they stay eligible. Ties use the slot-usage ratio,
+reservation count, and stable target name.
 A resource-only probe failure leaves an otherwise healthy target `ACTIVE`, marks resource data
 stale, and does not erase its last successful observation.
 

@@ -46,8 +46,9 @@ def test_v1_controller_mounts_and_cpu_units(tmp_path, combined, private):
         "cpu": {"cpu.cfs_quota_us": "5000", "cpu.cfs_period_us": "10000"},
         "cpuacct": {"cpuacct.usage": "1000000000", "cgroup.procs": "1\n7"},
         "memory": {
-            "memory.usage_in_bytes": "256",
+            "memory.usage_in_bytes": "356",
             "memory.limit_in_bytes": "1024",
+            "memory.stat": "inactive_file 60\ntotal_inactive_file 100\n",
         },
     }
     for name, values in files.items():

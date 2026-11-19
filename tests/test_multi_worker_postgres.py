@@ -2190,6 +2190,47 @@ async def test_concurrent_claims_fill_free_capacity_in_one_pass(
     assert sum(claim is not None for claim in claims) == 20
 
 
+async def test_concurrent_workers_never_overcommit_observed_memory(
+    postgres_engine: AsyncEngine,
+    tmp_path: Path,
+) -> None:
+    service = _service(postgres_engine, tmp_path)
+    session_factory = create_session_factory(postgres_engine)
+    gib = 1 << 30
+    target = _server(capacity=100)
+    # 32GiB * 0.9 - 26GiB leaves 2.8GiB: five kernels at the 0.5GiB reserve.
+    target.resource_observed_at = utc_now() - timedelta(seconds=5)
+    target.memory_used_bytes = 26 * gib
+    target.memory_capacity_bytes = 32 * gib
+    target.memory_utilization = 26 / 32
+    async with session_factory() as session, session.begin():
+        session.add(target)
+    executions = [
+        await service.submit(_command(f"memory-{index}"))
+        for index in range(12)
+    ]
+    workers, redis_clients = _workers(postgres_engine, tmp_path, count=6)
+    try:
+        for _ in range(4):
+            await asyncio.gather(
+                *(
+                    workers[index % len(workers)]._claimer.claim(execution.id)
+                    for index, execution in enumerate(executions)
+                )
+            )
+    finally:
+        await _close_redis(redis_clients)
+
+    async with session_factory() as session:
+        running_count = await session.scalar(
+            select(func.count(ExecutionAttemptORM.id)).where(
+                ExecutionAttemptORM.runtime_target_id == target.id,
+                ExecutionAttemptORM.status == AttemptStatus.RUNNING,
+            )
+        )
+    assert running_count == 5
+
+
 async def test_concurrent_workers_respect_fresh_observed_session_capacity(
     postgres_engine: AsyncEngine,
     tmp_path: Path,

@@ -1,6 +1,7 @@
 """Runtime Target health and resource probing."""
 
 import logging
+from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -116,6 +117,10 @@ class RuntimeTargetProber:
                         f"allowed={_profile_list(allowed_profiles)} "
                         f"reported={_profile_list(reported_profiles)}.",
                     )
+        # Executor time from before the request: the Runtime's clock may
+        # differ, and a kernel started after this instant may be missing
+        # from the observation.
+        resource_requested_at = utc_now()
         if error is None:
             try:
                 resource = await driver.resource_status()
@@ -170,7 +175,9 @@ class RuntimeTargetProber:
                 target.resource_last_check_at = utc_now()
                 target.resource_last_error = resource_error
                 if resource is not None:
-                    _apply_resource_observation(target, resource)
+                    _apply_resource_observation(
+                        target, resource, resource_requested_at
+                    )
                 target.updated_at = utc_now()
                 if actor_client is not None:
                     target.updated_by_client = actor_client
@@ -226,8 +233,9 @@ def _profile_list(profiles: object) -> str:
 def _apply_resource_observation(
     target: RuntimeTargetORM,
     resource: RuntimeResourceObservation,
+    observed_at: datetime,
 ) -> None:
-    target.resource_observed_at = resource.observed_at
+    target.resource_observed_at = observed_at
     target.resource_source = resource_source(resource)
     target.resource_estimated = bool(
         resource.cpu.estimated or resource.memory.estimated

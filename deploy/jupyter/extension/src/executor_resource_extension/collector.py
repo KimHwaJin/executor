@@ -144,6 +144,21 @@ class ResourceCollector:
             )
         except (OSError, ValueError) as exc:
             errors.append(_safe_error_code("cgroup_memory", exc))
+        if used_bytes is not None:
+            # Usage counts page cache the kernel reclaims before any OOM
+            # kill. Like the kubelet's working set, leave out its inactive
+            # part so file reads do not look like memory in use.
+            try:
+                used_bytes = max(
+                    0,
+                    used_bytes
+                    - _read_stat(
+                        memory.file("memory.stat"),
+                        "total_inactive_file" if v1 else "inactive_file",
+                    ),
+                )
+            except (OSError, ValueError) as exc:
+                errors.append(_safe_error_code("cgroup_memory_stat", exc))
 
         capacity_bytes = self._configured_memory_bytes
         try:
@@ -174,18 +189,20 @@ class ResourceCollector:
         }
 
 
-def _read_cpu_usage_seconds(path: Path) -> float:
-    values: dict[str, str] = {}
+def _read_stat(path: Path, key: str) -> int:
+    """One non-negative counter from a flat-keyed cgroup stat file."""
     for line in path.read_text(encoding="utf-8").splitlines():
         parts = line.split()
-        if len(parts) == 2:
-            values[parts[0]] = parts[1]
-    if "usage_usec" not in values:
-        raise ValueError("cpu.stat does not contain usage_usec")
-    usage_usec = int(values["usage_usec"])
-    if usage_usec < 0:
-        raise ValueError("usage_usec must not be negative")
-    return usage_usec / 1_000_000
+        if len(parts) == 2 and parts[0] == key:
+            value = int(parts[1])
+            if value < 0:
+                raise ValueError(f"{key} must not be negative")
+            return value
+    raise ValueError(f"{path.name} does not contain {key}")
+
+
+def _read_cpu_usage_seconds(path: Path) -> float:
+    return _read_stat(path, "usage_usec") / 1_000_000
 
 
 def _read_cpu_capacity(path: Path) -> float | None:

@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from executor_service.settings import Settings
 
 
@@ -43,3 +45,22 @@ def test_settings_have_no_bootstrap_runtime_target_fields() -> None:
     assert not hasattr(settings, "jupyter_endpoint")
     assert not hasattr(settings, "jupyter_token")
     assert not hasattr(settings, "runtime_pool")
+
+
+def test_profile_memory_reserve_overrides_the_default() -> None:
+    settings = Settings(
+        _env_file=None,
+        runtime_kernel_memory_reserve_bytes=100,
+        runtime_profile_memory_reserve_bytes={"3102311": 900},
+    )
+
+    assert settings.kernel_memory_reserve_bytes("default") == 100
+    assert settings.kernel_memory_reserve_bytes("3102311") == 900
+
+
+def test_profile_memory_reserve_rejects_unknown_profile() -> None:
+    with pytest.raises(ValueError, match="RUNTIME_ALLOWED_PROFILES"):
+        Settings(
+            _env_file=None,
+            runtime_profile_memory_reserve_bytes={"missing": 1},
+        )

@@ -308,8 +308,13 @@ v2 및 두 버전이 함께 있는 hybrid 환경을 지원한다. Kubernetes API
 privileged/hostPath 마운트를 추가할 필요는 없다.
 
 - v1: `cpuacct.usage`, `cpu.cfs_quota_us`, `cpu.cfs_period_us`,
-  `memory.usage_in_bytes`, `memory.limit_in_bytes` 사용.
-- v2: `cpu.stat`, `cpu.max`, `memory.current`, `memory.max` 사용.
+  `memory.usage_in_bytes`, `memory.stat`, `memory.limit_in_bytes` 사용.
+- v2: `cpu.stat`, `cpu.max`, `memory.current`, `memory.stat`, `memory.max` 사용.
+- 메모리 `used_bytes`는 사용량에서 비활성 파일 캐시(v1 `total_inactive_file`,
+  v2 `inactive_file`)를 뺀 working set이다. kubelet의 축출 판단과 같은 계산이다.
+  캐시는 OOM 전에 커널이 회수하므로, 큰 파일을 읽은 뒤에도 메모리가 찬 것으로
+  보이지 않는다. `memory.stat`을 읽지 못하면 원래 사용량을 그대로 보고하고
+  `errors`에 남긴다.
 - API 구조와 `schema_version: "1.0"`은 유지한다. CPU/메모리의 `source`는
   `CGROUP_V1` 또는 `CGROUP_V2`, 판별 불가 시 null이다.
 - v1 메모리는 커널의 근사 계수이므로 `estimated: true`이다. psutil은 사용하지 않는다.

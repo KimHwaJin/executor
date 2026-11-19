@@ -49,7 +49,7 @@ _MESSAGES: dict[StatusReasonCode | FinalizedBy, str] = {
         "Every matching Runtime Target is at its concurrent Execution limit."
     ),
     StatusReasonCode.MEMORY_LIMIT: (
-        "Every matching Runtime Target is above the memory admission limit."
+        "No matching Runtime Target has enough free memory for a new kernel."
     ),
     StatusReasonCode.TARGET_UNAVAILABLE: (
         "The Runtime Target holding this Execution's session is offline or "

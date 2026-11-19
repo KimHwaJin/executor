@@ -192,7 +192,17 @@ class Settings(BaseSettings):
     runtime_health_poll_interval_seconds: float = Field(default=15, gt=0)
     runtime_session_count_max_age_seconds: float = Field(default=45, gt=0)
     runtime_resource_max_age_seconds: float = Field(default=45, gt=0)
+    # Share of a Target's memory that Executions may fill; the rest is left
+    # for the Jupyter server and for running kernels that keep growing.
     runtime_memory_admission_limit: float = Field(default=0.9, gt=0, le=1)
+    # Memory a newly started kernel is assumed to take until the next
+    # resource observation shows what it really uses.
+    runtime_kernel_memory_reserve_bytes: int = Field(default=536870912, ge=0)
+    # Per-profile override of the reserve, for profiles running heavy work.
+    runtime_profile_memory_reserve_bytes: dict[str, int] = {}
+    # A Target at or above this CPU utilization is chosen only when no
+    # calmer Target admits the Execution.
+    runtime_cpu_busy_limit: float = Field(default=0.9, gt=0, le=1)
     # Root shared with callers: PATH inputs and result references are
     # relative to it, and results live below its "executor" folder.
     storage_root: Path = Path("./shared_dir")
@@ -278,6 +288,22 @@ class Settings(BaseSettings):
             raise ValueError(
                 "RUNTIME_ALLOWED_PROFILES must not contain duplicates."
             )
+        unknown_profiles = set(
+            self.runtime_profile_memory_reserve_bytes
+        ) - set(self.runtime_allowed_profiles)
+        if unknown_profiles:
+            raise ValueError(
+                "RUNTIME_PROFILE_MEMORY_RESERVE_BYTES names profiles missing "
+                f"from RUNTIME_ALLOWED_PROFILES: {sorted(unknown_profiles)}."
+            )
+        if (
+            min(self.runtime_profile_memory_reserve_bytes.values(), default=0)
+            < 0
+        ):
+            raise ValueError(
+                "RUNTIME_PROFILE_MEMORY_RESERVE_BYTES values must not be "
+                "negative."
+            )
         if (
             self.execution_max_steps_per_operation
             > self.execution_max_steps_per_execution
@@ -320,6 +346,11 @@ class Settings(BaseSettings):
     @property
     def redis_dsn(self) -> str:
         return self.redis_url.get_secret_value()
+
+    def kernel_memory_reserve_bytes(self, profile: str) -> int:
+        return self.runtime_profile_memory_reserve_bytes.get(
+            profile, self.runtime_kernel_memory_reserve_bytes
+        )
 
     @property
     def runtime_credential_encryption_key(self) -> str:

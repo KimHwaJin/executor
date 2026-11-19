@@ -181,7 +181,7 @@ Execution 조회 응답(`GET /executions`, `GET /executions/{id}`, `GET /executi
 
 | status | `reason.code` | `message` · `detail` |
 | --- | --- | --- |
-| `QUEUED` | `ADMISSION_DRAINING`(유지보수로 신규 시작 중단), `NO_ACTIVE_TARGET`(Pool에 켜진 ACTIVE Target 없음), `PROFILE_UNSUPPORTED`(프로파일을 지원하는 Target 없음), `CAPACITY_FULL`(모든 Target이 동시 실행 한도), `MEMORY_LIMIT`(모든 Target이 메모리 한도 초과), `TARGET_UNAVAILABLE`(커널을 유지한 실행의 Target이 OFFLINE·비활성), `WAITING_FOR_WORKER`(Target은 받을 수 있고 Worker 슬롯 차례 대기) | `detail.queue_position`: 대기열 순번(1부터). `detail.targets`: Target별 값(`CAPACITY_FULL`은 `사용/한도`, `MEMORY_LIMIT`은 사용률, `TARGET_UNAVAILABLE`은 `OFFLINE`/`DISABLED`/`MISSING`) |
+| `QUEUED` | `ADMISSION_DRAINING`(유지보수로 신규 시작 중단), `NO_ACTIVE_TARGET`(Pool에 켜진 ACTIVE Target 없음), `PROFILE_UNSUPPORTED`(프로파일을 지원하는 Target 없음), `CAPACITY_FULL`(모든 Target이 동시 실행 한도), `MEMORY_LIMIT`(새 커널을 받을 메모리가 남은 Target 없음), `TARGET_UNAVAILABLE`(커널을 유지한 실행의 Target이 OFFLINE·비활성), `WAITING_FOR_WORKER`(Target은 받을 수 있고 Worker 슬롯 차례 대기) | `detail.queue_position`: 대기열 순번(1부터). `detail.targets`: Target별 값(`CAPACITY_FULL`은 `사용/한도`, `MEMORY_LIMIT`은 사용률, `TARGET_UNAVAILABLE`은 `OFFLINE`/`DISABLED`/`MISSING`) |
 | `RUNNING` | 보통 `null`. Worker가 멈춰 다른 Worker가 이어받는 중이면 `WORKER_HANDOVER` | `detail.handover_reason`(`EXECUTOR_SHUTDOWN`/`EXECUTOR_UNRESPONSIVE`), `detail.paused_since` |
 | `WAITING_FOR_OPERATION` | `AWAITING_NEXT_OPERATION` | 기한은 `deadlines.operation_wait_expires_at` |
 | `FINALIZING`, `SUCCEEDED` | 무엇이 끝냈나: `AGENT`(finalize), `WAIT_TIMEOUT`(MULTI 대기 기한), `MAX_RUNTIME`(전체 수명). SINGLE 정상 종료는 `COMPLETED` | |

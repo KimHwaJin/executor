@@ -24,7 +24,11 @@ class ResourceCollectorTests(unittest.TestCase):
                 "usage_usec 1000000\n", encoding="utf-8"
             )
             (root / "cpu.max").write_text("200000 100000\n", encoding="utf-8")
-            (root / "memory.current").write_text("256\n", encoding="utf-8")
+            (root / "memory.current").write_text("356\n", encoding="utf-8")
+            (root / "memory.stat").write_text(
+                "anon 200\ninactive_file 100\nactive_file 56\n",
+                encoding="utf-8",
+            )
             (root / "memory.max").write_text("1024\n", encoding="utf-8")
             (root / "cgroup.procs").write_text("1\n7\n", encoding="utf-8")
             collector = ResourceCollector(
@@ -109,8 +113,14 @@ class ResourceCollectorTests(unittest.TestCase):
 
         self.assertEqual(result["cpu"]["capacity_cores"], 4.0)
         self.assertEqual(result["memory"]["capacity_bytes"], 2048)
+        # Without memory.stat the page cache cannot be told apart, so the
+        # raw usage stands and the gap is reported.
         self.assertEqual(result["memory"]["used_bytes"], 512)
         self.assertEqual(result["memory"]["utilization"], 0.25)
+        self.assertEqual(
+            result["memory"]["errors"],
+            ["cgroup_memory_stat:FileNotFoundError"],
+        )
 
 
 if __name__ == "__main__":
