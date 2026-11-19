@@ -40,6 +40,8 @@ class ErrorCode(StrEnum):
     METHOD_NOT_ALLOWED = "METHOD_NOT_ALLOWED"
     INTERNAL_ERROR = "INTERNAL_ERROR"
     DATABASE_UNAVAILABLE = "DATABASE_UNAVAILABLE"
+    EVENT_STREAM_NOT_FOUND = "EVENT_STREAM_NOT_FOUND"
+    REDIS_UNAVAILABLE = "REDIS_UNAVAILABLE"
 
 
 ContextValue = str | int | float | bool | None
@@ -229,3 +231,13 @@ class ArtifactRangeNotSatisfiableError(DomainError):
     def __init__(self, message: str, size_bytes: int) -> None:
         super().__init__(message)
         self.size_bytes = size_bytes
+
+
+class EventStreamNotFoundError(DomainError):
+    code = ErrorCode.EVENT_STREAM_NOT_FOUND
+    http_status = 404
+
+
+class RedisUnavailableError(DomainError):
+    code = ErrorCode.REDIS_UNAVAILABLE
+    http_status = 503

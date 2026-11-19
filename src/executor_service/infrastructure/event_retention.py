@@ -176,17 +176,11 @@ class EventRetentionManager:
     async def _event_streams(self) -> list[str]:
         """Every tenant Stream ever written."""
 
-        async with self._session_factory() as session:
-            tenant_ids = list(
-                await session.scalars(
-                    select(ExecutionORM.tenant_id)
-                    .distinct()
-                    .order_by(ExecutionORM.tenant_id)
-                )
-            )
         return [
             tenant_event_stream(self._settings.redis_event_stream, tenant_id)
-            for tenant_id in tenant_ids
+            for tenant_id in await event_stream_tenant_ids(
+                self._session_factory
+            )
         ]
 
     async def _trim_event_streams(self) -> int:
@@ -209,6 +203,19 @@ class EventRetentionManager:
                 "Event Stream trimming skipped: %s", type(exc).__name__
             )
         return trimmed
+
+
+async def event_stream_tenant_ids(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> list[str]:
+    async with session_factory() as session:
+        return list(
+            await session.scalars(
+                select(ExecutionORM.tenant_id)
+                .distinct()
+                .order_by(ExecutionORM.tenant_id)
+            )
+        )
 
 
 async def _drain(

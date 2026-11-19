@@ -1,6 +1,6 @@
-# 관리자 API 스펙(Runtime Target · 유지보수)
+# 관리자 API 스펙(Runtime Target · 유지보수 · 이벤트 Stream)
 
-운영자가 Jupyter 서버와 Executor 전체 상태를 관리하는 API 15개다. 기준 경로 `/api/v1`. **admin key(`admin: true`) 전용**이며 일반 key로 부르면 `403 FORBIDDEN`이다. 쓰기(POST)에는 운영자 `X-User-Id`가 필요하다. 공통 규칙은 [README](README.md#공통-규칙)를 본다.
+운영자가 Jupyter 서버와 Executor 전체 상태를 관리하고 Redis 이벤트 Stream을 들여다보는 API 19개다. 기준 경로 `/api/v1`. **admin key(`admin: true`) 전용**이며 일반 key로 부르면 `403 FORBIDDEN`이다. 쓰기(POST)에는 운영자 `X-User-Id`가 필요하다. 공통 규칙은 [README](README.md#공통-규칙)를 본다.
 
 
 ## 목록
@@ -22,6 +22,10 @@
 | 13 | `POST /api/v1/maintenance/runs` | 없음 | [일괄 중지 Run 생성](#ep-13) |
 | 14 | `GET /api/v1/maintenance/runs/{run_id}` | 없음 | [Run 상세](#ep-14) |
 | 15 | `GET /api/v1/maintenance/runs/{run_id}/targets` | 없음 | [Run 대상 목록](#ep-15) |
+| 16 | `GET /api/v1/event-streams` | 없음 | [Stream 전체 요약](#ep-16) |
+| 17 | `GET /api/v1/event-streams/{tenant_id}` | 없음 | [Stream 상세](#ep-17) |
+| 18 | `GET /api/v1/event-streams/{tenant_id}/entries` | 없음 | [Stream 항목](#ep-18) |
+| 19 | `GET /api/v1/event-streams/{tenant_id}/groups/{group}/pending` | 없음 | [pending 항목](#ep-19) |
 
 ## Runtime Target·Pool
 
@@ -507,6 +511,134 @@ Run이 잡은 Execution별 중지 진행.
 | 422 | [`ErrorResponse`](#schema-errorresponse) | 요청 형식·규칙 오류 |
 | 404 | [`ErrorResponse`](#schema-errorresponse) | 대상이 없거나 호출자에게 보이지 않음 |
 
+## 이벤트 Stream 조회
+
+Redis가 지금 들고 있는 이벤트 Stream과 소비 상태를 읽는다. admin key 전용이고 읽기만 한다(`EXISTS`, `XINFO`, `XREVRANGE`, `XRANGE`, `XPENDING`). Executor가 쓰는 Redis 연결을 그대로 쓰므로 Sentinel과 standalone에서 똑같이 동작한다. Executor가 무엇을 발행했는지는 [이벤트 이력](01-executions.md)을, Stream에 무엇이 있고 소비자가 어디까지 읽었는지는 이 API를 본다.
+
+<a id="ep-16"></a>
+### 16. Stream 전체 요약
+
+`GET /api/v1/event-streams`
+
+- MCP: 없음(REST 전용)
+- 원문 요약: Show the Redis connection and every tenant's event Stream
+
+Redis 연결(모드, 지금 붙어 있는 주소), 보관 설정, 모든 tenant의 Stream과 consumer group을 한 번에 준다.
+
+**응답**
+
+| 상태 | 바디 | 의미 |
+| --- | --- | --- |
+| 200 | [`EventStreamOverviewResponse`](#schema-eventstreamoverviewresponse) | 성공 |
+| 503 | [`ErrorResponse`](#schema-errorresponse) | Redis에 닿지 못함. 나중에 다시 |
+| 422 | [`ErrorResponse`](#schema-errorresponse) | 요청 형식·규칙 오류 |
+
+**주의**
+
+- tenant 목록은 Redis `SCAN`이 아니라 PostgreSQL에서 가져온다. Redis에 Stream이 없는 tenant는 `exists=false`로 나온다.
+- Sentinel에서는 `connection.address`가 현재 마스터다. failover 뒤에는 새 마스터 주소가 나온다.
+- Redis 장애·failover 중·ACL 거부는 `503 REDIS_UNAVAILABLE`.
+
+<a id="ep-17"></a>
+### 17. Stream 상세
+
+`GET /api/v1/event-streams/{tenant_id}`
+
+- MCP: 없음(REST 전용)
+- 원문 요약: Show one tenant's event Stream and its consumer groups
+
+tenant 하나의 Stream 길이, 첫·마지막 항목, group별 lag·pending·consumer를 준다.
+
+**파라미터**
+
+| 위치 | 이름 | 필수 | 타입 | 제약 | 설명 |
+| --- | --- | :---: | --- | --- | --- |
+| path | `tenant_id` | O | string | `^[a-z][a-z0-9-]{1,62}[a-z0-9]$` | Stream의 tenant |
+
+**응답**
+
+| 상태 | 바디 | 의미 |
+| --- | --- | --- |
+| 200 | [`EventStreamResponse`](#schema-eventstreamresponse) | 성공 |
+| 503 | [`ErrorResponse`](#schema-errorresponse) | Redis에 닿지 못함. 나중에 다시 |
+| 404 | [`ErrorResponse`](#schema-errorresponse) | 대상이 없거나 호출자에게 보이지 않음 |
+| 422 | [`ErrorResponse`](#schema-errorresponse) | 요청 형식·규칙 오류 |
+
+**주의**
+
+- Stream이 없으면 `404 EVENT_STREAM_NOT_FOUND`.
+- `lag`은 group이 아직 받지 않은 항목 수, `pending`은 받았지만 ACK하지 않은 항목 수다.
+
+<a id="ep-18"></a>
+### 18. Stream 항목
+
+`GET /api/v1/event-streams/{tenant_id}/entries`
+
+- MCP: 없음(REST 전용)
+- 원문 요약: List a Stream's entries, newest first
+
+Stream 항목을 최신순으로 준다. `next_before`를 `before`로 넘기면 더 오래된 항목으로 이어진다.
+
+**파라미터**
+
+| 위치 | 이름 | 필수 | 타입 | 제약 | 설명 |
+| --- | --- | :---: | --- | --- | --- |
+| path | `tenant_id` | O | string | `^[a-z][a-z0-9-]{1,62}[a-z0-9]$` | Stream의 tenant |
+| query | `limit` |  | integer | ≥1, ≤200, 기본 `50` | 페이지 크기 |
+| query | `before` |  | string \| null | `^\d{1,20}(-\d{1,20})?$` | 이 Stream ID보다 오래된 항목부터. 이전 응답의 `next_before`를 그대로 |
+| query | `execution_id` |  | string \| null | 길이≤64 | Execution ID |
+| query | `event_type` |  | string \| null | 길이≤128 | 이 이벤트 유형만 |
+
+**응답**
+
+| 상태 | 바디 | 의미 |
+| --- | --- | --- |
+| 200 | [`EventStreamEntryPageResponse`](#schema-eventstreamentrypageresponse) | 성공 |
+| 503 | [`ErrorResponse`](#schema-errorresponse) | Redis에 닿지 못함. 나중에 다시 |
+| 404 | [`ErrorResponse`](#schema-errorresponse) | 대상이 없거나 호출자에게 보이지 않음 |
+| 422 | [`ErrorResponse`](#schema-errorresponse) | 요청 형식·규칙 오류 |
+
+**주의**
+
+- `execution_id`나 `event_type`으로 거르면 한 요청이 최대 1000건만 읽는다. `limit`보다 적게 오고 `next_before`가 있으면 이어서 부른다. `next_before=null`이면 Stream의 처음까지 읽은 것이다.
+- 항목은 저장된 그대로다. `payload`는 JSON으로 풀어 주고 이벤트 계약 검증은 하지 않는다.
+- 보관 기간(`retention_seconds`)이 지난 항목은 Redis에 없다. 그때는 [이벤트 이력](01-executions.md)을 본다.
+
+<a id="ep-19"></a>
+### 19. pending 항목
+
+`GET /api/v1/event-streams/{tenant_id}/groups/{group}/pending`
+
+- MCP: 없음(REST 전용)
+- 원문 요약: List entries a consumer group has not acknowledged
+
+consumer group이 받았지만 ACK하지 않은 항목을 오래된 순으로 준다. 어떤 이벤트가 걸려 있는지 알 수 있게 `execution_id`, `event_type`, `event_sequence`를 붙인다.
+
+**파라미터**
+
+| 위치 | 이름 | 필수 | 타입 | 제약 | 설명 |
+| --- | --- | :---: | --- | --- | --- |
+| path | `tenant_id` | O | string | `^[a-z][a-z0-9-]{1,62}[a-z0-9]$` | Stream의 tenant |
+| path | `group` | O | string | 길이≥1, 길이≤255 | consumer group 이름 |
+| query | `limit` |  | integer | ≥1, ≤100, 기본 `50` | 페이지 크기 |
+| query | `consumer` |  | string \| null | 길이≤255 | 이 consumer의 항목만 |
+| query | `min_idle_ms` |  | integer | ≥0, 기본 `0` | 마지막 전달 뒤 이 시간(ms) 이상 지난 항목만 |
+
+**응답**
+
+| 상태 | 바디 | 의미 |
+| --- | --- | --- |
+| 200 | [`PendingEntryPageResponse`](#schema-pendingentrypageresponse) | 성공 |
+| 503 | [`ErrorResponse`](#schema-errorresponse) | Redis에 닿지 못함. 나중에 다시 |
+| 404 | [`ErrorResponse`](#schema-errorresponse) | 대상이 없거나 호출자에게 보이지 않음 |
+| 422 | [`ErrorResponse`](#schema-errorresponse) | 요청 형식·규칙 오류 |
+
+**주의**
+
+- Stream이나 group이 없으면 `404 EVENT_STREAM_NOT_FOUND`.
+- `idle_ms`가 크고 `delivery_count`가 늘어나는 항목은 소비자가 처리에 실패하고 있다는 뜻이다.
+- 보관 정리로 이미 지워진 항목은 이벤트 필드 세 개가 `null`이다.
+
 ## 응답 스키마
 
 응답에 나오는 모든 객체다. 타입 링크를 따라가면 하위 객체로 간다. `null` 가능 필드도 키는 항상 있다(필수 O).
@@ -611,6 +743,47 @@ Run이 잡은 Execution별 중지 진행.
 | `items` | array<[MaintenanceRunTargetResponse](#schema-maintenanceruntargetresponse)> | O | 이번 페이지 항목 |
 | `next_cursor` | string \| null | O | 다음 페이지 커서. 그대로 `cursor`로 보낸다. 마지막 페이지면 `null` |
 | `has_more` | boolean | O | 다음 페이지가 있는지 |
+
+<a id="schema-eventstreamoverviewresponse"></a>
+#### `EventStreamOverviewResponse`
+
+| 필드 | 타입 | 필수 | 설명 |
+| --- | --- | :---: | --- |
+| `connection` | [RedisConnectionResponse](#schema-redisconnectionresponse) | O | Redis 연결 |
+| `retention_seconds` | integer | O | 이보다 오래된 항목은 정리된다(`REDIS_EVENT_RETENTION_SECONDS`) |
+| `max_length` | integer \| null | O | Stream별 대략적 상한(`REDIS_EVENT_STREAM_MAXLEN`). 없으면 `null` |
+| `streams` | array<[EventStreamResponse](#schema-eventstreamresponse)> | O | tenant별 Stream(tenant 이름순) |
+
+<a id="schema-eventstreamresponse"></a>
+#### `EventStreamResponse`
+
+| 필드 | 타입 | 필수 | 설명 |
+| --- | --- | :---: | --- |
+| `tenant_id` | string | O | Stream의 tenant |
+| `stream` | string | O | Redis 키 이름 |
+| `exists` | boolean | O | Redis에 Stream이 있는지. `false`면 아래 값은 0·`null`·빈 목록 |
+| `length` | integer | O | 지금 들어 있는 항목 수 |
+| `entries_added` | integer | O | 지금까지 쓰인 항목 수(정리된 것 포함) |
+| `first_entry` | [StreamPositionResponse](#schema-streampositionresponse) \| null | O | 가장 오래된 항목. 비어 있으면 `null` |
+| `last_entry` | [StreamPositionResponse](#schema-streampositionresponse) \| null | O | 가장 최근 항목. 비어 있으면 `null` |
+| `groups` | array<[ConsumerGroupResponse](#schema-consumergroupresponse)> | O | consumer group |
+
+<a id="schema-eventstreamentrypageresponse"></a>
+#### `EventStreamEntryPageResponse`
+
+| 필드 | 타입 | 필수 | 설명 |
+| --- | --- | :---: | --- |
+| `items` | array<[EventStreamEntryResponse](#schema-eventstreamentryresponse)> | O | 항목(최신순) |
+| `next_before` | string \| null | O | 더 오래된 항목을 읽을 때 `before`로 보낸다. Stream의 처음까지 읽었으면 `null` |
+
+<a id="schema-pendingentrypageresponse"></a>
+#### `PendingEntryPageResponse`
+
+| 필드 | 타입 | 필수 | 설명 |
+| --- | --- | :---: | --- |
+| `group` | string | O | consumer group 이름 |
+| `total_pending` | integer | O | group의 전체 pending 수(필터 적용 전) |
+| `items` | array<[PendingEntryResponse](#schema-pendingentryresponse)> | O | pending 항목(오래된 순) |
 
 <a id="schema-errordetail"></a>
 #### `ErrorDetail`
@@ -757,6 +930,65 @@ Run이 잡은 Execution별 중지 진행.
 | `stop_requested_at` | string(date-time) \| null | O | 중지 요청 시각 |
 | `completed_at` | string(date-time) \| null | O | 완료 시각 |
 
+<a id="schema-redisconnectionresponse"></a>
+#### `RedisConnectionResponse`
+
+| 필드 | 타입 | 필수 | 설명 |
+| --- | --- | :---: | --- |
+| `mode` | `standalone` \| `sentinel` | O | `standalone` 또는 `sentinel`(`REDIS_MODE`) |
+| `address` | string | O | Executor가 붙어 있는 host:port. Sentinel에서는 현재 마스터 |
+
+<a id="schema-streampositionresponse"></a>
+#### `StreamPositionResponse`
+
+| 필드 | 타입 | 필수 | 설명 |
+| --- | --- | :---: | --- |
+| `id` | string | O | Redis Stream 항목 ID |
+| `at` | string(date-time) | O | Redis가 그 ID를 매긴 시각(UTC) |
+
+<a id="schema-consumergroupresponse"></a>
+#### `ConsumerGroupResponse`
+
+| 필드 | 타입 | 필수 | 설명 |
+| --- | --- | :---: | --- |
+| `name` | string | O | group 이름 |
+| `pending` | integer | O | 받았지만 ACK하지 않은 항목 수 |
+| `lag` | integer \| null | O | group이 아직 받지 않은 항목 수. Redis가 계산할 수 없으면 `null`(항목이 삭제된 뒤 등) |
+| `entries_read` | integer \| null | O | group이 지금까지 읽은 항목 수 |
+| `last_delivered` | [StreamPositionResponse](#schema-streampositionresponse) \| null | O | 마지막으로 전달된 항목. 아무것도 읽지 않았으면 `null` |
+| `oldest_pending` | [StreamPositionResponse](#schema-streampositionresponse) \| null | O | 가장 오래된 pending 항목. 없으면 `null` |
+| `consumers` | array<[ConsumerResponse](#schema-consumerresponse)> | O | group의 consumer |
+
+<a id="schema-eventstreamentryresponse"></a>
+#### `EventStreamEntryResponse`
+
+| 필드 | 타입 | 필수 | 설명 |
+| --- | --- | :---: | --- |
+| `id` | string | O | Redis Stream 항목 ID |
+| `at` | string(date-time) | O | Redis에 들어간 시각(UTC) |
+| `event_id` | string \| null | O | 이벤트 ID. 이 필드부터 `tenant_id`까지는 저장된 값 그대로이고, 항목에 없으면 `null` |
+| `event_type` | string \| null | O | 이벤트 유형 |
+| `schema_version` | string \| null | O | 스키마 버전(`1.0`) |
+| `execution_id` | string \| null | O | Execution ID |
+| `event_sequence` | integer \| null | O | Execution별 순번. 숫자가 아니면 `null` |
+| `occurred_at` | string \| null | O | 발생 시각(저장된 문자열 그대로) |
+| `tenant_id` | string \| null | O | 항목에 적힌 tenant |
+| `payload` | any | O | JSON으로 푼 payload. JSON이 아니면 저장된 문자열 |
+
+<a id="schema-pendingentryresponse"></a>
+#### `PendingEntryResponse`
+
+| 필드 | 타입 | 필수 | 설명 |
+| --- | --- | :---: | --- |
+| `id` | string | O | Redis Stream 항목 ID |
+| `at` | string(date-time) | O | Redis에 들어간 시각(UTC) |
+| `consumer` | string | O | 항목을 받은 consumer |
+| `idle_ms` | integer | O | 마지막 전달 뒤 지난 시간(ms) |
+| `delivery_count` | integer | O | 전달된 횟수 |
+| `execution_id` | string \| null | O | Execution ID. 항목이 이미 정리됐으면 아래 두 필드와 함께 `null` |
+| `event_type` | string \| null | O | 이벤트 유형 |
+| `event_sequence` | integer \| null | O | Execution별 순번 |
+
 <a id="schema-validationissue"></a>
 #### `ValidationIssue`
 
@@ -821,3 +1053,13 @@ Run이 잡은 Execution별 중지 진행.
 | --- | --- | :---: | --- |
 | `accepting_new_executions` | boolean | O | 새 Execution을 받는지 |
 | `saturated` | boolean | O | 포화 여부 |
+
+<a id="schema-consumerresponse"></a>
+#### `ConsumerResponse`
+
+| 필드 | 타입 | 필수 | 설명 |
+| --- | --- | :---: | --- |
+| `name` | string | O | consumer 이름 |
+| `pending` | integer | O | 이 consumer가 받고 ACK하지 않은 항목 수 |
+| `idle_ms` | integer | O | 마지막으로 읽기를 시도한 뒤 지난 시간(ms) |
+| `inactive_ms` | integer \| null | O | 마지막으로 실제 항목을 읽거나 claim한 뒤 지난 시간(ms) |

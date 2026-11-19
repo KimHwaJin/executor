@@ -25,7 +25,6 @@ dependencies = [
 
 [project.scripts]
 executor-service = "executor_service.main:run"
-executor-events = "executor_service.interfaces.event_inspector:run"
 
 [build-system]
 requires = ["uv_build>=0.11.32,<0.12.0"]

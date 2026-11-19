@@ -50,7 +50,7 @@ sent, its `user_id` is that user. Anything else is `404`, so callers cannot prob
 A read without `X-User-Id` is a system call and sees the whole tenant. Artifact routes apply the
 same rule through the Artifact's Execution.
 
-`/workerz`, `/runtime-pools`, `/runtime-targets*`, and `/maintenance*` need an `admin` key (`403` otherwise).
+`/workerz`, `/runtime-pools`, `/runtime-targets*`, `/maintenance*`, and `/event-streams*` need an `admin` key (`403` otherwise).
 The same rule guards the MCP `runtime_target_*` tools.
 
 ```yaml
@@ -145,6 +145,29 @@ The command receipt includes Executor-owned IDs:
   "updated_at": "..."
 }
 ```
+
+## Event Stream inspection
+
+Admin keys can read the Redis event Streams as Redis holds them. PostgreSQL history above says
+what Executor published; these say what the Stream contains and how far consumers got. They work
+the same against Sentinel and a standalone Redis, use Executor's own Redis client and account,
+and issue only `EXISTS`, `XINFO`, `XREVRANGE`, `XRANGE` and `XPENDING`.
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/event-streams` | Redis connection (`mode`, current `address`), retention, and every tenant's Stream with its consumer groups |
+| GET | `/event-streams/{tenant_id}` | One Stream: length, first and last entry, groups with lag, pending and consumers |
+| GET | `/event-streams/{tenant_id}/entries` | Entries newest first; `limit` (1-200, default 50), `before`, `execution_id`, `event_type` |
+| GET | `/event-streams/{tenant_id}/groups/{group}/pending` | Unacknowledged entries oldest first; `limit` (1-100, default 50), `consumer`, `min_idle_ms` |
+
+- Tenants come from PostgreSQL, not a Redis `SCAN`; a tenant whose Stream Redis does not hold is
+  listed with `exists=false`, and its detail is `404 EVENT_STREAM_NOT_FOUND`, as is an unknown group.
+- Page entries by passing `next_before` back as `before`. A request with `execution_id` or
+  `event_type` reads at most 1000 entries, so it may return fewer than `limit` items together
+  with a `next_before`; `next_before=null` means the Stream's start was reached.
+- Entries are returned as stored, with `payload` parsed, and are not validated against the event
+  contract. A pending entry that retention already trimmed has null event fields.
+- Redis down, failing over or denying a command by ACL is `503 REDIS_UNAVAILABLE`.
 
 ## Append and finalize MULTI work
 

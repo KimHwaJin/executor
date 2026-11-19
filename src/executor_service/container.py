@@ -11,6 +11,7 @@ from executor_service.application.artifact_content import (
     ArtifactContentService,
 )
 from executor_service.application.diagnostics import DiagnosticQueryService
+from executor_service.application.event_streams import EventStreamInspector
 from executor_service.application.execution_results import (
     ExecutionResultQueryService,
 )
@@ -32,6 +33,9 @@ from executor_service.infrastructure.diagnostic_store import (
 )
 from executor_service.infrastructure.event_retention import (
     EventRetentionManager,
+)
+from executor_service.infrastructure.event_stream_inspector import (
+    RedisEventStreamInspector,
 )
 from executor_service.infrastructure.execution_queries import (
     SQLAlchemyExecutionQueryService,
@@ -171,6 +175,9 @@ class ApplicationContainer:
             self.session_factory,
             self.redis,
             settings,
+        )
+        self.event_streams: EventStreamInspector = RedisEventStreamInspector(
+            self.session_factory, self.redis, settings
         )
         self.execution_worker = ExecutionWorker(
             session_factory=self.session_factory,

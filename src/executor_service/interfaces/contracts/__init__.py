@@ -35,6 +35,12 @@ from executor_service.interfaces.contracts.diagnostics import (  # noqa: F401
     ExecutionDiagnosticResponse,
     RuntimeDiagnosticResponse,
 )
+from executor_service.interfaces.contracts.event_streams import (  # noqa: F401
+    EventStreamEntryPageResponse,
+    EventStreamOverviewResponse,
+    EventStreamResponse,
+    PendingEntryPageResponse,
+)
 from executor_service.interfaces.contracts.events import (  # noqa: F401
     EventDelivery,
     ExecutionEventPageResponse,

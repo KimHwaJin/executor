@@ -44,6 +44,18 @@ def create_redis_client(settings: Settings) -> Redis:
     )
 
 
+async def redis_address(redis: Redis) -> str:
+    """host:port the client talks to; under Sentinel, the current master."""
+
+    pool = redis.connection_pool
+    if isinstance(pool, SentinelConnectionPool):
+        host, port = await pool.get_master_address()
+    else:
+        host = pool.connection_kwargs.get("host")
+        port = pool.connection_kwargs.get("port")
+    return f"{host}:{port}"
+
+
 class _SentinelPool(SentinelConnectionPool):
     """Closing the client also closes its connections to Sentinel."""
 
