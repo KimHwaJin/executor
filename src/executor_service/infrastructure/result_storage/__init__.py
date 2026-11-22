@@ -43,14 +43,21 @@ SOURCE_WRITE_CONCURRENCY = 8
 # what was already read in memory leaves only the new Step to read.
 READ_CACHE_BYTES = 64 * 1024 * 1024
 READ_CACHE_ENTRY_BYTES = READ_CACHE_BYTES // 8
+# What an entry costs besides its content: the key's path and checksum
+# and the Python objects around them, measured at about 800 bytes. Without
+# it a cache of small Steps would hold many times its limit.
+READ_CACHE_ENTRY_OVERHEAD_BYTES = 1024
 
 
 class _ReadCache:
     """Least recently used values, bounded by their total size."""
 
-    def __init__(self, limit: int, entry_limit: int) -> None:
+    def __init__(
+        self, limit: int, entry_limit: int, entry_overhead: int = 0
+    ) -> None:
         self._limit = limit
         self._entry_limit = entry_limit
+        self._entry_overhead = entry_overhead
         self._size = 0
         self._entries: OrderedDict[tuple[object, ...], tuple[object, int]] = (
             OrderedDict()
@@ -66,6 +73,7 @@ class _ReadCache:
     def put(self, key: tuple[object, ...], value: object, size: int) -> None:
         if size > self._entry_limit or key in self._entries:
             return
+        size += self._entry_overhead
         self._entries[key] = (value, size)
         self._size += size
         while self._size > self._limit:
@@ -86,7 +94,11 @@ class FilesystemExecutionResultStore:
             WeakValueDictionary()
         )
         self._locks_guard = asyncio.Lock()
-        self._read_cache = _ReadCache(READ_CACHE_BYTES, READ_CACHE_ENTRY_BYTES)
+        self._read_cache = _ReadCache(
+            READ_CACHE_BYTES,
+            READ_CACHE_ENTRY_BYTES,
+            READ_CACHE_ENTRY_OVERHEAD_BYTES,
+        )
 
     async def snapshot_source(
         self,

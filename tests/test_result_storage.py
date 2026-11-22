@@ -669,3 +669,14 @@ def test_read_cache_is_bounded_by_total_and_entry_size() -> None:
     assert cache.get(("a",)) == "a" and cache.get(("c",)) == "c"
     cache.put(("big",), "big", 7)
     assert cache.get(("big",)) is None
+
+
+def test_read_cache_counts_each_entry_beyond_its_content() -> None:
+    from executor_service.infrastructure.result_storage import _ReadCache
+
+    cache = _ReadCache(limit=3000, entry_limit=100, entry_overhead=1000)
+    for index in range(10):
+        cache.put((index,), "tiny", 4)
+
+    # Content alone is 40 bytes; the keys and objects are what fill it.
+    assert [index for index in range(10) if cache.get((index,))] == [8, 9]
