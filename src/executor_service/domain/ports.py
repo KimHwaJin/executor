@@ -19,6 +19,12 @@ class ExecutionRepository(Protocol):
         self, execution_id: UUID, *, for_update: bool = False
     ) -> Execution | None: ...
 
+    async def get_for_append(
+        self, execution_id: UUID, *, for_update: bool = False
+    ) -> tuple[Execution, int] | None:
+        """The Execution without its Steps, and how many Steps it has."""
+        ...
+
     # Submit keys are unique per tenant; keys of commands on an existing
     # Execution are unique per Execution.
     async def get_by_submit_key(

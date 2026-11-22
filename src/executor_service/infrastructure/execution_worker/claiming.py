@@ -5,7 +5,8 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-from sqlalchemy.orm import lazyload, selectinload
+from sqlalchemy.orm import selectinload
+from sqlalchemy.orm.attributes import set_committed_value
 
 from executor_service.domain.enums import (
     AttemptStatus,
@@ -141,11 +142,10 @@ class ExecutionClaimer:
         async with self._session_factory() as session, session.begin():
             # Another Worker holding the row is already claiming it. Steps
             # load only once a Target is chosen: most claims of a backlog
-            # find no capacity and should not read up to 1000 Step rows.
+            # find no capacity and should not read any Step rows.
             execution_row = await session.scalar(
                 select(ExecutionORM)
                 .where(ExecutionORM.id == execution_id)
-                .options(lazyload(ExecutionORM.steps))
                 .with_for_update(skip_locked=True)
             )
             if execution_row is None or execution_row.status not in {
@@ -262,7 +262,7 @@ class ExecutionClaimer:
                     operation.execution_attempt_id = waiting_attempt.id
                     operation.started_at = now
                     operation.updated_at = now
-                await session.refresh(execution_row, ["steps"])
+                await _attach_run_steps(session, execution_row)
                 return (
                     execution_row.to_domain(),
                     target,
@@ -393,7 +393,7 @@ class ExecutionClaimer:
             )
             execution_row.updated_at = now
             execution_row.version += 1
-            await session.refresh(execution_row, ["steps"])
+            await _attach_run_steps(session, execution_row)
             return (
                 execution_row.to_domain(),
                 target,
@@ -583,3 +583,29 @@ class ExecutionClaimer:
             error_message,
         )
         await add_execution_completed_event(session, execution.id)
+
+
+async def _attach_run_steps(
+    session: AsyncSession, execution: ExecutionORM
+) -> None:
+    """Give the claimed Execution the Steps its run reads, not its history.
+
+    A MULTI run only executes its active Operation's Steps, and a session
+    can hold up to 1000 earlier ones. Other runs get every Step.
+    """
+    statement = (
+        select(ExecutionStepORM)
+        .where(ExecutionStepORM.execution_id == execution.id)
+        .order_by(ExecutionStepORM.sequence)
+    )
+    if (
+        execution.operation_mode == OperationMode.MULTI
+        and execution.active_operation_id is not None
+        and not execution.finalization_requested
+    ):
+        statement = statement.where(
+            ExecutionStepORM.operation_id == execution.active_operation_id
+        )
+    set_committed_value(
+        execution, "steps", list(await session.scalars(statement))
+    )

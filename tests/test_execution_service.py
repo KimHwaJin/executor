@@ -280,7 +280,8 @@ async def test_commands_that_change_no_step_update_no_step_row(
     finally:
         event.remove(engine.sync_engine, "before_cursor_execute", record)
 
-    assert [step.sequence for step in continued.steps] == [0, 1]
+    # Only the appended Operation's Steps come back.
+    assert [step.sequence for step in continued.steps] == [1]
     assert step_updates == []
 
 
@@ -532,10 +533,11 @@ async def test_multi_continue_and_finish_are_versioned_and_idempotent(
 
     assert continued.status == ExecutionStatus.QUEUED
     assert continued.version == 3
-    assert len(continued.steps) == 3
-    assert continued.steps[1].code_hash is not None
+    # Only the appended Operation's Steps come back, repeated or not.
+    assert [step.sequence for step in continued.steps] == [1, 2]
+    assert continued.steps[0].code_hash is not None
     assert repeated.version == 3
-    assert len(repeated.steps) == 3
+    assert [step.sequence for step in repeated.steps] == [1, 2]
 
     async with session_factory() as session, session.begin():
         await session.execute(

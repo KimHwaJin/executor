@@ -52,19 +52,19 @@ async def add_start_events(session: AsyncSession, execution_id: UUID) -> None:
     operation = await session.get(ExecutionOperationORM, operation_id)
     if operation is None:
         return
-    prior_payloads = list(
-        await session.scalars(
-            select(ExecutionEventORM.payload).where(
-                ExecutionEventORM.execution_id == execution_id,
-                ExecutionEventORM.event_type == "execution.operation_started",
-            )
+    # Asked of the database: a long session has one such event per
+    # Operation, and their payloads need not be read back.
+    already_started = await session.scalar(
+        select(ExecutionEventORM.id)
+        .where(
+            ExecutionEventORM.execution_id == execution_id,
+            ExecutionEventORM.event_type == "execution.operation_started",
+            ExecutionEventORM.payload["operation"]["id"].as_string()
+            == str(operation_id),
         )
+        .limit(1)
     )
-    if any(
-        str(payload.get("operation", {}).get("id")) == str(operation_id)
-        for payload in prior_payloads
-        if isinstance(payload.get("operation"), dict)
-    ):
+    if already_started is not None:
         return
     step_count = await session.scalar(
         select(func.count(ExecutionStepORM.id)).where(
