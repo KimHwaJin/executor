@@ -1,4 +1,5 @@
 import pytest
+from nbformat.validator import NotebookValidationError
 
 from executor_service.domain.enums import (
     OperationMode,
@@ -76,3 +77,17 @@ def test_workspace_rejects_unsafe_external_id() -> None:
     manager = WorkspaceManager()
     with pytest.raises(WorkspacePathError, match="unsafe"):
         manager.plan(execution(user_id="../escape"))
+
+
+def test_notebook_document_still_rejects_an_invalid_output() -> None:
+    manager = WorkspaceManager()
+    workspace = manager.plan(execution())
+
+    with pytest.raises(NotebookValidationError):
+        manager.notebook_document(
+            workspace,
+            "basic",
+            ["print(1)"],
+            [[{"output_type": "not-a-jupyter-output"}]],
+            [1],
+        )
