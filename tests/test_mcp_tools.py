@@ -148,6 +148,10 @@ async def test_mcp_client_can_list_and_call_execution_tools(
         assert fetched.structured_content["runtime"]["type"] == "JUPYTER"
         assert fetched.structured_content["context"]["user_id"] == "user-1"
         assert "steps" not in fetched.structured_content
+        too_long = await client.call_tool(
+            "execution_get", {"execution_id": execution_id, "wait_seconds": 31}
+        )
+        assert too_long.is_error
 
         cancelled = await client.call_tool(
             "execution_cancel",

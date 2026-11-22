@@ -86,6 +86,11 @@ class SQLAlchemyExecutionQueryService:
     async def execution(self, execution_id: UUID) -> ExecutionDetailView:
         return await self._executions.execution(execution_id)
 
+    async def wait_until_settled(
+        self, execution_id: UUID, seconds: float
+    ) -> None:
+        await self._executions.wait_until_settled(execution_id, seconds)
+
     async def steps(
         self,
         execution_id: UUID,

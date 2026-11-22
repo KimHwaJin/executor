@@ -51,7 +51,10 @@ submitted MULTI Operations through a Runtime Driver. Jupyter REST/WebSocket is t
 
 MCP Tasks are deliberately not used. `execution_submit` returns an `execution_id` while the
 execution starts as `QUEUED`. Poll with `execution_get` or request cancellation with
-`execution_cancel`. MULTI execution accepts one or more initial Steps as an Operation, returns
+`execution_cancel`. `execution_get` and `GET /executions/{execution_id}` take `wait_seconds`
+(at most 30): the answer is held while the execution is working and sent as soon as it is
+`WAITING_FOR_OPERATION` or terminal. When the time is up it carries the current state, so a
+caller repeats the request for as long as the work takes instead of polling at an interval. MULTI execution accepts one or more initial Steps as an Operation, returns
 `WAITING_FOR_OPERATION` after the Operation succeeds or fails, and accepts another append-only
 Operation through `execution_operation_create`. `execution_finalize` persists the final notebook and deletes the
 retained Runtime session. MCP Tasks are not required for this lifecycle.

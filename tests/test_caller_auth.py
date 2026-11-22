@@ -12,13 +12,16 @@ import pytest
 from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
 from pydantic import ValidationError
+from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError, OperationalError
 from starlette.applications import Starlette
 from starlette.routing import Route
 
 from executor_service.container import ApplicationContainer
+from executor_service.domain.enums import ExecutionStatus
 from executor_service.domain.tenants import tenant_event_stream
 from executor_service.infrastructure.db.base import Base
+from executor_service.infrastructure.db.models import ExecutionORM
 from executor_service.interfaces.http.app import create_app
 from executor_service.settings import AuthClient, Settings
 from tests.test_rest_execution_api import _submit_payload
@@ -543,3 +546,44 @@ async def test_status_request_reads_the_execution_once(
     assert reads == 1
     hidden = await client.get(location, headers=_headers(AGENT_KEY, "b"))
     assert hidden.status_code == 404
+
+
+async def test_status_request_waits_only_while_the_execution_works(
+    auth_app, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, container = auth_app
+    owner = _headers(AGENT_KEY, "rest-user")
+    location = (await _submit(client, owner, "wait")).headers["location"]
+    waits: list[float] = []
+
+    async def waited(execution_id, seconds):
+        waits.append(seconds)
+
+    monkeypatch.setattr(
+        container.execution_queries, "wait_until_settled", waited
+    )
+    wait = {"wait_seconds": 7}
+
+    working = await client.get(location, params=wait, headers=owner)
+    assert working.status_code == 200
+    assert working.json()["state"]["status"] == "QUEUED"
+    assert waits == [7]
+    # Without the option the answer is immediate, as before.
+    assert (await client.get(location, headers=owner)).status_code == 200
+    hidden = await client.get(
+        location, params=wait, headers=_headers(AGENT_KEY, "b")
+    )
+    assert hidden.status_code == 404
+    too_long = await client.get(
+        location, params={"wait_seconds": 31}, headers=owner
+    )
+    assert too_long.status_code == 422
+    assert waits == [7]
+
+    async with container.session_factory() as session, session.begin():
+        await session.execute(
+            update(ExecutionORM).values(status=ExecutionStatus.SUCCEEDED)
+        )
+    settled = await client.get(location, params=wait, headers=owner)
+    assert settled.json()["state"]["status"] == "SUCCEEDED"
+    assert waits == [7]

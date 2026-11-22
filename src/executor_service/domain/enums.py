@@ -17,6 +17,11 @@ class ExecutionStatus(StrEnum):
     def is_terminal(self) -> bool:
         return self in {self.CANCELLED, self.SUCCEEDED, self.FAILED}
 
+    @property
+    def is_settled(self) -> bool:
+        """Nothing changes until the caller acts, or ever again."""
+        return self.is_terminal or self is self.WAITING_FOR_OPERATION
+
 
 class OperationMode(StrEnum):
     SINGLE = "SINGLE"

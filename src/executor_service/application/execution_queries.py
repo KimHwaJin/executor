@@ -274,6 +274,10 @@ class ExecutionQueryService(Protocol):
 
     async def execution(self, execution_id: UUID) -> ExecutionDetailView: ...
 
+    async def wait_until_settled(
+        self, execution_id: UUID, seconds: float
+    ) -> None: ...
+
     async def steps(
         self,
         execution_id: UUID,
