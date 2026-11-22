@@ -5,6 +5,7 @@ import logging
 import os
 import socket
 from collections.abc import Awaitable, Callable
+from contextlib import suppress
 from datetime import datetime
 from uuid import uuid4
 
@@ -158,7 +159,8 @@ class ExecutionWorker:
             settings,
             self._session_recovery,
         )
-        self._dispatcher = ExecutionJobDispatcher()
+        self._wake = asyncio.Event()
+        self._dispatcher = ExecutionJobDispatcher(on_retry=self.wake)
         self._work_admission = WorkAdmissionProcessor(
             session_factory,
             self._dispatcher,
@@ -187,6 +189,14 @@ class ExecutionWorker:
     @property
     def worker_id(self) -> str:
         return self._worker_id
+
+    def wake(self) -> None:
+        """Look for work now instead of at the next poll.
+
+        Only a shortcut: a missed wake costs one poll interval, and work
+        accepted by another Pod is found by polling as before.
+        """
+        self._wake.set()
 
     @property
     def accepting_work(self) -> bool:
@@ -351,13 +361,17 @@ class ExecutionWorker:
 
     async def _reconcile_loop(self) -> None:
         while not self._stop_event.is_set():
+            # Cleared first: work queued during the pass needs another.
+            self._wake.clear()
             try:
                 await self._work_admission.reconcile()
             except asyncio.CancelledError:
                 raise
             except Exception:
                 logger.exception("Execution reconciliation failed")
-            await asyncio.sleep(RECONCILE_INTERVAL_SECONDS)
+            with suppress(TimeoutError):
+                async with asyncio.timeout(RECONCILE_INTERVAL_SECONDS):
+                    await self._wake.wait()
 
     def _cluster_pass(
         self,
