@@ -18,11 +18,13 @@ class ResultStoragePaths:
     def __init__(self, root: Path) -> None:
         self.root = root.resolve()
 
-    def source_relative(self, execution_id: UUID, step_id: UUID) -> Path:
+    def sources_relative(self, execution_id: UUID, operation_id: UUID) -> Path:
+        """The directory holding one Operation's source snapshots."""
         return RESULT_DIRECTORY.joinpath(
             str(execution_id),
+            "operations",
+            str(operation_id),
             "sources",
-            f"{step_id}.py",
         )
 
     def result_relative(self, identity: StepResultIdentity) -> Path:

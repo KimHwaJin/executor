@@ -130,10 +130,15 @@ class ExecutionCommandSupport:
             )
 
     async def snapshot_sources(
-        self, steps: list[ExecutionStep], execution_id: UUID
+        self,
+        steps: list[ExecutionStep],
+        execution_id: UUID,
+        operation_id: UUID,
     ) -> None:
         sources = await self._result_store.snapshot_sources(
-            execution_id, [(step.id, step.code) for step in steps]
+            execution_id,
+            operation_id,
+            [(step.id, step.code) for step in steps],
         )
         for step, source in zip(steps, sources, strict=True):
             step.source_snapshot_path = source.relative_path

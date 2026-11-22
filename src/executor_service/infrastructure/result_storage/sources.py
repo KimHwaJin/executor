@@ -23,16 +23,18 @@ class FilesystemExecutionSourceStore:
     def snapshot(
         self,
         execution_id: UUID,
+        operation_id: UUID,
         step_id: UUID,
         content: str,
     ) -> ExecutionSourceReference:
-        reference = self.write(execution_id, step_id, content)
-        self.sync_directory(execution_id)
+        reference = self.write(execution_id, operation_id, step_id, content)
+        self.sync_directory(execution_id, operation_id)
         return reference
 
     def write(
         self,
         execution_id: UUID,
+        operation_id: UUID,
         step_id: UUID,
         content: str,
     ) -> ExecutionSourceReference:
@@ -41,7 +43,10 @@ class FilesystemExecutionSourceStore:
             raise ResultStorageError("Execution source must not be blank.")
         body = content.encode("utf-8")
         checksum = sha256(body)
-        relative = self._paths.source_relative(execution_id, step_id)
+        relative = (
+            self._paths.sources_relative(execution_id, operation_id)
+            / f"{step_id}.py"
+        )
         path = self._paths.resolve_relative(relative)
         path.parent.mkdir(parents=True, exist_ok=True)
         if path.exists():
@@ -58,10 +63,13 @@ class FilesystemExecutionSourceStore:
             size_bytes=len(body),
         )
 
-    def sync_directory(self, execution_id: UUID) -> None:
-        """All of an Execution's snapshots share one directory."""
-        relative = self._paths.source_relative(execution_id, execution_id)
-        fsync_directory(self._paths.resolve_relative(relative).parent)
+    def sync_directory(self, execution_id: UUID, operation_id: UUID) -> None:
+        """An Operation's snapshots share one directory."""
+        fsync_directory(
+            self._paths.resolve_relative(
+                self._paths.sources_relative(execution_id, operation_id)
+            )
+        )
 
     def read(self, reference: ExecutionSourceReference) -> str:
         path = self._paths.resolve_reference(reference.relative_path)

@@ -56,20 +56,22 @@ class FilesystemExecutionResultStore:
     async def snapshot_source(
         self,
         execution_id: UUID,
+        operation_id: UUID,
         step_id: UUID,
         content: str,
     ) -> ExecutionSourceReference:
         (reference,) = await self.snapshot_sources(
-            execution_id, [(step_id, content)]
+            execution_id, operation_id, [(step_id, content)]
         )
         return reference
 
     async def snapshot_sources(
         self,
         execution_id: UUID,
+        operation_id: UUID,
         sources: Sequence[tuple[UUID, str]],
     ) -> list[ExecutionSourceReference]:
-        """Snapshot ``(step_id, content)`` pairs, in the order given."""
+        """Snapshot one Operation's ``(step_id, content)`` pairs, in order."""
         limit = asyncio.Semaphore(SOURCE_WRITE_CONCURRENCY)
 
         async def write(
@@ -77,14 +79,20 @@ class FilesystemExecutionResultStore:
         ) -> ExecutionSourceReference:
             async with limit:
                 return await asyncio.to_thread(
-                    self._sources.write, execution_id, step_id, content
+                    self._sources.write,
+                    execution_id,
+                    operation_id,
+                    step_id,
+                    content,
                 )
 
         references = await asyncio.gather(
             *(write(step_id, content) for step_id, content in sources)
         )
         if references:
-            await asyncio.to_thread(self._sources.sync_directory, execution_id)
+            await asyncio.to_thread(
+                self._sources.sync_directory, execution_id, operation_id
+            )
         return references
 
     async def read_source(self, reference: ExecutionSourceReference) -> str:

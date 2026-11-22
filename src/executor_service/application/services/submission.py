@@ -150,7 +150,9 @@ class ExecutionSubmissionCommands:
         )
         operation.execution_id = execution.id
         # Shared-storage writes hold no pooled connection.
-        await self._support.snapshot_sources(execution.steps, execution.id)
+        await self._support.snapshot_sources(
+            execution.steps, execution.id, operation.id
+        )
         try:
             async with self._support.uow_factory() as uow:
                 await uow.executions.add(execution)

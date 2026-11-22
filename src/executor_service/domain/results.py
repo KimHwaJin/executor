@@ -69,6 +69,7 @@ class ExecutionResultStore(Protocol):
     async def snapshot_sources(
         self,
         execution_id: UUID,
+        operation_id: UUID,
         sources: Sequence[tuple[UUID, str]],
     ) -> list[ExecutionSourceReference]: ...
 

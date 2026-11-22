@@ -23,8 +23,8 @@ Status: accepted implementation contract.
 <shared-root>/
 ├── <agent-selected-input-directory>/
 └── executions/<execution-id>/
-    ├── sources/<step-id>.py
     └── operations/<operation-id>/
+        ├── sources/<step-id>.py
         └── steps/<step-id>/attempts/<attempt-id>/<fencing-token>/
             ├── source.py
             ├── outputs/

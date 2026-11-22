@@ -30,7 +30,10 @@ async def test_output_paths_are_pv_relative_across_mounts(
     store = FilesystemExecutionResultStore(root)
     identity = _identity()
     source = await store.snapshot_source(
-        identity.execution_id, identity.step_id, "print(1)"
+        identity.execution_id,
+        identity.operation_id,
+        identity.step_id,
+        "print(1)",
     )
     await store.begin_step_result(identity, source)
     await store.append_step_outputs(
@@ -81,7 +84,7 @@ async def test_root_relative_outputs_keep_scope_boundaries(
     store = FilesystemExecutionResultStore(root)
     identity = _identity()
     source = await store.snapshot_source(
-        identity.execution_id, identity.step_id, "pass"
+        identity.execution_id, identity.operation_id, identity.step_id, "pass"
     )
     await store.begin_step_result(identity, source)
     await store.append_step_outputs(
@@ -177,11 +180,13 @@ async def test_result_disk_layout_is_a_stable_contract(tmp_path: Path) -> None:
     identity = _identity()
     source = await store.snapshot_source(
         identity.execution_id,
+        identity.operation_id,
         identity.step_id,
         "print('contract')",
     )
     assert source.relative_path == (
-        "executor/executions/10000000-0000-0000-0000-000000000001/sources/"
+        "executor/executions/10000000-0000-0000-0000-000000000001/operations/"
+        "20000000-0000-0000-0000-000000000002/sources/"
         "30000000-0000-0000-0000-000000000003.py"
     )
 
@@ -240,6 +245,7 @@ async def test_seals_source_text_and_image_as_immutable_files(
     identity = _identity()
     source = await store.snapshot_source(
         identity.execution_id,
+        identity.operation_id,
         identity.step_id,
         "print('hello')",
     )
@@ -314,6 +320,7 @@ async def test_aborted_result_seals_partial_outputs_as_incomplete(
     identity = _identity()
     source = await store.snapshot_source(
         identity.execution_id,
+        identity.operation_id,
         identity.step_id,
         "print('partial')",
     )
@@ -345,7 +352,10 @@ async def test_append_batch_replay_is_idempotent(tmp_path: Path) -> None:
     store = FilesystemExecutionResultStore(tmp_path)
     identity = _identity()
     source = await store.snapshot_source(
-        identity.execution_id, identity.step_id, "print(1)"
+        identity.execution_id,
+        identity.operation_id,
+        identity.step_id,
+        "print(1)",
     )
     await store.begin_step_result(identity, source)
     batch = uuid4()
@@ -375,7 +385,10 @@ async def test_fencing_generations_use_different_directories(
     for fence in (1, 2):
         identity = _identity(fence=fence)
         source = await store.snapshot_source(
-            identity.execution_id, identity.step_id, "print(1)"
+            identity.execution_id,
+            identity.operation_id,
+            identity.step_id,
+            "print(1)",
         )
         await store.begin_step_result(identity, source)
         await store.append_step_outputs(
@@ -401,7 +414,7 @@ async def test_source_reference_stays_below_result_folder(
     tmp_path: Path, relative_path: str
 ) -> None:
     store = FilesystemExecutionResultStore(tmp_path)
-    source = await store.snapshot_source(uuid4(), uuid4(), "print(1)")
+    source = await store.snapshot_source(uuid4(), uuid4(), uuid4(), "print(1)")
     invalid = type(source)(
         relative_path=relative_path,
         checksum_sha256=source.checksum_sha256,
@@ -418,7 +431,10 @@ async def test_new_writer_resumes_an_open_result_after_a_torn_append(
     identity = _identity()
     first = FilesystemExecutionResultStore(tmp_path)
     source = await first.snapshot_source(
-        identity.execution_id, identity.step_id, "print(1)"
+        identity.execution_id,
+        identity.operation_id,
+        identity.step_id,
+        "print(1)",
     )
     await first.begin_step_result(identity, source)
     for offset in range(3):
@@ -473,16 +489,20 @@ async def test_sources_of_one_operation_share_a_directory_synced_once(
 
     monkeypatch.setattr(sources, "fsync_directory", record)
     store = FilesystemExecutionResultStore(tmp_path)
-    execution_id = uuid4()
+    execution_id, operation_id = uuid4(), uuid4()
     contents = [(uuid4(), f"print({index})") for index in range(20)]
 
-    references = await store.snapshot_sources(execution_id, contents)
+    references = await store.snapshot_sources(
+        execution_id, operation_id, contents
+    )
 
-    directory = tmp_path / f"executor/executions/{execution_id}/sources"
+    relative = (
+        f"executor/executions/{execution_id}/operations/{operation_id}/sources"
+    )
+    directory = tmp_path / relative
     assert synced == [directory]
     assert [reference.relative_path for reference in references] == [
-        f"executor/executions/{execution_id}/sources/{step_id}.py"
-        for step_id, _ in contents
+        f"{relative}/{step_id}.py" for step_id, _ in contents
     ]
     assert [
         await store.read_source(reference) for reference in references
@@ -496,9 +516,13 @@ async def test_source_snapshot_in_the_earlier_layout_is_still_read(
 ) -> None:
     store = FilesystemExecutionResultStore(tmp_path)
     execution_id, step_id = uuid4(), uuid4()
-    current = await store.snapshot_source(execution_id, step_id, "print(1)")
-    earlier = Path(current.relative_path).with_suffix("") / "source.py"
-    (tmp_path / earlier).parent.mkdir()
+    current = await store.snapshot_source(
+        execution_id, uuid4(), step_id, "print(1)"
+    )
+    earlier = Path(
+        f"executor/executions/{execution_id}/sources/{step_id}/source.py"
+    )
+    (tmp_path / earlier).parent.mkdir(parents=True)
     (tmp_path / earlier).write_text("print(1)")
 
     assert (

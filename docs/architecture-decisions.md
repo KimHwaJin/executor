@@ -159,10 +159,11 @@ Step; its separate status and retries remain observable.
 Agent + Executor shared volume
 ├── <agent-selected-directory>/.../step-N.py
 └── executions/<execution-id>/
-    ├── sources/<step-id>.py
-    └── operations/<operation-id>/steps/<step-id>/attempts/<attempt-id>/<fence>/
-        ├── outputs/...
-        └── manifest.json
+    └── operations/<operation-id>/
+        ├── sources/<step-id>.py
+        └── steps/<step-id>/attempts/<attempt-id>/<fence>/
+            ├── outputs/...
+            └── manifest.json
 
 Jupyter shared volume
 └── tenants/{tenant}/users/{user}/projects/{project|unscoped}/sessions/{session|unscoped}/executions/{execution}/

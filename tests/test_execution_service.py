@@ -305,10 +305,10 @@ def _during_snapshot(
     snapshot = FilesystemExecutionResultStore.snapshot_sources
     pending = [action]
 
-    async def snapshot_sources(self, execution_id, sources):
+    async def snapshot_sources(self, *args):
         if pending:
             await pending.pop()()
-        return await snapshot(self, execution_id, sources)
+        return await snapshot(self, *args)
 
     monkeypatch.setattr(
         FilesystemExecutionResultStore, "snapshot_sources", snapshot_sources
@@ -334,9 +334,9 @@ async def test_source_snapshots_hold_no_database_connection(
 
     snapshot = FilesystemExecutionResultStore.snapshot_sources
 
-    async def snapshot_sources(self, execution_id, sources):
+    async def snapshot_sources(self, *args):
         held_during_snapshot.append(held)
-        return await snapshot(self, execution_id, sources)
+        return await snapshot(self, *args)
 
     monkeypatch.setattr(
         FilesystemExecutionResultStore, "snapshot_sources", snapshot_sources
