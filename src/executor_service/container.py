@@ -108,7 +108,11 @@ class ApplicationContainer:
         )
         self.runtime_adapters = RuntimeAdapterRegistry(settings)
         self.execution_service = ExecutionService(
-            lambda: SQLAlchemyUnitOfWork(self.session_factory),
+            # Every command commit can queue work for the Worker.
+            lambda: SQLAlchemyUnitOfWork(
+                self.session_factory,
+                committed=lambda: self.execution_worker.wake(),
+            ),
             self.runtime_adapters.offerings(),
             self.result_store,
             max_steps_per_operation=(

@@ -828,3 +828,34 @@ async def test_multi_execution_rejects_explicit_retry(
                 idempotency_key="multi-explicit-retry-command",
             )
         )
+
+
+async def test_accepted_command_reports_its_commit_and_a_rejected_one_does_not(
+    engine: AsyncEngine,
+    tmp_path: Path,
+) -> None:
+    session_factory = create_session_factory(engine)
+    commits = 0
+
+    def committed() -> None:
+        nonlocal commits
+        commits += 1
+
+    service = ExecutionService(
+        lambda: SQLAlchemyUnitOfWork(session_factory, committed=committed),
+        {
+            RuntimeType.JUPYTER: RuntimeOffering(
+                ("basic",), JupyterRuntimeAdapter.capabilities
+            )
+        },
+        FilesystemExecutionResultStore(tmp_path),
+    )
+
+    with pytest.raises(UnsupportedRuntimeProfileError):
+        await service.submit(
+            replace(submit_command("wake-rejected"), runtime_profile="unknown")
+        )
+    assert commits == 0
+
+    await service.submit(submit_command("wake-accepted"))
+    assert commits == 1

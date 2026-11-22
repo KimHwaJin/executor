@@ -1,6 +1,6 @@
 """SQLAlchemy repository and unit-of-work implementations."""
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from types import TracebackType
 from typing import Self
 from uuid import UUID
@@ -286,10 +286,14 @@ class SQLAlchemyExecutionRepository:
 
 class SQLAlchemyUnitOfWork:
     def __init__(
-        self, session_factory: async_sessionmaker[AsyncSession]
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        *,
+        committed: Callable[[], None] | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._session: AsyncSession | None = None
+        self._committed = committed
 
     async def __aenter__(self) -> Self:
         self._session = self._session_factory()
@@ -318,6 +322,8 @@ class SQLAlchemyUnitOfWork:
             raise PersistenceConflictError(
                 "A persistence constraint was violated."
             ) from exc
+        if self._committed is not None:
+            self._committed()
 
     async def rollback(self) -> None:
         if self._session is not None:
