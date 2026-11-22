@@ -5,6 +5,7 @@ from uuid import UUID
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import lazyload
 
 from executor_service.infrastructure.db.models import (
     ExecutionEventORM,
@@ -21,7 +22,10 @@ async def persist_execution_event(
     event_type: str,
     payload: dict[str, object],
 ) -> None:
-    execution = await session.get(ExecutionORM, execution_id)
+    # Only the actor columns are used; never load every Step with it.
+    execution = await session.get(
+        ExecutionORM, execution_id, options=[lazyload(ExecutionORM.steps)]
+    )
     if execution is None:
         raise ValueError(f"Execution {execution_id} was not found.")
     event_sequence = await next_execution_event_sequence(session, execution_id)

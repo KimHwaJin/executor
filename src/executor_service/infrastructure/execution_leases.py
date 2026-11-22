@@ -43,44 +43,46 @@ async def require_active_lease(
     """Lock and return rows only while the exact lease epoch is active."""
 
     now = utc_now()
-    execution = await session.scalar(
-        select(ExecutionORM)
-        .where(
-            ExecutionORM.id == lease.execution_id,
-            ExecutionORM.status.in_(allowed_statuses),
-            ExecutionORM.lease_owner == lease.owner,
-            ExecutionORM.fencing_token == lease.fencing_token,
-            ExecutionORM.lease_expires_at.is_not(None),
-            ExecutionORM.lease_expires_at > now,
+    # One statement locks the Execution row and then its Attempt row;
+    # the check runs several times per Step.
+    row = (
+        await session.execute(
+            select(ExecutionORM, ExecutionAttemptORM)
+            .join(
+                ExecutionAttemptORM,
+                ExecutionAttemptORM.execution_id == ExecutionORM.id,
+            )
+            .where(
+                ExecutionORM.id == lease.execution_id,
+                ExecutionORM.status.in_(allowed_statuses),
+                ExecutionORM.lease_owner == lease.owner,
+                ExecutionORM.fencing_token == lease.fencing_token,
+                ExecutionORM.lease_expires_at.is_not(None),
+                ExecutionORM.lease_expires_at > now,
+                ExecutionAttemptORM.id == lease.attempt_id,
+                ExecutionAttemptORM.status == AttemptStatus.RUNNING,
+                ExecutionAttemptORM.lease_owner == lease.owner,
+                ExecutionAttemptORM.fencing_token == lease.fencing_token,
+                ExecutionAttemptORM.lease_expires_at.is_not(None),
+                ExecutionAttemptORM.lease_expires_at > now,
+            )
+            # Loading every Step of the Execution with it would grow
+            # with the session's history.
+            .options(lazyload(ExecutionORM.steps))
+            .with_for_update()
         )
-        # A lease check runs several times per Step; loading every Step
-        # of the Execution with it would grow with the session's history.
-        .options(lazyload(ExecutionORM.steps))
-        .with_for_update()
-    )
-    if execution is None:
+    ).first()
+    if row is None:
         raise ExecutionLeaseLostError(
-            f"Execution {lease.execution_id} lease is no longer owned by "
-            f"{lease.owner} at fence {lease.fencing_token}."
+            f"Execution {lease.execution_id} Attempt {lease.attempt_id} "
+            f"lease is no longer owned by {lease.owner} at fence "
+            f"{lease.fencing_token}."
         )
-    attempt = await session.scalar(
-        select(ExecutionAttemptORM)
-        .where(
-            ExecutionAttemptORM.id == lease.attempt_id,
-            ExecutionAttemptORM.execution_id == lease.execution_id,
-            ExecutionAttemptORM.status == AttemptStatus.RUNNING,
-            ExecutionAttemptORM.lease_owner == lease.owner,
-            ExecutionAttemptORM.fencing_token == lease.fencing_token,
-            ExecutionAttemptORM.lease_expires_at.is_not(None),
-            ExecutionAttemptORM.lease_expires_at > now,
-        )
-        .with_for_update()
-    )
-    if attempt is None:
-        raise ExecutionLeaseLostError(
-            f"Execution Attempt {lease.attempt_id} is no longer active at "
-            f"fence {lease.fencing_token}."
-        )
+    execution, attempt = row
+    # The session only holds unchanged rows weakly. A caller that drops
+    # the result would make every later ``session.get`` of these rows in
+    # the same transaction (event payloads, actors) query them again.
+    session.info["active_lease_rows"] = (execution, attempt)
     return execution, attempt
 
 

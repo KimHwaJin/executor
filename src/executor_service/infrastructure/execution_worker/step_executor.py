@@ -169,6 +169,7 @@ class ExecutionStepExecutor:
                     ExecutionStepAttemptORM.sequence == sequence,
                 )
             )
+            first_run = history is None
             if history is None:
                 history = ExecutionStepAttemptORM(
                     id=uuid4(),
@@ -205,15 +206,18 @@ class ExecutionStepExecutor:
                 history.result_complete = None
                 history.result_representation_count = 0
                 history.result_total_size_bytes = 0
-            await session.merge(
-                ExecutionStepRunORM(
-                    execution_step_attempt_id=history.id,
-                    execution_id=lease.execution_id,
-                    request_id=request_id,
-                    artifact_baseline=baseline,
-                    submitted_at=None,
-                )
+            step_run = ExecutionStepRunORM(
+                execution_step_attempt_id=history.id,
+                execution_id=lease.execution_id,
+                request_id=request_id,
+                artifact_baseline=baseline,
+                submitted_at=None,
             )
+            if first_run:
+                # No run can exist for a Step attempt created just now.
+                session.add(step_run)
+            else:
+                await session.merge(step_run)
             if step.operation_id is None:
                 raise ValueError(
                     f"Execution Step {sequence} has no Operation."

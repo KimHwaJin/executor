@@ -11,6 +11,10 @@ from executor_service.infrastructure.db.models import (
     ExecutionStepAttemptORM,
 )
 
+# An Operation's number never changes and every Step event carries it.
+_OPERATION_NUMBERS_KEPT = 4096
+_operation_numbers: dict[UUID, int] = {}
+
 
 async def attempt_payload(
     session: AsyncSession, attempt_id: UUID
@@ -28,10 +32,18 @@ async def attempt_payload(
 async def operation_payload(
     session: AsyncSession, operation_id: UUID
 ) -> dict[str, object]:
-    operation = await session.get(ExecutionOperationORM, operation_id)
-    if operation is None:
-        raise ValueError(f"Execution Operation {operation_id} was not found.")
-    return {"id": str(operation.id), "number": operation.operation_number}
+    number = _operation_numbers.get(operation_id)
+    if number is None:
+        operation = await session.get(ExecutionOperationORM, operation_id)
+        if operation is None:
+            raise ValueError(
+                f"Execution Operation {operation_id} was not found."
+            )
+        number = operation.operation_number
+        if len(_operation_numbers) >= _OPERATION_NUMBERS_KEPT:
+            _operation_numbers.pop(next(iter(_operation_numbers)))
+        _operation_numbers[operation_id] = number
+    return {"id": str(operation_id), "number": number}
 
 
 def stored_result_reference(
