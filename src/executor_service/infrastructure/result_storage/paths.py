@@ -22,8 +22,7 @@ class ResultStoragePaths:
         return RESULT_DIRECTORY.joinpath(
             str(execution_id),
             "sources",
-            str(step_id),
-            "source.py",
+            f"{step_id}.py",
         )
 
     def result_relative(self, identity: StepResultIdentity) -> Path:

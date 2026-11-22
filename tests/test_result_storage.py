@@ -16,6 +16,7 @@ from executor_service.domain.runtime import (
 from executor_service.infrastructure.result_storage import (
     FilesystemExecutionResultStore,
     ResultStorageError,
+    sources,
 )
 from executor_service.infrastructure.result_storage.io import atomic_write
 
@@ -181,7 +182,7 @@ async def test_result_disk_layout_is_a_stable_contract(tmp_path: Path) -> None:
     )
     assert source.relative_path == (
         "executor/executions/10000000-0000-0000-0000-000000000001/sources/"
-        "30000000-0000-0000-0000-000000000003/source.py"
+        "30000000-0000-0000-0000-000000000003.py"
     )
 
     await store.begin_step_result(identity, source)
@@ -457,3 +458,52 @@ def _tear_output_log(root: Path) -> None:
     with log.open("ab") as handle:
         # A crash mid-write leaves an unacknowledged partial line.
         handle.write(b'{"batch_id":"torn"')
+
+
+@pytest.mark.asyncio
+async def test_sources_of_one_operation_share_a_directory_synced_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    synced: list[Path] = []
+    fsync_directory = sources.fsync_directory
+
+    def record(path: Path) -> None:
+        synced.append(path)
+        fsync_directory(path)
+
+    monkeypatch.setattr(sources, "fsync_directory", record)
+    store = FilesystemExecutionResultStore(tmp_path)
+    execution_id = uuid4()
+    contents = [(uuid4(), f"print({index})") for index in range(20)]
+
+    references = await store.snapshot_sources(execution_id, contents)
+
+    directory = tmp_path / f"executor/executions/{execution_id}/sources"
+    assert synced == [directory]
+    assert [reference.relative_path for reference in references] == [
+        f"executor/executions/{execution_id}/sources/{step_id}.py"
+        for step_id, _ in contents
+    ]
+    assert [
+        await store.read_source(reference) for reference in references
+    ] == [content for _, content in contents]
+    assert list(directory.glob(".*.tmp")) == []
+
+
+@pytest.mark.asyncio
+async def test_source_snapshot_in_the_earlier_layout_is_still_read(
+    tmp_path: Path,
+) -> None:
+    store = FilesystemExecutionResultStore(tmp_path)
+    execution_id, step_id = uuid4(), uuid4()
+    current = await store.snapshot_source(execution_id, step_id, "print(1)")
+    earlier = Path(current.relative_path).with_suffix("") / "source.py"
+    (tmp_path / earlier).parent.mkdir()
+    (tmp_path / earlier).write_text("print(1)")
+
+    assert (
+        await store.read_source(
+            replace(current, relative_path=earlier.as_posix())
+        )
+        == "print(1)"
+    )

@@ -132,10 +132,10 @@ class ExecutionCommandSupport:
     async def snapshot_sources(
         self, steps: list[ExecutionStep], execution_id: UUID
     ) -> None:
-        for step in steps:
-            source = await self._result_store.snapshot_source(
-                execution_id, step.id, step.code
-            )
+        sources = await self._result_store.snapshot_sources(
+            execution_id, [(step.id, step.code) for step in steps]
+        )
+        for step, source in zip(steps, sources, strict=True):
             step.source_snapshot_path = source.relative_path
             step.source_size_bytes = source.size_bytes
             if step.source_sha256 and (

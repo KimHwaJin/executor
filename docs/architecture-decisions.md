@@ -159,7 +159,7 @@ Step; its separate status and retries remain observable.
 Agent + Executor shared volume
 ├── <agent-selected-directory>/.../step-N.py
 └── executions/<execution-id>/
-    ├── sources/<step-id>/source.py
+    ├── sources/<step-id>.py
     └── operations/<operation-id>/steps/<step-id>/attempts/<attempt-id>/<fence>/
         ├── outputs/...
         └── manifest.json

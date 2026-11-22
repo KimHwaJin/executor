@@ -302,16 +302,16 @@ def _during_snapshot(
     action: Callable[[], Awaitable[None]],
 ) -> None:
     """Run the action once, while a source snapshot is being written."""
-    snapshot = FilesystemExecutionResultStore.snapshot_source
+    snapshot = FilesystemExecutionResultStore.snapshot_sources
     pending = [action]
 
-    async def snapshot_source(self, execution_id, step_id, content):
+    async def snapshot_sources(self, execution_id, sources):
         if pending:
             await pending.pop()()
-        return await snapshot(self, execution_id, step_id, content)
+        return await snapshot(self, execution_id, sources)
 
     monkeypatch.setattr(
-        FilesystemExecutionResultStore, "snapshot_source", snapshot_source
+        FilesystemExecutionResultStore, "snapshot_sources", snapshot_sources
     )
 
 
@@ -332,14 +332,14 @@ async def test_source_snapshots_hold_no_database_connection(
         nonlocal held
         held -= 1
 
-    snapshot = FilesystemExecutionResultStore.snapshot_source
+    snapshot = FilesystemExecutionResultStore.snapshot_sources
 
-    async def snapshot_source(self, execution_id, step_id, content):
+    async def snapshot_sources(self, execution_id, sources):
         held_during_snapshot.append(held)
-        return await snapshot(self, execution_id, step_id, content)
+        return await snapshot(self, execution_id, sources)
 
     monkeypatch.setattr(
-        FilesystemExecutionResultStore, "snapshot_source", snapshot_source
+        FilesystemExecutionResultStore, "snapshot_sources", snapshot_sources
     )
     event.listen(engine.sync_engine, "checkout", checkout)
     event.listen(engine.sync_engine, "checkin", checkin)

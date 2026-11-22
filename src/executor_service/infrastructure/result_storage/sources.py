@@ -8,6 +8,7 @@ from executor_service.infrastructure.result_storage.errors import (
 )
 from executor_service.infrastructure.result_storage.io import (
     atomic_write,
+    fsync_directory,
     sha256,
 )
 from executor_service.infrastructure.result_storage.paths import (
@@ -25,6 +26,17 @@ class FilesystemExecutionSourceStore:
         step_id: UUID,
         content: str,
     ) -> ExecutionSourceReference:
+        reference = self.write(execution_id, step_id, content)
+        self.sync_directory(execution_id)
+        return reference
+
+    def write(
+        self,
+        execution_id: UUID,
+        step_id: UUID,
+        content: str,
+    ) -> ExecutionSourceReference:
+        """Write one snapshot; durable once ``sync_directory`` returns."""
         if not content.strip():
             raise ResultStorageError("Execution source must not be blank.")
         body = content.encode("utf-8")
@@ -39,12 +51,17 @@ class FilesystemExecutionSourceStore:
                     "Execution source snapshot conflicts with existing content."
                 )
         else:
-            atomic_write(path, body)
+            atomic_write(path, body, sync_directory=False)
         return ExecutionSourceReference(
             relative_path=relative.as_posix(),
             checksum_sha256=checksum,
             size_bytes=len(body),
         )
+
+    def sync_directory(self, execution_id: UUID) -> None:
+        """All of an Execution's snapshots share one directory."""
+        relative = self._paths.source_relative(execution_id, execution_id)
+        fsync_directory(self._paths.resolve_relative(relative).parent)
 
     def read(self, reference: ExecutionSourceReference) -> str:
         path = self._paths.resolve_reference(reference.relative_path)

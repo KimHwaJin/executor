@@ -1,6 +1,7 @@
 """Atomic shared Execution result storage."""
 
 import asyncio
+from collections.abc import Sequence
 from pathlib import Path
 from uuid import UUID
 from weakref import WeakValueDictionary
@@ -31,6 +32,10 @@ from executor_service.infrastructure.result_storage.steps import (
     remove_partial_files,
 )
 
+# Source files of one Operation written at a time; bounded so a large
+# Operation does not take the whole shared thread pool.
+SOURCE_WRITE_CONCURRENCY = 8
+
 
 class FilesystemExecutionResultStore:
     def __init__(self, root: Path) -> None:
@@ -54,12 +59,33 @@ class FilesystemExecutionResultStore:
         step_id: UUID,
         content: str,
     ) -> ExecutionSourceReference:
-        return await asyncio.to_thread(
-            self._sources.snapshot,
-            execution_id,
-            step_id,
-            content,
+        (reference,) = await self.snapshot_sources(
+            execution_id, [(step_id, content)]
         )
+        return reference
+
+    async def snapshot_sources(
+        self,
+        execution_id: UUID,
+        sources: Sequence[tuple[UUID, str]],
+    ) -> list[ExecutionSourceReference]:
+        """Snapshot ``(step_id, content)`` pairs, in the order given."""
+        limit = asyncio.Semaphore(SOURCE_WRITE_CONCURRENCY)
+
+        async def write(
+            step_id: UUID, content: str
+        ) -> ExecutionSourceReference:
+            async with limit:
+                return await asyncio.to_thread(
+                    self._sources.write, execution_id, step_id, content
+                )
+
+        references = await asyncio.gather(
+            *(write(step_id, content) for step_id, content in sources)
+        )
+        if references:
+            await asyncio.to_thread(self._sources.sync_directory, execution_id)
+        return references
 
     async def read_source(self, reference: ExecutionSourceReference) -> str:
         return await asyncio.to_thread(self._sources.read, reference)
