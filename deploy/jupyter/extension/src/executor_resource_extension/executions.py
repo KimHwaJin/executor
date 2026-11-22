@@ -28,6 +28,8 @@ from executor_resource_extension.kernel_state import (
 )
 
 COMPLETED = "COMPLETED"
+# Expired journals are looked for at most this often, not on every request.
+CLEANUP_INTERVAL_SECONDS = 60.0
 LOST = "LOST"
 OUTPUT_LIMIT = "OUTPUT_LIMIT"
 
@@ -75,6 +77,13 @@ class ExecutionJournals:
         # Journals written by an earlier server process can never finish.
         self._server_id = uuid4().hex
         self._recordings: dict[str, _Recording] = {}
+        # One ready client per kernel process, kept between requests:
+        # opening channels and waiting for the kernel costs far more than
+        # the code of a short Step. Keyed by kernel ID, with the process
+        # instance it was opened for.
+        self._clients: dict[str, tuple[str, Any]] = {}
+        self._clients_in_use: set[str] = set()
+        self._next_cleanup = 0.0
         self._root.mkdir(parents=True, exist_ok=True)
 
     @classmethod
@@ -110,10 +119,10 @@ class ExecutionJournals:
         identity = await self._kernel_state.observe(manager, kernel_id)
         if not identity["alive"]:
             raise KernelNotFoundError(kernel_id)
-        client = kernel.client()
-        client.start_channels()
+        client, kept = await self._ready_client(
+            manager, kernel, kernel_id, identity["instance_id"]
+        )
         try:
-            await client.wait_for_ready(timeout=self._ready_timeout_seconds)
             header = _line(
                 {
                     "type": "header",
@@ -128,7 +137,7 @@ class ExecutionJournals:
                 with path.open("x", encoding="utf-8") as journal:
                     journal.write(header)
             except FileExistsError:
-                client.stop_channels()
+                self._release_client(kernel_id, client, kept, reusable=True)
                 return False
             message_id = client.execute(
                 code,
@@ -138,7 +147,7 @@ class ExecutionJournals:
                 stop_on_error=True,
             )
         except BaseException:
-            client.stop_channels()
+            self._release_client(kernel_id, client, kept, reusable=False)
             raise
         recording = _Recording()
         self._recordings[request_id] = recording
@@ -151,6 +160,7 @@ class ExecutionJournals:
                 getattr(kernel.provisioner, "process", None),
                 memory_limit_events(self._cgroup_root),
                 client,
+                kept,
                 message_id,
                 path,
                 len(header.encode("utf-8")),
@@ -158,6 +168,50 @@ class ExecutionJournals:
             )
         )
         return True
+
+    async def _ready_client(
+        self, manager: Any, kernel: Any, kernel_id: str, instance_id: str
+    ) -> tuple[Any, bool]:
+        """A client with open channels, and whether it is the kept one."""
+
+        for known in [k for k in self._clients if k not in manager]:
+            self._clients.pop(known)[1].stop_channels()
+        kept = self._clients.get(kernel_id)
+        if kept is not None and kept[0] != instance_id:
+            # The kernel process was replaced; its channels are dead.
+            if kernel_id not in self._clients_in_use:
+                self._clients.pop(kernel_id)[1].stop_channels()
+            kept = None
+        if kept is not None and kernel_id not in self._clients_in_use:
+            self._clients_in_use.add(kernel_id)
+            return kept[1], True
+        client = kernel.client()
+        client.start_channels()
+        try:
+            await client.wait_for_ready(timeout=self._ready_timeout_seconds)
+        except BaseException:
+            client.stop_channels()
+            raise
+        # A request that arrives while the kept client is recording gets
+        # a client of its own: two recorders cannot share one.
+        if kernel_id in self._clients or kernel_id in self._clients_in_use:
+            return client, False
+        self._clients[kernel_id] = (instance_id, client)
+        self._clients_in_use.add(kernel_id)
+        return client, True
+
+    def _release_client(
+        self, kernel_id: str, client: Any, kept: bool, *, reusable: bool
+    ) -> None:
+        if not kept:
+            client.stop_channels()
+            return
+        self._clients_in_use.discard(kernel_id)
+        if not reusable:
+            current = self._clients.get(kernel_id)
+            if current is not None and current[1] is client:
+                del self._clients[kernel_id]
+            client.stop_channels()
 
     async def follow(
         self, kernel_id: str, request_id: str, after: int
@@ -247,6 +301,7 @@ class ExecutionJournals:
         process: Any,
         memory_events_before: int | None,
         client: Any,
+        kept: bool,
         message_id: str,
         path: Path,
         size: int,
@@ -254,6 +309,9 @@ class ExecutionJournals:
     ) -> None:
         seq = 0
         reply_received = idle_received = False
+        # Only a request that ran to its idle status leaves the channels
+        # in a state the next request can use.
+        completed = False
         # One handle for the whole recording; flush makes each whole line
         # visible to followers.
         journal = path.open("a", encoding="utf-8")
@@ -330,6 +388,7 @@ class ExecutionJournals:
                             "content": content,
                         }
                     )
+            completed = True
             await append(_terminal_entry(COMPLETED))
         except asyncio.CancelledError:
             # The server is stopping: end the journal so followers return.
@@ -348,12 +407,15 @@ class ExecutionJournals:
             journal.close()
             iopub.cancel()
             shell.cancel()
-            client.stop_channels()
+            self._release_client(kernel_id, client, kept, reusable=completed)
             self._recordings.pop(path.stem, None)
             async with recording.changed:
                 recording.changed.notify_all()
 
     def _remove_expired(self) -> None:
+        if time.monotonic() < self._next_cleanup:
+            return
+        self._next_cleanup = time.monotonic() + CLEANUP_INTERVAL_SECONDS
         cutoff = time.time() - self._retention_seconds
         for path in self._root.glob("*.jsonl"):
             if path.stem in self._recordings:
