@@ -128,12 +128,20 @@ class StepFlow:
         profile: str,
         lease: ExecutionLease,
         run: StepRun,
+        *,
+        last_in_operation: bool,
     ) -> None:
-        """Release, project and register a Step whose success is committed."""
+        """Release and register a Step whose success is committed.
+
+        The notebook is rebuilt from the whole Execution, so it is written
+        once, after the Operation's last Step. A failed, cancelled or
+        interrupted Operation refreshes or invalidates it on its own path.
+        """
         await self._step_executor.release(driver, runtime_session_id, run)
-        await self._notebook_projector.project_required(
-            driver, lease, profile, workspace
-        )
+        if last_in_operation:
+            await self._notebook_projector.project_required(
+                driver, lease, profile, workspace
+            )
         try:
             await self._artifacts.discover_and_register(
                 driver=driver,

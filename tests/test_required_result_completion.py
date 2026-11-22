@@ -182,7 +182,8 @@ async def test_required_delivery_and_retry_policy(
                 else ExecutionStatus.WAITING_FOR_OPERATION
             )
             assert CompletionDriver.executed == ["value = 1", "print(value)"]
-            assert CompletionDriver.writes == 4
+            # One notebook write per Operation: two failures, then success.
+            assert CompletionDriver.writes == 3
             assert operation.status == OperationStatus.SUCCEEDED
             return
         assert finished.status == ExecutionStatus.FAILED
@@ -192,7 +193,9 @@ async def test_required_delivery_and_retry_policy(
         assert finished.steps[0].result_complete is True
         ref = finished.steps[0].result_manifest_path
         assert ref is not None and (tmp_path / ref).is_file()
-        early_failure = fault in {"write", "artifacts", "catalog"}
+        # Artifacts are registered after each Step; the notebook is
+        # written once, after the Operation's last Step.
+        early_failure = fault == "artifacts"
         assert finished.steps[1].status == (
             StepStatus.SKIPPED if early_failure else StepStatus.SUCCEEDED
         )

@@ -331,7 +331,13 @@ async def test_failures_preserve_state_reason_partial_refs_and_operator_logs(
     )
     assert operation is not None and operation.status == OperationStatus.FAILED
     assert history is not None
-    assert steps[1].status == StepStatus.SKIPPED
+    # The notebook is rebuilt after the Operation's last Step, so a
+    # failing rebuild no longer stops the Steps before it.
+    assert steps[1].status == (
+        StepStatus.SUCCEEDED
+        if storage_fault == "read_step_projection" and fault == "success"
+        else StepStatus.SKIPPED
+    )
     assert steps[0].status == (
         StepStatus.SUCCEEDED
         if storage_fault == "read_step_projection" and fault == "success"
@@ -343,7 +349,11 @@ async def test_failures_preserve_state_reason_partial_refs_and_operator_logs(
         for event in events
         if event.event_type == "execution.step_completed"
     ]
-    assert len(step_events) == 1
+    assert len(step_events) == (
+        2
+        if storage_fault == "read_step_projection" and fault == "success"
+        else 1
+    )
     await assert_result_evidence_surfaces(factory, submitted.id, tmp_path)
     assert len(
         [

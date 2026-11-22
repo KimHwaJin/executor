@@ -281,6 +281,7 @@ class SingleExecutionRunner:
                     profile,
                     lease,
                     step_run,
+                    last_in_operation=sequence == len(cells) - 1,
                 )
             await self._steps.complete_session(
                 driver, runtime_session_id, lease, target.id
