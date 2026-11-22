@@ -9,6 +9,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
+from sqlalchemy.orm.attributes import set_committed_value
 
 from executor_service.domain.enums import OperationStatus
 from executor_service.domain.errors import PersistenceConflictError
@@ -47,6 +48,24 @@ class SQLAlchemyExecutionRepository:
             statement = statement.with_for_update()
         row = await self._session.scalar(statement)
         return row.to_domain() if row else None
+
+    async def get_for_append(
+        self, execution_id: UUID, *, for_update: bool = False
+    ) -> tuple[Execution, int] | None:
+        statement = select(ExecutionORM).where(ExecutionORM.id == execution_id)
+        if for_update:
+            statement = statement.with_for_update()
+        row = await self._session.scalar(statement)
+        if row is None:
+            return None
+        step_count = await self._session.scalar(
+            select(func.count(ExecutionStepORM.id)).where(
+                ExecutionStepORM.execution_id == execution_id
+            )
+        )
+        # Appending needs the count, not up to 1000 earlier Steps.
+        set_committed_value(row, "steps", [])
+        return row.to_domain(), step_count or 0
 
     async def get_by_submit_key(
         self, tenant_id: str, idempotency_key: str

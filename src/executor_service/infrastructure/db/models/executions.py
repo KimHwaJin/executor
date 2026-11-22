@@ -319,7 +319,9 @@ class ExecutionORM(Base):
     steps: Mapped[list["ExecutionStepORM"]] = relationship(
         back_populates="execution",
         cascade="all, delete-orphan",
-        lazy="selectin",
+        # Loaded only where asked: a MULTI session keeps up to 1000 Steps
+        # and most readers of an Execution need none of them.
+        lazy="select",
         order_by="ExecutionStepORM.sequence",
     )
 

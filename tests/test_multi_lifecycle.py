@@ -1325,3 +1325,104 @@ async def test_running_execution_deadline_requests_cancel_and_reclaims_kernel(
     assert timeout_events == 1
     assert FakeJupyterGateway.interrupted == ["kernel-running-timeout"]
     assert FakeJupyterGateway.deleted == ["kernel-running-timeout"]
+
+
+async def test_appended_operation_is_claimed_without_the_session_history(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    execution = await execution_service.submit(_multi_command("claim-scope"))
+    session_factory = create_session_factory(engine)
+    async with session_factory() as session, session.begin():
+        session.add(
+            RuntimeTargetORM(
+                name="claim-scope-target",
+                connection_config={"endpoint": "http://operation.invalid"},
+                **runtime_credential_fields(),
+                pool=RuntimePool.INTERACTIVE,
+                status=RuntimeTargetStatus.ACTIVE,
+                max_concurrent_executions=1,
+                supported_profiles=["basic"],
+                enabled=True,
+            )
+        )
+    RecordingMultiDriver.fail_code = None
+    _patch_runtime_driver(monkeypatch, RecordingMultiDriver)
+    worker, redis = _worker(engine, tmp_path)
+    try:
+        await worker._runner.run(execution.id)
+        waiting = await execution_service.get(execution.id)
+        assert waiting.status == ExecutionStatus.WAITING_FOR_OPERATION
+        await execution_service.create_operation(
+            CreateOperationCommand(
+                execution_id=execution.id,
+                idempotency_key="claim-scope-second",
+                expected_version=waiting.version,
+                steps=(StepSpec(1, "second = 2"), StepSpec(2, "third = 3")),
+            )
+        )
+        claimed = await worker._claimer.claim(execution.id)
+        assert claimed is not None
+        assert [step.sequence for step in claimed[0].steps] == [1, 2]
+    finally:
+        await redis.aclose()
+
+    # The command still sees the whole session.
+    stored = await execution_service.get(execution.id)
+    assert [step.sequence for step in stored.steps] == [0, 1, 2]
+
+
+async def test_each_operation_gets_one_started_event(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    execution = await execution_service.submit(_multi_command("start-events"))
+    session_factory = create_session_factory(engine)
+    async with session_factory() as session, session.begin():
+        session.add(
+            RuntimeTargetORM(
+                name="start-events-target",
+                connection_config={"endpoint": "http://operation.invalid"},
+                **runtime_credential_fields(),
+                pool=RuntimePool.INTERACTIVE,
+                status=RuntimeTargetStatus.ACTIVE,
+                max_concurrent_executions=1,
+                supported_profiles=["basic"],
+                enabled=True,
+            )
+        )
+    RecordingMultiDriver.fail_code = None
+    _patch_runtime_driver(monkeypatch, RecordingMultiDriver)
+    worker, redis = _worker(engine, tmp_path)
+    try:
+        await worker._runner.run(execution.id)
+        waiting = await execution_service.get(execution.id)
+        await execution_service.create_operation(
+            CreateOperationCommand(
+                execution_id=execution.id,
+                idempotency_key="start-events-second",
+                expected_version=waiting.version,
+                steps=(StepSpec(1, "second = 2"),),
+            )
+        )
+        await worker._runner.run(execution.id)
+    finally:
+        await redis.aclose()
+
+    async with session_factory() as session:
+        started = list(
+            await session.scalars(
+                select(ExecutionEventORM.payload).where(
+                    ExecutionEventORM.execution_id == execution.id,
+                    ExecutionEventORM.event_type
+                    == "execution.operation_started",
+                )
+            )
+        )
+    operation_ids = [payload["operation"]["id"] for payload in started]
+    assert len(operation_ids) == 2
+    assert len(set(operation_ids)) == 2

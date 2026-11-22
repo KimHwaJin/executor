@@ -36,6 +36,11 @@ class ExecutionOperationCommands:
     async def create(
         self, command: CreateOperationCommand
     ) -> ExecutionCommandResult:
+        """Append an Operation.
+
+        The returned Execution carries this Operation's Steps only; a long
+        session's earlier Steps are never loaded to accept one more.
+        """
         validate_schema_version(
             command.spec_schema_version, (*OPERATION_CREATE_LOCATION, "spec")
         )
@@ -50,7 +55,8 @@ class ExecutionOperationCommands:
             if repeated is not None:
                 return repeated
             self._accept(
-                await uow.executions.get(command.execution_id), command
+                await uow.executions.get_for_append(command.execution_id),
+                command,
             )
         operation = ExecutionOperation(
             execution_id=command.execution_id,
@@ -101,7 +107,7 @@ class ExecutionOperationCommands:
                 if repeated is not None:
                     return repeated
                 execution = self._accept(
-                    await uow.executions.get(
+                    await uow.executions.get_for_append(
                         command.execution_id, for_update=True
                     ),
                     command,
@@ -156,25 +162,35 @@ class ExecutionOperationCommands:
         if receipt is None:
             return None
         ensure_same_receipt(receipt, command_type, request_fingerprint)
+        execution = await required_execution(uow, command.execution_id)
+        operation_id = operation_id_from_receipt(receipt)
+        # The same answer as the first time: this Operation's Steps only.
+        execution.steps = [
+            step
+            for step in execution.steps
+            if step.operation_id == operation_id
+        ]
         return ExecutionCommandResult(
-            execution=await required_execution(uow, command.execution_id),
-            operation_id=operation_id_from_receipt(receipt),
+            execution=execution, operation_id=operation_id
         )
 
     def _accept(
-        self, execution: Execution | None, command: CreateOperationCommand
+        self,
+        found: tuple[Execution, int] | None,
+        command: CreateOperationCommand,
     ) -> Execution:
         """Move the Execution to QUEUED for this Operation, or refuse it."""
-        if execution is None:
+        if found is None:
             raise ExecutionNotFoundError(
                 f"Execution {command.execution_id} was not found."
             )
+        execution, step_count = found
         # State and version first: a caller with a stale view gets the 409
         # that says so, not a 422 about the sequence it computed from that
         # view.
         execution.request_operation(command.expected_version)
         self._support.validate_step_limits(
-            len(execution.steps),
+            step_count,
             len(command.steps),
             location=OPERATION_CREATE_LOCATION,
         )
@@ -185,7 +201,7 @@ class ExecutionOperationCommands:
         )
         validate_operation_steps(
             command.steps,
-            expected_start=len(execution.steps),
+            expected_start=step_count,
             location=(*OPERATION_CREATE_LOCATION, "spec"),
         )
         return execution
