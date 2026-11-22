@@ -148,8 +148,14 @@ class SQLAlchemyExecutionRepository:
         # A follow-up MULTI Operation and its Steps are independent ORM
         # instances. Flush the parent before the caller adds child Steps so
         # PostgreSQL never observes an execution_steps.operation_id whose
-        # Operation has not been inserted yet.
-        await self._session.flush()
+        # Operation has not been inserted yet. The flush is also where a
+        # concurrent request's duplicate key surfaces.
+        try:
+            await self._session.flush()
+        except IntegrityError as exc:
+            raise PersistenceConflictError(
+                "A persistence constraint was violated."
+            ) from exc
 
     async def next_operation_number(self, execution_id: UUID) -> int:
         current = await self._session.scalar(
