@@ -5,6 +5,7 @@ from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import lazyload
 
 from executor_service.domain.enums import AttemptStatus, ExecutionStatus
 from executor_service.domain.models import utc_now
@@ -52,6 +53,9 @@ async def require_active_lease(
             ExecutionORM.lease_expires_at.is_not(None),
             ExecutionORM.lease_expires_at > now,
         )
+        # A lease check runs several times per Step; loading every Step
+        # of the Execution with it would grow with the session's history.
+        .options(lazyload(ExecutionORM.steps))
         .with_for_update()
     )
     if execution is None:

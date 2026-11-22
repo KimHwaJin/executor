@@ -134,8 +134,10 @@ class MultiExecutionRunner:
                 raise ValueError("MULTI Execution has no Runtime session.")
             profile = execution.runtime_profile
             if taken_over is None and execution.finalization_requested:
+                # Finalize succeeds only if shared storage still holds
+                # every result, so nothing is taken from memory here.
                 await self._notebook_projector.project_required(
-                    driver, lease, profile, workspace
+                    driver, lease, profile, workspace, reread=True
                 )
                 await self._steps.complete_session(
                     driver, runtime_session_id, lease, target.id
