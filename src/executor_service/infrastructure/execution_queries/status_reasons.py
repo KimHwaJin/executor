@@ -148,6 +148,10 @@ class StatusReasonResolver:
         ] = {}
         reasons: dict[UUID, StatusReason] = {}
         for row in queued:
+            if row.id not in positions:
+                # Claimed or cancelled since the row was read: no longer
+                # waiting, so it has no wait reason.
+                continue
             if row.id in pinned:
                 target = targets.get(pinned[row.id])
                 state = _unavailable(target)
