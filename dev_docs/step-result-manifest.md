@@ -37,7 +37,7 @@ Redis Step 완료 이벤트와 Operation 완료 이벤트의 `step_results[].res
     "fencing_token": 1
   },
   "source": {
-    "relative_path": "executor/executions/10000000-0000-0000-0000-000000000001/sources/30000000-0000-0000-0000-000000000003/source.py",
+    "relative_path": "executor/executions/10000000-0000-0000-0000-000000000001/operations/20000000-0000-0000-0000-000000000002/sources/30000000-0000-0000-0000-000000000003.py",
     "checksum_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "size_bytes": 14
   },
@@ -117,8 +117,8 @@ Redis Step 완료 이벤트와 Operation 완료 이벤트의 `step_results[].res
 `complete=true`는 Step 성공을 뜻하지 않는다. `FAILED`도 오류 결과를 끝까지 수집했다면
 `complete=true`다. 성공 여부는 `state` 또는 Result API의 Step status로 판단한다.
 
-실행 중에는 `<fencing-token>.partial/.state.json`(헤더)과 `outputs.jsonl`(배치마다 한 줄)이 사용되지만 이는 공개 계약이나 권위 있는
-결과가 아니다. Agent는 `result_ref`로 반환된 terminal `manifest.json`만 읽어야 한다.
+실행 중에는 `<fencing-token>.partial/outputs/`에 출력 파일이 쌓이지만 이는 공개 계약이나 권위 있는
+결과가 아니다. 이 디렉터리는 해당 fencing token을 가진 Worker만 쓰고 봉인하며, 다른 Worker가 이어 쓰지 않는다. Agent는 `result_ref`로 반환된 terminal `manifest.json`만 읽어야 한다.
 
 ## `identity`
 

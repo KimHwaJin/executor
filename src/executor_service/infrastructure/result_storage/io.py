@@ -12,7 +12,9 @@ from executor_service.infrastructure.result_storage.errors import (
 )
 
 
-def atomic_json_write(path: Path, value: dict[str, Any]) -> None:
+def atomic_json_write(
+    path: Path, value: dict[str, Any], *, sync_directory: bool = True
+) -> None:
     atomic_write(
         path,
         json.dumps(
@@ -21,6 +23,7 @@ def atomic_json_write(path: Path, value: dict[str, Any]) -> None:
             separators=(",", ":"),
             ensure_ascii=False,
         ).encode("utf-8"),
+        sync_directory=sync_directory,
     )
 
 
