@@ -3,7 +3,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import update
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from executor_service.application.commands import (
     StepSpec,
@@ -35,6 +35,9 @@ from executor_service.infrastructure.db.models import (
 from executor_service.infrastructure.db.session import create_session_factory
 from executor_service.infrastructure.execution_queries import (
     SQLAlchemyExecutionQueryService,
+)
+from executor_service.infrastructure.execution_queries.status_reasons import (
+    StatusReasonResolver,
 )
 from executor_service.interfaces.contracts import ExecutionResponse
 from executor_service.settings import Settings
@@ -149,6 +152,33 @@ async def test_queued_reason_follows_what_blocks_the_claim(
         )
     found = await reason()
     assert found and found.code == StatusReasonCode.ADMISSION_DRAINING
+
+
+async def test_run_that_left_the_queue_after_it_was_read_has_no_wait_reason(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    execution = await execution_service.submit(_command("claimed"))
+    positions = StatusReasonResolver._queue_positions
+
+    async def claimed_before_positions(
+        session: AsyncSession, execution_ids: list[UUID]
+    ) -> dict[UUID, int]:
+        # A Worker claims the run between the row read and the ranking.
+        await _set(engine, execution.id, status=ExecutionStatus.RUNNING)
+        return await positions(session, execution_ids)
+
+    monkeypatch.setattr(
+        StatusReasonResolver,
+        "_queue_positions",
+        staticmethod(claimed_before_positions),
+    )
+    queries = _queries(engine)
+
+    assert (await queries.execution(execution.id)).reason is None
+    page = await queries.executions(tenant_id="test-tenant")
+    assert [item.reason for item in page.items] == [None]
 
 
 async def test_queued_run_that_kept_its_kernel_waits_for_that_target(
