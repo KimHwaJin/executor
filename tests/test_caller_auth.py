@@ -521,3 +521,25 @@ async def test_openapi_documents_the_identity_headers(auth_app) -> None:
     assert scoped == {"POST /api/v1/executions"}
     targets = schema["paths"]["/api/v1/runtime-targets"]["get"]
     assert targets["security"] == [{"APIKeyHeader": []}]
+
+
+async def test_status_request_reads_the_execution_once(
+    auth_app, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, container = auth_app
+    owner = _headers(AGENT_KEY, "rest-user")
+    location = (await _submit(client, owner, "one-read")).headers["location"]
+    reads = 0
+    read = container.execution_queries.execution
+
+    async def counted(execution_id):
+        nonlocal reads
+        reads += 1
+        return await read(execution_id)
+
+    monkeypatch.setattr(container.execution_queries, "execution", counted)
+
+    assert (await client.get(location, headers=owner)).status_code == 200
+    assert reads == 1
+    hidden = await client.get(location, headers=_headers(AGENT_KEY, "b"))
+    assert hidden.status_code == 404

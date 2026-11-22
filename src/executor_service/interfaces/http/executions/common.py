@@ -5,6 +5,9 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
 
+from executor_service.application.execution_queries import (
+    ExecutionDetailView,
+)
 from executor_service.domain.errors import (
     ExecutionArtifactNotFoundError,
     ExecutionNotFoundError,
@@ -45,16 +48,38 @@ DOMAIN_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
 }
 
 
-async def authorized_caller(request: Request) -> Caller:
+async def authorized_execution(request: Request) -> ExecutionDetailView | None:
+    """The Execution in the path, after the tenant and user rule.
+
+    FastAPI runs a dependency once per request, so the router's check and
+    a handler that answers with the Execution share one read.
+    """
+
+    execution_id = _path_uuid(request, "execution_id")
+    if execution_id is None:
+        return None
+    return await authorize_execution(
+        request.app.state.container.execution_queries,
+        current_caller(),
+        execution_id,
+        write=request.method not in READ_METHODS,
+    )
+
+
+async def authorized_caller(
+    request: Request,
+    execution: Annotated[
+        ExecutionDetailView | None, Depends(authorized_execution)
+    ],
+) -> Caller:
     """Apply the tenant and user rule to the Execution or Artifact in the path."""
 
     caller = current_caller()
     queries = request.app.state.container.execution_queries
     write = request.method not in READ_METHODS
-    execution_id = _path_uuid(request, "execution_id")
     artifact_id = _path_uuid(request, "artifact_id")
-    if execution_id is not None:
-        await authorize_execution(queries, caller, execution_id, write=write)
+    if execution is not None:
+        pass
     elif artifact_id is not None:
         artifact = await queries.artifact(artifact_id)
         try:
@@ -81,7 +106,18 @@ def _path_uuid(request: Request, name: str) -> UUID | None:
         return None
 
 
+async def path_execution(
+    execution: Annotated[
+        ExecutionDetailView | None, Depends(authorized_execution)
+    ],
+) -> ExecutionDetailView:
+    if execution is None:
+        raise ExecutionNotFoundError("The path names no Execution.")
+    return execution
+
+
 CurrentCaller = Annotated[Caller, Depends(authorized_caller)]
+PathExecution = Annotated[ExecutionDetailView, Depends(path_execution)]
 
 
 def execution_router() -> APIRouter:

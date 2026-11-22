@@ -18,6 +18,7 @@ from executor_service.application.commands import (
     StepSpec,
 )
 from executor_service.application.execution_queries import (
+    ExecutionDetailView,
     ExecutionQueryService,
 )
 from executor_service.application.execution_results import (
@@ -138,8 +139,10 @@ def build_mcp_server(
         ),
     )
 
-    async def authorize(execution_id: UUID, *, write: bool = False) -> None:
-        await authorize_execution(
+    async def authorize(
+        execution_id: UUID, *, write: bool = False
+    ) -> ExecutionDetailView:
+        return await authorize_execution(
             execution_queries, current_caller(), execution_id, write=write
         )
 
@@ -175,8 +178,7 @@ def build_mcp_server(
     )
     async def execution_get(execution_id: UUID) -> ExecutionResponse:
         try:
-            await authorize(execution_id)
-            execution = await execution_queries.execution(execution_id)
+            execution = await authorize(execution_id)
         except Exception as exc:
             raise _public_tool_error(exc) from exc
         return ExecutionResponse.from_view(execution)
