@@ -1,3 +1,4 @@
+from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
@@ -35,7 +36,7 @@ from executor_service.domain.errors import (
     InvalidStateTransitionError,
     UnsupportedRuntimeProfileError,
 )
-from executor_service.domain.models import utc_now
+from executor_service.domain.models import Execution, utc_now
 from executor_service.domain.runtime import RuntimeOffering
 from executor_service.infrastructure.db.models import (
     ExecutionOperationORM,
@@ -281,6 +282,131 @@ async def test_commands_that_change_no_step_update_no_step_row(
 
     assert [step.sequence for step in continued.steps] == [0, 1]
     assert step_updates == []
+
+
+async def _waiting_multi(
+    service: ExecutionService, engine: AsyncEngine, key: str
+) -> Execution:
+    execution = await service.submit(multi_submit_command(key))
+    async with create_session_factory(engine)() as session, session.begin():
+        await session.execute(
+            update(ExecutionORM)
+            .where(ExecutionORM.id == execution.id)
+            .values(status=ExecutionStatus.WAITING_FOR_OPERATION, version=2)
+        )
+    return execution
+
+
+def _during_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+    action: Callable[[], Awaitable[None]],
+) -> None:
+    """Run the action once, while a source snapshot is being written."""
+    snapshot = FilesystemExecutionResultStore.snapshot_source
+    pending = [action]
+
+    async def snapshot_source(self, execution_id, step_id, content):
+        if pending:
+            await pending.pop()()
+        return await snapshot(self, execution_id, step_id, content)
+
+    monkeypatch.setattr(
+        FilesystemExecutionResultStore, "snapshot_source", snapshot_source
+    )
+
+
+async def test_source_snapshots_hold_no_database_connection(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    execution = await _waiting_multi(execution_service, engine, "held")
+    held = 0
+    held_during_snapshot: list[int] = []
+
+    def checkout(*_args) -> None:
+        nonlocal held
+        held += 1
+
+    def checkin(*_args) -> None:
+        nonlocal held
+        held -= 1
+
+    snapshot = FilesystemExecutionResultStore.snapshot_source
+
+    async def snapshot_source(self, execution_id, step_id, content):
+        held_during_snapshot.append(held)
+        return await snapshot(self, execution_id, step_id, content)
+
+    monkeypatch.setattr(
+        FilesystemExecutionResultStore, "snapshot_source", snapshot_source
+    )
+    event.listen(engine.sync_engine, "checkout", checkout)
+    event.listen(engine.sync_engine, "checkin", checkin)
+    try:
+        await execution_service.submit(submit_command("no-connection"))
+        await execution_service.create_operation(
+            CreateOperationCommand(
+                execution_id=execution.id,
+                idempotency_key="no-connection-operation",
+                expected_version=2,
+                steps=(StepSpec(sequence=1, code="value_1 = 1"),),
+            )
+        )
+    finally:
+        event.remove(engine.sync_engine, "checkout", checkout)
+        event.remove(engine.sync_engine, "checkin", checkin)
+
+    assert held_during_snapshot == [0, 0]
+
+
+async def test_submit_repeated_while_its_sources_are_written_returns_one(
+    execution_service: ExecutionService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    command = submit_command("concurrent-submit")
+    concurrent: list[Execution] = []
+
+    async def same_request() -> None:
+        concurrent.append(await execution_service.submit(command))
+
+    _during_snapshot(monkeypatch, same_request)
+    submitted = await execution_service.submit(command)
+
+    assert submitted.id == concurrent[0].id
+
+
+async def test_operation_checks_the_state_again_after_its_sources_are_written(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    execution = await _waiting_multi(execution_service, engine, "raced")
+
+    async def cancel() -> None:
+        await execution_service.cancel(
+            CancelExecutionCommand(
+                execution_id=execution.id,
+                idempotency_key="cancel-during-snapshot",
+                reason=None,
+            )
+        )
+
+    _during_snapshot(monkeypatch, cancel)
+    with pytest.raises(
+        InvalidStateTransitionError, match="must be WAITING_FOR_OPERATION"
+    ):
+        await execution_service.create_operation(
+            CreateOperationCommand(
+                execution_id=execution.id,
+                idempotency_key="raced-operation",
+                expected_version=2,
+                steps=(StepSpec(sequence=1, code="value_1 = 1"),),
+            )
+        )
+    stored = await execution_service.get(execution.id)
+    assert stored.status == ExecutionStatus.CANCEL_REQUESTED
+    assert len(stored.steps) == 1
 
 
 async def test_submit_get_cancel_and_idempotency(
