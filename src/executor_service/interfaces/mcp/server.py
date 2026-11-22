@@ -102,6 +102,8 @@ StandardLimit = Annotated[int, Field(ge=1, le=200)]
 EventLimit = Annotated[int, Field(ge=1, le=500)]
 ArtifactLimit = Annotated[int, Field(ge=1, le=1000)]
 ScopeFilter = Annotated[str | None, Field(pattern=SCOPE_ID.pattern)]
+# Kept under the idle timeouts of common proxies.
+WaitSeconds = Annotated[int, Field(ge=0, le=30)]
 
 
 def _public_tool_error(exc: Exception) -> ToolError:
@@ -174,11 +176,23 @@ def build_mcp_server(
         )
 
     @server.tool(
-        description="Get the PostgreSQL-backed current execution state."
+        description=(
+            "Get the PostgreSQL-backed current execution state. "
+            "wait_seconds holds the answer while the execution is working, "
+            "until it is WAITING_FOR_OPERATION or terminal or the time is up; "
+            "call again if it is still working."
+        )
     )
-    async def execution_get(execution_id: UUID) -> ExecutionResponse:
+    async def execution_get(
+        execution_id: UUID, wait_seconds: WaitSeconds = 0
+    ) -> ExecutionResponse:
         try:
             execution = await authorize(execution_id)
+            if wait_seconds and not execution.status.is_settled:
+                await execution_queries.wait_until_settled(
+                    execution_id, wait_seconds
+                )
+                execution = await execution_queries.execution(execution_id)
         except Exception as exc:
             raise _public_tool_error(exc) from exc
         return ExecutionResponse.from_view(execution)

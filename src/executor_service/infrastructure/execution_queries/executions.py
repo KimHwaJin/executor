@@ -1,5 +1,6 @@
 """SQLAlchemy reads for Executions and their planned Steps."""
 
+import asyncio
 from uuid import UUID
 
 from sqlalchemy import and_, func, or_, select
@@ -36,6 +37,12 @@ from executor_service.infrastructure.execution_queries.mappers import (
 from executor_service.infrastructure.execution_queries.status_reasons import (
     StatusReasonResolver,
 )
+
+# How often a waiting status request looks at the Execution's row: a tenth
+# of the time it has waited, so a short Operation is noticed quickly and a
+# long one is not asked about often.
+STATUS_CHECK_MIN_SECONDS = 0.2
+STATUS_CHECK_MAX_SECONDS = 2.0
 
 
 class SQLAlchemyExecutionReader:
@@ -136,6 +143,34 @@ class SQLAlchemyExecutionReader:
                 )
             reasons = await self._reasons.resolve(session, [row])
         return execution_detail_view(row, reasons[row.id])
+
+    async def wait_until_settled(
+        self, execution_id: UUID, seconds: float
+    ) -> None:
+        """Return once the Execution stops working, or the time is up.
+
+        Any Pod may be running it, so the row is the only place to look.
+        Reading one column costs less than the full status requests a
+        caller would otherwise send.
+        """
+
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        deadline = started + seconds
+        while (now := loop.time()) < deadline:
+            pause = min(
+                max((now - started) / 10, STATUS_CHECK_MIN_SECONDS),
+                STATUS_CHECK_MAX_SECONDS,
+            )
+            await asyncio.sleep(min(pause, deadline - now))
+            async with self._session_factory() as session:
+                status = await session.scalar(
+                    select(ExecutionORM.status).where(
+                        ExecutionORM.id == execution_id
+                    )
+                )
+            if status is None or status.is_settled:
+                return
 
     async def steps(
         self,

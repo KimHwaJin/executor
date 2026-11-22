@@ -24,6 +24,22 @@ from executor_service.interfaces.http.executions.common import (
     execution_router,
 )
 
+# Kept under the idle timeouts of common proxies.
+MAX_WAIT_SECONDS = 30
+WaitSeconds = Annotated[
+    int,
+    Query(
+        ge=0,
+        le=MAX_WAIT_SECONDS,
+        description=(
+            "Hold the response while the Execution is working, for at most "
+            "this many seconds. It answers as soon as the Execution is "
+            "WAITING_FOR_OPERATION or terminal, and with the current state "
+            "when the time is up."
+        ),
+    ),
+]
+
 # X-User-Id's format before lowercasing: the owner to filter by.
 UserFilter = Annotated[
     str | None,
@@ -81,8 +97,15 @@ def build_query_router(container: ApplicationContainer) -> APIRouter:
         summary="Get current execution state",
     )
     async def get_execution(
-        execution_id: UUID, execution: PathExecution
+        execution_id: UUID,
+        execution: PathExecution,
+        wait_seconds: WaitSeconds = 0,
     ) -> ExecutionResponse:
+        if wait_seconds and not execution.status.is_settled:
+            await execution_queries.wait_until_settled(
+                execution_id, wait_seconds
+            )
+            execution = await execution_queries.execution(execution_id)
         return ExecutionResponse.from_view(execution)
 
     @router.get(

@@ -1,3 +1,5 @@
+import asyncio
+import time
 from dataclasses import replace
 from datetime import timedelta
 from uuid import uuid4
@@ -304,3 +306,46 @@ async def test_result_snapshot_uses_fixed_bulk_queries_and_scope_filter(
     assert len(snapshot.operations) == 2
     assert len(snapshot.steps) == 2
     assert len(statements) == 9  # Six for the snapshot, three for the reason.
+
+
+async def test_waiting_ends_when_the_execution_settles(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+) -> None:
+    execution = await execution_service.submit(_submit_command())
+    session_factory = create_session_factory(engine)
+    queries = SQLAlchemyExecutionQueryService(
+        session_factory, Settings(_env_file=None, auth_clients=[])
+    )
+
+    async def settle() -> None:
+        await asyncio.sleep(0.05)
+        async with session_factory() as session, session.begin():
+            await session.execute(
+                update(ExecutionORM)
+                .where(ExecutionORM.id == execution.id)
+                .values(status=ExecutionStatus.SUCCEEDED)
+            )
+
+    started = time.monotonic()
+    settling = asyncio.create_task(settle())
+    await queries.wait_until_settled(execution.id, 30)
+    await settling
+
+    assert time.monotonic() - started < 5
+
+
+async def test_waiting_ends_when_the_time_is_up(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+) -> None:
+    execution = await execution_service.submit(_submit_command())
+    queries = SQLAlchemyExecutionQueryService(
+        create_session_factory(engine),
+        Settings(_env_file=None, auth_clients=[]),
+    )
+
+    await queries.wait_until_settled(execution.id, 0.05)
+
+    view = await queries.execution(execution.id)
+    assert view.status is ExecutionStatus.QUEUED
