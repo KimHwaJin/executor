@@ -1,5 +1,6 @@
 import errno
 import json
+import ssl
 from typing import Any
 from uuid import UUID
 
@@ -28,6 +29,7 @@ from executor_service.infrastructure.jupyter import (
     _as_output_record,
     _contents_path,
 )
+from executor_service.infrastructure.jupyter.transport import _tls_context
 
 _CONNECT = (
     "executor_service.infrastructure.jupyter.execution.websockets.connect"
@@ -889,3 +891,24 @@ async def test_output_limits_end_the_step_as_incomplete(
         )
 
     assert raised.value.kind == kind
+
+
+async def test_drivers_build_one_tls_context_between_them(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    built = 0
+    create = ssl.create_default_context
+
+    def counted(*args: Any, **kwargs: Any) -> ssl.SSLContext:
+        nonlocal built
+        built += 1
+        return create(*args, **kwargs)
+
+    monkeypatch.setattr(ssl, "create_default_context", counted)
+    _tls_context.cache_clear()
+
+    for _ in range(3):
+        driver = JupyterRuntimeDriver("https://jupyter.invalid", "secret")
+        await driver.close()
+
+    assert built == 1

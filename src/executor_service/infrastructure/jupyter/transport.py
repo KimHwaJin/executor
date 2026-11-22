@@ -1,6 +1,8 @@
 """HTTP and URL transport primitives for Jupyter Runtime Targets."""
 
+import ssl
 from contextlib import AbstractAsyncContextManager
+from functools import cache
 from typing import Any
 from urllib.parse import urlencode, urlsplit, urlunsplit
 from uuid import UUID
@@ -46,6 +48,16 @@ def _storage_error_reason(response: httpx.Response) -> str:
     return ""
 
 
+@cache
+def _tls_context() -> ssl.SSLContext:
+    """One TLS context for every client.
+
+    Building one reads the CA bundle, which takes far longer than the rest
+    of a client's setup, and a client is made for every Operation.
+    """
+    return httpx.create_ssl_context()
+
+
 class JupyterHttpTransport:
     def __init__(
         self,
@@ -61,6 +73,7 @@ class JupyterHttpTransport:
             base_url=self.endpoint,
             headers={"Authorization": f"token {token}"},
             timeout=request_timeout_seconds,
+            verify=_tls_context(),
         )
 
     async def close(self) -> None:
