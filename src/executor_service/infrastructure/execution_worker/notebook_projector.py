@@ -114,7 +114,15 @@ class NotebookProjector:
         lease: ExecutionLease,
         runtime_profile: str,
         workspace: ExecutionWorkspace,
+        *,
+        reread: bool = False,
     ) -> bool:
+        """Rebuild the notebook from every Step's source and result.
+
+        Sources and sealed results never change, so Steps this process
+        already read are taken from memory unless ``reread`` asks for
+        shared storage to be checked again.
+        """
         await self._assert_active_lease(lease)
         async with self._session_factory() as session, session.begin():
             execution, _attempt = await require_active_lease(session, lease)
@@ -139,7 +147,8 @@ class NotebookProjector:
                             relative_path=step.source_snapshot_path,
                             checksum_sha256=step.source_sha256,
                             size_bytes=step.source_size_bytes,
-                        )
+                        ),
+                        cached=not reread,
                     )
                 )
                 if (
@@ -155,7 +164,8 @@ class NotebookProjector:
                             size_bytes=step.result_manifest_size_bytes or 0,
                             execution_attempt_id=step.result_execution_attempt_id,
                             fencing_token=step.result_fencing_token,
-                        )
+                        ),
+                        cached=not reread,
                     )
                     outputs.append(projection.outputs)
                     execution_counts.append(projection.execution_count)
@@ -237,11 +247,13 @@ class NotebookProjector:
         lease: ExecutionLease,
         runtime_profile: str,
         workspace: ExecutionWorkspace,
+        *,
+        reread: bool = False,
     ) -> None:
         """A successful code path cannot ignore failed notebook delivery."""
         try:
             projected = await self.project(
-                driver, lease, runtime_profile, workspace
+                driver, lease, runtime_profile, workspace, reread=reread
             )
         except (ExecutionLeaseLostError, ExecutionCompletionError):
             raise

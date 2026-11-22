@@ -73,7 +73,7 @@ class ExecutionResultStore(Protocol):
     ) -> list[ExecutionSourceReference]: ...
 
     async def read_source(
-        self, reference: ExecutionSourceReference
+        self, reference: ExecutionSourceReference, *, cached: bool = False
     ) -> str: ...
 
     async def read_step_outputs(
@@ -81,7 +81,7 @@ class ExecutionResultStore(Protocol):
     ) -> list[dict[str, object]]: ...
 
     async def read_step_projection(
-        self, reference: StepResultReference
+        self, reference: StepResultReference, *, cached: bool = False
     ) -> StepResultProjection: ...
 
     async def begin_step_result(

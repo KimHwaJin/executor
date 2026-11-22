@@ -604,3 +604,68 @@ async def test_source_snapshot_in_the_earlier_layout_is_still_read(
         )
         == "print(1)"
     )
+
+
+@pytest.mark.asyncio
+async def test_source_and_sealed_result_are_read_from_storage_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = FilesystemExecutionResultStore(tmp_path)
+    identity = _identity()
+    source = await store.snapshot_source(
+        identity.execution_id,
+        identity.operation_id,
+        identity.step_id,
+        "print(1)",
+    )
+    await store.begin_step_result(identity, source)
+    await store.append_step_outputs(
+        identity, expected_offset=0, records=(_text_record("once\n"),)
+    )
+    result = await store.finalize_step_result(identity, execution_count=1)
+    reads: list[Path] = []
+    read_bytes = Path.read_bytes
+
+    def counted(path: Path) -> bytes:
+        reads.append(path)
+        return read_bytes(path)
+
+    monkeypatch.setattr(Path, "read_bytes", counted)
+
+    first = await store.read_step_projection(result.reference, cached=True)
+    assert await store.read_source(source, cached=True) == "print(1)"
+    read_once = list(reads)
+    assert read_once
+    assert (
+        await store.read_step_projection(result.reference, cached=True)
+        is first
+    )
+    assert await store.read_source(source, cached=True) == "print(1)"
+    assert reads == read_once
+
+    # A reference with another checksum is not answered from memory.
+    with pytest.raises(ResultStorageError):
+        await store.read_source(
+            replace(source, checksum_sha256="0" * 64), cached=True
+        )
+    # Without ``cached`` shared storage is always read and checked again.
+    (tmp_path / result.reference.relative_path).unlink()
+    (tmp_path / source.relative_path).unlink()
+    with pytest.raises(FileNotFoundError):
+        await store.read_step_projection(result.reference)
+    with pytest.raises(FileNotFoundError):
+        await store.read_source(source)
+
+
+def test_read_cache_is_bounded_by_total_and_entry_size() -> None:
+    from executor_service.infrastructure.result_storage import _ReadCache
+
+    cache = _ReadCache(limit=10, entry_limit=6)
+    cache.put(("a",), "a", 4)
+    cache.put(("b",), "b", 4)
+    assert cache.get(("a",)) == "a"
+    cache.put(("c",), "c", 4)
+    assert cache.get(("b",)) is None
+    assert cache.get(("a",)) == "a" and cache.get(("c",)) == "c"
+    cache.put(("big",), "big", 7)
+    assert cache.get(("big",)) is None
