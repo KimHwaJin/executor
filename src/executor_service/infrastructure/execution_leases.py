@@ -81,6 +81,10 @@ async def require_active_lease(
             f"Execution Attempt {lease.attempt_id} is no longer active at "
             f"fence {lease.fencing_token}."
         )
+    # The session only holds unchanged rows weakly. A caller that drops
+    # the result would make every later ``session.get`` of these rows in
+    # the same transaction (event payloads, actors) query them again.
+    session.info["active_lease_rows"] = (execution, attempt)
     return execution, attempt
 
 
