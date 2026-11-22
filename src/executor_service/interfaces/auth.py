@@ -20,6 +20,7 @@ from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from executor_service.application.execution_queries import (
+    ExecutionDetailView,
     ExecutionQueryService,
 )
 from executor_service.domain.errors import (
@@ -115,8 +116,12 @@ async def authorize_execution(
     execution_id: UUID,
     *,
     write: bool,
-) -> None:
-    """Hide an Execution outside the caller's tenant or, with a user, outside that user."""
+) -> ExecutionDetailView:
+    """Hide an Execution outside the caller's tenant or, with a user, outside that user.
+
+    Returns the Execution it read, so a caller that answers with it does
+    not read it again.
+    """
 
     tenant_id = require_tenant(caller)
     user_id = require_user(caller) if write else caller.user_id
@@ -127,6 +132,7 @@ async def authorize_execution(
         raise ExecutionNotFoundError(
             f"Execution {execution_id} was not found."
         )
+    return execution
 
 
 class CallerAuthenticationMiddleware:

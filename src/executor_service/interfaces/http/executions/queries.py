@@ -19,6 +19,7 @@ from executor_service.interfaces.http.executions.common import (
     CurrentCaller,
     Cursor,
     ExecutionLimit,
+    PathExecution,
     ScopeFilter,
     execution_router,
 )
@@ -79,8 +80,9 @@ def build_query_router(container: ApplicationContainer) -> APIRouter:
         responses=DOMAIN_ERROR_RESPONSES,
         summary="Get current execution state",
     )
-    async def get_execution(execution_id: UUID) -> ExecutionResponse:
-        execution = await execution_queries.execution(execution_id)
+    async def get_execution(
+        execution_id: UUID, execution: PathExecution
+    ) -> ExecutionResponse:
         return ExecutionResponse.from_view(execution)
 
     @router.get(
