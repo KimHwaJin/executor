@@ -705,7 +705,6 @@ class ExecutionStepExecutor:
             result = await self._result_store.append_step_outputs(
                 identity,
                 expected_offset=committed_offset,
-                batch_id=uuid4(),
                 records=(record,),
             )
             expected_committed_offset = committed_offset + 1

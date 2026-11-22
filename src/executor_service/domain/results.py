@@ -62,7 +62,6 @@ class StepResultAppend:
     output_count: int
     representation_count: int
     total_size_bytes: int
-    replayed: bool
 
 
 class ExecutionResultStore(Protocol):
@@ -96,7 +95,6 @@ class ExecutionResultStore(Protocol):
         identity: StepResultIdentity,
         *,
         expected_offset: int,
-        batch_id: UUID,
         records: tuple[RuntimeOutputRecord, ...],
     ) -> StepResultAppend: ...
 

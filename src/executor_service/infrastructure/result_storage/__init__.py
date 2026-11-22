@@ -42,9 +42,7 @@ class FilesystemExecutionResultStore:
         self._paths = ResultStoragePaths(root)
         self._sources = FilesystemExecutionSourceStore(self._paths)
         self._steps = FilesystemStepResultStore(
-            self._paths,
-            self._sources,
-            ResultOutputCodec(self._paths),
+            self._paths, ResultOutputCodec(self._paths)
         )
         # Weak values: a Step's lock goes away once no append, seal or
         # waiter holds it, so the map does not grow with every Step run.
@@ -122,7 +120,6 @@ class FilesystemExecutionResultStore:
         identity: StepResultIdentity,
         *,
         expected_offset: int,
-        batch_id: UUID,
         records: tuple[RuntimeOutputRecord, ...],
     ) -> StepResultAppend:
         async with await self._lock(identity):
@@ -130,7 +127,6 @@ class FilesystemExecutionResultStore:
                 self._steps.append,
                 identity,
                 expected_offset,
-                batch_id,
                 records,
             )
 

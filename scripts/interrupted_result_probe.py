@@ -43,27 +43,26 @@ def checked_file(root: Path, ref: dict[str, Any]) -> bytes:
 
 
 def progress(root: Path, execution_id: UUID) -> bool:
-    for path in (root / "executions" / str(execution_id)).rglob(".state.json"):
+    """An open result holds the interrupted Step's text and image.
+
+    Output files are renamed into place after their content is fsynced,
+    so a file listed here is complete.
+    """
+    execution = root / "executions" / str(execution_id)
+    for outputs in execution.rglob("*.partial/outputs"):
+        kinds = set()
         try:
-            state = json.loads(path.read_bytes())
-            if state["identity"]["sequence"] != 1:
-                continue
-            kinds = set()
-            log = (path.parent / "outputs.jsonl").read_bytes()
-            entries = [json.loads(line) for line in log.splitlines()]
-            for output in (o for entry in entries for o in entry["outputs"]):
-                for representation in output["representations"]:
-                    body = checked_file(path.parent, representation)
-                    media = representation["media_type"]
-                    if media == "image/png" and body.startswith(b"\x89PNG"):
-                        kinds.add("image")
-                    if media == "text/plain" and b"before-interrupt" in body:
-                        kinds.add("text")
-            if kinds == {"image", "text"}:
-                return True
-        except (FileNotFoundError, json.JSONDecodeError, ValueError):
-            # Atomic writer may have advanced/replaced files during this read.
+            for path in outputs.iterdir():
+                body = path.read_bytes()
+                if path.suffix == ".png" and body.startswith(b"\x89PNG"):
+                    kinds.add("image")
+                if path.suffix == ".txt" and b"before-interrupt" in body:
+                    kinds.add("text")
+        except FileNotFoundError:
+            # The writer advanced or sealed the directory during this read.
             continue
+        if kinds == {"image", "text"}:
+            return True
     return False
 
 

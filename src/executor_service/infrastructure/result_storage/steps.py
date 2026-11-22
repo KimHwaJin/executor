@@ -3,6 +3,7 @@
 import json
 import os
 import shutil
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -21,7 +22,6 @@ from executor_service.infrastructure.result_storage.codec import (
     ResultOutputCodec,
     identity_json,
     output_summary,
-    records_digest,
     source_json,
 )
 from executor_service.infrastructure.result_storage.errors import (
@@ -29,7 +29,6 @@ from executor_service.infrastructure.result_storage.errors import (
 )
 from executor_service.infrastructure.result_storage.io import (
     atomic_json_write,
-    atomic_write,
     fsync_directory,
     sha256,
     utc_now,
@@ -37,28 +36,41 @@ from executor_service.infrastructure.result_storage.io import (
 from executor_service.infrastructure.result_storage.paths import (
     ResultStoragePaths,
 )
-from executor_service.infrastructure.result_storage.sources import (
-    FilesystemExecutionSourceStore,
-)
 
 TERMINAL_STATES = frozenset({"FINALIZED", "FAILED", "ABORTED"})
-# One JSON line per appended batch while a result is OPEN.
-OUTPUT_LOG = "outputs.jsonl"
+
+
+@dataclass(slots=True)
+class _OpenResult:
+    """One Step result between ``begin`` and ``seal``."""
+
+    identity: StepResultIdentity
+    source: ExecutionSourceReference
+    created_at: str
+    outputs: list[dict[str, Any]] = field(default_factory=list)
+    representation_count: int = 0
+    total_size_bytes: int = 0
 
 
 class FilesystemStepResultStore:
+    """Writes a Step result into a partial directory and seals it.
+
+    An open result lives in this process only. Its partial directory is
+    written and sealed by the one Worker holding that fencing token and is
+    never resumed: a Worker that takes the Step over has a new token, so a
+    new directory, and reads the output again from the Jupyter journal.
+    Nothing is fsynced for the directory until ``seal``; output file
+    content is fsynced as it is appended.
+    """
+
     def __init__(
         self,
         paths: ResultStoragePaths,
-        sources: FilesystemExecutionSourceStore,
         codec: ResultOutputCodec,
     ) -> None:
         self._paths = paths
-        self._sources = sources
         self._codec = codec
-        # Only the fenced owner appends to a partial result, so its counters
-        # can stay in memory between appends.
-        self._logs: dict[Path, _OutputLog] = {}
+        self._open: dict[Path, _OpenResult] = {}
 
     def read_projection(
         self, reference: StepResultReference
@@ -110,58 +122,34 @@ class FilesystemStepResultStore:
                     "Terminal Step result belongs to different source content."
                 )
             return
-        if partial.exists():
-            state = _load_state(partial)
-            if state.get("identity") != identity_json(identity):
+        opened = self._open.get(partial)
+        if opened is not None:
+            if opened.identity != identity:
                 raise ResultStorageError("Step result identity conflicts.")
-            if state.get("source") != source_json(source):
+            if opened.source != source:
                 raise ResultStorageError(
                     "Open Step result belongs to different source content."
                 )
             return
-        partial.mkdir(parents=True, exist_ok=False)
-        source_body = self._sources.read(source).encode("utf-8")
-        atomic_write(partial / "source.py", source_body)
-        (partial / "outputs").mkdir()
-        now = utc_now()
-        state = {
-            "schema_version": RESULT_MANIFEST_SCHEMA_VERSION,
-            "state": "OPEN",
-            "complete": False,
-            "identity": identity_json(identity),
-            "source": source_json(source),
-            "created_at": now,
-        }
-        atomic_write(partial / OUTPUT_LOG, b"")
-        atomic_json_write(partial / ".state.json", state)
+        if partial.exists():
+            # Left by a process that is gone; it is never authoritative.
+            shutil.rmtree(partial)
+        (partial / "outputs").mkdir(parents=True)
+        self._open[partial] = _OpenResult(
+            identity=identity, source=source, created_at=utc_now()
+        )
 
     def append(
         self,
         identity: StepResultIdentity,
         expected_offset: int,
-        batch_id: UUID,
         records: tuple[RuntimeOutputRecord, ...],
     ) -> StepResultAppend:
         if not records:
             raise ResultStorageError("Step output batch must not be empty.")
-        partial = self._paths.partial_directory(identity, must_exist=True)
-        log = self._open_log(partial, identity)
-        request_digest = records_digest(records)
-        batch_key = str(batch_id)
-        existing_batch = log.batches.get(batch_key)
-        if existing_batch is not None:
-            if existing_batch["request_sha256"] != request_digest:
-                raise ResultStorageError(
-                    "Step result batch ID conflicts with existing output."
-                )
-            return StepResultAppend(
-                committed_offset=existing_batch["end_offset"],
-                output_count=existing_batch["output_count"],
-                representation_count=existing_batch["representation_count"],
-                total_size_bytes=existing_batch["total_size_bytes"],
-                replayed=True,
-            )
-        if expected_offset != log.output_count:
+        partial = self._paths.partial_directory(identity)
+        opened = self._opened(partial, identity)
+        if expected_offset != len(opened.outputs):
             raise ResultStorageError(
                 "Step result expected offset does not match committed output."
             )
@@ -174,24 +162,21 @@ class FilesystemStepResultStore:
             )
             for index, record in enumerate(records)
         ]
-        entry = {
-            "batch_id": batch_key,
-            "request_sha256": request_digest,
-            "outputs": outputs,
-        }
-        # Append one line and fsync it: the cost of a batch no longer grows
-        # with the output already written.
-        with (partial / OUTPUT_LOG).open("ab") as handle:
-            handle.write(_log_line(entry))
-            handle.flush()
-            os.fsync(handle.fileno())
-        batch = log.add(entry)
+        representations = [
+            item for output in outputs for item in output["representations"]
+        ]
+        opened.outputs.extend(outputs)
+        opened.representation_count += len(representations)
+        opened.total_size_bytes += sum(
+            int(item["size_bytes"]) for item in representations
+        )
         return StepResultAppend(
-            committed_offset=batch["end_offset"],
-            output_count=batch["output_count"],
-            representation_count=batch["representation_count"],
-            total_size_bytes=batch["total_size_bytes"],
-            replayed=False,
+            committed_offset=len(opened.outputs),
+            output_count=len(outputs),
+            representation_count=len(representations),
+            total_size_bytes=sum(
+                int(item["size_bytes"]) for item in representations
+            ),
         )
 
     def seal(
@@ -211,38 +196,37 @@ class FilesystemStepResultStore:
                     "Terminal Step result state conflicts with replay."
                 )
             return descriptor
-        partial = self._paths.partial_directory(identity, must_exist=True)
-        log = self._open_log(partial, identity)
-        outputs = [
-            output
-            for entry in _read_log(partial / OUTPUT_LOG)
-            for output in entry["outputs"]
-        ]
+        partial = self._paths.partial_directory(identity)
+        opened = self._opened(partial, identity)
         completed_at = utc_now()
         manifest = {
-            **log.header,
+            "schema_version": RESULT_MANIFEST_SCHEMA_VERSION,
+            "identity": identity_json(identity),
+            "source": source_json(opened.source),
+            "created_at": opened.created_at,
             "state": state_name,
             "complete": state_name in {"FINALIZED", "FAILED"},
-            "outputs": outputs,
-            "output_count": log.output_count,
-            "representation_count": log.representation_count,
-            "total_size_bytes": log.total_size_bytes,
+            "outputs": opened.outputs,
+            "output_count": len(opened.outputs),
+            "representation_count": opened.representation_count,
+            "total_size_bytes": opened.total_size_bytes,
             "execution_count": execution_count,
             "error_message": (
                 error_message[:2000] if error_message is not None else None
             ),
-            "output_summary": output_summary(outputs),
+            "output_summary": output_summary(opened.outputs),
             "updated_at": completed_at,
             "completed_at": completed_at,
         }
-        atomic_json_write(partial / "manifest.json", manifest)
-        (partial / ".state.json").unlink()
-        (partial / OUTPUT_LOG).unlink()
-        self._logs.pop(partial, None)
+        # Everything the sealed result needs becomes durable here.
+        atomic_json_write(
+            partial / "manifest.json", manifest, sync_directory=False
+        )
+        fsync_directory(partial / "outputs")
         fsync_directory(partial)
-        final.parent.mkdir(parents=True, exist_ok=True)
         os.replace(partial, final)
         fsync_directory(final.parent)
+        del self._open[partial]
         return self.load_terminal_descriptor(final)
 
     def load_terminal_descriptor(
@@ -304,97 +288,15 @@ class FilesystemStepResultStore:
             ),
         )
 
-    def _open_log(
+    def _opened(
         self, partial: Path, identity: StepResultIdentity
-    ) -> "_OutputLog":
-        """The OPEN result's counters, read from disk once per writer."""
-
-        log = self._logs.get(partial)
-        if log is None:
-            header = _load_state(partial)
-            if header.get("state") != "OPEN":
-                raise ResultStorageError("Step result is not OPEN.")
-            log = _OutputLog(header)
-            for entry in _read_log(partial / OUTPUT_LOG, repair=True):
-                log.add(entry)
-            self._logs[partial] = log
-        if log.header.get("identity") != identity_json(identity):
+    ) -> _OpenResult:
+        opened = self._open.get(partial)
+        if opened is None:
+            raise ResultStorageError("Step result is not OPEN.")
+        if opened.identity != identity:
             raise ResultStorageError("Step result identity conflicts.")
-        return log
-
-
-class _OutputLog:
-    """Counters and batch receipts of one OPEN Step result."""
-
-    def __init__(self, header: dict[str, Any]) -> None:
-        self.header = header
-        self.output_count = 0
-        self.representation_count = 0
-        self.total_size_bytes = 0
-        self.batches: dict[str, dict[str, Any]] = {}
-
-    def add(self, entry: dict[str, Any]) -> dict[str, Any]:
-        outputs = entry["outputs"]
-        representations = [
-            item for output in outputs for item in output["representations"]
-        ]
-        batch = {
-            "request_sha256": entry["request_sha256"],
-            "end_offset": self.output_count + len(outputs),
-            "output_count": len(outputs),
-            "representation_count": len(representations),
-            "total_size_bytes": sum(
-                int(item["size_bytes"]) for item in representations
-            ),
-        }
-        self.output_count = batch["end_offset"]
-        self.representation_count += batch["representation_count"]
-        self.total_size_bytes += batch["total_size_bytes"]
-        self.batches[entry["batch_id"]] = batch
-        return batch
-
-
-def _log_line(entry: dict[str, Any]) -> bytes:
-    return (
-        json.dumps(
-            entry, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-        ).encode("utf-8")
-        + b"\n"
-    )
-
-
-def _read_log(path: Path, *, repair: bool = False) -> list[dict[str, Any]]:
-    try:
-        body = path.read_bytes()
-    except FileNotFoundError as exc:
-        raise ResultStorageError(
-            "Open Step result output log is unavailable."
-        ) from exc
-    complete = body[: body.rfind(b"\n") + 1]
-    if repair and len(complete) != len(body):
-        # A crash mid-append leaves a partial last line that was never
-        # acknowledged; drop it so the next append starts on a clean line.
-        with path.open("r+b") as handle:
-            handle.truncate(len(complete))
-            os.fsync(handle.fileno())
-    try:
-        return [json.loads(line) for line in complete.splitlines()]
-    except json.JSONDecodeError as exc:
-        raise ResultStorageError(
-            "Open Step result output log is invalid."
-        ) from exc
-
-
-def _load_state(directory: Path) -> dict[str, Any]:
-    try:
-        value = json.loads((directory / ".state.json").read_bytes())
-    except (FileNotFoundError, json.JSONDecodeError) as exc:
-        raise ResultStorageError(
-            "Open Step result state is unavailable."
-        ) from exc
-    if not isinstance(value, dict):
-        raise ResultStorageError("Open Step result state must be an object.")
-    return value
+        return opened
 
 
 def remove_partial_files(root: Path, identity: StepResultIdentity) -> None:

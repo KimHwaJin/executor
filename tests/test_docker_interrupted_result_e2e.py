@@ -107,30 +107,19 @@ def test_checked_file_rejects_corruption_and_escape(tmp_path: Path) -> None:
         checked_file(tmp_path, {**ref, "relative_path": "../outside"})
 
 
-def test_progress_requires_durably_written_text_and_image(
-    tmp_path: Path,
-) -> None:
+def test_progress_requires_written_text_and_image(tmp_path: Path) -> None:
     execution_id = uuid4()
-    root = tmp_path / "executions" / str(execution_id) / "1.partial"
-    text = write_ref(root, "text.txt", b"before-interrupt:case")
-    image = write_ref(root, "plot.png", b"\x89PNG\r\n\x1a\n")
-    entry = {
-        "outputs": [
-            {
-                "representations": [
-                    {**text, "media_type": "text/plain"},
-                    {**image, "media_type": "image/png"},
-                ]
-            }
-        ],
-    }
-    path = root / ".state.json"
-    path.write_text(json.dumps({"identity": {"sequence": 1}}))
-    (root / "outputs.jsonl").write_text(json.dumps(entry) + "\n")
-    assert PROBE["progress"](tmp_path, execution_id)
-    (root / "plot.png").unlink()
+    outputs = (
+        tmp_path / "executions" / str(execution_id) / "1.partial" / "outputs"
+    )
+    outputs.mkdir(parents=True)
     assert not PROBE["progress"](tmp_path, execution_id)
-    path.write_text("{in-progress")
+    (outputs / "000000-stream-00.txt").write_bytes(b"before-interrupt:case")
+    assert not PROBE["progress"](tmp_path, execution_id)
+    image = outputs / "000001-display-00.png"
+    image.write_bytes(b"\x89PNG\r\n\x1a\n")
+    assert PROBE["progress"](tmp_path, execution_id)
+    image.unlink()
     assert not PROBE["progress"](tmp_path, execution_id)
 
 

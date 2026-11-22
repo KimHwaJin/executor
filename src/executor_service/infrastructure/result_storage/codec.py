@@ -73,7 +73,8 @@ class ResultOutputCodec:
             suffix = media_extension(media_type)
             filename = f"{ordinal:06d}-{kind.lower()}-{index:02d}{suffix}"
             path = partial / "outputs" / filename
-            atomic_write(path, body)
+            # The outputs directory is synced once, when the result seals.
+            atomic_write(path, body, sync_directory=False)
             representations.append(
                 {
                     "media_type": media_type,
@@ -231,34 +232,6 @@ def output_summary(outputs: list[dict[str, Any]]) -> dict[str, object]:
         "has_image": image_count > 0,
         "image_count": image_count,
         "has_error": has_error,
-    }
-
-
-def records_digest(records: tuple[RuntimeOutputRecord, ...]) -> str:
-    return sha256(
-        json.dumps(
-            [record_json(record) for record in records],
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode()
-    )
-
-
-def record_json(record: RuntimeOutputRecord) -> dict[str, Any]:
-    return {
-        "kind": record.kind,
-        "stream_name": record.stream_name,
-        "execution_count": record.execution_count,
-        "representations": [
-            {
-                "media_type": item.media_type,
-                "encoding": item.encoding,
-                "content": item.content,
-                "metadata": json_value(item.metadata),
-            }
-            for item in record.representations
-        ],
-        "metadata": json_value(record.metadata),
     }
 
 

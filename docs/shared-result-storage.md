@@ -26,7 +26,6 @@ Status: accepted implementation contract.
     └── operations/<operation-id>/
         ├── sources/<step-id>.py
         └── steps/<step-id>/attempts/<attempt-id>/<fencing-token>/
-            ├── source.py
             ├── outputs/
             │   └── <ordinal>-<kind>-<representation>.<extension>
             └── manifest.json
@@ -34,6 +33,11 @@ Status: accepted implementation contract.
 
 Writers use a sibling `<fencing-token>.partial` directory and atomically rename it only after all
 content and the terminal manifest have been fsynced. A partial directory is never authoritative.
+It holds only `outputs/` until it is sealed, and only the Worker process that opened it writes
+and seals it: the open result's bookkeeping is kept in that process, not on disk. A Worker that
+takes the Step over has a new fencing token, so it writes a new directory and reads the output
+again from the Jupyter execution journal. The executed code is the snapshot the manifest's
+`source` points at; the result directory holds no copy of it.
 Representation paths already point at the final directory, never at `.partial`.
 Only the sealed reference is published. No Execution/Operation aggregate manifests are created.
 
