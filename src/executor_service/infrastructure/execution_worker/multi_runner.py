@@ -304,6 +304,7 @@ class MultiExecutionRunner:
                     profile,
                     lease,
                     step_run,
+                    last_in_operation=pending is pending_steps[-1],
                 )
             await self._multi_operation_state.complete(
                 lease,

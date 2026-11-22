@@ -12,6 +12,12 @@
 | Operation | 소속 Step 성공/완전한 참조, Jupyter PV 노트북 저장, 실제 발견된 Artifact 등록 |
 | Execution | 위 기준과 최종 노트북 Artifact 등록, 런타임 세션 해제 완료 |
 
+노트북은 Operation의 마지막 Step이 성공한 뒤 한 번 작성한다. Step마다 다시 쓰지
+않으므로 Operation이 진행 중일 때 노트북은 직전 Operation까지의 내용이다. 노트북
+작성이 실패하면 그 Operation의 Step은 모두 SUCCEEDED로 남고 Operation이 FAILED가
+된다. 실패, 취소, Worker 중단 경로는 아래 "실패 처리"대로 노트북을 갱신하거나
+무효로 표시한다.
+
 SINGLE은 Operation/Execution 종료가 연속으로 처리된다. MULTI는 성공 Operation마다
 WAITING_FOR_OPERATION으로 돌아가며, 노트북 파일은 계속 갱신한다. 변경 중인 노트북을
 매 Operation마다 불변 Artifact로 등록하지 않고, 최종 finalize 때 등록한다.
