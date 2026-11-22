@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from collections.abc import Coroutine
+from collections.abc import Callable, Coroutine
 from typing import Any
 from uuid import UUID
 
@@ -12,8 +12,11 @@ logger = logging.getLogger(__name__)
 class ExecutionJobDispatcher:
     """Owns local Tasks and enforces one active job per Execution."""
 
-    def __init__(self) -> None:
+    def __init__(self, on_retry: Callable[[], None] | None = None) -> None:
         self._jobs: dict[UUID, asyncio.Task[None]] = {}
+        # Executions whose new run arrived while the last one was ending.
+        self._turned_away: set[UUID] = set()
+        self._on_retry = on_retry
         self._idle = asyncio.Event()
         self._idle.set()
         self._accepting = False
@@ -52,6 +55,7 @@ class ExecutionJobDispatcher:
                 )
                 self._track(execution_id, task)
             else:
+                self._turned_away.add(execution_id)
                 coroutine.close()
             return
         task = asyncio.create_task(
@@ -101,6 +105,10 @@ class ExecutionJobDispatcher:
             self._jobs.pop(execution_id, None)
             if not self._jobs:
                 self._idle.set()
+            if execution_id in self._turned_away:
+                self._turned_away.discard(execution_id)
+                if self._on_retry is not None:
+                    self._on_retry()
         if not task.cancelled() and (exc := task.exception()) is not None:
             # Nothing awaits a job, so its failure is reported only here.
             logger.error(

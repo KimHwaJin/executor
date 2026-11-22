@@ -213,3 +213,31 @@ async def test_readiness_fails_as_soon_as_worker_enters_drain(
         await container.engine.dispose()
 
     assert checks["worker_accepting"] is False
+
+
+async def test_wake_starts_a_reconcile_pass_without_waiting_for_the_poll(
+    engine: AsyncEngine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "executor_service.infrastructure.execution_worker.worker"
+        ".RECONCILE_INTERVAL_SECONDS",
+        3600,
+    )
+    worker = _worker(engine, tmp_path)
+    passes = asyncio.Queue[None]()
+
+    async def reconcile() -> int:
+        passes.put_nowait(None)
+        return 0
+
+    monkeypatch.setattr(worker._work_admission, "reconcile", reconcile)
+    loop = asyncio.create_task(worker._reconcile_loop())
+    try:
+        await asyncio.wait_for(passes.get(), 1)
+        worker.wake()
+        await asyncio.wait_for(passes.get(), 1)
+    finally:
+        loop.cancel()
+        await asyncio.gather(loop, return_exceptions=True)
