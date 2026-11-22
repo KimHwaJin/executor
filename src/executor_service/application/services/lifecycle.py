@@ -147,17 +147,19 @@ class ExecutionLifecycleCommands:
                     execution.active_operation_id
                 )
                 apply_actor(execution, command.actor_client, command.actor_id)
-                for step in execution.steps:
-                    if (
-                        execution.retry_from_sequence is not None
-                        and step.sequence >= execution.retry_from_sequence
-                    ):
-                        apply_step_actor(
-                            step, command.actor_client, command.actor_id
-                        )
                 if execution.retry_from_sequence is None:
                     raise RuntimeError("Retry sequence unexpectedly missing.")
-                await uow.executions.save(execution)
+                # The Steps request_retry reset; earlier ones are unchanged.
+                retried_steps = [
+                    step
+                    for step in execution.steps
+                    if step.sequence >= execution.retry_from_sequence
+                ]
+                for step in retried_steps:
+                    apply_step_actor(
+                        step, command.actor_client, command.actor_id
+                    )
+                await uow.executions.save(execution, steps=retried_steps)
                 await uow.executions.requeue_operation_for_retry(
                     operation_id,
                     updated_by_client=command.actor_client,

@@ -4,7 +4,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import update
+from sqlalchemy import event, update
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from executor_service.application.commands import (
@@ -235,6 +235,52 @@ async def test_timeouts_over_the_execution_maximum_runtime_are_rejected(
                 steps=(StepSpec(sequence=1, code="value_1 = 1"),),
             )
         )
+
+
+async def test_commands_that_change_no_step_update_no_step_row(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+) -> None:
+    """An Operation or a cancel must not cost one UPDATE per Step."""
+    session_factory = create_session_factory(engine)
+    execution = await execution_service.submit(
+        multi_submit_command("no-step-updates")
+    )
+    step_updates: list[str] = []
+
+    def record(_conn, _cursor, statement, *_args) -> None:
+        if statement.startswith("UPDATE execution_steps"):
+            step_updates.append(statement)
+
+    async with session_factory() as session, session.begin():
+        await session.execute(
+            update(ExecutionORM)
+            .where(ExecutionORM.id == execution.id)
+            .values(status=ExecutionStatus.WAITING_FOR_OPERATION, version=2)
+        )
+
+    event.listen(engine.sync_engine, "before_cursor_execute", record)
+    try:
+        continued = await execution_service.create_operation(
+            CreateOperationCommand(
+                execution_id=execution.id,
+                idempotency_key="second-operation",
+                expected_version=2,
+                steps=(StepSpec(sequence=1, code="value_1 = 1"),),
+            )
+        )
+        await execution_service.cancel(
+            CancelExecutionCommand(
+                execution_id=execution.id,
+                idempotency_key="cancel",
+                reason=None,
+            )
+        )
+    finally:
+        event.remove(engine.sync_engine, "before_cursor_execute", record)
+
+    assert [step.sequence for step in continued.steps] == [0, 1]
+    assert step_updates == []
 
 
 async def test_submit_get_cancel_and_idempotency(

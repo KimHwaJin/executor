@@ -1,5 +1,6 @@
 """SQLAlchemy repository and unit-of-work implementations."""
 
+from collections.abc import Sequence
 from types import TracebackType
 from typing import Self
 from uuid import UUID
@@ -197,7 +198,10 @@ class SQLAlchemyExecutionRepository:
                 "Active Operation is not retryable from FAILED."
             )
 
-    async def save(self, execution: Execution) -> None:
+    async def save(
+        self, execution: Execution, *, steps: Sequence[ExecutionStep] = ()
+    ) -> None:
+        """Store the Execution row and only the Steps the command changed."""
         previous_version = execution.version - 1
         result = await self._session.execute(
             update(ExecutionORM)
@@ -237,7 +241,7 @@ class SQLAlchemyExecutionRepository:
             raise PersistenceConflictError(
                 "Execution was concurrently modified."
             )
-        for step in execution.steps:
+        for step in steps:
             await self._session.execute(
                 update(ExecutionStepORM)
                 .where(ExecutionStepORM.id == step.id)

@@ -1,5 +1,6 @@
 """Ports implemented by infrastructure adapters."""
 
+from collections.abc import Sequence
 from types import TracebackType
 from typing import Protocol, Self
 from uuid import UUID
@@ -69,7 +70,9 @@ class ExecutionRepository(Protocol):
         updated_by: str | None,
     ) -> None: ...
 
-    async def save(self, execution: Execution) -> None: ...
+    async def save(
+        self, execution: Execution, *, steps: Sequence[ExecutionStep] = ()
+    ) -> None: ...
 
 
 class UnitOfWork(Protocol):
