@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from typing import Any
 
 import nbformat
+from nbformat import NotebookNode
+from nbformat.v4.nbbase import random_cell_id
 
 from executor_service.domain.enums import RuntimeType
 from executor_service.domain.models import Execution
@@ -70,16 +72,23 @@ class WorkspaceManager:
                 },
             }
         )
+        # ``new_code_cell`` validates each cell on nbformat's slow path,
+        # which costs more than everything else here once a session has
+        # a few hundred Steps. The whole notebook is validated once below.
         notebook.cells = [
-            nbformat.v4.new_code_cell(
-                source=code,
+            NotebookNode(
+                id=random_cell_id(),
+                cell_type="code",
+                metadata=NotebookNode(),
                 execution_count=execution_counts[index],
+                source=code,
                 outputs=[nbformat.from_dict(output) for output in output_list],
             )
             for index, (code, output_list) in enumerate(
                 zip(cells, outputs, strict=True)
             )
         ]
+        nbformat.validate(notebook)
         return notebook
 
 
