@@ -90,7 +90,9 @@ class ExecutionOperationCommands:
         ]
         # Shared-storage writes hold neither a pooled connection nor the
         # Execution row lock; the lock below checks the state again.
-        await self._support.snapshot_sources(steps, command.execution_id)
+        await self._support.snapshot_sources(
+            steps, command.execution_id, operation.id
+        )
         try:
             async with self._support.uow_factory() as uow:
                 repeated = await self._repeated(

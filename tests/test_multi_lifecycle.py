@@ -386,6 +386,7 @@ async def test_runtime_step_enforces_operation_and_step_timeouts(
         step = execution.steps[0]
         source_reference = await worker._result_store.snapshot_source(
             execution.id,
+            operation_id,
             step.id,
             "slow()",
         )

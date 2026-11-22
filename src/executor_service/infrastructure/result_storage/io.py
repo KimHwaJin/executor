@@ -24,7 +24,10 @@ def atomic_json_write(path: Path, value: dict[str, Any]) -> None:
     )
 
 
-def atomic_write(path: Path, body: bytes) -> None:
+def atomic_write(
+    path: Path, body: bytes, *, sync_directory: bool = True
+) -> None:
+    """``sync_directory=False`` leaves the directory fsync to the caller."""
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     try:
@@ -33,7 +36,8 @@ def atomic_write(path: Path, body: bytes) -> None:
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, path)
-        fsync_directory(path.parent)
+        if sync_directory:
+            fsync_directory(path.parent)
     finally:
         if temporary.exists():
             temporary.unlink()

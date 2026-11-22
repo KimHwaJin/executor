@@ -19,7 +19,7 @@ Batch·Agent·Executor는 같은 PVC를 같은 위치에 마운트하고, 공통
 | 실행 제출 및 MULTI Operation의 `payload.source.path` | 호출자 영역 경로 (예: `agent/tasks/100/step.py`) |
 | Artifact 생성의 `source.path` | 호출자 영역 경로 |
 | API/이벤트의 `result_ref.relative_path` | `executor/executions/.../manifest.json` |
-| Step manifest의 `source.relative_path` | `executor/executions/.../source.py` (Executor snapshot) |
+| Step manifest의 `source.relative_path` | `executor/executions/.../sources/<step-id>.py` (Executor snapshot) |
 | Step manifest의 `outputs[].representations[].relative_path` | `executor/executions/.../outputs/...` |
 
 Executor는 입력 경로에 `requests/` 같은 접두어를 붙이지 않고, 루트 밖(절대경로,

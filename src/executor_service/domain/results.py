@@ -1,5 +1,6 @@
 """Runtime-neutral contracts for immutable shared-volume execution results."""
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
 from uuid import UUID
@@ -65,12 +66,12 @@ class StepResultAppend:
 
 
 class ExecutionResultStore(Protocol):
-    async def snapshot_source(
+    async def snapshot_sources(
         self,
         execution_id: UUID,
-        step_id: UUID,
-        content: str,
-    ) -> ExecutionSourceReference: ...
+        operation_id: UUID,
+        sources: Sequence[tuple[UUID, str]],
+    ) -> list[ExecutionSourceReference]: ...
 
     async def read_source(
         self, reference: ExecutionSourceReference
