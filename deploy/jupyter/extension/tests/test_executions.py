@@ -159,7 +159,8 @@ async def test_code_is_sent_once_and_any_follower_replays_everything(
     ]
     assert [entry.get("seq") for entry in entries[1:]] == [1, 2, 3, 4]
     assert entries[-1]["state"] == "COMPLETED"
-    assert client.stopped
+    # A kernel that finished cleanly keeps its channels for the next Step.
+    assert not client.stopped
 
     replay = await _collect(journals, request_id)
     assert [entry["type"] for entry in replay][-2:] == [
@@ -309,3 +310,105 @@ async def test_stopped_recording_releases_its_followers(
 
     assert entries[-1]["state"] == "LOST"
     assert client.stopped
+
+
+class FreshClientKernel(Kernel):
+    """Hands out a new client each time, like a real kernel manager."""
+
+    def __init__(self) -> None:
+        super().__init__(Client())
+        self.made: list[Client] = []
+
+    def client(self) -> Client:
+        self.made.append(Client())
+        return self.made[-1]
+
+
+async def _run_to_completion(
+    journals: ExecutionJournals, manager: Manager, kernel: FreshClientKernel
+) -> Client:
+    request_id = str(uuid4())
+    assert await journals.start(manager, "kernel", request_id, "pass")
+    client = kernel.made[-1]
+    client.finish()
+    assert (await _collect(journals, request_id))[-1]["state"] == "COMPLETED"
+    return client
+
+
+async def test_kernel_client_is_kept_between_requests(tmp_path: Path) -> None:
+    kernel = FreshClientKernel()
+    manager = Manager(Client())
+    manager.kernels["kernel"] = kernel
+    journals = _journals(tmp_path)
+
+    first = await _run_to_completion(journals, manager, kernel)
+    second = await _run_to_completion(journals, manager, kernel)
+
+    assert second is first and len(kernel.made) == 1
+    assert first.sent == ["pass", "pass"]
+    assert not first.stopped
+
+
+async def test_replaced_kernel_process_gets_a_new_client(
+    tmp_path: Path,
+) -> None:
+    kernel = FreshClientKernel()
+    manager = Manager(Client())
+    manager.kernels["kernel"] = kernel
+    state = KernelState()
+    journals = _journals(tmp_path, state)
+
+    first = await _run_to_completion(journals, manager, kernel)
+    state.instance_id = "second"
+    second = await _run_to_completion(journals, manager, kernel)
+
+    assert second is not first
+    assert first.stopped and not second.stopped
+
+
+async def test_request_during_a_recording_gets_its_own_client(
+    tmp_path: Path,
+) -> None:
+    kernel = FreshClientKernel()
+    manager = Manager(Client())
+    manager.kernels["kernel"] = kernel
+    journals = _journals(tmp_path)
+    running, overlapping = str(uuid4()), str(uuid4())
+
+    assert await journals.start(manager, "kernel", running, "slow")
+    assert await journals.start(manager, "kernel", overlapping, "fast")
+    kept, own = kernel.made
+    own.finish()
+    assert (await _collect(journals, overlapping))[-1]["state"] == "COMPLETED"
+    assert own.stopped and not kept.stopped
+    kept.finish()
+    assert (await _collect(journals, running))[-1]["state"] == "COMPLETED"
+
+    again = str(uuid4())
+    assert await journals.start(manager, "kernel", again, "next")
+    assert kept.sent == ["slow", "next"] and len(kernel.made) == 2
+    kept.finish()
+    assert (await _collect(journals, again))[-1]["state"] == "COMPLETED"
+
+
+async def test_client_of_a_lost_or_removed_kernel_is_closed(
+    tmp_path: Path,
+) -> None:
+    kernel = FreshClientKernel()
+    manager = Manager(Client())
+    manager.kernels["kernel"] = kernel
+    state = KernelState()
+    journals = _journals(tmp_path, state, liveness_seconds=0.01)
+
+    request_id = str(uuid4())
+    assert await journals.start(manager, "kernel", request_id, "crash")
+    state.instance_id = "restarted"
+    assert (await _collect(journals, request_id))[-1]["state"] == "LOST"
+    assert kernel.made[0].stopped
+
+    kept = await _run_to_completion(journals, manager, kernel)
+    manager.kernels["other"] = FreshClientKernel()
+    del manager.kernels["kernel"]
+    other = str(uuid4())
+    assert await journals.start(manager, "other", other, "pass")
+    assert kept.stopped
