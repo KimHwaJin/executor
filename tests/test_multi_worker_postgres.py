@@ -2646,7 +2646,7 @@ async def test_current_baseline_repeated_upgrade_preserves_events(
             text("SELECT count(*) FROM event_retention_lease")
         )
 
-    assert revision == EXPECTED_SCHEMA_REVISION == "0016"
+    assert revision == EXPECTED_SCHEMA_REVISION == "0017"
     assert maintenance_count == retention_count == 1
     assert migrated_event is not None
     assert migrated_event.execution_id == execution.id
@@ -2687,7 +2687,7 @@ async def test_current_baseline_downgrade_and_recreate(
             text("SELECT singleton_key FROM event_retention_lease")
         )
     assert tables == set(Base.metadata.tables) | {"alembic_version"}
-    assert revision == EXPECTED_SCHEMA_REVISION == "0016"
+    assert revision == EXPECTED_SCHEMA_REVISION == "0017"
     assert admission == "ACTIVE"
     assert retention_key == "events"
 

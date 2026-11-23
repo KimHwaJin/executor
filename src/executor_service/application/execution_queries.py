@@ -129,6 +129,8 @@ class ExecutionStepAttemptView:
     result_complete: bool | None
     result_representation_count: int
     result_total_size_bytes: int
+    peak_memory_bytes: int | None
+    cpu_seconds: float | None
     error_message: str | None
     created_by_client: str | None
     created_by: str | None

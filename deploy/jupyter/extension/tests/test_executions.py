@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -56,6 +57,7 @@ class Client:
 class Process:
     def __init__(self) -> None:
         self.returncode: int | None = None
+        self.pid: int | None = None
 
     def poll(self) -> int | None:
         return self.returncode
@@ -170,6 +172,29 @@ async def test_code_is_sent_once_and_any_follower_replays_everything(
     assert replay[-1] == {"type": "caught_up", "seq": 4, "finished": True}
     resumed = await _collect(journals, request_id, after=2)
     assert [entry.get("seq") for entry in resumed] == [3, 4, 4]
+
+
+async def test_completed_journal_reports_the_step_usage(
+    tmp_path: Path,
+) -> None:
+    client = Client()
+    manager = Manager(client)
+    # This test process stands in for the kernel's process.
+    manager.kernels["kernel"].provisioner.process.pid = os.getpid()
+    journals = _journals(tmp_path)
+    request_id = str(uuid4())
+
+    await journals.start(manager, "kernel", request_id, "pass")
+    client.finish()
+    [terminal] = [
+        entry
+        for entry in await _collect(journals, request_id)
+        if entry["type"] == "terminal"
+    ]
+
+    assert terminal["state"] == "COMPLETED"
+    assert terminal["usage"]["peak_memory_bytes"] > 0
+    assert terminal["usage"]["cpu_seconds"] >= 0
 
 
 async def test_stopped_kernel_finishes_the_journal_as_lost(

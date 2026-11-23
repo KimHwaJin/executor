@@ -156,6 +156,9 @@ Step 종료. `SUCCEEDED`면 `result_ref`(complete=true)와 `output_summary`가 �
 | `output_summary` | OutputSummary \| null | O |  | 출력 요약 |
 | `output_summary.count` | integer | O | ≥0 | 출력 개수 |
 | `output_summary.content_types` | array<string> | O |  | 출력 MIME 목록(정렬·중복 제거) |
+| `usage` | StepUsage \| null |  |  | Step 동안 커널 자원 사용량. 측정이 없으면 `null` |
+| `usage.peak_memory_bytes` | integer \| null | O | ≥0 | 커널과 Step이 끝날 때 살아 있는 자식 프로세스의 피크 RSS 합(byte) |
+| `usage.cpu_seconds` | number \| null | O | ≥0 | Step 동안 커널이 쓴 CPU 시간(초) |
 | `error` | ErrorSummary \| null | O |  | 오류 요약 |
 | `error.code` | string | O | 길이≥1, 길이≤128 | 오류 코드 |
 | `error.message` | string | O | 길이≥1, 길이≤2000 | 오류 메시지 |

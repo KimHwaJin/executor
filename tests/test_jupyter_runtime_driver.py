@@ -19,10 +19,12 @@ from executor_service.domain.enums import RuntimeAbortStatus
 from executor_service.domain.runtime import (
     RuntimeDriverError,
     RuntimeExecutionError,
+    RuntimeKernelUsage,
     RuntimeNotebookSourceCell,
     RuntimeOutputLimitExceededError,
     RuntimeOutputRecord,
     RuntimeSessionLostError,
+    RuntimeStepUsage,
 )
 from executor_service.infrastructure.jupyter import (
     JupyterRuntimeDriver,
@@ -912,3 +914,144 @@ async def test_drivers_build_one_tls_context_between_them(
         await driver.close()
 
     assert built == 1
+
+
+def _usage_terminal(seq: int, usage: object) -> str:
+    return json.dumps(
+        {
+            "seq": seq,
+            "type": "terminal",
+            "state": "COMPLETED",
+            "message": None,
+            "usage": usage,
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    ("usage", "expected"),
+    [
+        (
+            {"peak_memory_bytes": 1 << 30, "cpu_seconds": 2.5},
+            RuntimeStepUsage(peak_memory_bytes=1 << 30, cpu_seconds=2.5),
+        ),
+        (
+            {"peak_memory_bytes": None, "cpu_seconds": 0},
+            RuntimeStepUsage(peak_memory_bytes=None, cpu_seconds=0.0),
+        ),
+        # A malformed measurement is dropped; the Step still completes.
+        ({"peak_memory_bytes": -1, "cpu_seconds": "x"}, None),
+        ({"peak_memory_bytes": True, "cpu_seconds": None}, None),
+        ("bad", None),
+    ],
+)
+async def test_completed_journal_reports_the_step_usage(
+    monkeypatch: pytest.MonkeyPatch,
+    usage: object,
+    expected: RuntimeStepUsage | None,
+) -> None:
+    _connect_sequence(monkeypatch, FakeStream([_usage_terminal(1, usage)]))
+
+    result = await _follow(
+        JupyterRuntimeDriver("http://jupyter.invalid", "secret")
+    )
+
+    assert result.usage == expected
+
+
+async def test_failed_code_still_reports_the_step_usage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    error = {"ename": "MemoryError", "evalue": "", "traceback": []}
+    _connect_sequence(
+        monkeypatch,
+        FakeStream(
+            [
+                _message(
+                    1, "shell", "execute_reply", {"status": "error", **error}
+                ),
+                _usage_terminal(
+                    2, {"peak_memory_bytes": 1 << 31, "cpu_seconds": 1.0}
+                ),
+            ]
+        ),
+    )
+
+    with pytest.raises(RuntimeExecutionError) as raised:
+        await _follow(JupyterRuntimeDriver("http://jupyter.invalid", "secret"))
+
+    assert raised.value.usage == RuntimeStepUsage(
+        peak_memory_bytes=1 << 31, cpu_seconds=1.0
+    )
+
+
+def _kernel_usage_driver(payload: object) -> JupyterRuntimeDriver:
+    driver = JupyterRuntimeDriver("http://jupyter.invalid", "secret")
+    driver._client = httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda request: (
+                httpx.Response(200, json=payload)
+                if request.url.path == "/executor/kernel-usage"
+                else httpx.Response(404)
+            )
+        ),
+        base_url="http://jupyter.invalid",
+    )
+    return driver
+
+
+async def test_kernel_usage_parses_each_running_kernel() -> None:
+    driver = _kernel_usage_driver(
+        {
+            "schema_version": "1.0",
+            "kernels": [
+                {
+                    "kernel_id": "k-1",
+                    "execution_state": "busy",
+                    "process_count": 2,
+                    "memory_bytes": 3 << 20,
+                    "cpu_seconds": 4,
+                },
+                {
+                    "kernel_id": "k-2",
+                    "execution_state": None,
+                    "process_count": None,
+                    "memory_bytes": None,
+                    "cpu_seconds": None,
+                },
+            ],
+            "observed_at": "2026-11-23T00:00:00Z",
+        }
+    )
+    try:
+        kernels = await driver.kernel_usage()
+    finally:
+        await driver.close()
+
+    assert kernels == (
+        RuntimeKernelUsage("k-1", "busy", 2, 3 << 20, 4),
+        RuntimeKernelUsage("k-2", None, None, None, None),
+    )
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"schema_version": "2.0", "kernels": []},
+        {"schema_version": "1.0"},
+        {"schema_version": "1.0", "kernels": [{"memory_bytes": 1}]},
+        {
+            "schema_version": "1.0",
+            "kernels": [{"kernel_id": "k", "memory_bytes": "1"}],
+        },
+    ],
+)
+async def test_kernel_usage_rejects_an_invalid_response(
+    payload: object,
+) -> None:
+    driver = _kernel_usage_driver(payload)
+    try:
+        with pytest.raises(RuntimeDriverError, match="kernel usage"):
+            await driver.kernel_usage()
+    finally:
+        await driver.close()

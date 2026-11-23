@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import UTC, datetime
 from typing import Any
 
 from jupyter_server.auth.decorator import (  # ty: ignore[unresolved-import]
@@ -33,6 +34,10 @@ from executor_resource_extension.file_download import (
     OpenedFileDownload,
     open_download,
 )
+from executor_resource_extension.kernel_usage import (
+    kernel_pid,
+    kernel_usages,
+)
 from executor_resource_extension.storage import (
     RuntimeStorage,
     StoragePathError,
@@ -54,6 +59,42 @@ class ResourceStatusHandler(APIHandler):
             {
                 "status": status_code,
                 "message": "Resource status collection failed.",
+            }
+        )
+
+
+class KernelUsageHandler(APIHandler):
+    """Memory and CPU of every running kernel, read on request only."""
+
+    @web.authenticated
+    async def get(self) -> None:
+        manager = self.kernel_manager
+        kernels = {
+            kernel_id: manager.get_kernel(kernel_id)
+            for kernel_id in manager.list_kernel_ids()
+        }
+        usages = await asyncio.to_thread(
+            kernel_usages,
+            {
+                kernel_id: kernel_pid(kernel)
+                for kernel_id, kernel in kernels.items()
+            },
+        )
+        self.set_header("Cache-Control", "no-store")
+        self.finish(
+            {
+                "schema_version": "1.0",
+                "kernels": [
+                    {
+                        "kernel_id": kernel_id,
+                        "execution_state": getattr(
+                            kernel, "execution_state", None
+                        ),
+                        **usages[kernel_id],
+                    }
+                    for kernel_id, kernel in kernels.items()
+                ],
+                "observed_at": datetime.now(UTC).isoformat(),
             }
         )
 

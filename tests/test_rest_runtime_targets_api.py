@@ -9,14 +9,17 @@ import pytest_asyncio
 from sqlalchemy import select, update
 
 from executor_service.container import ApplicationContainer
+from executor_service.domain.enums import StepStatus
 from executor_service.domain.runtime import (
     RuntimeDriverError,
+    RuntimeKernelUsage,
     RuntimeResourceMetric,
     RuntimeResourceObservation,
 )
 from executor_service.infrastructure.db.base import Base
 from executor_service.infrastructure.db.models import (
     ExecutionORM,
+    ExecutionStepAttemptORM,
     RuntimeTargetORM,
     RuntimeTargetPurgeORM,
 )
@@ -31,6 +34,8 @@ class HealthyGateway:
     health_error: BaseException | None = None
     active_session_count = 1
     profiles: ClassVar[list[str]] = ["default", "3102311"]
+    kernels: ClassVar[tuple[RuntimeKernelUsage, ...]] = ()
+    fail_kernel_usage = False
 
     def __init__(
         self,
@@ -63,6 +68,11 @@ class HealthyGateway:
             memory=RuntimeResourceMetric(256, 1024, 0.25, "CGROUP_V2", False),
         )
 
+    async def kernel_usage(self) -> tuple[RuntimeKernelUsage, ...]:
+        if self.fail_kernel_usage:
+            raise RuntimeDriverError("kernel usage unavailable")
+        return self.kernels
+
     async def close(self) -> None:
         pass
 
@@ -76,6 +86,8 @@ async def fleet_client(
     HealthyGateway.health_error = None
     HealthyGateway.active_session_count = 1
     HealthyGateway.profiles = ["default", "3102311"]
+    HealthyGateway.kernels = ()
+    HealthyGateway.fail_kernel_usage = False
     monkeypatch.setattr(
         "executor_service.infrastructure.runtime_adapters.JupyterRuntimeDriver",
         HealthyGateway,
@@ -622,3 +634,158 @@ async def test_server_referenced_by_unfinished_execution_cannot_be_purged(
     purged = await client.delete(f"/api/v1/runtime-targets/{target_id}")
     assert purged.status_code == 409
     assert "unfinished work" in purged.json()["error"]["message"]
+
+
+async def _execution_on_kernel(
+    client: httpx.AsyncClient,
+    container: ApplicationContainer,
+    target_id: UUID,
+    kernel_id: str | None,
+    key: str,
+) -> UUID:
+    payload = {**_execution_payload(), "idempotency_key": key}
+    execution = await client.post("/api/v1/executions", json=payload)
+    execution_id = UUID(execution.json()["execution_id"])
+    async with container.session_factory() as session, session.begin():
+        await session.execute(
+            update(ExecutionORM)
+            .where(ExecutionORM.id == execution_id)
+            .values(runtime_target_id=target_id, runtime_session_id=kernel_id)
+        )
+    return execution_id
+
+
+def _step_attempt(
+    execution_id: UUID, sequence: int, peak: int | None, cpu: float | None
+) -> ExecutionStepAttemptORM:
+    return ExecutionStepAttemptORM(
+        execution_id=execution_id,
+        execution_attempt_id=uuid4(),
+        execution_step_id=uuid4(),
+        sequence=sequence,
+        status=StepStatus.SUCCEEDED,
+        peak_memory_bytes=peak,
+        cpu_seconds=cpu,
+        started_at=datetime.now(UTC),
+    )
+
+
+async def test_target_kernels_name_the_execution_holding_each_kernel(
+    fleet_client: tuple[httpx.AsyncClient, ApplicationContainer],
+) -> None:
+    client, container = fleet_client
+    created = await client.post(
+        "/api/v1/runtime-targets", json=_upsert_payload(50)
+    )
+    target_id = UUID(created.json()["target_id"])
+    execution_id = await _execution_on_kernel(
+        client, container, target_id, "kernel-a", "kernels-held"
+    )
+    HealthyGateway.kernels = (
+        RuntimeKernelUsage("kernel-a", "busy", 2, 512 << 20, 12.5),
+        RuntimeKernelUsage("kernel-left", "idle", 1, 64 << 20, 0.5),
+    )
+
+    listed = await client.get(f"/api/v1/runtime-targets/{target_id}/kernels")
+
+    assert listed.status_code == 200
+    body = listed.json()
+    assert body["target_id"] == str(target_id)
+    assert body["items"] == [
+        {
+            "kernel_id": "kernel-a",
+            "execution_state": "busy",
+            "process_count": 2,
+            "memory_bytes": 512 << 20,
+            "cpu_seconds": 12.5,
+            "execution_id": str(execution_id),
+            "tenant_id": body["items"][0]["tenant_id"],
+            "execution_status": "QUEUED",
+        },
+        {
+            "kernel_id": "kernel-left",
+            "execution_state": "idle",
+            "process_count": 1,
+            "memory_bytes": 64 << 20,
+            "cpu_seconds": 0.5,
+            "execution_id": None,
+            "tenant_id": None,
+            "execution_status": None,
+        },
+    ]
+    assert body["items"][0]["tenant_id"]
+
+    HealthyGateway.fail_kernel_usage = True
+    unavailable = await client.get(
+        f"/api/v1/runtime-targets/{target_id}/kernels"
+    )
+    assert unavailable.status_code == 503
+    assert unavailable.json()["error"]["code"] == "RUNTIME_UNAVAILABLE"
+    missing = await client.get(f"/api/v1/runtime-targets/{uuid4()}/kernels")
+    assert missing.status_code == 404
+
+
+async def test_execution_kernel_usage_reports_live_and_recorded_values(
+    fleet_client: tuple[httpx.AsyncClient, ApplicationContainer],
+) -> None:
+    client, container = fleet_client
+    created = await client.post(
+        "/api/v1/runtime-targets", json=_upsert_payload(51)
+    )
+    target_id = UUID(created.json()["target_id"])
+    execution_id = await _execution_on_kernel(
+        client, container, target_id, "kernel-b", "kernel-usage"
+    )
+    other_id = await _execution_on_kernel(
+        client, container, target_id, None, "kernel-usage-other"
+    )
+    async with container.session_factory() as session, session.begin():
+        session.add_all(
+            [
+                _step_attempt(execution_id, 0, 300 << 20, 1.25),
+                _step_attempt(execution_id, 1, 700 << 20, 2.5),
+                # Measured before this release or on an older image.
+                _step_attempt(execution_id, 2, None, None),
+                _step_attempt(other_id, 0, 900 << 20, 9.0),
+            ]
+        )
+    HealthyGateway.kernels = (
+        RuntimeKernelUsage("kernel-b", "idle", 1, 400 << 20, 3.75),
+    )
+
+    usage = await client.get(f"/api/v1/executions/{execution_id}/kernel-usage")
+
+    assert usage.status_code == 200
+    body = usage.json()
+    assert body["kernel_state"] == "RUNNING"
+    assert body["target_id"] == str(target_id)
+    assert body["kernel_id"] == "kernel-b"
+    assert body["kernel"] == {
+        "kernel_id": "kernel-b",
+        "execution_state": "idle",
+        "process_count": 1,
+        "memory_bytes": 400 << 20,
+        "cpu_seconds": 3.75,
+    }
+    assert body["observed_at"]
+    assert body["steps"] == {
+        "peak_memory_bytes": 700 << 20,
+        "cpu_seconds": 3.75,
+        "measured_step_attempt_count": 2,
+    }
+
+    HealthyGateway.kernels = ()
+    gone = await client.get(f"/api/v1/executions/{execution_id}/kernel-usage")
+    assert gone.json()["kernel_state"] == "NOT_RUNNING"
+    assert gone.json()["kernel"] is None
+
+    HealthyGateway.fail_kernel_usage = True
+    down = await client.get(f"/api/v1/executions/{execution_id}/kernel-usage")
+    assert down.status_code == 200
+    assert down.json()["kernel_state"] == "RUNTIME_UNAVAILABLE"
+    assert down.json()["steps"]["peak_memory_bytes"] == 700 << 20
+
+    no_kernel = await client.get(f"/api/v1/executions/{other_id}/kernel-usage")
+    assert no_kernel.json()["kernel_state"] == "NO_KERNEL"
+    assert no_kernel.json()["observed_at"] is None
+    assert no_kernel.json()["steps"]["measured_step_attempt_count"] == 1

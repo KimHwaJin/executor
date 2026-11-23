@@ -4,6 +4,7 @@ from typing import Any
 
 from executor_service.domain.runtime import (
     RuntimeDriverError,
+    RuntimeKernelUsage,
     RuntimeResourceMetric,
     RuntimeResourceObservation,
 )
@@ -68,6 +69,40 @@ class JupyterObservabilityClient:
             cpu=cpu,
             memory=memory,
         )
+
+    async def kernel_usage(self) -> tuple[RuntimeKernelUsage, ...]:
+        response = await self._transport.request(
+            "GET", "/executor/kernel-usage"
+        )
+        try:
+            payload = response.json()
+            if payload.get("schema_version") != "1.0":
+                raise ValueError("unsupported kernel usage schema version")
+            return tuple(
+                RuntimeKernelUsage(
+                    kernel_id=str(kernel["kernel_id"]),
+                    execution_state=_optional(kernel, "execution_state", str),
+                    process_count=_optional(kernel, "process_count", int),
+                    memory_bytes=_optional(kernel, "memory_bytes", int),
+                    cpu_seconds=_optional(kernel, "cpu_seconds", (int, float)),
+                )
+                for kernel in payload["kernels"]
+            )
+        except (KeyError, TypeError, ValueError, AttributeError) as exc:
+            raise RuntimeDriverError(
+                "Jupyter kernel usage response is invalid."
+            ) from exc
+
+
+def _optional(
+    payload: dict[str, Any], key: str, kind: type | tuple[type, ...]
+) -> Any:
+    value = payload.get(key)
+    if value is not None and (
+        isinstance(value, bool) or not isinstance(value, kind)
+    ):
+        raise TypeError(f"{key} has the wrong type")
+    return value
 
 
 def resource_metric(

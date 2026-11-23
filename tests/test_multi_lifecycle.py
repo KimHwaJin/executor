@@ -40,10 +40,12 @@ from executor_service.domain.runtime import (
     RuntimeExecutionError,
     RuntimeExecutionResult,
     RuntimeExecutionTimeoutError,
+    RuntimeKernelUsage,
     RuntimeOutputHandler,
     RuntimeOutputLimitExceededError,
     RuntimeResourceMetric,
     RuntimeResourceObservation,
+    RuntimeStepUsage,
     RuntimeStorageSnapshot,
 )
 from executor_service.infrastructure.artifacts import ExecutionArtifactManager
@@ -136,6 +138,9 @@ class RecordingMultiDriver(InMemoryRuntimeStorage):
             memory=empty,
         )
 
+    async def kernel_usage(self) -> tuple[RuntimeKernelUsage, ...]:
+        return ()
+
     async def start_session(self, profile: str, working_directory: str) -> str:
         del profile, working_directory
         return "operation-kernel"
@@ -170,11 +175,19 @@ class RecordingMultiDriver(InMemoryRuntimeStorage):
             await asyncio.sleep(2)
         if code == self.limit_code:
             raise RuntimeOutputLimitExceededError(1048576)
+        # Each Step reports its own measurement: its code length in MiB.
+        usage = RuntimeStepUsage(
+            peak_memory_bytes=len(code) << 20, cpu_seconds=0.5
+        )
         if code == self.fail_code:
             await output_handler(error_record("RuntimeError", "expected"))
-            raise RuntimeExecutionError("expected operation failure")
+            error = RuntimeExecutionError("expected operation failure")
+            error.usage = usage
+            raise error
         await output_handler(stream_record(f"{code}\n"))
-        return RuntimeExecutionResult(execution_count=len(self.executed))
+        return RuntimeExecutionResult(
+            execution_count=len(self.executed), usage=usage
+        )
 
 
 class SlowExecutionDriver(RecordingMultiDriver):
@@ -599,6 +612,28 @@ async def test_multi_operation_executes_submitted_steps_until_boundary(
         assert "content" not in event.payload
         assert "base64" not in str(event.payload).lower()
         assert event.payload["output_summary"]["count"] > 0
+        assert event.payload["usage"] == {
+            "peak_memory_bytes": (
+                len(RecordingMultiDriver.executed[index - 1]) << 20
+            ),
+            "cpu_seconds": 0.5,
+        }
+    async with session_factory() as session:
+        step_attempts = list(
+            await session.scalars(
+                select(ExecutionStepAttemptORM)
+                .where(ExecutionStepAttemptORM.execution_id == execution.id)
+                .order_by(ExecutionStepAttemptORM.sequence)
+            )
+        )
+    measured = [
+        (attempt.peak_memory_bytes, attempt.cpu_seconds)
+        for attempt in step_attempts
+        if attempt.status != StepStatus.SKIPPED
+    ]
+    assert measured == [
+        (len(code) << 20, 0.5) for code in RecordingMultiDriver.executed
+    ]
     result_positions = [
         index
         for index, event_type in enumerate(ordered_event_types)

@@ -9,6 +9,7 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -258,6 +259,9 @@ class ExecutionStepAttemptORM(Base):
     result_total_size_bytes: Mapped[int] = mapped_column(
         BigInteger, nullable=False, default=0
     )
+    # The kernel's peak RSS and CPU time during this Step, when measured.
+    peak_memory_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    cpu_seconds: Mapped[float | None] = mapped_column(Float)
     error_message: Mapped[str | None] = mapped_column(Text)
     created_by_client: Mapped[str | None] = mapped_column(
         String(64), nullable=True

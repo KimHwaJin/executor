@@ -12,6 +12,7 @@ from executor_service.domain.runtime import (
     RuntimeExecutionResult,
     RuntimeFileContent,
     RuntimeFileMetadata,
+    RuntimeKernelUsage,
     RuntimeNotebookPreparationResult,
     RuntimeNotebookSourceCell,
     RuntimeOutputHandler,
@@ -86,6 +87,9 @@ class JupyterRuntimeDriver:
 
     async def resource_status(self) -> RuntimeResourceObservation:
         return await self._observability.resource_status()
+
+    async def kernel_usage(self) -> tuple[RuntimeKernelUsage, ...]:
+        return await self._observability.kernel_usage()
 
     async def start_session(self, profile: str, working_directory: str) -> str:
         return await self._sessions.start(profile, working_directory)

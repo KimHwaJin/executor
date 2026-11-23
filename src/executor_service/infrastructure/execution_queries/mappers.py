@@ -260,6 +260,8 @@ def step_attempt_view(
         result_complete=row.result_complete,
         result_representation_count=row.result_representation_count,
         result_total_size_bytes=row.result_total_size_bytes,
+        peak_memory_bytes=row.peak_memory_bytes,
+        cpu_seconds=row.cpu_seconds,
         error_message=row.error_message,
         created_by_client=row.created_by_client,
         created_by=row.created_by,

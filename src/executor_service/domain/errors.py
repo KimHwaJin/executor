@@ -22,6 +22,7 @@ class ErrorCode(StrEnum):
     ARTIFACT_CONTENT_UNAVAILABLE = "ARTIFACT_CONTENT_UNAVAILABLE"
     ARTIFACT_RANGE_NOT_SATISFIABLE = "ARTIFACT_RANGE_NOT_SATISFIABLE"
     RUNTIME_TARGET_NOT_FOUND = "RUNTIME_TARGET_NOT_FOUND"
+    RUNTIME_UNAVAILABLE = "RUNTIME_UNAVAILABLE"
     INVALID_EXECUTION_SPEC = "INVALID_EXECUTION_SPEC"
     INVALID_CURSOR = "INVALID_CURSOR"
     UNSUPPORTED_RUNTIME_PROFILE = "UNSUPPORTED_RUNTIME_PROFILE"
@@ -184,6 +185,11 @@ class PersistenceConflictError(DomainError):
 class RuntimeTargetNotFoundError(DomainError):
     code = ErrorCode.RUNTIME_TARGET_NOT_FOUND
     http_status = 404
+
+
+class RuntimeUnavailableError(DomainError):
+    code = ErrorCode.RUNTIME_UNAVAILABLE
+    http_status = 503
 
 
 class RuntimeTargetConfigurationError(DomainError):

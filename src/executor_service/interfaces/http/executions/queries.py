@@ -10,6 +10,7 @@ from executor_service.domain.enums import ExecutionStatus, TriggerType
 from executor_service.domain.errors import ForbiddenError
 from executor_service.interfaces.auth import USER_ID
 from executor_service.interfaces.contracts import (
+    ExecutionKernelUsageResponse,
     ExecutionPageResponse,
     ExecutionResponse,
     ExecutionResultResponse,
@@ -107,6 +108,23 @@ def build_query_router(container: ApplicationContainer) -> APIRouter:
             )
             execution = await execution_queries.execution(execution_id)
         return ExecutionResponse.from_view(execution)
+
+    @router.get(
+        "/executions/{execution_id}/kernel-usage",
+        response_model=ExecutionKernelUsageResponse,
+        responses=DOMAIN_ERROR_RESPONSES,
+        summary="Get the Execution's kernel and its memory and CPU use",
+    )
+    async def get_execution_kernel_usage(
+        execution_id: UUID,
+        execution: PathExecution,
+    ) -> ExecutionKernelUsageResponse:
+        """Live kernel values are read from its Runtime Target now; Step
+        peaks were recorded as each Step attempt finished."""
+
+        return ExecutionKernelUsageResponse.from_view(
+            await container.kernel_usage.execution_usage(execution)
+        )
 
     @router.get(
         "/executions/{execution_id}/result",

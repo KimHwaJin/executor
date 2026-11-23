@@ -26,6 +26,7 @@ from executor_resource_extension.kernel_state import (
     exit_reason,
     memory_limit_events,
 )
+from executor_resource_extension.kernel_usage import StepUsage, kernel_pid
 
 COMPLETED = "COMPLETED"
 # Expired journals are looked for at most this often, not on every request.
@@ -139,6 +140,10 @@ class ExecutionJournals:
             except FileExistsError:
                 self._release_client(kernel_id, client, kept, reusable=True)
                 return False
+            # Only the request that owns the journal resets the kernel's
+            # peak. No await between the header and the code: a journal
+            # always has a recording behind it.
+            usage = StepUsage(kernel_pid(kernel))
             message_id = client.execute(
                 code,
                 silent=False,
@@ -159,6 +164,7 @@ class ExecutionJournals:
                 # Held to read how this process ended once it is replaced.
                 getattr(kernel.provisioner, "process", None),
                 memory_limit_events(self._cgroup_root),
+                usage,
                 client,
                 kept,
                 message_id,
@@ -300,6 +306,7 @@ class ExecutionJournals:
         instance_id: str,
         process: Any,
         memory_events_before: int | None,
+        usage: StepUsage,
         client: Any,
         kept: bool,
         message_id: str,
@@ -389,7 +396,11 @@ class ExecutionJournals:
                         }
                     )
             completed = True
-            await append(_terminal_entry(COMPLETED))
+            await append(
+                _terminal_entry(
+                    COMPLETED, usage=await asyncio.to_thread(usage.finish)
+                )
+            )
         except asyncio.CancelledError:
             # The server is stopping: end the journal so followers return.
             await append(
@@ -429,8 +440,16 @@ def _line(entry: dict[str, Any]) -> str:
     return json.dumps(entry, ensure_ascii=False, separators=(",", ":")) + "\n"
 
 
-def _terminal_entry(state: str, message: str | None = None) -> dict[str, Any]:
-    return {"type": "terminal", "state": state, "message": message}
+def _terminal_entry(
+    state: str,
+    message: str | None = None,
+    *,
+    usage: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    entry = {"type": "terminal", "state": state, "message": message}
+    if usage is not None:
+        entry["usage"] = usage
+    return entry
 
 
 def _terminal(seq: int, state: str, message: str) -> dict[str, Any]:

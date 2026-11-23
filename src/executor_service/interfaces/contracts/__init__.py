@@ -70,6 +70,13 @@ from executor_service.interfaces.contracts.executions import (  # noqa: F401
     RetryResponse,
     WorkspaceResponse,
 )
+from executor_service.interfaces.contracts.kernel_usage import (  # noqa: F401
+    ExecutionKernelUsageResponse,
+    KernelUsageResponse,
+    RecordedStepUsageResponse,
+    RuntimeTargetKernelsResponse,
+    TargetKernelResponse,
+)
 from executor_service.interfaces.contracts.maintenance import (  # noqa: F401
     ExecutorMaintenanceResponse,
     MaintenanceRunResponse,

@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from dataclasses import replace
 from datetime import datetime
 from typing import Any
 from uuid import uuid4
@@ -375,6 +376,7 @@ class ExecutionStepExecutor:
                         result_total_size_bytes=(
                             stored_result.total_size_bytes
                         ),
+                        **_usage_values(stored_result),
                         finished_at=now,
                     )
                 )
@@ -447,6 +449,7 @@ class ExecutionStepExecutor:
                         stored_result.representation_count
                     ),
                     result_total_size_bytes=stored_result.total_size_bytes,
+                    **_usage_values(stored_result),
                     error_message=safe_message,
                     finished_at=now,
                 )
@@ -742,10 +745,11 @@ class ExecutionStepExecutor:
                 handover_completed if handover is not None else None,
             )
             phase = "RESULT_FINALIZE"
-            return await self._result_store.finalize_step_result(
+            stored = await self._result_store.finalize_step_result(
                 identity,
                 execution_count=execution_result.execution_count,
             )
+            return replace(stored, usage=execution_result.usage)
         except RuntimeOutputLimitExceededError as exc:
             self._log_failure(observations, identity, exc, phase)
             stored = await self._preserve_failure_result(
@@ -760,10 +764,13 @@ class ExecutionStepExecutor:
         except RuntimeExecutionError as exc:
             self._log_failure(observations, identity, exc, phase)
             try:
-                stored = await self._result_store.finalize_step_result(
-                    identity,
-                    execution_count=None,
-                    error_message=safe_error(exc),
+                stored = replace(
+                    await self._result_store.finalize_step_result(
+                        identity,
+                        execution_count=None,
+                        error_message=safe_error(exc),
+                    ),
+                    usage=exc.usage,
                 )
             except Exception as storage_error:
                 self._log_failure(
@@ -843,3 +850,11 @@ def _assign_step_result(
     step.result_complete = stored_result.complete
     step.result_representation_count = stored_result.representation_count
     step.result_total_size_bytes = stored_result.total_size_bytes
+
+
+def _usage_values(stored_result: StepResultDescriptor) -> dict[str, object]:
+    usage = stored_result.usage
+    return {
+        "peak_memory_bytes": usage.peak_memory_bytes if usage else None,
+        "cpu_seconds": usage.cpu_seconds if usage else None,
+    }

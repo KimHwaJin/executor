@@ -401,6 +401,7 @@ def test_step_event_separates_success_from_output_completeness(
         "attempt": {"id": str(uuid4()), "number": 1, "reason": "INITIAL"},
         "result_ref": _result_reference(complete),
         "output_summary": {"count": 0, "content_types": []},
+        "usage": {"peak_memory_bytes": 1 << 20, "cpu_seconds": 0.5},
         "error": None
         if status == "SUCCEEDED"
         else {"code": "TEST_FAILURE", "message": "test", "retryable": False},

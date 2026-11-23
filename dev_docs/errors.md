@@ -52,6 +52,7 @@ MCP Tool 오류는 본문이 `[CODE] message details=[...]`이다. `details=` �
 | 500 | 예상하지 못한 서버 오류 | `INTERNAL_ERROR` |
 | 503 | DB 연결이 끊김. 나중에 다시 시도하면 통과할 수 있음 | `DATABASE_UNAVAILABLE` |
 | 503 | 이벤트 Stream 조회 API가 Redis에 닿지 못함(장애, failover 중, ACL 거부). Execution API는 영향받지 않음 | `REDIS_UNAVAILABLE` |
+| 503 | Runtime Target 커널 목록 API가 그 Jupyter 서버에서 커널 사용량을 읽지 못함(장애, 이전 Jupyter 이미지) | `RUNTIME_UNAVAILABLE` |
 
 요청 값을 고쳐야 통과하면 422, 기다리거나 최신 상태를 다시 읽으면 통과할 수 있으면 409다.
 Execution 누적 Step 한도 초과도 요청을 줄여야 하므로 422다.
