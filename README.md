@@ -810,6 +810,11 @@ Secret key example are provided in [deploy/kubernetes](deploy/kubernetes/README.
 mounts the Agent/Executor shared-result PVC read-write. Jupyter notebook and Artifact storage
 remains attached to the Jupyter fleet and is accessed through authenticated Jupyter APIs.
 
+Two scripts measure a deployed Executor. `scripts/multi_load.py` runs MULTI sessions against its
+REST API and prints the acceptance time, the time an Operation takes and the Steps finished per
+second. `scripts/fsync_probe.py` times fsync on the shared result storage from inside a Pod, which
+sets how long one Step takes when Executor is not busy. Each file's docstring shows how to run it.
+
 ## Package structure
 
 ```text
