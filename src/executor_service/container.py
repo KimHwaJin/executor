@@ -15,7 +15,7 @@ from executor_service.application.event_streams import EventStreamInspector
 from executor_service.application.execution_results import (
     ExecutionResultQueryService,
 )
-from executor_service.application.kernel_usage import KernelUsageQueries
+from executor_service.application.kernel_usage import RuntimeKernels
 from executor_service.application.notebook_queries import (
     ExecutionNotebookQueryService,
 )
@@ -43,7 +43,7 @@ from executor_service.infrastructure.execution_queries import (
 )
 from executor_service.infrastructure.execution_worker import ExecutionWorker
 from executor_service.infrastructure.kernel_usage import (
-    RuntimeKernelUsageQueries,
+    FleetRuntimeKernels,
 )
 from executor_service.infrastructure.maintenance import (
     ExecutorMaintenanceService,
@@ -156,7 +156,7 @@ class ApplicationContainer:
             self.runtime_registry,
             self.runtime_adapters,
         )
-        self.kernel_usage: KernelUsageQueries = RuntimeKernelUsageQueries(
+        self.runtime_kernels: RuntimeKernels = FleetRuntimeKernels(
             self.session_factory,
             self.runtime_registry,
             self.runtime_adapters,

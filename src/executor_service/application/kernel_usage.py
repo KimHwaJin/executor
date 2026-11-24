@@ -3,6 +3,8 @@
 Live values are read from the Runtime on request, never stored or polled:
 any Executor replica answers the same. Recorded values are each Step
 attempt's peak memory and CPU time, saved when the Step finished.
+An administrator may delete a kernel no Execution holds, such as one a
+Worker left behind when it died between creating the kernel and recording it.
 """
 
 from dataclasses import dataclass
@@ -58,7 +60,7 @@ class RuntimeTargetKernelsView:
     kernels: tuple[TargetKernelView, ...]
 
 
-class KernelUsageQueries(Protocol):
+class RuntimeKernels(Protocol):
     async def execution_usage(
         self, execution: ExecutionDetailView
     ) -> ExecutionKernelUsageView: ...
@@ -66,3 +68,12 @@ class KernelUsageQueries(Protocol):
     async def target_kernels(
         self, target_id: UUID
     ) -> RuntimeTargetKernelsView: ...
+
+    async def delete_unheld_kernel(
+        self, target_id: UUID, kernel_id: str
+    ) -> bool:
+        """Delete a kernel no Execution holds; False if it was already gone.
+
+        Refuses a kernel an Execution holds or one too recent to tell.
+        """
+        ...

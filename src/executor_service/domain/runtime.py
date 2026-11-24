@@ -244,6 +244,8 @@ class RuntimeKernelUsage:
     process_count: int | None
     memory_bytes: int | None
     cpu_seconds: float | None
+    # Seconds since the kernel process started; None when not reported.
+    age_seconds: float | None = None
 
 
 @dataclass(frozen=True, slots=True)

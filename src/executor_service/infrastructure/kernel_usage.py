@@ -1,6 +1,8 @@
-"""Read kernel usage from a Runtime Target and tie it to Executions."""
+"""Read a Runtime Target's kernels, tie them to Executions, delete unheld ones."""
 
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -16,9 +18,13 @@ from executor_service.application.kernel_usage import (
     RuntimeTargetKernelsView,
     TargetKernelView,
 )
-from executor_service.domain.errors import RuntimeUnavailableError
+from executor_service.domain.errors import (
+    RuntimeKernelDeleteConflictError,
+    RuntimeUnavailableError,
+)
 from executor_service.domain.models import utc_now
 from executor_service.domain.runtime import (
+    RuntimeDriver,
     RuntimeDriverFactory,
     RuntimeKernelUsage,
 )
@@ -35,8 +41,13 @@ from executor_service.infrastructure.runtime_registry.targets import (
 
 logger = logging.getLogger(__name__)
 
+# A Worker records a kernel right after creating it, within the database
+# timeouts (about two minutes at most). A younger unheld kernel may be one
+# about to be recorded, so it is never deleted.
+UNHELD_KERNEL_MIN_AGE_SECONDS = 900
 
-class RuntimeKernelUsageQueries:
+
+class FleetRuntimeKernels:
     def __init__(
         self,
         session_factory: async_sessionmaker[AsyncSession],
@@ -130,9 +141,73 @@ class RuntimeKernelUsageQueries:
             kernels=tuple(view(kernel) for kernel in kernels),
         )
 
+    async def delete_unheld_kernel(
+        self, target_id: UUID, kernel_id: str
+    ) -> bool:
+        # List the kernels before reading holders: a kernel recorded after
+        # the listing is then seen as held, never as left behind.
+        async with self._driver(target_id) as driver:
+            kernel = next(
+                (
+                    item
+                    for item in await self._read_kernels(driver, target_id)
+                    if item.kernel_id == kernel_id
+                ),
+                None,
+            )
+            if kernel is None:
+                return False
+            async with self._session_factory() as session:
+                # Any Execution, in any status and on any Target: a retained
+                # or cleanup-pending kernel is still its Execution's.
+                holder = await session.scalar(
+                    select(ExecutionORM.id)
+                    .where(ExecutionORM.runtime_session_id == kernel_id)
+                    .limit(1)
+                )
+            location = ("path", "kernel_id")
+            if holder is not None:
+                raise RuntimeKernelDeleteConflictError.at(
+                    location,
+                    "An Execution holds this kernel; cancel the Execution.",
+                    "kernel_held",
+                    execution_id=str(holder),
+                )
+            if (
+                kernel.age_seconds is None
+                or kernel.age_seconds < UNHELD_KERNEL_MIN_AGE_SECONDS
+            ):
+                raise RuntimeKernelDeleteConflictError.at(
+                    location,
+                    "The kernel may be about to be recorded by a Worker.",
+                    "kernel_too_recent",
+                    age_seconds=kernel.age_seconds,
+                    min_age_seconds=UNHELD_KERNEL_MIN_AGE_SECONDS,
+                )
+            try:
+                await driver.delete_session(kernel_id)
+            except Exception as exc:
+                raise RuntimeUnavailableError(
+                    "The Runtime Target did not delete the kernel."
+                ) from exc
+        logger.info(
+            "Deleted unheld Runtime kernel runtime_target_id=%s kernel_id=%s "
+            "age_seconds=%s memory_bytes=%s",
+            target_id,
+            kernel_id,
+            kernel.age_seconds,
+            kernel.memory_bytes,
+        )
+        return True
+
     async def _observe(
         self, target_id: UUID
     ) -> tuple[RuntimeKernelUsage, ...]:
+        async with self._driver(target_id) as driver:
+            return await self._read_kernels(driver, target_id)
+
+    @asynccontextmanager
+    async def _driver(self, target_id: UUID) -> AsyncIterator[RuntimeDriver]:
         async with self._session_factory() as session:
             target = await required_target(session, target_id)
         driver = self._driver_factory.create(
@@ -142,6 +217,15 @@ class RuntimeKernelUsageQueries:
                 target.credential_ref, target.credential_ciphertext
             ),
         )
+        try:
+            yield driver
+        finally:
+            await driver.close()
+
+    @staticmethod
+    async def _read_kernels(
+        driver: RuntimeDriver, target_id: UUID
+    ) -> tuple[RuntimeKernelUsage, ...]:
         try:
             return await driver.kernel_usage()
         except Exception as exc:
@@ -154,5 +238,3 @@ class RuntimeKernelUsageQueries:
             raise RuntimeUnavailableError(
                 "The Runtime Target did not report its kernels."
             ) from exc
-        finally:
-            await driver.close()

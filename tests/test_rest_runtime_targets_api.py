@@ -36,6 +36,8 @@ class HealthyGateway:
     profiles: ClassVar[list[str]] = ["default", "3102311"]
     kernels: ClassVar[tuple[RuntimeKernelUsage, ...]] = ()
     fail_kernel_usage = False
+    fail_kernel_delete = False
+    deleted_kernels: ClassVar[list[str]] = []
 
     def __init__(
         self,
@@ -73,6 +75,11 @@ class HealthyGateway:
             raise RuntimeDriverError("kernel usage unavailable")
         return self.kernels
 
+    async def delete_session(self, session_id: str) -> None:
+        if self.fail_kernel_delete:
+            raise RuntimeDriverError("kernel delete unavailable")
+        self.deleted_kernels.append(session_id)
+
     async def close(self) -> None:
         pass
 
@@ -88,6 +95,8 @@ async def fleet_client(
     HealthyGateway.profiles = ["default", "3102311"]
     HealthyGateway.kernels = ()
     HealthyGateway.fail_kernel_usage = False
+    HealthyGateway.fail_kernel_delete = False
+    HealthyGateway.deleted_kernels = []
     monkeypatch.setattr(
         "executor_service.infrastructure.runtime_adapters.JupyterRuntimeDriver",
         HealthyGateway,
@@ -698,6 +707,7 @@ async def test_target_kernels_name_the_execution_holding_each_kernel(
             "process_count": 2,
             "memory_bytes": 512 << 20,
             "cpu_seconds": 12.5,
+            "age_seconds": None,
             "execution_id": str(execution_id),
             "tenant_id": body["items"][0]["tenant_id"],
             "execution_status": "QUEUED",
@@ -708,6 +718,7 @@ async def test_target_kernels_name_the_execution_holding_each_kernel(
             "process_count": 1,
             "memory_bytes": 64 << 20,
             "cpu_seconds": 0.5,
+            "age_seconds": None,
             "execution_id": None,
             "tenant_id": None,
             "execution_status": None,
@@ -722,6 +733,66 @@ async def test_target_kernels_name_the_execution_holding_each_kernel(
     assert unavailable.status_code == 503
     assert unavailable.json()["error"]["code"] == "RUNTIME_UNAVAILABLE"
     missing = await client.get(f"/api/v1/runtime-targets/{uuid4()}/kernels")
+    assert missing.status_code == 404
+
+
+async def test_kernel_delete_removes_only_old_kernels_no_execution_holds(
+    fleet_client: tuple[httpx.AsyncClient, ApplicationContainer],
+) -> None:
+    client, container = fleet_client
+    created = await client.post(
+        "/api/v1/runtime-targets", json=_upsert_payload(52)
+    )
+    target_id = UUID(created.json()["target_id"])
+    holder = await _execution_on_kernel(
+        client, container, target_id, "kernel-retained", "kernel-delete"
+    )
+    # A failed Execution keeps its kernel while it may be retried.
+    async with container.session_factory() as session, session.begin():
+        await session.execute(
+            update(ExecutionORM)
+            .where(ExecutionORM.id == holder)
+            .values(status="FAILED")
+        )
+    HealthyGateway.kernels = (
+        RuntimeKernelUsage("kernel-retained", "idle", 1, 1, 0.1, 3600.0),
+        RuntimeKernelUsage("kernel-new", "idle", 1, 1, 0.1, 60.0),
+        RuntimeKernelUsage("kernel-unaged", "idle", 1, 1, 0.1, None),
+        RuntimeKernelUsage("kernel-left", "idle", 1, 1, 0.1, 3600.0),
+    )
+    url = f"/api/v1/runtime-targets/{target_id}/kernels"
+
+    held = await client.delete(f"{url}/kernel-retained")
+    recent = await client.delete(f"{url}/kernel-new")
+    unaged = await client.delete(f"{url}/kernel-unaged")
+
+    assert held.status_code == 409
+    assert held.json()["error"]["code"] == "RUNTIME_KERNEL_DELETE_CONFLICT"
+    [issue] = held.json()["error"]["details"]
+    assert issue["type"] == "kernel_held"
+    assert issue["context"] == {"execution_id": str(holder)}
+    for refused in (recent, unaged):
+        assert refused.status_code == 409
+        [issue] = refused.json()["error"]["details"]
+        assert issue["type"] == "kernel_too_recent"
+    assert HealthyGateway.deleted_kernels == []
+
+    assert (await client.delete(f"{url}/kernel-left")).status_code == 204
+    assert HealthyGateway.deleted_kernels == ["kernel-left"]
+    # A kernel already gone is not deleted again.
+    assert (await client.delete(f"{url}/kernel-gone")).status_code == 204
+    assert HealthyGateway.deleted_kernels == ["kernel-left"]
+
+    HealthyGateway.fail_kernel_delete = True
+    failed = await client.delete(f"{url}/kernel-left")
+    assert failed.status_code == 503
+    assert failed.json()["error"]["code"] == "RUNTIME_UNAVAILABLE"
+    HealthyGateway.fail_kernel_usage = True
+    unlisted = await client.delete(f"{url}/kernel-left")
+    assert unlisted.status_code == 503
+    missing = await client.delete(
+        f"/api/v1/runtime-targets/{uuid4()}/kernels/kernel-left"
+    )
     assert missing.status_code == 404
 
 
@@ -766,6 +837,7 @@ async def test_execution_kernel_usage_reports_live_and_recorded_values(
         "process_count": 1,
         "memory_bytes": 400 << 20,
         "cpu_seconds": 3.75,
+        "age_seconds": None,
     }
     assert body["observed_at"]
     assert body["steps"] == {

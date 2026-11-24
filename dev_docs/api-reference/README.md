@@ -8,12 +8,12 @@ Kubernetes에 배포된 Executor를 호출할 때 필요한 내용만 담았다.
 | 문서 | 대상 | 개수 |
 | --- | --- | ---: |
 | [01-executions.md](01-executions.md) | 실행 REST API(명령·조회·노트북·이력·Artifact) | 26 |
-| [02-admin.md](02-admin.md) | 관리자 REST API(Runtime Target·Pool 10, 유지보수 6, 이벤트 Stream 조회 4) | 20 |
+| [02-admin.md](02-admin.md) | 관리자 REST API(Runtime Target·Pool 11, 유지보수 6, 이벤트 Stream 조회 4) | 21 |
 | [03-health.md](03-health.md) | 헬스체크(`/healthz`, `/readyz`, `/workerz`) | 3 |
-| [04-mcp.md](04-mcp.md) | MCP 엔드포인트 `POST /mcp`와 도구 | 1 (도구 30) |
+| [04-mcp.md](04-mcp.md) | MCP 엔드포인트 `POST /mcp`와 도구 | 1 (도구 31) |
 | [05-events.md](05-events.md) | Redis Stream 이벤트 | 8종 |
 | [agent-guide.md](agent-guide.md) | 코딩 에이전트용 연동 가이드(영어, 한 파일). 한글판 [agent-guide.ko.md](agent-guide.ko.md) | - |
-| [openapi.json](openapi.json) | 코드에서 생성한 OpenAPI 3.1(REST 46개, 스키마 161개) | - |
+| [openapi.json](openapi.json) | 코드에서 생성한 OpenAPI 3.1(REST 47개, 스키마 161개) | - |
 
 HTTP 엔드포인트 합계 **50개**(실행 26 + 관리자 20 + 헬스 3 + MCP 1).
 
@@ -141,7 +141,7 @@ ClusterIP Service `executor`(포트 `8000`)로 떠 있다. 하나의 이미지�
 | 409 | `PERSISTENCE_CONFLICT` | 동시 변경 충돌 | 재조회 후 재시도 |
 | 409 | `EXECUTION_NOTEBOOK_NOT_AVAILABLE` | 노트북 아직 없음 | 나중에 다시 |
 | 409 | `ARTIFACT_CONTENT_UNAVAILABLE` | 파일 없음·읽기 불가 | 상세의 `status` 확인 |
-| 409 | `RUNTIME_TARGET_PURGE_CONFLICT`, `RUNTIME_TARGET_ENDPOINT_CONFLICT`, `MAINTENANCE_RUN_CONFLICT` | 관리 작업 충돌 | 조건 확인 |
+| 409 | `RUNTIME_TARGET_PURGE_CONFLICT`, `RUNTIME_TARGET_ENDPOINT_CONFLICT`, `RUNTIME_KERNEL_DELETE_CONFLICT`, `MAINTENANCE_RUN_CONFLICT` | 관리 작업 충돌 | 조건 확인 |
 | 413 | `REQUEST_BODY_TOO_LARGE` | 바디 초과 | PATH source 사용 |
 | 416 | `ARTIFACT_RANGE_NOT_SATISFIABLE` | Range 밖(`Content-Range: bytes */{size}`) | Range 수정 |
 | 422 | `REQUEST_VALIDATION_ERROR` | 형식(필수·타입·길이·패턴·모르는 필드) | 요청 수정 |
