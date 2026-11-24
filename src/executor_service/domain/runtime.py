@@ -3,6 +3,7 @@
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Literal, Protocol, runtime_checkable
 from uuid import UUID
 
@@ -244,8 +245,6 @@ class RuntimeKernelUsage:
     process_count: int | None
     memory_bytes: int | None
     cpu_seconds: float | None
-    # Seconds since the kernel process started; None when not reported.
-    age_seconds: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -315,6 +314,10 @@ class RuntimeDriver(RuntimeStorage, Protocol):
     ) -> RuntimeAbortResult: ...
 
     async def delete_session(self, session_id: str) -> None: ...
+
+    async def session_last_activity(self, session_id: str) -> datetime | None:
+        """When the kernel last sent a message; None if it is gone."""
+        ...
 
     async def session_exists(self, session_id: str) -> bool: ...
 

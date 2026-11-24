@@ -340,10 +340,7 @@ v2는 현재 컨테이너의 leaf 디렉토리, v1은 `cpu`, `cpuacct`, `memory`
 - `memory_bytes`: 트리 각 프로세스의 RSS(`VmRSS`) 합. fork한 자식과 공유하는 페이지는
   프로세스마다 한 번씩 세므로 실제보다 조금 클 수 있다.
 - `cpu_seconds`: 커널 시작 이후 누적 CPU 시간(`utime+stime+cutime+cstime`).
-- `age_seconds`: 커널 프로세스가 시작된 뒤 지난 시간(`/proc/uptime` − `/proc/<pid>/stat`의
-  starttime). 서버 자신의 시계로 재므로 Executor와 시계가 달라도 맞다. Executor의 남겨진 커널
-  삭제 API는 이 값이 15분 이상인 커널만 지운다.
-- 프로세스를 찾지 못하면 네 값 모두 null이다. 0으로 보고하지 않는다.
+- 프로세스를 찾지 못하면 세 값 모두 null이다. 0으로 보고하지 않는다.
 
 코드 실행 하나가 끝나면 journal의 COMPLETED 항목에 `usage`가 붙는다.
 

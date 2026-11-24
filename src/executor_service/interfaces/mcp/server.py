@@ -699,8 +699,8 @@ def build_mcp_server(
             description=(
                 "Delete a kernel no Execution holds from a Runtime Target. "
                 "A kernel an Execution holds is refused: cancel that "
-                "Execution instead. A kernel started less than 15 minutes "
-                "ago is refused too, since a Worker may be recording it. "
+                "Execution instead. A kernel active in the last 15 minutes "
+                "is refused too, since a Worker may be recording it. "
                 "A kernel already gone returns deleted false."
             )
         )

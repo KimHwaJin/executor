@@ -1,6 +1,7 @@
 import errno
 import json
 import ssl
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -1011,7 +1012,6 @@ async def test_kernel_usage_parses_each_running_kernel() -> None:
                     "process_count": 2,
                     "memory_bytes": 3 << 20,
                     "cpu_seconds": 4,
-                    "age_seconds": 905.5,
                 },
                 {
                     "kernel_id": "k-2",
@@ -1030,7 +1030,7 @@ async def test_kernel_usage_parses_each_running_kernel() -> None:
         await driver.close()
 
     assert kernels == (
-        RuntimeKernelUsage("k-1", "busy", 2, 3 << 20, 4, 905.5),
+        RuntimeKernelUsage("k-1", "busy", 2, 3 << 20, 4),
         RuntimeKernelUsage("k-2", None, None, None, None),
     )
 
@@ -1056,3 +1056,31 @@ async def test_kernel_usage_rejects_an_invalid_response(
             await driver.kernel_usage()
     finally:
         await driver.close()
+
+
+async def test_session_last_activity_reads_the_kernel_model() -> None:
+    driver = JupyterRuntimeDriver("http://jupyter.invalid", "secret")
+    driver._client = httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda request: (
+                httpx.Response(
+                    200,
+                    json={
+                        "id": "k-1",
+                        "last_activity": "2026-11-24T06:00:00.123456Z",
+                    },
+                )
+                if request.url.path == "/api/kernels/k-1"
+                else httpx.Response(404)
+            )
+        ),
+        base_url="http://jupyter.invalid",
+    )
+    try:
+        active = await driver.session_last_activity("k-1")
+        gone = await driver.session_last_activity("k-gone")
+    finally:
+        await driver.close()
+
+    assert active == datetime(2026, 11, 24, 6, 0, 0, 123456, tzinfo=UTC)
+    assert gone is None

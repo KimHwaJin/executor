@@ -17,8 +17,7 @@ class KernelUsageResponse(ContractModel):
     """A running kernel now: its process and the processes it started.
 
     Memory is resident set size (RSS); pages shared with forked children
-    count once per process. CPU seconds and age count from the kernel's
-    start.
+    count once per process. CPU seconds count from the kernel's start.
     """
 
     kernel_id: str
@@ -26,7 +25,6 @@ class KernelUsageResponse(ContractModel):
     process_count: int | None
     memory_bytes: int | None
     cpu_seconds: float | None
-    age_seconds: float | None
 
     @classmethod
     def from_usage(cls, usage: RuntimeKernelUsage) -> "KernelUsageResponse":
@@ -36,7 +34,6 @@ class KernelUsageResponse(ContractModel):
             process_count=usage.process_count,
             memory_bytes=usage.memory_bytes,
             cpu_seconds=usage.cpu_seconds,
-            age_seconds=usage.age_seconds,
         )
 
 

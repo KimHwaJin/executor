@@ -1,6 +1,7 @@
 """Jupyter implementation of the RuntimeDriver contract."""
 
 from contextlib import AbstractAsyncContextManager
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -104,6 +105,9 @@ class JupyterRuntimeDriver:
 
     async def delete_session(self, session_id: str) -> None:
         await self._sessions.delete(session_id)
+
+    async def session_last_activity(self, session_id: str) -> datetime | None:
+        return await self._sessions.last_activity(session_id)
 
     async def session_exists(self, session_id: str) -> bool:
         return await self._sessions.exists(session_id)

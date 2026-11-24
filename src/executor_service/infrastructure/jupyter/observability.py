@@ -85,7 +85,6 @@ class JupyterObservabilityClient:
                     process_count=_optional(kernel, "process_count", int),
                     memory_bytes=_optional(kernel, "memory_bytes", int),
                     cpu_seconds=_optional(kernel, "cpu_seconds", (int, float)),
-                    age_seconds=_optional(kernel, "age_seconds", (int, float)),
                 )
                 for kernel in payload["kernels"]
             )

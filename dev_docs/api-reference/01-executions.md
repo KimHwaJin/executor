@@ -1443,7 +1443,6 @@ Artifact 하나와 lineage 참조다. 보이는 범위는 그 Artifact의 Execut
 | `process_count` | integer \| null | O | 커널 프로세스와 그 자식 프로세스 수 |
 | `memory_bytes` | integer \| null | O | 지금 메모리(RSS 합계, byte) |
 | `cpu_seconds` | number \| null | O | 커널 시작부터 쓴 CPU 시간(초, 끝난 자식 포함) |
-| `age_seconds` | number \| null | O | 커널 프로세스가 시작된 뒤 지난 시간(초). Target이 주지 않으면 `null` |
 
 <a id="schema-recordedstepusageresponse"></a>
 #### `RecordedStepUsageResponse`
