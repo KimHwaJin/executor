@@ -13,7 +13,7 @@ what the code costs.
 
 HISTORY is how many Steps each session holds before the measurement
 starts. Sessions are finalized at the end, which frees their kernels; a
-run that is interrupted leaves them for the caller to finalize.
+run that fails or is interrupted cancels them instead.
 
 Environment:
     EXECUTOR_URL      comma-separated URLs take the sessions in turn
@@ -31,6 +31,7 @@ in; the count of retries is printed with the result.
 import itertools
 import os
 import sys
+import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -53,6 +54,8 @@ POLL = float(os.environ.get("POLL_SECONDS", "0.5"))
 OUT = int(os.environ.get("OUT_BYTES", "0"))
 K, HISTORY, PER, ROUNDS = (int(value) for value in sys.argv[1:5])
 ATTEMPTS = 6
+STOP = threading.Event()
+SESSIONS: list["Session"] = []
 
 
 def _code(sequence: int) -> str:
@@ -105,6 +108,8 @@ class Session:
         """
         failure = ""
         for attempt in range(ATTEMPTS):
+            if STOP.is_set():
+                raise RuntimeError("the run was stopped")
             if attempt:
                 self.retries += 1
                 print(
@@ -159,6 +164,7 @@ class Session:
             },
         )
         self.id = body["execution_id"]
+        SESSIONS.append(self)
         self.steps = 1
 
     def add(self, count: int) -> float:
@@ -188,6 +194,18 @@ class Session:
         )
         self.wait("SUCCEEDED")
 
+    def cancel(self) -> None:
+        """Free the kernel of a session the run did not finalize."""
+
+        try:
+            self._call(
+                "POST",
+                f"/executions/{self.id}/cancel",
+                json={"idempotency_key": f"cancel-{uuid.uuid4()}"},
+            )
+        except RuntimeError as error:
+            print(f"cancel {self.id}: {error}", flush=True)
+
 
 def _prepare(_: int) -> Session:
     session = Session()
@@ -209,30 +227,44 @@ def _run(session: Session) -> list[tuple[float, float]]:
     return timings
 
 
+def _measure(pool: ThreadPoolExecutor) -> None:
+    sessions = list(pool.map(_prepare, range(K)))
+    print(f"{K} sessions ready, {max(HISTORY, 1)} Steps each", flush=True)
+    started = time.time()
+    timings = [
+        timing for result in pool.map(_run, sessions) for timing in result
+    ]
+    elapsed = time.time() - started
+    accepts = [accepted for accepted, _ in timings]
+    dones = [done for _, done in timings]
+    print(
+        f"{K} sessions x {ROUNDS} Operations x {PER} Steps\n"
+        f"  accepted        p50 {_quantile(accepts, 0.5) * 1000:.0f}ms"
+        f"  p95 {_quantile(accepts, 0.95) * 1000:.0f}ms\n"
+        f"  Operation done  p50 {_quantile(dones, 0.5):.2f}s"
+        f"  p95 {_quantile(dones, 0.95):.2f}s\n"
+        f"  throughput      {len(timings) * PER / elapsed:.1f} Step/s"
+        f" ({elapsed:.0f}s)\n"
+        f"  retries         {sum(s.retries for s in sessions)}",
+        flush=True,
+    )
+    list(pool.map(Session.finalize, sessions))
+    print("sessions finalized")
+
+
 def main() -> None:
     with ThreadPoolExecutor(K) as pool:
-        sessions = list(pool.map(_prepare, range(K)))
-        print(f"{K} sessions ready, {max(HISTORY, 1)} Steps each", flush=True)
-        started = time.time()
-        timings = [
-            timing for result in pool.map(_run, sessions) for timing in result
-        ]
-        elapsed = time.time() - started
-        accepts = [accepted for accepted, _ in timings]
-        dones = [done for _, done in timings]
-        print(
-            f"{K} sessions x {ROUNDS} Operations x {PER} Steps\n"
-            f"  accepted        p50 {_quantile(accepts, 0.5) * 1000:.0f}ms"
-            f"  p95 {_quantile(accepts, 0.95) * 1000:.0f}ms\n"
-            f"  Operation done  p50 {_quantile(dones, 0.5):.2f}s"
-            f"  p95 {_quantile(dones, 0.95):.2f}s\n"
-            f"  throughput      {len(timings) * PER / elapsed:.1f} Step/s"
-            f" ({elapsed:.0f}s)\n"
-            f"  retries         {sum(s.retries for s in sessions)}",
-            flush=True,
-        )
-        list(pool.map(Session.finalize, sessions))
-        print("sessions finalized")
+        try:
+            _measure(pool)
+        except BaseException:
+            # The threads stop at their next request, so no session starts
+            # or moves on while the ones this run made are cancelled.
+            STOP.set()
+            pool.shutdown()
+            STOP.clear()
+            for session in SESSIONS:
+                session.cancel()
+            raise
 
 
 if __name__ == "__main__":
