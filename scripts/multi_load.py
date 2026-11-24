@@ -139,7 +139,7 @@ class Session:
                 self.version = state["version"]
                 return
             if state["status"] in ("FAILED", "CANCELLED"):
-                raise RuntimeError(str(body)[:600])
+                raise RuntimeError(f"execution {self.id}: {state}")
             if not WAIT:
                 time.sleep(POLL)
 
