@@ -3,7 +3,7 @@
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Path, Query, Response
 
 from executor_service.application.runtime_targets import (
     PurgeRuntimeTargetCommand,
@@ -130,8 +130,36 @@ def build_runtime_target_router(container: ApplicationContainer) -> APIRouter:
         target_id: UUID,
     ) -> RuntimeTargetKernelsResponse:
         return RuntimeTargetKernelsResponse.from_view(
-            await container.kernel_usage.target_kernels(target_id)
+            await container.runtime_kernels.target_kernels(target_id)
         )
+
+    @router.delete(
+        "/runtime-targets/{target_id}/kernels/{kernel_id}",
+        status_code=204,
+        responses={
+            404: FLEET_ERROR_RESPONSES[404],
+            409: {
+                "model": ErrorResponse,
+                "description": (
+                    "An Execution holds the kernel, or it started too "
+                    "recently to tell"
+                ),
+            },
+            503: {
+                "model": ErrorResponse,
+                "description": "The Runtime Target did not list or delete it",
+            },
+        },
+        summary="Delete a kernel no Execution holds",
+    )
+    async def delete_runtime_target_kernel(
+        target_id: UUID,
+        kernel_id: Annotated[str, Path(min_length=1, max_length=255)],
+    ) -> Response:
+        await container.runtime_kernels.delete_unheld_kernel(
+            target_id, kernel_id
+        )
+        return Response(status_code=204)
 
     @router.post(
         "/runtime-targets/{target_id}/probe",

@@ -24,7 +24,7 @@ from executor_service.application.execution_queries import (
 from executor_service.application.execution_results import (
     ExecutionResultQueryService,
 )
-from executor_service.application.kernel_usage import KernelUsageQueries
+from executor_service.application.kernel_usage import RuntimeKernels
 from executor_service.application.notebook_queries import (
     ExecutionNotebookQueryService,
     NotebookCellView,
@@ -105,6 +105,7 @@ StandardLimit = Annotated[int, Field(ge=1, le=200)]
 EventLimit = Annotated[int, Field(ge=1, le=500)]
 ArtifactLimit = Annotated[int, Field(ge=1, le=1000)]
 ScopeFilter = Annotated[str | None, Field(pattern=SCOPE_ID.pattern)]
+KernelId = Annotated[str, Field(min_length=1, max_length=255)]
 # Kept under the idle timeouts of common proxies.
 WaitSeconds = Annotated[int, Field(ge=0, le=30)]
 
@@ -134,7 +135,7 @@ def build_mcp_server(
     notebook_queries: ExecutionNotebookQueryService | None = None,
     execution_results: ExecutionResultQueryService | None = None,
     materialized_artifacts: MaterializedArtifactService | None = None,
-    kernel_usage: KernelUsageQueries | None = None,
+    runtime_kernels: RuntimeKernels | None = None,
 ) -> MCPServer:
     server = MCPServer(
         name="executor-service",
@@ -657,7 +658,7 @@ def build_mcp_server(
             raise _public_tool_error(exc) from exc
         return ExecutionArtifactResponse.from_view(view)
 
-    if kernel_usage is not None:
+    if runtime_kernels is not None:
 
         @server.tool(
             description=(
@@ -670,7 +671,7 @@ def build_mcp_server(
             execution_id: UUID,
         ) -> ExecutionKernelUsageResponse:
             try:
-                view = await kernel_usage.execution_usage(
+                view = await runtime_kernels.execution_usage(
                     await authorize(execution_id)
                 )
             except Exception as exc:
@@ -689,10 +690,32 @@ def build_mcp_server(
         ) -> RuntimeTargetKernelsResponse:
             try:
                 require_admin(current_caller())
-                view = await kernel_usage.target_kernels(target_id)
+                view = await runtime_kernels.target_kernels(target_id)
             except Exception as exc:
                 raise _public_tool_error(exc) from exc
             return RuntimeTargetKernelsResponse.from_view(view)
+
+        @server.tool(
+            description=(
+                "Delete a kernel no Execution holds from a Runtime Target. "
+                "A kernel an Execution holds is refused: cancel that "
+                "Execution instead. A kernel started less than 15 minutes "
+                "ago is refused too, since a Worker may be recording it. "
+                "A kernel already gone returns deleted false."
+            )
+        )
+        async def runtime_target_kernel_delete(
+            target_id: UUID,
+            kernel_id: KernelId,
+        ) -> dict[str, bool]:
+            try:
+                require_admin(current_caller())
+                deleted = await runtime_kernels.delete_unheld_kernel(
+                    target_id, kernel_id
+                )
+            except Exception as exc:
+                raise _public_tool_error(exc) from exc
+            return {"deleted": deleted}
 
     if runtime_manager is not None:
 

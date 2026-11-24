@@ -35,6 +35,7 @@ class ErrorCode(StrEnum):
     PERSISTENCE_CONFLICT = "PERSISTENCE_CONFLICT"
     RUNTIME_TARGET_PURGE_CONFLICT = "RUNTIME_TARGET_PURGE_CONFLICT"
     RUNTIME_TARGET_ENDPOINT_CONFLICT = "RUNTIME_TARGET_ENDPOINT_CONFLICT"
+    RUNTIME_KERNEL_DELETE_CONFLICT = "RUNTIME_KERNEL_DELETE_CONFLICT"
     MAINTENANCE_RUN_NOT_FOUND = "MAINTENANCE_RUN_NOT_FOUND"
     MAINTENANCE_RUN_CONFLICT = "MAINTENANCE_RUN_CONFLICT"
     NOT_FOUND = "NOT_FOUND"
@@ -203,6 +204,13 @@ class RuntimeTargetPurgeConflictError(DomainError):
 
 class RuntimeTargetEndpointConflictError(DomainError):
     code = ErrorCode.RUNTIME_TARGET_ENDPOINT_CONFLICT
+    http_status = 409
+
+
+class RuntimeKernelDeleteConflictError(DomainError):
+    """The kernel may still be in use, so it was left running."""
+
+    code = ErrorCode.RUNTIME_KERNEL_DELETE_CONFLICT
     http_status = 409
 
 

@@ -63,7 +63,7 @@ def create_app(
             notebook_queries=container.notebook_queries,
             execution_results=container.execution_results,
             materialized_artifacts=container.materialized_artifacts,
-            kernel_usage=container.kernel_usage,
+            runtime_kernels=container.runtime_kernels,
         )
         if container.settings.mcp_enabled
         else None

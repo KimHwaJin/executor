@@ -1,6 +1,6 @@
 # MCP 스펙
 
-같은 서버의 `POST /mcp`가 MCP Streamable HTTP 엔드포인트다. 설정: `json_response=True`, `stateless_http=True`(세션 없음, 요청마다 독립). **dev 배포에서만 켜져 있고 stg·prd에서는 `/mcp`가 없다(404).** 운영 연동은 REST를 쓴다. 서버 이름 `executor-service`, **도구 28개**(실행 22 + Runtime Target 관리 6).
+같은 서버의 `POST /mcp`가 MCP Streamable HTTP 엔드포인트다. 설정: `json_response=True`, `stateless_http=True`(세션 없음, 요청마다 독립). **dev 배포에서만 켜져 있고 stg·prd에서는 `/mcp`가 없다(404).** 운영 연동은 REST를 쓴다. 서버 이름 `executor-service`, **도구 31개**(실행 23 + Runtime Target 관리 8).
 
 ## 연결 규칙
 
@@ -44,12 +44,13 @@
 | 22 | [`execution_artifact_get`](#execution_artifact_get) | `GET /api/v1/artifacts/{artifact_id}` | `ExecutionArtifactResponse` |
 | 23 | [`execution_kernel_usage`](#execution_kernel_usage) | `GET /api/v1/executions/{execution_id}/kernel-usage` | `ExecutionKernelUsageResponse` |
 | 24 | [`runtime_target_kernels`](#runtime_target_kernels) | `GET /api/v1/runtime-targets/{target_id}/kernels` | `RuntimeTargetKernelsResponse` |
-| 25 | [`runtime_target_upsert`](#runtime_target_upsert) | `POST /api/v1/runtime-targets` | `RuntimeTargetResponse` |
-| 26 | [`runtime_target_list`](#runtime_target_list) | `GET /api/v1/runtime-targets` | `RuntimeTargetPageResponse` |
-| 27 | [`runtime_target_get`](#runtime_target_get) | `GET /api/v1/runtime-targets/{target_id}` | `RuntimeTargetResponse` |
-| 28 | [`runtime_target_probe`](#runtime_target_probe) | `POST /api/v1/runtime-targets/{target_id}/probe` | `RuntimeTargetResponse` |
-| 29 | [`runtime_target_disable`](#runtime_target_disable) | `POST /api/v1/runtime-targets/{target_id}/disable` | `RuntimeTargetResponse` |
-| 30 | [`runtime_target_set_state`](#runtime_target_set_state) | `POST /api/v1/runtime-targets/{target_id}/drain`<br>`POST /api/v1/runtime-targets/{target_id}/activate` | `RuntimeTargetResponse` |
+| 25 | [`runtime_target_kernel_delete`](#runtime_target_kernel_delete) | `DELETE /api/v1/runtime-targets/{target_id}/kernels/{kernel_id}` | `{"deleted": boolean}` |
+| 26 | [`runtime_target_upsert`](#runtime_target_upsert) | `POST /api/v1/runtime-targets` | `RuntimeTargetResponse` |
+| 27 | [`runtime_target_list`](#runtime_target_list) | `GET /api/v1/runtime-targets` | `RuntimeTargetPageResponse` |
+| 28 | [`runtime_target_get`](#runtime_target_get) | `GET /api/v1/runtime-targets/{target_id}` | `RuntimeTargetResponse` |
+| 29 | [`runtime_target_probe`](#runtime_target_probe) | `POST /api/v1/runtime-targets/{target_id}/probe` | `RuntimeTargetResponse` |
+| 30 | [`runtime_target_disable`](#runtime_target_disable) | `POST /api/v1/runtime-targets/{target_id}/disable` | `RuntimeTargetResponse` |
+| 31 | [`runtime_target_set_state`](#runtime_target_set_state) | `POST /api/v1/runtime-targets/{target_id}/drain`<br>`POST /api/v1/runtime-targets/{target_id}/activate` | `RuntimeTargetResponse` |
 
 <a id="execution_submit"></a>
 ### 1. `execution_submit`
@@ -426,8 +427,22 @@
 
 반환: `RuntimeTargetKernelsResponse` — 필드는 [응답 스키마](02-admin.md#schema-runtimetargetkernelsresponse).
 
+<a id="runtime_target_kernel_delete"></a>
+### 25. `runtime_target_kernel_delete`
+
+> Delete a kernel no Execution holds from a Runtime Target. A kernel an Execution holds is refused: cancel that Execution instead. A kernel started less than 15 minutes ago is refused too, since a Worker may be recording it. A kernel already gone returns deleted false.
+
+대응 REST: `DELETE /api/v1/runtime-targets/{target_id}/kernels/{kernel_id}` — 남겨진 커널 삭제. 의미·주의는 REST 스펙을 따른다.
+
+| 인자 | 타입 | 필수 | 제약 | 설명 |
+| --- | --- | :---: | --- | --- |
+| `target_id` | string(uuid) | O |  | Runtime Target ID |
+| `kernel_id` | string | O | 길이≥1, 길이≤255 | 커널 목록의 `kernel_id` |
+
+반환: `{"deleted": boolean}` — 지웠으면 `true`, 이미 없던 커널이면 `false`.
+
 <a id="runtime_target_upsert"></a>
-### 25. `runtime_target_upsert`
+### 26. `runtime_target_upsert`
 
 > Register or update a Runtime Target. The credential is encrypted at rest and never returned. The target is probed immediately and becomes schedulable only healthy.
 
@@ -447,7 +462,7 @@
 반환: `RuntimeTargetResponse` — 필드는 [응답 스키마](02-admin.md#schema-runtimetargetresponse).
 
 <a id="runtime_target_list"></a>
-### 26. `runtime_target_list`
+### 27. `runtime_target_list`
 
 > List registered Runtime Targets and current capacity state.
 
@@ -465,7 +480,7 @@
 반환: `RuntimeTargetPageResponse` — 필드는 [응답 스키마](02-admin.md#schema-runtimetargetpageresponse).
 
 <a id="runtime_target_get"></a>
-### 27. `runtime_target_get`
+### 28. `runtime_target_get`
 
 > Get one registered Runtime Target without exposing its credential.
 
@@ -478,7 +493,7 @@
 반환: `RuntimeTargetResponse` — 필드는 [응답 스키마](02-admin.md#schema-runtimetargetresponse).
 
 <a id="runtime_target_probe"></a>
-### 28. `runtime_target_probe`
+### 29. `runtime_target_probe`
 
 > Probe a Runtime Target now and persist its health and supported profiles.
 
@@ -492,7 +507,7 @@
 반환: `RuntimeTargetResponse` — 필드는 [응답 스키마](02-admin.md#schema-runtimetargetresponse).
 
 <a id="runtime_target_disable"></a>
-### 29. `runtime_target_disable`
+### 30. `runtime_target_disable`
 
 > Disable a Runtime Target. It remains queryable, is marked OFFLINE, and excluded from new scheduling.
 
@@ -507,7 +522,7 @@
 반환: `RuntimeTargetResponse` — 필드는 [응답 스키마](02-admin.md#schema-runtimetargetresponse).
 
 <a id="runtime_target_set_state"></a>
-### 30. `runtime_target_set_state`
+### 31. `runtime_target_set_state`
 
 > Set a target to DRAINING to stop new scheduling while current work finishes, or probe and return it to ACTIVE.
 

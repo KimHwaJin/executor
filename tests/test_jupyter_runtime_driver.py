@@ -1011,6 +1011,7 @@ async def test_kernel_usage_parses_each_running_kernel() -> None:
                     "process_count": 2,
                     "memory_bytes": 3 << 20,
                     "cpu_seconds": 4,
+                    "age_seconds": 905.5,
                 },
                 {
                     "kernel_id": "k-2",
@@ -1029,7 +1030,7 @@ async def test_kernel_usage_parses_each_running_kernel() -> None:
         await driver.close()
 
     assert kernels == (
-        RuntimeKernelUsage("k-1", "busy", 2, 3 << 20, 4),
+        RuntimeKernelUsage("k-1", "busy", 2, 3 << 20, 4, 905.5),
         RuntimeKernelUsage("k-2", None, None, None, None),
     )
 

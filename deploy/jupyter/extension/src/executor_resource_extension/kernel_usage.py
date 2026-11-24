@@ -33,6 +33,7 @@ def kernel_usages(
 
     processes = _processes(proc)
     children = _children(processes)
+    uptime = _uptime_seconds(proc)
     usages = {}
     for kernel_id, pid in pids.items():
         tree = _tree(pid, processes, children)
@@ -41,6 +42,7 @@ def kernel_usages(
             "process_count": len(tree) or None,
             "memory_bytes": _total(rss),
             "cpu_seconds": _cpu_seconds(processes, tree),
+            "age_seconds": _age_seconds(processes, tree, uptime),
         }
     return usages
 
@@ -79,8 +81,8 @@ class StepUsage:
         }
 
 
-def _processes(proc: Path) -> dict[int, tuple[int, int]]:
-    """Each PID's parent and CPU ticks, its reaped children included."""
+def _processes(proc: Path) -> dict[int, tuple[int, int, int]]:
+    """Each PID's parent, CPU ticks with its reaped children, and start tick."""
 
     processes = {}
     try:
@@ -96,6 +98,7 @@ def _processes(proc: Path) -> dict[int, tuple[int, int]]:
             processes[int(entry.name)] = (
                 int(fields[1]),
                 sum(int(value) for value in fields[11:15]),
+                int(fields[19]),
             )
         except (OSError, ValueError, IndexError):
             continue
@@ -103,17 +106,17 @@ def _processes(proc: Path) -> dict[int, tuple[int, int]]:
 
 
 def _children(
-    processes: Mapping[int, tuple[int, int]],
+    processes: Mapping[int, tuple[int, int, int]],
 ) -> dict[int, list[int]]:
     children: dict[int, list[int]] = {}
-    for child, (parent, _ticks) in processes.items():
+    for child, (parent, _ticks, _start) in processes.items():
         children.setdefault(parent, []).append(child)
     return children
 
 
 def _tree(
     pid: int | None,
-    processes: Mapping[int, tuple[int, int]],
+    processes: Mapping[int, tuple[int, int, int]],
     children: Mapping[int, list[int]],
 ) -> list[int]:
     if pid is None or pid not in processes:
@@ -127,12 +130,31 @@ def _tree(
 
 
 def _cpu_seconds(
-    processes: Mapping[int, tuple[int, int]], tree: Iterable[int]
+    processes: Mapping[int, tuple[int, int, int]], tree: Iterable[int]
 ) -> float | None:
     members = list(tree)
     if not members:
         return None
     return round(sum(processes[pid][1] for pid in members) / _CLOCK_TICKS, 3)
+
+
+def _age_seconds(
+    processes: Mapping[int, tuple[int, int, int]],
+    tree: list[int],
+    uptime: float | None,
+) -> float | None:
+    """Seconds since the kernel process started, on this host's clock."""
+
+    if not tree or uptime is None:
+        return None
+    return round(max(0.0, uptime - processes[tree[0]][2] / _CLOCK_TICKS), 3)
+
+
+def _uptime_seconds(proc: Path) -> float | None:
+    try:
+        return float((proc / "uptime").read_text().split()[0])
+    except (OSError, ValueError, IndexError):
+        return None
 
 
 def _status_bytes(proc: Path, pid: int, key: str) -> int | None:

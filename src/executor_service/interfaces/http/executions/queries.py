@@ -123,7 +123,7 @@ def build_query_router(container: ApplicationContainer) -> APIRouter:
         peaks were recorded as each Step attempt finished."""
 
         return ExecutionKernelUsageResponse.from_view(
-            await container.kernel_usage.execution_usage(execution)
+            await container.runtime_kernels.execution_usage(execution)
         )
 
     @router.get(

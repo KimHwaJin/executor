@@ -648,6 +648,11 @@ class KernelUsageStub:
             kernels=(TargetKernelView(self.usage, None, None, None),),
         )
 
+    async def delete_unheld_kernel(
+        self, target_id: UUID, kernel_id: str
+    ) -> bool:
+        return kernel_id == self.usage.kernel_id
+
 
 async def test_kernel_usage_tools_follow_execution_and_admin_rules(
     execution_service: ExecutionService,
@@ -658,7 +663,7 @@ async def test_kernel_usage_tools_follow_execution_and_admin_rules(
         execution_service,
         _queries(engine),
         execution_spec_resolver=ExecutionSpecResolver(tmp_path),
-        kernel_usage=KernelUsageStub(),
+        runtime_kernels=KernelUsageStub(),
     )
     target_id = "00000000-0000-4000-8000-000000000009"
 
@@ -673,9 +678,21 @@ async def test_kernel_usage_tools_follow_execution_and_admin_rules(
         kernels = await client.call_tool(
             "runtime_target_kernels", {"target_id": target_id}
         )
+        deleted = await client.call_tool(
+            "runtime_target_kernel_delete",
+            {"target_id": target_id, "kernel_id": "kernel-1"},
+        )
+        gone = await client.call_tool(
+            "runtime_target_kernel_delete",
+            {"target_id": target_id, "kernel_id": "kernel-gone"},
+        )
     async with mcp_client(target, replace(CALLER, admin=False)) as client:
         denied = await client.call_tool(
             "runtime_target_kernels", {"target_id": target_id}
+        )
+        delete_denied = await client.call_tool(
+            "runtime_target_kernel_delete",
+            {"target_id": target_id, "kernel_id": "kernel-1"},
         )
     async with mcp_client(
         target, replace(CALLER, tenant_id="other-tenant")
@@ -691,5 +708,8 @@ async def test_kernel_usage_tools_follow_execution_and_admin_rules(
     )
     assert not kernels.is_error
     assert kernels.structured_content["items"][0]["execution_id"] is None
+    assert deleted.structured_content == {"deleted": True}
+    assert gone.structured_content == {"deleted": False}
     assert denied.is_error
+    assert delete_denied.is_error
     assert hidden.is_error
