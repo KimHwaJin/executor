@@ -1,6 +1,7 @@
 """Jupyter kernel session lifecycle."""
 
 import asyncio
+from datetime import datetime
 
 from executor_service.domain.enums import RuntimeAbortStatus
 from executor_service.domain.runtime import (
@@ -86,6 +87,22 @@ class JupyterSessionClient:
             f"/api/kernels/{session_id}",
             allowed_statuses={204, 404},
         )
+
+    async def last_activity(self, session_id: str) -> datetime | None:
+        response = await self._transport.request(
+            "GET",
+            f"/api/kernels/{session_id}",
+            allowed_statuses={200, 404},
+        )
+        if response.status_code == 404:
+            return None
+        try:
+            # Jupyter writes UTC with a trailing Z.
+            return datetime.fromisoformat(response.json()["last_activity"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise RuntimeDriverError(
+                "Jupyter kernel status response is invalid."
+            ) from exc
 
     async def exists(self, session_id: str) -> bool:
         response = await self._transport.request(

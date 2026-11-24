@@ -1,6 +1,6 @@
 import asyncio
 from dataclasses import replace
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, ClassVar
 from uuid import uuid4
@@ -140,6 +140,10 @@ class RecordingMultiDriver(InMemoryRuntimeStorage):
 
     async def kernel_usage(self) -> tuple[RuntimeKernelUsage, ...]:
         return ()
+
+    async def session_last_activity(self, session_id: str) -> datetime | None:
+        del session_id
+        return None
 
     async def start_session(self, profile: str, working_directory: str) -> str:
         del profile, working_directory

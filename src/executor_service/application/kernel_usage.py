@@ -74,6 +74,6 @@ class RuntimeKernels(Protocol):
     ) -> bool:
         """Delete a kernel no Execution holds; False if it was already gone.
 
-        Refuses a kernel an Execution holds or one too recent to tell.
+        Refuses a kernel an Execution holds or one active too recently.
         """
         ...

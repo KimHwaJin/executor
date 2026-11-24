@@ -4001,7 +4001,7 @@
             }
           },
           "409": {
-            "description": "An Execution holds the kernel, or it started too recently to tell",
+            "description": "An Execution holds the kernel, or it was active too recently",
             "content": {
               "application/json": {
                 "schema": {
@@ -4011,7 +4011,7 @@
             }
           },
           "503": {
-            "description": "The Runtime Target did not list or delete it",
+            "description": "The Runtime Target did not report or delete it",
             "content": {
               "application/json": {
                 "schema": {
@@ -9475,17 +9475,6 @@
               }
             ],
             "title": "Cpu Seconds"
-          },
-          "age_seconds": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Age Seconds"
           }
         },
         "additionalProperties": false,
@@ -9495,11 +9484,10 @@
           "execution_state",
           "process_count",
           "memory_bytes",
-          "cpu_seconds",
-          "age_seconds"
+          "cpu_seconds"
         ],
         "title": "KernelUsageResponse",
-        "description": "A running kernel now: its process and the processes it started.\n\nMemory is resident set size (RSS); pages shared with forked children\ncount once per process. CPU seconds and age count from the kernel's\nstart."
+        "description": "A running kernel now: its process and the processes it started.\n\nMemory is resident set size (RSS); pages shared with forked children\ncount once per process. CPU seconds count from the kernel's start."
       },
       "Lifecycle": {
         "properties": {
@@ -11856,17 +11844,6 @@
             ],
             "title": "Cpu Seconds"
           },
-          "age_seconds": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Age Seconds"
-          },
           "execution_id": {
             "anyOf": [
               {
@@ -11909,7 +11886,6 @@
           "process_count",
           "memory_bytes",
           "cpu_seconds",
-          "age_seconds",
           "execution_id",
           "tenant_id",
           "execution_status"

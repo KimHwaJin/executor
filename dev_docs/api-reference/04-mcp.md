@@ -430,7 +430,7 @@
 <a id="runtime_target_kernel_delete"></a>
 ### 25. `runtime_target_kernel_delete`
 
-> Delete a kernel no Execution holds from a Runtime Target. A kernel an Execution holds is refused: cancel that Execution instead. A kernel started less than 15 minutes ago is refused too, since a Worker may be recording it. A kernel already gone returns deleted false.
+> Delete a kernel no Execution holds from a Runtime Target. A kernel an Execution holds is refused: cancel that Execution instead. A kernel active in the last 15 minutes is refused too, since a Worker may be recording it. A kernel already gone returns deleted false.
 
 대응 REST: `DELETE /api/v1/runtime-targets/{target_id}/kernels/{kernel_id}` — 남겨진 커널 삭제. 의미·주의는 REST 스펙을 따른다.
 

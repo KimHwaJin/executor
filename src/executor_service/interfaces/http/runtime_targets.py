@@ -141,13 +141,13 @@ def build_runtime_target_router(container: ApplicationContainer) -> APIRouter:
             409: {
                 "model": ErrorResponse,
                 "description": (
-                    "An Execution holds the kernel, or it started too "
-                    "recently to tell"
+                    "An Execution holds the kernel, or it was active too "
+                    "recently"
                 ),
             },
             503: {
                 "model": ErrorResponse,
-                "description": "The Runtime Target did not list or delete it",
+                "description": "The Runtime Target did not report or delete it",
             },
         },
         summary="Delete a kernel no Execution holds",

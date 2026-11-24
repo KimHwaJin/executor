@@ -200,7 +200,7 @@ Target 하나. 인증정보는 나오지 않는다.
 - MCP: `runtime_target_kernels`
 - 원문 요약: Get the Runtime Target's kernels, their Executions and use
 
-Target에서 지금 도는 커널마다 메모리·CPU·나이와 그 커널을 쓰는 Execution을 준다. Execution이 없는 커널(`execution_id`가 `null`)은 남겨진 커널이며 [남겨진 커널 삭제](#ep-7)로 지운다.
+Target에서 지금 도는 커널마다 메모리·CPU와 그 커널을 쓰는 Execution을 준다. Execution이 없는 커널(`execution_id`가 `null`)은 남겨진 커널이며 [남겨진 커널 삭제](#ep-7)로 지운다.
 
 **파라미터**
 
@@ -247,15 +247,15 @@ Target에서 지금 도는 커널마다 메모리·CPU·나이와 그 커널을 
 | --- | --- | --- |
 | 204 | 없음 | 지웠거나 이미 없음 |
 | 404 | [`ErrorResponse`](#schema-errorresponse) | Target 등록이 없음 |
-| 409 | [`ErrorResponse`](#schema-errorresponse) | Execution이 잡고 있거나, 만들어진 지 15분이 안 된 커널 |
+| 409 | [`ErrorResponse`](#schema-errorresponse) | Execution이 잡고 있거나, 15분 안에 활동한 커널 |
 | 422 | [`ErrorResponse`](#schema-errorresponse) | 요청 형식·규칙 오류 |
-| 503 | [`ErrorResponse`](#schema-errorresponse) | Target이 커널 목록을 주지 않았거나 삭제하지 못함. 나중에 다시 |
+| 503 | [`ErrorResponse`](#schema-errorresponse) | Target이 커널 상태를 주지 않았거나 삭제하지 못함. 나중에 다시 |
 
 **주의**
 
 - 상태와 Target에 관계없이 그 커널 ID를 기록한 Execution이 있으면 지우지 않는다. `409 RUNTIME_KERNEL_DELETE_CONFLICT`, `details[0].type`은 `kernel_held`, `context.execution_id`가 그 Execution이다. 실행 중이거나, MULTI Operation을 기다리거나, 실패 후 재시도를 위해 보관 중인 커널이 모두 여기에 해당한다. 그 커널은 Execution을 취소해서 정리한다.
-- 만들어진 지 15분(900초)이 안 됐거나 Target이 나이(`age_seconds`)를 주지 않으면 지우지 않는다. `409 RUNTIME_KERNEL_DELETE_CONFLICT`, `type`은 `kernel_too_recent`, `context`에 `age_seconds`와 `min_age_seconds`. Worker가 아직 기록하는 중일 수 있는 커널이다.
-- 커널 목록을 먼저 읽고 DB를 나중에 확인한다. 둘 중 하나라도 실패하면 지우지 않고 `503 RUNTIME_UNAVAILABLE` 또는 DB 오류를 준다.
+- 커널의 마지막 활동(Jupyter `GET /api/kernels/{kernel_id}`의 `last_activity`)이 15분(900초) 안이면 지우지 않는다. `409 RUNTIME_KERNEL_DELETE_CONFLICT`, `type`은 `kernel_recently_active`, `context`에 `idle_seconds`와 `min_idle_seconds`. 커널은 만들어질 때 활동 상태로 시작하고 남겨진 커널은 아무도 쓰지 않으므로, Worker가 아직 기록하는 중일 수 있는 커널은 여기서 걸러진다. Jupyter 기본 API만 쓰므로 Jupyter 이미지를 다시 빌드할 필요가 없다.
+- 커널 상태를 먼저 읽고 DB를 나중에 확인한다. 둘 중 하나라도 실패하면 지우지 않고 `503 RUNTIME_UNAVAILABLE` 또는 DB 오류를 준다.
 - Target에 이미 없는 커널은 지우지 않고 `204`. 여러 번 불러도 결과가 같다.
 - Target의 Jupyter를 이 Executor만 써야 한다. 다른 Executor나 사람이 같은 Jupyter에 띄운 커널은 남겨진 커널로 보인다.
 - 지운 커널은 Executor 로그에 `Deleted unheld Runtime kernel`로 남는다.
@@ -952,7 +952,6 @@ consumer group이 받았지만 ACK하지 않은 항목을 오래된 순으로 �
 | `process_count` | integer \| null | O | 커널 프로세스와 그 자식 프로세스 수 |
 | `memory_bytes` | integer \| null | O | 지금 메모리(RSS 합계, byte) |
 | `cpu_seconds` | number \| null | O | 커널 시작부터 쓴 CPU 시간(초, 끝난 자식 포함) |
-| `age_seconds` | number \| null | O | 커널 프로세스가 시작된 뒤 지난 시간(초). Target이 주지 않으면 `null` |
 | `execution_id` | string(uuid) \| null | O | 이 커널을 쓰는 Execution. 없으면 `null`(남겨진 커널) |
 | `tenant_id` | string \| null | O | 그 Execution의 tenant |
 | `execution_status` | `QUEUED` \| `RUNNING` \| `WAITING_FOR_OPERATION` \| `FINALIZING` \| `CANCEL_REQUESTED` \| `CANCELLED` \| `SUCCEEDED` \| `FAILED` \| null | O | 그 Execution의 상태 |

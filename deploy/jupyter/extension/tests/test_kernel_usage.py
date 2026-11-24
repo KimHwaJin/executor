@@ -1,6 +1,5 @@
 import subprocess
 import sys
-import time
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -103,32 +102,17 @@ def test_kernel_usage_includes_child_processes(
     assert usage["cpu_seconds"] >= 0
 
 
-def test_kernel_age_counts_from_the_kernel_process_start(
-    kernel: subprocess.Popen[str],
-) -> None:
-    _run(kernel, "spin 0.1")
-    started = kernel_usages({"kernel": kernel.pid})["kernel"]["age_seconds"]
-    time.sleep(0.3)
-
-    later = kernel_usages({"kernel": kernel.pid})["kernel"]["age_seconds"]
-
-    assert 0 <= started < 60
-    assert later - started >= 0.2
-
-
 def test_missing_kernel_process_reports_nothing(tmp_path: Path) -> None:
     assert kernel_usages({"gone": None, "ended": 2**22 + 1}) == {
         "gone": {
             "process_count": None,
             "memory_bytes": None,
             "cpu_seconds": None,
-            "age_seconds": None,
         },
         "ended": {
             "process_count": None,
             "memory_bytes": None,
             "cpu_seconds": None,
-            "age_seconds": None,
         },
     }
     # An unreadable /proc reports no values instead of zeros.
