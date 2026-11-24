@@ -22,6 +22,10 @@ Environment:
     WAIT_SECONDS      ask status with wait_seconds instead of polling
     POLL_SECONDS      pause between status requests (default 0.5)
     OUT_BYTES         bytes each Step prints (default: one short line)
+
+A 5xx answer, a body that is not JSON, or a dropped connection is retried
+with backoff, since a gateway gives those while a pod restarts or scales
+in; the count of retries is printed with the result.
 """
 
 import itertools
@@ -48,6 +52,7 @@ WAIT = os.environ.get("WAIT_SECONDS")
 POLL = float(os.environ.get("POLL_SECONDS", "0.5"))
 OUT = int(os.environ.get("OUT_BYTES", "0"))
 K, HISTORY, PER, ROUNDS = (int(value) for value in sys.argv[1:5])
+ATTEMPTS = 6
 
 
 def _code(sequence: int) -> str:
@@ -90,13 +95,45 @@ class Session:
         self.id = ""
         self.version = 0
         self.steps = 0
+        self.retries = 0
+
+    def _call(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+        """Send one request and return its JSON body.
+
+        Each POST keeps its idempotency key across retries, so Executor
+        answers a retried command with the result of the first one.
+        """
+        failure = ""
+        for attempt in range(ATTEMPTS):
+            if attempt:
+                self.retries += 1
+                print(
+                    f"retry {attempt} {method} {path}: {failure}", flush=True
+                )
+                time.sleep(2 ** (attempt - 1))
+            try:
+                response = self.http.request(method, path, **kwargs)
+            except httpx.TransportError as error:
+                failure = repr(error)
+                continue
+            failure = f"{response.status_code} {response.text[:300]!r}"
+            if response.status_code >= 500:
+                continue
+            try:
+                body: dict[str, Any] = response.json()
+            except ValueError:
+                continue  # a gateway's page, not Executor's answer
+            if response.is_error:
+                raise RuntimeError(f"{method} {path} {failure}")
+            return body
+        raise RuntimeError(
+            f"{method} {path} failed {ATTEMPTS} times: {failure}"
+        )
 
     def wait(self, wanted: str = "WAITING_FOR_OPERATION") -> None:
         params = {"wait_seconds": WAIT} if WAIT else None
         while True:
-            body = self.http.get(
-                f"/executions/{self.id}", params=params
-            ).json()
+            body = self._call("GET", f"/executions/{self.id}", params=params)
             state = body["state"]
             if state["status"] == wanted:
                 self.version = state["version"]
@@ -107,7 +144,8 @@ class Session:
                 time.sleep(POLL)
 
     def start(self) -> None:
-        response = self.http.post(
+        body = self._call(
+            "POST",
             "/executions",
             json={
                 "idempotency_key": f"load-{uuid.uuid4()}",
@@ -120,16 +158,15 @@ class Session:
                 "operation": {"spec": _spec(0, 1)},
             },
         )
-        if response.status_code != 202:
-            raise RuntimeError(response.text)
-        self.id = response.json()["execution_id"]
+        self.id = body["execution_id"]
         self.steps = 1
 
     def add(self, count: int) -> float:
         """Send one Operation; the seconds its acceptance took."""
 
         started = time.time()
-        response = self.http.post(
+        self._call(
+            "POST",
             f"/executions/{self.id}/operations",
             json={
                 "idempotency_key": f"op-{uuid.uuid4()}",
@@ -137,13 +174,12 @@ class Session:
                 "spec": _spec(self.steps, count),
             },
         )
-        if response.status_code != 202:
-            raise RuntimeError(response.text)
         self.steps += count
         return time.time() - started
 
     def finalize(self) -> None:
-        self.http.post(
+        self._call(
+            "POST",
             f"/executions/{self.id}/finalize",
             json={
                 "idempotency_key": f"fin-{uuid.uuid4()}",
@@ -191,7 +227,8 @@ def main() -> None:
             f"  Operation done  p50 {_quantile(dones, 0.5):.2f}s"
             f"  p95 {_quantile(dones, 0.95):.2f}s\n"
             f"  throughput      {len(timings) * PER / elapsed:.1f} Step/s"
-            f" ({elapsed:.0f}s)",
+            f" ({elapsed:.0f}s)\n"
+            f"  retries         {sum(s.retries for s in sessions)}",
             flush=True,
         )
         list(pool.map(Session.finalize, sessions))
