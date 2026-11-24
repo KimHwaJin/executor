@@ -7,15 +7,15 @@ Kubernetes에 배포된 Executor를 호출할 때 필요한 내용만 담았다.
 
 | 문서 | 대상 | 개수 |
 | --- | --- | ---: |
-| [01-executions.md](01-executions.md) | 실행 REST API(명령·조회·노트북·이력·Artifact) | 25 |
-| [02-admin.md](02-admin.md) | 관리자 REST API(Runtime Target·Pool 9, 유지보수 6, 이벤트 Stream 조회 4) | 19 |
+| [01-executions.md](01-executions.md) | 실행 REST API(명령·조회·노트북·이력·Artifact) | 26 |
+| [02-admin.md](02-admin.md) | 관리자 REST API(Runtime Target·Pool 10, 유지보수 6, 이벤트 Stream 조회 4) | 20 |
 | [03-health.md](03-health.md) | 헬스체크(`/healthz`, `/readyz`, `/workerz`) | 3 |
-| [04-mcp.md](04-mcp.md) | MCP 엔드포인트 `POST /mcp`와 도구 | 1 (도구 28) |
+| [04-mcp.md](04-mcp.md) | MCP 엔드포인트 `POST /mcp`와 도구 | 1 (도구 30) |
 | [05-events.md](05-events.md) | Redis Stream 이벤트 | 8종 |
 | [agent-guide.md](agent-guide.md) | 코딩 에이전트용 연동 가이드(영어, 한 파일). 한글판 [agent-guide.ko.md](agent-guide.ko.md) | - |
-| [openapi.json](openapi.json) | 코드에서 생성한 OpenAPI 3.1(REST 44개, 스키마 154개) | - |
+| [openapi.json](openapi.json) | 코드에서 생성한 OpenAPI 3.1(REST 46개, 스키마 161개) | - |
 
-HTTP 엔드포인트 합계 **48개**(실행 25 + 관리자 19 + 헬스 3 + MCP 1).
+HTTP 엔드포인트 합계 **50개**(실행 26 + 관리자 20 + 헬스 3 + MCP 1).
 
 ## 배포 환경 (Kubernetes)
 
@@ -152,6 +152,7 @@ ClusterIP Service `executor`(포트 `8000`)로 떠 있다. 하나의 이미지�
 | 500 | `INTERNAL_ERROR` | 예기치 못한 오류 | 백오프 재시도(명령은 같은 `idempotency_key`로) |
 | 503 | `DATABASE_UNAVAILABLE` | DB 연결 문제 | 백오프 재시도(명령은 같은 `idempotency_key`로) |
 | 503 | `REDIS_UNAVAILABLE` | 이벤트 Stream 조회 API가 Redis에 닿지 못함(장애, failover 중, ACL 거부) | 잠시 뒤 재시도. Execution API는 영향 없음 |
+| 503 | `RUNTIME_UNAVAILABLE` | Runtime Target 커널 목록 API가 Jupyter에서 커널 사용량을 읽지 못함 | 잠시 뒤 재시도. Jupyter 이미지 확인 |
 
 ## 상태 값
 

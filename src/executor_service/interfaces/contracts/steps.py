@@ -50,6 +50,17 @@ class StepResult(StepResultSummary):
     result_ref: StepResultReference | None
 
 
+class StepUsageResponse(ContractModel):
+    """The kernel's peak memory (RSS) and CPU time during this Step attempt.
+
+    Null when the Runtime did not measure it. The peak counts the kernel and
+    its child processes still running at the end of the Step.
+    """
+
+    peak_memory_bytes: int | None
+    cpu_seconds: float | None
+
+
 class StepSourceResponse(ContractModel):
     type: CodeSourceType
     path: str | None
@@ -220,6 +231,10 @@ def _step_attempt_common(view: ExecutionStepAttemptView) -> dict[str, Any]:
             ),
             error_message=view.error_message,
         ),
+        "usage": StepUsageResponse(
+            peak_memory_bytes=view.peak_memory_bytes,
+            cpu_seconds=view.cpu_seconds,
+        ),
         "lifecycle": Lifecycle(
             started_at=view.started_at,
             finished_at=view.finished_at,
@@ -239,6 +254,7 @@ class ExecutionStepAttemptResponse(AuditFields):
     sequence: int
     tool: ToolReference
     result: StepResult
+    usage: StepUsageResponse
     lifecycle: Lifecycle
 
     @classmethod
@@ -255,6 +271,7 @@ class ExecutionStepAttemptSummaryResponse(AuditFields):
     sequence: int
     tool: ToolReference
     result: StepResult
+    usage: StepUsageResponse
     lifecycle: Lifecycle
 
     @classmethod

@@ -5,7 +5,10 @@ from dataclasses import dataclass
 from typing import Protocol
 from uuid import UUID
 
-from executor_service.domain.runtime import RuntimeOutputRecord
+from executor_service.domain.runtime import (
+    RuntimeOutputRecord,
+    RuntimeStepUsage,
+)
 
 RESULT_MANIFEST_SCHEMA_VERSION = "1.0"
 
@@ -48,6 +51,8 @@ class StepResultDescriptor:
     output_summary: dict[str, object]
     execution_count: int | None
     error_message: str | None
+    # Measured by the Runtime, not stored in the manifest.
+    usage: RuntimeStepUsage | None = None
 
 
 @dataclass(frozen=True, slots=True)

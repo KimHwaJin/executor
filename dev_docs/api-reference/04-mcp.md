@@ -42,12 +42,14 @@
 | 20 | [`execution_event_list`](#execution_event_list) | `GET /api/v1/executions/{execution_id}/events` | `ExecutionEventPageResponse` |
 | 21 | [`execution_artifact_list`](#execution_artifact_list) | `GET /api/v1/executions/{execution_id}/artifacts` | `ExecutionArtifactPageResponse` |
 | 22 | [`execution_artifact_get`](#execution_artifact_get) | `GET /api/v1/artifacts/{artifact_id}` | `ExecutionArtifactResponse` |
-| 23 | [`runtime_target_upsert`](#runtime_target_upsert) | `POST /api/v1/runtime-targets` | `RuntimeTargetResponse` |
-| 24 | [`runtime_target_list`](#runtime_target_list) | `GET /api/v1/runtime-targets` | `RuntimeTargetPageResponse` |
-| 25 | [`runtime_target_get`](#runtime_target_get) | `GET /api/v1/runtime-targets/{target_id}` | `RuntimeTargetResponse` |
-| 26 | [`runtime_target_probe`](#runtime_target_probe) | `POST /api/v1/runtime-targets/{target_id}/probe` | `RuntimeTargetResponse` |
-| 27 | [`runtime_target_disable`](#runtime_target_disable) | `POST /api/v1/runtime-targets/{target_id}/disable` | `RuntimeTargetResponse` |
-| 28 | [`runtime_target_set_state`](#runtime_target_set_state) | `POST /api/v1/runtime-targets/{target_id}/drain`<br>`POST /api/v1/runtime-targets/{target_id}/activate` | `RuntimeTargetResponse` |
+| 23 | [`execution_kernel_usage`](#execution_kernel_usage) | `GET /api/v1/executions/{execution_id}/kernel-usage` | `ExecutionKernelUsageResponse` |
+| 24 | [`runtime_target_kernels`](#runtime_target_kernels) | `GET /api/v1/runtime-targets/{target_id}/kernels` | `RuntimeTargetKernelsResponse` |
+| 25 | [`runtime_target_upsert`](#runtime_target_upsert) | `POST /api/v1/runtime-targets` | `RuntimeTargetResponse` |
+| 26 | [`runtime_target_list`](#runtime_target_list) | `GET /api/v1/runtime-targets` | `RuntimeTargetPageResponse` |
+| 27 | [`runtime_target_get`](#runtime_target_get) | `GET /api/v1/runtime-targets/{target_id}` | `RuntimeTargetResponse` |
+| 28 | [`runtime_target_probe`](#runtime_target_probe) | `POST /api/v1/runtime-targets/{target_id}/probe` | `RuntimeTargetResponse` |
+| 29 | [`runtime_target_disable`](#runtime_target_disable) | `POST /api/v1/runtime-targets/{target_id}/disable` | `RuntimeTargetResponse` |
+| 30 | [`runtime_target_set_state`](#runtime_target_set_state) | `POST /api/v1/runtime-targets/{target_id}/drain`<br>`POST /api/v1/runtime-targets/{target_id}/activate` | `RuntimeTargetResponse` |
 
 <a id="execution_submit"></a>
 ### 1. `execution_submit`
@@ -73,13 +75,14 @@
 <a id="execution_get"></a>
 ### 2. `execution_get`
 
-> Get the PostgreSQL-backed current execution state.
+> Get the PostgreSQL-backed current execution state. wait_seconds holds the answer while the execution is working, until it is WAITING_FOR_OPERATION or terminal or the time is up; call again if it is still working.
 
 대응 REST: `GET /api/v1/executions/{execution_id}` — Execution 상태. 의미·주의는 REST 스펙을 따른다.
 
 | 인자 | 타입 | 필수 | 제약 | 설명 |
 | --- | --- | :---: | --- | --- |
 | `execution_id` | string(uuid) | O |  | Execution ID |
+| `wait_seconds` | integer |  | ≥0, ≤30, 기본 `0` |  |
 
 반환: `ExecutionResponse` — 필드는 [응답 스키마](01-executions.md#schema-executionresponse).
 
@@ -397,8 +400,34 @@
 
 반환: `ExecutionArtifactResponse` — 필드는 [응답 스키마](01-executions.md#schema-executionartifactresponse).
 
+<a id="execution_kernel_usage"></a>
+### 23. `execution_kernel_usage`
+
+> Get the Jupyter kernel an Execution runs on, its memory and CPU read from the Runtime Target now, and the peak memory and CPU time recorded for its finished Step attempts.
+
+대응 REST: `GET /api/v1/executions/{execution_id}/kernel-usage` — 커널과 자원 사용량. 의미·주의는 REST 스펙을 따른다.
+
+| 인자 | 타입 | 필수 | 제약 | 설명 |
+| --- | --- | :---: | --- | --- |
+| `execution_id` | string(uuid) | O |  | Execution ID |
+
+반환: `ExecutionKernelUsageResponse` — 필드는 [응답 스키마](01-executions.md#schema-executionkernelusageresponse).
+
+<a id="runtime_target_kernels"></a>
+### 24. `runtime_target_kernels`
+
+> List a Runtime Target's running kernels with their memory and CPU now and the Execution holding each; a kernel no Execution holds was left behind.
+
+대응 REST: `GET /api/v1/runtime-targets/{target_id}/kernels` — 커널 목록과 자원 사용량. 의미·주의는 REST 스펙을 따른다.
+
+| 인자 | 타입 | 필수 | 제약 | 설명 |
+| --- | --- | :---: | --- | --- |
+| `target_id` | string(uuid) | O |  | Runtime Target ID |
+
+반환: `RuntimeTargetKernelsResponse` — 필드는 [응답 스키마](02-admin.md#schema-runtimetargetkernelsresponse).
+
 <a id="runtime_target_upsert"></a>
-### 23. `runtime_target_upsert`
+### 25. `runtime_target_upsert`
 
 > Register or update a Runtime Target. The credential is encrypted at rest and never returned. The target is probed immediately and becomes schedulable only healthy.
 
@@ -418,7 +447,7 @@
 반환: `RuntimeTargetResponse` — 필드는 [응답 스키마](02-admin.md#schema-runtimetargetresponse).
 
 <a id="runtime_target_list"></a>
-### 24. `runtime_target_list`
+### 26. `runtime_target_list`
 
 > List registered Runtime Targets and current capacity state.
 
@@ -436,7 +465,7 @@
 반환: `RuntimeTargetPageResponse` — 필드는 [응답 스키마](02-admin.md#schema-runtimetargetpageresponse).
 
 <a id="runtime_target_get"></a>
-### 25. `runtime_target_get`
+### 27. `runtime_target_get`
 
 > Get one registered Runtime Target without exposing its credential.
 
@@ -449,7 +478,7 @@
 반환: `RuntimeTargetResponse` — 필드는 [응답 스키마](02-admin.md#schema-runtimetargetresponse).
 
 <a id="runtime_target_probe"></a>
-### 26. `runtime_target_probe`
+### 28. `runtime_target_probe`
 
 > Probe a Runtime Target now and persist its health and supported profiles.
 
@@ -463,7 +492,7 @@
 반환: `RuntimeTargetResponse` — 필드는 [응답 스키마](02-admin.md#schema-runtimetargetresponse).
 
 <a id="runtime_target_disable"></a>
-### 27. `runtime_target_disable`
+### 29. `runtime_target_disable`
 
 > Disable a Runtime Target. It remains queryable, is marked OFFLINE, and excluded from new scheduling.
 
@@ -478,7 +507,7 @@
 반환: `RuntimeTargetResponse` — 필드는 [응답 스키마](02-admin.md#schema-runtimetargetresponse).
 
 <a id="runtime_target_set_state"></a>
-### 28. `runtime_target_set_state`
+### 30. `runtime_target_set_state`
 
 > Set a target to DRAINING to stop new scheduling while current work finishes, or probe and return it to ACTIVE.
 

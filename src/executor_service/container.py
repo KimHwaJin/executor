@@ -15,6 +15,7 @@ from executor_service.application.event_streams import EventStreamInspector
 from executor_service.application.execution_results import (
     ExecutionResultQueryService,
 )
+from executor_service.application.kernel_usage import KernelUsageQueries
 from executor_service.application.notebook_queries import (
     ExecutionNotebookQueryService,
 )
@@ -41,6 +42,9 @@ from executor_service.infrastructure.execution_queries import (
     SQLAlchemyExecutionQueryService,
 )
 from executor_service.infrastructure.execution_worker import ExecutionWorker
+from executor_service.infrastructure.kernel_usage import (
+    RuntimeKernelUsageQueries,
+)
 from executor_service.infrastructure.maintenance import (
     ExecutorMaintenanceService,
 )
@@ -67,7 +71,7 @@ from executor_service.infrastructure.runtime_storage import (
 from executor_service.interfaces.execution_specs import ExecutionSpecResolver
 from executor_service.settings import Settings
 
-EXPECTED_SCHEMA_REVISION = "0016"
+EXPECTED_SCHEMA_REVISION = "0017"
 READINESS_DATABASE_TIMEOUT_SECONDS = 2
 REDIS_PING_TIMEOUT_SECONDS = 1
 
@@ -148,6 +152,11 @@ class ApplicationContainer:
             lease_seconds=settings.execution_lease_seconds,
         )
         self.runtime_storage = FleetRuntimeStorageAccess(
+            self.session_factory,
+            self.runtime_registry,
+            self.runtime_adapters,
+        )
+        self.kernel_usage: KernelUsageQueries = RuntimeKernelUsageQueries(
             self.session_factory,
             self.runtime_registry,
             self.runtime_adapters,

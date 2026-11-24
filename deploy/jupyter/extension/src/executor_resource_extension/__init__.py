@@ -21,6 +21,7 @@ def _load_jupyter_server_extension(server_app: Any) -> None:
         ExecutionStreamHandler,
         FileContentHandler,
         FileMetadataHandler,
+        KernelUsageHandler,
         ManifestReadHandler,
         NotebookPrepareHandler,
         NotebookProjectHandler,
@@ -76,6 +77,10 @@ def _load_jupyter_server_extension(server_app: Any) -> None:
             (
                 url_path_join(base_url, "executor", "resource-status"),
                 ResourceStatusHandler,
+            ),
+            (
+                url_path_join(base_url, "executor", "kernel-usage"),
+                KernelUsageHandler,
             ),
             (
                 url_path_join(

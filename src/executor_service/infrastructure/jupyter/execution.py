@@ -23,6 +23,7 @@ from executor_service.domain.runtime import (
     RuntimeOutputHandler,
     RuntimeOutputLimitExceededError,
     RuntimeSessionLostError,
+    RuntimeStepUsage,
 )
 from executor_service.infrastructure.jupyter.protocol import (
     as_output_record,
@@ -225,9 +226,35 @@ class _JournalState:
             )
         if state != "COMPLETED":
             raise RuntimeDriverError("Jupyter execution journal is invalid.")
+        usage = step_usage(entry.get("usage"))
         if self.error_message is not None:
-            raise RuntimeExecutionError(self.error_message)
-        return RuntimeExecutionResult(execution_count=self.execution_count)
+            error = RuntimeExecutionError(self.error_message)
+            error.usage = usage
+            raise error
+        return RuntimeExecutionResult(
+            execution_count=self.execution_count, usage=usage
+        )
+
+
+def step_usage(payload: object) -> RuntimeStepUsage | None:
+    """A measurement is evidence only; a malformed one never fails a Step."""
+
+    if not isinstance(payload, dict):
+        return None
+    peak = _non_negative(payload.get("peak_memory_bytes"))
+    cpu = _non_negative(payload.get("cpu_seconds"))
+    if peak is None and cpu is None:
+        return None
+    return RuntimeStepUsage(
+        peak_memory_bytes=int(peak) if peak is not None else None,
+        cpu_seconds=float(cpu) if cpu is not None else None,
+    )
+
+
+def _non_negative(value: object) -> int | float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return value if value >= 0 else None
 
 
 async def _decode(raw: str | bytes) -> Any:

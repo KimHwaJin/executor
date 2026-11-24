@@ -194,6 +194,13 @@ class StepHandoverCompletedPayload(ContractModel):
     finished_during_handover: bool
 
 
+class StepUsage(ContractModel):
+    """The kernel's peak memory (RSS) and CPU time during the Step."""
+
+    peak_memory_bytes: int | None = Field(ge=0)
+    cpu_seconds: float | None = Field(ge=0)
+
+
 class StepCompletedPayload(ContractModel):
     status: Literal["SUCCEEDED", "FAILED", "CANCELLED"]
     operation: OperationReference
@@ -201,6 +208,8 @@ class StepCompletedPayload(ContractModel):
     attempt: AttemptReference
     result_ref: ResultReference | None
     output_summary: OutputSummary | None
+    # Null when the Runtime did not measure the Step.
+    usage: StepUsage | None = None
     error: ErrorSummary | None
 
     @model_validator(mode="after")

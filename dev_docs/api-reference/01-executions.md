@@ -14,24 +14,25 @@ Agent·BFF·배치가 코드를 실행하고 결과를 읽는 API 25개다. 기�
 | 5 | `POST /api/v1/executions/{execution_id}/finalize` | `execution_finalize` | [MULTI 종료](#ep-5) |
 | 6 | `GET /api/v1/executions` | `execution_list` | [Execution 목록](#ep-6) |
 | 7 | `GET /api/v1/executions/{execution_id}` | `execution_get` | [Execution 상태](#ep-7) |
-| 8 | `GET /api/v1/executions/{execution_id}/result` | `execution_result_get` | [통합 결과](#ep-8) |
-| 9 | `GET /api/v1/executions/{execution_id}/notebook` | `execution_notebook_read` | [노트북 페이지](#ep-9) |
-| 10 | `GET /api/v1/executions/{execution_id}/notebook/cells/{cell_index}` | `execution_notebook_cell_read` | [노트북 셀 하나](#ep-10) |
-| 11 | `GET /api/v1/executions/{execution_id}/operations` | `execution_operation_list` | [Operation 목록](#ep-11) |
-| 12 | `GET /api/v1/executions/{execution_id}/diagnostics` | 없음 | [실패 진단](#ep-12) |
-| 13 | `GET /api/v1/executions/{execution_id}/steps` | `execution_step_list` | [Step 목록](#ep-13) |
-| 14 | `GET /api/v1/executions/{execution_id}/steps/{step_id}` | 없음 | [Step 상세](#ep-14) |
-| 15 | `GET /api/v1/executions/{execution_id}/operations/{operation_id}` | `execution_operation_get` | [Operation 상세](#ep-15) |
-| 16 | `GET /api/v1/executions/{execution_id}/operations/{operation_id}/result` | `execution_operation_result_get` | [Operation 결과](#ep-16) |
-| 17 | `GET /api/v1/executions/{execution_id}/operations/{operation_id}/steps` | `execution_operation_step_list` | [Operation의 Step 목록](#ep-17) |
-| 18 | `GET /api/v1/executions/{execution_id}/attempts` | `execution_attempt_list` | [Attempt 목록](#ep-18) |
-| 19 | `GET /api/v1/executions/{execution_id}/attempts/{attempt_id}` | `execution_attempt_get` | [Attempt 상세](#ep-19) |
-| 20 | `GET /api/v1/executions/{execution_id}/attempts/{attempt_id}/steps` | `execution_attempt_step_list` | [Attempt의 Step 결과](#ep-20) |
-| 21 | `GET /api/v1/executions/{execution_id}/events` | `execution_event_list` | [이벤트 이력](#ep-21) |
-| 22 | `GET /api/v1/executions/{execution_id}/artifacts` | `execution_artifact_list` | [Artifact 목록](#ep-22) |
-| 23 | `POST /api/v1/executions/{execution_id}/artifacts` | `execution_artifact_create` | [텍스트 Artifact 작성](#ep-23) |
-| 24 | `GET /api/v1/artifacts/{artifact_id}` | `execution_artifact_get` | [Artifact 상세](#ep-24) |
-| 25 | `GET /api/v1/artifacts/{artifact_id}/content` | 없음 | [Artifact 다운로드](#ep-25) |
+| 8 | `GET /api/v1/executions/{execution_id}/kernel-usage` | `execution_kernel_usage` | [커널과 자원 사용량](#ep-8) |
+| 9 | `GET /api/v1/executions/{execution_id}/result` | `execution_result_get` | [통합 결과](#ep-9) |
+| 10 | `GET /api/v1/executions/{execution_id}/notebook` | `execution_notebook_read` | [노트북 페이지](#ep-10) |
+| 11 | `GET /api/v1/executions/{execution_id}/notebook/cells/{cell_index}` | `execution_notebook_cell_read` | [노트북 셀 하나](#ep-11) |
+| 12 | `GET /api/v1/executions/{execution_id}/operations` | `execution_operation_list` | [Operation 목록](#ep-12) |
+| 13 | `GET /api/v1/executions/{execution_id}/diagnostics` | 없음 | [실패 진단](#ep-13) |
+| 14 | `GET /api/v1/executions/{execution_id}/steps` | `execution_step_list` | [Step 목록](#ep-14) |
+| 15 | `GET /api/v1/executions/{execution_id}/steps/{step_id}` | 없음 | [Step 상세](#ep-15) |
+| 16 | `GET /api/v1/executions/{execution_id}/operations/{operation_id}` | `execution_operation_get` | [Operation 상세](#ep-16) |
+| 17 | `GET /api/v1/executions/{execution_id}/operations/{operation_id}/result` | `execution_operation_result_get` | [Operation 결과](#ep-17) |
+| 18 | `GET /api/v1/executions/{execution_id}/operations/{operation_id}/steps` | `execution_operation_step_list` | [Operation의 Step 목록](#ep-18) |
+| 19 | `GET /api/v1/executions/{execution_id}/attempts` | `execution_attempt_list` | [Attempt 목록](#ep-19) |
+| 20 | `GET /api/v1/executions/{execution_id}/attempts/{attempt_id}` | `execution_attempt_get` | [Attempt 상세](#ep-20) |
+| 21 | `GET /api/v1/executions/{execution_id}/attempts/{attempt_id}/steps` | `execution_attempt_step_list` | [Attempt의 Step 결과](#ep-21) |
+| 22 | `GET /api/v1/executions/{execution_id}/events` | `execution_event_list` | [이벤트 이력](#ep-22) |
+| 23 | `GET /api/v1/executions/{execution_id}/artifacts` | `execution_artifact_list` | [Artifact 목록](#ep-23) |
+| 24 | `POST /api/v1/executions/{execution_id}/artifacts` | `execution_artifact_create` | [텍스트 Artifact 작성](#ep-24) |
+| 25 | `GET /api/v1/artifacts/{artifact_id}` | `execution_artifact_get` | [Artifact 상세](#ep-25) |
+| 26 | `GET /api/v1/artifacts/{artifact_id}/content` | 없음 | [Artifact 다운로드](#ep-26) |
 
 ## 실행 명령
 
@@ -432,6 +433,7 @@ Execution의 현재 상태 원본이다. 이벤트 누락, 재시작, 명령 반
 | 위치 | 이름 | 필수 | 타입 | 제약 | 설명 |
 | --- | --- | :---: | --- | --- | --- |
 | path | `execution_id` | O | string(uuid) |  | Execution ID |
+| query | `wait_seconds` |  | integer | ≥0, ≤30, 기본 `0` | Hold the response while the Execution is working, for at most this many seconds. It answers as soon as the Execution is WAITING_FOR_OPERATION or terminal, and with the current state when the time is up. |
 
 **응답**
 
@@ -449,7 +451,39 @@ Execution의 현재 상태 원본이다. 이벤트 누락, 재시작, 명령 반
 - `state.reason.code=COMPLETION_FAILED`는 필수 결과 전달·최종 정리 실패이며 `NOT_RETRYABLE`이다. 이미 성공한 Step 결과는 그대로다.
 
 <a id="ep-8"></a>
-### 8. 통합 결과
+### 8. 커널과 자원 사용량
+
+`GET /api/v1/executions/{execution_id}/kernel-usage`
+
+- MCP: `execution_kernel_usage`
+- 원문 요약: Get the Execution's kernel and its memory and CPU use
+
+Execution이 쓰는 Jupyter 커널과 그 커널의 지금 메모리·CPU, 그리고 끝난 Step attempt들에 기록된 피크 메모리·CPU 시간을 준다.
+
+**파라미터**
+
+| 위치 | 이름 | 필수 | 타입 | 제약 | 설명 |
+| --- | --- | :---: | --- | --- | --- |
+| path | `execution_id` | O | string(uuid) |  | Execution ID |
+
+**응답**
+
+| 상태 | 바디 | 의미 |
+| --- | --- | --- |
+| 200 | [`ExecutionKernelUsageResponse`](#schema-executionkernelusageresponse) | 성공 |
+| 404 | [`ErrorResponse`](#schema-errorresponse) | 대상이 없거나 호출자에게 보이지 않음 |
+| 409 | [`ErrorResponse`](#schema-errorresponse) | 현재 상태·버전·멱등성과 충돌 |
+| 422 | [`ErrorResponse`](#schema-errorresponse) | 요청 형식·규칙 오류 |
+
+**주의**
+
+- `kernel`은 요청할 때 Runtime Target에서 바로 읽는다. 저장하거나 주기적으로 모으지 않으므로 어느 Executor Pod가 받아도 같다.
+- `kernel_state`: `RUNNING`(값 있음), `NO_KERNEL`(시작 전이거나 커널 정리 후), `NOT_RUNNING`(Target에 그 커널이 없음), `RUNTIME_UNAVAILABLE`(Target 응답 없음). 마지막 셋은 `kernel`이 `null`이고 응답은 `200`이다.
+- 메모리는 RSS다. 커널 프로세스와 그 자식 프로세스의 합이라, 자식이 있으면 공유 페이지가 프로세스마다 세어져 실제보다 조금 크게 나온다.
+- `steps`는 이 Execution의 모든 Attempt에 걸친 값이다. 측정 이전에 끝났거나 측정을 지원하지 않는 Jupyter 이미지에서 돈 Step은 세지 않는다.
+
+<a id="ep-9"></a>
+### 9. 통합 결과
 
 `GET /api/v1/executions/{execution_id}/result`
 
@@ -482,8 +516,8 @@ Execution의 현재 상태 원본이다. 이벤트 누락, 재시작, 명령 반
 
 Runtime이 저장한 실행 노트북(`notebooks/execution.ipynb`)을 읽는다. 감사·편의용이며 결과의 원본은 결과 API다.
 
-<a id="ep-9"></a>
-### 9. 노트북 페이지
+<a id="ep-10"></a>
+### 10. 노트북 페이지
 
 `GET /api/v1/executions/{execution_id}/notebook`
 
@@ -514,8 +548,8 @@ Runtime이 저장한 실행 노트북(`notebooks/execution.ipynb`)을 읽는다.
 
 - 노트북이 아직 없으면 `409 EXECUTION_NOTEBOOK_NOT_AVAILABLE`, 파일을 읽을 수 없으면 `422 NOTEBOOK_READ_ERROR`.
 
-<a id="ep-10"></a>
-### 10. 노트북 셀 하나
+<a id="ep-11"></a>
+### 11. 노트북 셀 하나
 
 `GET /api/v1/executions/{execution_id}/notebook/cells/{cell_index}`
 
@@ -548,8 +582,8 @@ Runtime이 저장한 실행 노트북(`notebooks/execution.ipynb`)을 읽는다.
 
 실행의 세부 이력이다. 목록은 모두 `cursor`/`limit` 페이지를 쓴다.
 
-<a id="ep-11"></a>
-### 11. Operation 목록
+<a id="ep-12"></a>
+### 12. Operation 목록
 
 `GET /api/v1/executions/{execution_id}/operations`
 
@@ -575,8 +609,8 @@ Agent가 제출한 Operation(연속된 Step 한 묶음)을 순서대로 나열�
 | 409 | [`ErrorResponse`](#schema-errorresponse) | 현재 상태·버전·멱등성과 충돌 |
 | 422 | [`ErrorResponse`](#schema-errorresponse) | 요청 형식·규칙 오류 |
 
-<a id="ep-12"></a>
-### 12. 실패 진단
+<a id="ep-13"></a>
+### 13. 실패 진단
 
 `GET /api/v1/executions/{execution_id}/diagnostics`
 
@@ -605,8 +639,8 @@ Agent가 제출한 Operation(연속된 Step 한 묶음)을 순서대로 나열�
 | 409 | [`ErrorResponse`](#schema-errorresponse) | 현재 상태·버전·멱등성과 충돌 |
 | 422 | [`ErrorResponse`](#schema-errorresponse) | 요청 형식·규칙 오류 |
 
-<a id="ep-13"></a>
-### 13. Step 목록
+<a id="ep-14"></a>
+### 14. Step 목록
 
 `GET /api/v1/executions/{execution_id}/steps`
 
@@ -632,8 +666,8 @@ Execution의 현재 Step 요약을 sequence 순으로 나열한다.
 | 409 | [`ErrorResponse`](#schema-errorresponse) | 현재 상태·버전·멱등성과 충돌 |
 | 422 | [`ErrorResponse`](#schema-errorresponse) | 요청 형식·규칙 오류 |
 
-<a id="ep-14"></a>
-### 14. Step 상세
+<a id="ep-15"></a>
+### 15. Step 상세
 
 `GET /api/v1/executions/{execution_id}/steps/{step_id}`
 
@@ -658,8 +692,8 @@ Step 하나의 상세(코드 출처, 시간 제한, 결과 참조 포함)다. MC
 | 409 | [`ErrorResponse`](#schema-errorresponse) | 현재 상태·버전·멱등성과 충돌 |
 | 422 | [`ErrorResponse`](#schema-errorresponse) | 요청 형식·규칙 오류 |
 
-<a id="ep-15"></a>
-### 15. Operation 상세
+<a id="ep-16"></a>
+### 16. Operation 상세
 
 `GET /api/v1/executions/{execution_id}/operations/{operation_id}`
 
@@ -688,8 +722,8 @@ Operation 하나의 상세다.
 
 - 다른 Execution의 Operation이면 `404 EXECUTION_OPERATION_NOT_FOUND`.
 
-<a id="ep-16"></a>
-### 16. Operation 결과
+<a id="ep-17"></a>
+### 17. Operation 결과
 
 `GET /api/v1/executions/{execution_id}/operations/{operation_id}/result`
 
@@ -714,8 +748,8 @@ Operation 하나의 상세다.
 | 409 | [`ErrorResponse`](#schema-errorresponse) | 현재 상태·버전·멱등성과 충돌 |
 | 422 | [`ErrorResponse`](#schema-errorresponse) | 요청 형식·규칙 오류 |
 
-<a id="ep-17"></a>
-### 17. Operation의 Step 목록
+<a id="ep-18"></a>
+### 18. Operation의 Step 목록
 
 `GET /api/v1/executions/{execution_id}/operations/{operation_id}/steps`
 
@@ -742,8 +776,8 @@ Operation 하나에 속한 현재 Step 결과를 나열한다.
 | 409 | [`ErrorResponse`](#schema-errorresponse) | 현재 상태·버전·멱등성과 충돌 |
 | 422 | [`ErrorResponse`](#schema-errorresponse) | 요청 형식·규칙 오류 |
 
-<a id="ep-18"></a>
-### 18. Attempt 목록
+<a id="ep-19"></a>
+### 19. Attempt 목록
 
 `GET /api/v1/executions/{execution_id}/attempts`
 
@@ -769,8 +803,8 @@ Attempt는 Worker가 실행을 맡을 때마다 하나씩 생긴다(최초 실�
 | 409 | [`ErrorResponse`](#schema-errorresponse) | 현재 상태·버전·멱등성과 충돌 |
 | 422 | [`ErrorResponse`](#schema-errorresponse) | 요청 형식·규칙 오류 |
 
-<a id="ep-19"></a>
-### 19. Attempt 상세
+<a id="ep-20"></a>
+### 20. Attempt 상세
 
 `GET /api/v1/executions/{execution_id}/attempts/{attempt_id}`
 
@@ -799,8 +833,8 @@ Attempt 하나와 그 Runtime·lease·복구 정보다.
 
 - `lease.heartbeat_at`은 Worker 생존 신호이지 코드 진척이 아니다.
 
-<a id="ep-20"></a>
-### 20. Attempt의 Step 결과
+<a id="ep-21"></a>
+### 21. Attempt의 Step 결과
 
 `GET /api/v1/executions/{execution_id}/attempts/{attempt_id}/steps`
 
@@ -827,8 +861,8 @@ Attempt 하나와 그 Runtime·lease·복구 정보다.
 | 409 | [`ErrorResponse`](#schema-errorresponse) | 현재 상태·버전·멱등성과 충돌 |
 | 422 | [`ErrorResponse`](#schema-errorresponse) | 요청 형식·규칙 오류 |
 
-<a id="ep-21"></a>
-### 21. 이벤트 이력
+<a id="ep-22"></a>
+### 22. 이벤트 이력
 
 `GET /api/v1/executions/{execution_id}/events`
 
@@ -863,8 +897,8 @@ PostgreSQL에 저장된 이벤트 타임라인과 Redis 전송 상태다. Redis�
 
 실행이 만든 파일(노트북, 리포트, 그림 등)을 조회·작성·다운로드한다.
 
-<a id="ep-22"></a>
-### 22. Artifact 목록
+<a id="ep-23"></a>
+### 23. Artifact 목록
 
 `GET /api/v1/executions/{execution_id}/artifacts`
 
@@ -890,8 +924,8 @@ Execution이 만든 Artifact를 나열한다. 노트북은 처음 저장될 때 
 | 409 | [`ErrorResponse`](#schema-errorresponse) | 현재 상태·버전·멱등성과 충돌 |
 | 422 | [`ErrorResponse`](#schema-errorresponse) | 요청 형식·규칙 오류 |
 
-<a id="ep-23"></a>
-### 23. 텍스트 Artifact 작성
+<a id="ep-24"></a>
+### 24. 텍스트 Artifact 작성
 
 `POST /api/v1/executions/{execution_id}/artifacts`
 
@@ -955,8 +989,8 @@ Agent가 쓴 UTF-8 텍스트(예: 최종 리포트)를 Runtime 저장소에 Arti
 - `REPORT`는 `reports/` 아래에 쓰이며 경로는 호출자가 고르지 않는다.
 - `append_to_notebook=true`는 `REPORT`만 가능하다.
 
-<a id="ep-24"></a>
-### 24. Artifact 상세
+<a id="ep-25"></a>
+### 25. Artifact 상세
 
 `GET /api/v1/artifacts/{artifact_id}`
 
@@ -980,8 +1014,8 @@ Artifact 하나와 lineage 참조다. 보이는 범위는 그 Artifact의 Execut
 | 409 | [`ErrorResponse`](#schema-errorresponse) | 현재 상태·버전·멱등성과 충돌 |
 | 422 | [`ErrorResponse`](#schema-errorresponse) | 요청 형식·규칙 오류 |
 
-<a id="ep-25"></a>
-### 25. Artifact 다운로드
+<a id="ep-26"></a>
+### 26. Artifact 다운로드
 
 `GET /api/v1/artifacts/{artifact_id}/content`
 
@@ -1071,6 +1105,19 @@ Artifact 하나와 lineage 참조다. 보이는 범위는 그 Artifact의 Execut
 | `recovery` | [RecoveryResponse](#schema-recoveryresponse) | O | 복구·정리 상태 |
 | `deadlines` | [DeadlinesResponse](#schema-deadlinesresponse) | O | 기한 |
 | `lifecycle` | [ExecutionLifecycleResponse](#schema-executionlifecycleresponse) | O | 수명 시각 |
+
+<a id="schema-executionkernelusageresponse"></a>
+#### `ExecutionKernelUsageResponse`
+
+| 필드 | 타입 | 필수 | 설명 |
+| --- | --- | :---: | --- |
+| `execution_id` | string(uuid) | O | Execution ID |
+| `target_id` | string(uuid) \| null | O | 커널이 있는 Runtime Target. 할당 전이면 `null` |
+| `kernel_id` | string \| null | O | Jupyter 커널 ID. 시작 전·정리 후 `null` |
+| `kernel_state` | `RUNNING` \| `NO_KERNEL` \| `NOT_RUNNING` \| `RUNTIME_UNAVAILABLE` | O | `RUNNING`/`NO_KERNEL`/`NOT_RUNNING`/`RUNTIME_UNAVAILABLE` |
+| `kernel` | [KernelUsageResponse](#schema-kernelusageresponse) \| null | O | 지금 커널 사용량. `kernel_state`가 `RUNNING`일 때만 값이 있다 |
+| `observed_at` | string(date-time) \| null | O | Target에서 읽은 시각(UTC). 읽지 않았거나 못 읽었으면 `null` |
+| `steps` | [RecordedStepUsageResponse](#schema-recordedstepusageresponse) | O | 끝난 Step attempt에 기록된 값 |
 
 <a id="schema-executionresultresponse"></a>
 #### `ExecutionResultResponse`
@@ -1386,6 +1433,26 @@ Artifact 하나와 lineage 참조다. 보이는 범위는 그 Artifact의 Execut
 | `started_at` | string(date-time) \| null | O | 시작 시각 |
 | `finished_at` | string(date-time) \| null | O | 종료 시각. 진행 중이면 `null` |
 
+<a id="schema-kernelusageresponse"></a>
+#### `KernelUsageResponse`
+
+| 필드 | 타입 | 필수 | 설명 |
+| --- | --- | :---: | --- |
+| `kernel_id` | string | O | Jupyter 커널 ID |
+| `execution_state` | string \| null | O | Jupyter가 아는 커널 상태(`busy`, `idle` 등). 모르면 `null` |
+| `process_count` | integer \| null | O | 커널 프로세스와 그 자식 프로세스 수 |
+| `memory_bytes` | integer \| null | O | 지금 메모리(RSS 합계, byte) |
+| `cpu_seconds` | number \| null | O | 커널 시작부터 쓴 CPU 시간(초, 끝난 자식 포함) |
+
+<a id="schema-recordedstepusageresponse"></a>
+#### `RecordedStepUsageResponse`
+
+| 필드 | 타입 | 필수 | 설명 |
+| --- | --- | :---: | --- |
+| `peak_memory_bytes` | integer \| null | O | Step attempt 피크 메모리 중 최댓값(byte). 기록이 없으면 `null` |
+| `cpu_seconds` | number \| null | O | Step attempt CPU 시간 합계(초). 기록이 없으면 `null` |
+| `measured_step_attempt_count` | integer | O | 피크 메모리가 기록된 Step attempt 수 |
+
 <a id="schema-executionresultexecutionresponse"></a>
 #### `ExecutionResultExecutionResponse`
 
@@ -1643,6 +1710,7 @@ Artifact 하나와 lineage 참조다. 보이는 범위는 그 Artifact의 Execut
 | `sequence` | integer | O | Step 순번 |
 | `tool` | [ToolReference](#schema-toolreference) | O | Skill·Tool 정보 |
 | `result` | [StepResult](#schema-stepresult) | O | 결과 |
+| `usage` | [StepUsageResponse](#schema-stepusageresponse) | O | Step attempt의 커널 자원 사용량 |
 | `lifecycle` | [Lifecycle](#schema-lifecycle) | O | 수명 시각 |
 
 <a id="schema-executioneventresponse"></a>
@@ -1804,6 +1872,14 @@ Artifact 하나와 lineage 참조다. 보이는 범위는 그 Artifact의 Execut
 | `complete` | boolean | O | 출력이 모두 저장됐는지. 실행 성공 여부가 아니다 |
 | `representation_count` | integer | O | 저장된 MIME representation 총개수 |
 | `total_size_bytes` | integer | O | 출력 representation 파일 크기의 합 |
+
+<a id="schema-stepusageresponse"></a>
+#### `StepUsageResponse`
+
+| 필드 | 타입 | 필수 | 설명 |
+| --- | --- | :---: | --- |
+| `peak_memory_bytes` | integer \| null | O | 이 Step attempt 동안 커널의 피크 메모리(RSS, byte). 커널과 Step이 끝날 때 살아 있는 자식 프로세스의 피크 합. 측정이 없으면 `null` |
+| `cpu_seconds` | number \| null | O | 이 Step attempt 동안 커널이 쓴 CPU 시간(초, 그 사이 끝난 자식 포함). 측정이 없으면 `null` |
 
 <a id="schema-eventdelivery"></a>
 #### `EventDelivery`

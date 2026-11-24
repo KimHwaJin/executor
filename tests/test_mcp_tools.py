@@ -14,12 +14,23 @@ from mcp.types import TextContent
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from executor_service.application.execution_queries import (
+    ExecutionDetailView,
+)
+from executor_service.application.kernel_usage import (
+    ExecutionKernelUsageView,
+    RecordedStepUsageView,
+    RuntimeTargetKernelsView,
+    TargetKernelView,
+)
 from executor_service.application.services import ExecutionService
 from executor_service.domain.enums import (
     ExecutionStatus,
     OperationStatus,
     RetryStrategy,
 )
+from executor_service.domain.models import utc_now
+from executor_service.domain.runtime import RuntimeKernelUsage
 from executor_service.infrastructure.db.models import (
     ExecutionOperationORM,
     ExecutionORM,
@@ -610,3 +621,75 @@ async def test_mcp_retry_returns_the_requeued_operation_id(
         operation_id
     )
     assert retried.structured_content["state"]["status"] == "QUEUED"
+
+
+class KernelUsageStub:
+    usage = RuntimeKernelUsage("kernel-1", "busy", 1, 256 << 20, 1.5)
+
+    async def execution_usage(
+        self, execution: ExecutionDetailView
+    ) -> ExecutionKernelUsageView:
+        return ExecutionKernelUsageView(
+            execution_id=execution.id,
+            target_id=None,
+            kernel_id="kernel-1",
+            kernel_state="RUNNING",
+            kernel=self.usage,
+            observed_at=utc_now(),
+            steps=RecordedStepUsageView(512 << 20, 2.0, 1),
+        )
+
+    async def target_kernels(
+        self, target_id: UUID
+    ) -> RuntimeTargetKernelsView:
+        return RuntimeTargetKernelsView(
+            target_id=target_id,
+            observed_at=utc_now(),
+            kernels=(TargetKernelView(self.usage, None, None, None),),
+        )
+
+
+async def test_kernel_usage_tools_follow_execution_and_admin_rules(
+    execution_service: ExecutionService,
+    engine: AsyncEngine,
+    tmp_path: Path,
+) -> None:
+    target = build_mcp_server(
+        execution_service,
+        _queries(engine),
+        execution_spec_resolver=ExecutionSpecResolver(tmp_path),
+        kernel_usage=KernelUsageStub(),
+    )
+    target_id = "00000000-0000-4000-8000-000000000009"
+
+    async with mcp_client(target) as client:
+        submitted = await client.call_tool(
+            "execution_submit", SUBMIT_ARGUMENTS
+        )
+        execution_id = submitted.structured_content["execution_id"]
+        usage = await client.call_tool(
+            "execution_kernel_usage", {"execution_id": execution_id}
+        )
+        kernels = await client.call_tool(
+            "runtime_target_kernels", {"target_id": target_id}
+        )
+    async with mcp_client(target, replace(CALLER, admin=False)) as client:
+        denied = await client.call_tool(
+            "runtime_target_kernels", {"target_id": target_id}
+        )
+    async with mcp_client(
+        target, replace(CALLER, tenant_id="other-tenant")
+    ) as client:
+        hidden = await client.call_tool(
+            "execution_kernel_usage", {"execution_id": execution_id}
+        )
+
+    assert not usage.is_error
+    assert usage.structured_content["kernel"]["memory_bytes"] == 256 << 20
+    assert usage.structured_content["steps"]["peak_memory_bytes"] == (
+        512 << 20
+    )
+    assert not kernels.is_error
+    assert kernels.structured_content["items"][0]["execution_id"] is None
+    assert denied.is_error
+    assert hidden.is_error

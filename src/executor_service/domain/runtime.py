@@ -103,6 +103,9 @@ class ExecutionCompletionError(RuntimeError):
 class RuntimeExecutionError(RuntimeDriverError):
     """The submitted code itself failed; the session remains usable."""
 
+    # What the failed code used, when the Runtime measured it.
+    usage: "RuntimeStepUsage | None" = None
+
 
 class RuntimeExecutionTimeoutError(RuntimeExecutionError):
     def __init__(self, scope: str, timeout_seconds: float) -> None:
@@ -147,8 +150,17 @@ class RuntimeOutputLimitExceededError(RuntimeExecutionError):
 
 
 @dataclass(frozen=True, slots=True)
+class RuntimeStepUsage:
+    """One Step's kernel peak memory (RSS) and CPU time, as measured."""
+
+    peak_memory_bytes: int | None
+    cpu_seconds: float | None
+
+
+@dataclass(frozen=True, slots=True)
 class RuntimeExecutionResult:
     execution_count: int | None
+    usage: RuntimeStepUsage | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -224,6 +236,17 @@ class RuntimeResourceObservation:
 
 
 @dataclass(frozen=True, slots=True)
+class RuntimeKernelUsage:
+    """One running kernel's processes, memory (RSS) and CPU time now."""
+
+    kernel_id: str
+    execution_state: str | None
+    process_count: int | None
+    memory_bytes: int | None
+    cpu_seconds: float | None
+
+
+@dataclass(frozen=True, slots=True)
 class RuntimeFileState:
     path: str
     size_bytes: int
@@ -276,6 +299,8 @@ class RuntimeDriver(RuntimeStorage, Protocol):
     async def supported_profiles(self) -> list[str]: ...
 
     async def resource_status(self) -> RuntimeResourceObservation: ...
+
+    async def kernel_usage(self) -> tuple[RuntimeKernelUsage, ...]: ...
 
     async def start_session(
         self, profile: str, working_directory: str

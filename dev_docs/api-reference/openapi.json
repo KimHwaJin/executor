@@ -941,6 +941,20 @@
             }
           },
           {
+            "name": "wait_seconds",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 30,
+              "minimum": 0,
+              "description": "Hold the response while the Execution is working, for at most this many seconds. It answers as soon as the Execution is WAITING_FOR_OPERATION or terminal, and with the current state when the time is up.",
+              "default": 0,
+              "title": "Wait Seconds"
+            },
+            "description": "Hold the response while the Execution is working, for at most this many seconds. It answers as soon as the Execution is WAITING_FOR_OPERATION or terminal, and with the current state when the time is up."
+          },
+          {
             "name": "X-Tenant-Id",
             "in": "header",
             "required": false,
@@ -984,6 +998,111 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ExecutionResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Execution or Artifact not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "State, version, or idempotency conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid ExecutionSpec",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/executions/{execution_id}/kernel-usage": {
+      "get": {
+        "tags": [
+          "executions"
+        ],
+        "summary": "Get the Execution's kernel and its memory and CPU use",
+        "description": "Live kernel values are read from its Runtime Target now; Step\npeaks were recorded as each Step attempt finished.",
+        "operationId": "get_execution_kernel_usage_api_v1_executions__execution_id__kernel_usage_get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "execution_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Execution Id"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Relay keys only, within their allowed tenants. Defaults to the key's tenant.",
+              "title": "X-Tenant-Id"
+            },
+            "description": "Relay keys only, within their allowed tenants. Defaults to the key's tenant."
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Acting user, ^[a-z0-9][a-z0-9._-]{0,63}$ after lowercasing. Required for writes and recorded as created_by/updated_by; reads without it see the whole tenant.",
+              "title": "X-User-Id"
+            },
+            "description": "Acting user, ^[a-z0-9][a-z0-9._-]{0,63}$ after lowercasing. Required for writes and recorded as created_by/updated_by; reads without it see the whole tenant."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionKernelUsageResponse"
                 }
               }
             }
@@ -3697,6 +3816,112 @@
           },
           "422": {
             "description": "Invalid request or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/runtime-targets/{target_id}/kernels": {
+      "get": {
+        "tags": [
+          "runtime-targets"
+        ],
+        "summary": "Get the Runtime Target's kernels, their Executions and use",
+        "operationId": "list_runtime_target_kernels_api_v1_runtime_targets__target_id__kernels_get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "target_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Target Id"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Operator ID; required for writes and recorded as created_by/updated_by.",
+              "title": "X-User-Id"
+            },
+            "description": "Operator ID; required for writes and recorded as created_by/updated_by."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeTargetKernelsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid fleet configuration",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Runtime Target not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency or hard-purge safety conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Runtime Target did not report its kernels",
             "content": {
               "application/json": {
                 "schema": {
@@ -7148,6 +7373,85 @@
         ],
         "title": "ExecutionFinalizeRequest"
       },
+      "ExecutionKernelUsageResponse": {
+        "properties": {
+          "execution_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Execution Id"
+          },
+          "target_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Id"
+          },
+          "kernel_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kernel Id"
+          },
+          "kernel_state": {
+            "type": "string",
+            "enum": [
+              "RUNNING",
+              "NO_KERNEL",
+              "NOT_RUNNING",
+              "RUNTIME_UNAVAILABLE"
+            ],
+            "title": "Kernel State"
+          },
+          "kernel": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/KernelUsageResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "observed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observed At"
+          },
+          "steps": {
+            "$ref": "#/components/schemas/RecordedStepUsageResponse"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "execution_id",
+          "target_id",
+          "kernel_id",
+          "kernel_state",
+          "kernel",
+          "observed_at",
+          "steps"
+        ],
+        "title": "ExecutionKernelUsageResponse"
+      },
       "ExecutionLifecycleInput": {
         "properties": {
           "operation_mode": {
@@ -8219,6 +8523,9 @@
           "result": {
             "$ref": "#/components/schemas/StepResult"
           },
+          "usage": {
+            "$ref": "#/components/schemas/StepUsageResponse"
+          },
           "lifecycle": {
             "$ref": "#/components/schemas/Lifecycle"
           }
@@ -8237,6 +8544,7 @@
           "sequence",
           "tool",
           "result",
+          "usage",
           "lifecycle"
         ],
         "title": "ExecutionStepAttemptSummaryResponse"
@@ -9017,6 +9325,69 @@
           "content"
         ],
         "title": "InlineStepSource"
+      },
+      "KernelUsageResponse": {
+        "properties": {
+          "kernel_id": {
+            "type": "string",
+            "title": "Kernel Id"
+          },
+          "execution_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution State"
+          },
+          "process_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Process Count"
+          },
+          "memory_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Memory Bytes"
+          },
+          "cpu_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cpu Seconds"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kernel_id",
+          "execution_state",
+          "process_count",
+          "memory_bytes",
+          "cpu_seconds"
+        ],
+        "title": "KernelUsageResponse",
+        "description": "A running kernel now: its process and the processes it started.\n\nMemory is resident set size (RSS); pages shared with forked children\ncount once per process. CPU seconds count from the kernel's start."
       },
       "Lifecycle": {
         "properties": {
@@ -10017,6 +10388,45 @@
         ],
         "title": "PythonExecutePayload"
       },
+      "RecordedStepUsageResponse": {
+        "properties": {
+          "peak_memory_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Peak Memory Bytes"
+          },
+          "cpu_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cpu Seconds"
+          },
+          "measured_step_attempt_count": {
+            "type": "integer",
+            "title": "Measured Step Attempt Count"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "peak_memory_bytes",
+          "cpu_seconds",
+          "measured_step_attempt_count"
+        ],
+        "title": "RecordedStepUsageResponse",
+        "description": "Measured Step attempts of the Execution, over all its attempts."
+      },
       "RecoveryResponse": {
         "properties": {
           "count": {
@@ -10434,6 +10844,35 @@
           "last_error"
         ],
         "title": "RuntimeTargetHealth"
+      },
+      "RuntimeTargetKernelsResponse": {
+        "properties": {
+          "target_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Target Id"
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Observed At"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TargetKernelResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "target_id",
+          "observed_at",
+          "items"
+        ],
+        "title": "RuntimeTargetKernelsResponse"
       },
       "RuntimeTargetMutationRequest": {
         "properties": {
@@ -11199,6 +11638,40 @@
         ],
         "title": "StepStatus"
       },
+      "StepUsageResponse": {
+        "properties": {
+          "peak_memory_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Peak Memory Bytes"
+          },
+          "cpu_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cpu Seconds"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "peak_memory_bytes",
+          "cpu_seconds"
+        ],
+        "title": "StepUsageResponse",
+        "description": "The kernel's peak memory (RSS) and CPU time during this Step attempt.\n\nNull when the Runtime did not measure it. The peak counts the kernel and\nits child processes still running at the end of the Step."
+      },
       "StreamPositionResponse": {
         "properties": {
           "id": {
@@ -11220,6 +11693,104 @@
           "at"
         ],
         "title": "StreamPositionResponse"
+      },
+      "TargetKernelResponse": {
+        "properties": {
+          "kernel_id": {
+            "type": "string",
+            "title": "Kernel Id"
+          },
+          "execution_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution State"
+          },
+          "process_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Process Count"
+          },
+          "memory_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Memory Bytes"
+          },
+          "cpu_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cpu Seconds"
+          },
+          "execution_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Id"
+          },
+          "tenant_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Id"
+          },
+          "execution_status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExecutionStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kernel_id",
+          "execution_state",
+          "process_count",
+          "memory_bytes",
+          "cpu_seconds",
+          "execution_id",
+          "tenant_id",
+          "execution_status"
+        ],
+        "title": "TargetKernelResponse"
       },
       "ToolReference": {
         "properties": {

@@ -24,6 +24,7 @@ from executor_service.application.execution_queries import (
 from executor_service.application.execution_results import (
     ExecutionResultQueryService,
 )
+from executor_service.application.kernel_usage import KernelUsageQueries
 from executor_service.application.notebook_queries import (
     ExecutionNotebookQueryService,
     NotebookCellView,
@@ -67,6 +68,7 @@ from executor_service.interfaces.contracts import (
     ExecutionAttemptPageResponse,
     ExecutionCommandResponse,
     ExecutionEventPageResponse,
+    ExecutionKernelUsageResponse,
     ExecutionNotebookResponse,
     ExecutionOperationPageResponse,
     ExecutionOperationResponse,
@@ -77,6 +79,7 @@ from executor_service.interfaces.contracts import (
     ExecutionStepAttemptPageResponse,
     ExecutionStepPageResponse,
     ExecutionSubmitRequest,
+    RuntimeTargetKernelsResponse,
     RuntimeTargetPageResponse,
     RuntimeTargetResponse,
     RuntimeTargetUpsertRequest,
@@ -131,6 +134,7 @@ def build_mcp_server(
     notebook_queries: ExecutionNotebookQueryService | None = None,
     execution_results: ExecutionResultQueryService | None = None,
     materialized_artifacts: MaterializedArtifactService | None = None,
+    kernel_usage: KernelUsageQueries | None = None,
 ) -> MCPServer:
     server = MCPServer(
         name="executor-service",
@@ -652,6 +656,43 @@ def build_mcp_server(
         except Exception as exc:
             raise _public_tool_error(exc) from exc
         return ExecutionArtifactResponse.from_view(view)
+
+    if kernel_usage is not None:
+
+        @server.tool(
+            description=(
+                "Get the Jupyter kernel an Execution runs on, its memory and "
+                "CPU read from the Runtime Target now, and the peak memory "
+                "and CPU time recorded for its finished Step attempts."
+            )
+        )
+        async def execution_kernel_usage(
+            execution_id: UUID,
+        ) -> ExecutionKernelUsageResponse:
+            try:
+                view = await kernel_usage.execution_usage(
+                    await authorize(execution_id)
+                )
+            except Exception as exc:
+                raise _public_tool_error(exc) from exc
+            return ExecutionKernelUsageResponse.from_view(view)
+
+        @server.tool(
+            description=(
+                "List a Runtime Target's running kernels with their memory "
+                "and CPU now and the Execution holding each; a kernel no "
+                "Execution holds was left behind."
+            )
+        )
+        async def runtime_target_kernels(
+            target_id: UUID,
+        ) -> RuntimeTargetKernelsResponse:
+            try:
+                require_admin(current_caller())
+                view = await kernel_usage.target_kernels(target_id)
+            except Exception as exc:
+                raise _public_tool_error(exc) from exc
+            return RuntimeTargetKernelsResponse.from_view(view)
 
     if runtime_manager is not None:
 

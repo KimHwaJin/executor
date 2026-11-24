@@ -18,6 +18,7 @@ from executor_service.interfaces.auth import current_caller, require_user
 from executor_service.interfaces.contracts import (
     RuntimePoolPageResponse,
     RuntimePoolResponse,
+    RuntimeTargetKernelsResponse,
     RuntimeTargetPageResponse,
     RuntimeTargetResponse,
     RuntimeTargetUpsertRequest,
@@ -112,6 +113,25 @@ def build_runtime_target_router(container: ApplicationContainer) -> APIRouter:
     async def get_runtime_target(target_id: UUID) -> RuntimeTargetResponse:
         view = await registry.get(target_id)
         return RuntimeTargetResponse.from_view(view)
+
+    @router.get(
+        "/runtime-targets/{target_id}/kernels",
+        response_model=RuntimeTargetKernelsResponse,
+        responses={
+            **FLEET_ERROR_RESPONSES,
+            503: {
+                "model": ErrorResponse,
+                "description": "The Runtime Target did not report its kernels",
+            },
+        },
+        summary="Get the Runtime Target's kernels, their Executions and use",
+    )
+    async def list_runtime_target_kernels(
+        target_id: UUID,
+    ) -> RuntimeTargetKernelsResponse:
+        return RuntimeTargetKernelsResponse.from_view(
+            await container.kernel_usage.target_kernels(target_id)
+        )
 
     @router.post(
         "/runtime-targets/{target_id}/probe",

@@ -12,20 +12,21 @@
 | 3 | `GET /api/v1/runtime-pools` | 없음 | [Pool 요약](#ep-3) |
 | 4 | `GET /api/v1/runtime-targets/{target_id}` | `runtime_target_get` | [Target 상세](#ep-4) |
 | 5 | `DELETE /api/v1/runtime-targets/{target_id}` | 없음 | [등록 삭제](#ep-5) |
-| 6 | `POST /api/v1/runtime-targets/{target_id}/probe` | `runtime_target_probe` | [즉시 점검](#ep-6) |
-| 7 | `POST /api/v1/runtime-targets/{target_id}/drain` | `runtime_target_set_state (desired_state=DRAINING)` | [배정 중지(drain)](#ep-7) |
-| 8 | `POST /api/v1/runtime-targets/{target_id}/activate` | `runtime_target_set_state (desired_state=ACTIVE)` | [배정 재개](#ep-8) |
-| 9 | `POST /api/v1/runtime-targets/{target_id}/disable` | `runtime_target_disable` | [비활성화](#ep-9) |
-| 10 | `GET /api/v1/maintenance` | 없음 | [유지보수 상태](#ep-10) |
-| 11 | `POST /api/v1/maintenance/drain` | 없음 | [전체 수용 중지](#ep-11) |
-| 12 | `POST /api/v1/maintenance/activate` | 없음 | [전체 수용 재개](#ep-12) |
-| 13 | `POST /api/v1/maintenance/runs` | 없음 | [일괄 중지 Run 생성](#ep-13) |
-| 14 | `GET /api/v1/maintenance/runs/{run_id}` | 없음 | [Run 상세](#ep-14) |
-| 15 | `GET /api/v1/maintenance/runs/{run_id}/targets` | 없음 | [Run 대상 목록](#ep-15) |
-| 16 | `GET /api/v1/event-streams` | 없음 | [Stream 전체 요약](#ep-16) |
-| 17 | `GET /api/v1/event-streams/{tenant_id}` | 없음 | [Stream 상세](#ep-17) |
-| 18 | `GET /api/v1/event-streams/{tenant_id}/entries` | 없음 | [Stream 항목](#ep-18) |
-| 19 | `GET /api/v1/event-streams/{tenant_id}/groups/{group}/pending` | 없음 | [pending 항목](#ep-19) |
+| 6 | `GET /api/v1/runtime-targets/{target_id}/kernels` | `runtime_target_kernels` | [커널 목록과 자원 사용량](#ep-6) |
+| 7 | `POST /api/v1/runtime-targets/{target_id}/probe` | `runtime_target_probe` | [즉시 점검](#ep-7) |
+| 8 | `POST /api/v1/runtime-targets/{target_id}/drain` | `runtime_target_set_state (desired_state=DRAINING)` | [배정 중지(drain)](#ep-8) |
+| 9 | `POST /api/v1/runtime-targets/{target_id}/activate` | `runtime_target_set_state (desired_state=ACTIVE)` | [배정 재개](#ep-9) |
+| 10 | `POST /api/v1/runtime-targets/{target_id}/disable` | `runtime_target_disable` | [비활성화](#ep-10) |
+| 11 | `GET /api/v1/maintenance` | 없음 | [유지보수 상태](#ep-11) |
+| 12 | `POST /api/v1/maintenance/drain` | 없음 | [전체 수용 중지](#ep-12) |
+| 13 | `POST /api/v1/maintenance/activate` | 없음 | [전체 수용 재개](#ep-13) |
+| 14 | `POST /api/v1/maintenance/runs` | 없음 | [일괄 중지 Run 생성](#ep-14) |
+| 15 | `GET /api/v1/maintenance/runs/{run_id}` | 없음 | [Run 상세](#ep-15) |
+| 16 | `GET /api/v1/maintenance/runs/{run_id}/targets` | 없음 | [Run 대상 목록](#ep-16) |
+| 17 | `GET /api/v1/event-streams` | 없음 | [Stream 전체 요약](#ep-17) |
+| 18 | `GET /api/v1/event-streams/{tenant_id}` | 없음 | [Stream 상세](#ep-18) |
+| 19 | `GET /api/v1/event-streams/{tenant_id}/entries` | 없음 | [Stream 항목](#ep-19) |
+| 20 | `GET /api/v1/event-streams/{tenant_id}/groups/{group}/pending` | 없음 | [pending 항목](#ep-20) |
 
 ## Runtime Target·Pool
 
@@ -191,7 +192,39 @@ Target 하나. 인증정보는 나오지 않는다.
 - 삭제 후 같은 이름·endpoint로 다시 등록하면 새 UUID가 생긴다(새 `idempotency_key` 사용).
 
 <a id="ep-6"></a>
-### 6. 즉시 점검
+### 6. 커널 목록과 자원 사용량
+
+`GET /api/v1/runtime-targets/{target_id}/kernels`
+
+- MCP: `runtime_target_kernels`
+- 원문 요약: Get the Runtime Target's kernels, their Executions and use
+
+Target에서 지금 도는 커널마다 메모리·CPU와 그 커널을 쓰는 Execution을 준다. Execution이 없는 커널(`execution_id`가 `null`)은 남겨진 커널이다.
+
+**파라미터**
+
+| 위치 | 이름 | 필수 | 타입 | 제약 | 설명 |
+| --- | --- | :---: | --- | --- | --- |
+| path | `target_id` | O | string(uuid) |  | Runtime Target ID |
+
+**응답**
+
+| 상태 | 바디 | 의미 |
+| --- | --- | --- |
+| 200 | [`RuntimeTargetKernelsResponse`](#schema-runtimetargetkernelsresponse) | 성공 |
+| 400 | [`ErrorResponse`](#schema-errorresponse) | 식별·설정 오류 |
+| 404 | [`ErrorResponse`](#schema-errorresponse) | 대상이 없거나 호출자에게 보이지 않음 |
+| 409 | [`ErrorResponse`](#schema-errorresponse) | 현재 상태·버전·멱등성과 충돌 |
+| 422 | [`ErrorResponse`](#schema-errorresponse) | 요청 형식·규칙 오류 |
+| 503 | [`ErrorResponse`](#schema-errorresponse) | Redis 또는 Runtime Target에 닿지 못함. 나중에 다시 |
+
+**주의**
+
+- 요청할 때 Target에서 바로 읽는다. Target이 응답하지 않으면 `503 RUNTIME_UNAVAILABLE`, 등록이 없으면 `404 RUNTIME_TARGET_NOT_FOUND`.
+- 여러 tenant의 Execution이 함께 나오므로 admin key 전용이다.
+
+<a id="ep-7"></a>
+### 7. 즉시 점검
 
 `POST /api/v1/runtime-targets/{target_id}/probe`
 
@@ -216,8 +249,8 @@ Target 하나. 인증정보는 나오지 않는다.
 | 409 | [`ErrorResponse`](#schema-errorresponse) | 현재 상태·버전·멱등성과 충돌 |
 | 422 | [`ErrorResponse`](#schema-errorresponse) | 요청 형식·규칙 오류 |
 
-<a id="ep-7"></a>
-### 7. 배정 중지(drain)
+<a id="ep-8"></a>
+### 8. 배정 중지(drain)
 
 `POST /api/v1/runtime-targets/{target_id}/drain`
 
@@ -256,8 +289,8 @@ Target 하나. 인증정보는 나오지 않는다.
 | 409 | [`ErrorResponse`](#schema-errorresponse) | 현재 상태·버전·멱등성과 충돌 |
 | 422 | [`ErrorResponse`](#schema-errorresponse) | 요청 형식·규칙 오류 |
 
-<a id="ep-8"></a>
-### 8. 배정 재개
+<a id="ep-9"></a>
+### 9. 배정 재개
 
 `POST /api/v1/runtime-targets/{target_id}/activate`
 
@@ -296,8 +329,8 @@ Target 하나. 인증정보는 나오지 않는다.
 | 409 | [`ErrorResponse`](#schema-errorresponse) | 현재 상태·버전·멱등성과 충돌 |
 | 422 | [`ErrorResponse`](#schema-errorresponse) | 요청 형식·규칙 오류 |
 
-<a id="ep-9"></a>
-### 9. 비활성화
+<a id="ep-10"></a>
+### 10. 비활성화
 
 `POST /api/v1/runtime-targets/{target_id}/disable`
 
@@ -340,8 +373,8 @@ Target을 끄고 `OFFLINE`으로 표시한다. 조회는 계속 되고 실행 �
 
 배포·점검 때 Executor 전체의 새 실행 수용을 멈추고, 진행 중 실행을 일괄 중지한다. admin key 전용.
 
-<a id="ep-10"></a>
-### 10. 유지보수 상태
+<a id="ep-11"></a>
+### 11. 유지보수 상태
 
 `GET /api/v1/maintenance`
 
@@ -357,8 +390,8 @@ Executor 전체 수용 상태, 작업량, 정리 상태, 진행 중 Run, 종료 
 | 200 | [`ExecutorMaintenanceResponse`](#schema-executormaintenanceresponse) | 성공 |
 | 422 | [`ErrorResponse`](#schema-errorresponse) | 요청 형식·규칙 오류 |
 
-<a id="ep-11"></a>
-### 11. 전체 수용 중지
+<a id="ep-12"></a>
+### 12. 전체 수용 중지
 
 `POST /api/v1/maintenance/drain`
 
@@ -389,8 +422,8 @@ Executor 전체 수용 상태, 작업량, 정리 상태, 진행 중 Run, 종료 
 | 409 | [`ErrorResponse`](#schema-errorresponse) | 현재 상태·버전·멱등성과 충돌 |
 | 422 | [`ErrorResponse`](#schema-errorresponse) | 요청 형식·규칙 오류 |
 
-<a id="ep-12"></a>
-### 12. 전체 수용 재개
+<a id="ep-13"></a>
+### 13. 전체 수용 재개
 
 `POST /api/v1/maintenance/activate`
 
@@ -421,8 +454,8 @@ Executor 전체 수용 상태, 작업량, 정리 상태, 진행 중 Run, 종료 
 | 409 | [`ErrorResponse`](#schema-errorresponse) | 현재 상태·버전·멱등성과 충돌 |
 | 422 | [`ErrorResponse`](#schema-errorresponse) | 요청 형식·규칙 오류 |
 
-<a id="ep-13"></a>
-### 13. 일괄 중지 Run 생성
+<a id="ep-14"></a>
+### 14. 일괄 중지 Run 생성
 
 `POST /api/v1/maintenance/runs`
 
@@ -459,8 +492,8 @@ Executor 전체 수용 상태, 작업량, 정리 상태, 진행 중 Run, 종료 
 
 - 이미 진행 중인 Run이 있으면 `409 MAINTENANCE_RUN_CONFLICT`.
 
-<a id="ep-14"></a>
-### 14. Run 상세
+<a id="ep-15"></a>
+### 15. Run 상세
 
 `GET /api/v1/maintenance/runs/{run_id}`
 
@@ -484,8 +517,8 @@ Run 하나와 대상 집계.
 | 422 | [`ErrorResponse`](#schema-errorresponse) | 요청 형식·규칙 오류 |
 | 404 | [`ErrorResponse`](#schema-errorresponse) | 대상이 없거나 호출자에게 보이지 않음 |
 
-<a id="ep-15"></a>
-### 15. Run 대상 목록
+<a id="ep-16"></a>
+### 16. Run 대상 목록
 
 `GET /api/v1/maintenance/runs/{run_id}/targets`
 
@@ -515,8 +548,8 @@ Run이 잡은 Execution별 중지 진행.
 
 Redis가 지금 들고 있는 이벤트 Stream과 소비 상태를 읽는다. admin key 전용이고 읽기만 한다(`EXISTS`, `XINFO`, `XREVRANGE`, `XRANGE`, `XPENDING`). Executor가 쓰는 Redis 연결을 그대로 쓰므로 Sentinel과 standalone에서 똑같이 동작한다. Executor가 무엇을 발행했는지는 [이벤트 이력](01-executions.md)을, Stream에 무엇이 있고 소비자가 어디까지 읽었는지는 이 API를 본다.
 
-<a id="ep-16"></a>
-### 16. Stream 전체 요약
+<a id="ep-17"></a>
+### 17. Stream 전체 요약
 
 `GET /api/v1/event-streams`
 
@@ -530,7 +563,7 @@ Redis 연결(모드, 지금 붙어 있는 주소), 보관 설정, 모든 tenant�
 | 상태 | 바디 | 의미 |
 | --- | --- | --- |
 | 200 | [`EventStreamOverviewResponse`](#schema-eventstreamoverviewresponse) | 성공 |
-| 503 | [`ErrorResponse`](#schema-errorresponse) | Redis에 닿지 못함. 나중에 다시 |
+| 503 | [`ErrorResponse`](#schema-errorresponse) | Redis 또는 Runtime Target에 닿지 못함. 나중에 다시 |
 | 422 | [`ErrorResponse`](#schema-errorresponse) | 요청 형식·규칙 오류 |
 
 **주의**
@@ -539,8 +572,8 @@ Redis 연결(모드, 지금 붙어 있는 주소), 보관 설정, 모든 tenant�
 - Sentinel에서는 `connection.address`가 현재 마스터다. failover 뒤에는 새 마스터 주소가 나온다.
 - Redis 장애·failover 중·ACL 거부는 `503 REDIS_UNAVAILABLE`.
 
-<a id="ep-17"></a>
-### 17. Stream 상세
+<a id="ep-18"></a>
+### 18. Stream 상세
 
 `GET /api/v1/event-streams/{tenant_id}`
 
@@ -560,7 +593,7 @@ tenant 하나의 Stream 길이, 첫·마지막 항목, group별 lag·pending·co
 | 상태 | 바디 | 의미 |
 | --- | --- | --- |
 | 200 | [`EventStreamResponse`](#schema-eventstreamresponse) | 성공 |
-| 503 | [`ErrorResponse`](#schema-errorresponse) | Redis에 닿지 못함. 나중에 다시 |
+| 503 | [`ErrorResponse`](#schema-errorresponse) | Redis 또는 Runtime Target에 닿지 못함. 나중에 다시 |
 | 404 | [`ErrorResponse`](#schema-errorresponse) | 대상이 없거나 호출자에게 보이지 않음 |
 | 422 | [`ErrorResponse`](#schema-errorresponse) | 요청 형식·규칙 오류 |
 
@@ -569,8 +602,8 @@ tenant 하나의 Stream 길이, 첫·마지막 항목, group별 lag·pending·co
 - Stream이 없으면 `404 EVENT_STREAM_NOT_FOUND`.
 - `lag`은 group이 아직 받지 않은 항목 수, `pending`은 받았지만 ACK하지 않은 항목 수다.
 
-<a id="ep-18"></a>
-### 18. Stream 항목
+<a id="ep-19"></a>
+### 19. Stream 항목
 
 `GET /api/v1/event-streams/{tenant_id}/entries`
 
@@ -594,7 +627,7 @@ Stream 항목을 최신순으로 준다. `next_before`를 `before`로 넘기면 
 | 상태 | 바디 | 의미 |
 | --- | --- | --- |
 | 200 | [`EventStreamEntryPageResponse`](#schema-eventstreamentrypageresponse) | 성공 |
-| 503 | [`ErrorResponse`](#schema-errorresponse) | Redis에 닿지 못함. 나중에 다시 |
+| 503 | [`ErrorResponse`](#schema-errorresponse) | Redis 또는 Runtime Target에 닿지 못함. 나중에 다시 |
 | 404 | [`ErrorResponse`](#schema-errorresponse) | 대상이 없거나 호출자에게 보이지 않음 |
 | 422 | [`ErrorResponse`](#schema-errorresponse) | 요청 형식·규칙 오류 |
 
@@ -604,8 +637,8 @@ Stream 항목을 최신순으로 준다. `next_before`를 `before`로 넘기면 
 - 항목은 저장된 그대로다. `payload`는 JSON으로 풀어 주고 이벤트 계약 검증은 하지 않는다.
 - 보관 기간(`retention_seconds`)이 지난 항목은 Redis에 없다. 그때는 [이벤트 이력](01-executions.md)을 본다.
 
-<a id="ep-19"></a>
-### 19. pending 항목
+<a id="ep-20"></a>
+### 20. pending 항목
 
 `GET /api/v1/event-streams/{tenant_id}/groups/{group}/pending`
 
@@ -629,7 +662,7 @@ consumer group이 받았지만 ACK하지 않은 항목을 오래된 순으로 �
 | 상태 | 바디 | 의미 |
 | --- | --- | --- |
 | 200 | [`PendingEntryPageResponse`](#schema-pendingentrypageresponse) | 성공 |
-| 503 | [`ErrorResponse`](#schema-errorresponse) | Redis에 닿지 못함. 나중에 다시 |
+| 503 | [`ErrorResponse`](#schema-errorresponse) | Redis 또는 Runtime Target에 닿지 못함. 나중에 다시 |
 | 404 | [`ErrorResponse`](#schema-errorresponse) | 대상이 없거나 호출자에게 보이지 않음 |
 | 422 | [`ErrorResponse`](#schema-errorresponse) | 요청 형식·규칙 오류 |
 
@@ -698,6 +731,15 @@ consumer group이 받았지만 ACK하지 않은 항목을 오래된 순으로 �
 | `updated_at` | string(date-time) | O | 마지막 변경 시각(UTC). 출력 시각이 아니다 |
 | `target_id` | string(uuid) | O | Runtime Target ID |
 | `name` | string | O | 삭제된 Target 이름 |
+
+<a id="schema-runtimetargetkernelsresponse"></a>
+#### `RuntimeTargetKernelsResponse`
+
+| 필드 | 타입 | 필수 | 설명 |
+| --- | --- | :---: | --- |
+| `target_id` | string(uuid) | O | Runtime Target ID |
+| `observed_at` | string(date-time) | O | Target에서 읽은 시각(UTC) |
+| `items` | array<[TargetKernelResponse](#schema-targetkernelresponse)> | O | 지금 도는 커널 |
 
 <a id="schema-executormaintenanceresponse"></a>
 #### `ExecutorMaintenanceResponse`
@@ -862,6 +904,20 @@ consumer group이 받았지만 ACK하지 않은 항목을 오래된 순으로 �
 | `targets` | [RuntimePoolTargets](#schema-runtimepooltargets) | O | Target 수 |
 | `capacity` | [RuntimePoolCapacity](#schema-runtimepoolcapacity) | O | 용량 |
 | `state` | [RuntimePoolState](#schema-runtimepoolstate) | O | Pool 상태 |
+
+<a id="schema-targetkernelresponse"></a>
+#### `TargetKernelResponse`
+
+| 필드 | 타입 | 필수 | 설명 |
+| --- | --- | :---: | --- |
+| `kernel_id` | string | O | Jupyter 커널 ID |
+| `execution_state` | string \| null | O | Jupyter가 아는 커널 상태(`busy`, `idle` 등). 모르면 `null` |
+| `process_count` | integer \| null | O | 커널 프로세스와 그 자식 프로세스 수 |
+| `memory_bytes` | integer \| null | O | 지금 메모리(RSS 합계, byte) |
+| `cpu_seconds` | number \| null | O | 커널 시작부터 쓴 CPU 시간(초, 끝난 자식 포함) |
+| `execution_id` | string(uuid) \| null | O | 이 커널을 쓰는 Execution. 없으면 `null`(남겨진 커널) |
+| `tenant_id` | string \| null | O | 그 Execution의 tenant |
+| `execution_status` | `QUEUED` \| `RUNNING` \| `WAITING_FOR_OPERATION` \| `FINALIZING` \| `CANCEL_REQUESTED` \| `CANCELLED` \| `SUCCEEDED` \| `FAILED` \| null | O | 그 Execution의 상태 |
 
 <a id="schema-executoradmissionresponse"></a>
 #### `ExecutorAdmissionResponse`

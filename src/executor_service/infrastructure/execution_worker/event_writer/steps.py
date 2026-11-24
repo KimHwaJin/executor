@@ -84,6 +84,14 @@ async def add_step_completed_event(
             "attempt": await attempt_payload(session, lease.attempt_id),
             "result_ref": result_ref,
             "output_summary": output_summary,
+            "usage": (
+                {
+                    "peak_memory_bytes": stored_result.usage.peak_memory_bytes,
+                    "cpu_seconds": stored_result.usage.cpu_seconds,
+                }
+                if stored_result is not None and stored_result.usage
+                else None
+            ),
             "error": error,
         },
     )
