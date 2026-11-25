@@ -75,4 +75,6 @@ exclude = [
     "shared_dir",
     "deploy/jupyter/jupyter_server_config.py",
     "test_harness/agent",
+    # Run with `uv run --with openpyxl --with python-docx`, outside the lockfile.
+    "scripts/deliverables",
 ]

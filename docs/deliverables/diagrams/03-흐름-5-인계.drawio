@@ -1,0 +1,136 @@
+<mxfile host="app.diagrams.net" compressed="false">
+  <diagram name="처리 흐름 5. Worker 인계와 회수 (스케일 인 · 롤링 업데이트 · 장애)" id="page-1">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1290" pageHeight="794" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="c2" value="&lt;b&gt;처리 흐름 5. Worker 인계와 회수 (스케일 인 · 롤링 업데이트 · 장애)&lt;/b&gt;" vertex="1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;fontSize=15;align=left;">
+          <mxGeometry x="30" y="8" width="1250" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="c3" value="&lt;b&gt;Pod A (종료되는 Worker)&lt;/b&gt;" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#dae8fc;strokeColor=#6c8ebf;rounded=1;">
+          <mxGeometry x="45" y="45" width="170" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="c4" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;rounded=0;strokeColor=#999999;dashed=1;fillColor=none;">
+          <mxGeometry x="130" y="89" width="1" height="645" as="geometry" />
+        </mxCell>
+        <mxCell id="c5" value="&lt;b&gt;PostgreSQL&lt;/b&gt;" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#d5e8d4;strokeColor=#82b366;rounded=1;">
+          <mxGeometry x="375" y="45" width="170" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="c6" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;rounded=0;strokeColor=#999999;dashed=1;fillColor=none;">
+          <mxGeometry x="460" y="89" width="1" height="645" as="geometry" />
+        </mxCell>
+        <mxCell id="c7" value="&lt;b&gt;Jupyter&lt;/b&gt;" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#e1d5e7;strokeColor=#9673a6;rounded=1;">
+          <mxGeometry x="705" y="45" width="170" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="c8" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;rounded=0;strokeColor=#999999;dashed=1;fillColor=none;">
+          <mxGeometry x="790" y="89" width="1" height="645" as="geometry" />
+        </mxCell>
+        <mxCell id="c9" value="&lt;b&gt;Pod B (이어받는 Worker)&lt;/b&gt;" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#dae8fc;strokeColor=#6c8ebf;rounded=1;">
+          <mxGeometry x="1035" y="45" width="170" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="c10" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;rounded=0;strokeColor=#999999;dashed=1;fillColor=none;">
+          <mxGeometry x="1120" y="89" width="1" height="645" as="geometry" />
+        </mxCell>
+        <mxCell id="c11" value="정상 종료: HPA 스케일 인 또는 롤링 업데이트로 Pod A가 SIGTERM을 받는다" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#f5f5f5;strokeColor=#666666;rounded=0;fontSize=11;fontStyle=2;">
+          <mxGeometry x="45" y="115" width="1160" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="c12" value="새 claim 중단, 진행 중 실행을 30초 대기" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#fff2cc;strokeColor=#d6b656;rounded=0;fontSize=11;">
+          <mxGeometry x="35" y="165" width="190" height="34" as="geometry" />
+        </mxCell>
+        <mxCell id="c13" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;strokeColor=none;fillColor=none;">
+          <mxGeometry x="129" y="233" width="2" height="2" as="geometry" />
+        </mxCell>
+        <mxCell id="c14" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;strokeColor=none;fillColor=none;">
+          <mxGeometry x="459" y="233" width="2" height="2" as="geometry" />
+        </mxCell>
+        <mxCell id="c15" value="" edge="1" parent="1" source="c13" target="c14" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;edgeStyle=none;rounded=0;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c16" value="끝내지 못한 Step: lease 반납 + execution_handovers(EXECUTOR_SHUTDOWN) + step_handover_started 이벤트" vertex="1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;align=left;verticalAlign=middle;fontSize=11;">
+          <mxGeometry x="140" y="212" width="1100" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="c17" value="커널은 계속 실행, 저널에 기록" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#fff2cc;strokeColor=#d6b656;rounded=0;fontSize=11;">
+          <mxGeometry x="695" y="269" width="190" height="34" as="geometry" />
+        </mxCell>
+        <mxCell id="c18" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;strokeColor=none;fillColor=none;">
+          <mxGeometry x="1119" y="337" width="2" height="2" as="geometry" />
+        </mxCell>
+        <mxCell id="c19" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;strokeColor=none;fillColor=none;">
+          <mxGeometry x="459" y="337" width="2" height="2" as="geometry" />
+        </mxCell>
+        <mxCell id="c20" value="" edge="1" parent="1" source="c18" target="c19" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;edgeStyle=none;rounded=0;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c21" value="인계를 새 실행보다 먼저 claim (fencing_token+1)" vertex="1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;align=left;verticalAlign=middle;fontSize=11;">
+          <mxGeometry x="470" y="316" width="770" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="c22" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;strokeColor=none;fillColor=none;">
+          <mxGeometry x="1119" y="389" width="2" height="2" as="geometry" />
+        </mxCell>
+        <mxCell id="c23" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;strokeColor=none;fillColor=none;">
+          <mxGeometry x="789" y="389" width="2" height="2" as="geometry" />
+        </mxCell>
+        <mxCell id="c24" value="" edge="1" parent="1" source="c22" target="c23" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;edgeStyle=none;rounded=0;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c25" value="실행 저널을 처음부터 다시 읽는다 (코드는 다시 실행하지 않는다)" vertex="1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;align=left;verticalAlign=middle;fontSize=11;">
+          <mxGeometry x="800" y="368" width="440" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="c26" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;strokeColor=none;fillColor=none;">
+          <mxGeometry x="1119" y="441" width="2" height="2" as="geometry" />
+        </mxCell>
+        <mxCell id="c27" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;strokeColor=none;fillColor=none;">
+          <mxGeometry x="459" y="441" width="2" height="2" as="geometry" />
+        </mxCell>
+        <mxCell id="c28" value="" edge="1" parent="1" source="c26" target="c27" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;edgeStyle=none;rounded=0;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c29" value="step_handover_completed 이벤트, 이후 흐름 2와 같이 마감" vertex="1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;align=left;verticalAlign=middle;fontSize=11;">
+          <mxGeometry x="470" y="420" width="770" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="c30" value="비정상 종료: Pod A가 OOM · 크래시로 사라진다 (lease 반납 없음)" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#f5f5f5;strokeColor=#666666;rounded=0;fontSize=11;fontStyle=2;">
+          <mxGeometry x="45" y="479" width="1160" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="c31" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;strokeColor=none;fillColor=none;">
+          <mxGeometry x="1119" y="545" width="2" height="2" as="geometry" />
+        </mxCell>
+        <mxCell id="c32" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;strokeColor=none;fillColor=none;">
+          <mxGeometry x="459" y="545" width="2" height="2" as="geometry" />
+        </mxCell>
+        <mxCell id="c33" value="" edge="1" parent="1" source="c31" target="c32" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;edgeStyle=none;rounded=0;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c34" value="lease-recovery(15초 주기): 만료 lease 발견" vertex="1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;align=left;verticalAlign=middle;fontSize=11;">
+          <mxGeometry x="470" y="524" width="770" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="c35" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;strokeColor=none;fillColor=none;">
+          <mxGeometry x="1119" y="597" width="2" height="2" as="geometry" />
+        </mxCell>
+        <mxCell id="c36" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;strokeColor=none;fillColor=none;">
+          <mxGeometry x="789" y="597" width="2" height="2" as="geometry" />
+        </mxCell>
+        <mxCell id="c37" value="" edge="1" parent="1" source="c35" target="c36" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;edgeStyle=none;rounded=0;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c38" value="실행 중 Step의 저널이 있는지 확인" vertex="1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;align=left;verticalAlign=middle;fontSize=11;">
+          <mxGeometry x="800" y="576" width="440" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="c39" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;strokeColor=none;fillColor=none;">
+          <mxGeometry x="1119" y="649" width="2" height="2" as="geometry" />
+        </mxCell>
+        <mxCell id="c40" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;strokeColor=none;fillColor=none;">
+          <mxGeometry x="459" y="649" width="2" height="2" as="geometry" />
+        </mxCell>
+        <mxCell id="c41" value="" edge="1" parent="1" source="c39" target="c40" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;edgeStyle=none;rounded=0;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c42" value="저널 있음 → EXECUTOR_UNRESPONSIVE로 인계 / 없음 → LEASE_EXPIRED 실패" vertex="1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;align=left;verticalAlign=middle;fontSize=11;">
+          <mxGeometry x="470" y="628" width="770" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="c43" value="Jupyter 서버가 재시작되면 저널이 사라지므로 해당 Step은 실패한다. 의도된 설계다." vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#f5f5f5;strokeColor=#666666;rounded=0;fontSize=11;fontStyle=2;">
+          <mxGeometry x="45" y="687" width="1160" height="30" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
