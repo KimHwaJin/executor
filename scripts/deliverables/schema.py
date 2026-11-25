@@ -159,7 +159,9 @@ def physical_erd(tables: dict[str, Table]) -> None:
     # tables between them, so it travels along a lane above the tables instead.
     lanes: dict[str, float] = {}
     for table in tables.values():
-        for constraint in table.foreign_key_constraints:
+        for constraint in sorted(
+            table.foreign_key_constraints, key=lambda c: str(c.name)
+        ):
             column = next(iter(constraint.columns))
             target = next(iter(constraint.elements)).column
             style = (
