@@ -84,6 +84,8 @@ class RedisEventStreamInspector:
         execution_id: str | None = None,
         event_type: str | None = None,
     ) -> EventStreamEntryPage:
+        if not 1 <= limit <= 200:
+            raise ValueError("Entry page limit must be between 1 and 200.")
         stream = self._stream(tenant_id)
         filtered = execution_id is not None or event_type is not None
         items: list[EventStreamEntryView] = []
