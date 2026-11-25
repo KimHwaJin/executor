@@ -1,0 +1,120 @@
+<mxfile host="app.diagrams.net" compressed="false">
+  <diagram name="시스템 구성도" id="page-1">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1700" pageHeight="950" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="c2" value="&lt;b&gt;Executor 전체 시스템 구성도&lt;/b&gt;" vertex="1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;fontSize=16;align=left;">
+          <mxGeometry x="40" y="10" width="600" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="c3" value="호출자 (백엔드 서비스)" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffe6cc;strokeColor=#d79b00;rounded=1;arcSize=3;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fontStyle=1;container=1;collapsible=0;">
+          <mxGeometry x="40" y="60" width="250" height="430" as="geometry" />
+        </mxCell>
+        <mxCell id="c4" value="&lt;b&gt;pr-agentic-service&lt;/b&gt;&lt;br&gt;Agent, 대화형 실행" vertex="1" parent="c3" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;rounded=1;">
+          <mxGeometry x="20" y="45" width="210" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="c5" value="&lt;b&gt;pr-batch&lt;/b&gt;&lt;br&gt;배치 실행" vertex="1" parent="c3" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;rounded=1;">
+          <mxGeometry x="20" y="125" width="210" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="c6" value="&lt;b&gt;그 밖의 백엔드&lt;/b&gt;&lt;br&gt;API 키를 발급받은 서비스" vertex="1" parent="c3" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;rounded=1;">
+          <mxGeometry x="20" y="205" width="210" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="c7" value="&lt;b&gt;운영자&lt;/b&gt;&lt;br&gt;관리 API (admin 키)" vertex="1" parent="c3" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;rounded=1;dashed=1;">
+          <mxGeometry x="20" y="310" width="210" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="c8" value="Executor Pod × N  (컨테이너 1개, 프로세스 1개: API + Worker)" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#dae8fc;strokeColor=#6c8ebf;rounded=1;arcSize=3;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fontStyle=1;container=1;collapsible=0;">
+          <mxGeometry x="420" y="60" width="560" height="290" as="geometry" />
+        </mxCell>
+        <mxCell id="c9" value="&lt;b&gt;HTTP API&lt;/b&gt; :8000&lt;br&gt;REST /api/v1 · MCP /mcp (dev만)&lt;br&gt;/healthz · /readyz · /workerz" vertex="1" parent="c8" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;rounded=1;">
+          <mxGeometry x="30" y="50" width="230" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="c10" value="&lt;b&gt;Worker&lt;/b&gt;&lt;br&gt;claim → 실행 → 결과 마감&lt;br&gt;취소 · 인계 · 재시도" vertex="1" parent="c8" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;rounded=1;">
+          <mxGeometry x="300" y="50" width="230" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="c11" value="&lt;b&gt;주기 작업&lt;/b&gt;&lt;br&gt;lease 회수 · 수명 감시 · Target 관측&lt;br&gt;세션 정리 · 일괄 중지 · 이벤트 보존" vertex="1" parent="c8" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;rounded=1;">
+          <mxGeometry x="300" y="170" width="230" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="c12" value="&lt;b&gt;Outbox 발행&lt;/b&gt;&lt;br&gt;0.5초 주기" vertex="1" parent="c8" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;rounded=1;">
+          <mxGeometry x="30" y="170" width="230" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="c13" value="Jupyter Runtime Target (등록된 Jupyter 서버들)" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#e1d5e7;strokeColor=#9673a6;rounded=1;arcSize=3;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fontStyle=1;container=1;collapsible=0;">
+          <mxGeometry x="1120" y="60" width="480" height="280" as="geometry" />
+        </mxCell>
+        <mxCell id="c14" value="&lt;b&gt;INTERACTIVE 풀&lt;/b&gt;&lt;br&gt;Jupyter Server + Executor 전용 확장&lt;br&gt;커널 = 실행 1건" vertex="1" parent="c13" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;rounded=1;">
+          <mxGeometry x="25" y="50" width="430" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="c15" value="&lt;b&gt;BATCH 풀&lt;/b&gt;&lt;br&gt;Jupyter Server + Executor 전용 확장" vertex="1" parent="c13" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;rounded=1;">
+          <mxGeometry x="25" y="135" width="430" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="c16" value="&lt;b&gt;Jupyter PV&lt;/b&gt;&lt;br&gt;작업공간 · 노트북 · 산출물" vertex="1" parent="c13" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#d5e8d4;strokeColor=#82b366;shape=cylinder3;boundedLbl=1;size=10;">
+          <mxGeometry x="140" y="205" width="200" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="c17" value="&lt;b&gt;PostgreSQL&lt;/b&gt;&lt;br&gt;유일한 상태 원본&lt;br&gt;20개 테이블" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#d5e8d4;strokeColor=#82b366;shape=cylinder3;boundedLbl=1;size=10;">
+          <mxGeometry x="600" y="640" width="200" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="c18" value="&lt;b&gt;Redis 8&lt;/b&gt; (prd는 Sentinel)&lt;br&gt;Stream executor.events.&amp;lt;tenant&amp;gt;" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#d5e8d4;strokeColor=#82b366;shape=cylinder3;boundedLbl=1;size=10;">
+          <mxGeometry x="130" y="640" width="240" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="c19" value="&lt;b&gt;공유 PV&lt;/b&gt; (RWX, STORAGE_ROOT)&lt;br&gt;소스 스냅샷 · Step 결과 파일" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#d5e8d4;strokeColor=#82b366;shape=cylinder3;boundedLbl=1;size=10;">
+          <mxGeometry x="860" y="640" width="260" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="c20" value="① REST 요청 (X-Api-Key)&lt;br&gt;202 접수 · 조회" edge="1" parent="1" source="c3" target="c9" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;exitX=1;exitY=0.2;entryX=0;entryY=0.5;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c21" value="② 상태 기록 · 조회 (API)&lt;br&gt;claim · lease · 상태 전이 (Worker)" edge="1" parent="1" source="c8" target="c17" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c22" value="③ 코드 제출 (HTTP)&lt;br&gt;실행 저널 (WebSocket)" edge="1" parent="1" source="c10" target="c14" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;exitX=1;exitY=0.3;entryX=0;entryY=0.5;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c23" value="" edge="1" parent="1" source="c10" target="c15" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;exitX=1;exitY=0.7;entryX=0;entryY=0.5;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c24" value="health · 자원 관측" edge="1" parent="1" source="c11" target="c13" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;exitX=1;exitY=0.5;entryX=0;entryY=0.85;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c25" value="④ 소스 스냅샷 (API)&lt;br&gt;Step 결과 파일 (Worker)" edge="1" parent="1" source="c8" target="c19" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;exitX=0.85;exitY=1;entryX=0.5;entryY=0;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c26" value="⑤ 이벤트 발행 (XADD)" edge="1" parent="1" source="c8" target="c18" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;exitX=0.1;exitY=1;entryX=0.8;entryY=0;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c27" value="⑥ 이벤트 구독&lt;br&gt;(소비자 그룹)" edge="1" parent="1" source="c18" target="c3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;exitX=0.2;exitY=0;entryX=0.55;entryY=1;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c28" value="결과 파일 직접 읽기 (같은 PVC, 같은 경로)" edge="1" parent="1" source="c3" target="c19" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;exitX=0.1;exitY=1;entryX=0.5;entryY=1;dashed=1;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="65" y="790" />
+              <mxPoint x="990" y="790" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c29" value="&lt;b&gt;Pod끼리 직접 통신하지 않는다.&lt;/b&gt; API와 Worker도 메모리를 공유하지 않고 DB로만 이야기한다.&lt;br&gt;모든 조율은 PostgreSQL 행(lease, fencing token, SKIP LOCKED)으로 하므로 Pod 수가 바뀌어도 설정 변경이 없다." vertex="1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;align=left;verticalAlign=top;fontSize=11;">
+          <mxGeometry x="420" y="820" width="700" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="c30" value="범례" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;rounded=1;arcSize=3;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fontStyle=1;container=1;collapsible=0;dashed=1;">
+          <mxGeometry x="1180" y="380" width="420" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="c31" value="호출자" vertex="1" parent="c30" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffe6cc;strokeColor=#d79b00;rounded=1;">
+          <mxGeometry x="15" y="40" width="90" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="c32" value="Executor" vertex="1" parent="c30" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#dae8fc;strokeColor=#6c8ebf;rounded=1;">
+          <mxGeometry x="115" y="40" width="90" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="c33" value="Runtime" vertex="1" parent="c30" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#e1d5e7;strokeColor=#9673a6;rounded=1;">
+          <mxGeometry x="215" y="40" width="90" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="c34" value="저장소" vertex="1" parent="c30" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#d5e8d4;strokeColor=#82b366;rounded=1;">
+          <mxGeometry x="315" y="40" width="90" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="c35" value="실선 = 요청·기록 방향 · 점선 = 서비스를 거치지 않는 직접 접근&lt;br&gt;①~⑥ = 실행 1건의 처리 순서" vertex="1" parent="c30" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;align=left;verticalAlign=top;">
+          <mxGeometry x="15" y="80" width="400" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="c36" value="&lt;b&gt;끊기면&lt;/b&gt;&lt;br&gt;PostgreSQL: 서비스 전체 중단 (readiness 실패)&lt;br&gt;Redis: 이벤트만 지연, Outbox에 쌓였다가 복구 후 순서대로 발행&lt;br&gt;공유 PV: 제출과 Step 마감 실패&lt;br&gt;Jupyter Target: 해당 Target만 OFFLINE, 다른 Target으로 배정" vertex="1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;align=left;verticalAlign=top;">
+          <mxGeometry x="1180" y="540" width="440" height="120" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

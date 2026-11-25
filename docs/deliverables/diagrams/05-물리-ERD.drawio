@@ -1,0 +1,1048 @@
+<mxfile host="app.diagrams.net" compressed="false">
+  <diagram name="물리 ERD" id="page-1">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2800" pageHeight="1600" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="c2" value="runtime_targets (Runtime Target)" vertex="1" parent="1" style="swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;collapsible=0;marginBottom=0;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#f5f5f5;strokeColor=#666666;swimlaneFillColor=#ffffff;">
+          <mxGeometry x="40" y="90" width="330" height="566" as="geometry" />
+        </mxCell>
+        <mxCell id="c3" value="PK&amp;nbsp; &lt;b&gt;id&lt;/b&gt; &lt;font color='#666666'&gt;UUID NN&lt;/font&gt;" vertex="1" parent="c2" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="26" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c4" value="UK&amp;nbsp; &lt;b&gt;name&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(255) NN&lt;/font&gt;" vertex="1" parent="c2" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="44" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c5" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;runtime_type&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(32) NN&lt;/font&gt;" vertex="1" parent="c2" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="62" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c6" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;connection_config&lt;/b&gt; &lt;font color='#666666'&gt;JSON NN&lt;/font&gt;" vertex="1" parent="c2" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="80" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c7" value="UK&amp;nbsp; &lt;b&gt;connection_key&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(2048) NN&lt;/font&gt;" vertex="1" parent="c2" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="98" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c8" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;credential_ref&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(255) NN&lt;/font&gt;" vertex="1" parent="c2" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="116" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c9" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;credential_ciphertext&lt;/b&gt; &lt;font color='#666666'&gt;TEXT&lt;/font&gt;" vertex="1" parent="c2" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="134" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c10" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;pool&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(32) NN&lt;/font&gt;" vertex="1" parent="c2" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="152" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c11" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;status&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(32) NN&lt;/font&gt;" vertex="1" parent="c2" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="170" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c12" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;max_concurrent_executions&lt;/b&gt; &lt;font color='#666666'&gt;INTEGER NN&lt;/font&gt;" vertex="1" parent="c2" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="188" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c13" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;supported_profiles&lt;/b&gt; &lt;font color='#666666'&gt;JSON NN&lt;/font&gt;" vertex="1" parent="c2" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="206" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c14" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;enabled&lt;/b&gt; &lt;font color='#666666'&gt;BOOLEAN NN&lt;/font&gt;" vertex="1" parent="c2" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="224" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c15" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;last_health_check_at&lt;/b&gt; &lt;font color='#666666'&gt;TIMESTAMPTZ&lt;/font&gt;" vertex="1" parent="c2" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="242" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c16" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;last_health_error&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(500)&lt;/font&gt;" vertex="1" parent="c2" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="260" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c17" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;active_session_count&lt;/b&gt; &lt;font color='#666666'&gt;INTEGER&lt;/font&gt;" vertex="1" parent="c2" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="278" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c18" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;session_count_observed_at&lt;/b&gt; &lt;font color='#666666'&gt;TIMESTAMPTZ&lt;/font&gt;" vertex="1" parent="c2" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="296" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c19" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;resource_observed_at&lt;/b&gt; &lt;font color='#666666'&gt;TIMESTAMPTZ&lt;/font&gt;" vertex="1" parent="c2" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="314" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c20" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;resource_last_check_at&lt;/b&gt; &lt;font color='#666666'&gt;TIMESTAMPTZ&lt;/font&gt;" vertex="1" parent="c2" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="332" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c21" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;resource_last_error&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(500)&lt;/font&gt;" vertex="1" parent="c2" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="350" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c22" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;resource_source&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(64)&lt;/font&gt;" vertex="1" parent="c2" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="368" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c23" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;resource_estimated&lt;/b&gt; &lt;font color='#666666'&gt;BOOLEAN&lt;/font&gt;" vertex="1" parent="c2" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="386" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c24" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;resource_process_count&lt;/b&gt; &lt;font color='#666666'&gt;INTEGER&lt;/font&gt;" vertex="1" parent="c2" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="404" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c25" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;cpu_used_cores&lt;/b&gt; &lt;font color='#666666'&gt;FLOAT&lt;/font&gt;" vertex="1" parent="c2" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="422" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c26" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;cpu_capacity_cores&lt;/b&gt; &lt;font color='#666666'&gt;FLOAT&lt;/font&gt;" vertex="1" parent="c2" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="440" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c27" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;cpu_utilization&lt;/b&gt; &lt;font color='#666666'&gt;FLOAT&lt;/font&gt;" vertex="1" parent="c2" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="458" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c28" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;memory_used_bytes&lt;/b&gt; &lt;font color='#666666'&gt;BIGINT&lt;/font&gt;" vertex="1" parent="c2" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="476" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c29" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;memory_capacity_bytes&lt;/b&gt; &lt;font color='#666666'&gt;BIGINT&lt;/font&gt;" vertex="1" parent="c2" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="494" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c30" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;memory_utilization&lt;/b&gt; &lt;font color='#666666'&gt;FLOAT&lt;/font&gt;" vertex="1" parent="c2" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="512" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c31" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;resource_errors&lt;/b&gt; &lt;font color='#666666'&gt;JSON NN&lt;/font&gt;" vertex="1" parent="c2" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="530" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c32" value="&lt;i&gt;+ 감사 컬럼 6개&lt;/i&gt;" vertex="1" parent="c2" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="548" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c33" value="runtime_target_purges (삭제된 Target)" vertex="1" parent="1" style="swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;collapsible=0;marginBottom=0;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#f5f5f5;strokeColor=#666666;swimlaneFillColor=#ffffff;">
+          <mxGeometry x="40" y="706" width="330" height="152" as="geometry" />
+        </mxCell>
+        <mxCell id="c34" value="PK&amp;nbsp; &lt;b&gt;id&lt;/b&gt; &lt;font color='#666666'&gt;UUID NN&lt;/font&gt;" vertex="1" parent="c33" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="26" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c35" value="UK&amp;nbsp; &lt;b&gt;target_id&lt;/b&gt; &lt;font color='#666666'&gt;UUID NN&lt;/font&gt;" vertex="1" parent="c33" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="44" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c36" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;target_name&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(255) NN&lt;/font&gt;" vertex="1" parent="c33" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="62" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c37" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;runtime_type&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(32) NN&lt;/font&gt;" vertex="1" parent="c33" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="80" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c38" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;connection_config&lt;/b&gt; &lt;font color='#666666'&gt;JSON NN&lt;/font&gt;" vertex="1" parent="c33" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="98" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c39" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;pool&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(32) NN&lt;/font&gt;" vertex="1" parent="c33" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="116" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c40" value="&lt;i&gt;+ 감사 컬럼 6개&lt;/i&gt;" vertex="1" parent="c33" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="134" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c41" value="command_receipts (명령 영수증)" vertex="1" parent="1" style="swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;collapsible=0;marginBottom=0;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;swimlaneFillColor=#ffffff;">
+          <mxGeometry x="40" y="908" width="330" height="152" as="geometry" />
+        </mxCell>
+        <mxCell id="c42" value="PK&amp;nbsp; &lt;b&gt;id&lt;/b&gt; &lt;font color='#666666'&gt;UUID NN&lt;/font&gt;" vertex="1" parent="c41" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="26" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c43" value="UK&amp;nbsp; &lt;b&gt;scope&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(64) NN&lt;/font&gt;" vertex="1" parent="c41" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="44" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c44" value="UK&amp;nbsp; &lt;b&gt;idempotency_key&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(255) NN&lt;/font&gt;" vertex="1" parent="c41" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="62" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c45" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;command_type&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(128) NN&lt;/font&gt;" vertex="1" parent="c41" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="80" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c46" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;request_fingerprint&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(64) NN&lt;/font&gt;" vertex="1" parent="c41" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="98" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c47" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;result&lt;/b&gt; &lt;font color='#666666'&gt;JSON NN&lt;/font&gt;" vertex="1" parent="c41" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="116" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c48" value="&lt;i&gt;+ 감사 컬럼 1개&lt;/i&gt;" vertex="1" parent="c41" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="134" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c49" value="event_retention_lease (주기 작업 lease)" vertex="1" parent="1" style="swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;collapsible=0;marginBottom=0;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#f8cecc;strokeColor=#b85450;swimlaneFillColor=#ffffff;">
+          <mxGeometry x="40" y="1110" width="330" height="152" as="geometry" />
+        </mxCell>
+        <mxCell id="c50" value="PK&amp;nbsp; &lt;b&gt;singleton_key&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(32) NN&lt;/font&gt;" vertex="1" parent="c49" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="26" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c51" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;lease_owner&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(255)&lt;/font&gt;" vertex="1" parent="c49" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="44" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c52" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;lease_expires_at&lt;/b&gt; &lt;font color='#666666'&gt;TIMESTAMPTZ&lt;/font&gt;" vertex="1" parent="c49" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="62" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c53" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;last_started_at&lt;/b&gt; &lt;font color='#666666'&gt;TIMESTAMPTZ&lt;/font&gt;" vertex="1" parent="c49" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="80" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c54" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;last_completed_at&lt;/b&gt; &lt;font color='#666666'&gt;TIMESTAMPTZ&lt;/font&gt;" vertex="1" parent="c49" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="98" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c55" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;last_error&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(1000)&lt;/font&gt;" vertex="1" parent="c49" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="116" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c56" value="&lt;i&gt;+ 감사 컬럼 2개&lt;/i&gt;" vertex="1" parent="c49" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="134" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c57" value="maintenance_runs (일괄 중지)" vertex="1" parent="1" style="swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;collapsible=0;marginBottom=0;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#f8cecc;strokeColor=#b85450;swimlaneFillColor=#ffffff;">
+          <mxGeometry x="480" y="90" width="330" height="260" as="geometry" />
+        </mxCell>
+        <mxCell id="c58" value="PK&amp;nbsp; &lt;b&gt;id&lt;/b&gt; &lt;font color='#666666'&gt;UUID NN&lt;/font&gt;" vertex="1" parent="c57" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="26" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c59" value="UK&amp;nbsp; &lt;b&gt;idempotency_key&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(255) NN&lt;/font&gt;" vertex="1" parent="c57" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="44" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c60" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;request_fingerprint&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(64) NN&lt;/font&gt;" vertex="1" parent="c57" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="62" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c61" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;action&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(32) NN&lt;/font&gt;" vertex="1" parent="c57" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="80" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c62" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;status&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(32) NN&lt;/font&gt;" vertex="1" parent="c57" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="98" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c63" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;lease_owner&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(255)&lt;/font&gt;" vertex="1" parent="c57" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="116" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c64" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;lease_expires_at&lt;/b&gt; &lt;font color='#666666'&gt;TIMESTAMPTZ&lt;/font&gt;" vertex="1" parent="c57" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="134" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c65" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;heartbeat_at&lt;/b&gt; &lt;font color='#666666'&gt;TIMESTAMPTZ&lt;/font&gt;" vertex="1" parent="c57" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="152" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c66" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;fencing_token&lt;/b&gt; &lt;font color='#666666'&gt;BIGINT NN&lt;/font&gt;" vertex="1" parent="c57" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="170" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c67" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;error_message&lt;/b&gt; &lt;font color='#666666'&gt;TEXT&lt;/font&gt;" vertex="1" parent="c57" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="188" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c68" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;started_at&lt;/b&gt; &lt;font color='#666666'&gt;TIMESTAMPTZ&lt;/font&gt;" vertex="1" parent="c57" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="206" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c69" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;finished_at&lt;/b&gt; &lt;font color='#666666'&gt;TIMESTAMPTZ&lt;/font&gt;" vertex="1" parent="c57" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="224" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c70" value="&lt;i&gt;+ 감사 컬럼 6개&lt;/i&gt;" vertex="1" parent="c57" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="242" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c71" value="maintenance_run_targets (일괄 중지 대상)" vertex="1" parent="1" style="swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;collapsible=0;marginBottom=0;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#f8cecc;strokeColor=#b85450;swimlaneFillColor=#ffffff;">
+          <mxGeometry x="480" y="400" width="330" height="188" as="geometry" />
+        </mxCell>
+        <mxCell id="c72" value="PK&amp;nbsp; &lt;b&gt;id&lt;/b&gt; &lt;font color='#666666'&gt;UUID NN&lt;/font&gt;" vertex="1" parent="c71" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="26" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c73" value="FK,UK&amp;nbsp; &lt;b&gt;maintenance_run_id&lt;/b&gt; &lt;font color='#666666'&gt;UUID NN&lt;/font&gt;" vertex="1" parent="c71" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="44" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c74" value="FK,UK&amp;nbsp; &lt;b&gt;execution_id&lt;/b&gt; &lt;font color='#666666'&gt;UUID NN&lt;/font&gt;" vertex="1" parent="c71" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="62" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c75" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;selected_execution_status&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(32) NN&lt;/font&gt;" vertex="1" parent="c71" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="80" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c76" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;status&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(32) NN&lt;/font&gt;" vertex="1" parent="c71" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="98" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c77" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;error_message&lt;/b&gt; &lt;font color='#666666'&gt;TEXT&lt;/font&gt;" vertex="1" parent="c71" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="116" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c78" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;stop_requested_at&lt;/b&gt; &lt;font color='#666666'&gt;TIMESTAMPTZ&lt;/font&gt;" vertex="1" parent="c71" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="134" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c79" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;completed_at&lt;/b&gt; &lt;font color='#666666'&gt;TIMESTAMPTZ&lt;/font&gt;" vertex="1" parent="c71" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="152" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c80" value="&lt;i&gt;+ 감사 컬럼 6개&lt;/i&gt;" vertex="1" parent="c71" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="170" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c81" value="executor_maintenance (접수 상태)" vertex="1" parent="1" style="swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;collapsible=0;marginBottom=0;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#f8cecc;strokeColor=#b85450;swimlaneFillColor=#ffffff;">
+          <mxGeometry x="480" y="638" width="330" height="98" as="geometry" />
+        </mxCell>
+        <mxCell id="c82" value="PK&amp;nbsp; &lt;b&gt;singleton_key&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(32) NN&lt;/font&gt;" vertex="1" parent="c81" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="26" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c83" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;admission_state&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(32) NN&lt;/font&gt;" vertex="1" parent="c81" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="44" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c84" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;version&lt;/b&gt; &lt;font color='#666666'&gt;BIGINT NN&lt;/font&gt;" vertex="1" parent="c81" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="62" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c85" value="&lt;i&gt;+ 감사 컬럼 6개&lt;/i&gt;" vertex="1" parent="c81" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="80" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c86" value="execution_retries (재시도 요청)" vertex="1" parent="1" style="swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;collapsible=0;marginBottom=0;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffe6cc;strokeColor=#d79b00;swimlaneFillColor=#ffffff;">
+          <mxGeometry x="480" y="786" width="330" height="116" as="geometry" />
+        </mxCell>
+        <mxCell id="c87" value="PK&amp;nbsp; &lt;b&gt;id&lt;/b&gt; &lt;font color='#666666'&gt;UUID NN&lt;/font&gt;" vertex="1" parent="c86" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="26" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c88" value="FK,UK&amp;nbsp; &lt;b&gt;execution_id&lt;/b&gt; &lt;font color='#666666'&gt;UUID NN&lt;/font&gt;" vertex="1" parent="c86" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="44" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c89" value="UK&amp;nbsp; &lt;b&gt;idempotency_key&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(255) NN&lt;/font&gt;" vertex="1" parent="c86" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="62" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c90" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;from_sequence&lt;/b&gt; &lt;font color='#666666'&gt;INTEGER NN&lt;/font&gt;" vertex="1" parent="c86" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="80" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c91" value="&lt;i&gt;+ 감사 컬럼 1개&lt;/i&gt;" vertex="1" parent="c86" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="98" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c92" value="execution_handovers (인계 대기)" vertex="1" parent="1" style="swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;collapsible=0;marginBottom=0;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#fff2cc;strokeColor=#d6b656;swimlaneFillColor=#ffffff;">
+          <mxGeometry x="480" y="952" width="330" height="98" as="geometry" />
+        </mxCell>
+        <mxCell id="c93" value="PK,FK&amp;nbsp; &lt;b&gt;execution_id&lt;/b&gt; &lt;font color='#666666'&gt;UUID NN&lt;/font&gt;" vertex="1" parent="c92" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="26" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c94" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;reason&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(32) NN&lt;/font&gt;" vertex="1" parent="c92" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="44" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c95" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;paused_since&lt;/b&gt; &lt;font color='#666666'&gt;TIMESTAMPTZ NN&lt;/font&gt;" vertex="1" parent="c92" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="62" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c96" value="&lt;i&gt;+ 감사 컬럼 1개&lt;/i&gt;" vertex="1" parent="c92" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="80" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c97" value="execution_event_sequences (이벤트 순번)" vertex="1" parent="1" style="swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;collapsible=0;marginBottom=0;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#d5e8d4;strokeColor=#82b366;swimlaneFillColor=#ffffff;">
+          <mxGeometry x="480" y="1100" width="330" height="62" as="geometry" />
+        </mxCell>
+        <mxCell id="c98" value="PK,FK&amp;nbsp; &lt;b&gt;execution_id&lt;/b&gt; &lt;font color='#666666'&gt;UUID NN&lt;/font&gt;" vertex="1" parent="c97" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="26" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c99" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;last_sequence&lt;/b&gt; &lt;font color='#666666'&gt;BIGINT NN&lt;/font&gt;" vertex="1" parent="c97" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="44" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c100" value="executions (실행)" vertex="1" parent="1" style="swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;collapsible=0;marginBottom=0;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#dae8fc;strokeColor=#6c8ebf;swimlaneFillColor=#ffffff;">
+          <mxGeometry x="920" y="90" width="330" height="908" as="geometry" />
+        </mxCell>
+        <mxCell id="c101" value="PK&amp;nbsp; &lt;b&gt;id&lt;/b&gt; &lt;font color='#666666'&gt;UUID NN&lt;/font&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="26" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c102" value="UK&amp;nbsp; &lt;b&gt;idempotency_key&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(255) NN&lt;/font&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="44" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c103" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;request_fingerprint&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(64) NN&lt;/font&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="62" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c104" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;cancel_idempotency_key&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(255)&lt;/font&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="80" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c105" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;status&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(32) NN&lt;/font&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="98" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c106" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;operation_mode&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(32) NN&lt;/font&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="116" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c107" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;operation_wait_timeout_seconds&lt;/b&gt; &lt;font color='#666666'&gt;INTEGER&lt;/font&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="134" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c108" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;trigger_type&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(32) NN&lt;/font&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="152" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c109" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;runtime_type&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(32) NN&lt;/font&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="170" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c110" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;runtime_pool&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(32) NN&lt;/font&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="188" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c111" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;runtime_profile&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(128) NN&lt;/font&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="206" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c112" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;user_id&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(255) NN&lt;/font&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="224" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c113" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;project_id&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(255)&lt;/font&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="242" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c114" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;session_id&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(255)&lt;/font&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="260" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c115" value="UK&amp;nbsp; &lt;b&gt;tenant_id&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(64) NN&lt;/font&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="278" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c116" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;metadata&lt;/b&gt; &lt;font color='#666666'&gt;JSON NN&lt;/font&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="296" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c117" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;cancellation_reason&lt;/b&gt; &lt;font color='#666666'&gt;TEXT&lt;/font&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="314" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c118" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;cancellation_lease_owner&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(255)&lt;/font&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="332" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c119" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;cancellation_lease_expires_at&lt;/b&gt; &lt;font color='#666666'&gt;TIMESTAMPTZ&lt;/font&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="350" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c120" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;runtime_target_id&lt;/b&gt; &lt;font color='#666666'&gt;UUID&lt;/font&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="368" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c121" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;runtime_session_id&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(255)&lt;/font&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="386" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c122" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;workspace_path&lt;/b&gt; &lt;font color='#666666'&gt;TEXT&lt;/font&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="404" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c123" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;notebook_path&lt;/b&gt; &lt;font color='#666666'&gt;TEXT&lt;/font&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="422" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c124" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;notebook_projection_status&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(16) NN&lt;/font&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="440" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c125" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;notebook_projection_attempt_count&lt;/b&gt; &lt;font color='#666666'&gt;INTEGER NN&lt;/font&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="458" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c126" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;notebook_projection_error&lt;/b&gt; &lt;font color='#666666'&gt;TEXT&lt;/font&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="476" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c127" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;notebook_projected_at&lt;/b&gt; &lt;font color='#666666'&gt;TIMESTAMPTZ&lt;/font&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="494" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c128" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;error_message&lt;/b&gt; &lt;font color='#666666'&gt;TEXT&lt;/font&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="512" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c129" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;failure_type&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(32)&lt;/font&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="530" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c130" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;lease_owner&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(255)&lt;/font&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="548" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c131" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;lease_expires_at&lt;/b&gt; &lt;font color='#666666'&gt;TIMESTAMPTZ&lt;/font&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="566" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c132" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;heartbeat_at&lt;/b&gt; &lt;font color='#666666'&gt;TIMESTAMPTZ&lt;/font&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="584" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c133" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;fencing_token&lt;/b&gt; &lt;font color='#666666'&gt;BIGINT NN&lt;/font&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="602" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c134" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;retry_strategy&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(32) NN&lt;/font&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="620" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c135" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;retry_from_sequence&lt;/b&gt; &lt;font color='#666666'&gt;INTEGER&lt;/font&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="638" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c136" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;retained_runtime_session_until&lt;/b&gt; &lt;font color='#666666'&gt;TIMESTAMPTZ&lt;/font&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="656" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c137" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;retry_count&lt;/b&gt; &lt;font color='#666666'&gt;INTEGER NN&lt;/font&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="674" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c138" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;recovery_count&lt;/b&gt; &lt;font color='#666666'&gt;INTEGER NN&lt;/font&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="692" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c139" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;runtime_session_cleanup_status&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(32) NN&lt;/font&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="710" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c140" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;runtime_abort_status&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(32) NN&lt;/font&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="728" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c141" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;finalization_requested&lt;/b&gt; &lt;font color='#666666'&gt;BOOLEAN NN&lt;/font&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="746" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c142" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;finalized_by&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(32)&lt;/font&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="764" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c143" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;active_operation_id&lt;/b&gt; &lt;font color='#666666'&gt;UUID&lt;/font&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="782" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c144" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;operation_wait_expires_at&lt;/b&gt; &lt;font color='#666666'&gt;TIMESTAMPTZ&lt;/font&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="800" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c145" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;execution_expires_at&lt;/b&gt; &lt;font color='#666666'&gt;TIMESTAMPTZ&lt;/font&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="818" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c146" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;version&lt;/b&gt; &lt;font color='#666666'&gt;INTEGER NN&lt;/font&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="836" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c147" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;started_at&lt;/b&gt; &lt;font color='#666666'&gt;TIMESTAMPTZ&lt;/font&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="854" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c148" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;finished_at&lt;/b&gt; &lt;font color='#666666'&gt;TIMESTAMPTZ&lt;/font&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="872" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c149" value="&lt;i&gt;+ 감사 컬럼 6개&lt;/i&gt;" vertex="1" parent="c100" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="890" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c150" value="execution_operations (오퍼레이션)" vertex="1" parent="1" style="swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;collapsible=0;marginBottom=0;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#dae8fc;strokeColor=#6c8ebf;swimlaneFillColor=#ffffff;">
+          <mxGeometry x="1360" y="90" width="330" height="332" as="geometry" />
+        </mxCell>
+        <mxCell id="c151" value="PK&amp;nbsp; &lt;b&gt;id&lt;/b&gt; &lt;font color='#666666'&gt;UUID NN&lt;/font&gt;" vertex="1" parent="c150" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="26" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c152" value="FK,UK&amp;nbsp; &lt;b&gt;execution_id&lt;/b&gt; &lt;font color='#666666'&gt;UUID NN&lt;/font&gt;" vertex="1" parent="c150" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="44" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c153" value="UK&amp;nbsp; &lt;b&gt;operation_number&lt;/b&gt; &lt;font color='#666666'&gt;INTEGER NN&lt;/font&gt;" vertex="1" parent="c150" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="62" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c154" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;schema_version&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(16) NN&lt;/font&gt;" vertex="1" parent="c150" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="80" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c155" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;first_sequence&lt;/b&gt; &lt;font color='#666666'&gt;INTEGER NN&lt;/font&gt;" vertex="1" parent="c150" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="98" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c156" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;last_sequence&lt;/b&gt; &lt;font color='#666666'&gt;INTEGER NN&lt;/font&gt;" vertex="1" parent="c150" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="116" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c157" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;operation_timeout_seconds&lt;/b&gt; &lt;font color='#666666'&gt;INTEGER&lt;/font&gt;" vertex="1" parent="c150" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="134" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c158" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;metadata&lt;/b&gt; &lt;font color='#666666'&gt;JSON NN&lt;/font&gt;" vertex="1" parent="c150" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="152" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c159" value="UK&amp;nbsp; &lt;b&gt;idempotency_key&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(255) NN&lt;/font&gt;" vertex="1" parent="c150" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="170" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c160" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;request_fingerprint&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(64) NN&lt;/font&gt;" vertex="1" parent="c150" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="188" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c161" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;status&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(32) NN&lt;/font&gt;" vertex="1" parent="c150" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="206" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c162" value="FK&amp;nbsp; &lt;b&gt;execution_attempt_id&lt;/b&gt; &lt;font color='#666666'&gt;UUID&lt;/font&gt;" vertex="1" parent="c150" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="224" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c163" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;error_message&lt;/b&gt; &lt;font color='#666666'&gt;TEXT&lt;/font&gt;" vertex="1" parent="c150" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="242" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c164" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;failure_type&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(32)&lt;/font&gt;" vertex="1" parent="c150" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="260" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c165" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;started_at&lt;/b&gt; &lt;font color='#666666'&gt;TIMESTAMPTZ&lt;/font&gt;" vertex="1" parent="c150" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="278" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c166" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;finished_at&lt;/b&gt; &lt;font color='#666666'&gt;TIMESTAMPTZ&lt;/font&gt;" vertex="1" parent="c150" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="296" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c167" value="&lt;i&gt;+ 감사 컬럼 6개&lt;/i&gt;" vertex="1" parent="c150" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="314" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c168" value="execution_attempts (실행 시도)" vertex="1" parent="1" style="swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;collapsible=0;marginBottom=0;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffe6cc;strokeColor=#d79b00;swimlaneFillColor=#ffffff;">
+          <mxGeometry x="1360" y="472" width="330" height="386" as="geometry" />
+        </mxCell>
+        <mxCell id="c169" value="PK&amp;nbsp; &lt;b&gt;id&lt;/b&gt; &lt;font color='#666666'&gt;UUID NN&lt;/font&gt;" vertex="1" parent="c168" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="26" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c170" value="FK,UK&amp;nbsp; &lt;b&gt;execution_id&lt;/b&gt; &lt;font color='#666666'&gt;UUID NN&lt;/font&gt;" vertex="1" parent="c168" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="44" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c171" value="UK&amp;nbsp; &lt;b&gt;attempt_number&lt;/b&gt; &lt;font color='#666666'&gt;INTEGER NN&lt;/font&gt;" vertex="1" parent="c168" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="62" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c172" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;runtime_type&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(32) NN&lt;/font&gt;" vertex="1" parent="c168" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="80" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c173" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;runtime_profile&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(128) NN&lt;/font&gt;" vertex="1" parent="c168" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="98" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c174" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;runtime_target_id&lt;/b&gt; &lt;font color='#666666'&gt;UUID NN&lt;/font&gt;" vertex="1" parent="c168" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="116" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c175" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;runtime_session_id&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(255)&lt;/font&gt;" vertex="1" parent="c168" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="134" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c176" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;status&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(32) NN&lt;/font&gt;" vertex="1" parent="c168" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="152" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c177" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;lease_owner&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(255)&lt;/font&gt;" vertex="1" parent="c168" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="170" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c178" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;lease_expires_at&lt;/b&gt; &lt;font color='#666666'&gt;TIMESTAMPTZ&lt;/font&gt;" vertex="1" parent="c168" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="188" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c179" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;heartbeat_at&lt;/b&gt; &lt;font color='#666666'&gt;TIMESTAMPTZ NN&lt;/font&gt;" vertex="1" parent="c168" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="206" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c180" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;fencing_token&lt;/b&gt; &lt;font color='#666666'&gt;BIGINT NN&lt;/font&gt;" vertex="1" parent="c168" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="224" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c181" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;error_message&lt;/b&gt; &lt;font color='#666666'&gt;TEXT&lt;/font&gt;" vertex="1" parent="c168" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="242" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c182" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;failure_type&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(32)&lt;/font&gt;" vertex="1" parent="c168" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="260" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c183" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;retry_strategy&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(32) NN&lt;/font&gt;" vertex="1" parent="c168" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="278" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c184" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;runtime_session_cleanup_status&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(32) NN&lt;/font&gt;" vertex="1" parent="c168" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="296" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c185" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;runtime_abort_status&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(32) NN&lt;/font&gt;" vertex="1" parent="c168" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="314" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c186" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;started_at&lt;/b&gt; &lt;font color='#666666'&gt;TIMESTAMPTZ NN&lt;/font&gt;" vertex="1" parent="c168" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="332" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c187" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;finished_at&lt;/b&gt; &lt;font color='#666666'&gt;TIMESTAMPTZ&lt;/font&gt;" vertex="1" parent="c168" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="350" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c188" value="&lt;i&gt;+ 감사 컬럼 6개&lt;/i&gt;" vertex="1" parent="c168" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="368" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c189" value="execution_diagnostics (진단)" vertex="1" parent="1" style="swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;collapsible=0;marginBottom=0;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#e1d5e7;strokeColor=#9673a6;swimlaneFillColor=#ffffff;">
+          <mxGeometry x="1360" y="908" width="330" height="206" as="geometry" />
+        </mxCell>
+        <mxCell id="c190" value="PK&amp;nbsp; &lt;b&gt;id&lt;/b&gt; &lt;font color='#666666'&gt;UUID NN&lt;/font&gt;" vertex="1" parent="c189" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="26" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c191" value="FK&amp;nbsp; &lt;b&gt;execution_id&lt;/b&gt; &lt;font color='#666666'&gt;UUID NN&lt;/font&gt;" vertex="1" parent="c189" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="44" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c192" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;attempt_id&lt;/b&gt; &lt;font color='#666666'&gt;UUID&lt;/font&gt;" vertex="1" parent="c189" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="62" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c193" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;operation_id&lt;/b&gt; &lt;font color='#666666'&gt;UUID&lt;/font&gt;" vertex="1" parent="c189" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="80" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c194" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;step_id&lt;/b&gt; &lt;font color='#666666'&gt;UUID&lt;/font&gt;" vertex="1" parent="c189" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="98" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c195" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;step_sequence&lt;/b&gt; &lt;font color='#666666'&gt;INTEGER&lt;/font&gt;" vertex="1" parent="c189" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="116" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c196" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;fencing_token&lt;/b&gt; &lt;font color='#666666'&gt;INTEGER NN&lt;/font&gt;" vertex="1" parent="c189" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="134" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c197" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;detail&lt;/b&gt; &lt;font color='#666666'&gt;JSON NN&lt;/font&gt;" vertex="1" parent="c189" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="152" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c198" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;occurred_at&lt;/b&gt; &lt;font color='#666666'&gt;TIMESTAMPTZ NN&lt;/font&gt;" vertex="1" parent="c189" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="170" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c199" value="&lt;i&gt;+ 감사 컬럼 6개&lt;/i&gt;" vertex="1" parent="c189" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="188" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c200" value="execution_steps (스텝)" vertex="1" parent="1" style="swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;collapsible=0;marginBottom=0;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#dae8fc;strokeColor=#6c8ebf;swimlaneFillColor=#ffffff;">
+          <mxGeometry x="1800" y="90" width="330" height="530" as="geometry" />
+        </mxCell>
+        <mxCell id="c201" value="PK&amp;nbsp; &lt;b&gt;id&lt;/b&gt; &lt;font color='#666666'&gt;UUID NN&lt;/font&gt;" vertex="1" parent="c200" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="26" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c202" value="FK,UK&amp;nbsp; &lt;b&gt;execution_id&lt;/b&gt; &lt;font color='#666666'&gt;UUID NN&lt;/font&gt;" vertex="1" parent="c200" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="44" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c203" value="FK&amp;nbsp; &lt;b&gt;operation_id&lt;/b&gt; &lt;font color='#666666'&gt;UUID NN&lt;/font&gt;" vertex="1" parent="c200" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="62" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c204" value="UK&amp;nbsp; &lt;b&gt;sequence&lt;/b&gt; &lt;font color='#666666'&gt;INTEGER NN&lt;/font&gt;" vertex="1" parent="c200" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="80" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c205" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;source_type&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(32) NN&lt;/font&gt;" vertex="1" parent="c200" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="98" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c206" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;source_path&lt;/b&gt; &lt;font color='#666666'&gt;TEXT&lt;/font&gt;" vertex="1" parent="c200" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="116" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c207" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;source_sha256&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(64) NN&lt;/font&gt;" vertex="1" parent="c200" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="134" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c208" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;source_snapshot_path&lt;/b&gt; &lt;font color='#666666'&gt;TEXT NN&lt;/font&gt;" vertex="1" parent="c200" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="152" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c209" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;source_size_bytes&lt;/b&gt; &lt;font color='#666666'&gt;BIGINT NN&lt;/font&gt;" vertex="1" parent="c200" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="170" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c210" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;code_hash&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(64)&lt;/font&gt;" vertex="1" parent="c200" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="188" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c211" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;step_timeout_seconds&lt;/b&gt; &lt;font color='#666666'&gt;INTEGER&lt;/font&gt;" vertex="1" parent="c200" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="206" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c212" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;skill_name&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(255)&lt;/font&gt;" vertex="1" parent="c200" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="224" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c213" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;tool_name&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(255)&lt;/font&gt;" vertex="1" parent="c200" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="242" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c214" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;status&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(32) NN&lt;/font&gt;" vertex="1" parent="c200" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="260" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c215" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;input_parameters&lt;/b&gt; &lt;font color='#666666'&gt;JSON NN&lt;/font&gt;" vertex="1" parent="c200" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="278" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c216" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;output_summary&lt;/b&gt; &lt;font color='#666666'&gt;JSON NN&lt;/font&gt;" vertex="1" parent="c200" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="296" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c217" value="FK&amp;nbsp; &lt;b&gt;result_execution_attempt_id&lt;/b&gt; &lt;font color='#666666'&gt;UUID&lt;/font&gt;" vertex="1" parent="c200" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="314" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c218" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;result_manifest_path&lt;/b&gt; &lt;font color='#666666'&gt;TEXT&lt;/font&gt;" vertex="1" parent="c200" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="332" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c219" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;result_manifest_checksum_sha256&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(64)&lt;/font&gt;" vertex="1" parent="c200" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="350" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c220" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;result_manifest_size_bytes&lt;/b&gt; &lt;font color='#666666'&gt;BIGINT&lt;/font&gt;" vertex="1" parent="c200" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="368" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c221" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;result_fencing_token&lt;/b&gt; &lt;font color='#666666'&gt;BIGINT&lt;/font&gt;" vertex="1" parent="c200" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="386" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c222" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;result_complete&lt;/b&gt; &lt;font color='#666666'&gt;BOOLEAN&lt;/font&gt;" vertex="1" parent="c200" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="404" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c223" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;result_representation_count&lt;/b&gt; &lt;font color='#666666'&gt;BIGINT NN&lt;/font&gt;" vertex="1" parent="c200" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="422" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c224" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;result_total_size_bytes&lt;/b&gt; &lt;font color='#666666'&gt;BIGINT NN&lt;/font&gt;" vertex="1" parent="c200" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="440" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c225" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;error_message&lt;/b&gt; &lt;font color='#666666'&gt;TEXT&lt;/font&gt;" vertex="1" parent="c200" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="458" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c226" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;started_at&lt;/b&gt; &lt;font color='#666666'&gt;TIMESTAMPTZ&lt;/font&gt;" vertex="1" parent="c200" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="476" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c227" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;finished_at&lt;/b&gt; &lt;font color='#666666'&gt;TIMESTAMPTZ&lt;/font&gt;" vertex="1" parent="c200" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="494" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c228" value="&lt;i&gt;+ 감사 컬럼 6개&lt;/i&gt;" vertex="1" parent="c200" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="512" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c229" value="execution_step_attempts (스텝 시도)" vertex="1" parent="1" style="swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;collapsible=0;marginBottom=0;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffe6cc;strokeColor=#d79b00;swimlaneFillColor=#ffffff;">
+          <mxGeometry x="1800" y="670" width="330" height="440" as="geometry" />
+        </mxCell>
+        <mxCell id="c230" value="PK&amp;nbsp; &lt;b&gt;id&lt;/b&gt; &lt;font color='#666666'&gt;UUID NN&lt;/font&gt;" vertex="1" parent="c229" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="26" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c231" value="FK&amp;nbsp; &lt;b&gt;execution_id&lt;/b&gt; &lt;font color='#666666'&gt;UUID NN&lt;/font&gt;" vertex="1" parent="c229" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="44" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c232" value="FK,UK&amp;nbsp; &lt;b&gt;execution_attempt_id&lt;/b&gt; &lt;font color='#666666'&gt;UUID NN&lt;/font&gt;" vertex="1" parent="c229" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="62" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c233" value="FK&amp;nbsp; &lt;b&gt;execution_step_id&lt;/b&gt; &lt;font color='#666666'&gt;UUID NN&lt;/font&gt;" vertex="1" parent="c229" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="80" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c234" value="UK&amp;nbsp; &lt;b&gt;sequence&lt;/b&gt; &lt;font color='#666666'&gt;INTEGER NN&lt;/font&gt;" vertex="1" parent="c229" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="98" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c235" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;skill_name&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(255)&lt;/font&gt;" vertex="1" parent="c229" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="116" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c236" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;tool_name&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(255)&lt;/font&gt;" vertex="1" parent="c229" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="134" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c237" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;input_parameters&lt;/b&gt; &lt;font color='#666666'&gt;JSON NN&lt;/font&gt;" vertex="1" parent="c229" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="152" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c238" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;status&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(32) NN&lt;/font&gt;" vertex="1" parent="c229" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="170" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c239" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;output_summary&lt;/b&gt; &lt;font color='#666666'&gt;JSON NN&lt;/font&gt;" vertex="1" parent="c229" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="188" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c240" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;result_manifest_path&lt;/b&gt; &lt;font color='#666666'&gt;TEXT&lt;/font&gt;" vertex="1" parent="c229" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="206" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c241" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;result_manifest_checksum_sha256&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(64)&lt;/font&gt;" vertex="1" parent="c229" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="224" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c242" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;result_manifest_size_bytes&lt;/b&gt; &lt;font color='#666666'&gt;BIGINT&lt;/font&gt;" vertex="1" parent="c229" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="242" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c243" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;result_fencing_token&lt;/b&gt; &lt;font color='#666666'&gt;BIGINT&lt;/font&gt;" vertex="1" parent="c229" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="260" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c244" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;result_complete&lt;/b&gt; &lt;font color='#666666'&gt;BOOLEAN&lt;/font&gt;" vertex="1" parent="c229" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="278" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c245" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;result_representation_count&lt;/b&gt; &lt;font color='#666666'&gt;BIGINT NN&lt;/font&gt;" vertex="1" parent="c229" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="296" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c246" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;result_total_size_bytes&lt;/b&gt; &lt;font color='#666666'&gt;BIGINT NN&lt;/font&gt;" vertex="1" parent="c229" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="314" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c247" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;peak_memory_bytes&lt;/b&gt; &lt;font color='#666666'&gt;BIGINT&lt;/font&gt;" vertex="1" parent="c229" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="332" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c248" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;cpu_seconds&lt;/b&gt; &lt;font color='#666666'&gt;FLOAT&lt;/font&gt;" vertex="1" parent="c229" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="350" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c249" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;error_message&lt;/b&gt; &lt;font color='#666666'&gt;TEXT&lt;/font&gt;" vertex="1" parent="c229" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="368" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c250" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;started_at&lt;/b&gt; &lt;font color='#666666'&gt;TIMESTAMPTZ NN&lt;/font&gt;" vertex="1" parent="c229" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="386" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c251" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;finished_at&lt;/b&gt; &lt;font color='#666666'&gt;TIMESTAMPTZ&lt;/font&gt;" vertex="1" parent="c229" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="404" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c252" value="&lt;i&gt;+ 감사 컬럼 6개&lt;/i&gt;" vertex="1" parent="c229" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="422" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c253" value="execution_step_runs (스텝 저널 요청)" vertex="1" parent="1" style="swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;collapsible=0;marginBottom=0;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#fff2cc;strokeColor=#d6b656;swimlaneFillColor=#ffffff;">
+          <mxGeometry x="1800" y="1160" width="330" height="134" as="geometry" />
+        </mxCell>
+        <mxCell id="c254" value="PK,FK&amp;nbsp; &lt;b&gt;execution_step_attempt_id&lt;/b&gt; &lt;font color='#666666'&gt;UUID NN&lt;/font&gt;" vertex="1" parent="c253" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="26" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c255" value="FK&amp;nbsp; &lt;b&gt;execution_id&lt;/b&gt; &lt;font color='#666666'&gt;UUID NN&lt;/font&gt;" vertex="1" parent="c253" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="44" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c256" value="UK&amp;nbsp; &lt;b&gt;request_id&lt;/b&gt; &lt;font color='#666666'&gt;UUID NN&lt;/font&gt;" vertex="1" parent="c253" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="62" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c257" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;artifact_baseline&lt;/b&gt; &lt;font color='#666666'&gt;JSON NN&lt;/font&gt;" vertex="1" parent="c253" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="80" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c258" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;submitted_at&lt;/b&gt; &lt;font color='#666666'&gt;TIMESTAMPTZ&lt;/font&gt;" vertex="1" parent="c253" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="98" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c259" value="&lt;i&gt;+ 감사 컬럼 1개&lt;/i&gt;" vertex="1" parent="c253" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="116" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c260" value="execution_events (실행 이벤트)" vertex="1" parent="1" style="swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;collapsible=0;marginBottom=0;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#d5e8d4;strokeColor=#82b366;swimlaneFillColor=#ffffff;">
+          <mxGeometry x="2240" y="90" width="330" height="152" as="geometry" />
+        </mxCell>
+        <mxCell id="c261" value="PK&amp;nbsp; &lt;b&gt;id&lt;/b&gt; &lt;font color='#666666'&gt;UUID NN&lt;/font&gt;" vertex="1" parent="c260" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="26" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c262" value="FK,UK&amp;nbsp; &lt;b&gt;execution_id&lt;/b&gt; &lt;font color='#666666'&gt;UUID NN&lt;/font&gt;" vertex="1" parent="c260" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="44" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c263" value="UK&amp;nbsp; &lt;b&gt;event_sequence&lt;/b&gt; &lt;font color='#666666'&gt;BIGINT NN&lt;/font&gt;" vertex="1" parent="c260" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="62" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c264" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;event_type&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(255) NN&lt;/font&gt;" vertex="1" parent="c260" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="80" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c265" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;schema_version&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(32) NN&lt;/font&gt;" vertex="1" parent="c260" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="98" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c266" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;payload&lt;/b&gt; &lt;font color='#666666'&gt;JSON NN&lt;/font&gt;" vertex="1" parent="c260" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="116" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c267" value="&lt;i&gt;+ 감사 컬럼 6개&lt;/i&gt;" vertex="1" parent="c260" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="134" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c268" value="outbox_events (발행 대기열)" vertex="1" parent="1" style="swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;collapsible=0;marginBottom=0;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#d5e8d4;strokeColor=#82b366;swimlaneFillColor=#ffffff;">
+          <mxGeometry x="2240" y="292" width="330" height="242" as="geometry" />
+        </mxCell>
+        <mxCell id="c269" value="PK&amp;nbsp; &lt;b&gt;id&lt;/b&gt; &lt;font color='#666666'&gt;UUID NN&lt;/font&gt;" vertex="1" parent="c268" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="26" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c270" value="UK&amp;nbsp; &lt;b&gt;aggregate_type&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(128) NN&lt;/font&gt;" vertex="1" parent="c268" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="44" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c271" value="UK&amp;nbsp; &lt;b&gt;aggregate_id&lt;/b&gt; &lt;font color='#666666'&gt;UUID NN&lt;/font&gt;" vertex="1" parent="c268" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="62" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c272" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;event_type&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(255) NN&lt;/font&gt;" vertex="1" parent="c268" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="80" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c273" value="UK&amp;nbsp; &lt;b&gt;event_sequence&lt;/b&gt; &lt;font color='#666666'&gt;BIGINT NN&lt;/font&gt;" vertex="1" parent="c268" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="98" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c274" value="FK,UK&amp;nbsp; &lt;b&gt;execution_event_id&lt;/b&gt; &lt;font color='#666666'&gt;UUID NN&lt;/font&gt;" vertex="1" parent="c268" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="116" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c275" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;status&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(32) NN&lt;/font&gt;" vertex="1" parent="c268" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="134" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c276" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;attempt_count&lt;/b&gt; &lt;font color='#666666'&gt;INTEGER NN&lt;/font&gt;" vertex="1" parent="c268" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="152" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c277" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;available_at&lt;/b&gt; &lt;font color='#666666'&gt;TIMESTAMPTZ NN&lt;/font&gt;" vertex="1" parent="c268" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="170" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c278" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;published_at&lt;/b&gt; &lt;font color='#666666'&gt;TIMESTAMPTZ&lt;/font&gt;" vertex="1" parent="c268" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="188" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c279" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;last_error&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(500)&lt;/font&gt;" vertex="1" parent="c268" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="206" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c280" value="&lt;i&gt;+ 감사 컬럼 6개&lt;/i&gt;" vertex="1" parent="c268" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="224" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c281" value="execution_artifacts (산출물)" vertex="1" parent="1" style="swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;collapsible=0;marginBottom=0;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#e1d5e7;strokeColor=#9673a6;swimlaneFillColor=#ffffff;">
+          <mxGeometry x="2240" y="584" width="330" height="386" as="geometry" />
+        </mxCell>
+        <mxCell id="c282" value="PK&amp;nbsp; &lt;b&gt;id&lt;/b&gt; &lt;font color='#666666'&gt;UUID NN&lt;/font&gt;" vertex="1" parent="c281" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="26" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c283" value="FK&amp;nbsp; &lt;b&gt;execution_id&lt;/b&gt; &lt;font color='#666666'&gt;UUID NN&lt;/font&gt;" vertex="1" parent="c281" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="44" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c284" value="FK&amp;nbsp; &lt;b&gt;execution_attempt_id&lt;/b&gt; &lt;font color='#666666'&gt;UUID&lt;/font&gt;" vertex="1" parent="c281" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="62" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c285" value="FK&amp;nbsp; &lt;b&gt;execution_step_id&lt;/b&gt; &lt;font color='#666666'&gt;UUID&lt;/font&gt;" vertex="1" parent="c281" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="80" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c286" value="FK&amp;nbsp; &lt;b&gt;execution_step_attempt_id&lt;/b&gt; &lt;font color='#666666'&gt;UUID&lt;/font&gt;" vertex="1" parent="c281" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="98" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c287" value="FK&amp;nbsp; &lt;b&gt;parent_artifact_id&lt;/b&gt; &lt;font color='#666666'&gt;UUID&lt;/font&gt;" vertex="1" parent="c281" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="116" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c288" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;external_parent_asset_id&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(255)&lt;/font&gt;" vertex="1" parent="c281" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="134" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c289" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;artifact_type&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(32) NN&lt;/font&gt;" vertex="1" parent="c281" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="152" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c290" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;storage_type&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(32) NN&lt;/font&gt;" vertex="1" parent="c281" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="170" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c291" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;status&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(32) NN&lt;/font&gt;" vertex="1" parent="c281" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="188" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c292" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;name&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(255) NN&lt;/font&gt;" vertex="1" parent="c281" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="206" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c293" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;description&lt;/b&gt; &lt;font color='#666666'&gt;TEXT&lt;/font&gt;" vertex="1" parent="c281" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="224" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c294" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;uri&lt;/b&gt; &lt;font color='#666666'&gt;TEXT NN&lt;/font&gt;" vertex="1" parent="c281" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="242" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c295" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;relative_path&lt;/b&gt; &lt;font color='#666666'&gt;TEXT&lt;/font&gt;" vertex="1" parent="c281" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="260" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c296" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;media_type&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(255)&lt;/font&gt;" vertex="1" parent="c281" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="278" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c297" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;size_bytes&lt;/b&gt; &lt;font color='#666666'&gt;BIGINT&lt;/font&gt;" vertex="1" parent="c281" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="296" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c298" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;checksum_sha256&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(64)&lt;/font&gt;" vertex="1" parent="c281" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="314" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c299" value="&amp;nbsp;&amp;nbsp;&amp;nbsp; &lt;b&gt;metadata&lt;/b&gt; &lt;font color='#666666'&gt;JSON NN&lt;/font&gt;" vertex="1" parent="c281" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="332" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c300" value="UK&amp;nbsp; &lt;b&gt;identity_hash&lt;/b&gt; &lt;font color='#666666'&gt;VARCHAR(64) NN&lt;/font&gt;" vertex="1" parent="c281" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="350" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c301" value="&lt;i&gt;+ 감사 컬럼 6개&lt;/i&gt;" vertex="1" parent="c281" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;portConstraint=eastwest;fontFamily=Malgun Gothic;fontSize=11;">
+          <mxGeometry y="368" width="330" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="c302" value="" edge="1" parent="1" source="c284" target="c169" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;exitX=0;exitY=0.5;entryX=1;entryY=0.5;endFill=0;startFill=0;strokeColor=#555555;startArrow=ERzeroToMany;endArrow=ERzeroToOne;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="2210" y="655.0" />
+              <mxPoint x="2210" y="70" />
+              <mxPoint x="1720" y="70" />
+              <mxPoint x="1720" y="507.0" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c303" value="" edge="1" parent="1" source="c283" target="c101" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;exitX=0;exitY=0.5;entryX=1;entryY=0.5;endFill=0;startFill=0;strokeColor=#555555;startArrow=ERzeroToMany;endArrow=ERmandOne;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="2210" y="637.0" />
+              <mxPoint x="2210" y="58" />
+              <mxPoint x="1280" y="58" />
+              <mxPoint x="1280" y="125.0" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c304" value="" edge="1" parent="1" source="c286" target="c230" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;edgeStyle=entityRelationEdgeStyle;endFill=0;startFill=0;strokeColor=#555555;startArrow=ERzeroToMany;endArrow=ERzeroToOne;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c305" value="" edge="1" parent="1" source="c285" target="c201" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;edgeStyle=entityRelationEdgeStyle;endFill=0;startFill=0;strokeColor=#555555;startArrow=ERzeroToMany;endArrow=ERzeroToOne;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c306" value="" edge="1" parent="1" source="c287" target="c282" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;edgeStyle=entityRelationEdgeStyle;endFill=0;startFill=0;strokeColor=#555555;startArrow=ERzeroToMany;endArrow=ERzeroToOne;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c307" value="" edge="1" parent="1" source="c88" target="c101" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;edgeStyle=entityRelationEdgeStyle;endFill=0;startFill=0;strokeColor=#555555;startArrow=ERzeroToMany;endArrow=ERmandOne;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c308" value="" edge="1" parent="1" source="c170" target="c101" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;edgeStyle=entityRelationEdgeStyle;endFill=0;startFill=0;strokeColor=#555555;startArrow=ERzeroToMany;endArrow=ERmandOne;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c309" value="" edge="1" parent="1" source="c232" target="c169" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;edgeStyle=entityRelationEdgeStyle;endFill=0;startFill=0;strokeColor=#555555;startArrow=ERzeroToMany;endArrow=ERmandOne;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c310" value="" edge="1" parent="1" source="c231" target="c101" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;exitX=0;exitY=0.5;entryX=1;entryY=0.5;endFill=0;startFill=0;strokeColor=#555555;startArrow=ERzeroToMany;endArrow=ERmandOne;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1770" y="723.0" />
+              <mxPoint x="1770" y="58" />
+              <mxPoint x="1280" y="58" />
+              <mxPoint x="1280" y="125.0" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c311" value="" edge="1" parent="1" source="c233" target="c201" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;edgeStyle=entityRelationEdgeStyle;endFill=0;startFill=0;strokeColor=#555555;startArrow=ERzeroToMany;endArrow=ERmandOne;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c312" value="" edge="1" parent="1" source="c191" target="c101" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;edgeStyle=entityRelationEdgeStyle;endFill=0;startFill=0;strokeColor=#555555;startArrow=ERzeroToMany;endArrow=ERmandOne;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c313" value="" edge="1" parent="1" source="c98" target="c101" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;edgeStyle=entityRelationEdgeStyle;endFill=0;startFill=0;strokeColor=#555555;startArrow=ERzeroToMany;endArrow=ERmandOne;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c314" value="" edge="1" parent="1" source="c262" target="c101" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;exitX=0;exitY=0.5;entryX=1;entryY=0.5;endFill=0;startFill=0;strokeColor=#555555;startArrow=ERzeroToMany;endArrow=ERmandOne;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="2210" y="143.0" />
+              <mxPoint x="2210" y="58" />
+              <mxPoint x="1280" y="58" />
+              <mxPoint x="1280" y="125.0" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c315" value="" edge="1" parent="1" source="c274" target="c261" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;edgeStyle=entityRelationEdgeStyle;endFill=0;startFill=0;strokeColor=#555555;startArrow=ERzeroToMany;endArrow=ERmandOne;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c316" value="" edge="1" parent="1" source="c202" target="c101" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;exitX=0;exitY=0.5;entryX=1;entryY=0.5;endFill=0;startFill=0;strokeColor=#555555;startArrow=ERzeroToMany;endArrow=ERmandOne;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1770" y="143.0" />
+              <mxPoint x="1770" y="58" />
+              <mxPoint x="1280" y="58" />
+              <mxPoint x="1280" y="125.0" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c317" value="" edge="1" parent="1" source="c203" target="c151" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;edgeStyle=entityRelationEdgeStyle;endFill=0;startFill=0;strokeColor=#555555;startArrow=ERzeroToMany;endArrow=ERmandOne;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c318" value="" edge="1" parent="1" source="c217" target="c169" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;edgeStyle=entityRelationEdgeStyle;endFill=0;startFill=0;strokeColor=#555555;startArrow=ERzeroToMany;endArrow=ERzeroToOne;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c319" value="" edge="1" parent="1" source="c255" target="c101" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;exitX=0;exitY=0.5;entryX=1;entryY=0.5;endFill=0;startFill=0;strokeColor=#555555;startArrow=ERzeroToMany;endArrow=ERmandOne;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1770" y="1213.0" />
+              <mxPoint x="1770" y="58" />
+              <mxPoint x="1280" y="58" />
+              <mxPoint x="1280" y="125.0" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c320" value="" edge="1" parent="1" source="c254" target="c230" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;edgeStyle=entityRelationEdgeStyle;endFill=0;startFill=0;strokeColor=#555555;startArrow=ERzeroToMany;endArrow=ERmandOne;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c321" value="" edge="1" parent="1" source="c93" target="c101" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;edgeStyle=entityRelationEdgeStyle;endFill=0;startFill=0;strokeColor=#555555;startArrow=ERzeroToMany;endArrow=ERmandOne;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c322" value="" edge="1" parent="1" source="c74" target="c101" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;edgeStyle=entityRelationEdgeStyle;endFill=0;startFill=0;strokeColor=#555555;startArrow=ERzeroToMany;endArrow=ERmandOne;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c323" value="" edge="1" parent="1" source="c73" target="c58" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;edgeStyle=entityRelationEdgeStyle;endFill=0;startFill=0;strokeColor=#555555;startArrow=ERzeroToMany;endArrow=ERmandOne;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c324" value="" edge="1" parent="1" source="c162" target="c169" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;edgeStyle=entityRelationEdgeStyle;endFill=0;startFill=0;strokeColor=#555555;startArrow=ERzeroToMany;endArrow=ERzeroToOne;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c325" value="" edge="1" parent="1" source="c152" target="c101" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;edgeStyle=entityRelationEdgeStyle;endFill=0;startFill=0;strokeColor=#555555;startArrow=ERzeroToMany;endArrow=ERmandOne;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c326" value="실행 요청" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#dae8fc;strokeColor=#6c8ebf;rounded=1;">
+          <mxGeometry x="2680" y="90" width="120" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="c327" value="실행 시도" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffe6cc;strokeColor=#d79b00;rounded=1;">
+          <mxGeometry x="2680" y="124" width="120" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="c328" value="인계" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#fff2cc;strokeColor=#d6b656;rounded=1;">
+          <mxGeometry x="2680" y="158" width="120" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="c329" value="결과" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#e1d5e7;strokeColor=#9673a6;rounded=1;">
+          <mxGeometry x="2680" y="192" width="120" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="c330" value="이벤트" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#d5e8d4;strokeColor=#82b366;rounded=1;">
+          <mxGeometry x="2680" y="226" width="120" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="c331" value="Runtime" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#f5f5f5;strokeColor=#666666;rounded=1;">
+          <mxGeometry x="2680" y="260" width="120" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="c332" value="운영" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#f8cecc;strokeColor=#b85450;rounded=1;">
+          <mxGeometry x="2680" y="294" width="120" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="c333" value="멱등" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;rounded=1;">
+          <mxGeometry x="2680" y="328" width="120" height="26" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

@@ -1,0 +1,145 @@
+<mxfile host="app.diagrams.net" compressed="false">
+  <diagram name="사용 흐름 B. MULTI: 결과를 보고 다음 코드를 이어서 실행" id="page-1">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1060" pageHeight="690" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="c2" value="&lt;b&gt;사용 흐름 B. MULTI: 결과를 보고 다음 코드를 이어서 실행&lt;/b&gt;" vertex="1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;fontSize=15;align=left;">
+          <mxGeometry x="30" y="8" width="1020" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="c3" value="&lt;b&gt;호출자 (백엔드)&lt;/b&gt;" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffe6cc;strokeColor=#d79b00;rounded=1;">
+          <mxGeometry x="45" y="45" width="170" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="c4" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;rounded=0;strokeColor=#999999;dashed=1;fillColor=none;">
+          <mxGeometry x="130" y="89" width="1" height="541" as="geometry" />
+        </mxCell>
+        <mxCell id="c5" value="&lt;b&gt;Executor&lt;/b&gt;" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#dae8fc;strokeColor=#6c8ebf;rounded=1;">
+          <mxGeometry x="425" y="45" width="170" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="c6" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;rounded=0;strokeColor=#999999;dashed=1;fillColor=none;">
+          <mxGeometry x="510" y="89" width="1" height="541" as="geometry" />
+        </mxCell>
+        <mxCell id="c7" value="&lt;b&gt;Redis Stream&lt;/b&gt;" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#d5e8d4;strokeColor=#82b366;rounded=1;">
+          <mxGeometry x="805" y="45" width="170" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="c8" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;rounded=0;strokeColor=#999999;dashed=1;fillColor=none;">
+          <mxGeometry x="890" y="89" width="1" height="541" as="geometry" />
+        </mxCell>
+        <mxCell id="c9" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;strokeColor=none;fillColor=none;">
+          <mxGeometry x="129" y="129" width="2" height="2" as="geometry" />
+        </mxCell>
+        <mxCell id="c10" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;strokeColor=none;fillColor=none;">
+          <mxGeometry x="509" y="129" width="2" height="2" as="geometry" />
+        </mxCell>
+        <mxCell id="c11" value="" edge="1" parent="1" source="c9" target="c10" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;edgeStyle=none;rounded=0;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c12" value="① POST /api/v1/executions (operation_mode=MULTI, operation_wait_timeout_seconds)" vertex="1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;align=left;verticalAlign=middle;fontSize=11;">
+          <mxGeometry x="140" y="108" width="870" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="c13" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;strokeColor=none;fillColor=none;">
+          <mxGeometry x="509" y="181" width="2" height="2" as="geometry" />
+        </mxCell>
+        <mxCell id="c14" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;strokeColor=none;fillColor=none;">
+          <mxGeometry x="129" y="181" width="2" height="2" as="geometry" />
+        </mxCell>
+        <mxCell id="c15" value="" edge="1" parent="1" source="c13" target="c14" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;edgeStyle=none;rounded=0;dashed=1;endArrow=open;endFill=0;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c16" value="202 + execution_id" vertex="1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;align=left;verticalAlign=middle;fontSize=11;">
+          <mxGeometry x="140" y="160" width="870" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="c17" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;strokeColor=none;fillColor=none;">
+          <mxGeometry x="129" y="233" width="2" height="2" as="geometry" />
+        </mxCell>
+        <mxCell id="c18" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;strokeColor=none;fillColor=none;">
+          <mxGeometry x="509" y="233" width="2" height="2" as="geometry" />
+        </mxCell>
+        <mxCell id="c19" value="" edge="1" parent="1" source="c17" target="c18" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;edgeStyle=none;rounded=0;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c20" value="② GET .../{id}?wait_seconds=30" vertex="1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;align=left;verticalAlign=middle;fontSize=11;">
+          <mxGeometry x="140" y="212" width="870" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="c21" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;strokeColor=none;fillColor=none;">
+          <mxGeometry x="509" y="285" width="2" height="2" as="geometry" />
+        </mxCell>
+        <mxCell id="c22" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;strokeColor=none;fillColor=none;">
+          <mxGeometry x="129" y="285" width="2" height="2" as="geometry" />
+        </mxCell>
+        <mxCell id="c23" value="" edge="1" parent="1" source="c21" target="c22" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;edgeStyle=none;rounded=0;dashed=1;endArrow=open;endFill=0;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c24" value="state.status = WAITING_FOR_OPERATION (커널은 살아 있다)" vertex="1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;align=left;verticalAlign=middle;fontSize=11;">
+          <mxGeometry x="140" y="264" width="870" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="c25" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;strokeColor=none;fillColor=none;">
+          <mxGeometry x="129" y="337" width="2" height="2" as="geometry" />
+        </mxCell>
+        <mxCell id="c26" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;strokeColor=none;fillColor=none;">
+          <mxGeometry x="509" y="337" width="2" height="2" as="geometry" />
+        </mxCell>
+        <mxCell id="c27" value="" edge="1" parent="1" source="c25" target="c26" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;edgeStyle=none;rounded=0;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c28" value="③ GET .../operations/{operation_id}/result" vertex="1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;align=left;verticalAlign=middle;fontSize=11;">
+          <mxGeometry x="140" y="316" width="870" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="c29" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;strokeColor=none;fillColor=none;">
+          <mxGeometry x="129" y="389" width="2" height="2" as="geometry" />
+        </mxCell>
+        <mxCell id="c30" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;strokeColor=none;fillColor=none;">
+          <mxGeometry x="509" y="389" width="2" height="2" as="geometry" />
+        </mxCell>
+        <mxCell id="c31" value="" edge="1" parent="1" source="c29" target="c30" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;edgeStyle=none;rounded=0;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c32" value="④ POST .../operations (다음 Step 묶음, sequence는 이어서)" vertex="1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;align=left;verticalAlign=middle;fontSize=11;">
+          <mxGeometry x="140" y="368" width="870" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="c33" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;strokeColor=none;fillColor=none;">
+          <mxGeometry x="509" y="441" width="2" height="2" as="geometry" />
+        </mxCell>
+        <mxCell id="c34" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;strokeColor=none;fillColor=none;">
+          <mxGeometry x="129" y="441" width="2" height="2" as="geometry" />
+        </mxCell>
+        <mxCell id="c35" value="" edge="1" parent="1" source="c33" target="c34" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;edgeStyle=none;rounded=0;dashed=1;endArrow=open;endFill=0;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c36" value="202, 다시 ②로" vertex="1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;align=left;verticalAlign=middle;fontSize=11;">
+          <mxGeometry x="140" y="420" width="870" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="c37" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;strokeColor=none;fillColor=none;">
+          <mxGeometry x="129" y="493" width="2" height="2" as="geometry" />
+        </mxCell>
+        <mxCell id="c38" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;strokeColor=none;fillColor=none;">
+          <mxGeometry x="509" y="493" width="2" height="2" as="geometry" />
+        </mxCell>
+        <mxCell id="c39" value="" edge="1" parent="1" source="c37" target="c38" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;edgeStyle=none;rounded=0;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c40" value="⑤ POST .../finalize (더 붙일 것이 없을 때)" vertex="1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;align=left;verticalAlign=middle;fontSize=11;">
+          <mxGeometry x="140" y="472" width="870" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="c41" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;strokeColor=none;fillColor=none;">
+          <mxGeometry x="509" y="545" width="2" height="2" as="geometry" />
+        </mxCell>
+        <mxCell id="c42" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;strokeColor=none;fillColor=none;">
+          <mxGeometry x="129" y="545" width="2" height="2" as="geometry" />
+        </mxCell>
+        <mxCell id="c43" value="" edge="1" parent="1" source="c41" target="c42" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;edgeStyle=none;rounded=0;dashed=1;endArrow=open;endFill=0;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c44" value="FINALIZING → SUCCEEDED, execution.completed" vertex="1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;align=left;verticalAlign=middle;fontSize=11;">
+          <mxGeometry x="140" y="524" width="870" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="c45" value="대기 시간을 넘기면 실행은 OPERATION_WAIT_TIMEOUT으로 실패하고 커널이 정리된다. 쓰지 않을 실행은 finalize나 cancel로 끝낸다." vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#f5f5f5;strokeColor=#666666;rounded=0;fontSize=11;fontStyle=2;">
+          <mxGeometry x="45" y="583" width="930" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="c46" value="필요한 만큼 반복" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;rounded=0;fillColor=none;strokeColor=#b85450;dashed=1;verticalAlign=top;align=right;spacingRight=6;fontSize=11;fontStyle=1;fontColor=#b85450;">
+          <mxGeometry x="40" y="204" width="945" height="262" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

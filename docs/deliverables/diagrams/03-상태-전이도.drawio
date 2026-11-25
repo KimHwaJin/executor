@@ -1,0 +1,202 @@
+<mxfile host="app.diagrams.net" compressed="false">
+  <diagram name="Execution 상태 전이" id="page-1">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1340" pageHeight="940" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="c2" value="&lt;b&gt;Execution 상태 전이도&lt;/b&gt; (원본: domain/transitions.py)" vertex="1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;fontSize=15;align=left;">
+          <mxGeometry x="20" y="10" width="700" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="c3" value="&lt;b&gt;QUEUED&lt;/b&gt;" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#dae8fc;strokeColor=#6c8ebf;rounded=1;arcSize=40;">
+          <mxGeometry x="420" y="90" width="220" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="c4" value="&lt;b&gt;RUNNING&lt;/b&gt;" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#dae8fc;strokeColor=#6c8ebf;rounded=1;arcSize=40;">
+          <mxGeometry x="420" y="300" width="220" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="c5" value="&lt;b&gt;WAITING_FOR_OPERATION&lt;/b&gt;" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#dae8fc;strokeColor=#6c8ebf;rounded=1;arcSize=40;">
+          <mxGeometry x="1000" y="300" width="220" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="c6" value="&lt;b&gt;FINALIZING&lt;/b&gt;" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#dae8fc;strokeColor=#6c8ebf;rounded=1;arcSize=40;">
+          <mxGeometry x="1000" y="90" width="220" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="c7" value="&lt;b&gt;CANCEL_REQUESTED&lt;/b&gt;" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#dae8fc;strokeColor=#6c8ebf;rounded=1;arcSize=40;">
+          <mxGeometry x="420" y="580" width="220" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="c8" value="&lt;b&gt;CANCELLED&lt;/b&gt;" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#d5e8d4;strokeColor=#82b366;rounded=1;arcSize=40;strokeWidth=3;">
+          <mxGeometry x="420" y="770" width="220" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="c9" value="&lt;b&gt;SUCCEEDED&lt;/b&gt;" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#d5e8d4;strokeColor=#82b366;rounded=1;arcSize=40;strokeWidth=3;">
+          <mxGeometry x="40" y="300" width="220" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="c10" value="&lt;b&gt;FAILED&lt;/b&gt;" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#f8cecc;strokeColor=#b85450;rounded=1;arcSize=40;">
+          <mxGeometry x="1000" y="580" width="220" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="c11" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;ellipse;fillColor=#333333;">
+          <mxGeometry x="517" y="36" width="26" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="c12" value="제출" edge="1" parent="1" source="c11" target="c3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c13" value="" edge="1" parent="1" source="c3" target="c7" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;exitX=0;exitY=0.5;entryX=0;entryY=0.5;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="392" y="125" />
+              <mxPoint x="392" y="615" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c14" value="" edge="1" parent="1" source="c3" target="c10" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;exitX=1;exitY=0.3;entryX=0;entryY=0.2;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="720" y="111" />
+              <mxPoint x="720" y="594" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c15" value="" edge="1" parent="1" source="c3" target="c4" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;exitX=0.3;exitY=1;entryX=0.3;entryY=0;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c16" value="" edge="1" parent="1" source="c4" target="c7" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c17" value="" edge="1" parent="1" source="c4" target="c10" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;exitX=1;exitY=0.8;entryX=0;entryY=0.8;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="680" y="356" />
+              <mxPoint x="680" y="636" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c18" value="" edge="1" parent="1" source="c4" target="c3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;exitX=0.7;exitY=0;entryX=0.7;entryY=1;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c19" value="" edge="1" parent="1" source="c4" target="c9" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;exitX=0;exitY=0.5;entryX=1;entryY=0.5;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c20" value="" edge="1" parent="1" source="c4" target="c5" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;exitX=1;exitY=0.2;entryX=0;entryY=0.2;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c21" value="" edge="1" parent="1" source="c5" target="c7" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;exitX=0.2;exitY=1;entryX=0.75;entryY=0;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1044" y="440" />
+              <mxPoint x="585" y="440" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c22" value="" edge="1" parent="1" source="c5" target="c10" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;exitX=0.6;exitY=1;entryX=0.6;entryY=0;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c23" value="" edge="1" parent="1" source="c5" target="c6" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;exitX=0.7;exitY=0;entryX=0.7;entryY=1;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c24" value="" edge="1" parent="1" source="c5" target="c3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;exitX=0;exitY=0.8;entryX=1;entryY=0.7;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="800" y="356" />
+              <mxPoint x="800" y="139" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c25" value="" edge="1" parent="1" source="c6" target="c7" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;exitX=1;exitY=0.5;entryX=0.8;entryY=1;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1290" y="125" />
+              <mxPoint x="1290" y="700" />
+              <mxPoint x="596" y="700" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c26" value="" edge="1" parent="1" source="c6" target="c10" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;exitX=1;exitY=0.8;entryX=1;entryY=0.3;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1260" y="146" />
+              <mxPoint x="1260" y="601" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c27" value="" edge="1" parent="1" source="c6" target="c4" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;exitX=0;exitY=0.5;entryX=1;entryY=0.5;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="960" y="125" />
+              <mxPoint x="960" y="335" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c28" value="" edge="1" parent="1" source="c7" target="c8" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c29" value="" edge="1" parent="1" source="c7" target="c10" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c30" value="" edge="1" parent="1" source="c10" target="c3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;exitX=0.35;exitY=0;entryX=0.9;entryY=1;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1077" y="490" />
+              <mxPoint x="760" y="490" />
+              <mxPoint x="760" y="200" />
+              <mxPoint x="618" y="200" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c31" value="Worker claim" vertex="1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;align=center;labelBackgroundColor=#ffffff;">
+          <mxGeometry x="386" y="199" width="200" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="c32" value="취소 요청" vertex="1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;align=center;labelBackgroundColor=#ffffff;">
+          <mxGeometry x="292" y="454" width="200" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="c33" value="QUEUE_TIMEOUT 등" vertex="1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;align=center;labelBackgroundColor=#ffffff;">
+          <mxGeometry x="800" y="578" width="200" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="c34" value="모든 Step 성공" vertex="1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;align=center;labelBackgroundColor=#ffffff;">
+          <mxGeometry x="225" y="319" width="200" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="c35" value="Step 실패 · 시간 초과 · 장애" vertex="1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;align=center;labelBackgroundColor=#ffffff;">
+          <mxGeometry x="800" y="620" width="200" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="c36" value="MULTI Operation 완료" vertex="1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;align=center;labelBackgroundColor=#ffffff;">
+          <mxGeometry x="785" y="298" width="200" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="c37" value="취소 요청" vertex="1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;align=center;labelBackgroundColor=#ffffff;">
+          <mxGeometry x="430" y="484" width="200" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="c38" value="보존 세션 재시도가&lt;br&gt;Target을 기다림" vertex="1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;align=center;labelBackgroundColor=#ffffff;">
+          <mxGeometry x="474" y="239" width="200" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="c39" value="다음 Operation 추가" vertex="1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;align=center;labelBackgroundColor=#ffffff;">
+          <mxGeometry x="700" y="164" width="200" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="c40" value="finalize" vertex="1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;align=center;labelBackgroundColor=#ffffff;">
+          <mxGeometry x="1054" y="214" width="200" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="c41" value="취소 요청" vertex="1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;align=center;labelBackgroundColor=#ffffff;">
+          <mxGeometry x="800" y="424" width="200" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="c42" value="대기 시간 초과" vertex="1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;align=center;labelBackgroundColor=#ffffff;">
+          <mxGeometry x="1032" y="514" width="200" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="c43" value="정리 실행" vertex="1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;align=center;labelBackgroundColor=#ffffff;">
+          <mxGeometry x="860" y="199" width="200" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="c44" value="취소 요청" vertex="1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;align=center;labelBackgroundColor=#ffffff;">
+          <mxGeometry x="800" y="684" width="200" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="c45" value="정리 실패" vertex="1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;align=center;labelBackgroundColor=#ffffff;">
+          <mxGeometry x="1160" y="384" width="200" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="c46" value="Worker가 중단 확인" vertex="1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;align=center;labelBackgroundColor=#ffffff;">
+          <mxGeometry x="430" y="714" width="200" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="c47" value="최대 수명 초과로 중지" vertex="1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;align=center;labelBackgroundColor=#ffffff;">
+          <mxGeometry x="730" y="599" width="200" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="c48" value="SINGLE 재시도" vertex="1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;align=center;labelBackgroundColor=#ffffff;">
+          <mxGeometry x="800" y="474" width="200" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="c49" value="굵은 테두리 = 종료 상태. FAILED는 SINGLE이고 재시도 가능할 때만 QUEUED로 돌아간다.&lt;br&gt;API와 Worker 모두 이 표로 전이를 검사한다(require_execution_transition)." vertex="1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;align=left;verticalAlign=top;">
+          <mxGeometry x="20" y="870" width="800" height="40" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

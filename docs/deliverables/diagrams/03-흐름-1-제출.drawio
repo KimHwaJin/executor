@@ -1,0 +1,121 @@
+<mxfile host="app.diagrams.net" compressed="false">
+  <diagram name="처리 흐름 1. 실행 제출 (POST /api/v1/executions)" id="page-1">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1220" pageHeight="586" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="c2" value="&lt;b&gt;처리 흐름 1. 실행 제출 (POST /api/v1/executions)&lt;/b&gt;" vertex="1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;fontSize=15;align=left;">
+          <mxGeometry x="30" y="8" width="1180" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="c3" value="&lt;b&gt;호출자&lt;/b&gt;" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffe6cc;strokeColor=#d79b00;rounded=1;">
+          <mxGeometry x="45" y="45" width="170" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="c4" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;rounded=0;strokeColor=#999999;dashed=1;fillColor=none;">
+          <mxGeometry x="130" y="89" width="1" height="437" as="geometry" />
+        </mxCell>
+        <mxCell id="c5" value="&lt;b&gt;Executor API&lt;/b&gt;" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#dae8fc;strokeColor=#6c8ebf;rounded=1;">
+          <mxGeometry x="275" y="45" width="170" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="c6" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;rounded=0;strokeColor=#999999;dashed=1;fillColor=none;">
+          <mxGeometry x="360" y="89" width="1" height="437" as="geometry" />
+        </mxCell>
+        <mxCell id="c7" value="&lt;b&gt;공유 PV&lt;/b&gt;" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#d5e8d4;strokeColor=#82b366;rounded=1;">
+          <mxGeometry x="505" y="45" width="170" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="c8" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;rounded=0;strokeColor=#999999;dashed=1;fillColor=none;">
+          <mxGeometry x="590" y="89" width="1" height="437" as="geometry" />
+        </mxCell>
+        <mxCell id="c9" value="&lt;b&gt;PostgreSQL&lt;/b&gt;" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#d5e8d4;strokeColor=#82b366;rounded=1;">
+          <mxGeometry x="735" y="45" width="170" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="c10" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;rounded=0;strokeColor=#999999;dashed=1;fillColor=none;">
+          <mxGeometry x="820" y="89" width="1" height="437" as="geometry" />
+        </mxCell>
+        <mxCell id="c11" value="&lt;b&gt;Worker&lt;/b&gt;" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#dae8fc;strokeColor=#6c8ebf;rounded=1;">
+          <mxGeometry x="965" y="45" width="170" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="c12" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;rounded=0;strokeColor=#999999;dashed=1;fillColor=none;">
+          <mxGeometry x="1050" y="89" width="1" height="437" as="geometry" />
+        </mxCell>
+        <mxCell id="c13" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;strokeColor=none;fillColor=none;">
+          <mxGeometry x="129" y="129" width="2" height="2" as="geometry" />
+        </mxCell>
+        <mxCell id="c14" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;strokeColor=none;fillColor=none;">
+          <mxGeometry x="359" y="129" width="2" height="2" as="geometry" />
+        </mxCell>
+        <mxCell id="c15" value="" edge="1" parent="1" source="c13" target="c14" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;edgeStyle=none;rounded=0;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c16" value="실행 요청 (X-Api-Key, idempotency_key, Step 묶음)" vertex="1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;align=left;verticalAlign=middle;fontSize=11;">
+          <mxGeometry x="140" y="108" width="1030" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="c17" value="인증 · 형식 · 한도 · 프로필 검증" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#fff2cc;strokeColor=#d6b656;rounded=0;fontSize=11;">
+          <mxGeometry x="265" y="165" width="190" height="34" as="geometry" />
+        </mxCell>
+        <mxCell id="c18" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;strokeColor=none;fillColor=none;">
+          <mxGeometry x="359" y="233" width="2" height="2" as="geometry" />
+        </mxCell>
+        <mxCell id="c19" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;strokeColor=none;fillColor=none;">
+          <mxGeometry x="819" y="233" width="2" height="2" as="geometry" />
+        </mxCell>
+        <mxCell id="c20" value="" edge="1" parent="1" source="c18" target="c19" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;edgeStyle=none;rounded=0;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c21" value="같은 멱등 키의 기존 실행 조회 (짧은 트랜잭션)" vertex="1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;align=left;verticalAlign=middle;fontSize=11;">
+          <mxGeometry x="370" y="212" width="800" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="c22" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;strokeColor=none;fillColor=none;">
+          <mxGeometry x="359" y="285" width="2" height="2" as="geometry" />
+        </mxCell>
+        <mxCell id="c23" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;strokeColor=none;fillColor=none;">
+          <mxGeometry x="589" y="285" width="2" height="2" as="geometry" />
+        </mxCell>
+        <mxCell id="c24" value="" edge="1" parent="1" source="c22" target="c23" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;edgeStyle=none;rounded=0;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c25" value="Step 소스 스냅샷 기록 (DB 연결을 쥐지 않고)" vertex="1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;align=left;verticalAlign=middle;fontSize=11;">
+          <mxGeometry x="370" y="264" width="800" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="c26" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;strokeColor=none;fillColor=none;">
+          <mxGeometry x="359" y="337" width="2" height="2" as="geometry" />
+        </mxCell>
+        <mxCell id="c27" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;strokeColor=none;fillColor=none;">
+          <mxGeometry x="819" y="337" width="2" height="2" as="geometry" />
+        </mxCell>
+        <mxCell id="c28" value="" edge="1" parent="1" source="c26" target="c27" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;edgeStyle=none;rounded=0;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c29" value="Execution · Operation · Step INSERT 후 COMMIT" vertex="1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;align=left;verticalAlign=middle;fontSize=11;">
+          <mxGeometry x="370" y="316" width="800" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="c30" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;strokeColor=none;fillColor=none;">
+          <mxGeometry x="359" y="389" width="2" height="2" as="geometry" />
+        </mxCell>
+        <mxCell id="c31" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;strokeColor=none;fillColor=none;">
+          <mxGeometry x="1049" y="389" width="2" height="2" as="geometry" />
+        </mxCell>
+        <mxCell id="c32" value="" edge="1" parent="1" source="c30" target="c31" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;edgeStyle=none;rounded=0;dashed=1;endArrow=open;endFill=0;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c33" value="같은 Pod의 Worker 깨움" vertex="1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;align=left;verticalAlign=middle;fontSize=11;">
+          <mxGeometry x="370" y="368" width="800" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="c34" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;strokeColor=none;fillColor=none;">
+          <mxGeometry x="359" y="441" width="2" height="2" as="geometry" />
+        </mxCell>
+        <mxCell id="c35" value="" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;strokeColor=none;fillColor=none;">
+          <mxGeometry x="129" y="441" width="2" height="2" as="geometry" />
+        </mxCell>
+        <mxCell id="c36" value="" edge="1" parent="1" source="c34" target="c35" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;edgeStyle=none;rounded=0;dashed=1;endArrow=open;endFill=0;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c37" value="202 Accepted + execution_id (status QUEUED)" vertex="1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;align=left;verticalAlign=middle;fontSize=11;">
+          <mxGeometry x="140" y="420" width="1030" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="c38" value="멱등: 같은 키 + 같은 요청 지문이면 기존 실행을 돌려준다. 지문이 다르면 409 IDEMPOTENCY_CONFLICT. 제출은 이벤트를 만들지 않는다." vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#f5f5f5;strokeColor=#666666;rounded=0;fontSize=11;fontStyle=2;">
+          <mxGeometry x="45" y="479" width="1090" height="30" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
