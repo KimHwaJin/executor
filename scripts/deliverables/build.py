@@ -124,7 +124,9 @@ def main() -> None:
         )
         style(target)
         print(target)
-    for office in sorted([*DIST.glob("*.docx"), *DIST.glob("*.xlsx")]):
+    for office in sorted(
+        [*DIST.glob("*.docx"), *DIST.glob("*.xlsx"), *SOURCE.glob("0*.pptx")]
+    ):
         run(
             "soffice",
             "--headless",
