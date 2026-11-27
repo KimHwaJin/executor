@@ -10,10 +10,10 @@
         <mxCell id="c3" value="호출자 (백엔드 서비스)" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffe6cc;strokeColor=#d79b00;rounded=1;arcSize=3;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fontStyle=1;container=1;collapsible=0;">
           <mxGeometry x="40" y="60" width="250" height="430" as="geometry" />
         </mxCell>
-        <mxCell id="c4" value="&lt;b&gt;pr-agentic-service&lt;/b&gt;&lt;br&gt;Agent, 대화형 실행" vertex="1" parent="c3" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;rounded=1;">
+        <mxCell id="c4" value="&lt;b&gt;gaia-api-service&lt;/b&gt;&lt;br&gt;Agent, 대화형 실행" vertex="1" parent="c3" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;rounded=1;">
           <mxGeometry x="20" y="45" width="210" height="60" as="geometry" />
         </mxCell>
-        <mxCell id="c5" value="&lt;b&gt;pr-batch&lt;/b&gt;&lt;br&gt;배치 실행" vertex="1" parent="c3" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;rounded=1;">
+        <mxCell id="c5" value="&lt;b&gt;batch&lt;/b&gt;&lt;br&gt;배치 실행" vertex="1" parent="c3" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;rounded=1;">
           <mxGeometry x="20" y="125" width="210" height="60" as="geometry" />
         </mxCell>
         <mxCell id="c6" value="&lt;b&gt;그 밖의 백엔드&lt;/b&gt;&lt;br&gt;API 키를 발급받은 서비스" vertex="1" parent="c3" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;rounded=1;">
@@ -25,7 +25,7 @@
         <mxCell id="c8" value="Executor Pod × N  (컨테이너 1개, 프로세스 1개: API + Worker)" vertex="1" parent="1" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#dae8fc;strokeColor=#6c8ebf;rounded=1;arcSize=3;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fontStyle=1;container=1;collapsible=0;">
           <mxGeometry x="420" y="60" width="560" height="290" as="geometry" />
         </mxCell>
-        <mxCell id="c9" value="&lt;b&gt;HTTP API&lt;/b&gt; :8000&lt;br&gt;REST /api/v1 · MCP /mcp (dev만)&lt;br&gt;/healthz · /readyz · /workerz" vertex="1" parent="c8" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;rounded=1;">
+        <mxCell id="c9" value="&lt;b&gt;HTTP API&lt;/b&gt; :5000&lt;br&gt;REST /api/v1 · MCP /mcp (dev만)&lt;br&gt;/healthz · /readyz · /workerz" vertex="1" parent="c8" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;rounded=1;">
           <mxGeometry x="30" y="50" width="230" height="80" as="geometry" />
         </mxCell>
         <mxCell id="c10" value="&lt;b&gt;Worker&lt;/b&gt;&lt;br&gt;claim → 실행 → 결과 마감&lt;br&gt;취소 · 인계 · 재시도" vertex="1" parent="c8" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;rounded=1;">
