@@ -105,6 +105,9 @@ def style(path: Path) -> None:
 def main() -> None:
     DIST.mkdir(exist_ok=True)
     for source in sorted(SOURCE.glob("0*.md")):
+        # A deliverable submitted as a deck keeps its Markdown for reference.
+        if source.with_suffix(".pptx").exists():
+            continue
         target = DIST / f"{source.stem}.docx"
         subprocess.run(
             [

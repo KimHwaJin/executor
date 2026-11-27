@@ -11,7 +11,7 @@
 | 5 | 물리 ERD | `05-물리-ERD.md`, `diagrams/05-물리-ERD.drawio` (자동 생성) | docx, pdf |
 | 6 | Table 정의서 | `scripts/deliverables/schema.py` (자동 생성) | xlsx, pdf |
 | 7 | 사용자 매뉴얼 | `07-사용자-매뉴얼.md`, `diagrams/07-*.drawio` | docx, pdf |
-| 8 | 운영자 매뉴얼 | `08-운영자-매뉴얼.pptx` (PowerPoint에서 직접 고친다), `diagrams/08-*.drawio` | 원본 pptx, pdf |
+| 8 | 운영자 매뉴얼 | `08-운영자-매뉴얼.pptx` (제출 형식, PowerPoint에서 직접 고친다), `08-운영자-매뉴얼.md` (이전 문서 형식, 참고용), `diagrams/08-*.drawio` | 원본 pptx, pdf |
 
 Executor는 Agent가 아니므로 "프로그램 목록(Agent workflow)"은 API·MCP 도구·Worker·주기 작업 목록으로, "프로그램 명세서(Agent Graph)"는 처리 흐름도와 상태 전이도로 대응시켰다. Vector DB는 쓰지 않는다.
 
