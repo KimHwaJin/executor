@@ -19,6 +19,9 @@ SOURCE = Path("docs/deliverables")
 DIST = SOURCE / "dist"
 REFERENCE = Path("dev_docs/api-reference")
 FONT = "맑은 고딕"
+# Submitted as a deck: the PDF comes from the .pptx, not from the Markdown.
+# Other .pptx files are extra copies of a document and are not converted.
+DECKS = {"08-운영자-매뉴얼"}
 # Appended to a document as appendices: (document stem, [(title, file)]).
 APPENDICES = {
     "03-프로그램-명세서": [
@@ -105,6 +108,11 @@ def style(path: Path) -> None:
 def main() -> None:
     DIST.mkdir(exist_ok=True)
     for source in sorted(SOURCE.glob("0*.md")):
+        # A deliverable submitted as a deck or a workbook keeps its Markdown
+        # for reference; a second PDF of the same name would overwrite the
+        # submitted one.
+        if source.stem in DECKS or (DIST / f"{source.stem}.xlsx").exists():
+            continue
         target = DIST / f"{source.stem}.docx"
         subprocess.run(
             [
@@ -124,7 +132,13 @@ def main() -> None:
         )
         style(target)
         print(target)
-    for office in sorted([*DIST.glob("*.docx"), *DIST.glob("*.xlsx")]):
+    for office in sorted(
+        [
+            *DIST.glob("*.docx"),
+            *DIST.glob("*.xlsx"),
+            *(SOURCE / f"{stem}.pptx" for stem in DECKS),
+        ]
+    ):
         run(
             "soffice",
             "--headless",

@@ -16,13 +16,13 @@
         <mxCell id="c5" value="서비스 namespace" vertex="1" parent="c4" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;rounded=1;arcSize=3;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fontStyle=1;container=1;collapsible=0;dashed=1;">
           <mxGeometry x="30" y="50" width="1070" height="560" as="geometry" />
         </mxCell>
-        <mxCell id="c6" value="&lt;b&gt;Gateway / VirtualService&lt;/b&gt;&lt;br&gt;executor.&amp;lt;도메인&amp;gt; → executor:8000" vertex="1" parent="c5" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#f5f5f5;strokeColor=#666666;rounded=1;">
+        <mxCell id="c6" value="&lt;b&gt;Gateway / VirtualService&lt;/b&gt;&lt;br&gt;executor.&amp;lt;도메인&amp;gt; → executor:5000" vertex="1" parent="c5" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#f5f5f5;strokeColor=#666666;rounded=1;">
           <mxGeometry x="30" y="60" width="230" height="70" as="geometry" />
         </mxCell>
-        <mxCell id="c7" value="&lt;b&gt;Service&lt;/b&gt; executor&lt;br&gt;ClusterIP :8000" vertex="1" parent="c5" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#f5f5f5;strokeColor=#666666;rounded=1;">
+        <mxCell id="c7" value="&lt;b&gt;Service&lt;/b&gt; executor&lt;br&gt;ClusterIP :5000" vertex="1" parent="c5" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#f5f5f5;strokeColor=#666666;rounded=1;">
           <mxGeometry x="30" y="200" width="230" height="60" as="geometry" />
         </mxCell>
-        <mxCell id="c8" value="&lt;b&gt;호출자 Pod&lt;/b&gt;&lt;br&gt;pr-agentic-service · pr-batch&lt;br&gt;http://executor:8000" vertex="1" parent="c5" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffe6cc;strokeColor=#d79b00;rounded=1;">
+        <mxCell id="c8" value="&lt;b&gt;호출자 Pod&lt;/b&gt;&lt;br&gt;gaia-api-service · batch&lt;br&gt;http://executor:5000" vertex="1" parent="c5" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffe6cc;strokeColor=#d79b00;rounded=1;">
           <mxGeometry x="30" y="330" width="230" height="80" as="geometry" />
         </mxCell>
         <mxCell id="c9" value="Deployment executor  (RollingUpdate: maxSurge 1, maxUnavailable 0)" vertex="1" parent="c5" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#dae8fc;strokeColor=#6c8ebf;rounded=1;arcSize=3;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fontStyle=1;container=1;collapsible=0;">
@@ -34,7 +34,7 @@
         <mxCell id="c11" value="Pod 1" vertex="1" parent="c9" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;rounded=1;arcSize=3;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fontStyle=1;container=1;collapsible=0;">
           <mxGeometry x="25" y="45" width="205" height="250" as="geometry" />
         </mxCell>
-        <mxCell id="c12" value="&lt;b&gt;컨테이너 executor&lt;/b&gt;&lt;br&gt;(Pod당 1개)&lt;br&gt;Uvicorn :8000&lt;br&gt;API + Worker + 주기 작업&lt;br&gt;&lt;br&gt;requests 250m / 512Mi&lt;br&gt;limits 2 CPU / 2Gi&lt;br&gt;APP_ENV만 환경변수&lt;br&gt;설정은 이미지 안 config.*.yml" vertex="1" parent="c11" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#dae8fc;strokeColor=#6c8ebf;rounded=1;">
+        <mxCell id="c12" value="&lt;b&gt;컨테이너 executor&lt;/b&gt;&lt;br&gt;(Pod당 1개)&lt;br&gt;Uvicorn :5000&lt;br&gt;API + Worker + 주기 작업&lt;br&gt;&lt;br&gt;requests 250m / 512Mi&lt;br&gt;limits 2 CPU / 2Gi&lt;br&gt;APP_ENV만 환경변수&lt;br&gt;설정은 이미지 안 config.*.yml" vertex="1" parent="c11" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#dae8fc;strokeColor=#6c8ebf;rounded=1;">
           <mxGeometry x="12" y="35" width="181" height="170" as="geometry" />
         </mxCell>
         <mxCell id="c13" value="/mnt/data ← 공유 PVC&lt;br&gt;/tmp ← emptyDir" vertex="1" parent="c11" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;fontSize=10;align=left;">
@@ -43,7 +43,7 @@
         <mxCell id="c14" value="Pod 2" vertex="1" parent="c9" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;rounded=1;arcSize=3;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fontStyle=1;container=1;collapsible=0;">
           <mxGeometry x="253" y="45" width="205" height="250" as="geometry" />
         </mxCell>
-        <mxCell id="c15" value="&lt;b&gt;컨테이너 executor&lt;/b&gt;&lt;br&gt;(Pod당 1개)&lt;br&gt;Uvicorn :8000&lt;br&gt;API + Worker + 주기 작업&lt;br&gt;&lt;br&gt;requests 250m / 512Mi&lt;br&gt;limits 2 CPU / 2Gi&lt;br&gt;APP_ENV만 환경변수&lt;br&gt;설정은 이미지 안 config.*.yml" vertex="1" parent="c14" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#dae8fc;strokeColor=#6c8ebf;rounded=1;">
+        <mxCell id="c15" value="&lt;b&gt;컨테이너 executor&lt;/b&gt;&lt;br&gt;(Pod당 1개)&lt;br&gt;Uvicorn :5000&lt;br&gt;API + Worker + 주기 작업&lt;br&gt;&lt;br&gt;requests 250m / 512Mi&lt;br&gt;limits 2 CPU / 2Gi&lt;br&gt;APP_ENV만 환경변수&lt;br&gt;설정은 이미지 안 config.*.yml" vertex="1" parent="c14" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#dae8fc;strokeColor=#6c8ebf;rounded=1;">
           <mxGeometry x="12" y="35" width="181" height="170" as="geometry" />
         </mxCell>
         <mxCell id="c16" value="/mnt/data ← 공유 PVC&lt;br&gt;/tmp ← emptyDir" vertex="1" parent="c14" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;fontSize=10;align=left;">
@@ -52,7 +52,7 @@
         <mxCell id="c17" value="Pod N (스케일 아웃)" vertex="1" parent="c9" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#ffffff;strokeColor=#333333;rounded=1;arcSize=3;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fontStyle=1;container=1;collapsible=0;dashed=1;">
           <mxGeometry x="481" y="45" width="205" height="250" as="geometry" />
         </mxCell>
-        <mxCell id="c18" value="&lt;b&gt;컨테이너 executor&lt;/b&gt;&lt;br&gt;(Pod당 1개)&lt;br&gt;Uvicorn :8000&lt;br&gt;API + Worker + 주기 작업&lt;br&gt;&lt;br&gt;requests 250m / 512Mi&lt;br&gt;limits 2 CPU / 2Gi&lt;br&gt;APP_ENV만 환경변수&lt;br&gt;설정은 이미지 안 config.*.yml" vertex="1" parent="c17" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#dae8fc;strokeColor=#6c8ebf;rounded=1;">
+        <mxCell id="c18" value="&lt;b&gt;컨테이너 executor&lt;/b&gt;&lt;br&gt;(Pod당 1개)&lt;br&gt;Uvicorn :5000&lt;br&gt;API + Worker + 주기 작업&lt;br&gt;&lt;br&gt;requests 250m / 512Mi&lt;br&gt;limits 2 CPU / 2Gi&lt;br&gt;APP_ENV만 환경변수&lt;br&gt;설정은 이미지 안 config.*.yml" vertex="1" parent="c17" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#dae8fc;strokeColor=#6c8ebf;rounded=1;">
           <mxGeometry x="12" y="35" width="181" height="170" as="geometry" />
         </mxCell>
         <mxCell id="c19" value="/mnt/data ← 공유 PVC&lt;br&gt;/tmp ← emptyDir" vertex="1" parent="c17" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;fontSize=10;align=left;">
@@ -76,7 +76,7 @@
         <mxCell id="c25" value="&lt;b&gt;Jupyter PV&lt;/b&gt;" vertex="1" parent="c4" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#d5e8d4;strokeColor=#82b366;shape=cylinder3;boundedLbl=1;size=10;">
           <mxGeometry x="770" y="750" width="250" height="50" as="geometry" />
         </mxCell>
-        <mxCell id="c26" value="&lt;b&gt;PostgreSQL&lt;/b&gt;&lt;br&gt;(공용 DB, max_connections 100)&lt;br&gt;Pod당 최대 16 연결" vertex="1" parent="c3" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#d5e8d4;strokeColor=#82b366;shape=cylinder3;boundedLbl=1;size=10;">
+        <mxCell id="c26" value="&lt;b&gt;PostgreSQL&lt;/b&gt;&lt;br&gt;(공용 DB, max_connections 100)&lt;br&gt;Pod당 연결 상한은 설정값 (기본 16)" vertex="1" parent="c3" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#d5e8d4;strokeColor=#82b366;shape=cylinder3;boundedLbl=1;size=10;">
           <mxGeometry x="1240" y="130" width="330" height="100" as="geometry" />
         </mxCell>
         <mxCell id="c27" value="&lt;b&gt;Redis 8 Sentinel&lt;/b&gt; (prd)&lt;br&gt;dev·stg는 standalone&lt;br&gt;비밀번호는 사내 AES 암호문" vertex="1" parent="c3" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#d5e8d4;strokeColor=#82b366;shape=cylinder3;boundedLbl=1;size=10;">
@@ -85,7 +85,7 @@
         <mxCell id="c28" value="&lt;b&gt;사내 이미지 레지스트리&lt;/b&gt;&lt;br&gt;환경별 이미지 (APP_ENV=dev/stg/prd)&lt;br&gt;불변 태그" vertex="1" parent="c3" style="whiteSpace=wrap;html=1;fontFamily=Malgun Gothic;fontSize=12;fillColor=#f5f5f5;strokeColor=#666666;rounded=1;">
           <mxGeometry x="1240" y="480" width="330" height="80" as="geometry" />
         </mxCell>
-        <mxCell id="c29" value="&lt;b&gt;스케일 인·아웃에 대응하는 방식&lt;/b&gt;&lt;br&gt;· Pod는 상태를 갖지 않는다. 상태는 PostgreSQL, 파일은 PVC.&lt;br&gt;· 스케일 아웃: 새 Pod가 뜨면 바로 DB에서 일을 가져간다.&lt;br&gt;· 스케일 인: 끝내지 못한 Step은 인계로 남기고 종료한다. 커널은 계속 돌고 다른 Pod가 저널을 읽어 이어받는다.&lt;br&gt;· 연결 수: Pod 수 × 16이 DB 할당량 안에 있어야 한다." vertex="1" parent="c3" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;align=left;verticalAlign=top;">
+        <mxCell id="c29" value="&lt;b&gt;스케일 인·아웃에 대응하는 방식&lt;/b&gt;&lt;br&gt;· Pod는 상태를 갖지 않는다. 상태는 PostgreSQL, 파일은 PVC.&lt;br&gt;· 스케일 아웃: 새 Pod가 뜨면 바로 DB에서 일을 가져간다.&lt;br&gt;· 스케일 인: 끝내지 못한 Step은 인계로 남기고 종료한다. 커널은 계속 돌고 다른 Pod가 저널을 읽어 이어받는다.&lt;br&gt;· 연결 수: Pod 수 × Pod당 연결 상한이 DB 할당량 안에 있어야 한다." vertex="1" parent="c3" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;fontFamily=Malgun Gothic;fontSize=12;align=left;verticalAlign=top;">
           <mxGeometry x="1190" y="620" width="440" height="170" as="geometry" />
         </mxCell>
         <mxCell id="c30" value="클러스터 밖 호출" edge="1" parent="1" source="c6" target="c7" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontFamily=Malgun Gothic;fontSize=12;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;">

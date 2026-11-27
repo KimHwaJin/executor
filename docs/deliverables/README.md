@@ -1,19 +1,21 @@
 # Executor 개발 산출물
 
-기준: `main` `3a43a90` (2026-11-25), 스키마 리비전 `0017`. Executor 단독 산출물이다.
+기준: `main` `3a43a90` (2026-11-25), 스키마 리비전 `0017`. 운영자 매뉴얼은 `main` `8c973ae` (2026-11-27) 기준이다. Executor 단독 산출물이다.
 
 | # | 산출물 | 원본 | 제출본 (`dist/`) |
 |---|---|---|---|
 | 1 | 전체 시스템 구성도 | `01-전체-시스템-구성도.md`, `diagrams/01-*.drawio` | docx, pdf |
 | 2 | 프로그램 목록 | `scripts/deliverables/programs.py` (자동 생성) | xlsx, pdf |
 | 3 | 프로그램 명세서 | `03-프로그램-명세서.md`, `diagrams/03-*.drawio`, 부록은 `dev_docs/api-reference/` | docx, pdf |
-| 4 | 논리 ERD | `04-논리-ERD.md`, `diagrams/04-논리-ERD.drawio` | docx, pdf |
-| 5 | 물리 ERD | `05-물리-ERD.md`, `diagrams/05-물리-ERD.drawio` (자동 생성) | docx, pdf |
-| 6 | Table 정의서 | `scripts/deliverables/schema.py` (자동 생성) | xlsx, pdf |
+| 4 | 논리 ERD | `04-논리-ERD.md`, `diagrams/04-논리-ERD.drawio`, `04-논리-ERD.pptx` (PPT 사본) | docx, pdf |
+| 5 | 물리 ERD | `05-물리-ERD.md`, `diagrams/05-물리-ERD.drawio` (자동 생성), `05-물리-ERD.pptx` (PPT 사본) | docx, pdf |
+| 6 | Table 정의서 | `scripts/deliverables/schema.py` (자동 생성), `06-Table-정의서.md` (자동 생성), `06-Table-정의서.pptx` (PPT 사본) | xlsx, pdf |
 | 7 | 사용자 매뉴얼 | `07-사용자-매뉴얼.md`, `diagrams/07-*.drawio` | docx, pdf |
-| 8 | 운영자 매뉴얼 | `08-운영자-매뉴얼.md`, `diagrams/08-*.drawio` | docx, pdf |
+| 8 | 운영자 매뉴얼 | `08-운영자-매뉴얼.pptx` (제출 형식, PowerPoint에서 직접 고친다), `08-운영자-매뉴얼.md` (이전 문서 형식, 참고용), `diagrams/08-*.drawio` | 원본 pptx, pdf |
 
 Executor는 Agent가 아니므로 "프로그램 목록(Agent workflow)"은 API·MCP 도구·Worker·주기 작업 목록으로, "프로그램 명세서(Agent Graph)"는 처리 흐름도와 상태 전이도로 대응시켰다. Vector DB는 쓰지 않는다.
+
+`dist/`는 Git에 올리지 않는다(`.gitignore`). 아래 명령으로 다시 만든다.
 
 ## 고칠 때
 
@@ -24,13 +26,15 @@ Executor는 Agent가 아니므로 "프로그램 목록(Agent workflow)"은 API·
 | Worker, 주기 작업, Jupyter 확장 | `programs.py`의 목록을 손으로 고친다 |
 | 상태 전이 | `states.py` 실행. 새 전이는 직선으로 그려지니 `ROUTE`에 경로를 더한다 |
 | 본문 | `0*.md`를 고친다 |
+| ERD, Table 정의서의 PPT 사본 | `04`, `05`, `06`의 `.pptx`는 2026-11-27 시점(스키마 리비전 `0017`)의 사본이다. 스크립트가 다시 만들지 않으니 스키마가 바뀌면 PowerPoint에서 고치거나 다시 만든다 |
+| 운영자 매뉴얼 | `08-운영자-매뉴얼.pptx`를 PowerPoint에서 고친다. 그림이 바뀌면 슬라이드의 PNG를 바꿔 넣는다 |
 | 손으로 그린 그림 | Draw.io에서 `.drawio`를 고치고 같은 이름의 PNG로 내보낸다 |
 
 ```bash
-uv run --with openpyxl python scripts/deliverables/schema.py     # 물리 ERD, Table 정의서
+uv run --with openpyxl python scripts/deliverables/schema.py     # 물리 ERD, Table 정의서 (xlsx, md)
 uv run --with openpyxl python scripts/deliverables/programs.py   # 프로그램 목록
 PYTHONPATH=scripts/deliverables uv run python scripts/deliverables/states.py   # 상태 전이도
-uv run --with python-docx python scripts/deliverables/build.py   # docx, pdf (pandoc, LibreOffice 필요)
+uv run --with python-docx python scripts/deliverables/build.py   # docx, pdf, pptx의 pdf (pandoc, LibreOffice 필요)
 ```
 
 ## 그림 규칙

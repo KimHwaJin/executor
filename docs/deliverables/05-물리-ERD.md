@@ -4,13 +4,14 @@
 |---|---|
 | 시스템 | Executor (코드 실행 서비스) |
 | 산출물 | 5. 물리 ERD |
-| 버전 | 1.0 |
+| 버전 | 1.1 |
 | 작성일 | 2026-11-25 |
 | 기준 | 저장소 `kimhwajin/executor` `main` `3a43a90`, 스키마 리비전 `0017` |
 
 | 버전 | 일자 | 내용 |
 |---|---|---|
 | 1.0 | 2026-11-25 | 최초 작성 |
+| 1.1 | 2026-11-27 | 그림에 감사 컬럼을 포함한 모든 컬럼을 표시 |
 
 PostgreSQL에 만들어지는 20개 테이블과 그 사이의 외래 키를 보여준다. 그림은 ORM 모델에서 자동 생성하므로 스키마와 어긋나지 않는다(`scripts/deliverables/schema.py`). 그림 원본은 `diagrams/05-물리-ERD.drawio`이고, 컬럼별 정의는 Table 정의서에 있다.
 
@@ -26,7 +27,6 @@ PostgreSQL에 만들어지는 20개 테이블과 그 사이의 외래 키를 보
 |---|---|
 | PK, FK, UK | 기본 키, 외래 키, UNIQUE 제약에 든 컬럼 |
 | NN | NOT NULL |
-| + 감사 컬럼 N개 | `created_by_client`, `created_by`, `updated_by_client`, `updated_by`, `created_at`, `updated_at` 중 그 테이블에 있는 것. 그림에서는 생략 |
 | 색 | 업무 영역(논리 ERD와 같은 색) |
 | 테이블 위를 지나는 선 | 두 칸 이상 떨어진 테이블 사이의 외래 키 |
 
