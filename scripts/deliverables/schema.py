@@ -422,6 +422,196 @@ def table_markdown(tables: dict[str, Table], revision: str) -> None:
     (OUT / "06-Table-정의서.md").write_text("\n".join(parts), encoding="utf-8")
 
 
+MD_ONLY = ("<!-- md-only:start -->", "<!-- md-only:end -->")
+# Columns that point at a row of another table without a foreign key.
+LOOSE_REFERENCES = [
+    (
+        "executions",
+        "runtime_target_id",
+        "runtime_targets",
+        "id",
+        "Target을 지워도 실행 이력이 남아야 한다",
+    ),
+    (
+        "execution_attempts",
+        "runtime_target_id",
+        "runtime_targets",
+        "id",
+        "Target을 지워도 시도 이력이 남아야 한다",
+    ),
+    (
+        "runtime_target_purges",
+        "target_id",
+        "runtime_targets",
+        "id",
+        "지워진 Target의 ID를 기억한다",
+    ),
+]
+
+
+def single_key(table: Table, column) -> bool:
+    """Whether the column alone identifies a row (sole PK or sole UNIQUE)."""
+    if [c.name for c in table.primary_key.columns] == [column.name]:
+        return True
+    return any(
+        isinstance(con, UniqueConstraint)
+        and [c.name for c in con.columns] == [column.name]
+        for con in table.constraints
+    )
+
+
+def foreign_keys(tables: dict[str, Table]) -> list[tuple]:
+    """(child table, column, parent table, parent column, constraint)."""
+    result = []
+    for name in TABLES:
+        table = tables[name]
+        for constraint in sorted(
+            table.foreign_key_constraints, key=lambda c: str(c.name)
+        ):
+            column = next(iter(constraint.columns))
+            target = next(iter(constraint.elements)).column
+            result.append((table, column, target.table, target, constraint))
+    return result
+
+
+def mermaid(tables: dict[str, Table], with_columns: bool) -> str:
+    lines = ["```mermaid", "erDiagram"]
+    for name in TABLES:
+        if not with_columns:
+            lines.append(f"    {name}")
+            continue
+        lines.append(f"    {name} {{")
+        for column in tables[name].columns:
+            keys = key_marks(tables[name], column)
+            kind = sql_type(column).replace(" ", "_")
+            note = "" if column.nullable else ' "NN"'
+            lines.append(
+                f"        {kind} {column.name}{' ' + keys if keys else ''}{note}"
+            )
+        lines.append("    }")
+    for child, column, parent, _target, _constraint in foreign_keys(tables):
+        left = "|o" if column.nullable else "||"
+        right = "o|" if single_key(child, column) else "o{"
+        lines.append(
+            f"    {parent.name} {left}--{right} {child.name} : {column.name}"
+        )
+    for child, column, parent, _target, _why in LOOSE_REFERENCES:
+        lines.append(f"    {parent} |o..o{{ {child} : {column}")
+    return "\n".join([*lines, "```", ""])
+
+
+def erd_markdown(tables: dict[str, Table]) -> None:
+    """Write the physical ERD as text into the md-only part of 05-물리-ERD.md."""
+    fks = foreign_keys(tables)
+    references = {
+        (child.name, column.name): f"`{parent.name}.{target.name}`"
+        for child, column, parent, target, _ in fks
+    }
+    references |= {
+        (child, column): f"`{parent}.{target}` (FK 없음)"
+        for child, column, parent, target, _ in LOOSE_REFERENCES
+    }
+    parts = [
+        MD_ONLY[0],
+        "",
+        "<!-- 여기부터 md-only:end까지는 scripts/deliverables/schema.py가 만든다. "
+        "손으로 고치지 않는다. Word 제출본에는 넣지 않는다. -->",
+        "",
+        "## 7. 텍스트 ERD",
+        "",
+        "그림과 같은 내용을 글로 적은 것이다. "
+        f"테이블 {len(tables)}개, 컬럼 {sum(len(t.columns) for t in tables.values())}개, "
+        f"외래 키 {len(fks)}개를 모두 담았다. "
+        "Mermaid를 그려 주는 화면(GitHub 등)에서는 7.1과 7.2가 그림으로 보인다.",
+        "",
+        "### 7.1 관계 개요",
+        "",
+        "실선은 외래 키, 점선은 외래 키 없이 값으로만 가리키는 참조다. "
+        "선 위의 글자는 자식 테이블의 컬럼이다.",
+        "",
+        mermaid(tables, with_columns=False),
+        "### 7.2 전체 ERD (컬럼 포함)",
+        "",
+        "`PK` 기본 키, `FK` 외래 키, `UK` UNIQUE 제약에 든 컬럼, `NN` NOT NULL.",
+        "",
+        mermaid(tables, with_columns=True),
+        "### 7.3 외래 키",
+        "",
+        grid(
+            [
+                "No",
+                "자식 테이블.컬럼",
+                "부모 테이블.컬럼",
+                "부모 : 자식",
+                "NULL",
+                "ON DELETE",
+                "제약 이름",
+            ],
+            [
+                [
+                    i,
+                    f"`{child.name}.{column.name}`",
+                    f"`{parent.name}.{target.name}`",
+                    ("0..1" if column.nullable else "1")
+                    + " : "
+                    + ("0..1" if single_key(child, column) else "0..N"),
+                    "Y" if column.nullable else "N",
+                    constraint.ondelete or "NO ACTION",
+                    f"`{constraint.name}`",
+                ]
+                for i, (
+                    child,
+                    column,
+                    parent,
+                    target,
+                    constraint,
+                ) in enumerate(fks, start=1)
+            ],
+        ),
+        "외래 키 없이 값으로만 가리키는 참조는 다음과 같다.",
+        "",
+        grid(
+            ["No", "테이블.컬럼", "가리키는 곳", "외래 키를 걸지 않은 이유"],
+            [
+                [i, f"`{child}.{column}`", f"`{parent}.{target}`", why]
+                for i, (child, column, parent, target, why) in enumerate(
+                    LOOSE_REFERENCES, start=1
+                )
+            ],
+        ),
+        "### 7.4 테이블별 컬럼",
+        "",
+    ]
+    for number, name in enumerate(TABLES, start=1):
+        table = tables[name]
+        parts += [
+            f"#### 7.4.{number} {name} ({TABLES[name][0]})",
+            "",
+            f"{TABLES[name][1]} 영역. {TABLES[name][2]}.",
+            "",
+            grid(
+                ["No", "컬럼", "타입", "NULL", "키", "참조", "설명"],
+                [
+                    [
+                        i,
+                        f"`{c.name}`",
+                        sql_type(c),
+                        "Y" if c.nullable else "N",
+                        key_marks(table, c),
+                        references.get((name, c.name), ""),
+                        describe(table, c),
+                    ]
+                    for i, c in enumerate(table.columns, start=1)
+                ],
+            ),
+        ]
+    parts.append(MD_ONLY[1])
+    path = OUT / "05-물리-ERD.md"
+    text = path.read_text(encoding="utf-8")
+    head = text.split(MD_ONLY[0])[0].rstrip("\n")
+    path.write_text(head + "\n\n" + "\n".join(parts) + "\n", encoding="utf-8")
+
+
 STREAM = "Redis Stream executor.events.<tenant>"
 SHARED = "공유 PV <STORAGE_ROOT>/executor/executions/<execution_id>/"
 JUPYTER = "Jupyter PV tenants/<tenant>/users/<user>/projects/<project>/sessions/<session>/executions/<execution_id>/"
@@ -512,6 +702,7 @@ def main() -> None:
     physical_erd(tables)
     table_workbook(tables, revision)
     table_markdown(tables, revision)
+    erd_markdown(tables)
 
 
 if __name__ == "__main__":

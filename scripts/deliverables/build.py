@@ -6,6 +6,7 @@ The two workbooks come from schema.py and programs.py; this script only
 converts them to PDF.
 """
 
+import re
 import subprocess
 from pathlib import Path
 
@@ -40,6 +41,10 @@ def run(*command: str, cwd: Path | None = None) -> None:
 
 def markdown(source: Path) -> str:
     text = source.read_text(encoding="utf-8")
+    # Parts kept only in the Markdown (the ERD as text) stay out of Word.
+    text = re.sub(
+        r"<!-- md-only:start -->.*?<!-- md-only:end -->", "", text, flags=re.S
+    )
     for title, file in APPENDICES.get(source.stem, []):
         body = (REFERENCE / file).read_text(encoding="utf-8")
         # The reference's own title becomes the appendix title.
