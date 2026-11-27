@@ -1,4 +1,4 @@
-"""Build the physical ERD and the table definition workbook from the ORM models.
+"""Build the physical ERD and the table definitions (workbook, Markdown) from the ORM models.
 
 Run from the repository root:
     uv run --with openpyxl python scripts/deliverables/schema.py
@@ -131,15 +131,12 @@ def physical_erd(tables: dict[str, Table]) -> None:
         for name in names:
             place[name] = x
             table = tables[name]
-            columns = [c for c in table.columns if c.name not in AUDIT]
+            columns = list(table.columns)
             labels = [
                 f"{key_marks(table, c) or '&nbsp;&nbsp;'}&nbsp; <b>{c.name}</b> "
                 f"<font color='#666666'>{sql_type(c)}{'' if c.nullable else ' NN'}</font>"
                 for c in columns
             ]
-            audit = len(table.columns) - len(columns)
-            if audit:
-                labels.append(f"<i>+ 감사 컬럼 {audit}개</i>")
             cells = diagram.table(
                 f"{name} ({TABLES[name][0]})",
                 labels,
@@ -319,6 +316,112 @@ def table_workbook(tables: dict[str, Table], revision: str) -> None:
     book.save(OUT / "dist" / "06-Table-정의서.xlsx")
 
 
+def cell(value: object) -> str:
+    return str(value).replace("|", "\\|").replace("\n", " ")
+
+
+def grid(head: list[str], rows: list[list[object]]) -> str:
+    lines = [
+        "| " + " | ".join(head) + " |",
+        "|" + "---|" * len(head),
+        *("| " + " | ".join(cell(v) for v in row) + " |" for row in rows),
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def table_markdown(tables: dict[str, Table], revision: str) -> None:
+    """The same content as the workbook, as one Markdown file."""
+    ordered = [name for name in TABLES if name in tables]
+    parts = [
+        "# Table 정의서\n",
+        "<!-- scripts/deliverables/schema.py가 만든다. 손으로 고치지 않는다. -->\n",
+        grid(
+            ["항목", "내용"],
+            [
+                ["시스템", "Executor (코드 실행 서비스)"],
+                ["산출물", "6. Table 정의서"],
+                ["DBMS", "PostgreSQL"],
+                ["스키마 리비전(Alembic)", f"`{revision}`"],
+                ["Vector DB", "사용하지 않음"],
+            ],
+        ),
+        f"테이블 {len(ordered)}개의 컬럼, 제약, 인덱스를 ORM 모델에서 뽑았다. "
+        "제출본은 같은 내용의 `dist/06-Table-정의서.xlsx`다.\n",
+        "## 1. 테이블 목록\n",
+        grid(
+            [
+                "No",
+                "테이블 ID",
+                "테이블명",
+                "업무 영역",
+                "1건이 뜻하는 것",
+                "컬럼 수",
+                "정리 정책",
+            ],
+            [
+                [
+                    i,
+                    f"`{name}`",
+                    *TABLES[name][:3],
+                    len(tables[name].columns),
+                    TABLES[name][3],
+                ]
+                for i, name in enumerate(ordered, start=1)
+            ],
+        ),
+        "## 2. 테이블별 정의\n",
+    ]
+    for number, name in enumerate(ordered, start=1):
+        table = tables[name]
+        parts += [
+            f"### 2.{number} {name} ({TABLES[name][0]})\n",
+            f"{TABLES[name][1]} 영역. {TABLES[name][2]}. 정리 정책: {TABLES[name][3]}\n",
+            grid(
+                ["No", "컬럼 ID", "타입", "NULL", "키", "기본값", "설명"],
+                [
+                    [
+                        i,
+                        f"`{c.name}`",
+                        sql_type(c),
+                        "Y" if c.nullable else "N",
+                        key_marks(table, c),
+                        f"`{default(c)}`" if default(c) else "",
+                        describe(table, c),
+                    ]
+                    for i, c in enumerate(table.columns, start=1)
+                ],
+            ),
+            grid(
+                ["No", "제약·인덱스 이름", "종류", "컬럼", "내용"],
+                [
+                    [
+                        i,
+                        f"`{name_}`",
+                        kind,
+                        columns,
+                        f"`{detail}`" if kind == "CHECK" else detail,
+                    ]
+                    for i, (kind, name_, columns, detail) in enumerate(
+                        constraint_rows(table), start=1
+                    )
+                ],
+            ),
+        ]
+    parts += [
+        "## 3. RDB 외 저장소\n",
+        "RDB 밖에 있지만 DB 행이 가리키거나 서비스가 주고받는 데이터다. "
+        "Vector DB는 사용하지 않는다.\n",
+        grid(
+            ["No", "저장소", "위치 · 필드", "타입", "설명"],
+            [
+                [i, row[0], f"`{row[1]}`", row[2], row[5]]
+                for i, row in enumerate(OTHER_STORES, start=1)
+            ],
+        ),
+    ]
+    (OUT / "06-Table-정의서.md").write_text("\n".join(parts), encoding="utf-8")
+
+
 STREAM = "Redis Stream executor.events.<tenant>"
 SHARED = "공유 PV <STORAGE_ROOT>/executor/executions/<execution_id>/"
 JUPYTER = "Jupyter PV tenants/<tenant>/users/<user>/projects/<project>/sessions/<session>/executions/<execution_id>/"
@@ -408,6 +511,7 @@ def main() -> None:
     )
     physical_erd(tables)
     table_workbook(tables, revision)
+    table_markdown(tables, revision)
 
 
 if __name__ == "__main__":
